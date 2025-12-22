@@ -67,6 +67,8 @@ class GauntletConfig:
     parallel_games: int = 8           # Concurrent games per worker
     timeout_seconds: int = 300        # Per-game timeout
     min_games_for_rating: int = 5     # Min games before model is "rated"
+    stale_run_timeout: int = 3600     # Max time (sec) a run can be "running" before auto-cleanup
+    max_distributed_wait: int = 1800  # Max wait for distributed execution (30 min)
 
 
 @dataclass
@@ -181,6 +183,61 @@ class DistributedNNGauntlet:
                     ON gauntlet_results(model_id, run_id);
             """)
             conn.commit()
+        finally:
+            conn.close()
+
+    def _cleanup_stale_runs(self, config_key: str | None = None) -> int:
+        """Clean up stale gauntlet runs that have been 'running' too long.
+
+        This prevents gauntlet deadlock when previous runs crashed or timed out.
+        Should be called before starting a new gauntlet.
+
+        Args:
+            config_key: If provided, only clean up runs for this config
+
+        Returns:
+            Number of stale runs cleaned up
+        """
+        conn = self._get_db_connection()
+        try:
+            cutoff_time = time.time() - self.config.stale_run_timeout
+
+            if config_key:
+                cursor = conn.execute("""
+                    SELECT run_id, config_key, started_at
+                    FROM gauntlet_runs
+                    WHERE status = 'running'
+                    AND started_at < ?
+                    AND config_key = ?
+                """, (cutoff_time, config_key))
+            else:
+                cursor = conn.execute("""
+                    SELECT run_id, config_key, started_at
+                    FROM gauntlet_runs
+                    WHERE status = 'running'
+                    AND started_at < ?
+                """, (cutoff_time,))
+
+            stale_runs = cursor.fetchall()
+
+            for run_id, cfg, started_at in stale_runs:
+                age_hours = (time.time() - started_at) / 3600
+                logger.warning(
+                    f"[Gauntlet] Cleaning up stale run {run_id} ({cfg}) - "
+                    f"stuck for {age_hours:.1f} hours"
+                )
+                conn.execute("""
+                    UPDATE gauntlet_runs
+                    SET status = 'timeout', completed_at = ?
+                    WHERE run_id = ?
+                """, (time.time(), run_id))
+
+            conn.commit()
+
+            if stale_runs:
+                logger.info(f"[Gauntlet] Cleaned up {len(stale_runs)} stale runs")
+
+            return len(stale_runs)
         finally:
             conn.close()
 
@@ -426,6 +483,9 @@ class DistributedNNGauntlet:
             GauntletResult with evaluation outcomes
         """
         self._init_gauntlet_tables()
+
+        # Clean up any stale runs before starting (prevents deadlock)
+        self._cleanup_stale_runs(config_key)
 
         # Discover and register any new models from the models directory
         new_count = self.discover_and_register_models(config_key)
@@ -769,6 +829,9 @@ class DistributedNNGauntlet:
         """
         self._init_gauntlet_tables()
 
+        # Clean up any stale runs before starting (prevents deadlock)
+        self._cleanup_stale_runs(config_key)
+
         # Discover and register any new models from the models directory
         new_count = self.discover_and_register_models(config_key)
         if new_count > 0:
@@ -797,66 +860,83 @@ class DistributedNNGauntlet:
 
         logger.info(f"[Gauntlet] Starting distributed run {run_id} for {config_key}")
 
-        # Get models to evaluate
-        unrated = self.get_unrated_models(config_key)
-        if not unrated:
-            logger.info(f"[Gauntlet] No unrated models for {config_key}")
-            self._current_run.status = "no_work"
+        try:
+            # Get models to evaluate
+            unrated = self.get_unrated_models(config_key)
+            if not unrated:
+                logger.info(f"[Gauntlet] No unrated models for {config_key}")
+                self._current_run.status = "no_work"
+                self._mark_run_complete(run_id, "no_work", 0, 0)
+                return self._current_run
+
+            logger.info(f"[Gauntlet] Found {len(unrated)} unrated models")
+
+            # Select baselines
+            baselines = self.select_baselines(config_key)
+            logger.info(f"[Gauntlet] Baselines: {baselines}")
+
+            # Create game tasks
+            tasks = self.create_game_tasks(unrated, baselines, config_key)
+            self._current_run.total_games = len(tasks)
+            logger.info(f"[Gauntlet] Created {len(tasks)} game tasks")
+
+            # Discover available workers
+            workers = await self._discover_workers(p2p_url)
+            if not workers:
+                logger.warning("[Gauntlet] No workers available, falling back to local execution")
+                results = await self._execute_tasks_local(tasks, config_key)
+            else:
+                logger.info(f"[Gauntlet] Distributing to {len(workers)} workers: {[w['node_id'] for w in workers]}")
+                results = await self._execute_tasks_distributed(tasks, workers, config_key)
+
+            # Aggregate results and update Elo
+            self._aggregate_results(results)
+            await self._update_elo_from_results(config_key, results)
+
+            # Mark complete
+            self._current_run.completed_at = time.time()
+            self._current_run.status = "completed"
+            self._current_run.models_evaluated = len(unrated)
+
+            self._mark_run_complete(run_id, "completed", len(unrated), len(results))
+
+            duration = self._current_run.completed_at - self._current_run.started_at
+            logger.info(
+                f"[Gauntlet] Completed {run_id}: {len(unrated)} models, "
+                f"{len(results)} games in {duration:.1f}s"
+            )
+
             return self._current_run
 
-        logger.info(f"[Gauntlet] Found {len(unrated)} unrated models")
+        except Exception as e:
+            # Mark run as failed on any exception
+            logger.error(f"[Gauntlet] Run {run_id} failed with error: {e}")
+            self._current_run.status = "failed"
+            self._current_run.completed_at = time.time()
+            self._mark_run_complete(run_id, "failed", 0, 0)
+            raise
 
-        # Select baselines
-        baselines = self.select_baselines(config_key)
-        logger.info(f"[Gauntlet] Baselines: {baselines}")
+    def _mark_run_complete(
+        self, run_id: str, status: str, models_evaluated: int, total_games: int
+    ) -> None:
+        """Mark a gauntlet run as complete in the database.
 
-        # Create game tasks
-        tasks = self.create_game_tasks(unrated, baselines, config_key)
-        self._current_run.total_games = len(tasks)
-        logger.info(f"[Gauntlet] Created {len(tasks)} game tasks")
-
-        # Discover available workers
-        workers = await self._discover_workers(p2p_url)
-        if not workers:
-            logger.warning("[Gauntlet] No workers available, falling back to local execution")
-            results = await self._execute_tasks_local(tasks, config_key)
-        else:
-            logger.info(f"[Gauntlet] Distributing to {len(workers)} workers: {[w['node_id'] for w in workers]}")
-            results = await self._execute_tasks_distributed(tasks, workers, config_key)
-
-        # Aggregate results and update Elo
-        self._aggregate_results(results)
-        await self._update_elo_from_results(config_key, results)
-
-        # Mark complete
-        self._current_run.completed_at = time.time()
-        self._current_run.status = "completed"
-        self._current_run.models_evaluated = len(unrated)
-
+        Args:
+            run_id: The run ID
+            status: Final status (completed, failed, no_work, timeout)
+            models_evaluated: Number of models evaluated
+            total_games: Total games played
+        """
         conn = self._get_db_connection()
         try:
             conn.execute("""
                 UPDATE gauntlet_runs
                 SET completed_at = ?, status = ?, models_evaluated = ?, total_games = ?
                 WHERE run_id = ?
-            """, (
-                self._current_run.completed_at,
-                "completed",
-                len(unrated),
-                len(results),
-                run_id,
-            ))
+            """, (time.time(), status, models_evaluated, total_games, run_id))
             conn.commit()
         finally:
             conn.close()
-
-        duration = self._current_run.completed_at - self._current_run.started_at
-        logger.info(
-            f"[Gauntlet] Completed {run_id}: {len(unrated)} models, "
-            f"{len(results)} games in {duration:.1f}s"
-        )
-
-        return self._current_run
 
     async def _discover_workers(self, p2p_url: str) -> list[dict[str, Any]]:
         """Discover available gauntlet workers from P2P cluster.
@@ -994,8 +1074,18 @@ class DistributedNNGauntlet:
                     self._dispatch_and_wait(worker, batch, config_key)
                 )
 
-        # Wait for all workers to complete
-        batch_results = await asyncio.gather(*dispatch_tasks, return_exceptions=True)
+        # Wait for all workers to complete with overall timeout
+        try:
+            batch_results = await asyncio.wait_for(
+                asyncio.gather(*dispatch_tasks, return_exceptions=True),
+                timeout=self.config.max_distributed_wait,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                f"[Gauntlet] Distributed execution timed out after "
+                f"{self.config.max_distributed_wait}s - returning partial results"
+            )
+            batch_results = []
 
         # Flatten results
         for batch_result in batch_results:
