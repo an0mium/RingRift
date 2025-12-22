@@ -830,9 +830,9 @@ class DescentAI(BaseAI):
                         uniform = 1.0 / len(valid_moves)
                         for m in valid_moves:
                             move_probs[str(m)] = uniform
-                except Exception:
+                except Exception as e:
                     # Fallback if NN fails entirely (e.g. missing weights)
-                    pass
+                    logger.debug("NN prior evaluation failed, using uniform: %s", e)
 
             # Progressive widening: on large boards, only expand top-K moves
             # by prior initially and store the rest for later widening.
@@ -1145,9 +1145,9 @@ class DescentAI(BaseAI):
                         uniform = 1.0 / len(valid_moves)
                         for m in valid_moves:
                             move_probs[str(m)] = uniform
-                except Exception:
+                except Exception as e:
                     # Fallback if NN fails entirely (e.g. missing weights)
-                    pass
+                    logger.debug("NN prior evaluation failed, using uniform: %s", e)
 
             # Progressive widening on large boards.
             use_pw = self._use_progressive_widening(state.board_type)
@@ -1699,9 +1699,9 @@ class DescentAI(BaseAI):
                 raw_score = self._heuristic_evaluator.evaluate(game_state)
                 # Clamp and normalize: typical heuristic scores range ~(-100, 100)
                 return max(-0.99, min(0.99, raw_score / 100.0))
-            except Exception:
+            except Exception as e:
                 # Fall through to simple heuristic on any failure
-                pass
+                logger.debug("Heuristic evaluation failed, using simple fallback: %s", e)
 
         # Simple material difference fallback
         my_elim = game_state.board.eliminated_rings.get(

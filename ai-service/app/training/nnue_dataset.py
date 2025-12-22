@@ -35,6 +35,7 @@ from ..ai.nnue import (
 )
 from ..models import BoardType, GameState, Move
 from ..rules.default_engine import DefaultRulesEngine
+from ..rules.legacy.replay_compatibility import CANONICAL_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -435,6 +436,9 @@ class NNUEDatasetConfig:
     late_game_weight: float = 1.0  # Weight for positions near end of game
     balance_outcomes: bool = False  # Balance wins/losses in dataset
     dual_perspective: bool = True  # Extract from both player perspectives (fixes P1/P2 bias)
+    # RR-CANON compliance: only use games from canonical schema version (Dec 2025)
+    require_canonical_schema: bool = True
+    min_schema_version: int = CANONICAL_SCHEMA_VERSION  # Default: only canonical games
 
 
 class NNUESQLiteDataset(Dataset):
@@ -552,7 +556,18 @@ class NNUESQLiteDataset(Dataset):
         board_type_str = self.config.board_type.value.lower()
 
         # Query cached features matching our criteria
-        query = """
+        # RR-CANON compliance: filter by schema_version if require_canonical_schema
+        schema_filter = ""
+        params = [
+            board_type_str,
+            self.config.num_players,
+            self.config.min_game_length,
+        ]
+        if self.config.require_canonical_schema:
+            schema_filter = "AND COALESCE(g.schema_version, 0) >= ?"
+            params.append(self.config.min_schema_version)
+
+        query = f"""
             SELECT f.game_id, f.move_number, f.player_perspective, f.features, f.value, f.feature_dim
             FROM game_nnue_features f
             JOIN games g ON f.game_id = g.game_id
@@ -562,13 +577,10 @@ class NNUESQLiteDataset(Dataset):
               AND g.winner IS NOT NULL
               AND g.total_moves >= ?
               AND COALESCE(g.excluded_from_training, 0) = 0
+              {schema_filter}
         """
         try:
-            cursor.execute(query, (
-                board_type_str,
-                self.config.num_players,
-                self.config.min_game_length,
-            ))
+            cursor.execute(query, params)
         except sqlite3.OperationalError:
             # Table might not have proper joins, fallback
             conn.close()
@@ -622,8 +634,19 @@ class NNUESQLiteDataset(Dataset):
         cursor = conn.cursor()
 
         # Get completed games with winners
+        # RR-CANON compliance: filter by schema_version if require_canonical_schema
         board_type_str = self.config.board_type.value.lower()
-        query = """
+        schema_filter = ""
+        params = [
+            board_type_str,
+            self.config.num_players,
+            self.config.min_game_length,
+        ]
+        if self.config.require_canonical_schema:
+            schema_filter = "AND COALESCE(schema_version, 0) >= ?"
+            params.append(self.config.min_schema_version)
+
+        query = f"""
             SELECT game_id, board_type, num_players, winner, total_moves
             FROM games
             WHERE game_status = 'completed'
@@ -632,12 +655,9 @@ class NNUESQLiteDataset(Dataset):
               AND num_players = ?
               AND total_moves >= ?
               AND COALESCE(excluded_from_training, 0) = 0
+              {schema_filter}
         """
-        cursor.execute(query, (
-            board_type_str,
-            self.config.num_players,
-            self.config.min_game_length,
-        ))
+        cursor.execute(query, params)
         games = cursor.fetchall()
 
         # For GPU extraction, batch collect states first
@@ -1375,8 +1395,19 @@ class NNUEStreamingDataset(IterableDataset):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
+        # RR-CANON compliance: filter by schema_version if require_canonical_schema
         board_type_str = self.config.board_type.value.lower()
-        query = """
+        schema_filter = ""
+        params = [
+            board_type_str,
+            self.config.num_players,
+            self.config.min_game_length,
+        ]
+        if self.config.require_canonical_schema:
+            schema_filter = "AND COALESCE(g.schema_version, 0) >= ?"
+            params.append(self.config.min_schema_version)
+
+        query = f"""
             SELECT g.game_id, g.winner, g.total_moves,
                    s.move_number, s.state_json, s.compressed
             FROM games g
@@ -1387,13 +1418,10 @@ class NNUEStreamingDataset(IterableDataset):
               AND g.num_players = ?
               AND g.total_moves >= ?
               AND COALESCE(g.excluded_from_training, 0) = 0
+              {schema_filter}
             ORDER BY g.game_id, s.move_number
         """
-        cursor.execute(query, (
-            board_type_str,
-            self.config.num_players,
-            self.config.min_game_length,
-        ))
+        cursor.execute(query, params)
 
         for row in cursor:
             move_num = row['move_number']
@@ -1622,8 +1650,20 @@ def count_available_samples(
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
 
+            # RR-CANON compliance: filter by schema_version if require_canonical_schema
             board_type_str = config.board_type.value.lower()
-            query = """
+            schema_filter = ""
+            params = [
+                board_type_str,
+                config.num_players,
+                config.min_game_length,
+                config.sample_every_n_moves,
+            ]
+            if config.require_canonical_schema:
+                schema_filter = "AND COALESCE(g.schema_version, 0) >= ?"
+                params.append(config.min_schema_version)
+
+            query = f"""
                 SELECT COUNT(*) FROM (
                     SELECT s.move_number
                     FROM games g
@@ -1635,14 +1675,10 @@ def count_available_samples(
                       AND g.total_moves >= ?
                       AND s.move_number % ? = 0
                       AND COALESCE(g.excluded_from_training, 0) = 0
+                      {schema_filter}
                 )
             """
-            cursor.execute(query, (
-                board_type_str,
-                config.num_players,
-                config.min_game_length,
-                config.sample_every_n_moves,
-            ))
+            cursor.execute(query, params)
             count = cursor.fetchone()[0]
             counts[db_path] = count
             total += count

@@ -942,9 +942,9 @@ class BatchGameState:
             _, line_counts = detect_lines_vectorized(self, winner)
             if line_counts[game_idx].item() > 0:
                 return "line", None
-        except Exception:
+        except Exception as e:
             # Line detection may fail on edge cases, fall through to unknown
-            pass
+            logger.debug("Line detection failed for victory type: %s", e)
 
         # Default fallback
         return "unknown", None
@@ -1045,7 +1045,8 @@ class BatchGameState:
             try:
                 _, line_counts = detect_lines_vectorized(self, p)
                 line_winners[p] = line_counts.cpu().numpy()
-            except Exception:
+            except Exception as e:
+                logger.debug("Line detection failed for player %d: %s", p, e)
                 line_winners[p] = None
 
         victory_types = []
