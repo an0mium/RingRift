@@ -163,6 +163,7 @@ class GumbelSelfplayConfig:
     # Neural net settings
     nn_model_id: str = ""  # Empty = use default for board
     use_gpu: bool = True
+    allow_fresh_weights: bool = False  # Allow random weights if no checkpoint
 
     def get_temperature_for_move(self, move_number: int) -> float:
         """Get temperature for a specific move number.
@@ -243,6 +244,7 @@ def create_gumbel_ai(
         think_time_ms=config.think_time_ms if config.think_time_ms > 0 else None,
         use_neural_net=True,
         gumbel_simulation_budget=config.simulation_budget,
+        allow_fresh_weights=config.allow_fresh_weights,
     )
 
     if config.nn_model_id:
@@ -593,6 +595,7 @@ def run_all_configs(config: GumbelSelfplayConfig) -> dict[str, list[GameResult]]
             verbose=config.verbose,
             nn_model_id=config.nn_model_id,
             use_gpu=config.use_gpu,
+            allow_fresh_weights=config.allow_fresh_weights,
         )
 
         try:
@@ -693,6 +696,11 @@ def main():
         action="store_true",
         help="Verbose output",
     )
+    parser.add_argument(
+        "--allow-fresh-weights",
+        action="store_true",
+        help="Allow random/fresh weights if no trained model checkpoint exists",
+    )
 
     args = parser.parse_args()
 
@@ -710,6 +718,7 @@ def main():
         verbose=args.verbose,
         nn_model_id=args.model_id,
         use_gpu=not args.no_gpu,
+        allow_fresh_weights=args.allow_fresh_weights,
     )
 
     if args.all_configs:
