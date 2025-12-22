@@ -441,7 +441,10 @@ from app.coordination.event_router import (
 # Wires integration modules (model_lifecycle, p2p_integration, pipeline_feedback)
 # to the unified event router for automatic event propagation
 from app.coordination.integration_bridge import (
+    get_wiring_status,
     reset_integration_wiring,
+    verify_integration_health,
+    verify_integration_health_sync,
     wire_all_integrations,
     wire_all_integrations_sync,
     wire_model_lifecycle_events,
@@ -1826,6 +1829,7 @@ __all__ = [
     "get_underserved_configs",
     "get_unified_registry",
     "get_utilization_score",
+    "get_wiring_status",
     "has_bandwidth_manager",
     "has_coordination",
     "has_cross_process_events",
@@ -1956,6 +1960,8 @@ __all__ = [
     "update_training_progress",
     "validate_config",
     "verify_batch",
+    "verify_integration_health",
+    "verify_integration_health_sync",
     "verify_transfer",
     "warn_if_orchestrator_running",
     "wire_cache_events",
