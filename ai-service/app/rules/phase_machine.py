@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 """
 Phase state machine for the Python GameEngine.
 
@@ -33,6 +35,8 @@ from dataclasses import dataclass
 
 from app.models import GamePhase, GameState, Move, MoveType
 from app.rules.legacy.move_type_aliases import convert_legacy_move_type
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
