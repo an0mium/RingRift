@@ -267,3 +267,26 @@ elo.record_match(
     num_players=...,
 )
 ```
+
+---
+
+## Migration Tracking (December 2025)
+
+| Module                       | Replacement              | Status  | Deadline | Notes               |
+| ---------------------------- | ------------------------ | ------- | -------- | ------------------- |
+| `error_recovery_coordinator` | `unified_health_manager` | REMOVED | Complete | File deleted        |
+| `recovery_manager`           | `unified_health_manager` | REMOVED | Complete | File deleted        |
+| `unified_elo_db`             | `elo_service`            | ACTIVE  | Q2 2026  | Has runtime warning |
+| `distributed.py` (trainer)   | `distributed_unified.py` | ACTIVE  | Q2 2026  | Has runtime warning |
+| `_neural_net_legacy.py`      | `nnue_policy.py`         | ACTIVE  | Q1 2026  | 154 import sites    |
+| `_game_engine_legacy.py`     | Generators extracted     | ACTIVE  | Q2 2026  | Facade pattern      |
+
+## Event Router Migration Status
+
+| Metric                  | Value     | Target  |
+| ----------------------- | --------- | ------- |
+| `USE_ROUTER_BY_DEFAULT` | `True`    | ✓       |
+| Direct EventBus imports | ~63 files | 0 files |
+| Router-aware modules    | ~40%      | 100%    |
+
+**Last Updated**: December 21, 2025
