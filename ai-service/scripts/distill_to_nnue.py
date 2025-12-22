@@ -74,6 +74,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, IterableDataset
 
 from app.ai.nnue import (
+    CURRENT_NNUE_FEATURE_VERSION,
+    FEATURE_DIMS,
     RingRiftNNUE,
     extract_features_from_gamestate,
     get_feature_dim,
@@ -513,6 +515,8 @@ def save_nnue_checkpoint(
     checkpoint = {
         "model_state_dict": model.state_dict(),
         "architecture_version": model.ARCHITECTURE_VERSION,
+        "feature_version": CURRENT_NNUE_FEATURE_VERSION,
+        "input_dim": FEATURE_DIMS.get(config.board_type, FEATURE_DIMS[BoardType.SQUARE8]),
         "board_type": config.board_type.value,
         "distillation_config": {
             "num_positions": config.num_positions,

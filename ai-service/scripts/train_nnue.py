@@ -63,6 +63,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 
 from app.ai.nnue import (
+    CURRENT_NNUE_FEATURE_VERSION,
+    FEATURE_DIMS,
     RingRiftNNUE,
     clear_nnue_cache,
     get_feature_dim,
@@ -4890,6 +4892,8 @@ def train_nnue(
                     "epoch": epoch + 1,
                     "val_loss": val_loss,
                     "architecture_version": arch_version,
+                    "feature_version": CURRENT_NNUE_FEATURE_VERSION,
+                    "input_dim": FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8]),
                 }
 
                 # Save EMA weights if available (often better for inference)
@@ -4914,6 +4918,8 @@ def train_nnue(
                         "epoch": epoch + 1,
                         "val_loss": val_loss,
                         "architecture_version": arch_version,
+                        "feature_version": CURRENT_NNUE_FEATURE_VERSION,
+                        "input_dim": FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8]),
                         "is_ema": True,
                     }
                     torch.save(ema_checkpoint, ema_path)
@@ -4961,6 +4967,8 @@ def train_nnue(
                 "epoch": epoch + 1,
                 "val_loss": best_val_loss,
                 "architecture_version": raw_model.ARCHITECTURE_VERSION if hasattr(raw_model, 'ARCHITECTURE_VERSION') else "v1.0.0",
+                "feature_version": CURRENT_NNUE_FEATURE_VERSION,
+                "input_dim": FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8]),
                 "quantized": True,
                 "qat_trained": True,
             }
@@ -5058,6 +5066,8 @@ def train_nnue(
             "hidden_dim": hidden_dim,
             "num_hidden_layers": num_hidden_layers,
             "prune_stats": prune_stats,
+            "feature_version": CURRENT_NNUE_FEATURE_VERSION,
+            "input_dim": FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8]),
         }, pruned_path)
         logger.info(f"Pruned model saved to {pruned_path}")
         report["pruned_model_path"] = pruned_path

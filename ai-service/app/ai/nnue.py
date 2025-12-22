@@ -95,6 +95,66 @@ FEATURE_DIMS: dict[BoardType, int] = {
     BoardType.HEX8: 9 * 9 * FEATURE_PLANES + GLOBAL_FEATURES,         # 972 + 20 = 992 features
 }
 
+# =============================================================================
+# Feature Versioning
+# =============================================================================
+# Feature version tracks input encoding changes (separate from architecture version)
+# V1: Spatial features only (768 for SQUARE8)
+# V2: Spatial + 20 global features (788 for SQUARE8) - added Dec 21, 2025
+NNUE_FEATURE_V1 = 1
+NNUE_FEATURE_V2 = 2
+CURRENT_NNUE_FEATURE_VERSION = NNUE_FEATURE_V2
+
+# Spatial-only dimensions (V1 feature encoding)
+SPATIAL_DIMS: dict[BoardType, int] = {
+    BoardType.SQUARE8: 8 * 8 * FEATURE_PLANES,      # 768
+    BoardType.SQUARE19: 19 * 19 * FEATURE_PLANES,   # 4332
+    BoardType.HEXAGONAL: 25 * 25 * FEATURE_PLANES,  # 7500
+    BoardType.HEX8: 9 * 9 * FEATURE_PLANES,         # 972
+}
+
+
+def get_feature_dim_for_version(board_type: BoardType, feature_version: int) -> int:
+    """Get feature dimension for a specific feature version.
+
+    Args:
+        board_type: Board type
+        feature_version: 1 for V1 (spatial only), 2 for V2 (spatial + global)
+
+    Returns:
+        Feature dimension for the given version
+    """
+    spatial = SPATIAL_DIMS.get(board_type, SPATIAL_DIMS[BoardType.SQUARE8])
+    if feature_version >= NNUE_FEATURE_V2:
+        return spatial + GLOBAL_FEATURES
+    return spatial
+
+
+def detect_feature_version_from_accumulator(
+    acc_weight_shape: tuple[int, ...],
+    board_type: BoardType,
+) -> int:
+    """Detect feature version from accumulator weight shape.
+
+    Args:
+        acc_weight_shape: Shape of accumulator.weight tensor (hidden_dim, input_dim)
+        board_type: Board type for the model
+
+    Returns:
+        Detected feature version (1 or 2)
+    """
+    input_size = acc_weight_shape[1] if len(acc_weight_shape) >= 2 else 0
+    spatial_size = SPATIAL_DIMS.get(board_type, SPATIAL_DIMS[BoardType.SQUARE8])
+
+    if input_size == spatial_size:
+        return NNUE_FEATURE_V1
+    elif input_size == spatial_size + GLOBAL_FEATURES:
+        return NNUE_FEATURE_V2
+    else:
+        # Unknown size - assume latest version
+        logger.warning(f"Unknown accumulator input size {input_size} for {board_type}, assuming V{CURRENT_NNUE_FEATURE_VERSION}")
+        return CURRENT_NNUE_FEATURE_VERSION
+
 
 def get_feature_dim(board_type: BoardType) -> int:
     """Get the input feature dimension for a board type."""
@@ -227,6 +287,7 @@ class RingRiftNNUE(nn.Module):
     """
 
     ARCHITECTURE_VERSION = "v1.3.0"  # Added stochastic depth support
+    FEATURE_VERSION = CURRENT_NNUE_FEATURE_VERSION  # V2: spatial + global features
 
     def __init__(
         self,
@@ -810,7 +871,8 @@ def _migrate_legacy_state_dict(
     state_dict: dict[str, torch.Tensor],
     architecture_version: str,
     target_input_size: int | None = None,
-) -> dict[str, torch.Tensor]:
+    board_type: BoardType | None = None,
+) -> tuple[dict[str, torch.Tensor], int]:
     """Migrate a legacy state dict to the current architecture.
 
     Handles backwards compatibility for older model checkpoints.
@@ -819,11 +881,18 @@ def _migrate_legacy_state_dict(
         state_dict: The legacy state dict
         architecture_version: Version string from checkpoint
         target_input_size: Expected input size (for padding accumulator weights)
+        board_type: Board type for feature version detection
 
     Returns:
-        Migrated state dict compatible with current RingRiftNNUE
+        Tuple of (migrated state dict, detected feature version)
     """
     new_state_dict = dict(state_dict)
+    detected_feature_version = CURRENT_NNUE_FEATURE_VERSION
+
+    # Detect feature version from accumulator weight shape
+    if "accumulator.weight" in new_state_dict and board_type is not None:
+        acc_shape = new_state_dict["accumulator.weight"].shape
+        detected_feature_version = detect_feature_version_from_accumulator(acc_shape, board_type)
 
     # v1.0.0 and v1.1.0 used simple Sequential hidden layers:
     # hidden.0.weight/bias (Linear), hidden.2.weight/bias (Linear)
@@ -859,9 +928,12 @@ def _migrate_legacy_state_dict(
             # Pad with zeros for the new global features
             padding = torch.zeros(acc_weight.shape[0], padding_size, device=acc_weight.device, dtype=acc_weight.dtype)
             new_state_dict["accumulator.weight"] = torch.cat([acc_weight, padding], dim=1)
-            logger.info(f"Padded accumulator.weight from {current_size} to {target_input_size} features (+{padding_size} global features)")
+            logger.info(
+                f"Migrated NNUE features V{detected_feature_version} -> V{CURRENT_NNUE_FEATURE_VERSION}: "
+                f"padded accumulator {current_size} -> {target_input_size} (+{padding_size} global features)"
+            )
 
-    return new_state_dict
+    return new_state_dict, detected_feature_version
 
 
 def load_nnue_model(
@@ -915,7 +987,11 @@ def load_nnue_model(
 
                 # Migrate legacy state dicts if needed (including accumulator weight padding)
                 target_input_size = FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8])
-                state_dict = _migrate_legacy_state_dict(state_dict, arch_version, target_input_size)
+                state_dict, detected_version = _migrate_legacy_state_dict(
+                    state_dict, arch_version, target_input_size, board_type
+                )
+                if detected_version != CURRENT_NNUE_FEATURE_VERSION:
+                    logger.info(f"Loaded NNUE checkpoint with feature version V{detected_version}")
 
                 # Use strict=False to allow for minor structural differences
                 model.load_state_dict(state_dict, strict=False)
@@ -1210,9 +1286,17 @@ class BatchNNUEEvaluator:
                 )
                 checkpoint = safe_load_checkpoint(model_path, map_location=self.device, warn_on_unsafe=False)
                 if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-                    self.model.load_state_dict(checkpoint["model_state_dict"])
+                    state_dict = checkpoint["model_state_dict"]
+                    arch_version = checkpoint.get("architecture_version", "v1.0.0")
+
+                    # Apply migration for legacy models (including feature version padding)
+                    target_input_size = FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8])
+                    state_dict, detected_version = _migrate_legacy_state_dict(
+                        state_dict, arch_version, target_input_size, board_type
+                    )
+                    self.model.load_state_dict(state_dict, strict=False)
                 else:
-                    self.model.load_state_dict(checkpoint)
+                    self.model.load_state_dict(checkpoint, strict=False)
                 self.model.to(self.device)
                 self.model.eval()
                 self.available = True
