@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from app.game_engine import GameEngine
 from app.models import GamePhase, GameState, GameStatus, MoveType, Position
+from app.rules.elimination import EliminationContext, has_eligible_elimination_target
 
 """
 Global-actions and ANM helpers for the Python rules engine.
@@ -149,15 +150,27 @@ def has_phase_local_interactive_move(
                 regions = getattr(last_move, "disconnected_regions", None)
                 if regions:
                     # Pending self-elimination: check for eligible elimination targets
-                    # outside the processed region
+                    # outside the processed region using canonical eligibility check.
+                    # HEX-PARITY-02 FIX: Use has_eligible_elimination_target which
+                    # properly checks cap_height > 0 (not just stack_height > 0),
+                    # matching TypeScript's isStackEligibleForElimination validation.
                     processed_region_keys = {p.to_key() for p in regions[0].spaces}
+
+                    # Build stacks dict for eligibility check
+                    stacks_dict = {}
                     for stack in state.board.stacks.values():
-                        if stack.position.to_key() in processed_region_keys:
-                            continue
-                        if stack.controlling_player == player and stack.stack_height > 0:
-                            return True
-                    # No eligible elimination targets (edge case)
-                    return False
+                        pos_key = stack.position.to_key()
+                        stacks_dict[pos_key] = {
+                            "rings": list(stack.rings),
+                            "controlling_player": stack.controlling_player,
+                        }
+
+                    return has_eligible_elimination_target(
+                        stacks_dict,
+                        player,
+                        EliminationContext.TERRITORY,
+                        exclude_positions=processed_region_keys,
+                    )
 
         # No pending elimination: check for region processing moves
         moves = GameEngine._get_territory_processing_moves(state, player)
