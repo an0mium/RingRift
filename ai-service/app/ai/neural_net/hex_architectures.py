@@ -368,7 +368,7 @@ class HexNeuralNet_v3(nn.Module):
         hex_radius: int = 12,
         num_ring_counts: int = 3,  # Ring count options (1, 2, 3)
         num_directions: int = NUM_HEX_DIRS,  # 6 hex directions
-        max_distance: int = HEX_MAX_DIST,  # 24 distance buckets
+        max_distance: int | None = None,  # Computed from board_size if None
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -382,13 +382,14 @@ class HexNeuralNet_v3(nn.Module):
         # Spatial policy dimensions
         self.num_ring_counts = num_ring_counts
         self.num_directions = num_directions
-        self.max_distance = max_distance
-        self.movement_channels = num_directions * max_distance  # 6 × 24 = 144
+        # max_distance = board_size - 1: hex8 (9x9) uses 8, hexagonal (25x25) uses 24
+        self.max_distance = max_distance if max_distance is not None else board_size - 1
+        self.movement_channels = num_directions * self.max_distance
 
         # Compute layout spans dynamically based on board_size
         # This ensures hex8 (9x9) and hexagonal (25x25) use correct indices
         self.placement_span = board_size * board_size * num_ring_counts
-        self.movement_span = board_size * board_size * num_directions * max_distance
+        self.movement_span = board_size * board_size * num_directions * self.max_distance
         self.special_base = self.placement_span + self.movement_span
 
         # Pre-compute hex validity mask
@@ -619,7 +620,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
         hex_radius: int = 12,
         num_ring_counts: int = 3,
         num_directions: int = NUM_HEX_DIRS,
-        max_distance: int = HEX_MAX_DIST,
+        max_distance: int | None = None,  # Computed from board_size if None
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -633,13 +634,14 @@ class HexNeuralNet_v3_Lite(nn.Module):
         # Spatial policy dimensions
         self.num_ring_counts = num_ring_counts
         self.num_directions = num_directions
-        self.max_distance = max_distance
-        self.movement_channels = num_directions * max_distance
+        # max_distance = board_size - 1: hex8 (9x9) uses 8, hexagonal (25x25) uses 24
+        self.max_distance = max_distance if max_distance is not None else board_size - 1
+        self.movement_channels = num_directions * self.max_distance
 
         # Compute layout spans dynamically based on board_size
         # This ensures hex8 (9x9) and hexagonal (25x25) use correct indices
         self.placement_span = board_size * board_size * num_ring_counts
-        self.movement_span = board_size * board_size * num_directions * max_distance
+        self.movement_span = board_size * board_size * num_directions * self.max_distance
         self.special_base = self.placement_span + self.movement_span
 
         # Pre-compute hex validity mask
