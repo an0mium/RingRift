@@ -40,6 +40,7 @@ import argparse
 import json
 import logging
 import os
+import random
 import sys
 import time
 import uuid
@@ -312,8 +313,18 @@ def generate_game(
     game_id = str(uuid.uuid4())
     start_time = time.time()
 
-    # Reset environment
-    state = env.reset()
+    # Derive unique RNG seed per game for reproducibility and diversity
+    base_seed = config.seed if config.seed else random.randint(0, 0xFFFFFFFF)
+    game_seed = (base_seed + game_idx * 1_000_003) & 0xFFFFFFFF
+
+    # Reset AI players with unique per-game, per-player seeds
+    for player, ai in ai_players.items():
+        player_seed = (game_seed + player * 97_911) & 0xFFFFFFFF
+        if hasattr(ai, 'reset_for_new_game'):
+            ai.reset_for_new_game(rng_seed=player_seed)
+
+    # Reset environment with game seed
+    state = env.reset(seed=game_seed)
     initial_state = (
         state.model_copy(deep=True) if hasattr(state, "model_copy") else state
     )
@@ -530,6 +541,14 @@ def run_selfplay(config: GumbelSelfplayConfig) -> list[GameResult]:
                 if not run_parity_validation(result, config):
                     parity_failures += 1
                     logger.warning(f"Game {game_idx} failed parity: {result.parity_error}")
+
+            # Skip games that didn't complete (hit max_moves without winner)
+            if result.winner is None and result.status != "completed":
+                logger.warning(
+                    f"Game {game_idx} did not complete: status={result.status}, "
+                    f"moves={result.num_moves}. Skipping."
+                )
+                continue
 
             # Save game
             save_game_to_jsonl(result, output_path)
