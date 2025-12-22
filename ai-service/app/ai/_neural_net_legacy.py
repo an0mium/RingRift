@@ -3996,7 +3996,7 @@ class NeuralNetAI(BaseAI):
                 self.model = compile_model(
                     self.model,
                     device=torch.device(self.device) if isinstance(self.device, str) else self.device,
-                    mode="reduce-overhead",
+                    mode="default",  # Use default mode to avoid CUDA graph issues with dynamic shapes
                 )
         except ImportError:
             pass  # gpu_batch not available, skip compilation

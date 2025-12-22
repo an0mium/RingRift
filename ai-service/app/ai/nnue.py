@@ -895,7 +895,7 @@ def load_nnue_model(
             model = compile_model(
                 model,
                 device=torch.device(device) if isinstance(device, str) else device,
-                mode="reduce-overhead",
+                mode="default",  # Use default mode to avoid CUDA graph issues with dynamic shapes
             )
     except ImportError:
         pass  # gpu_batch not available

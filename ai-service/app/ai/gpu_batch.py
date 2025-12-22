@@ -111,7 +111,7 @@ def clear_gpu_memory(device: torch.device | None = None) -> None:
 def compile_model(
     model: nn.Module,
     device: torch.device | None = None,
-    mode: str = "reduce-overhead",
+    mode: str = "default",
     fullgraph: bool = False,
 ) -> nn.Module:
     """Apply torch.compile() optimization to a model for faster inference.
@@ -125,8 +125,8 @@ def compile_model(
         model: PyTorch model to compile
         device: Target device (used to check compatibility)
         mode: Compilation mode:
-            - "default": Good balance of compile time and speedup
-            - "reduce-overhead": Minimize Python overhead (best for inference)
+            - "default": Good balance of compile time and speedup (recommended)
+            - "reduce-overhead": Uses CUDA graphs (can fail with dynamic shapes)
             - "max-autotune": Maximum optimization (longer compile time)
         fullgraph: If True, require entire model in single graph (stricter)
 
