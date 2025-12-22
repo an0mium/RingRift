@@ -201,6 +201,10 @@ def _generate_single_game(args: tuple[int, int]) -> GameResult | None:
     """
     game_idx, base_seed = args
 
+    # Import logger in worker subprocess (module-level logger not available)
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Access worker config
     # Filter out internal keys before creating SelfplayConfig
     config_fields = {k: v for k, v in _worker_config.items() if not k.startswith('_')}
