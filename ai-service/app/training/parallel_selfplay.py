@@ -219,7 +219,7 @@ def _generate_single_game(args: tuple[int, int]) -> GameResult | None:
         from app.ai.descent_ai import DescentAI
         from app.ai.mcts_ai import MCTSAI
         from app.ai.neural_net import encode_move_for_board
-        from app.ai.nnue import FEATURE_PLANES, extract_features_from_gamestate, get_board_size
+        from app.ai.nnue import FEATURE_PLANES, GLOBAL_FEATURES, extract_features_from_gamestate, get_board_size
         from app.models import AIConfig
         from app.training.env import RingRiftEnv
 
@@ -406,11 +406,15 @@ def _generate_single_game(args: tuple[int, int]) -> GameResult | None:
                         policy_values.append(prob)
 
             # Get feature planes using NNUE feature extraction
-            # Extract 1D features and reshape to (C, H, W)
+            # Extract 1D features (spatial + global) and split/reshape
             features_1d = extract_features_from_gamestate(state, current_player)
             board_size = get_board_size(config.board_type)
             num_channels = FEATURE_PLANES  # 12 planes
-            current_features = features_1d.reshape(num_channels, board_size, board_size)
+            spatial_size = num_channels * board_size * board_size
+            # Split spatial features from global features before reshaping
+            spatial_features = features_1d[:spatial_size]
+            nnue_globals = features_1d[spatial_size:]  # Last GLOBAL_FEATURES (20) values
+            current_features = spatial_features.reshape(num_channels, board_size, board_size)
 
             # Build stacked features with history
             hist_frames = list(state_history[-config.history_length:])
