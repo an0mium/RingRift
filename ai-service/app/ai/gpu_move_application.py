@@ -14,7 +14,6 @@ Move application per RR-CANON rules:
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 import torch
@@ -1019,73 +1018,6 @@ def apply_placement_moves_batch_vectorized(
     state.move_count[game_indices] += 1
 
 
-def _apply_placement_moves_batch_legacy(
-    state: BatchGameState,
-    move_indices: torch.Tensor,
-    moves: BatchMoves,
-) -> None:
-    """Legacy Python-loop based placement application.
-
-    Kept for debugging and comparison.
-    """
-    batch_size = state.batch_size
-    active_mask = state.get_active_mask()
-
-    for g in range(batch_size):
-        if not active_mask[g]:
-            continue
-
-        if moves.moves_per_game[g] == 0:
-            continue
-
-        local_idx = move_indices[g].item()
-        if local_idx >= moves.moves_per_game[g]:
-            continue
-
-        global_idx = moves.move_offsets[g] + local_idx
-
-        y = moves.from_y[global_idx].item()
-        x = moves.from_x[global_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[global_idx].item()
-
-        move_idx = state.move_count[g].item()
-        if move_idx < state.max_history_moves:
-            state.move_history[g, move_idx, 0] = move_type
-            state.move_history[g, move_idx, 1] = player
-            state.move_history[g, move_idx, 2] = y
-            state.move_history[g, move_idx, 3] = x
-            state.move_history[g, move_idx, 4] = y
-            state.move_history[g, move_idx, 5] = x
-            state.move_history[g, move_idx, 6] = int(state.current_phase[g].item())
-
-        dest_owner = int(state.stack_owner[g, y, x].item())
-        dest_height = int(state.stack_height[g, y, x].item())
-        dest_cap = int(state.cap_height[g, y, x].item())
-
-        if dest_height <= 0:
-            state.stack_owner[g, y, x] = player
-            state.stack_height[g, y, x] = 1
-            state.cap_height[g, y, x] = 1
-        else:
-            new_height = min(127, dest_height + 1)
-            state.stack_owner[g, y, x] = player
-            state.stack_height[g, y, x] = new_height
-            if dest_owner == player:
-                state.cap_height[g, y, x] = min(127, dest_cap + 1)
-            else:
-                state.cap_height[g, y, x] = 1
-
-            if dest_owner not in (0, player):
-                state.buried_rings[g, dest_owner] += dest_cap
-                # Track buried ring count at position (December 2025 - recovery fix)
-                state.buried_at[g, dest_owner, y, x] += dest_cap
-        state.rings_in_hand[g, player] -= 1
-        state.must_move_from_y[g] = y
-        state.must_move_from_x[g] = x
-        state.move_count[g] += 1
-
-
 def apply_placement_moves_batch(
     state: BatchGameState,
     move_indices: torch.Tensor,
@@ -1097,11 +1029,12 @@ def apply_placement_moves_batch(
         state: BatchGameState to modify
         move_indices: (batch_size,) index into moves for each game's selected move
         moves: BatchMoves containing all candidate moves
+
+    Note:
+        December 2025: Legacy Python-loop implementation removed.
+        Uses vectorized implementation for optimal GPU performance.
     """
-    if os.environ.get("RINGRIFT_GPU_PLACEMENT_LEGACY", "0") == "1":
-        _apply_placement_moves_batch_legacy(state, move_indices, moves)
-    else:
-        apply_placement_moves_batch_vectorized(state, move_indices, moves)
+    apply_placement_moves_batch_vectorized(state, move_indices, moves)
 
 
 def apply_movement_moves_batch_vectorized(
@@ -1349,117 +1282,6 @@ def apply_movement_moves_batch_vectorized(
     state.move_count[game_indices] += 1
 
 
-def _apply_movement_moves_batch_legacy(
-    state: BatchGameState,
-    move_indices: torch.Tensor,
-    moves: BatchMoves,
-) -> None:
-    """Legacy Python-loop based movement application.
-
-    Kept for debugging and comparison.
-    """
-    batch_size = state.batch_size
-    active_mask = state.get_active_mask()
-
-    for g in range(batch_size):
-        if not active_mask[g]:
-            continue
-
-        if moves.moves_per_game[g] == 0:
-            continue
-
-        local_idx = move_indices[g].item()
-        if local_idx >= moves.moves_per_game[g]:
-            continue
-
-        global_idx = moves.move_offsets[g] + local_idx
-
-        from_y = moves.from_y[global_idx].item()
-        from_x = moves.from_x[global_idx].item()
-        to_y = moves.to_y[global_idx].item()
-        to_x = moves.to_x[global_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[global_idx].item()
-
-        move_idx = state.move_count[g].item()
-        if move_idx < state.max_history_moves:
-            state.move_history[g, move_idx, 0] = move_type
-            state.move_history[g, move_idx, 1] = player
-            state.move_history[g, move_idx, 2] = from_y
-            state.move_history[g, move_idx, 3] = from_x
-            state.move_history[g, move_idx, 4] = to_y
-            state.move_history[g, move_idx, 5] = to_x
-            state.move_history[g, move_idx, 6] = int(state.current_phase[g].item())
-
-        moving_height = state.stack_height[g, from_y, from_x].item()
-        moving_cap_height = state.cap_height[g, from_y, from_x].item()
-
-        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
-        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
-        dist = max(abs(to_y - from_y), abs(to_x - from_x))
-
-        for step in range(1, int(dist)):
-            check_y = from_y + dy * step
-            check_x = from_x + dx * step
-            marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
-                state.marker_owner[g, check_y, check_x] = player
-
-        # December 2025 BUG FIX: Handle landing on ANY marker (own or opponent)
-        # per RR-CANON-R091/R092. Previously only handled own markers.
-        dest_marker = state.marker_owner[g, to_y, to_x].item()
-        landing_ring_cost = 1 if dest_marker != 0 else 0
-        if dest_marker != 0:
-            state.marker_owner[g, to_y, to_x] = 0
-
-        state.stack_owner[g, from_y, from_x] = 0
-        state.stack_height[g, from_y, from_x] = 0
-        state.cap_height[g, from_y, from_x] = 0
-
-        # Move buried_at tracking from origin to destination (December 2025 - recovery fix)
-        for p in range(1, state.num_players + 1):
-            state.buried_at[g, p, to_y, to_x] += state.buried_at[g, p, from_y, from_x].item()
-            state.buried_at[g, p, from_y, from_x] = 0
-
-        # BUG FIX December 2025: Allow height to go to 0 (stack elimination) when landing on marker
-        new_height = max(0, moving_height - landing_ring_cost)
-        new_cap_height = max(0, moving_cap_height - landing_ring_cost)
-
-        if new_height > 0:
-            # December 2025 BUG FIX: When cap is eliminated but stack survives,
-            # ownership must transfer to the buried ring owner.
-            final_owner = player
-            final_cap = new_cap_height
-            if new_cap_height == 0:
-                # Cap eliminated, find buried ring owner
-                for p in range(1, state.num_players + 1):
-                    buried_count = state.buried_at[g, p, to_y, to_x].item()
-                    if buried_count > 0:
-                        final_owner = p
-                        final_cap = 1
-                        state.buried_at[g, p, to_y, to_x] -= 1
-                        state.buried_rings[g, p] -= 1
-                        break
-            state.stack_owner[g, to_y, to_x] = final_owner
-            state.stack_height[g, to_y, to_x] = new_height
-            state.cap_height[g, to_y, to_x] = final_cap
-        else:
-            # Stack is eliminated (landed on marker with height 1)
-            state.stack_owner[g, to_y, to_x] = 0
-            state.stack_height[g, to_y, to_x] = 0
-            state.cap_height[g, to_y, to_x] = 0
-            # Clear buried_at AND decrement buried_rings since the stack is gone
-            for p in range(1, state.num_players + 1):
-                buried_count = state.buried_at[g, p, to_y, to_x].item()
-                if buried_count > 0:
-                    state.buried_rings[g, p] -= buried_count
-                state.buried_at[g, p, to_y, to_x] = 0
-
-        # Advance move counter only (NOT current_player - that's handled by END_TURN phase)
-        # BUG FIX 2025-12-15: See apply_movement_moves_batch_vectorized for details
-        state.move_count[g] += 1
-
-
 def apply_movement_moves_batch(
     state: BatchGameState,
     move_indices: torch.Tensor,
@@ -1477,11 +1299,12 @@ def apply_movement_moves_batch(
         state: BatchGameState to modify
         move_indices: (batch_size,) index into moves for each game's selected move
         moves: BatchMoves containing all candidate moves
+
+    Note:
+        December 2025: Legacy Python-loop implementation removed.
+        Uses vectorized implementation for optimal GPU performance.
     """
-    if os.environ.get("RINGRIFT_GPU_MOVEMENT_APPLY_LEGACY", "0") == "1":
-        _apply_movement_moves_batch_legacy(state, move_indices, moves)
-    else:
-        apply_movement_moves_batch_vectorized(state, move_indices, moves)
+    apply_movement_moves_batch_vectorized(state, move_indices, moves)
 
 
 def apply_capture_moves_batch_vectorized(
@@ -1940,107 +1763,6 @@ def apply_capture_moves_batch_vectorized(
     state.move_count[game_indices] += 1
 
 
-def _apply_capture_moves_batch_legacy(
-    state: BatchGameState,
-    move_indices: torch.Tensor,
-    moves: BatchMoves,
-) -> None:
-    """Legacy Python-loop based capture application.
-
-    Kept for debugging and comparison.
-    """
-    batch_size = state.batch_size
-    active_mask = state.get_active_mask()
-
-    for g in range(batch_size):
-        if not active_mask[g]:
-            continue
-
-        if moves.moves_per_game[g] == 0:
-            continue
-
-        local_idx = move_indices[g].item()
-        if local_idx >= moves.moves_per_game[g]:
-            continue
-
-        global_idx = moves.move_offsets[g] + local_idx
-
-        from_y = moves.from_y[global_idx].item()
-        from_x = moves.from_x[global_idx].item()
-        to_y = moves.to_y[global_idx].item()
-        to_x = moves.to_x[global_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[global_idx].item()
-
-        attacker_height = state.stack_height[g, from_y, from_x].item()
-        attacker_cap_height = state.cap_height[g, from_y, from_x].item()
-
-        # Note: Legacy capture uses to_y/to_x as target, not landing
-        defender_owner = state.stack_owner[g, to_y, to_x].item()
-        defender_height = state.stack_height[g, to_y, to_x].item()
-
-        # Record in history (9 columns: move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x)
-        # December 2025: Added capture target columns for canonical export
-        move_idx = state.move_count[g].item()
-        if move_idx < state.max_history_moves:
-            state.move_history[g, move_idx, 0] = move_type
-            state.move_history[g, move_idx, 1] = player
-            state.move_history[g, move_idx, 2] = from_y
-            state.move_history[g, move_idx, 3] = from_x
-            state.move_history[g, move_idx, 4] = to_y
-            state.move_history[g, move_idx, 5] = to_x
-            state.move_history[g, move_idx, 6] = int(state.current_phase[g].item())
-            # Legacy capture: to_y/to_x IS the target (not landing)
-            state.move_history[g, move_idx, 7] = to_y
-            state.move_history[g, move_idx, 8] = to_x
-
-        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
-        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
-        dist = max(abs(to_y - from_y), abs(to_x - from_x))
-
-        for step in range(1, int(dist)):
-            check_y = from_y + dy * step
-            check_x = from_x + dx * step
-            marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
-                state.marker_owner[g, check_y, check_x] = player
-
-        state.eliminated_rings[g, defender_owner] += 1
-        state.rings_caused_eliminated[g, player] += 1
-
-        state.stack_owner[g, from_y, from_x] = 0
-        state.stack_height[g, from_y, from_x] = 0
-        state.cap_height[g, from_y, from_x] = 0
-
-        # Move buried_at tracking from attacker origin to target (December 2025 - recovery fix)
-        # Note: Legacy capture merges at target position, not landing
-        # Updated to count-based: add origin counts to target, then zero origin
-        for p in range(1, state.num_players + 1):
-            state.buried_at[g, p, to_y, to_x] = state.buried_at[g, p, to_y, to_x] + state.buried_at[g, p, from_y, from_x]
-            state.buried_at[g, p, from_y, from_x] = 0
-
-        new_height = attacker_height + defender_height - 1
-        # SELF-CAPTURE without buried rings:
-        if defender_owner == player and attacker_cap_height == attacker_height:
-            # Per RR-CANON-R101/R102, captured ring goes to bottom of stack.
-            # If attacker has no buried rings (cap == height), and target is same color,
-            # the entire resulting stack is same color, so cap = new_height.
-            new_cap_height = new_height
-        else:
-            # ENEMY CAPTURE or SELF-CAPTURE with buried rings:
-            # Captured ring goes to BOTTOM, doesn't extend cap
-            new_cap_height = attacker_cap_height
-        state.stack_owner[g, to_y, to_x] = player
-        state.stack_height[g, to_y, to_x] = min(5, new_height)
-        state.cap_height[g, to_y, to_x] = min(5, new_cap_height)
-
-        state.marker_owner[g, to_y, to_x] = player
-
-        # Advance move counter only (NOT current_player - that's handled by END_TURN phase)
-        # BUG FIX 2025-12-15: See apply_capture_moves_batch_vectorized for details
-        state.move_count[g] += 1
-
-
 def apply_capture_moves_batch(
     state: BatchGameState,
     move_indices: torch.Tensor,
@@ -2058,17 +1780,15 @@ def apply_capture_moves_batch(
         state: BatchGameState to modify
         move_indices: (batch_size,) index into moves for each game's selected move
         moves: BatchMoves containing all candidate moves
+
+    Note:
+        December 2025: Legacy Python-loop implementation removed.
+        Uses vectorized implementation for optimal GPU performance.
     """
-    if os.environ.get("RINGRIFT_GPU_CAPTURE_APPLY_LEGACY", "0") == "1":
-        _apply_capture_moves_batch_legacy(state, move_indices, moves)
-    else:
-        apply_capture_moves_batch_vectorized(state, move_indices, moves)
+    apply_capture_moves_batch_vectorized(state, move_indices, moves)
 
 
 __all__ = [
-    '_apply_capture_moves_batch_legacy',
-    '_apply_movement_moves_batch_legacy',
-    '_apply_placement_moves_batch_legacy',
     'apply_capture_moves_batch',
     'apply_capture_moves_batch_vectorized',
     # Vectorized apply functions (for move selection)
