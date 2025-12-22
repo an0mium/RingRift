@@ -101,6 +101,17 @@ aws_nodes:
     - { name: aws-worker, host: '100.115.97.24', user: ubuntu }
 
 # ================================================================================
+# HETZNER CLOUD NODES (CPU-only)
+# ================================================================================
+hetzner_cloud:
+  description: 'Hetzner Cloud CPU nodes'
+  ssh_key: '~/.ssh/id_cluster'
+  nodes:
+    - { name: hetzner-cpu1, host: '46.62.147.150', user: root }
+    - { name: hetzner-cpu2, host: '135.181.39.239', user: root }
+    - { name: hetzner-cpu3, host: '46.62.217.168', user: root }
+
+# ================================================================================
 # TAILSCALE MISC NODES (currently offline)
 # ================================================================================
 # tailscale_misc:
