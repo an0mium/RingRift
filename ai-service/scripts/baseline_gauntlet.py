@@ -85,6 +85,68 @@ def run_game(ai1: "BaseAI", ai2: "BaseAI", board_type: BoardType, num_players: i
     return None
 
 
+def _is_nnue_checkpoint(model_path: Path) -> bool:
+    """Check if checkpoint is NNUE format (has accumulator weights)."""
+    import torch
+    try:
+        ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+        if isinstance(ckpt, dict):
+            state = ckpt.get("model_state_dict", ckpt)
+            return any("accumulator" in k for k in state.keys())
+    except Exception:
+        pass
+    return False
+
+
+def _create_nnue_ai(
+    model_path: Path,
+    player: int,
+    board_type: BoardType,
+    num_players: int,
+) -> "BaseAI | None":
+    """Create AI using NNUE model with MinimaxAI wrapper."""
+    try:
+        from app.ai.minimax_ai import MinimaxAI
+        from app.ai.nnue import BatchNNUEEvaluator
+
+        evaluator = BatchNNUEEvaluator(
+            board_type=board_type,
+            num_players=num_players,
+            model_path=model_path,
+        )
+
+        if not evaluator.available:
+            return None
+
+        ai_config = AIConfig(difficulty=5, board_type=board_type)
+        ai = MinimaxAI(player, ai_config)
+
+        # Inject custom NNUE evaluator
+        import torch
+        from app.ai.nnue_features import extract_features_from_gamestate
+
+        original_evaluate = ai.evaluate_mutable
+
+        def custom_evaluate(state):
+            try:
+                features = extract_features_from_gamestate(state, board_type)
+                features_tensor = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
+                if evaluator.device.type == "cuda":
+                    features_tensor = features_tensor.to(evaluator.device)
+                with torch.no_grad():
+                    value = evaluator.model(features_tensor)
+                    return float(value.item())
+            except Exception:
+                return original_evaluate(state)
+
+        ai.evaluate_mutable = custom_evaluate
+        logger.info(f"Loaded NNUE model from {model_path}")
+        return ai
+    except Exception as e:
+        logger.debug(f"Failed to load NNUE: {e}")
+        return None
+
+
 def create_ai_from_model(
     model: dict[str, Any],
     player: int,
@@ -107,54 +169,19 @@ def create_ai_from_model(
     model_type = model.get("type", "nn").lower()
     model_path = Path(model.get("path", ""))
 
-    # For neural network models (CNN policy networks), use NeuralNetAI
-    if model_type in ("nnue", "nn", "neural"):
-        if model_path.exists():
-            try:
-                # Suppress deprecation warnings for legacy module
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=DeprecationWarning)
-                    from app.ai._neural_net_legacy import NeuralNetAI
-
-                # Create config with explicit model path
-                ai_config = AIConfig(
-                    difficulty=5,
-                    nn_model_id=str(model_path.resolve()),
-                    board_type=board_type,
-                )
-                ai = NeuralNetAI(
-                    player_number=player,
-                    config=ai_config,
-                    board_type=board_type,
-                )
-
-                if ai.model is not None:
-                    logger.info(f"Loaded CNN model from {model_path}")
-                    return ai
-                else:
-                    logger.warning(f"Failed to load CNN model from {model_path}")
-            except Exception as e:
-                logger.warning(f"Error loading neural model: {e}")
-
-        # Fallback to heuristic if model loading failed
-        logger.info("Using HeuristicAI (model load failed or no path)")
+    if not model_path.exists():
+        logger.info("Using HeuristicAI (no model path)")
         return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
 
-    elif model_type == "mcts":
-        from app.ai.mcts_ai import MCTSAI
+    # Check if it's an NNUE model (has accumulator weights)
+    if _is_nnue_checkpoint(model_path):
+        ai = _create_nnue_ai(model_path, player, board_type, num_players)
+        if ai is not None:
+            return ai
+        logger.warning(f"Failed to load NNUE model from {model_path}")
 
-        ai_config = AIConfig(difficulty=5, board_type=board_type)
-        mcts_config = {"simulations": 100}
-        return MCTSAI(player, ai_config, mcts_config)
-
-    elif model_type == "heuristic":
-        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
-
-    elif model_type == "random":
-        return RandomAI(player, AIConfig(difficulty=1))
-
-    # Default: try to load as CNN, fallback to heuristic
-    if model_path.exists():
+    # Try to load as CNN model
+    if model_type in ("nnue", "nn", "neural") or model_type not in ("mcts", "heuristic", "random"):
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -174,9 +201,25 @@ def create_ai_from_model(
             if ai.model is not None:
                 logger.info(f"Loaded CNN model from {model_path}")
                 return ai
+            else:
+                logger.warning(f"Failed to load CNN model from {model_path}")
         except Exception as e:
-            logger.debug(f"Failed to load as CNN: {e}")
+            logger.warning(f"Error loading neural model: {e}")
 
+    if model_type == "mcts":
+        from app.ai.mcts_ai import MCTSAI
+        ai_config = AIConfig(difficulty=5, board_type=board_type)
+        mcts_config = {"simulations": 100}
+        return MCTSAI(player, ai_config, mcts_config)
+
+    elif model_type == "heuristic":
+        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
+
+    elif model_type == "random":
+        return RandomAI(player, AIConfig(difficulty=1))
+
+    # Fallback to heuristic
+    logger.info("Using HeuristicAI (model load failed)")
     return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
 
 
