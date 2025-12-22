@@ -1465,11 +1465,21 @@ def apply_single_chain_capture(
     attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
 
     # Compute ring_under_cap for landing position (December 2025)
+    # BUG FIX 2025-12-21: When capturing, the captured ring goes to the BOTTOM of the stack.
+    # If attacker had no buried rings and we captured an opponent's ring, that ring becomes
+    # the ring_under_cap for the new stack.
     cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
     is_self_capture_no_buried = (target_owner == player) and (attacker_cap_height == attacker_height)
     if cap_fully_eliminated or is_self_capture_no_buried:
         new_ring_under = 0
+    elif attacker_ring_under > 0:
+        # Attacker already had buried rings, captured ring goes below them
+        new_ring_under = attacker_ring_under
+    elif target_owner != player:
+        # Enemy capture with no pre-existing buried rings: captured ring becomes ring_under_cap
+        new_ring_under = target_owner
     else:
+        # Self-capture with buried rings (edge case)
         new_ring_under = attacker_ring_under
 
     state.stack_owner[game_idx, to_y, to_x] = new_owner
@@ -1709,11 +1719,21 @@ def apply_single_initial_capture(
     attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
 
     # Compute ring_under_cap for landing position (December 2025)
+    # BUG FIX 2025-12-21: When capturing, the captured ring goes to the BOTTOM of the stack.
+    # If attacker had no buried rings and we captured an opponent's ring, that ring becomes
+    # the ring_under_cap for the new stack.
     cap_fully_eliminated = landing_ring_cost >= attacker_cap_height
     is_self_capture_no_buried = (target_owner == player) and (attacker_cap_height == attacker_height)
     if cap_fully_eliminated or is_self_capture_no_buried:
         new_ring_under = 0
+    elif attacker_ring_under > 0:
+        # Attacker already had buried rings, captured ring goes below them
+        new_ring_under = attacker_ring_under
+    elif target_owner != player:
+        # Enemy capture with no pre-existing buried rings: captured ring becomes ring_under_cap
+        new_ring_under = target_owner
     else:
+        # Self-capture with buried rings (edge case)
         new_ring_under = attacker_ring_under
 
     state.stack_owner[game_idx, to_y, to_x] = new_owner
