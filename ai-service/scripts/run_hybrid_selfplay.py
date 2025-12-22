@@ -1015,47 +1015,47 @@ def run_hybrid_selfplay(
                             else:
                                 best_move = valid_moves[0]
 
-                    move_timestamp = datetime.now(timezone.utc)
-                    stamped_move = best_move.model_copy(
-                        update={
-                            "id": f"move-{move_count + 1}",
-                            "timestamp": move_timestamp,
-                            "think_time": 0,
-                            "move_number": move_count + 1,
+                        move_timestamp = datetime.now(timezone.utc)
+                        stamped_move = best_move.model_copy(
+                            update={
+                                "id": f"move-{move_count + 1}",
+                                "timestamp": move_timestamp,
+                                "think_time": 0,
+                                "move_number": move_count + 1,
+                            }
+                        )
+
+                        # Apply move (CPU - full rules)
+                        game_state = GameEngine.apply_move(game_state, stamped_move)
+                        moves_for_db.append(stamped_move)
+
+                        # Record full move data for training
+                        move_record = {
+                            "type": stamped_move.type.value if hasattr(stamped_move.type, 'value') else str(stamped_move.type),
+                            "player": stamped_move.player,
                         }
-                    )
+                        # Add position data if available
+                        if hasattr(stamped_move, 'to') and stamped_move.to is not None:
+                            move_record["to"] = {"x": stamped_move.to.x, "y": stamped_move.to.y}
+                        if hasattr(stamped_move, 'from_pos') and stamped_move.from_pos is not None:
+                            move_record["from"] = {"x": stamped_move.from_pos.x, "y": stamped_move.from_pos.y}
+                        if hasattr(stamped_move, 'capture_target') and stamped_move.capture_target is not None:
+                            move_record["capture_target"] = {"x": stamped_move.capture_target.x, "y": stamped_move.capture_target.y}
+                        # Add capture chain for multi-captures
+                        if hasattr(stamped_move, 'capture_chain') and stamped_move.capture_chain:
+                            move_record["capture_chain"] = [{"x": p.x, "y": p.y} for p in stamped_move.capture_chain]
+                        # Add line/territory data if present
+                        if hasattr(stamped_move, 'formed_lines') and stamped_move.formed_lines:
+                            move_record["formed_lines"] = len(stamped_move.formed_lines)
+                        if hasattr(stamped_move, 'claimed_territory') and stamped_move.claimed_territory:
+                            move_record["claimed_territory"] = len(stamped_move.claimed_territory)
 
-                    # Apply move (CPU - full rules)
-                    game_state = GameEngine.apply_move(game_state, stamped_move)
-                    moves_for_db.append(stamped_move)
+                        # Add MCTS policy distribution for KL-divergence training
+                        if mcts_policy_dist is not None:
+                            move_record["mcts_policy"] = mcts_policy_dist
 
-                    # Record full move data for training
-                    move_record = {
-                        "type": stamped_move.type.value if hasattr(stamped_move.type, 'value') else str(stamped_move.type),
-                        "player": stamped_move.player,
-                    }
-                    # Add position data if available
-                    if hasattr(stamped_move, 'to') and stamped_move.to is not None:
-                        move_record["to"] = {"x": stamped_move.to.x, "y": stamped_move.to.y}
-                    if hasattr(stamped_move, 'from_pos') and stamped_move.from_pos is not None:
-                        move_record["from"] = {"x": stamped_move.from_pos.x, "y": stamped_move.from_pos.y}
-                    if hasattr(stamped_move, 'capture_target') and stamped_move.capture_target is not None:
-                        move_record["capture_target"] = {"x": stamped_move.capture_target.x, "y": stamped_move.capture_target.y}
-                    # Add capture chain for multi-captures
-                    if hasattr(stamped_move, 'capture_chain') and stamped_move.capture_chain:
-                        move_record["capture_chain"] = [{"x": p.x, "y": p.y} for p in stamped_move.capture_chain]
-                    # Add line/territory data if present
-                    if hasattr(stamped_move, 'formed_lines') and stamped_move.formed_lines:
-                        move_record["formed_lines"] = len(stamped_move.formed_lines)
-                    if hasattr(stamped_move, 'claimed_territory') and stamped_move.claimed_territory:
-                        move_record["claimed_territory"] = len(stamped_move.claimed_territory)
-
-                    # Add MCTS policy distribution for KL-divergence training
-                    if mcts_policy_dist is not None:
-                        move_record["mcts_policy"] = mcts_policy_dist
-
-                    moves_played.append(move_record)
-                    move_count += 1
+                        moves_played.append(move_record)
+                        move_count += 1
 
             game_time = time.time() - game_start
             total_time += game_time
@@ -1078,6 +1078,15 @@ def run_hybrid_selfplay(
             if stalemate_tiebreaker:
                 stalemate_by_tiebreaker[stalemate_tiebreaker] = stalemate_by_tiebreaker.get(stalemate_tiebreaker, 0) + 1
 
+            # Derive effective game status for training data validity
+            # If game hit max_moves or timed out, status is still "active" in game_state
+            # but should be marked as "completed" for training (with victory_type indicating reason)
+            effective_status = game_state.game_status
+            if effective_status == "active":
+                # Game exited loop without natural completion - mark as completed
+                # The victory_type (timeout, stalemate) indicates why
+                effective_status = "completed"
+
             record = {
                 # === Core game identifiers ===
                 "game_id": f"hybrid_{board_type}_{num_players}p_{game_idx}_{int(datetime.now().timestamp())}",
@@ -1086,11 +1095,11 @@ def run_hybrid_selfplay(
                 # === Game outcome ===
                 "winner": winner,
                 "move_count": move_count,
-                "status": game_state.game_status,  # completed, abandoned, etc.
-                "game_status": game_state.game_status,  # Alias for compatibility
+                "status": effective_status,  # completed, abandoned, etc.
+                "game_status": effective_status,  # Alias for compatibility
                 "victory_type": victory_type,  # territory, elimination, lps, stalemate, timeout
                 "stalemate_tiebreaker": stalemate_tiebreaker,  # territory, ring_elim, or None
-                "termination_reason": f"status:{game_state.game_status}:{victory_type}",
+                "termination_reason": f"status:{effective_status}:{victory_type}",
                 # === Engine/opponent metadata ===
                 "engine_mode": engine_mode,  # Default engine mode (P1)
                 "player_engine_modes": {str(p): player_engine_modes[p] for p in range(1, num_players + 1)},  # Per-player engine modes
