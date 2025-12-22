@@ -1,7 +1,16 @@
 """Event Integration for Training Components.
 
-Provides event publishing and subscription utilities for training components
-using the unified EventBus system.
+Provides event publishing and subscription utilities for training components.
+
+**CONSOLIDATION NOTE (December 2025):**
+This module is being unified with app.coordination.event_emitters. The publish_*
+functions here now route through the UnifiedEventRouter for cross-system
+compatibility. For new code, prefer using app.coordination.event_emitters directly:
+
+    from app.coordination.event_emitters import emit_training_complete
+
+The dataclass event types (TrainingEvent, EvaluationEvent, etc.) remain
+the canonical definitions for type-safe event handling.
 
 Training Events:
 - Training started/completed/failed
@@ -36,6 +45,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -48,6 +58,16 @@ from app.core.event_bus import (
     publish,
     subscribe,
 )
+
+# Bridge to unified event router for cross-system routing
+try:
+    from app.coordination.event_router import get_router as get_unified_router
+    HAS_UNIFIED_ROUTER = True
+except ImportError:
+    HAS_UNIFIED_ROUTER = False
+
+    def get_unified_router():
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -361,6 +381,48 @@ class CompositeConsistencyCheckEvent(CompositeEloEvent):
 
 
 # =============================================================================
+# Unified Routing Bridge
+# =============================================================================
+
+async def _route_to_unified(event_type: str, payload: dict[str, Any]) -> None:
+    """Also route event through unified router for cross-system compatibility.
+
+    This ensures events published via this module are also visible to listeners
+    on the coordination event system (StageEventBus, DataEventBus).
+    """
+    if not HAS_UNIFIED_ROUTER:
+        return
+
+    try:
+        router = get_unified_router()
+        if router is not None:
+            await router.publish(
+                event_type=event_type,
+                payload=payload,
+                source="training.event_integration",
+            )
+    except Exception as e:
+        logger.debug(f"Failed to route {event_type} to unified router: {e}")
+
+
+def _route_to_unified_sync(event_type: str, payload: dict[str, Any]) -> None:
+    """Synchronous version of unified routing."""
+    if not HAS_UNIFIED_ROUTER:
+        return
+
+    try:
+        router = get_unified_router()
+        if router is not None and hasattr(router, 'publish_sync'):
+            router.publish_sync(
+                event_type=event_type,
+                payload=payload,
+                source="training.event_integration",
+            )
+    except Exception as e:
+        logger.debug(f"Failed to route {event_type} sync to unified router: {e}")
+
+
+# =============================================================================
 # Publisher Functions
 # =============================================================================
 
@@ -371,7 +433,11 @@ async def publish_training_started(
     batch_size: int = 0,
     learning_rate: float = 0.0,
 ) -> int:
-    """Publish training started event."""
+    """Publish training started event.
+
+    Note: Also routes through unified event router for cross-system compatibility.
+    For new code, consider using app.coordination.event_emitters.emit_training_started.
+    """
     event = TrainingStartedEvent(
         topic=TrainingTopics.TRAINING_STARTED,
         config_key=config_key,
@@ -381,6 +447,16 @@ async def publish_training_started(
         learning_rate=learning_rate,
         source="training",
     )
+
+    # Also route to unified system
+    await _route_to_unified("training.started", {
+        "config_key": config_key,
+        "job_id": job_id,
+        "total_epochs": total_epochs,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+    })
+
     return await publish(event)
 
 
@@ -392,7 +468,11 @@ async def publish_training_completed(
     final_elo: float = 0.0,
     duration_seconds: float = 0.0,
 ) -> int:
-    """Publish training completed event."""
+    """Publish training completed event.
+
+    Note: Also routes through unified event router for cross-system compatibility.
+    For new code, consider using app.coordination.event_emitters.emit_training_complete.
+    """
     event = TrainingCompletedEvent(
         topic=TrainingTopics.TRAINING_COMPLETED,
         config_key=config_key,
@@ -403,6 +483,18 @@ async def publish_training_completed(
         duration_seconds=duration_seconds,
         source="training",
     )
+
+    # Also route to unified system
+    await _route_to_unified("training.completed", {
+        "config_key": config_key,
+        "job_id": job_id,
+        "epochs_completed": epochs_completed,
+        "final_loss": final_loss,
+        "final_elo": final_elo,
+        "duration_seconds": duration_seconds,
+        "success": True,
+    })
+
     return await publish(event)
 
 
@@ -413,7 +505,10 @@ async def publish_training_failed(
     epoch: int = 0,
     step: int = 0,
 ) -> int:
-    """Publish training failed event."""
+    """Publish training failed event.
+
+    Note: Also routes through unified event router for cross-system compatibility.
+    """
     event = TrainingFailedEvent(
         topic=TrainingTopics.TRAINING_FAILED,
         config_key=config_key,
@@ -424,6 +519,18 @@ async def publish_training_failed(
         step=step,
         source="training",
     )
+
+    # Also route to unified system
+    await _route_to_unified("training.failed", {
+        "config_key": config_key,
+        "job_id": job_id,
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+        "epoch": epoch,
+        "step": step,
+        "success": False,
+    })
+
     return await publish(event)
 
 
@@ -581,7 +688,11 @@ async def publish_selfplay_started(
     engine: str = "",
     job_id: str = "",
 ) -> int:
-    """Publish selfplay started event."""
+    """Publish selfplay started event.
+
+    Note: Also routes through unified event router for cross-system compatibility.
+    For new code, consider using app.coordination.event_emitters.emit_selfplay_started.
+    """
     event = SelfplayStartedEvent(
         topic=TrainingTopics.SELFPLAY_STARTED,
         config_key=config_key,
@@ -591,6 +702,16 @@ async def publish_selfplay_started(
         engine=engine,
         source="selfplay",
     )
+
+    # Also route to unified system
+    await _route_to_unified("selfplay.started", {
+        "config_key": config_key,
+        "job_id": job_id,
+        "iteration": iteration,
+        "games_count": games_count,
+        "engine": engine,
+    })
+
     return await publish(event)
 
 
@@ -603,7 +724,11 @@ async def publish_selfplay_completed(
     duration_seconds: float = 0.0,
     job_id: str = "",
 ) -> int:
-    """Publish selfplay completed event."""
+    """Publish selfplay completed event.
+
+    Note: Also routes through unified event router for cross-system compatibility.
+    For new code, consider using app.coordination.event_emitters.emit_selfplay_complete.
+    """
     event = SelfplayCompletedEvent(
         topic=TrainingTopics.SELFPLAY_COMPLETED,
         config_key=config_key,
@@ -615,6 +740,18 @@ async def publish_selfplay_completed(
         duration_seconds=duration_seconds,
         source="selfplay",
     )
+
+    # Also route to unified system
+    await _route_to_unified("selfplay.completed", {
+        "config_key": config_key,
+        "job_id": job_id,
+        "iteration": iteration,
+        "games_count": games_count,
+        "success": success,
+        "output_path": output_path,
+        "duration_seconds": duration_seconds,
+    })
+
     return await publish(event)
 
 
@@ -796,7 +933,10 @@ def publish_training_started_sync(
     job_id: str = "",
     **kwargs: Any,
 ) -> int:
-    """Synchronously publish training started event."""
+    """Synchronously publish training started event.
+
+    Note: Also routes through unified event router for cross-system compatibility.
+    """
     event = TrainingStartedEvent(
         topic=TrainingTopics.TRAINING_STARTED,
         config_key=config_key,
@@ -804,6 +944,14 @@ def publish_training_started_sync(
         source="training",
         **kwargs,
     )
+
+    # Also route to unified system
+    _route_to_unified_sync("training.started", {
+        "config_key": config_key,
+        "job_id": job_id,
+        **kwargs,
+    })
+
     return get_event_bus().publish_sync(event)
 
 
