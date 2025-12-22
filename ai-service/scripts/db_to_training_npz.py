@@ -178,13 +178,19 @@ def export_db_to_npz(
             "This violates RR-CANON-R075 - data should be marked as 'healed' in registry."
         )
 
-    # Get game IDs
+    # Get game IDs - handle both old (move_count) and new (total_moves) schema
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT game_id, winner, total_moves
+
+    # Check which column name exists
+    cursor.execute("PRAGMA table_info(games)")
+    columns = {row[1] for row in cursor.fetchall()}
+    moves_col = "total_moves" if "total_moves" in columns else "move_count"
+
+    cursor.execute(f"""
+        SELECT game_id, winner, {moves_col}
         FROM games
-        WHERE winner IS NOT NULL AND total_moves > 10
+        WHERE winner IS NOT NULL AND {moves_col} > 10
         ORDER BY game_id
     """)
     games = cursor.fetchall()
