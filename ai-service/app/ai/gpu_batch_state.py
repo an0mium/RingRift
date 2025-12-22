@@ -74,7 +74,7 @@ _CPU_TO_GPU_MOVE_TYPE = {
 }
 
 
-def _cpu_move_type_to_gpu(cpu_move_type) -> int:
+def _cpu_move_type_to_gpu(cpu_move_type: MoveType | str | Any) -> int:
     """Convert CPU MoveType to GPU MoveType integer value."""
     if hasattr(cpu_move_type, 'value'):
         # It's an enum, get the string value

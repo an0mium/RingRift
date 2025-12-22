@@ -161,6 +161,42 @@ def get_required_line_length(board_size: int, num_players: int) -> int:
     return 4
 
 
+def get_move_type_index(move_type: MoveType | int) -> int:
+    """Get canonical neural network feature index for a move type.
+
+    Provides a consistent mapping from MoveType enum to feature indices
+    for neural network encoding. This centralizes the mapping to avoid
+    hardcoded values scattered across encoder implementations.
+
+    Args:
+        move_type: MoveType enum value or integer
+
+    Returns:
+        Feature index (0-based) for neural network encoding
+
+    Note:
+        The mapping groups related move types for better feature learning:
+        - 0-2: Core action types (placement, movement, capture)
+        - 3-4: Line and territory processing
+        - 5-7: Skip and no-action variants
+        - 8-10: Canonical capture types
+        - 11-13: Canonical choice types
+    """
+    mt = int(move_type)
+    # Direct mapping - MoveType enum values are already sequential
+    # and suitable for neural network feature indices
+    return mt
+
+
+def get_move_type_count() -> int:
+    """Get the total number of move types for neural network feature dimensions.
+
+    Returns:
+        Number of distinct move types (for one-hot encoding dimension)
+    """
+    return len(MoveType)
+
+
 # =============================================================================
 # Move Constants
 # =============================================================================
@@ -197,5 +233,7 @@ __all__ = [
     'MoveType',
     # Functions
     'get_int_dtype',
+    'get_move_type_count',
+    'get_move_type_index',
     'get_required_line_length',
 ]

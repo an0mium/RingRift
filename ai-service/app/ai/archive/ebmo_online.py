@@ -1,24 +1,31 @@
 """EBMO Online Learning Module.
 
+.. deprecated:: December 2025
+    This module has been consolidated to the canonical location.
+
+    **Use instead:**
+        from app.ai.ebmo_online_learner import EBMOOnlineLearner
+
+    This archive version is kept only for backward compatibility and
+    will be removed in Q1 2026.
+
 Implements continuous learning for EBMO without batch training:
 - TD-Energy updates during gameplay
 - Rolling buffer of recent games for stability
 - Outcome-weighted contrastive loss
 - Real-time weight updates after each game
-
-Usage:
-    from app.ai.archive.ebmo_online import EBMOOnlineLearner
-
-    learner = EBMOOnlineLearner(model, device='mps')
-
-    # During play, record states and moves
-    learner.record_transition(state, move, player, next_state)
-
-    # After game, update with outcome
-    learner.update_from_game(winner)
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "app.ai.archive.ebmo_online is deprecated. "
+    "Use app.ai.ebmo_online_learner instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import logging
 from collections import deque

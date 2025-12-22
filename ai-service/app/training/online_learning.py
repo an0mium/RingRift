@@ -55,7 +55,7 @@ Integration with Training Pipeline:
     hot_buffer.add_game(game_record)
 
 History:
-    - December 2025: Consolidated from app.ai.archive.ebmo_online
+    - December 2025: Consolidated to app.ai.ebmo_online_learner (canonical location)
     - December 2025: Added to main training module
 """
 
@@ -262,11 +262,10 @@ class TDStepLearner(Protocol):
 # EBMO Online Learning Implementation
 # =============================================================================
 
-# Re-export from archive with proper documentation
-# This maintains backward compatibility while moving to the canonical location
+# Re-export from canonical location (consolidated December 2025)
 
 try:
-    from app.ai.archive.ebmo_online import (
+    from app.ai.ebmo_online_learner import (
         EBMOOnlineConfig,
         EBMOOnlineLearner,
         EBMOOnlineAI,
