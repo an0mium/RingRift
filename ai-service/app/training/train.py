@@ -1392,6 +1392,8 @@ def train_model(
 
     hex_in_channels = 0
     hex_num_players = num_players
+    # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
+    hex_radius = 4 if config.board_type == BoardType.HEX8 else 12
     # HexNeuralNet_v3 uses spatial policy heads that assume board-aware (P_HEX)
     # indices. Enforce board-aware encoding for v3 via dataset metadata checks.
     use_hex_v3 = bool(use_hex_model and model_version == 'v3')
@@ -1483,6 +1485,7 @@ def train_model(
             num_res_blocks=effective_blocks,
             num_filters=effective_filters,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=hex_num_players,
         )
@@ -1495,6 +1498,7 @@ def train_model(
             num_res_blocks=effective_blocks,
             num_filters=effective_filters,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=hex_num_players,
         )

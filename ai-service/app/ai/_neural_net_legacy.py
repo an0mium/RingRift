@@ -2681,6 +2681,8 @@ def create_model_for_board(
     # Create model based on board type and memory tier
     # Both HEX8 (radius-4) and HEXAGONAL (radius-12) use hexagonal neural network architectures
     if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
+        hex_radius = 4 if board_type == BoardType.HEX8 else 12
         if tier == "v4":
             raise ValueError(
                 "V4 architecture is not yet available for hexagonal boards. "
@@ -2694,6 +2696,7 @@ def create_model_for_board(
                 num_res_blocks=num_res_blocks or 12,
                 num_filters=num_filters or 192,
                 board_size=board_size,
+                hex_radius=hex_radius,
                 policy_size=policy_size,
                 num_players=num_players,
             )
@@ -2705,6 +2708,7 @@ def create_model_for_board(
                 num_res_blocks=num_res_blocks or 6,
                 num_filters=num_filters or 96,
                 board_size=board_size,
+                hex_radius=hex_radius,
                 policy_size=policy_size,
                 num_players=num_players,
             )
@@ -2716,6 +2720,7 @@ def create_model_for_board(
                 num_res_blocks=num_res_blocks or 12,
                 num_filters=num_filters or 192,
                 board_size=board_size,
+                hex_radius=hex_radius,
                 policy_size=policy_size,
                 num_players=num_players,
             )
@@ -2727,6 +2732,7 @@ def create_model_for_board(
                 num_res_blocks=num_res_blocks or 6,
                 num_filters=num_filters or 96,
                 board_size=board_size,
+                hex_radius=hex_radius,
                 policy_size=policy_size,
                 num_players=num_players,
             )

@@ -62,6 +62,8 @@ def create_model(config: ModelConfig, device: torch.device | None = None) -> nn.
     """
     use_hex_model = config.board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
     use_hex_v3 = use_hex_model and config.model_version == 'v3'
+    # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
+    hex_radius = 4 if config.board_type == BoardType.HEX8 else 12
 
     # Determine effective number of players for value head
     if config.multi_player:
@@ -77,12 +79,14 @@ def create_model(config: ModelConfig, device: torch.device | None = None) -> nn.
             num_res_blocks=config.num_res_blocks,
             num_filters=config.num_filters,
             board_size=config.board_size,
+            hex_radius=hex_radius,
             policy_size=config.policy_size,
             num_players=effective_num_players,
         )
         logger.info(
             f"Created HexNeuralNet_v3: board_size={config.board_size}, "
-            f"policy_size={config.policy_size}, in_channels={config.in_channels}"
+            f"hex_radius={hex_radius}, policy_size={config.policy_size}, "
+            f"in_channels={config.in_channels}"
         )
     elif use_hex_model:
         # HexNeuralNet_v2 for hexagonal boards
@@ -92,12 +96,14 @@ def create_model(config: ModelConfig, device: torch.device | None = None) -> nn.
             num_res_blocks=config.num_res_blocks,
             num_filters=config.num_filters,
             board_size=config.board_size,
+            hex_radius=hex_radius,
             policy_size=config.policy_size,
             num_players=effective_num_players,
         )
         logger.info(
             f"Created HexNeuralNet_v2: board_size={config.board_size}, "
-            f"policy_size={config.policy_size}, in_channels={config.in_channels}"
+            f"hex_radius={hex_radius}, policy_size={config.policy_size}, "
+            f"in_channels={config.in_channels}"
         )
     elif config.model_version == 'v4':
         # V4 NAS-optimized architecture

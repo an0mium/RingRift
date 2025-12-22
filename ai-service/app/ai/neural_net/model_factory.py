@@ -141,6 +141,8 @@ def create_model_for_board(
 
     # Create model based on board type and memory tier
     if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
+        hex_radius = 4 if board_type == BoardType.HEX8 else 12
         return _create_hex_model(
             tier=tier,
             in_channels=total_in_channels,
@@ -148,6 +150,7 @@ def create_model_for_board(
             num_res_blocks=num_res_blocks,
             num_filters=num_filters,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=num_players,
         )
@@ -171,10 +174,23 @@ def _create_hex_model(
     num_res_blocks: int | None,
     num_filters: int | None,
     board_size: int,
+    hex_radius: int,
     policy_size: int,
     num_players: int,
 ) -> nn.Module:
-    """Create a hexagonal board model based on memory tier."""
+    """Create a hexagonal board model based on memory tier.
+
+    Args:
+        tier: Memory tier (v3-high, v3-low, high, low)
+        in_channels: Number of input channels
+        global_features: Number of global feature dimensions
+        num_res_blocks: Number of residual blocks (or None for default)
+        num_filters: Number of convolutional filters (or None for default)
+        board_size: Spatial size of the board (9 for HEX8, 25 for HEXAGONAL)
+        hex_radius: Hexagonal grid radius (4 for HEX8, 12 for HEXAGONAL)
+        policy_size: Size of the policy output
+        num_players: Number of players
+    """
     if tier == "v4":
         raise ValueError(
             "V4 architecture is not yet available for hexagonal boards. "
@@ -188,6 +204,7 @@ def _create_hex_model(
             num_res_blocks=num_res_blocks or 12,
             num_filters=num_filters or 192,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=num_players,
         )
@@ -198,6 +215,7 @@ def _create_hex_model(
             num_res_blocks=num_res_blocks or 6,
             num_filters=num_filters or 96,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=num_players,
         )
@@ -208,6 +226,7 @@ def _create_hex_model(
             num_res_blocks=num_res_blocks or 12,
             num_filters=num_filters or 192,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=num_players,
         )
@@ -218,6 +237,7 @@ def _create_hex_model(
             num_res_blocks=num_res_blocks or 6,
             num_filters=num_filters or 96,
             board_size=board_size,
+            hex_radius=hex_radius,
             policy_size=policy_size,
             num_players=num_players,
         )
