@@ -1825,15 +1825,23 @@ def apply_capture_moves_batch_vectorized(
     new_cap_height = torch.minimum(new_cap_height, new_height)
 
     # Determine new owner
-    # When cap eliminated with buried rings, opponent takes ownership
+    # BUG FIX 2025-12-21: When cap eliminated with buried rings, use ring_under_cap
+    # to determine new owner, not hardcoded opponent. The ring_under_cap tells us
+    # who owns the ring directly below the cap (per RR-CANON-R022).
     opponent = torch.where(
         players == 1,
         torch.full_like(players, 2),
         torch.ones_like(players)
     )
+    # Use attacker_ring_under if > 0, otherwise fallback to opponent
+    buried_owner = torch.where(
+        attacker_ring_under > 0,
+        attacker_ring_under,
+        opponent
+    )
     new_owner = torch.where(
         cap_elim_with_buried,
-        opponent,  # Buried rings' owner (opponent of attacker)
+        buried_owner,  # Ring under cap becomes new owner
         torch.where(
             cap_fully_eliminated,
             defender_owner,  # Target's original owner

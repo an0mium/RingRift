@@ -44,10 +44,18 @@ if TYPE_CHECKING:
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+# Early startup heartbeat to prevent SSH timeout during slow imports
+print("[startup] Loading tournament script...")
+sys.stdout.flush()
+
 # Import event bus helpers (consolidated imports)
 import asyncio
 
+print("[startup] Importing torch...")
+sys.stdout.flush()
 import torch
+print("[startup] Importing app modules...")
+sys.stdout.flush()
 
 from app.distributed.event_helpers import (
     emit_elo_updated_safe,
@@ -127,6 +135,9 @@ else:
     estimate_task_duration = None
     register_running_task = None
     record_task_completion = None
+
+print("[startup] Imports complete, ready to run")
+sys.stdout.flush()
 
 _RECORDING_LOCK = threading.Lock()
 
@@ -1393,9 +1404,56 @@ def get_baseline_players(board_type: str, num_players: int) -> list[dict[str, An
 
 
 def register_models(db: EloDatabase, models: list[dict[str, Any]]):
-    """Register discovered models in the database."""
-    for m in models:
-        # Determine AI type from model path
+    """Register discovered models in the database.
+
+    Optimized for large model counts:
+    - Fetches existing participants in a single query
+    - Skips already-registered models
+    - Uses batch insert for new models
+    - Emits heartbeat progress to prevent SSH timeout
+    """
+    if not models:
+        return
+
+    # Step 1: Fetch existing participant IDs in a single query (fast)
+    print(f"[register] Checking {len(models)} models against database...")
+    sys.stdout.flush()
+
+    conn = db._get_connection()
+    model_ids = [m["model_id"] for m in models]
+
+    # Batch query for existing IDs using IN clause (chunked for SQLite limit)
+    existing_ids = set()
+    chunk_size = 500  # SQLite SQLITE_MAX_VARIABLE_NUMBER is typically 999
+    for i in range(0, len(model_ids), chunk_size):
+        chunk = model_ids[i:i + chunk_size]
+        placeholders = ",".join("?" * len(chunk))
+        rows = conn.execute(
+            f"SELECT participant_id FROM participants WHERE participant_id IN ({placeholders})",
+            chunk
+        ).fetchall()
+        existing_ids.update(row[0] for row in rows)
+
+    # Step 2: Filter to only new models
+    new_models = [m for m in models if m["model_id"] not in existing_ids]
+
+    if not new_models:
+        print(f"[register] All {len(models)} models already registered")
+        sys.stdout.flush()
+        return
+
+    print(f"[register] {len(existing_ids)} already registered, {len(new_models)} new models to add")
+    sys.stdout.flush()
+
+    # Step 3: Prepare batch insert data
+    now = time.time()
+    insert_data = []
+    for idx, m in enumerate(new_models):
+        # Emit heartbeat every 100 models to prevent SSH timeout
+        if idx > 0 and idx % 100 == 0:
+            print(f"[register] Preparing model {idx}/{len(new_models)}...")
+            sys.stdout.flush()
+
         model_path = m.get("model_path", "")
         if model_path.startswith("__BASELINE_RANDOM__"):
             ai_type = "random"
@@ -1416,14 +1474,35 @@ def register_models(db: EloDatabase, models: list[dict[str, Any]]):
             ai_type = m.get("ai_type", "neural_net")
             participant_type = "model"
 
-        db.register_participant(
-            participant_id=m["model_id"],
-            participant_type=participant_type,
-            ai_type=ai_type,
-            use_neural_net=(ai_type == "neural_net"),
-            model_path=m.get("model_path"),
-            model_version=m.get("version"),
-        )
+        insert_data.append((
+            m["model_id"],
+            participant_type,
+            ai_type,
+            None,  # difficulty
+            ai_type == "neural_net",  # use_neural_net
+            m.get("model_path"),
+            m.get("version"),
+            None,  # metadata
+            now,  # created_at
+            now,  # last_seen
+        ))
+
+    # Step 4: Bulk insert using executemany (much faster than individual inserts)
+    print(f"[register] Bulk inserting {len(insert_data)} new models...")
+    sys.stdout.flush()
+
+    conn.executemany("""
+        INSERT INTO participants
+        (participant_id, participant_type, ai_type, difficulty, use_neural_net,
+         model_path, model_version, metadata, created_at, last_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(participant_id) DO UPDATE SET
+            last_seen = excluded.last_seen
+    """, insert_data)
+    conn.commit()
+
+    print(f"[register] Done: registered {len(new_models)} new models in bulk")
+    sys.stdout.flush()
 
 
 def get_leaderboard(
@@ -2162,9 +2241,13 @@ def main():
         return
 
     db_path = Path(args.db) if args.db else ELO_DB_PATH
+    print(f"[main] Initializing Elo database at {db_path}...")
+    sys.stdout.flush()
     db = init_elo_database(db_path)
 
     # Discover models
+    print("[main] Scanning for models...")
+    sys.stdout.flush()
     models_dir = AI_SERVICE_ROOT / "models"
     if args.baselines_only:
         models = get_baseline_players(args.board, args.players)
@@ -2194,11 +2277,15 @@ def main():
 
     # --top-elo: Select top N models by ELO rating (more useful for focused evaluation)
     if args.top_elo and not args.baselines_only:
-        # Get current ELO ratings for all models
+        # Get current ELO ratings for all models using batch query
+        print(f"[main] Fetching Elo ratings for {len(models)} models...")
+        sys.stdout.flush()
+        model_ids = [m.get("model_id", m.get("participant_id", "")) for m in models]
+        ratings_map = db.get_ratings_batch(model_ids, args.board, args.players)
         model_elos = []
         for m in models:
             mid = m.get("model_id", m.get("participant_id", ""))
-            rating = db.get_rating(mid, args.board, args.players)
+            rating = ratings_map.get(mid)
             model_elos.append((m, rating.rating if rating else 1500.0))
         # Sort by ELO descending and take top N
         model_elos.sort(key=lambda x: x[1], reverse=True)

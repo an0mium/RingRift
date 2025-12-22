@@ -100,9 +100,10 @@ export function hasAnyPlacementForPlayer(state: GameState, player: number): bool
     return false;
   }
 
-  if (board.type === 'hexagonal') {
-    // For hex boards, iterate over all cube coordinates within the board
-    // radius. validatePlacementOnBoard will discard off-board positions.
+  if (board.type === 'hexagonal' || board.type === 'hex8') {
+    // For hex boards (hexagonal and hex8), iterate over all cube coordinates
+    // within the board radius. validatePlacementOnBoard will discard off-board
+    // positions.
     const radius = board.size - 1;
     for (let q = -radius; q <= radius; q += 1) {
       for (let r = -radius; r <= radius; r += 1) {
