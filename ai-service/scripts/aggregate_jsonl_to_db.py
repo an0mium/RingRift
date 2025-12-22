@@ -567,6 +567,40 @@ def _parse_moves(moves_data: list[Any], initial_state: GameState) -> list[Move]:
                     if isinstance(phase, str) and phase.isupper():
                         move_data["phase"] = phase.lower()
 
+                # Compute captureTarget for capture moves
+                # The capture target is the position between from and to (the stack being jumped over)
+                move_type = move_data.get("type", "")
+                if move_type in ("overtaking_capture", "continue_capture_segment", "capture"):
+                    from_pos = move_data.get("from_pos") or move_data.get("from")
+                    to_pos = move_data.get("to_pos") or move_data.get("to")
+                    if from_pos and to_pos and "captureTarget" not in move_data:
+                        # Handle both [y, x] and {x, y} formats
+                        if isinstance(from_pos, list):
+                            from_y, from_x = from_pos[0], from_pos[1]
+                        else:
+                            from_y, from_x = from_pos.get("y", 0), from_pos.get("x", 0)
+                        if isinstance(to_pos, list):
+                            to_y, to_x = to_pos[0], to_pos[1]
+                        else:
+                            to_y, to_x = to_pos.get("y", 0), to_pos.get("x", 0)
+
+                        # Compute midpoint (the captured stack position)
+                        # For a valid capture, from and to should be 2 steps apart
+                        dy = to_y - from_y
+                        dx = to_x - from_x
+                        # The capture target is one step from the source towards the destination
+                        if dy != 0:
+                            step_y = 1 if dy > 0 else -1
+                        else:
+                            step_y = 0
+                        if dx != 0:
+                            step_x = 1 if dx > 0 else -1
+                        else:
+                            step_x = 0
+                        target_y = from_y + step_y
+                        target_x = from_x + step_x
+                        move_data["captureTarget"] = {"x": target_x, "y": target_y}
+
                 # Ensure required fields have defaults
                 if "id" not in move_data:
                     move_data["id"] = f"move-{i}"
