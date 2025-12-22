@@ -809,6 +809,7 @@ def get_nnue_model_path(
 def _migrate_legacy_state_dict(
     state_dict: dict[str, torch.Tensor],
     architecture_version: str,
+    target_input_size: int | None = None,
 ) -> dict[str, torch.Tensor]:
     """Migrate a legacy state dict to the current architecture.
 
@@ -817,18 +818,19 @@ def _migrate_legacy_state_dict(
     Args:
         state_dict: The legacy state dict
         architecture_version: Version string from checkpoint
+        target_input_size: Expected input size (for padding accumulator weights)
 
     Returns:
         Migrated state dict compatible with current RingRiftNNUE
     """
+    new_state_dict = dict(state_dict)
+
     # v1.0.0 and v1.1.0 used simple Sequential hidden layers:
     # hidden.0.weight/bias (Linear), hidden.2.weight/bias (Linear)
     # Current v1.3.0 uses ResidualBlocks: hidden_blocks.N.fc.weight/bias
-
     if architecture_version.startswith("v1.0") or architecture_version.startswith("v1.1"):
-        new_state_dict = {}
-
-        for key, value in state_dict.items():
+        migrated = {}
+        for key, value in new_state_dict.items():
             if key.startswith("hidden."):
                 # Map hidden.0 -> hidden_blocks.0.fc
                 # Map hidden.2 -> hidden_blocks.1.fc
@@ -839,17 +841,27 @@ def _migrate_legacy_state_dict(
                     # hidden.0 -> block 0, hidden.2 -> block 1
                     block_idx = layer_idx // 2
                     new_key = f"hidden_blocks.{block_idx}.fc.{param_type}"
-                    new_state_dict[new_key] = value
+                    migrated[new_key] = value
                 else:
-                    new_state_dict[key] = value
+                    migrated[key] = value
             else:
-                new_state_dict[key] = value
+                migrated[key] = value
+        new_state_dict = migrated
+        logger.info(f"Migrated hidden layer structure from {architecture_version} to v1.3.0")
 
-        logger.info(f"Migrated legacy state dict from {architecture_version} to v1.3.0")
-        return new_state_dict
+    # Handle accumulator weight size mismatch (768 -> 788 for global features)
+    # Old models were trained without GLOBAL_FEATURES, new models include them
+    if "accumulator.weight" in new_state_dict and target_input_size is not None:
+        acc_weight = new_state_dict["accumulator.weight"]
+        current_size = acc_weight.shape[1]
+        if current_size < target_input_size:
+            padding_size = target_input_size - current_size
+            # Pad with zeros for the new global features
+            padding = torch.zeros(acc_weight.shape[0], padding_size, device=acc_weight.device, dtype=acc_weight.dtype)
+            new_state_dict["accumulator.weight"] = torch.cat([acc_weight, padding], dim=1)
+            logger.info(f"Padded accumulator.weight from {current_size} to {target_input_size} features (+{padding_size} global features)")
 
-    # No migration needed for current or unknown versions
-    return state_dict
+    return new_state_dict
 
 
 def load_nnue_model(
@@ -901,9 +913,9 @@ def load_nnue_model(
                 state_dict = checkpoint["model_state_dict"]
                 arch_version = checkpoint.get("architecture_version", "v1.0.0")
 
-                # Migrate legacy state dicts if needed
-                if arch_version != RingRiftNNUE.ARCHITECTURE_VERSION:
-                    state_dict = _migrate_legacy_state_dict(state_dict, arch_version)
+                # Migrate legacy state dicts if needed (including accumulator weight padding)
+                target_input_size = FEATURE_DIMS.get(board_type, FEATURE_DIMS[BoardType.SQUARE8])
+                state_dict = _migrate_legacy_state_dict(state_dict, arch_version, target_input_size)
 
                 # Use strict=False to allow for minor structural differences
                 model.load_state_dict(state_dict, strict=False)

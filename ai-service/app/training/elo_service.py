@@ -376,6 +376,12 @@ class EloService:
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
+            # Migration: add winner_id column if not exists (for existing DBs)
+            try:
+                conn.execute("ALTER TABLE match_history ADD COLUMN winner_id TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             # Elo history for trend analysis
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS elo_history (
