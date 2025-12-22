@@ -193,3 +193,6 @@ data/diversity/
 # Training data and model checkpoints
 training_data/
 OVERNIGHT_MONITORING.md
+
+# Debug scripts (ephemeral)
+scripts/debug_*.py

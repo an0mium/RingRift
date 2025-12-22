@@ -1500,6 +1500,8 @@ def main():
         "ram_storage": selfplay_config.extra_options["ram_storage"],
         "sync_target": selfplay_config.extra_options["sync_target"],
         "sync_interval": selfplay_config.sync_interval,
+        "game_timeout": parsed.game_timeout,
+        "session_timeout": parsed.session_timeout,
     })()
 
     # Validate GPU/CUDA environment

@@ -68,42 +68,51 @@ class FastGeometry:
     ]
 
     # Canonical hex board configuration (RR-CANON-R001 / BOARD_CONFIGS).
-    # size=13 implies cube radius=12 and totalSpaces=469.
-    HEX_SIZE: int = 13
-    HEX_RADIUS: int = HEX_SIZE - 1
+    # HEXAGONAL: size=25 (bounding box = 2*radius+1), radius=12, 469 cells
+    # HEX8: size=9, radius=4, 61 cells
+    HEX_SIZE: int = 25  # Bounding box for canonical hexagonal (radius-12)
+    HEX_RADIUS: int = (HEX_SIZE - 1) // 2  # = 12 for HEXAGONAL
+    HEX8_SIZE: int = 9  # Bounding box for hex8 (radius-4)
+    HEX8_RADIUS: int = (HEX8_SIZE - 1) // 2  # = 4 for HEX8
 
     def __init__(self):
         """Initialize pre-computed geometry tables."""
         # Adjacency tables: key -> list of adjacent keys
         self._adjacency_square8: dict[str, list[str]] = {}
         self._adjacency_square19: dict[str, list[str]] = {}
-        self._adjacency_hex: dict[str, list[str]] = {}
+        self._adjacency_hex: dict[str, list[str]] = {}  # HEXAGONAL (radius-12)
+        self._adjacency_hex8: dict[str, list[str]] = {}  # HEX8 (radius-4)
 
         # All board keys (cached)
         self._all_keys_square8: list[str] = []
         self._all_keys_square19: list[str] = []
-        self._all_keys_hex: list[str] = []
+        self._all_keys_hex: list[str] = []  # HEXAGONAL (469 cells)
+        self._all_keys_hex8: list[str] = []  # HEX8 (61 cells)
 
         # Center positions (cached)
         self._center_square8: frozenset[str] = frozenset()
         self._center_square19: frozenset[str] = frozenset()
         self._center_hex: frozenset[str] = frozenset()
+        self._center_hex8: frozenset[str] = frozenset()
 
         # Key -> coordinates tuple (avoids string parsing)
         self._coords_square8: dict[str, tuple[int, int, None]] = {}
         self._coords_square19: dict[str, tuple[int, int, None]] = {}
         self._coords_hex: dict[str, tuple[int, int, int]] = {}
+        self._coords_hex8: dict[str, tuple[int, int, int]] = {}
 
         # Pre-computed offset tables: (key, direction_index, distance) -> result_key
         # For distances 1, 2, 3 (most common in line evaluation)
         self._offset_square8: dict[tuple[str, int, int], str | None] = {}
         self._offset_square19: dict[tuple[str, int, int], str | None] = {}
         self._offset_hex: dict[tuple[str, int, int], str | None] = {}
+        self._offset_hex8: dict[tuple[str, int, int], str | None] = {}
 
         # Pre-compute everything
         self._build_square_tables(8, self._adjacency_square8, self._all_keys_square8)
         self._build_square_tables(19, self._adjacency_square19, self._all_keys_square19)
         self._build_hex_tables(self.HEX_SIZE, self._adjacency_hex, self._all_keys_hex)
+        self._build_hex_tables(self.HEX8_SIZE, self._adjacency_hex8, self._all_keys_hex8)
         self._build_center_tables()
         self._build_coords_tables()
         self._build_offset_tables()

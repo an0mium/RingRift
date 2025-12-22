@@ -2004,8 +2004,7 @@ class ParallelGameRunner:
 
         # Process territory claims and capture elimination/region positions
         # Use current_player_only=True to match CPU semantics (process only current player's regions)
-        # Returns: (elimination_positions, region_positions, opponent_eliminated_dict)
-        territory_elimination_positions, territory_region_positions, opp_elim_dict = compute_territory_batch(
+        territory_elimination_positions, territory_region_positions = compute_territory_batch(
             self.state, mask, current_player_only=True
         )
 
@@ -2015,18 +2014,23 @@ class ParallelGameRunner:
         territory_changed = (territory_after.sum(dim=1) != territory_before.sum(dim=1))
         games_with_territory = mask & territory_changed
 
-        # Convert opponent_eliminated dict to tensor for skip_elimination
-        # compute_territory_batch now checks opponent elimination BEFORE self-elimination
-        opponent_eliminated = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
-        for g, eliminated in opp_elim_dict.items():
-            if eliminated:
-                opponent_eliminated[g] = True
+        # Check for territory victory AFTER region collapse but BEFORE recording elimination
+        # Per RR-CANON-R171/R062: territory victory if player has >= territoryVictoryMinimum AND > all opponents
+        # If territory victory achieved, skip self-elimination recording - game ends immediately
+        territory_victory = self._check_territory_victory(mask & games_with_territory)
 
-        # Record canonical territory moves (elimination only if game continues)
+        # Record canonical territory moves
+        # Skip ELIMINATE for games where territory victory was achieved (game ends after CHOOSE)
         self._record_territory_phase_moves(
             mask, games_with_territory, territory_elimination_positions, territory_region_positions,
-            skip_elimination=opponent_eliminated,
+            skip_elimination=territory_victory,
         )
+
+        # Set game status for territory victories
+        if territory_victory.any():
+            self.state.game_status[territory_victory] = GameStatus.COMPLETED
+            # Winner is the current player who achieved territory victory
+            self.state.winner[territory_victory] = self.state.current_player[territory_victory]
 
         # Cascade check: Did territory processing create new marker lines?
         # This can happen if territory collapse removes stacks that were blocking
@@ -2118,6 +2122,47 @@ class ParallelGameRunner:
                     self.state.winner[player_eliminated] = winner
                     self.state.game_status[player_eliminated] = GameStatus.COMPLETED
 
+    def _check_territory_victory(self, mask: torch.Tensor) -> torch.Tensor:
+        """Check for territory victory per RR-CANON-R171/R062.
+
+        A player wins by territory when BOTH:
+        1. territorySpaces[P] >= territoryVictoryMinimum (floor(totalSpaces / numPlayers) + 1)
+        2. territorySpaces[P] > sum(territorySpaces[Q]) for all opponents Q
+
+        Args:
+            mask: Games to check
+
+        Returns:
+            Boolean mask of games where current player achieved territory victory.
+        """
+        result = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
+
+        if not mask.any():
+            return result
+
+        # Territory victory minimum: floor(totalSpaces / numPlayers) + 1
+        total_spaces = self.board_size * self.board_size
+        min_threshold = total_spaces // self.num_players + 1
+
+        for g in torch.where(mask)[0].tolist():
+            current_p = int(self.state.current_player[g].item())
+            player_territory = int(self.state.territory_count[g, current_p].item())
+
+            # Check condition 1: player has minimum
+            if player_territory < min_threshold:
+                continue
+
+            # Check condition 2: player dominates all opponents combined
+            opponent_total = 0
+            for opp in range(1, self.num_players + 1):
+                if opp != current_p:
+                    opponent_total += int(self.state.territory_count[g, opp].item())
+
+            if player_territory > opponent_total:
+                result[g] = True
+
+        return result
+
     def _record_territory_phase_moves(
         self,
         mask: torch.Tensor,
@@ -2132,18 +2177,17 @@ class ParallelGameRunner:
         - Games WITH territory: CHOOSE_TERRITORY_OPTION + ELIMINATE_RINGS_FROM_STACK
         - Games WITHOUT territory: NO_TERRITORY_ACTION
 
-        The elimination move is separate per CPU engine semantics: after each
-        CHOOSE_TERRITORY_OPTION, an ELIMINATE_RINGS_FROM_STACK follows.
-
-        December 2025: If opponent was eliminated during territory collapse, skip
-        the self-elimination recording - game ends immediately per CPU semantics.
+        Per RR-CANON-R145, self-elimination is MANDATORY when processing territory.
+        However, if territory victory is achieved during region collapse, the game
+        ends immediately and self-elimination is skipped (per CPU behavior matching
+        RR-CANON-R171).
 
         Args:
             mask: Games being processed in this phase
             games_with_territory: Which games had territory to claim
             elimination_positions: Dict mapping game_idx to list of (player, y, x) eliminations
             region_positions: Dict mapping game_idx to (y, x) region representative position
-            skip_elimination: Boolean mask - skip elimination recording for these games
+            skip_elimination: Boolean mask - skip elimination recording for games with territory victory
         """
         from .gpu_game_types import MoveType
 
@@ -2182,10 +2226,11 @@ class ParallelGameRunner:
                 # Second: record the elimination move(s) for current player (if space)
                 # Note: CPU records one CHOOSE + ELIMINATE pair per region for current player.
                 # GPU batches all territory processing but we only record current player's eliminations.
-                # December 2025: Skip elimination if opponent was eliminated (game ends immediately)
+                # Skip elimination if territory victory was achieved - game ends immediately
                 if skip_elimination is not None and skip_elimination[g]:
-                    continue  # Game ends - don't record elimination move
+                    continue  # Territory victory - game ends, no elimination move
 
+                # Per RR-CANON-R145, self-elimination is MANDATORY for territory processing.
                 elims = elimination_positions.get(g, [])
                 for elim_player, elim_y, elim_x in elims:
                     if elim_player != player:

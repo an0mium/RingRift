@@ -415,9 +415,13 @@ def _find_regions_without_marker_border_fast(
                 if idx in stack_at:
                     players_in_region.add(stack_at[idx])
 
-            # Match TS + slow-path semantics: empty regions still count as
-            # disconnected if they exclude at least one active player.
-            if players_in_region < active_players:
+            # Match TS semantics (territoryDetection.ts lines 156-167):
+            # For regions without marker borders, we only include the region if
+            # EXACTLY ONE player is represented inside. Empty regions (0 players)
+            # or ambiguous regions (2+ players) are non-canonical and must be
+            # dropped. This differs from marker-bordered regions which attribute
+            # control to the border color player.
+            if len(players_in_region) == 1 and players_in_region < active_players:
                 # Additional check: region must be bordered only by collapsed
                 # spaces or edges, mirroring TS isRegionBorderedByCollapsedOnly.
                 is_valid = True

@@ -48,6 +48,8 @@ class MockBatchGameState:
     marker_owner: torch.Tensor = None
     is_collapsed: torch.Tensor = None
     territory_owner: torch.Tensor = None
+    ring_under_cap: torch.Tensor = None  # December 2025 - ownership transfer fix
+    ring_stack: torch.Tensor = None      # December 2025 - full ring composition
 
     # Player state
     current_player: torch.Tensor = None
@@ -94,6 +96,11 @@ class MockBatchGameState:
             self.is_collapsed = torch.zeros((bs, bz, bz), dtype=torch.bool, device=self.device)
         if self.territory_owner is None:
             self.territory_owner = torch.zeros((bs, bz, bz), dtype=torch.int8, device=self.device)
+        if self.ring_under_cap is None:
+            self.ring_under_cap = torch.zeros((bs, bz, bz), dtype=torch.int8, device=self.device)
+        if self.ring_stack is None:
+            # Max 16 rings per stack
+            self.ring_stack = torch.zeros((bs, bz, bz, 16), dtype=torch.int8, device=self.device)
 
         if self.current_player is None:
             self.current_player = torch.ones(bs, dtype=torch.int8, device=self.device)
@@ -364,7 +371,7 @@ class TestApplyPlacementMovesBatch:
         assert state.stack_owner[0, 3, 3].item() == 1
         assert state.stack_height[0, 3, 3].item() == 3
         assert state.cap_height[0, 3, 3].item() == 1  # Reset for new owner
-        assert state.buried_rings[0, 2].item() == 1  # Opponent ring buried
+        assert state.buried_rings[0, 2].item() == 2  # Both opponent rings buried (original cap=2)
 
     def test_placement_skips_finished_games(self):
         """Test that placement skips finished games."""

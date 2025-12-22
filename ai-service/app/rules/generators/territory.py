@@ -143,10 +143,31 @@ class TerritoryGenerator(Generator):
         board = state.board
         regions = BoardManager.find_disconnected_regions(board, player)
 
+        # Defensive filter: exclude non-marker-bordered regions with no stacks inside.
+        # Per TS territoryDetection.ts lines 160-167, non-marker-bordered regions
+        # require exactly 1 player represented. When there are no markers on the
+        # board, ALL detected regions must have stacks inside. This guards against
+        # detection bugs that might return empty regions.
+        def _has_stacks_inside(region: Territory) -> bool:
+            for space in region.spaces:
+                if BoardManager.get_stack(space, board) is not None:
+                    return True
+            return False
+
+        # Only apply the empty-region filter when no markers exist (all regions
+        # must be non-marker-bordered in that case). When markers exist, some
+        # empty regions may be valid (marker-bordered with controllingPlayer
+        # assigned to the border color).
+        has_markers = len(board.markers) > 0
+        if has_markers:
+            filtered_regions = regions or []
+        else:
+            filtered_regions = [r for r in (regions or []) if _has_stacks_inside(r)]
+
         # Filter to eligible regions (self-elimination prerequisite)
         eligible_regions = [
             region
-            for region in (regions or [])
+            for region in filtered_regions
             if self._can_process_region(state, region, player)
         ]
 
