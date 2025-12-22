@@ -205,6 +205,9 @@ class GauntletRunner:
 
     def run_gauntlet(self, model_path: Path) -> dict | None:
         """Run gauntlet for a single model."""
+        import time
+        start_time = time.time()
+        logger.info(f"[Gauntlet] Starting evaluation for {model_path.stem}")
         try:
             # Import gauntlet functions
             from app.models import BoardType

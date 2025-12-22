@@ -1424,24 +1424,24 @@ def apply_single_chain_capture(
     attacker_has_buried = attacker_cap_height < attacker_height
     buried_count = attacker_height - attacker_cap_height
 
+    # Get attacker's ring_under_cap BEFORE computing new ownership (needed for cap_elim_with_buried)
+    attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
+
     if state.num_players == 2 and cap_fully_eliminated and attacker_has_buried:
-        # December 2025: BUG FIX - When cap is eliminated AND attacker has buried
-        # rings, ownership transfers to the opponent (who owns those buried rings).
-        # The remaining stack: captured ring (bottom) + buried opponent rings (now cap)
-        opponent = 1 if player == 2 else 2
-        new_owner = opponent
-        # December 2025: BUG FIX - If captured ring is same owner as new owner (opponent),
-        # the entire remaining stack is same color, so cap = new_height.
-        # Otherwise, captured ring at bottom doesn't extend cap, so cap = buried_count.
-        if target_owner == opponent:
+        # BUG FIX 2025-12-21: When cap is eliminated AND attacker has buried rings,
+        # ownership transfers to the ring_under_cap owner (who owns the rings directly
+        # below the cap per RR-CANON-R022). Use ring_under_cap instead of hardcoded opponent.
+        new_owner = attacker_ring_under if attacker_ring_under > 0 else (1 if player == 2 else 2)
+        # If captured ring is same owner as new owner, cap = new_height. Otherwise cap = buried_count.
+        if target_owner == new_owner:
             new_cap = new_height
         else:
             new_cap = buried_count
         # The buried rings are now exposed - clear buried tracking
-        buried_count_at_pos = state.buried_at[game_idx, opponent, to_y, to_x].item()
+        buried_count_at_pos = state.buried_at[game_idx, new_owner, to_y, to_x].item()
         if buried_count_at_pos > 0:
-            state.buried_at[game_idx, opponent, to_y, to_x] = 0
-            state.buried_rings[game_idx, opponent] -= buried_count_at_pos
+            state.buried_at[game_idx, new_owner, to_y, to_x] = 0
+            state.buried_rings[game_idx, new_owner] -= buried_count_at_pos
     elif cap_fully_eliminated:
         # Ownership transfers to target owner, new cap is all remaining rings
         new_owner = target_owner
@@ -1460,9 +1460,6 @@ def apply_single_chain_capture(
         new_owner = player
         # new_cap can be 0 as transient state before ownership transfer (RR-CANON-R022)
         new_cap = max(0, min(attacker_cap_height - landing_ring_cost, new_height))
-
-    # Get attacker's ring_under_cap before clearing origin
-    attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
 
     # Compute ring_under_cap for landing position (December 2025)
     # BUG FIX 2025-12-21: When capturing, the captured ring goes to the BOTTOM of the stack.

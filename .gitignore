@@ -285,3 +285,11 @@ ai-service/scripts/periodic_check.sh
 CURRENT_STATE_ASSESSMENT.md
 results/load-test/
 ai-service/scripts/debug_specific_move.py
+
+# Training data and parity failure logs (generated locally)
+data/
+parity_failures/
+parity_failures_v2/
+
+# Automation scripts with cluster-specific configs
+ai-service/scripts/automation/
