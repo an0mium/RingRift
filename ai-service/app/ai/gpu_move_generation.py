@@ -70,6 +70,213 @@ def _empty_batch_moves(batch_size: int, device: torch.device) -> BatchMoves:
     )
 
 
+# Pre-computed direction vectors for dead-placement checking
+# Using same 8 directions as movement: N, NE, E, SE, S, SW, W, NW
+_PLACEMENT_DIRECTIONS = torch.tensor([
+    [-1, 0], [-1, 1], [0, 1], [1, 1],
+    [1, 0], [1, -1], [0, -1], [-1, -1]
+], dtype=torch.int32)
+
+_PLACEMENT_DIRECTIONS_CACHE: dict = {}
+
+
+def _get_placement_directions(device: torch.device) -> torch.Tensor:
+    """Get directions tensor for placement validation (cached)."""
+    key = str(device)
+    if key not in _PLACEMENT_DIRECTIONS_CACHE:
+        _PLACEMENT_DIRECTIONS_CACHE[key] = _PLACEMENT_DIRECTIONS.to(device)
+    return _PLACEMENT_DIRECTIONS_CACHE[key]
+
+
+def _check_can_move_after_placement(
+    state: 'BatchGameState',
+    game_indices: torch.Tensor,  # (N,) game index for each candidate
+    y_positions: torch.Tensor,   # (N,) y position
+    x_positions: torch.Tensor,   # (N,) x position
+    stack_heights: torch.Tensor, # (N,) hypothetical stack height after placement
+) -> torch.Tensor:
+    """Check if stacks at given positions can move with given heights.
+
+    Per RR-CANON-R081/R082: No-dead-placement rule - after placement, the
+    resulting stack must have at least one legal non-capture move or capture.
+    This function checks movement availability (captures are checked separately).
+
+    Args:
+        state: Current batch game state
+        game_indices: (N,) game index for each candidate position
+        y_positions: (N,) y coordinates
+        x_positions: (N,) x coordinates
+        stack_heights: (N,) hypothetical stack heights after placement
+
+    Returns:
+        (N,) bool tensor - True if position can move after placement
+    """
+    N = game_indices.shape[0]
+    if N == 0:
+        return torch.tensor([], dtype=torch.bool, device=state.device)
+
+    device = state.device
+    board_size = state.board_size
+    directions = _get_placement_directions(device)
+    n_dirs = 8
+    max_dist = board_size - 1
+
+    # Expand positions for all 8 directions
+    # Shape: (N, 8)
+    game_idx_exp = game_indices.unsqueeze(1).expand(-1, n_dirs).long()
+    y_exp = y_positions.unsqueeze(1).expand(-1, n_dirs)
+    x_exp = x_positions.unsqueeze(1).expand(-1, n_dirs)
+    heights_exp = stack_heights.unsqueeze(1).expand(-1, n_dirs)
+
+    dir_dy = directions[:, 0].view(1, n_dirs)
+    dir_dx = directions[:, 1].view(1, n_dirs)
+
+    # For each (position, direction), compute blocking distance
+    # Start with max_dist + 1 (no blocker found)
+    blocking_dist = torch.full((N, n_dirs), max_dist + 1, dtype=torch.int32, device=device)
+
+    # Check each distance step to find first blocker
+    # Shape after expansion: (N, 8, max_dist)
+    steps = torch.arange(1, max_dist + 1, device=device)
+    check_y = y_exp.unsqueeze(2) + dir_dy.unsqueeze(2) * steps
+    check_x = x_exp.unsqueeze(2) + dir_dx.unsqueeze(2) * steps
+
+    # Out of bounds check
+    out_of_bounds = (check_y < 0) | (check_y >= board_size) | (check_x < 0) | (check_x >= board_size)
+
+    # Clamp for safe indexing
+    check_y_safe = torch.clamp(check_y, 0, board_size - 1).long()
+    check_x_safe = torch.clamp(check_x, 0, board_size - 1).long()
+    game_idx_3d = game_idx_exp.unsqueeze(2).expand(-1, -1, max_dist)
+
+    # Check collapsed and occupied (a stack at placement position doesn't count as blocker)
+    is_collapsed_check = state.is_collapsed[game_idx_3d, check_y_safe, check_x_safe]
+
+    # For occupancy, we need to consider the hypothetical state AFTER placement
+    # The placement position itself will have a stack, but we're checking FROM that position
+    # So we check if OTHER positions are occupied
+    is_occupied_check = state.stack_owner[game_idx_3d, check_y_safe, check_x_safe] != 0
+
+    # Cell is blocking if: out of bounds, collapsed, or occupied by another stack
+    is_blocking = out_of_bounds | is_collapsed_check | is_occupied_check
+
+    # Find first blocking distance for each (position, direction)
+    has_any_blocker = is_blocking.any(dim=2)  # (N, 8)
+    first_blocker_idx = is_blocking.to(torch.int32).argmax(dim=2)
+    blocking_dist = torch.where(
+        has_any_blocker,
+        first_blocker_idx + 1,  # +1 because step index 0 means distance 1
+        torch.tensor(max_dist + 1, device=device, dtype=torch.int32)
+    )
+
+    # A direction is valid if blocking_dist > stack_height (at least one landing exists)
+    # Actually need: any distance d where d >= stack_height AND d < blocking_dist
+    # This is equivalent to: blocking_dist > stack_height (there's at least one valid distance)
+    has_valid_direction = blocking_dist > heights_exp  # (N, 8)
+
+    # Position can move if any direction is valid
+    can_move = has_valid_direction.any(dim=1)  # (N,)
+
+    return can_move
+
+
+def _check_can_capture_after_placement(
+    state: 'BatchGameState',
+    game_indices: torch.Tensor,  # (N,) game index for each candidate
+    y_positions: torch.Tensor,   # (N,) y position
+    x_positions: torch.Tensor,   # (N,) x position
+    stack_heights: torch.Tensor, # (N,) hypothetical stack height after placement
+    players: torch.Tensor,       # (N,) player making the placement
+) -> torch.Tensor:
+    """Check if stacks at given positions can capture with given heights.
+
+    Per RR-CANON-R081/R082: No-dead-placement rule - after placement, the
+    resulting stack must have at least one legal non-capture move OR capture.
+
+    This checks if there's at least one valid capture target reachable.
+
+    Args:
+        state: Current batch game state
+        game_indices: (N,) game index for each candidate position
+        y_positions: (N,) y coordinates
+        x_positions: (N,) x coordinates
+        stack_heights: (N,) hypothetical stack heights after placement
+        players: (N,) player number making the placement
+
+    Returns:
+        (N,) bool tensor - True if position can capture after placement
+    """
+    N = game_indices.shape[0]
+    if N == 0:
+        return torch.tensor([], dtype=torch.bool, device=state.device)
+
+    device = state.device
+    board_size = state.board_size
+    directions = _get_placement_directions(device)
+    n_dirs = 8
+    max_dist = board_size - 1
+
+    # Expand positions for all 8 directions
+    game_idx_exp = game_indices.unsqueeze(1).expand(-1, n_dirs).long()
+    y_exp = y_positions.unsqueeze(1).expand(-1, n_dirs)
+    x_exp = x_positions.unsqueeze(1).expand(-1, n_dirs)
+    heights_exp = stack_heights.unsqueeze(1).expand(-1, n_dirs)
+    players_exp = players.unsqueeze(1).expand(-1, n_dirs)
+
+    dir_dy = directions[:, 0].view(1, n_dirs)
+    dir_dx = directions[:, 1].view(1, n_dirs)
+
+    # For captures, we need to find:
+    # 1. A target stack within capture range (cap_height distance)
+    # 2. Target is enemy-controlled
+    # 3. Path to target is clear
+    # 4. At least one landing position beyond target
+
+    # The hypothetical cap_height after placement is the full stack height
+    # (since player places their own color on top)
+    cap_heights = heights_exp  # (N, 8)
+
+    # Check each distance step for valid capture targets
+    steps = torch.arange(1, max_dist + 1, device=device)
+    check_y = y_exp.unsqueeze(2) + dir_dy.unsqueeze(2) * steps
+    check_x = x_exp.unsqueeze(2) + dir_dx.unsqueeze(2) * steps
+
+    # Out of bounds check
+    out_of_bounds = (check_y < 0) | (check_y >= board_size) | (check_x < 0) | (check_x >= board_size)
+
+    # Clamp for safe indexing
+    check_y_safe = torch.clamp(check_y, 0, board_size - 1).long()
+    check_x_safe = torch.clamp(check_x, 0, board_size - 1).long()
+    game_idx_3d = game_idx_exp.unsqueeze(2).expand(-1, -1, max_dist)
+    players_3d = players_exp.unsqueeze(2).expand(-1, -1, max_dist)
+
+    # Check for enemy stacks (potential targets)
+    stack_owners = state.stack_owner[game_idx_3d, check_y_safe, check_x_safe]
+    stack_caps = state.cap_height[game_idx_3d, check_y_safe, check_x_safe]
+    is_collapsed = state.is_collapsed[game_idx_3d, check_y_safe, check_x_safe]
+
+    # Target is valid if:
+    # 1. Not out of bounds
+    # 2. Not collapsed
+    # 3. Owned by another player (enemy stack)
+    # 4. Within cap_height distance (steps <= cap_height)
+    # 5. Attacker cap_height >= target cap_height
+    is_enemy = (stack_owners > 0) & (stack_owners != players_3d)
+    cap_heights_3d = cap_heights.unsqueeze(2).expand(-1, -1, max_dist)
+    steps_3d = steps.view(1, 1, -1).expand(N, n_dirs, -1)
+
+    within_range = steps_3d <= cap_heights_3d
+    can_capture_target = within_range & (cap_heights_3d >= stack_caps)
+
+    is_valid_target = ~out_of_bounds & ~is_collapsed & is_enemy & can_capture_target
+
+    # For a full capture check, we'd also need to verify path is clear and landing exists
+    # But for dead-placement purposes, having a potential target is sufficient indication
+    has_capture = is_valid_target.any(dim=2).any(dim=1)  # (N,)
+
+    return has_capture
+
+
 def generate_placement_moves_batch(
     state: BatchGameState,
     active_mask: torch.Tensor | None = None,
@@ -84,9 +291,10 @@ def generate_placement_moves_batch(
     - Collapsed spaces (is_collapsed == True)
     - Positions at max stack height (MAX_STACK_HEIGHT) - can't exceed max height
 
-    Note: The GPU engine simplifies by allowing placement on ANY non-collapsed
-    position below max height. The placement count (1 vs 1-3) is handled during
-    move selection and application, not during move generation.
+    December 2025: Added no-dead-placement rule per RR-CANON-R081/R082.
+    After placement, the resulting stack must have at least one legal
+    non-capture move or capture. Placements that create immovable stacks
+    are filtered out.
 
     Args:
         state: Current batch game state
@@ -101,28 +309,67 @@ def generate_placement_moves_batch(
     device = state.device
     batch_size = state.batch_size
 
-    # Find all valid placement positions per game:
+    # Find all candidate placement positions per game:
     # - Must not be collapsed
     # - Must not contain a marker (placement never occurs onto an existing marker)
     # - Must not be at max stack height (MAX_STACK_HEIGHT) - can't place on full stacks
     # - Game must be active
-    # valid_positions: (batch_size, board_size, board_size) bool
-    valid_positions = (
+    # candidate_positions: (batch_size, board_size, board_size) bool
+    candidate_positions = (
         (~state.is_collapsed)
         & (state.marker_owner == 0)
-        & (state.stack_height < MAX_STACK_HEIGHT)  # Max stack height per gpu_game_types.MAX_STACK_HEIGHT
+        & (state.stack_height < MAX_STACK_HEIGHT)
         & active_mask.view(-1, 1, 1)
     )
 
-    # Get indices of all valid positions
-    game_idx, y_idx, x_idx = torch.where(valid_positions)
+    # Get indices of all candidate positions
+    game_idx, y_idx, x_idx = torch.where(candidate_positions)
+
+    if len(game_idx) == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    # Compute hypothetical stack height after placement
+    # Placement adds 1 ring on top, so new height = max(1, current_height + 1)
+    current_heights = state.stack_height[game_idx, y_idx, x_idx]
+    hypothetical_heights = torch.maximum(
+        torch.ones_like(current_heights),
+        current_heights + 1
+    )
+
+    # Get current player for each candidate position
+    players = state.current_player[game_idx]
+
+    # Check no-dead-placement rule (RR-CANON-R081/R082):
+    # After placement, the stack must be able to move OR capture
+    can_move = _check_can_move_after_placement(
+        state, game_idx, y_idx, x_idx, hypothetical_heights
+    )
+    can_capture = _check_can_capture_after_placement(
+        state, game_idx, y_idx, x_idx, hypothetical_heights, players
+    )
+
+    # Position is valid if it can move OR capture after placement
+    is_valid = can_move | can_capture
+
+    # Filter to only valid positions
+    valid_indices = torch.where(is_valid)[0]
+
+    if len(valid_indices) == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    game_idx = game_idx[valid_indices]
+    y_idx = y_idx[valid_indices]
+    x_idx = x_idx[valid_indices]
 
     total_moves = len(game_idx)
 
-    # Count moves per game for indexing
-    moves_per_game = valid_positions.view(batch_size, -1).sum(dim=1)
+    # Recount moves per game after filtering
+    moves_per_game = torch.zeros(batch_size, dtype=torch.int32, device=device)
+    ones = torch.ones(total_moves, dtype=torch.int32, device=device)
+    moves_per_game.scatter_add_(0, game_idx.long(), ones)
+
     move_offsets = torch.cumsum(
-        torch.cat([torch.tensor([0], device=device), moves_per_game[:-1]]),
+        torch.cat([torch.tensor([0], device=device, dtype=torch.int32), moves_per_game[:-1]]),
         dim=0
     )
 

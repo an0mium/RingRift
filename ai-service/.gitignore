@@ -48,7 +48,7 @@ scripts/setup_aws_cluster_proxy.sh
 scripts/setup_vast_relay.sh
 scripts/distributed_gauntlet_launcher.sh
 config/cluster_nodes.env
-config/cluster_nodes.yaml
+config/cluster_nodes.local.yaml
 scripts/setup_vast_networking.sh
 scripts/vast_bootstrap.sh
 

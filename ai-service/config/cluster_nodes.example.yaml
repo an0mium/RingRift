@@ -1,0 +1,44 @@
+# RingRift Cluster Node Configuration - EXAMPLE
+# ================================================================================
+# Copy this file to cluster_nodes.local.yaml and customize for your deployment.
+# The local file takes precedence over cluster_nodes.yaml.
+#
+# Node format: {name, host, user, port (optional), gpu, gpu_memory_gb}
+# ================================================================================
+
+# Example GPU cluster via Tailscale VPN
+my_gpu_cluster:
+  description: 'My GPU cluster via Tailscale'
+  nodes:
+    - { name: gpu-node-1, host: '100.x.x.x', user: ubuntu, gpu: 'RTX 4090', gpu_memory_gb: 24 }
+    - { name: gpu-node-2, host: '100.x.x.x', user: ubuntu, gpu: 'RTX 4090', gpu_memory_gb: 24 }
+
+# Example cloud instances
+cloud_instances:
+  description: 'Cloud GPU instances'
+  nodes:
+    - { name: cloud-1, host: '1.2.3.4', user: ubuntu, gpu: 'A100 40GB', gpu_memory_gb: 40 }
+
+# Example Vast.ai instances (note custom ports)
+vast_ai:
+  description: 'Vast.ai GPU instances'
+  nodes:
+    - { name: vast-12345, host: 'ssh1.vast.ai', user: root, port: 12345 }
+    - { name: vast-67890, host: 'ssh2.vast.ai', user: root, port: 67890 }
+
+# Local development machines
+local_machines:
+  description: 'Local development machines'
+  nodes:
+    - { name: my-laptop, host: '192.168.1.100', user: myuser }
+
+# Configuration options
+config:
+  ssh_timeout: 25
+  ssh_connect_timeout: 12
+  default_port: 22
+  repo_paths:
+    - '~/ringrift'
+    - '~/RingRift'
+    - '/root/RingRift'
+    - '~/Development/RingRift'

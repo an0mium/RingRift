@@ -182,20 +182,30 @@ def run_gauntlet_for_model(
     games_played = 0
 
     # Test vs Random
+    logger.info(f"  [vs Random] Starting {num_games} games...")
     wins_vs_random = 0
-    for _ in range(num_games):
+    for i in range(num_games):
         winner = run_game(model_ai, random_ai, board_type, num_players)
         if winner == 1:
             wins_vs_random += 1
         games_played += 1
+        if (i + 1) % 5 == 0:
+            logger.info(f"    [{i+1}/{num_games}] wins: {wins_vs_random}")
+
+    logger.info(f"  [vs Random] Done: {wins_vs_random}/{num_games} wins ({wins_vs_random/num_games:.0%})")
 
     # Test vs Heuristic
+    logger.info(f"  [vs Heuristic] Starting {num_games} games...")
     wins_vs_heuristic = 0
-    for _ in range(num_games):
+    for i in range(num_games):
         winner = run_game(model_ai, heuristic_ai, board_type, num_players)
         if winner == 1:
             wins_vs_heuristic += 1
         games_played += 1
+        if (i + 1) % 5 == 0:
+            logger.info(f"    [{i+1}/{num_games}] wins: {wins_vs_heuristic}")
+
+    logger.info(f"  [vs Heuristic] Done: {wins_vs_heuristic}/{num_games} wins ({wins_vs_heuristic/num_games:.0%})")
 
     vs_random = wins_vs_random / num_games if num_games > 0 else 0.0
     vs_heuristic = wins_vs_heuristic / num_games if num_games > 0 else 0.0

@@ -217,6 +217,7 @@ class GauntletRunner:
 
             # Parse model info from path/filename
             model_info = self._parse_model_info(model_path)
+            logger.info(f"[Gauntlet] Model info: board={model_info.get('board_type')}, players={model_info.get('num_players')}")
 
             model_dict = {
                 "path": str(model_path),
@@ -226,12 +227,17 @@ class GauntletRunner:
 
             board_type = BoardType(model_info.get("board_type", "square8"))
 
+            logger.info(f"[Gauntlet] Running {self.config.games_per_baseline} games per baseline...")
             result = run_gauntlet_for_model(
                 model=model_dict,
                 num_games=self.config.games_per_baseline,
                 board_type=board_type,
                 fast_mode=self.config.fast_mode,
             )
+
+            elapsed = time.time() - start_time
+            logger.info(f"[Gauntlet] Completed {model_path.stem} in {elapsed:.1f}s - "
+                       f"vs_random={result.vs_random:.1%}, vs_heuristic={result.vs_heuristic:.1%}, score={result.score:.2f}")
 
             return {
                 "model_path": str(model_path),
@@ -247,7 +253,8 @@ class GauntletRunner:
                 "timestamp": datetime.now().isoformat(),
             }
         except Exception as e:
-            logger.error(f"Gauntlet failed for {model_path}: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"[Gauntlet] Failed for {model_path} after {elapsed:.1f}s: {e}")
             return None
 
     def _parse_model_info(self, path: Path) -> dict[str, Any]:
@@ -496,16 +503,18 @@ class UnifiedPromotionDaemon:
             return results
 
         logger.info(f"Found {len(new_models)} new model(s)")
+        total_models = len(new_models)
+        cycle_start = time.time()
 
-        for model_path in new_models:
+        for idx, model_path in enumerate(new_models, 1):
             results["checked"] += 1
             model_name = model_path.stem
 
             # Update known models
             self.state.known_models[str(model_path)] = self.watcher.get_model_hash(model_path)
 
-            # Run gauntlet
-            logger.info(f"Evaluating: {model_name}")
+            # Run gauntlet with progress indicator
+            logger.info(f"[{idx}/{total_models}] Evaluating: {model_name}")
             gauntlet_result = self.gauntlet.run_gauntlet(model_path)
 
             if gauntlet_result is None:
@@ -543,10 +552,15 @@ class UnifiedPromotionDaemon:
         self.state.last_check = datetime.now().isoformat()
         self._save_state()
 
-        # Summary
+        # Summary with timing
+        total_elapsed = time.time() - cycle_start
         logger.info("-" * 70)
         logger.info(f"Summary: {results['evaluated']} evaluated, "
-                   f"{results['promoted']} promoted, {results['rejected']} rejected")
+                   f"{results['promoted']} promoted, {results['rejected']} rejected, "
+                   f"{results['errors']} errors")
+        logger.info(f"Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} min)")
+        if results['evaluated'] > 0:
+            logger.info(f"Average per model: {total_elapsed/results['evaluated']:.1f}s")
 
         return results
 
