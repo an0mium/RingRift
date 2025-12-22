@@ -203,9 +203,13 @@ def find_matching_move(valid_moves, move_type, from_pos, to_pos):
             if v_from == m_from and v_to == m_to:
                 return v
         elif move_type in (MoveType.CHOOSE_LINE_OPTION, MoveType.PROCESS_LINE):
-            return v
+            # Match by position for line options
+            if v_to == m_to:
+                return v
         elif move_type == MoveType.CHOOSE_TERRITORY_OPTION:
-            return v
+            # Match by position (representative cell of the region)
+            if v_to == m_to:
+                return v
         elif move_type == MoveType.ELIMINATE_RINGS_FROM_STACK:
             if v_to == m_to:
                 return v

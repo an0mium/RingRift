@@ -126,9 +126,12 @@ def _find_eligible_territory_cap(
 
     # Take first eligible position
     y, x = int(positions[0, 0]), int(positions[0, 1])
-    height = int(stack_height_np[y, x])
 
-    return (y, x, height)
+    # Get actual cap_height (not full stack height)
+    cap_height_np = state.cap_height[game_idx].cpu().numpy()
+    cap = int(cap_height_np[y, x])
+
+    return (y, x, cap)
 
 
 def _find_all_regions(
@@ -613,14 +616,64 @@ def compute_territory_batch(
                         # 4. Mandatory self-elimination (eliminate cap)
                         # Per RR-CANON-R145, this is required when processing a region
                         # Skip only if territory victory achieved (game ends immediately)
-                        state.stack_height[g, cap_y, cap_x] = 0
-                        state.stack_owner[g, cap_y, cap_x] = 0
-                        stack_height_np[cap_y, cap_x] = 0
-                        stack_owner_np[cap_y, cap_x] = 0
+
+                        # Get current stack state
+                        current_height = int(state.stack_height[g, cap_y, cap_x].item())
+                        new_height = current_height - cap_height
+
                         # Player eliminates own rings for territory cap cost
                         state.eliminated_rings[g, player] += cap_height
                         # Player CAUSED these eliminations (self-elimination counts for victory)
                         state.rings_caused_eliminated[g, player] += cap_height
+
+                        if new_height > 0:
+                            # There are buried rings - transfer ownership
+                            ring_under = int(state.ring_under_cap[g, cap_y, cap_x].item())
+                            new_owner = ring_under if ring_under > 0 else (1 if player == 2 else 2)
+
+                            state.stack_height[g, cap_y, cap_x] = new_height
+                            state.stack_owner[g, cap_y, cap_x] = new_owner
+                            stack_height_np[cap_y, cap_x] = new_height
+                            stack_owner_np[cap_y, cap_x] = new_owner
+
+                            # Update ring_stack: shift remaining rings down (remove player's cap)
+                            # Ring stack is stored bottom-to-top, so we need to keep bottom rings
+                            if hasattr(state, 'ring_stack'):
+                                for i in range(new_height):
+                                    state.ring_stack[g, cap_y, cap_x, i] = state.ring_stack[g, cap_y, cap_x, i].item()
+                                for i in range(new_height, current_height):
+                                    state.ring_stack[g, cap_y, cap_x, i] = 0
+
+                            # Compute new cap from remaining rings
+                            from .gpu_move_generation import compute_cap_from_ring_stack
+                            new_cap = compute_cap_from_ring_stack(state, g, cap_y, cap_x)
+                            state.cap_height[g, cap_y, cap_x] = new_cap
+
+                            # Update ring_under_cap from buried_at (find next buried player)
+                            new_ring_under = 0
+                            for p in range(1, state.num_players + 1):
+                                if p != new_owner:
+                                    if hasattr(state, 'buried_at') and state.buried_at[g, p, cap_y, cap_x].item() > 0:
+                                        new_ring_under = p
+                                        break
+                            state.ring_under_cap[g, cap_y, cap_x] = new_ring_under
+
+                            # Decrement buried_at for eliminated player if they had buried rings
+                            if hasattr(state, 'buried_at'):
+                                buried_count = int(state.buried_at[g, player, cap_y, cap_x].item())
+                                if buried_count > 0:
+                                    state.buried_at[g, player, cap_y, cap_x] = 0
+                                    state.buried_rings[g, player] = max(0, state.buried_rings[g, player] - buried_count)
+                        else:
+                            # Stack fully eliminated
+                            state.stack_height[g, cap_y, cap_x] = 0
+                            state.stack_owner[g, cap_y, cap_x] = 0
+                            state.cap_height[g, cap_y, cap_x] = 0
+                            state.ring_under_cap[g, cap_y, cap_x] = 0
+                            stack_height_np[cap_y, cap_x] = 0
+                            stack_owner_np[cap_y, cap_x] = 0
+                            if hasattr(state, 'ring_stack'):
+                                state.ring_stack[g, cap_y, cap_x, :] = 0
 
                         # Track elimination position for move recording
                         if g not in elimination_positions:
