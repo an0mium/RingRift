@@ -301,18 +301,11 @@ def enumerate_capture_moves_py(
             if BoardManager.get_stack(landing_pos, board):
                 break
 
-            # Total distance from attacker to landing
-            total_steps = steps_to_target + landing_step
-
-            # Distance constraint: total_distance >= attacker.stack_height
-            # For square boards, steps = distance
-            # For hex boards, calculate actual distance
-            if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
-                segment_distance = BoardGeometry.calculate_distance(
-                    board_type, from_pos, landing_pos
-                )
-            else:
-                segment_distance = total_steps
+            # Total distance from attacker to landing - always use proper distance
+            # calculation to match TypeScript SSoT at src/shared/engine/core.ts:429
+            segment_distance = BoardGeometry.calculate_distance(
+                board_type, from_pos, landing_pos
+            )
 
             if segment_distance >= attacker_stack_height:
                 move_type = (

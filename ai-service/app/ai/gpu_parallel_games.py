@@ -2032,16 +2032,25 @@ class ParallelGameRunner:
             # Winner is the current player who achieved territory victory
             self.state.winner[territory_victory] = self.state.current_player[territory_victory]
 
+        # Check if games that processed territory have MORE regions to process
+        # Per CPU semantics: player can process multiple regions per turn (one at a time)
+        # If more regions exist, stay in TERRITORY_PROCESSING for next step
+        games_with_more_territory = self._check_for_more_territory(games_with_territory)
+
+        # Games with more territory: stay in TERRITORY_PROCESSING (don't advance yet)
+        # Games without more territory: proceed to cascade check and phase transition
+
         # Cascade check: Did territory processing create new marker lines?
         # This can happen if territory collapse removes stacks that were blocking
         # marker alignment, or if markers from captured stacks now form lines.
-        cascade_games = self._check_for_new_lines(mask)
+        games_to_check = mask & ~games_with_more_territory  # Only check games ready to leave territory phase
+        cascade_games = self._check_for_new_lines(games_to_check)
 
         if cascade_games.any():
             # Games with new lines go back to LINE_PROCESSING
             self.state.current_phase[cascade_games] = GamePhase.LINE_PROCESSING
             # Games without new lines: check for forced elimination before END_TURN
-            no_cascade = mask & ~cascade_games
+            no_cascade = games_to_check & ~cascade_games
             # December 2025: Forced elimination check (RR-CANON-R160)
             # If player had no real action this turn but has stacks, record forced_elimination
             check_and_apply_forced_elimination_batch(self.state, no_cascade)
@@ -2052,9 +2061,9 @@ class ParallelGameRunner:
         else:
             # No cascade needed, check for forced elimination before END_TURN
             # December 2025: Forced elimination check (RR-CANON-R160)
-            check_and_apply_forced_elimination_batch(self.state, mask)
+            check_and_apply_forced_elimination_batch(self.state, games_to_check)
             # Games still in TERRITORY_PROCESSING advance to END_TURN
-            still_territory = mask & (self.state.current_phase == GamePhase.TERRITORY_PROCESSING)
+            still_territory = games_to_check & (self.state.current_phase == GamePhase.TERRITORY_PROCESSING)
             self.state.current_phase[still_territory] = GamePhase.END_TURN
 
         # December 2025: Check for player elimination after territory processing
@@ -2160,6 +2169,67 @@ class ParallelGameRunner:
 
             if player_territory > opponent_total:
                 result[g] = True
+
+        return result
+
+    def _check_for_more_territory(self, mask: torch.Tensor) -> torch.Tensor:
+        """Check if games have more territory regions to process.
+
+        Per CPU semantics, a player can process multiple regions per turn,
+        choosing one at a time. After processing one region, check if more
+        eligible regions exist for the current player.
+
+        Args:
+            mask: Games to check (typically games that just processed territory)
+
+        Returns:
+            Boolean mask of games that have more territory regions available.
+        """
+        from .gpu_territory import (
+            _find_eligible_territory_cap,
+            _find_regions_with_border_color,
+            _is_color_disconnected,
+        )
+
+        result = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
+
+        if not mask.any():
+            return result
+
+        import numpy as np
+
+        for g in torch.where(mask)[0].tolist():
+            # Check if game is still active
+            if self.state.game_status[g].item() != GameStatus.IN_PROGRESS:
+                continue
+
+            player = int(self.state.current_player[g].item())
+
+            # Get board state as numpy for efficiency
+            marker_owner_np = self.state.marker_owner[g].cpu().numpy()
+            marker_colors = {int(c) for c in np.unique(marker_owner_np) if c > 0}
+
+            if not marker_colors:
+                continue
+
+            # Find all candidate regions with marker barriers
+            candidate_regions = []
+            for border_color in marker_colors:
+                regions = _find_regions_with_border_color(self.state, g, border_color)
+                candidate_regions.extend(regions)
+
+            # Check for color-disconnected regions the player can claim
+            for region, border_player in candidate_regions:
+                if not _is_color_disconnected(self.state, g, region):
+                    continue
+
+                # Check if player has eligible cap outside region
+                cap = _find_eligible_territory_cap(
+                    self.state, g, player, excluded_positions=region
+                )
+                if cap is not None:
+                    result[g] = True
+                    break  # Found one eligible region, that's enough
 
         return result
 

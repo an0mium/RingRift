@@ -241,6 +241,8 @@ ai-service/scripts/debug_export_moves.py
 ai-service/scripts/minimal_*_debug.py
 ai-service/scripts/quick_*_test.py
 ai-service/scripts/trace_*.py
+ai-service/scripts/direct_parity_check.py
+ai-service/scripts/show_all_moves_*.py
 
 # Runtime state files
 ai-service/data/.elo_alert_state.json
