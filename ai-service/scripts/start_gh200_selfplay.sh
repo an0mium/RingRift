@@ -69,7 +69,7 @@ for i in 1 2 3 4; do
     nohup python3 scripts/run_self_play_soak.py \
         --board-type square8 \
         --num-players 2 \
-        --engine-mode nn-only \
+        --engine-mode policy-only \
         --num-games 100000 \
         --log-jsonl "${DATA_DIR}/nn_sq8_2p_worker${i}.jsonl" \
         --record-db "${DATA_DIR}/nn_selfplay.db" \
