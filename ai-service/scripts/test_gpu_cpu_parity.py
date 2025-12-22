@@ -11,7 +11,7 @@ from app.ai.gpu_parallel_games import ParallelGameRunner
 from app.ai.gpu_canonical_export import export_game_to_canonical_dict
 from app.game_engine import GameEngine
 from app.training.initial_state import create_initial_state
-from app.models import BoardType, MoveType, Position
+from app.models import BoardType, MoveType, Position, GamePhase
 import logging
 logging.getLogger('app.ai.gpu_parallel_games').setLevel(logging.WARNING)
 
@@ -29,6 +29,46 @@ GPU_BOOKKEEPING_MOVES = {
     'process_line',  # Line processing is automatic on CPU
 }
 
+# Phase ordering for comparison (lower index = earlier in turn)
+PHASE_ORDER = [
+    'ring_placement',
+    'movement',
+    'capture',
+    'chain_capture',
+    'line_processing',
+    'territory_processing',
+    'forced_elimination',
+    'game_over',
+]
+
+# Map move types to the phase they should occur in
+MOVE_TYPE_TO_PHASE = {
+    'place_ring': 'ring_placement',
+    'skip_placement': 'ring_placement',
+    'move_stack': 'movement',
+    'recovery_slide': 'movement',
+    'overtaking_capture': 'capture',
+    'continue_capture_segment': 'chain_capture',
+    'choose_line_option': 'line_processing',
+    'process_line': 'line_processing',
+    'choose_territory_option': 'territory_processing',
+    'eliminate_rings_from_stack': 'forced_elimination',
+    'forced_elimination': 'forced_elimination',
+}
+
+
+def get_phase_index(phase_str: str) -> int:
+    """Get the index of a phase in the turn order."""
+    try:
+        return PHASE_ORDER.index(phase_str)
+    except ValueError:
+        return 0
+
+
+def is_phase_later(phase_a: str, phase_b: str) -> bool:
+    """Return True if phase_a comes after phase_b in turn order."""
+    return get_phase_index(phase_a) > get_phase_index(phase_b)
+
 
 def advance_cpu_through_phases(state, target_phase_str: str, target_player: int):
     """Advance CPU state through bookkeeping phases until reaching target phase/player.
@@ -37,12 +77,10 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
     phase/player, CPU might still be in an earlier phase. This function advances CPU
     by applying bookkeeping moves until it reaches the target phase/player.
     """
-    from app.models import GamePhase, Move
     from app.board_manager import BoardManager
-    max_iterations = 10  # Prevent infinite loops
+    max_iterations = 20  # Increased to handle complex phase chains
 
     for _ in range(max_iterations):
-        # Check if we're at target
         current_phase = state.current_phase.value
         current_player = state.current_player
 
@@ -50,98 +88,136 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
         if current_phase == target_phase_str and current_player == target_player:
             return state
 
-        # If target is ring_placement and we're at ring_placement for the target player, we're done
-        # (ring_placement is the start of a turn, so we stop there only if that's the target)
-        if target_phase_str == 'ring_placement' and current_phase == 'ring_placement' and current_player == target_player:
-            return state
+        # If target player is different and we're at ring_placement for target, done
+        if current_phase == 'ring_placement' and current_player == target_player:
+            if target_phase_str == 'ring_placement':
+                return state
 
-        # Try to advance via bookkeeping
+        # Try to advance via bookkeeping first
         req = GameEngine.get_phase_requirement(state, state.current_player)
         if req:
             synth = GameEngine.synthesize_bookkeeping_move(req, state)
             state = GameEngine.apply_move(state, synth)
-        else:
-            # Handle capture/chain_capture phase advancement
-            # GPU may skip captures that CPU offers. If GPU expects us to be in a later
-            # phase (line_processing or beyond), we should skip the capture.
-            # December 2025: GPU also skips self-captures (own stacks) which CPU offers.
-            if current_phase in ('capture', 'chain_capture'):
-                from app.board_manager import BoardManager
-                valid = GameEngine.get_valid_moves(state, state.current_player)
-                skip_moves = [v for v in valid if v.type == MoveType.SKIP_CAPTURE]
-                capture_moves = [v for v in valid if v.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT)]
+            continue
 
-                # Check if all captures are self-captures (GPU skips these)
-                all_self_captures = True
-                for c in capture_moves:
-                    if c.capture_target:
-                        target_stack = BoardManager.get_stack(c.capture_target, state.board)
-                        if target_stack and target_stack.controlling_player != current_player:
-                            all_self_captures = False
-                            break
+        # Determine if we need to skip current phase
+        target_is_different_player = target_player != current_player
+        target_is_later_phase = is_phase_later(target_phase_str, current_phase)
+        should_skip = target_is_different_player or target_is_later_phase
 
-                # If GPU expects a later phase (not capture/chain_capture), skip the capture
-                target_is_later_phase = target_phase_str not in ('capture', 'chain_capture')
-                target_is_different_player = target_player != current_player
-
-                if target_is_later_phase or target_is_different_player or all_self_captures:
-                    if skip_moves:
-                        # Apply skip_capture to advance past capture phase
-                        state = GameEngine.apply_move(state, skip_moves[0])
-                        continue
-                    elif current_phase == 'chain_capture':
-                        # In chain_capture with no skip option, force transition
-                        state.current_phase = GamePhase.LINE_PROCESSING
-                        continue
-
-            # Handle territory_processing phase advancement
-            # GPU may record no_territory_action when CPU sees valid territory options.
-            # This happens due to territory detection differences. If GPU expects the next
-            # player's turn or a later phase, we should skip territory processing.
-            # December 2025: Also skip if target is same player but later phase (e.g., GPU
-            # detected no territory but CPU did).
-            if current_phase == 'territory_processing':
-                valid = GameEngine.get_valid_moves(state, state.current_player)
-                skip_moves = [v for v in valid if v.type == MoveType.SKIP_TERRITORY_PROCESSING]
-
-                # Skip territory if GPU expects a later phase or a different player.
-                target_is_later_phase = target_phase_str in ('forced_elimination', 'ring_placement', 'game_over')
-                target_is_different_player = target_player != current_player
-                if target_is_later_phase or target_is_different_player:
-                    if skip_moves:
-                        state = GameEngine.apply_move(state, skip_moves[0])
-                        continue
-
-            # Handle line_processing phase advancement
-            # GPU may skip line processing that CPU detects. If GPU expects a later phase,
-            # we should advance past line processing.
-            # December 2025: Added to handle line detection differences.
-            # December 2025 (updated): Fixed bug where requirement existence blocked advancement.
-            if current_phase == 'line_processing':
-                # If GPU expects later phase/different player, advance
-                target_is_later = target_phase_str in ('territory_processing', 'ring_placement')
-                target_is_different_player = target_player != current_player
-
-                if target_is_later or target_is_different_player:
-                    # Try to synthesize and apply bookkeeping move
-                    req = GameEngine.get_phase_requirement(state, current_player)
-                    if req:
-                        # Apply the bookkeeping move to advance phase
-                        synth = GameEngine.synthesize_bookkeeping_move(req, state)
-                        state = GameEngine.apply_move(state, synth)
-                        continue
-                    else:
-                        # Force transition if no requirement but GPU expects advancement
-                        state.current_phase = GamePhase.TERRITORY_PROCESSING
-                        continue
-
-            # No bookkeeping available and no workaround applied
+        if not should_skip:
+            # Target is same player and same or earlier phase - stop here
             break
+
+        valid = GameEngine.get_valid_moves(state, state.current_player)
+
+        # Handle movement phase - skip if target is later
+        if current_phase == 'movement':
+            # NO_MOVEMENT_ACTION is used when player has no movement options
+            skip_moves = [v for v in valid if v.type == MoveType.NO_MOVEMENT_ACTION]
+            if skip_moves:
+                state = GameEngine.apply_move(state, skip_moves[0])
+                continue
+            # If no skip available but we need to advance, force phase change
+            if should_skip and not any(v.type in (MoveType.MOVE_STACK, MoveType.RECOVERY_SLIDE) for v in valid):
+                state.current_phase = GamePhase.CAPTURE
+                continue
+
+        # Handle capture/chain_capture phase
+        if current_phase in ('capture', 'chain_capture'):
+            skip_moves = [v for v in valid if v.type == MoveType.SKIP_CAPTURE]
+            capture_moves = [v for v in valid if v.type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT)]
+
+            # Check if all captures are self-captures (GPU skips these)
+            all_self_captures = True
+            for c in capture_moves:
+                if c.capture_target:
+                    target_stack = BoardManager.get_stack(c.capture_target, state.board)
+                    if target_stack and target_stack.controlling_player != current_player:
+                        all_self_captures = False
+                        break
+
+            if should_skip or all_self_captures:
+                if skip_moves:
+                    state = GameEngine.apply_move(state, skip_moves[0])
+                    continue
+                elif current_phase == 'chain_capture':
+                    state.current_phase = GamePhase.LINE_PROCESSING
+                    continue
+
+        # Handle line_processing phase
+        if current_phase == 'line_processing':
+            # Check if there are line processing moves available
+            line_moves = [v for v in valid if v.type in (MoveType.CHOOSE_LINE_OPTION, MoveType.PROCESS_LINE)]
+            if not line_moves and should_skip:
+                # Only force transition if no line processing moves exist
+                state.current_phase = GamePhase.TERRITORY_PROCESSING
+                continue
+
+        # Handle territory_processing phase
+        if current_phase == 'territory_processing':
+            skip_moves = [v for v in valid if v.type == MoveType.SKIP_TERRITORY_PROCESSING]
+            if should_skip:
+                if skip_moves:
+                    state = GameEngine.apply_move(state, skip_moves[0])
+                    continue
+                # Force transition to next player's turn
+                state.current_phase = GamePhase.RING_PLACEMENT
+                state.current_player = (current_player % 2) + 1
+                continue
+
+        # Handle forced_elimination phase
+        if current_phase == 'forced_elimination':
+            if should_skip:
+                # Force transition to next player
+                state.current_phase = GamePhase.RING_PLACEMENT
+                state.current_player = (current_player % 2) + 1
+                continue
+
+        # No advancement possible
+        break
 
     return state
 
 
-def test_seed(seed: int) -> tuple[int, int, int, int, list]:
+def find_matching_move(valid_moves, move_type, from_pos, to_pos):
+    """Find a matching move from valid moves list."""
+    for v in valid_moves:
+        if v.type != move_type:
+            continue
+        v_to = v.to.to_key() if v.to else None
+        m_to = to_pos.to_key() if to_pos else None
+        if move_type == MoveType.PLACE_RING:
+            if v_to == m_to:
+                return v
+        elif move_type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT):
+            v_from = v.from_pos.to_key() if v.from_pos else None
+            m_from = from_pos.to_key() if from_pos else None
+            if v_from == m_from and v_to == m_to:
+                return v
+        elif move_type == MoveType.SKIP_PLACEMENT:
+            return v
+        elif move_type == MoveType.RECOVERY_SLIDE:
+            v_from = v.from_pos.to_key() if v.from_pos else None
+            m_from = from_pos.to_key() if from_pos else None
+            if v_from == m_from and v_to == m_to:
+                return v
+        elif move_type in (MoveType.CHOOSE_LINE_OPTION, MoveType.PROCESS_LINE):
+            return v
+        elif move_type == MoveType.CHOOSE_TERRITORY_OPTION:
+            return v
+        elif move_type == MoveType.ELIMINATE_RINGS_FROM_STACK:
+            if v_to == m_to:
+                return v
+        else:
+            v_from = v.from_pos.to_key() if v.from_pos else None
+            m_from = from_pos.to_key() if from_pos else None
+            if v_from == m_from and v_to == m_to:
+                return v
+    return None
+
+
+def test_seed(seed: int, debug: bool = False) -> tuple[int, int, int, int, list]:
     """Test GPU to CPU parity for a given seed."""
     torch.manual_seed(seed)
     runner = ParallelGameRunner(batch_size=1, board_size=8, num_players=2, device='cpu')
@@ -173,16 +249,17 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
         if move_type_str in GPU_BOOKKEEPING_MOVES:
             skipped += 1
             # Bookkeeping moves mean "we're done with this phase, advance to next"
-            # E.g., no_line_action at line_processing → CPU should be at territory_processing
-            # E.g., no_territory_action at territory_processing → CPU should be at next player's ring_placement
             target_phase = gpu_phase
             target_player = gpu_player
             if move_type_str == 'no_line_action' and gpu_phase == 'line_processing':
                 target_phase = 'territory_processing'
             elif move_type_str == 'no_territory_action' and gpu_phase == 'territory_processing':
-                # Move to next player's turn
                 target_phase = 'ring_placement'
-                target_player = (gpu_player % 2) + 1  # Toggle between 1 and 2
+                target_player = (gpu_player % 2) + 1
+            elif move_type_str == 'skip_capture' and gpu_phase in ('capture', 'chain_capture'):
+                target_phase = 'line_processing'
+            elif move_type_str == 'skip_recovery' and gpu_phase == 'movement':
+                target_phase = 'capture'
             state = advance_cpu_through_phases(state, target_phase, target_player)
             continue
 
@@ -190,68 +267,45 @@ def test_seed(seed: int) -> tuple[int, int, int, int, list]:
         from_pos = Position(**m['from']) if 'from' in m and m['from'] else None
         to_pos = Position(**m['to']) if 'to' in m and m['to'] else None
 
-        # Advance CPU to match GPU phase/player before applying move
-        state = advance_cpu_through_phases(state, gpu_phase, gpu_player)
+        # Infer correct phase from move type (GPU phase labels can be wrong)
+        inferred_phase = MOVE_TYPE_TO_PHASE.get(move_type_str, gpu_phase)
 
+        # First try: check if move is valid in current state (without advancing)
         valid = GameEngine.get_valid_moves(state, state.current_player)
-        matched = None
+        matched = find_matching_move(valid, move_type, from_pos, to_pos)
 
-        for v in valid:
-            if v.type != move_type:
-                continue
-            v_to = v.to.to_key() if v.to else None
-            m_to = to_pos.to_key() if to_pos else None
-            if move_type == MoveType.PLACE_RING:
-                if v_to == m_to:
-                    matched = v
-                    break
-            elif move_type in (MoveType.OVERTAKING_CAPTURE, MoveType.CONTINUE_CAPTURE_SEGMENT):
-                v_from = v.from_pos.to_key() if v.from_pos else None
-                m_from = from_pos.to_key() if from_pos else None
-                if v_from == m_from and v_to == m_to:
-                    matched = v
-                    break
-            elif move_type == MoveType.SKIP_PLACEMENT:
-                # Skip placement matches by type only - no position needed
-                matched = v
-                break
-            elif move_type == MoveType.RECOVERY_SLIDE:
-                # Recovery slide matches by from/to positions
-                v_from = v.from_pos.to_key() if v.from_pos else None
-                m_from = from_pos.to_key() if from_pos else None
-                if v_from == m_from and v_to == m_to:
-                    matched = v
-                    break
-            elif move_type in (MoveType.CHOOSE_LINE_OPTION, MoveType.PROCESS_LINE):
-                # Line processing moves match by type - take first available
-                matched = v
-                break
-            elif move_type == MoveType.CHOOSE_TERRITORY_OPTION:
-                # Territory processing option moves match by type - take first available
-                matched = v
-                break
-            elif move_type == MoveType.ELIMINATE_RINGS_FROM_STACK:
-                # Elimination moves must match by position (to field)
-                if v_to == m_to:
-                    matched = v
-                    break
-            else:
-                v_from = v.from_pos.to_key() if v.from_pos else None
-                m_from = from_pos.to_key() if from_pos else None
-                if v_from == m_from and v_to == m_to:
-                    matched = v
-                    break
+        # Second try: advance to inferred phase based on move type
+        if not matched:
+            state = advance_cpu_through_phases(state, inferred_phase, gpu_player)
+            valid = GameEngine.get_valid_moves(state, state.current_player)
+            matched = find_matching_move(valid, move_type, from_pos, to_pos)
 
-        if matched:
-            state = GameEngine.apply_move(state, matched)
-        else:
-            # Last resort: try bookkeeping synthesis
+        # Third try: advance to GPU's stated phase (might be different player's turn)
+        if not matched and gpu_phase != inferred_phase:
+            state = advance_cpu_through_phases(state, gpu_phase, gpu_player)
+            valid = GameEngine.get_valid_moves(state, state.current_player)
+            matched = find_matching_move(valid, move_type, from_pos, to_pos)
+
+        # Fourth try: check if we need to advance through bookkeeping then retry
+        if not matched:
             req = GameEngine.get_phase_requirement(state, state.current_player)
             if req:
                 synth = GameEngine.synthesize_bookkeeping_move(req, state)
                 state = GameEngine.apply_move(state, synth)
-            else:
-                errors.append((i, m['type'], state.current_phase.value))
+                valid = GameEngine.get_valid_moves(state, state.current_player)
+                matched = find_matching_move(valid, move_type, from_pos, to_pos)
+
+        if matched:
+            state = GameEngine.apply_move(state, matched)
+        else:
+            # Record error - move could not be matched
+            if debug:
+                print(f"  Move {i}: {m['type']} (GPU phase={gpu_phase}, player={gpu_player})")
+                print(f"    CPU: phase={state.current_phase.value}, player={state.current_player}")
+                print(f"    Valid moves: {[v.type.value for v in valid][:10]}")
+                if from_pos:
+                    print(f"    from={from_pos.to_key()}, to={to_pos.to_key() if to_pos else None}")
+            errors.append((i, m['type'], state.current_phase.value))
 
     return total_moves, exported_moves, skipped, len(errors), errors[:3]
 

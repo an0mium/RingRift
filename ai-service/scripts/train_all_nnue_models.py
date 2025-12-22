@@ -106,9 +106,24 @@ def get_game_counts(db_paths: list[str]) -> dict[tuple[str, int], int]:
     return counts
 
 
-def find_databases(data_dir: str = "data/games") -> list[str]:
-    """Find all SQLite game databases in the data directory."""
+def find_databases(data_dir: str = "data/games", include_noncanonical: bool = False) -> list[str]:
+    """Find all SQLite game databases in the data directory.
+
+    Args:
+        data_dir: Directory containing game databases
+        include_noncanonical: If True, include databases with known parity failures
+
+    Returns:
+        List of database paths
+    """
+    # Import parity exclusions
+    try:
+        from app.training.parity_exclusions import should_exclude_database
+    except ImportError:
+        should_exclude_database = None
+
     db_paths = []
+    skipped = []
     data_path = Path(data_dir)
 
     if data_path.exists():
@@ -116,7 +131,17 @@ def find_databases(data_dir: str = "data/games") -> list[str]:
             # Skip temporary and quarantine databases
             if any(x in db_file.name for x in ["tmp_", "quarantine", "holdout"]):
                 continue
+
+            # RR-PARITY-FIX-2025-12-21: Skip non-canonical databases unless explicitly requested
+            if not include_noncanonical and should_exclude_database:
+                if should_exclude_database(db_file):
+                    skipped.append(db_file.name)
+                    continue
+
             db_paths.append(str(db_file))
+
+    if skipped:
+        logger.info(f"Skipped {len(skipped)} non-canonical databases: {skipped}")
 
     return sorted(db_paths)
 
