@@ -158,6 +158,8 @@ def _on_line_processing_complete(
 
     Mirrors TS processPostMovePhases behavior after line-phase completion:
 
+    - RR-CANON-R123: If pending_line_reward_elimination is True, the player must
+      execute an eliminate_rings_from_stack move. Stay in LINE_PROCESSING.
     - If at least one canonical territory region exists, the next phase is
       `territory_processing`.
     - If no territory regions exist AND the player had **no actions this turn**
@@ -171,8 +173,19 @@ def _on_line_processing_complete(
     !hasTerritoryRegions && !hadAnyActionThisTurn && playerHasStacks. This caused
     hex board parity divergence where Python stayed in territory_processing while
     TS transitioned to forced_elimination after no_line_action.
+
+    RR-FIX-HEX-PARITY-03-2025-12-21: Check pending_line_reward_elimination before
+    advancing. TS stays in line_processing when this flag is set, requiring an
+    explicit eliminate_rings_from_stack move.
     """
     from app.game_engine import GameEngine
+
+    # RR-CANON-R123: If pending line elimination, stay in line_processing
+    # This matches TS turnOrchestrator.ts:2766-2785 where eliminationRewardPending
+    # causes the engine to stay in line_processing and surface elimination options.
+    if game_state.pending_line_reward_elimination:
+        # Stay in LINE_PROCESSING - player must execute elimination move
+        return
 
     current_player = game_state.current_player
     had_any_action = compute_had_any_action_this_turn(game_state, current_move=last_move)

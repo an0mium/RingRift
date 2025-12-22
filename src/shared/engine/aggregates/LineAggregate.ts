@@ -41,6 +41,31 @@ import { BOARD_CONFIGS, positionToString, stringToPosition } from '../../types/g
 import type { ProcessLineAction, ChooseLineRewardAction } from '../types';
 import { getEffectiveLineLengthThreshold } from '../rulesConfig';
 
+/**
+ * RR-PARITY-FIX-2025-12-21: Get alternate key formats for hex board lookups.
+ * Markers may be stored with "x,y" or "x,y,z" format depending on how they
+ * were created. This helper returns all possible key formats for a position.
+ */
+function getPositionKeysForHex(pos: Position, boardType: string): string[] {
+  const primaryKey = positionToString(pos);
+  const keys = [primaryKey];
+
+  const isHex = boardType === 'hexagonal' || boardType === 'hex8';
+  if (isHex) {
+    const parts = primaryKey.split(',');
+    if (parts.length === 3) {
+      // Primary is "x,y,z", also try "x,y"
+      keys.push(`${parts[0]},${parts[1]}`);
+    } else if (parts.length === 2) {
+      // Primary is "x,y", also compute and try "x,y,z"
+      const z = -Number(parts[0]) - Number(parts[1]);
+      keys.push(`${parts[0]},${parts[1]},${z}`);
+    }
+  }
+
+  return keys;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
@@ -483,6 +508,7 @@ function collapseLinePositions(
 
   const nextPlayers = state.players.map((p) => ({ ...p }));
   const collapsedKeys = new Set<string>();
+  const boardType = board.type;
 
   for (const pos of positions) {
     const key = positionToString(pos);
@@ -491,10 +517,21 @@ function collapseLinePositions(
     }
     collapsedKeys.add(key);
 
+    // RR-PARITY-FIX-2025-12-21: For hex boards, try alternate key formats
+    // because markers/stacks may be stored with "x,y" or "x,y,z" keys.
+    const keysToTry = getPositionKeysForHex(pos, boardType);
+
     // Return any rings on this space to their owners' hands, then remove the
     // stack entirely.
-    const stack = nextBoard.stacks.get(key);
-    if (stack && Array.isArray(stack.rings) && stack.rings.length > 0) {
+    let foundStackKey: string | undefined;
+    for (const k of keysToTry) {
+      if (nextBoard.stacks.has(k)) {
+        foundStackKey = k;
+        break;
+      }
+    }
+    const stack = foundStackKey ? nextBoard.stacks.get(foundStackKey) : undefined;
+    if (stack && foundStackKey && Array.isArray(stack.rings) && stack.rings.length > 0) {
       for (const ringOwner of stack.rings as number[]) {
         const idx = nextPlayers.findIndex((p) => p.playerNumber === ringOwner);
         if (idx >= 0) {
@@ -505,12 +542,15 @@ function collapseLinePositions(
           };
         }
       }
-      nextBoard.stacks.delete(key);
+      nextBoard.stacks.delete(foundStackKey);
     }
 
-    // Remove any marker at this position.
-    if (nextBoard.markers.has(key)) {
-      nextBoard.markers.delete(key);
+    // Remove any marker at this position (try all key formats).
+    for (const k of keysToTry) {
+      if (nextBoard.markers.has(k)) {
+        nextBoard.markers.delete(k);
+        break;
+      }
     }
 
     // Mark as collapsed territory for the acting player.

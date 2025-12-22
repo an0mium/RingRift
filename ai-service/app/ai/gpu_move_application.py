@@ -197,7 +197,7 @@ def apply_capture_moves_vectorized(
             # December 2025: Use ring_under_cap instead of hardcoded opponent
             new_owner = target_ring_under if target_ring_under > 0 else (1 if target_owner == 2 else 2)
             state.stack_owner[g, target_y, target_x] = new_owner
-            state.cap_height[g, target_y, target_x] = 1  # Exposed ring becomes cap
+            state.cap_height[g, target_y, target_x] = new_target_height  # All remaining rings are new owner's cap
             # Compute new ring_under_cap from remaining buried rings
             new_ring_under = 0
             for p in range(1, state.num_players + 1):
