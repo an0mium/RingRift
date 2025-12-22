@@ -783,279 +783,279 @@ def run_hybrid_selfplay(
                             GameEngine._check_victory(game_state)
                             break
                     else:
-                    # Select move based on engine mode (per-player for asymmetric matches)
-                    current_engine = player_engine_modes[current_player]
+                        # Select move based on engine mode (per-player for asymmetric matches)
+                        current_engine = player_engine_modes[current_player]
 
-                    if current_engine == "random-only" or current_engine == "random":
-                        # Uniform random move selection (no evaluation)
-                        best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "mixed":
-                        # Mixed mode: probabilistically choose random vs heuristic
-                        if np.random.random() < mix_ratio:
-                            # Use heuristic evaluation
+                        if current_engine == "random-only" or current_engine == "random":
+                            # Uniform random move selection (no evaluation)
+                            best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "mixed":
+                            # Mixed mode: probabilistically choose random vs heuristic
+                            if np.random.random() < mix_ratio:
+                                # Use heuristic evaluation
+                                move_scores = evaluator.evaluate_moves(
+                                    game_state,
+                                    valid_moves,
+                                    current_player,
+                                    GameEngine,
+                                )
+                                if move_scores:
+                                    best_score = max(s for _, s in move_scores)
+                                    best_moves = [m for m, s in move_scores if s == best_score]
+                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                else:
+                                    best_move = valid_moves[0]
+                            else:
+                                # Use random selection
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "mcts" and mcts_ai is not None and mcts_state_adapter_class is not None:
+                            # MCTS mode: Use Monte Carlo Tree Search for move selection
+                            mcts_policy_dist = None  # Will be populated if MCTS succeeds
+                            try:
+                                # Wrap game state in adapter for MCTS (maps Move objects to int indices)
+                                adapted_state = mcts_state_adapter_class(game_state, GameEngine, valid_moves)
+
+                                # MCTS returns an integer move index
+                                move_idx = mcts_ai.search(adapted_state)
+
+                                if move_idx is None or move_idx < 0 or move_idx >= len(valid_moves):
+                                    # Fallback to heuristic if MCTS fails
+                                    move_scores = evaluator.evaluate_moves(
+                                        game_state, valid_moves, current_player, GameEngine
+                                    )
+                                    if move_scores:
+                                        best_score = max(s for _, s in move_scores)
+                                        best_moves = [m for m, s in move_scores if s == best_score]
+                                        best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                    else:
+                                        best_move = valid_moves[0]
+                                else:
+                                    # Convert index back to Move object
+                                    best_move = adapted_state.get_move_by_index(move_idx)
+
+                                    # Capture MCTS visit distribution for KL training
+                                    try:
+                                        policy_list = mcts_ai.get_policy(temperature=1.0)
+                                        # Convert to sparse dict (only non-zero probs)
+                                        # Indices are positions in valid_moves list
+                                        mcts_policy_dist = {
+                                            idx: prob for idx, prob in enumerate(policy_list)
+                                            if prob > 1e-6
+                                        }
+                                    except Exception as policy_err:
+                                        logger.debug(f"Failed to get MCTS policy: {policy_err}")
+                            except Exception as e:
+                                logger.debug(f"MCTS error: {e}, falling back to heuristic")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "nnue-guided" and nnue_evaluator is not None:
+                            # NNUE-guided mode: Blend NNUE and heuristic scores
+                            try:
+                                # Get heuristic scores
+                                heuristic_scores = evaluator.evaluate_moves(
+                                    game_state, valid_moves, current_player, GameEngine
+                                )
+                                heuristic_dict = dict(heuristic_scores) if heuristic_scores else {}
+
+                                # Get NNUE scores for each move (evaluate resulting positions)
+                                nnue_scores = {}
+                                for move in valid_moves:
+                                    try:
+                                        # Apply move to get resulting state
+                                        next_state = GameEngine.apply_move(game_state.model_copy(deep=True), move)
+                                        nnue_val = nnue_evaluator.evaluate(next_state)
+                                        nnue_scores[move] = nnue_val if nnue_val is not None else 0.0
+                                    except Exception:
+                                        nnue_scores[move] = 0.0
+
+                                # Blend scores: nnue_blend * NNUE + (1 - nnue_blend) * heuristic
+                                blended_scores = []
+                                for move in valid_moves:
+                                    h_score = heuristic_dict.get(move, 0.0)
+                                    n_score = nnue_scores.get(move, 0.0)
+                                    blended = nnue_blend * n_score + (1 - nnue_blend) * h_score
+                                    blended_scores.append((move, blended))
+
+                                if blended_scores:
+                                    best_score = max(s for _, s in blended_scores)
+                                    best_moves = [m for m, s in blended_scores if s == best_score]
+                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                else:
+                                    best_move = valid_moves[0]
+                            except Exception as e:
+                                logger.debug(f"NNUE error: {e}, falling back to heuristic")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "nn-minimax" and minimax_ai is not None:
+                            # NN-Minimax mode: Use minimax search with neural net evaluation
+                            try:
+                                # Update AI's player number for current player
+                                minimax_ai.player_number = current_player
+                                best_move = minimax_ai.get_move(game_state)
+                                if best_move is None or best_move not in valid_moves:
+                                    # Fallback to heuristic if minimax fails
+                                    move_scores = evaluator.evaluate_moves(
+                                        game_state, valid_moves, current_player, GameEngine
+                                    )
+                                    if move_scores:
+                                        best_score = max(s for _, s in move_scores)
+                                        best_moves = [m for m, s in move_scores if s == best_score]
+                                        best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                    else:
+                                        best_move = valid_moves[0]
+                            except Exception as e:
+                                logger.debug(f"Minimax error: {e}, falling back to heuristic")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "nn-descent" and descent_ai is not None:
+                            # NN-Descent mode: Use descent search with neural net evaluation
+                            try:
+                                # Update AI's player number for current player
+                                descent_ai.player_number = current_player
+                                best_move = descent_ai.get_move(game_state)
+                                if best_move is None or best_move not in valid_moves:
+                                    # Fallback to heuristic if descent fails
+                                    move_scores = evaluator.evaluate_moves(
+                                        game_state, valid_moves, current_player, GameEngine
+                                    )
+                                    if move_scores:
+                                        best_score = max(s for _, s in move_scores)
+                                        best_moves = [m for m, s in move_scores if s == best_score]
+                                        best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                    else:
+                                        best_move = valid_moves[0]
+                            except Exception as e:
+                                logger.debug(f"Descent error: {e}, falling back to heuristic")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "policy-only" and policy_only_ai is not None:
+                            # Policy-Only mode: Fast NN policy without search (~100x faster)
+                            try:
+                                # Update AI's player number for current player
+                                policy_only_ai.player_number = current_player
+                                best_move = policy_only_ai.select_move(game_state)
+                                if best_move is None or best_move not in valid_moves:
+                                    # Fallback to random if policy-only fails
+                                    best_move = valid_moves[np.random.randint(len(valid_moves))]
+                            except Exception as e:
+                                logger.debug(f"Policy-Only error: {e}, falling back to random")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "gumbel-mcts" and gumbel_mcts_ai is not None:
+                            # Gumbel MCTS mode: Efficient search with Sequential Halving
+                            try:
+                                # Update AI's player number for current player
+                                gumbel_mcts_ai.player_number = current_player
+                                best_move = gumbel_mcts_ai.select_move(game_state)
+                                if best_move is None or best_move not in valid_moves:
+                                    # Fallback to random if gumbel fails
+                                    best_move = valid_moves[np.random.randint(len(valid_moves))]
+                                else:
+                                    # Capture visit distribution for soft policy targets
+                                    dist_moves, dist_probs = gumbel_mcts_ai.get_visit_distribution()
+                                    if dist_moves and dist_probs:
+                                        # Map moves to indices in valid_moves
+                                        move_to_idx = {m: i for i, m in enumerate(valid_moves)}
+                                        mcts_policy_dist = {}
+                                        for m, p in zip(dist_moves, dist_probs, strict=False):
+                                            if m in move_to_idx and p > 1e-6:
+                                                mcts_policy_dist[move_to_idx[m]] = p
+                            except Exception as e:
+                                logger.debug(f"Gumbel MCTS error: {e}, falling back to random")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "maxn" and maxn_ai is not None:
+                            # MaxN mode: Multi-player minimax search
+                            try:
+                                # Update AI's player number for current player
+                                maxn_ai.player_number = current_player
+                                best_move = maxn_ai.select_move(game_state)
+                                if best_move is None or best_move not in valid_moves:
+                                    # Fallback to heuristic if maxn fails
+                                    move_scores = evaluator.evaluate_moves(
+                                        game_state, valid_moves, current_player, GameEngine
+                                    )
+                                    if move_scores:
+                                        best_score = max(s for _, s in move_scores)
+                                        best_moves = [m for m, s in move_scores if s == best_score]
+                                        best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                    else:
+                                        best_move = valid_moves[0]
+                            except Exception as e:
+                                logger.debug(f"MaxN error: {e}, falling back to heuristic")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        elif current_engine == "brs" and brs_ai is not None:
+                            # BRS mode: Best Reply Search (faster alternative to MaxN)
+                            try:
+                                # Update AI's player number for current player
+                                brs_ai.player_number = current_player
+                                best_move = brs_ai.select_move(game_state)
+                                if best_move is None or best_move not in valid_moves:
+                                    # Fallback to heuristic if BRS fails
+                                    move_scores = evaluator.evaluate_moves(
+                                        game_state, valid_moves, current_player, GameEngine
+                                    )
+                                    if move_scores:
+                                        best_score = max(s for _, s in move_scores)
+                                        best_moves = [m for m, s in move_scores if s == best_score]
+                                        best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                                    else:
+                                        best_move = valid_moves[0]
+                            except Exception as e:
+                                logger.debug(f"BRS error: {e}, falling back to heuristic")
+                                best_move = valid_moves[np.random.randint(len(valid_moves))]
+                        else:
+                            # heuristic-only (default): Evaluate moves (hybrid CPU/GPU)
                             move_scores = evaluator.evaluate_moves(
                                 game_state,
                                 valid_moves,
                                 current_player,
                                 GameEngine,
                             )
+
+                            # Select best move (with random tie-breaking)
                             if move_scores:
                                 best_score = max(s for _, s in move_scores)
                                 best_moves = [m for m, s in move_scores if s == best_score]
                                 best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
                             else:
                                 best_move = valid_moves[0]
-                        else:
-                            # Use random selection
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "mcts" and mcts_ai is not None and mcts_state_adapter_class is not None:
-                        # MCTS mode: Use Monte Carlo Tree Search for move selection
-                        mcts_policy_dist = None  # Will be populated if MCTS succeeds
-                        try:
-                            # Wrap game state in adapter for MCTS (maps Move objects to int indices)
-                            adapted_state = mcts_state_adapter_class(game_state, GameEngine, valid_moves)
 
-                            # MCTS returns an integer move index
-                            move_idx = mcts_ai.search(adapted_state)
+                    move_timestamp = datetime.now(timezone.utc)
+                    stamped_move = best_move.model_copy(
+                        update={
+                            "id": f"move-{move_count + 1}",
+                            "timestamp": move_timestamp,
+                            "think_time": 0,
+                            "move_number": move_count + 1,
+                        }
+                    )
 
-                            if move_idx is None or move_idx < 0 or move_idx >= len(valid_moves):
-                                # Fallback to heuristic if MCTS fails
-                                move_scores = evaluator.evaluate_moves(
-                                    game_state, valid_moves, current_player, GameEngine
-                                )
-                                if move_scores:
-                                    best_score = max(s for _, s in move_scores)
-                                    best_moves = [m for m, s in move_scores if s == best_score]
-                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                                else:
-                                    best_move = valid_moves[0]
-                            else:
-                                # Convert index back to Move object
-                                best_move = adapted_state.get_move_by_index(move_idx)
+                    # Apply move (CPU - full rules)
+                    game_state = GameEngine.apply_move(game_state, stamped_move)
+                    moves_for_db.append(stamped_move)
 
-                                # Capture MCTS visit distribution for KL training
-                                try:
-                                    policy_list = mcts_ai.get_policy(temperature=1.0)
-                                    # Convert to sparse dict (only non-zero probs)
-                                    # Indices are positions in valid_moves list
-                                    mcts_policy_dist = {
-                                        idx: prob for idx, prob in enumerate(policy_list)
-                                        if prob > 1e-6
-                                    }
-                                except Exception as policy_err:
-                                    logger.debug(f"Failed to get MCTS policy: {policy_err}")
-                        except Exception as e:
-                            logger.debug(f"MCTS error: {e}, falling back to heuristic")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "nnue-guided" and nnue_evaluator is not None:
-                        # NNUE-guided mode: Blend NNUE and heuristic scores
-                        try:
-                            # Get heuristic scores
-                            heuristic_scores = evaluator.evaluate_moves(
-                                game_state, valid_moves, current_player, GameEngine
-                            )
-                            heuristic_dict = dict(heuristic_scores) if heuristic_scores else {}
-
-                            # Get NNUE scores for each move (evaluate resulting positions)
-                            nnue_scores = {}
-                            for move in valid_moves:
-                                try:
-                                    # Apply move to get resulting state
-                                    next_state = GameEngine.apply_move(game_state.model_copy(deep=True), move)
-                                    nnue_val = nnue_evaluator.evaluate(next_state)
-                                    nnue_scores[move] = nnue_val if nnue_val is not None else 0.0
-                                except Exception:
-                                    nnue_scores[move] = 0.0
-
-                            # Blend scores: nnue_blend * NNUE + (1 - nnue_blend) * heuristic
-                            blended_scores = []
-                            for move in valid_moves:
-                                h_score = heuristic_dict.get(move, 0.0)
-                                n_score = nnue_scores.get(move, 0.0)
-                                blended = nnue_blend * n_score + (1 - nnue_blend) * h_score
-                                blended_scores.append((move, blended))
-
-                            if blended_scores:
-                                best_score = max(s for _, s in blended_scores)
-                                best_moves = [m for m, s in blended_scores if s == best_score]
-                                best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                            else:
-                                best_move = valid_moves[0]
-                        except Exception as e:
-                            logger.debug(f"NNUE error: {e}, falling back to heuristic")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "nn-minimax" and minimax_ai is not None:
-                        # NN-Minimax mode: Use minimax search with neural net evaluation
-                        try:
-                            # Update AI's player number for current player
-                            minimax_ai.player_number = current_player
-                            best_move = minimax_ai.get_move(game_state)
-                            if best_move is None or best_move not in valid_moves:
-                                # Fallback to heuristic if minimax fails
-                                move_scores = evaluator.evaluate_moves(
-                                    game_state, valid_moves, current_player, GameEngine
-                                )
-                                if move_scores:
-                                    best_score = max(s for _, s in move_scores)
-                                    best_moves = [m for m, s in move_scores if s == best_score]
-                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                                else:
-                                    best_move = valid_moves[0]
-                        except Exception as e:
-                            logger.debug(f"Minimax error: {e}, falling back to heuristic")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "nn-descent" and descent_ai is not None:
-                        # NN-Descent mode: Use descent search with neural net evaluation
-                        try:
-                            # Update AI's player number for current player
-                            descent_ai.player_number = current_player
-                            best_move = descent_ai.get_move(game_state)
-                            if best_move is None or best_move not in valid_moves:
-                                # Fallback to heuristic if descent fails
-                                move_scores = evaluator.evaluate_moves(
-                                    game_state, valid_moves, current_player, GameEngine
-                                )
-                                if move_scores:
-                                    best_score = max(s for _, s in move_scores)
-                                    best_moves = [m for m, s in move_scores if s == best_score]
-                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                                else:
-                                    best_move = valid_moves[0]
-                        except Exception as e:
-                            logger.debug(f"Descent error: {e}, falling back to heuristic")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "policy-only" and policy_only_ai is not None:
-                        # Policy-Only mode: Fast NN policy without search (~100x faster)
-                        try:
-                            # Update AI's player number for current player
-                            policy_only_ai.player_number = current_player
-                            best_move = policy_only_ai.select_move(game_state)
-                            if best_move is None or best_move not in valid_moves:
-                                # Fallback to random if policy-only fails
-                                best_move = valid_moves[np.random.randint(len(valid_moves))]
-                        except Exception as e:
-                            logger.debug(f"Policy-Only error: {e}, falling back to random")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "gumbel-mcts" and gumbel_mcts_ai is not None:
-                        # Gumbel MCTS mode: Efficient search with Sequential Halving
-                        try:
-                            # Update AI's player number for current player
-                            gumbel_mcts_ai.player_number = current_player
-                            best_move = gumbel_mcts_ai.select_move(game_state)
-                            if best_move is None or best_move not in valid_moves:
-                                # Fallback to random if gumbel fails
-                                best_move = valid_moves[np.random.randint(len(valid_moves))]
-                            else:
-                                # Capture visit distribution for soft policy targets
-                                dist_moves, dist_probs = gumbel_mcts_ai.get_visit_distribution()
-                                if dist_moves and dist_probs:
-                                    # Map moves to indices in valid_moves
-                                    move_to_idx = {m: i for i, m in enumerate(valid_moves)}
-                                    mcts_policy_dist = {}
-                                    for m, p in zip(dist_moves, dist_probs, strict=False):
-                                        if m in move_to_idx and p > 1e-6:
-                                            mcts_policy_dist[move_to_idx[m]] = p
-                        except Exception as e:
-                            logger.debug(f"Gumbel MCTS error: {e}, falling back to random")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "maxn" and maxn_ai is not None:
-                        # MaxN mode: Multi-player minimax search
-                        try:
-                            # Update AI's player number for current player
-                            maxn_ai.player_number = current_player
-                            best_move = maxn_ai.select_move(game_state)
-                            if best_move is None or best_move not in valid_moves:
-                                # Fallback to heuristic if maxn fails
-                                move_scores = evaluator.evaluate_moves(
-                                    game_state, valid_moves, current_player, GameEngine
-                                )
-                                if move_scores:
-                                    best_score = max(s for _, s in move_scores)
-                                    best_moves = [m for m, s in move_scores if s == best_score]
-                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                                else:
-                                    best_move = valid_moves[0]
-                        except Exception as e:
-                            logger.debug(f"MaxN error: {e}, falling back to heuristic")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    elif current_engine == "brs" and brs_ai is not None:
-                        # BRS mode: Best Reply Search (faster alternative to MaxN)
-                        try:
-                            # Update AI's player number for current player
-                            brs_ai.player_number = current_player
-                            best_move = brs_ai.select_move(game_state)
-                            if best_move is None or best_move not in valid_moves:
-                                # Fallback to heuristic if BRS fails
-                                move_scores = evaluator.evaluate_moves(
-                                    game_state, valid_moves, current_player, GameEngine
-                                )
-                                if move_scores:
-                                    best_score = max(s for _, s in move_scores)
-                                    best_moves = [m for m, s in move_scores if s == best_score]
-                                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                                else:
-                                    best_move = valid_moves[0]
-                        except Exception as e:
-                            logger.debug(f"BRS error: {e}, falling back to heuristic")
-                            best_move = valid_moves[np.random.randint(len(valid_moves))]
-                    else:
-                        # heuristic-only (default): Evaluate moves (hybrid CPU/GPU)
-                        move_scores = evaluator.evaluate_moves(
-                            game_state,
-                            valid_moves,
-                            current_player,
-                            GameEngine,
-                        )
-
-                        # Select best move (with random tie-breaking)
-                        if move_scores:
-                            best_score = max(s for _, s in move_scores)
-                            best_moves = [m for m, s in move_scores if s == best_score]
-                            best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
-                        else:
-                            best_move = valid_moves[0]
-
-                move_timestamp = datetime.now(timezone.utc)
-                stamped_move = best_move.model_copy(
-                    update={
-                        "id": f"move-{move_count + 1}",
-                        "timestamp": move_timestamp,
-                        "think_time": 0,
-                        "move_number": move_count + 1,
+                    # Record full move data for training
+                    move_record = {
+                        "type": stamped_move.type.value if hasattr(stamped_move.type, 'value') else str(stamped_move.type),
+                        "player": stamped_move.player,
                     }
-                )
+                    # Add position data if available
+                    if hasattr(stamped_move, 'to') and stamped_move.to is not None:
+                        move_record["to"] = {"x": stamped_move.to.x, "y": stamped_move.to.y}
+                    if hasattr(stamped_move, 'from_pos') and stamped_move.from_pos is not None:
+                        move_record["from"] = {"x": stamped_move.from_pos.x, "y": stamped_move.from_pos.y}
+                    if hasattr(stamped_move, 'capture_target') and stamped_move.capture_target is not None:
+                        move_record["capture_target"] = {"x": stamped_move.capture_target.x, "y": stamped_move.capture_target.y}
+                    # Add capture chain for multi-captures
+                    if hasattr(stamped_move, 'capture_chain') and stamped_move.capture_chain:
+                        move_record["capture_chain"] = [{"x": p.x, "y": p.y} for p in stamped_move.capture_chain]
+                    # Add line/territory data if present
+                    if hasattr(stamped_move, 'formed_lines') and stamped_move.formed_lines:
+                        move_record["formed_lines"] = len(stamped_move.formed_lines)
+                    if hasattr(stamped_move, 'claimed_territory') and stamped_move.claimed_territory:
+                        move_record["claimed_territory"] = len(stamped_move.claimed_territory)
 
-                # Apply move (CPU - full rules)
-                game_state = GameEngine.apply_move(game_state, stamped_move)
-                moves_for_db.append(stamped_move)
+                    # Add MCTS policy distribution for KL-divergence training
+                    if mcts_policy_dist is not None:
+                        move_record["mcts_policy"] = mcts_policy_dist
 
-                # Record full move data for training
-                move_record = {
-                    "type": stamped_move.type.value if hasattr(stamped_move.type, 'value') else str(stamped_move.type),
-                    "player": stamped_move.player,
-                }
-                # Add position data if available
-                if hasattr(stamped_move, 'to') and stamped_move.to is not None:
-                    move_record["to"] = {"x": stamped_move.to.x, "y": stamped_move.to.y}
-                if hasattr(stamped_move, 'from_pos') and stamped_move.from_pos is not None:
-                    move_record["from"] = {"x": stamped_move.from_pos.x, "y": stamped_move.from_pos.y}
-                if hasattr(stamped_move, 'capture_target') and stamped_move.capture_target is not None:
-                    move_record["capture_target"] = {"x": stamped_move.capture_target.x, "y": stamped_move.capture_target.y}
-                # Add capture chain for multi-captures
-                if hasattr(stamped_move, 'capture_chain') and stamped_move.capture_chain:
-                    move_record["capture_chain"] = [{"x": p.x, "y": p.y} for p in stamped_move.capture_chain]
-                # Add line/territory data if present
-                if hasattr(stamped_move, 'formed_lines') and stamped_move.formed_lines:
-                    move_record["formed_lines"] = len(stamped_move.formed_lines)
-                if hasattr(stamped_move, 'claimed_territory') and stamped_move.claimed_territory:
-                    move_record["claimed_territory"] = len(stamped_move.claimed_territory)
-
-                # Add MCTS policy distribution for KL-divergence training
-                if mcts_policy_dist is not None:
-                    move_record["mcts_policy"] = mcts_policy_dist
-
-                moves_played.append(move_record)
-                move_count += 1
+                    moves_played.append(move_record)
+                    move_count += 1
 
             game_time = time.time() - game_start
             total_time += game_time
