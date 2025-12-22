@@ -258,6 +258,27 @@ def auto_inject_before_move(state: "GameState", next_move: "Move") -> "GameState
         elif current_phase == "line_processing":
             line_actions = ("no_line_action", "process_line", "choose_line_option", "choose_line_reward")
             if next_type not in line_actions:
+                # RR-PARITY-FIX (Dec 2025): If next move is a territory action,
+                # we may need to coerce the phase directly if no_line_action
+                # injection would fail (e.g., Python sees lines that TS didn't).
+                # This handles hybrid selfplay recordings with different line detection.
+                if next_type in territory_moves:
+                    # Check if no_line_action is actually valid
+                    valid_moves = GameEngine.get_valid_moves(state)
+                    has_line_moves = any(
+                        m.type in {MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION, MoveType.CHOOSE_LINE_REWARD}
+                        for m in valid_moves
+                    )
+                    if has_line_moves:
+                        # Python sees line moves but recording skipped them - coerce phase
+                        _coercion_calls += 1
+                        logger.warning(
+                            "PHASE_COERCION: Forcing line_processing → territory_processing "
+                            "(hybrid recording skipped line processing, Python sees lines)"
+                        )
+                        state.current_phase = GamePhase.TERRITORY_PROCESSING
+                        continue
+
                 no_line_move = MoveModel(
                     id="legacy-inject-no-line",
                     type=MoveType.NO_LINE_ACTION,
