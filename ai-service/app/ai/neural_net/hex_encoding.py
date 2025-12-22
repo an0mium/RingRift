@@ -34,7 +34,7 @@ def _infer_board_size(board: BoardState | GameState) -> int:
 
     For SQUARE8: 8
     For SQUARE19: 19
-    For HEXAGONAL: 2 * radius + 1, where radius = board.size - 1
+    For HEXAGONAL: board.size (bounding box = 2*radius + 1)
 
     The returned value is the height/width of the (10, board_size, board_size)
     feature planes used by the CNN. Raises if the logical size exceeds MAX_N
@@ -87,7 +87,7 @@ def _to_canonical_xy(board: BoardState, pos: Position) -> tuple[int, int]:
     For HEXAGONAL:
       - Interpret pos.(x,y,z) as cube/axial coords where x,y lie in
         [-radius, radius].
-      - Let radius = board.size - 1.
+      - Let radius = (board.size - 1) // 2.
       - Map x → cx = x + radius, y → cy = y + radius.
       - Return (cx, cy).
     """
@@ -97,7 +97,8 @@ def _to_canonical_xy(board: BoardState, pos: Position) -> tuple[int, int]:
     if board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
         # Hex boards use cube coordinates where x,y in [-radius, radius]
         # Map to bounding box [0, 2*radius+1) via cx = x + radius
-        radius = board.size - 1  # HEXAGONAL: 12, HEX8: 4
+        # board.size is bounding box (2*radius + 1), so radius = (size - 1) // 2
+        radius = (board.size - 1) // 2  # HEXAGONAL: 12, HEX8: 4
         cx = pos.x + radius
         cy = pos.y + radius
         return cx, cy
@@ -118,7 +119,7 @@ def _from_canonical_xy(
     if (cx, cy) is outside [0, board_size) × [0, board_size).
 
     For HEXAGONAL:
-      - radius = board.size - 1
+      - radius = (board.size - 1) // 2
       - x = cx - radius, y = cy - radius, z = -x - y
     """
     board_size = _infer_board_size(board)
@@ -131,7 +132,8 @@ def _from_canonical_xy(
     if board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
         # Inverse of _to_canonical_xy for hex boards
         # Map from bounding box [0, 2*radius+1) back to cube coords [-radius, radius]
-        radius = board.size - 1  # HEXAGONAL: 12, HEX8: 4
+        # board.size is bounding box (2*radius + 1), so radius = (size - 1) // 2
+        radius = (board.size - 1) // 2  # HEXAGONAL: 12, HEX8: 4
         x = cx - radius
         y = cy - radius
         z = -x - y

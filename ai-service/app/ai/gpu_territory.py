@@ -191,6 +191,67 @@ def _find_all_regions(
     return regions
 
 
+def _find_regions_with_border_color(
+    state: BatchGameState,
+    game_idx: int,
+    border_color: int,
+) -> list[tuple[set[tuple[int, int]], int]]:
+    """Find regions where markers of border_color act as barriers.
+
+    This mirrors CPU's BoardManager._find_regions_with_border_color:
+    - Flood-fills regions while treating collapsed spaces AND markers of
+      border_color as impassable boundaries
+    - Returns regions that could be territory (will be filtered by caller)
+
+    December 2025: Added to match CPU territory detection algorithm.
+
+    Args:
+        state: BatchGameState
+        game_idx: Game index
+        border_color: Player whose markers act as walls during flood-fill
+
+    Returns:
+        List of (region, border_color) tuples where region is a set of (y, x) positions
+    """
+    board_size = state.board_size
+    g = game_idx
+    is_hex = _is_hex_board(board_size)
+
+    # Pre-extract numpy arrays
+    non_collapsed = ~state.is_collapsed[g].cpu().numpy()
+    marker_owner_np = state.marker_owner[g].cpu().numpy()
+
+    # A cell is passable if: not collapsed AND not a marker of border_color
+    passable = non_collapsed & (marker_owner_np != border_color)
+
+    visited = np.zeros((board_size, board_size), dtype=np.bool_)
+    regions = []
+
+    for start_y in range(board_size):
+        for start_x in range(board_size):
+            if visited[start_y, start_x] or not passable[start_y, start_x]:
+                continue
+
+            # BFS flood-fill treating border_color markers as walls
+            region = set()
+            queue = deque([(start_y, start_x)])
+            visited[start_y, start_x] = True
+
+            while queue:
+                y, x = queue.popleft()
+                region.add((y, x))
+
+                for ny, nx in _get_neighbors(y, x, board_size, is_hex):
+                    if not visited[ny, nx] and passable[ny, nx]:
+                        visited[ny, nx] = True
+                        queue.append((ny, nx))
+
+            if region:
+                regions.append((region, border_color))
+
+    return regions
+
+
 def _is_physically_disconnected(
     state: BatchGameState,
     game_idx: int,
@@ -365,7 +426,7 @@ def compute_territory_batch(
     state: BatchGameState,
     game_mask: torch.Tensor | None = None,
     current_player_only: bool = False,
-) -> dict[int, list[tuple[int, int, int]]]:
+) -> tuple[dict[int, list[tuple[int, int, int]]], dict[int, tuple[int, int]]]:
     """Compute and update territory claims (in-place).
 
     Per RR-CANON-R140-R146:
@@ -375,10 +436,10 @@ def compute_territory_batch(
     - R143: Self-elimination prerequisite (player must have eligible cap outside)
     - R145: Region collapse and elimination (collapse interior + border markers)
 
-    This implementation correctly handles:
-    1. Regions divided by collapsed spaces or single-color marker lines
-    2. The single-color boundary requirement (R141)
-    3. The color-disconnection criterion (R142)
+    December 2025: Refactored to match CPU's BoardManager.find_disconnected_regions algorithm:
+    - For each marker color, find regions treating that color's markers as barriers
+    - Check each region for color-disconnection (missing some active player's stacks)
+    - This correctly detects territory isolated by single-color marker lines
 
     Cap eligibility is checked per RR-CANON-R145: all controlled stacks
     (including height-1 standalone rings) are eligible for territory elimination cost.
@@ -390,10 +451,12 @@ def compute_territory_batch(
             This matches CPU semantics where territory is processed turn-by-turn.
 
     Returns:
-        Dictionary mapping game_idx to list of (player, y, x) elimination positions.
-        Each entry represents a self-elimination performed for a region.
+        Tuple of:
+        - Dictionary mapping game_idx to list of (player, y, x) elimination positions
+        - Dictionary mapping game_idx to (y, x) region representative position
     """
     elimination_positions: dict[int, list[tuple[int, int, int]]] = {}
+    region_positions: dict[int, tuple[int, int]] = {}  # First region position per game
     batch_size = state.batch_size
     board_size = state.board_size
     is_hex = _is_hex_board(board_size)
@@ -411,55 +474,63 @@ def compute_territory_batch(
         else:
             target_players = list(range(1, state.num_players + 1))
 
-        # R140: Find all maximal regions of non-collapsed cells
-        all_regions = _find_all_regions(state, g)
-
-        # If only one region, no territory processing possible
-        # (entire non-collapsed board is connected)
-        if len(all_regions) <= 1:
-            continue
-
         # Pre-extract game arrays as numpy to avoid .item() calls in loops
-        # (Optimized 2025-12-13)
         stack_height_np = state.stack_height[g].cpu().numpy()
         stack_owner_np = state.stack_owner[g].cpu().numpy()
         is_collapsed_np = state.is_collapsed[g].cpu().numpy()
         marker_owner_np = state.marker_owner[g].cpu().numpy() if hasattr(state, 'marker_owner') else None
 
-        # Process each region
-        # Track which regions have been processed to avoid double-processing
-        processed_regions = set()
+        # Collect all marker colors on the board (matches CPU algorithm)
+        marker_colors = set()
+        if marker_owner_np is not None:
+            unique_markers = np.unique(marker_owner_np)
+            marker_colors = {int(c) for c in unique_markers if c > 0}
 
-        # Iterate until no more regions can be processed
-        # (processing a region may create new disconnected regions)
+        # If no marker colors, no territory detection possible via marker barriers
+        # (CPU also requires marker barriers for territory - see _find_regions_with_border_color)
+        if not marker_colors:
+            continue
+
+        # Find candidate regions for each marker color acting as barrier
+        # This matches CPU's iteration through marker_colors
+        candidate_regions: list[tuple[set[tuple[int, int]], int]] = []
+        for border_color in marker_colors:
+            regions_with_border = _find_regions_with_border_color(state, g, border_color)
+            candidate_regions.extend(regions_with_border)
+
+        # Filter to color-disconnected regions
+        # A region is color-disconnected if RegionColors < ActiveColors (strict subset)
+        eligible_regions: list[tuple[set[tuple[int, int]], int]] = []
+        for region, border_player in candidate_regions:
+            if _is_color_disconnected(state, g, region):
+                eligible_regions.append((region, border_player))
+
+        # If no eligible regions, no territory processing
+        if not eligible_regions:
+            continue
+
+        # Process each eligible region
+        # Track processed region representatives to avoid double-processing
+        processed_representatives: set[tuple[int, int]] = set()
+
         max_iterations = 10  # Safety limit
         for _iteration in range(max_iterations):
             found_processable = False
 
-            for region_idx, region in enumerate(all_regions):
-                if region_idx in processed_regions:
+            for region, border_player in eligible_regions:
+                # Use first cell as representative to avoid re-processing same region
+                rep = min(region)  # deterministic representative
+                if rep in processed_representatives:
                     continue
-
-                # R141: Check physical disconnection
-                is_disconnected, border_player = _is_physically_disconnected(state, g, region)
-                if not is_disconnected:
-                    continue
-
-                # R142: Check color-disconnection
-                if not _is_color_disconnected(state, g, region):
-                    continue
-
-                # Region is both physically and color-disconnected
-                # Determine which player can process it
 
                 # For each player who could claim this territory
                 for player in target_players:
-                    # Get positions in the region
-                    region_positions = region
+                    # Get positions in the region (for exclusion check)
+                    region_cells = region
 
                     # R143: Find eligible cap for elimination (outside region)
                     eligible_cap = _find_eligible_territory_cap(
-                        state, g, player, excluded_positions=region_positions
+                        state, g, player, excluded_positions=region_cells
                     )
 
                     if eligible_cap is None:
@@ -532,10 +603,15 @@ def compute_territory_batch(
                         elimination_positions[g] = []
                     elimination_positions[g].append((player, cap_y, cap_x))
 
+                    # Track region representative position for CHOOSE_TERRITORY_OPTION recording
+                    # Use first cell of region (deterministic) matching CPU's Territory.spaces[0]
+                    if g not in region_positions:
+                        region_positions[g] = rep  # rep is min(region), gives (y, x)
+
                     # Update territory count
                     state.territory_count[g, player] += territory_count
 
-                    processed_regions.add(region_idx)
+                    processed_representatives.add(rep)
                     found_processable = True
                     break  # Move to next region
 
@@ -545,21 +621,39 @@ def compute_territory_batch(
             if not found_processable:
                 break
 
-            # Recompute regions after processing (new disconnections may appear)
-            all_regions = _find_all_regions(state, g)
-            processed_regions = set()  # Reset since region indices changed
+            # Recompute eligible regions after processing (new disconnections may appear)
             # Re-extract numpy arrays since state changed
             stack_height_np = state.stack_height[g].cpu().numpy()
             stack_owner_np = state.stack_owner[g].cpu().numpy()
             is_collapsed_np = state.is_collapsed[g].cpu().numpy()
             marker_owner_np = state.marker_owner[g].cpu().numpy() if hasattr(state, 'marker_owner') else None
 
-    return elimination_positions
+            # Recompute marker colors and candidate regions
+            marker_colors = set()
+            if marker_owner_np is not None:
+                unique_markers = np.unique(marker_owner_np)
+                marker_colors = {int(c) for c in unique_markers if c > 0}
+
+            if not marker_colors:
+                break
+
+            candidate_regions = []
+            for border_color in marker_colors:
+                regions_with_border = _find_regions_with_border_color(state, g, border_color)
+                candidate_regions.extend(regions_with_border)
+
+            eligible_regions = []
+            for region, border_player in candidate_regions:
+                if _is_color_disconnected(state, g, region):
+                    eligible_regions.append((region, border_player))
+
+    return elimination_positions, region_positions
 
 
 __all__ = [
     '_find_all_regions',
     '_find_eligible_territory_cap',
+    '_find_regions_with_border_color',
     '_is_color_disconnected',
     '_is_physically_disconnected',
     'compute_territory_batch',

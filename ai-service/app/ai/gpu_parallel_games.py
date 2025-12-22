@@ -2002,9 +2002,9 @@ class ParallelGameRunner:
         # Capture territory counts BEFORE processing (to detect if territory was claimed)
         territory_before = self.state.territory_count.clone()
 
-        # Process territory claims and capture elimination positions
+        # Process territory claims and capture elimination/region positions
         # Use current_player_only=True to match CPU semantics (process only current player's regions)
-        territory_elimination_positions = compute_territory_batch(
+        territory_elimination_positions, territory_region_positions = compute_territory_batch(
             self.state, mask, current_player_only=True
         )
 
@@ -2015,7 +2015,9 @@ class ParallelGameRunner:
         games_with_territory = mask & territory_changed
 
         # Record canonical territory moves (including elimination)
-        self._record_territory_phase_moves(mask, games_with_territory, territory_elimination_positions)
+        self._record_territory_phase_moves(
+            mask, games_with_territory, territory_elimination_positions, territory_region_positions
+        )
 
         # Cascade check: Did territory processing create new marker lines?
         # This can happen if territory collapse removes stacks that were blocking
@@ -2047,6 +2049,7 @@ class ParallelGameRunner:
         mask: torch.Tensor,
         games_with_territory: torch.Tensor,
         elimination_positions: dict[int, list[tuple[int, int, int]]],
+        region_positions: dict[int, tuple[int, int]],
     ) -> None:
         """Record canonical territory processing moves to move_history.
 
@@ -2061,6 +2064,7 @@ class ParallelGameRunner:
             mask: Games being processed in this phase
             games_with_territory: Which games had territory to claim
             elimination_positions: Dict mapping game_idx to list of (player, y, x) eliminations
+            region_positions: Dict mapping game_idx to (y, x) region representative position
         """
         from .gpu_game_types import MoveType
 
@@ -2084,13 +2088,14 @@ class ParallelGameRunner:
 
             if had_territory[i]:
                 # RR-CANON-R145: Record CHOOSE_TERRITORY_OPTION + ELIMINATE_RINGS_FROM_STACK
-                # First: record the territory choice move
+                # First: record the territory choice move with region position
+                region_y, region_x = region_positions.get(g, (-1, -1))
                 self.state.move_history[g, move_count, 0] = MoveType.CHOOSE_TERRITORY_OPTION
                 self.state.move_history[g, move_count, 1] = player
-                self.state.move_history[g, move_count, 2] = -1  # No position for choice
-                self.state.move_history[g, move_count, 3] = -1
-                self.state.move_history[g, move_count, 4] = -1
-                self.state.move_history[g, move_count, 5] = -1
+                self.state.move_history[g, move_count, 2] = -1  # from_y: not applicable
+                self.state.move_history[g, move_count, 3] = -1  # from_x: not applicable
+                self.state.move_history[g, move_count, 4] = region_y  # to_y: region representative
+                self.state.move_history[g, move_count, 5] = region_x  # to_x: region representative
                 self.state.move_history[g, move_count, 6] = GamePhase.TERRITORY_PROCESSING
                 self.state.move_count[g] += 1
                 move_count += 1
@@ -2557,6 +2562,7 @@ class ParallelGameRunner:
             apply_line_elimination_batch(self.state, single_game_mask)
 
             # After line processing, check for territory claims (current player only)
+            # Return values not needed here - cascade processing doesn't record moves
             compute_territory_batch(self.state, single_game_mask, current_player_only=True)
 
             # Continue loop to check if territory processing created new lines
