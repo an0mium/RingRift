@@ -1320,6 +1320,12 @@ def apply_movement_moves_batch_vectorized(
 
             # Use ring_under_cap to get the correct new owner (the player whose ring
             # was directly under the eliminated cap)
+            #
+            # BUG FIX (2025-12-21): When cap is eliminated, ALL consecutive buried rings
+            # of the same player become the new cap, not just 1. For example, if a stack
+            # is [1, 1, 2] (rings from bottom to top) with cap=1 (player 2), and the cap
+            # is eliminated, the remaining stack [1, 1] should have cap=2 (both player 1
+            # rings), not cap=1.
             for idx in range(len(transfer_games)):
                 g = transfer_games[idx].item()
                 y_pos = transfer_y[idx].item()
@@ -1329,10 +1335,17 @@ def apply_movement_moves_batch_vectorized(
                 if new_owner > 0:
                     surv_idx = torch.where(transfer_mask)[0][idx]
                     final_owners[surv_idx] = new_owner
-                    final_caps[surv_idx] = 1  # Exposed buried ring becomes the cap
-                    # Decrement buried_at AND buried_rings since one ring is now exposed
-                    state.buried_at[g, new_owner, y_pos, x_pos] -= 1
-                    state.buried_rings[g, new_owner] -= 1
+
+                    # Get count of buried rings for new_owner at this position
+                    # ALL consecutive rings of new_owner become the new cap
+                    buried_count = int(state.buried_at[g, new_owner, y_pos, x_pos].item())
+                    new_cap = max(1, buried_count)  # At least 1 ring (the ring_under_cap)
+                    final_caps[surv_idx] = new_cap
+
+                    # Clear buried_at for new_owner (all rings are now exposed as cap)
+                    state.buried_at[g, new_owner, y_pos, x_pos] = 0
+                    state.buried_rings[g, new_owner] -= buried_count
+
                     # Compute new ring_under_cap: find next player with buried rings at this position
                     next_ring_under = 0
                     for p in range(1, state.num_players + 1):
@@ -1651,10 +1664,22 @@ def apply_capture_moves_batch_vectorized(
     state.stack_owner[game_indices, target_y, target_x] = new_target_owner.to(state.stack_owner.dtype)
 
     # Update target cap height
-    # If cap fully captured, new cap is all remaining rings (owned by opponent)
+    # BUG FIX 2025-12-22: When cap fully captured, the new cap is NOT all remaining rings.
+    # The new cap is only the count of consecutive rings from the new owner. If there are
+    # buried rings from other players, those don't count towards the cap.
+    #
+    # The new cap equals: buried_count of the new owner (now exposed) + 0 or 1 depending
+    # on whether ring_under_cap matched the new owner. But since ring_under_cap IS the
+    # new owner when target_cap_fully_captured, we use: 1 + any additional buried rings.
+    #
+    # More precisely: new_cap = 1 (the ring_under_cap itself) + buried_at[new_owner] - 1
+    # (since one of the buried rings is the ring_under_cap that got exposed)
+    # = buried_at[new_owner] if > 0, else 1
+    #
+    # This is computed in the target_cap_fully_captured loop below. For now, set to 1.
     new_target_cap = torch.where(
         target_cap_fully_captured,
-        new_target_height,  # All remaining rings are opponent's cap
+        torch.ones_like(new_target_height),  # Placeholder, updated below
         torch.clamp(defender_cap_height - 1, min=0)  # RR-CANON-R022: cap_height CAN be 0
     )
     new_target_cap = torch.minimum(new_target_cap, new_target_height)
@@ -1663,14 +1688,19 @@ def apply_capture_moves_batch_vectorized(
 
     # Update ring_under_cap for target position (December 2025 - ownership transfer fix)
     # - If target empty: ring_under_cap = 0
-    # - If cap fully captured: ring_under_cap comes from defender_ring_under (now under new cap)
+    # - If cap fully captured: ring_under_cap must be computed from buried_at (see below)
     # - Otherwise: ring_under_cap unchanged
+    #
+    # BUG FIX 2025-12-22: When target_cap_fully_captured, the OLD ring_under_cap becomes
+    # the new owner. The NEW ring_under_cap should be whoever has buried rings below the
+    # new owner's exposed ring. This is computed in the target_cap_fully_captured block below.
+    # For now, set to 0 as a placeholder that will be updated.
     new_target_ring_under = torch.where(
         target_is_empty,
         torch.zeros_like(defender_ring_under),
         torch.where(
             target_cap_fully_captured,
-            defender_ring_under,  # Old ring_under_cap, now under the new exposed cap
+            torch.zeros_like(defender_ring_under),  # Placeholder, computed below
             defender_ring_under  # Unchanged when cap not fully captured
         )
     )
@@ -1717,6 +1747,10 @@ def apply_capture_moves_batch_vectorized(
     # buried rings of the new owner are now exposed (they become the cap). Clear
     # buried_at and decrement buried_rings for these cases.
     # This happens when: target_cap_fully_captured AND the new owner had buried rings here
+    #
+    # BUG FIX 2025-12-22: Also compute new ring_under_cap by finding which OTHER player
+    # has buried rings at this position. The OLD ring_under_cap became the new owner,
+    # so the NEW ring_under_cap is whoever is below them.
     if target_cap_fully_captured.any():
         cap_games = game_indices[target_cap_fully_captured]
         cap_target_y = target_y[target_cap_fully_captured]
@@ -1729,10 +1763,34 @@ def apply_capture_moves_batch_vectorized(
             new_owner = cap_new_owners[i].item()
             if new_owner > 0:  # Skip if no owner
                 # Check if the new owner had buried rings here (now exposed)
-                buried_count = state.buried_at[g, new_owner, y, x].item()
+                buried_count = int(state.buried_at[g, new_owner, y, x].item())
                 if buried_count > 0:
                     state.buried_at[g, new_owner, y, x] -= 1
                     state.buried_rings[g, new_owner] -= 1
+
+                # BUG FIX 2025-12-22: Compute new cap_height.
+                # The new cap = 1 (the exposed ring_under_cap) + any remaining buried
+                # rings of the new owner. After decrementing, buried_at[new_owner] is
+                # the count of ADDITIONAL buried rings that are also part of the cap.
+                remaining_buried = int(state.buried_at[g, new_owner, y, x].item())
+                new_cap = 1 + remaining_buried
+                state.cap_height[g, y, x] = new_cap
+
+                # BUG FIX 2025-12-22: Also decrement the additional buried rings if any,
+                # since they're now all exposed as the cap.
+                if remaining_buried > 0:
+                    state.buried_at[g, new_owner, y, x] = 0
+                    state.buried_rings[g, new_owner] -= remaining_buried
+
+                # BUG FIX 2025-12-22: Compute new ring_under_cap by finding which player
+                # (other than new_owner) has buried rings at this position
+                new_ring_under = 0
+                for p in range(1, state.num_players + 1):
+                    if p != new_owner:
+                        if state.buried_at[g, p, y, x].item() > 0:
+                            new_ring_under = p
+                            break
+                state.ring_under_cap[g, y, x] = new_ring_under
 
     # === Clear ORIGIN ===
     state.stack_owner[game_indices, from_y, from_x] = 0
@@ -1875,7 +1933,8 @@ def apply_capture_moves_batch_vectorized(
         state.ring_under_cap[game_indices[is_eliminated], to_y[is_eliminated], to_x[is_eliminated]] = 0
 
     # December 2025: When cap is eliminated with buried rings, those rings are now
-    # exposed (they became the cap). Decrement buried_at and buried_rings.
+    # exposed (they became the cap). Clear buried_at and decrement buried_rings.
+    # BUG FIX (2025-12-21): Clear ALL buried rings for the exposed player, not just 1.
     if cap_elim_with_buried.any():
         elim_games = game_indices[cap_elim_with_buried]
         elim_to_y = to_y[cap_elim_with_buried]
@@ -1886,10 +1945,10 @@ def apply_capture_moves_batch_vectorized(
             y = elim_to_y[i].item()
             x = elim_to_x[i].item()
             opp = elim_opponent[i].item()
-            buried_count = state.buried_at[g, opp, y, x].item()
+            buried_count = int(state.buried_at[g, opp, y, x].item())
             if buried_count > 0:
-                state.buried_at[g, opp, y, x] -= 1
-                state.buried_rings[g, opp] -= 1
+                state.buried_at[g, opp, y, x] = 0  # Clear all buried rings at this position
+                state.buried_rings[g, opp] -= buried_count  # Decrement by full count
 
     # Note: No marker at landing - there's a stack there. marker_owner should remain 0.
     # (Already cleared on line 1134-1138 if there was a landing marker)

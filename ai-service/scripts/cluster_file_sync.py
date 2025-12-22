@@ -59,13 +59,15 @@ DEFAULT_SSH_KEY = os.path.expanduser("~/.ssh/id_cluster")
 class TransferConfig:
     """Configuration for file transfers."""
     ssh_key: str = DEFAULT_SSH_KEY
-    chunk_size_mb: int = 5  # Size of chunks for chunked transfer
+    chunk_size_mb: int = 2  # Size of chunks for chunked transfer (reduced for stability)
     max_retries: int = 3
+    chunk_retries: int = 5  # More retries per chunk for unreliable connections
     retry_delay: float = 2.0
     connect_timeout: int = 30
     transfer_timeout: int = 120
     compress: bool = True
     verify_checksum: bool = True
+    resume_partial: bool = True  # Resume from partially transferred chunks
 
 
 @dataclass
@@ -184,6 +186,41 @@ def scp_transfer(
     )
 
 
+def get_remote_chunk_sizes(
+    host: str,
+    port: int,
+    remote_dir: str,
+    chunk_pattern: str,
+    config: TransferConfig,
+) -> dict[str, int]:
+    """Get sizes of existing chunks on remote for resume support."""
+    try:
+        ssh_cmd = [
+            "ssh", "-i", config.ssh_key,
+            "-o", "StrictHostKeyChecking=no",
+            "-o", f"ConnectTimeout={config.connect_timeout}",
+            "-p", str(port),
+            f"root@{host}",
+            f"ls -la {remote_dir}/{chunk_pattern} 2>/dev/null | awk '{{print $NF, $5}}'"
+        ]
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0 and result.stdout.strip():
+            chunk_sizes = {}
+            for line in result.stdout.strip().split("\n"):
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    filename = os.path.basename(parts[0])
+                    try:
+                        size = int(parts[1])
+                        chunk_sizes[filename] = size
+                    except ValueError:
+                        pass
+            return chunk_sizes
+    except Exception as e:
+        logger.debug(f"Could not get remote chunk sizes: {e}")
+    return {}
+
+
 def chunked_transfer(
     local_path: Path,
     host: str,
@@ -191,7 +228,7 @@ def chunked_transfer(
     remote_path: str,
     config: TransferConfig,
 ) -> TransferResult:
-    """Transfer large file by splitting into chunks."""
+    """Transfer large file by splitting into chunks with resume support."""
     start = time.time()
     chunk_size = config.chunk_size_mb * 1024 * 1024
 
@@ -226,43 +263,70 @@ def chunked_transfer(
         chunks = sorted(tmpdir.glob(f"{transfer_path.stem}_chunk_*"))
 
         # Create remote directory
+        remote_dir = os.path.dirname(remote_path) if not remote_path.endswith('/') else remote_path.rstrip('/')
         ssh_cmd = [
             "ssh", "-i", config.ssh_key,
             "-o", "StrictHostKeyChecking=no",
+            "-o", f"ConnectTimeout={config.connect_timeout}",
             "-p", str(port),
             f"root@{host}",
-            f"mkdir -p {os.path.dirname(remote_path)}"
+            f"mkdir -p {remote_dir}"
         ]
         subprocess.run(ssh_cmd, capture_output=True, timeout=30)
 
-        # Clear any existing chunks on remote
-        clear_cmd = [
-            "ssh", "-i", config.ssh_key,
-            "-o", "StrictHostKeyChecking=no",
-            "-p", str(port),
-            f"root@{host}",
-            f"rm -f {os.path.dirname(remote_path)}/{transfer_path.stem}_chunk_*"
-        ]
-        subprocess.run(clear_cmd, capture_output=True, timeout=30)
+        # Check for existing chunks (resume support)
+        existing_chunks = {}
+        if config.resume_partial:
+            existing_chunks = get_remote_chunk_sizes(
+                host, port, remote_dir, f"{transfer_path.stem}_chunk_*", config
+            )
+            if existing_chunks:
+                logger.info(f"Found {len(existing_chunks)} existing chunks on remote (resume mode)")
 
-        # Transfer chunks
+        # Transfer chunks with exponential backoff
         transferred = 0
+        skipped = 0
         for i, chunk in enumerate(chunks):
+            chunk_name = chunk.name
+            local_chunk_size = chunk.stat().st_size
+
+            # Check if chunk already exists with correct size (resume)
+            if config.resume_partial and chunk_name in existing_chunks:
+                if existing_chunks[chunk_name] == local_chunk_size:
+                    logger.info(f"Chunk {i + 1}/{len(chunks)} already exists, skipping...")
+                    transferred += 1
+                    skipped += 1
+                    continue
+                else:
+                    logger.info(f"Chunk {i + 1}/{len(chunks)} incomplete ({existing_chunks[chunk_name]}/{local_chunk_size}), retransferring...")
+
             logger.info(f"Transferring chunk {i + 1}/{len(chunks)}...")
 
-            for attempt in range(config.max_retries):
+            chunk_success = False
+            for attempt in range(config.chunk_retries):
                 result = scp_transfer(
                     chunk, host, port,
-                    f"{os.path.dirname(remote_path)}/{chunk.name}",
+                    f"{remote_dir}/{chunk_name}",
                     config,
                 )
                 if result.success:
                     transferred += 1
+                    chunk_success = True
                     break
-                time.sleep(config.retry_delay * (attempt + 1))
+
+                # Exponential backoff: 2^attempt * base_delay (capped at 60s)
+                backoff_delay = min(60, config.retry_delay * (2 ** attempt))
+                logger.warning(f"Chunk {i + 1} attempt {attempt + 1} failed, retrying in {backoff_delay:.1f}s...")
+                time.sleep(backoff_delay)
+
+            if not chunk_success:
+                logger.error(f"Chunk {i + 1} failed after {config.chunk_retries} attempts")
 
             # Small delay between chunks to avoid rate limiting
-            time.sleep(0.5)
+            time.sleep(0.3)
+
+        if skipped > 0:
+            logger.info(f"Resumed: {skipped} chunks skipped, {transferred - skipped} newly transferred")
 
         if transferred < len(chunks):
             return TransferResult(
@@ -629,8 +693,10 @@ def main():
     push_parser = subparsers.add_parser("push", help="Push file to cluster node(s)")
     push_parser.add_argument("local_path", help="Local file path")
     push_parser.add_argument("remote", help="Remote path (instance_id:/path or id1,id2:/path)")
-    push_parser.add_argument("--chunk-size", type=int, default=5, help="Chunk size in MB")
+    push_parser.add_argument("--chunk-size", type=int, default=2, help="Chunk size in MB (default: 2)")
+    push_parser.add_argument("--chunk-retries", type=int, default=5, help="Retries per chunk (default: 5)")
     push_parser.add_argument("--no-compress", action="store_true", help="Disable compression")
+    push_parser.add_argument("--no-resume", action="store_true", help="Don't resume partial transfers")
     push_parser.add_argument("--ssh-key", default=DEFAULT_SSH_KEY, help="SSH key path")
 
     # Pull command
@@ -655,7 +721,7 @@ def main():
         "remote",
         help="Remote path with multiple nodes (id1,id2,id3:/path)"
     )
-    torrent_parser.add_argument("--chunk-size", type=int, default=5, help="Chunk size in MB")
+    torrent_parser.add_argument("--chunk-size", type=int, default=2, help="Chunk size in MB (default: 2)")
     torrent_parser.add_argument("--ssh-key", default=DEFAULT_SSH_KEY, help="SSH key path")
 
     # Aria2 download command
@@ -687,7 +753,9 @@ def main():
         config = TransferConfig(
             ssh_key=args.ssh_key,
             chunk_size_mb=args.chunk_size,
+            chunk_retries=args.chunk_retries,
             compress=not args.no_compress,
+            resume_partial=not args.no_resume,
         )
 
         results = push_to_multiple(local_path, instance_ids, remote_path, config)

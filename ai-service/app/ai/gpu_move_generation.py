@@ -193,7 +193,12 @@ def _check_can_capture_after_placement(
     Per RR-CANON-R081/R082: No-dead-placement rule - after placement, the
     resulting stack must have at least one legal non-capture move OR capture.
 
-    This checks if there's at least one valid capture target reachable.
+    This checks if there's at least one valid capture available by:
+    1. Finding the first enemy/own stack along each ray (implicit target)
+    2. Verifying path to target is clear (no stacks/collapsed spaces blocking)
+    3. Checking cap_height comparison (attacker cap >= target cap)
+    4. Verifying at least one landing exists beyond target
+    5. Checking total distance >= stack_height
 
     Args:
         state: Current batch game state
@@ -212,69 +217,108 @@ def _check_can_capture_after_placement(
 
     device = state.device
     board_size = state.board_size
-    directions = _get_placement_directions(device)
-    n_dirs = 8
-    max_dist = board_size - 1
 
-    # Expand positions for all 8 directions
-    game_idx_exp = game_indices.unsqueeze(1).expand(-1, n_dirs).long()
-    y_exp = y_positions.unsqueeze(1).expand(-1, n_dirs)
-    x_exp = x_positions.unsqueeze(1).expand(-1, n_dirs)
-    heights_exp = stack_heights.unsqueeze(1).expand(-1, n_dirs)
-    players_exp = players.unsqueeze(1).expand(-1, n_dirs)
+    # Fall back to CPU loop for accurate capture validation
+    # This is slower but necessary for correct dead-placement filtering
+    result = torch.zeros(N, dtype=torch.bool, device=device)
 
-    dir_dy = directions[:, 0].view(1, n_dirs)
-    dir_dx = directions[:, 1].view(1, n_dirs)
+    directions = [
+        (-1, 0), (-1, 1), (0, 1), (1, 1),
+        (1, 0), (1, -1), (0, -1), (-1, -1)
+    ]
 
-    # For captures, we need to find:
-    # 1. A target stack within capture range (cap_height distance)
-    # 2. Target is enemy-controlled
-    # 3. Path to target is clear
-    # 4. At least one landing position beyond target
+    # Pre-extract state arrays for efficiency
+    stack_owner_np = state.stack_owner.cpu().numpy()
+    stack_height_np = state.stack_height.cpu().numpy()
+    cap_height_np = state.cap_height.cpu().numpy()
+    is_collapsed_np = state.is_collapsed.cpu().numpy()
 
-    # The hypothetical cap_height after placement is the full stack height
-    # (since player places their own color on top)
-    cap_heights = heights_exp  # (N, 8)
+    game_indices_np = game_indices.cpu().numpy()
+    y_np = y_positions.cpu().numpy()
+    x_np = x_positions.cpu().numpy()
+    heights_np = stack_heights.cpu().numpy()
+    players_np = players.cpu().numpy()
 
-    # Check each distance step for valid capture targets
-    steps = torch.arange(1, max_dist + 1, device=device)
-    check_y = y_exp.unsqueeze(2) + dir_dy.unsqueeze(2) * steps
-    check_x = x_exp.unsqueeze(2) + dir_dx.unsqueeze(2) * steps
+    for i in range(N):
+        g = int(game_indices_np[i])
+        from_y = int(y_np[i])
+        from_x = int(x_np[i])
+        my_height = int(heights_np[i])
+        my_cap = my_height  # After placement, cap = full height
+        player = int(players_np[i])
 
-    # Out of bounds check
-    out_of_bounds = (check_y < 0) | (check_y >= board_size) | (check_x < 0) | (check_x >= board_size)
+        for dy, dx in directions:
+            # Step 1: Find first stack along ray (implicit target)
+            target_y = None
+            target_x = None
+            target_dist = 0
+            path_clear = True
 
-    # Clamp for safe indexing
-    check_y_safe = torch.clamp(check_y, 0, board_size - 1).long()
-    check_x_safe = torch.clamp(check_x, 0, board_size - 1).long()
-    game_idx_3d = game_idx_exp.unsqueeze(2).expand(-1, -1, max_dist)
-    players_3d = players_exp.unsqueeze(2).expand(-1, -1, max_dist)
+            for step in range(1, board_size):
+                check_y = from_y + dy * step
+                check_x = from_x + dx * step
 
-    # Check for enemy stacks (potential targets)
-    stack_owners = state.stack_owner[game_idx_3d, check_y_safe, check_x_safe]
-    stack_caps = state.cap_height[game_idx_3d, check_y_safe, check_x_safe]
-    is_collapsed = state.is_collapsed[game_idx_3d, check_y_safe, check_x_safe]
+                if not (0 <= check_y < board_size and 0 <= check_x < board_size):
+                    break
 
-    # Target is valid if:
-    # 1. Not out of bounds
-    # 2. Not collapsed
-    # 3. Owned by another player (enemy stack)
-    # 4. Within cap_height distance (steps <= cap_height)
-    # 5. Attacker cap_height >= target cap_height
-    is_enemy = (stack_owners > 0) & (stack_owners != players_3d)
-    cap_heights_3d = cap_heights.unsqueeze(2).expand(-1, -1, max_dist)
-    steps_3d = steps.view(1, 1, -1).expand(N, n_dirs, -1)
+                if is_collapsed_np[g, check_y, check_x]:
+                    break
 
-    within_range = steps_3d <= cap_heights_3d
-    can_capture_target = within_range & (cap_heights_3d >= stack_caps)
+                cell_owner = stack_owner_np[g, check_y, check_x]
+                if cell_owner != 0:
+                    # Found a stack - check if capturable
+                    target_cap = cap_height_np[g, check_y, check_x]
+                    if my_cap >= target_cap:
+                        target_y = check_y
+                        target_x = check_x
+                        target_dist = step
+                    # Any stack stops the search
+                    break
 
-    is_valid_target = ~out_of_bounds & ~is_collapsed & is_enemy & can_capture_target
+            if target_y is None:
+                continue
 
-    # For a full capture check, we'd also need to verify path is clear and landing exists
-    # But for dead-placement purposes, having a potential target is sufficient indication
-    has_capture = is_valid_target.any(dim=2).any(dim=1)  # (N,)
+            # Step 2: Check for at least one valid landing beyond target
+            # Minimum landing distance: max(stack_height, target_dist + 1)
+            min_landing = max(my_height, target_dist + 1)
 
-    return has_capture
+            for landing_dist in range(min_landing, board_size):
+                landing_y = from_y + dy * landing_dist
+                landing_x = from_x + dx * landing_dist
+
+                if not (0 <= landing_y < board_size and 0 <= landing_x < board_size):
+                    break
+
+                if is_collapsed_np[g, landing_y, landing_x]:
+                    break
+
+                # Check path from target to landing is clear
+                path_clear = True
+                for step in range(target_dist + 1, landing_dist):
+                    check_y = from_y + dy * step
+                    check_x = from_x + dx * step
+                    if stack_owner_np[g, check_y, check_x] != 0:
+                        path_clear = False
+                        break
+                    if is_collapsed_np[g, check_y, check_x]:
+                        path_clear = False
+                        break
+
+                if not path_clear:
+                    break
+
+                # Landing must be empty
+                if stack_owner_np[g, landing_y, landing_x] != 0:
+                    break
+
+                # Found a valid capture!
+                result[i] = True
+                break
+
+            if result[i]:
+                break
+
+    return result
 
 
 def generate_placement_moves_batch(

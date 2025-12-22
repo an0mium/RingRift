@@ -167,7 +167,13 @@ class ModelWatcher:
         models = []
         for pattern in self.patterns:
             models.extend(self.models_dir.glob(pattern))
-            models.extend(self.models_dir.glob(f"**/{pattern}"))
+            # Include subdirs but skip hidden dirs and rsync-partial
+            for model in self.models_dir.glob(f"**/{pattern}"):
+                # Skip hidden directories and rsync-partial
+                if any(part.startswith('.') or 'rsync' in part.lower()
+                       for part in model.relative_to(self.models_dir).parts[:-1]):
+                    continue
+                models.append(model)
         return sorted(set(models))
 
     def get_model_hash(self, path: Path) -> str:
