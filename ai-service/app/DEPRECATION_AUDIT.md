@@ -75,9 +75,11 @@ This document tracks deprecated modules and their replacements as part of the co
 
 These new facades consolidate multiple older modules:
 
-### Rules Move Generators (December 21, 2025)
+### Rules Move Generators (December 2025)
 
 Extracted move enumeration logic from `_game_engine_legacy.py` into SSoT generators:
+
+**Phase 1 (December 21, 2025):**
 
 | Component            | Location                            | Purpose                                               |
 | -------------------- | ----------------------------------- | ----------------------------------------------------- |
@@ -85,11 +87,22 @@ Extracted move enumeration logic from `_game_engine_legacy.py` into SSoT generat
 | `TerritoryGenerator` | `app/rules/generators/territory.py` | Territory processing move enumeration (RR-CANON-R076) |
 | `Generator` protocol | `app/rules/interfaces.py`           | Interface for all move generators                     |
 
+**Phase 2 (December 22, 2025):**
+
+| Component            | Location                            | Purpose                                              |
+| -------------------- | ----------------------------------- | ---------------------------------------------------- |
+| `CaptureGenerator`   | `app/rules/generators/capture.py`   | Capture move enumeration (RR-CANON-R095/R096)        |
+| `MovementGenerator`  | `app/rules/generators/movement.py`  | Non-capture movement enumeration (RR-CANON-R085)     |
+| `PlacementGenerator` | `app/rules/generators/placement.py` | Ring placement enumeration (RR-CANON-R050/R055/R060) |
+
 **GameEngine now delegates to generators:**
 
 - `_get_line_processing_moves()` → `LineGenerator.generate()`
 - `_get_territory_processing_moves()` → `TerritoryGenerator.generate()`
 - `_can_process_disconnected_region()` → `TerritoryGenerator._can_process_region()`
+- `_get_capture_moves()` → `CaptureGenerator.generate()` (Phase 2)
+- `_get_movement_moves()` → `MovementGenerator.generate()` (Phase 2)
+- `_get_ring_placement_moves()` → `PlacementGenerator.generate()` (Phase 2)
 
 ### Other Unified Components
 

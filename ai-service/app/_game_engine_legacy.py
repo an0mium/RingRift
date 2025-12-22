@@ -85,7 +85,13 @@ __all__ = [
 from .core.zobrist import ZobristHash
 from .rules.capture_chain import enumerate_capture_moves_py
 from .rules.core import count_rings_in_play_for_player, get_effective_line_length
-from .rules.generators import LineGenerator, TerritoryGenerator
+from .rules.generators import (
+    CaptureGenerator,
+    LineGenerator,
+    MovementGenerator,
+    PlacementGenerator,
+    TerritoryGenerator,
+)
 from .rules.geometry import BoardGeometry
 from .rules.recovery import (
     apply_recovery_slide,
@@ -93,9 +99,12 @@ from .rules.recovery import (
     has_any_recovery_move,
 )
 
-# SSoT generators for move enumeration (Phase 3 consolidation)
+# SSoT generators for move enumeration (Phase 1-2 consolidation, December 2025)
 _line_generator = LineGenerator()
 _territory_generator = TerritoryGenerator()
+_capture_generator = CaptureGenerator()
+_movement_generator = MovementGenerator()
+_placement_generator = PlacementGenerator()
 
 # Runtime deprecation warning - placed after imports to avoid circular import issues
 import warnings
