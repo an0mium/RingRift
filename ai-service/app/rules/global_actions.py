@@ -6,6 +6,37 @@ from app.game_engine import GameEngine
 from app.models import GamePhase, GameState, GameStatus, MoveType, Position
 from app.rules.elimination import EliminationContext, has_eligible_elimination_target
 
+
+def _did_current_turn_include_recovery_slide(state: GameState, player: int) -> bool:
+    """Check if current turn includes a RECOVERY_SLIDE move.
+
+    Used to derive territory elimination context (RR-CANON-R114).
+    Mirrors TS didCurrentTurnIncludeRecoverySlide in TerritoryAggregate.ts.
+    """
+    for move in reversed(state.move_history):
+        if move.player != player:
+            break
+        if move.type == MoveType.RECOVERY_SLIDE:
+            return True
+    return False
+
+
+def _derive_territory_elimination_context(state: GameState, player: int) -> EliminationContext:
+    """Derive elimination context for territory processing.
+
+    Mirrors TS deriveTerritoryEliminationContext in TerritoryAggregate.ts.
+
+    Args:
+        state: Current game state
+        player: Player to check
+
+    Returns:
+        RECOVERY if turn included recovery slide, TERRITORY otherwise
+    """
+    if _did_current_turn_include_recovery_slide(state, player):
+        return EliminationContext.RECOVERY
+    return EliminationContext.TERRITORY
+
 """
 Global-actions and ANM helpers for the Python rules engine.
 
@@ -151,10 +182,12 @@ def has_phase_local_interactive_move(
                 if regions:
                     # Pending self-elimination: check for eligible elimination targets
                     # outside the processed region using canonical eligibility check.
-                    # HEX-PARITY-02 FIX: Use has_eligible_elimination_target which
-                    # properly checks cap_height > 0 (not just stack_height > 0),
-                    # matching TypeScript's isStackEligibleForElimination validation.
+                    # HEX-PARITY-02 FIX: Derive elimination context like TypeScript does.
+                    # If turn included recovery slide, use RECOVERY context (checks for
+                    # buried rings). Otherwise use TERRITORY context (checks for control).
+                    # This matches TS deriveTerritoryEliminationContext.
                     processed_region_keys = {p.to_key() for p in regions[0].spaces}
+                    elimination_context = _derive_territory_elimination_context(state, player)
 
                     # Build stacks dict for eligibility check
                     stacks_dict = {}
@@ -168,7 +201,7 @@ def has_phase_local_interactive_move(
                     return has_eligible_elimination_target(
                         stacks_dict,
                         player,
-                        EliminationContext.TERRITORY,
+                        elimination_context,
                         exclude_positions=processed_region_keys,
                     )
 
