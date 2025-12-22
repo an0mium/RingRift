@@ -805,6 +805,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - A line is **eligible** if `len = k+1 ≥ requiredLength`, where `requiredLength` is:
     - 4 for `square8` in 2-player games.
     - 3 for `square8` in 3-4 player games.
+    - 4 for `hex8` in 2-player games.
+    - 3 for `hex8` in 3-4 player games.
     - 4 for `square19` and `hexagonal` (all player counts).
   - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §5.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§11.1, 15.3, 16.3, 16.9.4.3.
 
@@ -1129,6 +1131,7 @@ Key version-dependent parameters:
 
 - Line length (`lineLength`):
   - `square8`: 4 (2-player), 3 (3–4 player).
+  - `hex8`: 4 (2-player), 3 (3–4 player).
   - `square19`, `hexagonal`: 4.
 - Adjacency:
   - Movement and lines use Moore for square boards, hex adjacency for hex.

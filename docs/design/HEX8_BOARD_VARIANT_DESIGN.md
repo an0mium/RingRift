@@ -228,9 +228,9 @@ ringrift_v5_hex8_4p.pth
 1. **Line length:** ✅ RESOLVED (RR-CANON-R120)
    - hex8 2-player: lineLength=4
    - hex8 3-4 player: lineLength=3 (same as square8 3-4p)
-   - Rationale: With 4 players competing on 61 hexagonal cells, markers are frequently
-     overwritten. LineLength=4 causes lines to form too rarely, breaking S-invariant
-     termination guarantees. LineLength=3 ensures sufficient line formation.
+   - Rationale: Consistency with square8 rules - both 61-64 cell boards use the same
+     player-count-dependent line length thresholds. The S-invariant (S = M + C + E)
+     guarantees termination regardless of line formation rate per RR-CANON-R191.
 
 2. **Victory thresholds:** Should hex8 use same victory thresholds as square8?
    - **Recommendation:** Yes, same thresholds for parallel behavior
