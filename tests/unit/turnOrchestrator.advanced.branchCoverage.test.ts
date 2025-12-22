@@ -1709,7 +1709,10 @@ describe('turnOrchestrator turn advancement', () => {
   });
 
   it('skips eliminated players during turn rotation', () => {
-    // 3 player game where player 2 has no rings (eliminated)
+    // 3 player game where player 2 has no rings anywhere (eliminated)
+    // Note: eliminatedRings means "rings this player eliminated from opponents",
+    // NOT "this player's own rings that were eliminated".
+    // A player is eliminated when ringsInHand == 0 AND they have no stacks on the board.
     const board = createEmptyBoard();
     const state: GameState = {
       id: 'test-skip-eliminated',
@@ -1719,7 +1722,7 @@ describe('turnOrchestrator turn advancement', () => {
       boardType: 'square8',
       players: [
         createPlayerWithRings(1, 10), // Active
-        createPlayerWithRings(2, 0, 18), // Eliminated (all rings eliminated)
+        createPlayerWithRings(2, 0, 0), // Eliminated (no rings in hand, no rings on board)
         createPlayerWithRings(3, 10), // Active
       ],
       board,

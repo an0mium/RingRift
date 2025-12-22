@@ -14,7 +14,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +45,30 @@ class GauntletResult:
     games_played: int
 
 
-def run_game(ai1: "BaseAI", ai2: "BaseAI", board_type: BoardType, num_players: int) -> int | None:
-    """Run a single game between two AIs.
+def run_game(
+    model_ai: "BaseAI",
+    baseline_factory: Callable[[int], "BaseAI"],
+    board_type: BoardType,
+    num_players: int,
+) -> int | None:
+    """Run a single game: model AI vs baseline opponents.
 
     Args:
-        ai1: AI for player 1
-        ai2: AI for player 2
+        model_ai: AI for player 1 (the model being tested)
+        baseline_factory: Function(player_num) -> BaseAI for creating opponents
         board_type: Board type for the game
-        num_players: Number of players
+        num_players: Number of players (2, 3, or 4)
 
     Returns:
-        Winner (1 or 2) or None for draw/timeout
+        Winner (1-num_players) or None for draw/timeout
     """
     state = create_initial_state(board_type=board_type, num_players=num_players)
     engine = DefaultRulesEngine()
-    ais = {1: ai1, 2: ai2}
+
+    # Player 1 is model, players 2+ are baselines
+    ais = {1: model_ai}
+    for p in range(2, num_players + 1):
+        ais[p] = baseline_factory(p)
 
     max_moves = 500
     move_count = 0
@@ -71,8 +80,11 @@ def run_game(ai1: "BaseAI", ai2: "BaseAI", board_type: BoardType, num_players: i
         try:
             move = ai.select_move(state)
         except Exception:
-            # AI error - opponent wins
-            return 3 - current  # Other player wins
+            # AI error - if model errors, it loses; if baseline errors, model wins
+            if current == 1:
+                return 2  # Model loses
+            else:
+                return 1  # Model wins by opponent error
 
         if move is None:
             break
@@ -90,7 +102,7 @@ def create_ai_from_model(
     player: int,
     board_type: BoardType = BoardType.SQUARE8,
     num_players: int = 2,
-) -> "BaseAI":
+) -> tuple["BaseAI", int]:
     """Create AI instance from model dictionary using UnifiedModelLoader.
 
     This function uses the unified model loader to automatically detect
@@ -101,10 +113,10 @@ def create_ai_from_model(
         model: Model dict with 'path', 'name', 'type' keys
         player: Player number (1-based)
         board_type: Board type for the game
-        num_players: Number of players
+        num_players: Number of players (default, may be overridden by model)
 
     Returns:
-        AI instance with loaded model weights (or heuristic fallback)
+        Tuple of (AI instance, inferred num_players from model)
     """
     model_type = model.get("type", "nn").lower()
     model_path = Path(model.get("path", ""))
@@ -114,18 +126,18 @@ def create_ai_from_model(
         from app.ai.mcts_ai import MCTSAI
         ai_config = AIConfig(difficulty=5, board_type=board_type)
         mcts_config = {"simulations": 100}
-        return MCTSAI(player, ai_config, mcts_config)
+        return MCTSAI(player, ai_config, mcts_config), num_players
 
     elif model_type == "heuristic":
-        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
+        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type)), num_players
 
     elif model_type == "random":
-        return RandomAI(player, AIConfig(difficulty=1))
+        return RandomAI(player, AIConfig(difficulty=1)), num_players
 
     # Check if model path exists
     if not model_path.exists():
         logger.info(f"Model path not found: {model_path}, using HeuristicAI")
-        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
+        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type)), num_players
 
     # Use UnifiedModelLoader + UniversalAI for all neural network models
     try:
@@ -163,14 +175,14 @@ def create_ai_from_model(
             f"Loaded {loaded.architecture.name} model from {model_path} "
             f"(board={board_type}, players={inferred_players})"
         )
-        return ai
+        return ai, inferred_players
 
     except Exception as e:
         logger.warning(f"UnifiedModelLoader failed for {model_path}: {e}")
 
     # Fallback to heuristic - NEVER fail
     logger.info("Using HeuristicAI (unified loader failed)")
-    return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
+    return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type)), num_players
 
 
 def run_gauntlet_for_model(
@@ -186,7 +198,7 @@ def run_gauntlet_for_model(
         model: Model dict with 'path', 'name', 'type' keys
         num_games: Games per baseline opponent
         board_type: Board type for evaluation
-        num_players: Number of players (default 2)
+        num_players: Number of players (default, may be overridden by model)
         fast_mode: If True, use fewer simulations for MCTS opponents
 
     Returns:
@@ -195,21 +207,29 @@ def run_gauntlet_for_model(
     model_type = model.get("type", "nn")
 
     # Create model AI (as player 1) with proper model loading
-    model_ai = create_ai_from_model(
+    # Also get the inferred num_players from the model checkpoint
+    model_ai, inferred_players = create_ai_from_model(
         model, player=1, board_type=board_type, num_players=num_players
     )
 
-    # Baseline opponents (as player 2)
-    random_ai = RandomAI(2, AIConfig(difficulty=1))
-    heuristic_ai = HeuristicAI(2, AIConfig(difficulty=5))
+    # Use model's inferred num_players for games
+    game_players = inferred_players
+    logger.info(f"  Running {game_players}-player games (inferred from model)")
+
+    # Factory functions for baseline opponents (creates AI for given player number)
+    def random_factory(player: int) -> "BaseAI":
+        return RandomAI(player, AIConfig(difficulty=1))
+
+    def heuristic_factory(player: int) -> "BaseAI":
+        return HeuristicAI(player, AIConfig(difficulty=5, board_type=board_type))
 
     games_played = 0
 
     # Test vs Random
-    logger.info(f"  [vs Random] Starting {num_games} games...")
+    logger.info(f"  [vs Random] Starting {num_games} games ({game_players}p)...")
     wins_vs_random = 0
     for i in range(num_games):
-        winner = run_game(model_ai, random_ai, board_type, num_players)
+        winner = run_game(model_ai, random_factory, board_type, game_players)
         if winner == 1:
             wins_vs_random += 1
         games_played += 1
@@ -219,10 +239,10 @@ def run_gauntlet_for_model(
     logger.info(f"  [vs Random] Done: {wins_vs_random}/{num_games} wins ({wins_vs_random/num_games:.0%})")
 
     # Test vs Heuristic
-    logger.info(f"  [vs Heuristic] Starting {num_games} games...")
+    logger.info(f"  [vs Heuristic] Starting {num_games} games ({game_players}p)...")
     wins_vs_heuristic = 0
     for i in range(num_games):
-        winner = run_game(model_ai, heuristic_ai, board_type, num_players)
+        winner = run_game(model_ai, heuristic_factory, board_type, game_players)
         if winner == 1:
             wins_vs_heuristic += 1
         games_played += 1

@@ -115,8 +115,9 @@ function enumerateSequencesSandbox(
 
   const adapters: CaptureBoardAdapters = {
     isValidPosition: (p: Position) => {
-      if (boardType === 'hexagonal') {
-        const radius = initialBoard.size - 1;
+      if (boardType === 'hexagonal' || boardType === 'hex8') {
+        // For hex boards: size = bounding box = 2*radius + 1. radius = (size - 1) / 2.
+        const radius = (initialBoard.size - 1) / 2;
         const x = p.x;
         const y = p.y;
         const z = p.z !== undefined ? p.z : -x - y;

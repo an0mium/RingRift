@@ -13,6 +13,7 @@ from app.ai.gpu_canonical_export import export_game_to_canonical_dict
 from app.game_engine import GameEngine
 from app.training.initial_state import create_initial_state
 from app.models import BoardType, MoveType, Position
+from app.game_engine import PhaseRequirementType
 import logging
 logging.getLogger('app.ai.gpu_parallel_games').setLevel(logging.WARNING)
 
@@ -76,7 +77,7 @@ def find_matching_move(state, engine, move_type_str, from_pos, to_pos):
     for v in valid_moves:
         if v.type != move_type:
             continue
-        v_to = v.to_pos.to_key() if v.to_pos else None
+        v_to = v.to.to_key() if v.to else None
 
         if move_type in (MoveType.PLACE_RING,):
             if v_to == m_to:
@@ -114,16 +115,23 @@ def debug_seed(seed: int):
 
     print(f"GPU generated {len(gpu_moves)} moves")
 
+    # Print first 40 moves for debugging
+    print("\nFirst 40 GPU moves:")
+    for i, m in enumerate(gpu_moves[:40]):
+        mt = m['type']
+        f = m.get('from', {})
+        t = m.get('to', {})
+        f_str = f"{f.get('x')},{f.get('y')}" if f else "None"
+        t_str = f"{t.get('x')},{t.get('y')}" if t else "None"
+        bk = " [BOOKKEEPING]" if mt in GPU_BOOKKEEPING_MOVES else ""
+        print(f"  {i}: {mt} from={f_str} to={t_str} phase={m.get('phase')} player={m.get('player')}{bk}")
+
     # Replay on CPU with state comparison
     cpu_state = create_initial_state(BoardType.SQUARE8, num_players=2)
     engine = GameEngine()
 
-    # Also run GPU again step-by-step to capture intermediate states
-    torch.manual_seed(seed)
-    gpu_runner = ParallelGameRunner(batch_size=1, board_size=8, num_players=2, device='cpu')
-
-    gpu_move_idx = 0
     first_divergence = None
+    moves_applied = 0
 
     for i, m in enumerate(gpu_moves):
         move_type_str = m['type']
@@ -137,44 +145,46 @@ def debug_seed(seed: int):
         from_pos = Position(**m['from']) if 'from' in m and m['from'] else None
         to_pos = Position(**m['to']) if 'to' in m and m['to'] else None
 
-        # Advance GPU runner to this move
-        while int(gpu_runner.state.move_count[0].item()) < i:
-            if gpu_runner.state.game_status[0].item() != 0:
-                break
-            gpu_runner._step_games([{}])
-
-        # Capture states before this move
-        gpu_stacks = get_gpu_state_summary(gpu_runner.state, 0, 8)
-        cpu_stacks = get_board_state_summary(cpu_state.board)
-
-        # Compare states
-        diffs = compare_states(gpu_stacks, cpu_stacks)
-
         # Try to find matching CPU move
         matching_move = find_matching_move(cpu_state, engine, move_type_str, from_pos, to_pos)
 
         move_desc = f"{move_type_str} from={from_pos.to_key() if from_pos else None} to={to_pos.to_key() if to_pos else None}"
 
-        if diffs:
-            print(f"\nMove {i}: {move_desc} (player={gpu_player}, phase={gpu_phase})")
-            print(f"  STATE DIVERGENCE DETECTED:")
-            for d in diffs[:5]:  # Show first 5 differences
-                print(d)
-            if len(diffs) > 5:
-                print(f"  ... and {len(diffs)-5} more differences")
-
-            if first_divergence is None:
-                first_divergence = i
-
         if matching_move is None:
             cpu_valid = engine.get_valid_moves(cpu_state, cpu_state.current_player)
+
+            # Loop to handle multiple bookkeeping moves in sequence
+            for _ in range(10):  # Safety limit
+                if len(cpu_valid) == 0:
+                    req = engine.get_phase_requirement(cpu_state, cpu_state.current_player)
+                    if req:
+                        synth = engine.synthesize_bookkeeping_move(req, cpu_state)
+                        if synth:
+                            print(f"  [CPU needs bookkeeping: {synth.type.name} for {req.type.name}]")
+                            cpu_state = engine.apply_move(cpu_state, synth)
+                            cpu_valid = engine.get_valid_moves(cpu_state, cpu_state.current_player)
+                            # Try again to find matching move
+                            matching_move = find_matching_move(cpu_state, engine, move_type_str, from_pos, to_pos)
+                            if matching_move:
+                                break
+                            continue
+                break
+
+            if matching_move:
+                cpu_state = engine.apply_move(cpu_state, matching_move)
+                continue
+
             print(f"\nMove {i}: {move_desc} (player={gpu_player}, phase={gpu_phase})")
             print(f"  CPU phase: {cpu_state.current_phase}, player: {cpu_state.current_player}")
+            print(f"  CPU board state:")
+            cpu_stacks = get_board_state_summary(cpu_state.board)
+            for pos, stack in sorted(cpu_stacks.items()):
+                print(f"    {pos}: {stack}")
             print(f"  NO MATCHING CPU MOVE FOUND")
             print(f"  CPU valid moves ({len(cpu_valid)}):")
             for v in cpu_valid[:10]:
                 v_from = v.from_pos.to_key() if v.from_pos else None
-                v_to = v.to_pos.to_key() if v.to_pos else None
+                v_to = v.to.to_key() if v.to else None
                 print(f"    {v.type.name}: from={v_from} to={v_to}")
             if len(cpu_valid) > 10:
                 print(f"    ... and {len(cpu_valid)-10} more")
@@ -185,7 +195,9 @@ def debug_seed(seed: int):
         else:
             # Apply move to CPU state
             cpu_state = engine.apply_move(cpu_state, matching_move)
+            moves_applied += 1
 
+    print(f"\nApplied {moves_applied} moves to CPU successfully")
     if first_divergence is not None:
         print(f"\n{'='*60}")
         print(f"FIRST DIVERGENCE AT MOVE {first_divergence}")

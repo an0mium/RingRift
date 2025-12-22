@@ -16,8 +16,9 @@ import { BoardManager } from '../../src/server/game/BoardManager';
 import { enumerateSimpleMovementLandings } from '../../src/client/sandbox/sandboxMovement';
 
 function isValidPositionForBoard(boardType: BoardType, board: BoardState, p: Position): boolean {
-  if (boardType === 'hexagonal') {
-    const radius = board.size - 1;
+  if (boardType === 'hexagonal' || boardType === 'hex8') {
+    // For hex boards: size = bounding box = 2*radius + 1. radius = (size - 1) / 2.
+    const radius = (board.size - 1) / 2;
     const x = p.x;
     const y = p.y;
     const z = p.z !== undefined ? p.z : -x - y;

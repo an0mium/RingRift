@@ -309,6 +309,98 @@ def _register_composite_participant(
 
 
 # ============================================
+# Model Validation
+# ============================================
+
+def validate_model_for_board(
+    model_path: str | Path,
+    board_type: BoardType,
+    num_players: int = 2,
+) -> tuple[bool, str]:
+    """Validate that a model checkpoint is compatible with the given board type.
+
+    Returns:
+        (is_valid, reason) - True if compatible, False with reason if not.
+    """
+    from app.utils.torch_utils import safe_load_checkpoint
+
+    path = Path(model_path)
+    if not path.exists():
+        return False, f"Model file not found: {path}"
+
+    # Skip validation for baseline players
+    if str(model_path).startswith("__BASELINE_"):
+        return True, "baseline"
+
+    try:
+        checkpoint = safe_load_checkpoint(str(path), map_location="cpu", warn_on_unsafe=False)
+    except Exception as e:
+        return False, f"Failed to load checkpoint: {e}"
+
+    # Check metadata if available
+    metadata = checkpoint.get("metadata", {})
+    model_board_type = metadata.get("board_type")
+
+    if model_board_type:
+        # Normalize board type names for comparison
+        expected = str(board_type.value if hasattr(board_type, 'value') else board_type).lower()
+        actual = str(model_board_type).lower()
+
+        # Map variations
+        board_type_map = {
+            "square8": ["square8", "sq8"],
+            "square19": ["square19", "sq19"],
+            "hexagonal": ["hexagonal", "hex", "hex8"],
+        }
+
+        expected_variants = board_type_map.get(expected, [expected])
+        actual_variants = board_type_map.get(actual, [actual])
+
+        if not any(e in actual_variants or a in expected_variants for e, a in [(expected, actual)]):
+            # Check if any variant matches
+            matches = False
+            for exp_var in expected_variants:
+                for act_var in actual_variants:
+                    if exp_var == act_var:
+                        matches = True
+                        break
+            if not matches:
+                return False, f"Board type mismatch: model trained on {model_board_type}, expected {board_type}"
+
+    # Infer board type from model architecture if metadata missing
+    state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
+    if isinstance(state_dict, dict):
+        # Check input layer shape - different board types have different channel counts
+        for key in ["conv1.weight", "initial_conv.weight", "encoder.conv1.weight"]:
+            if key in state_dict:
+                in_channels = state_dict[key].shape[1]
+                # Hexagonal models typically have different channel counts than square
+                # Square8/19: usually 40-64 channels
+                # Hex: usually 56 channels for v2 encoder
+
+                # Check output layer for board size hints
+                for out_key in ["policy_fc.weight", "policy_head.weight"]:
+                    if out_key in state_dict:
+                        out_size = state_dict[out_key].shape[0]
+                        # Square8: 64 cells * ~10 actions = 640-1500 outputs
+                        # Square19: 361 cells * ~10 actions = 3610+ outputs
+                        # Hex8: ~61 cells * actions
+
+                        expected_board = str(board_type.value if hasattr(board_type, 'value') else board_type).lower()
+
+                        if expected_board in ["square8", "sq8"]:
+                            if out_size > 3000:
+                                return False, f"Output size {out_size} suggests square19, not square8"
+                        elif expected_board in ["square19", "sq19"]:
+                            if out_size < 2000:
+                                return False, f"Output size {out_size} suggests square8, not square19"
+                        break
+                break
+
+    return True, "compatible"
+
+
+# ============================================
 # Game Execution with Neural Networks
 # ============================================
 
@@ -468,6 +560,36 @@ def play_model_vs_model_game(
     # Model A plays as player 1, Model B plays as player 2
     ai_a = create_ai_from_model(model_a, 1, board_type)
     ai_b = create_ai_from_model(model_b, 2, board_type)
+
+    # Check if neural net models actually loaded their networks
+    # If they fell back to heuristic, we should not record under NN name
+    fallback_used = False
+    fallback_models = []
+
+    for ai, model in [(ai_a, model_a), (ai_b, model_b)]:
+        model_path = model.get("model_path", "")
+        ai_type = model.get("ai_type", "")
+
+        # Only check NN models (not baselines)
+        if not model_path.startswith("__BASELINE") and ai_type not in ("random", "heuristic", "mcts"):
+            # Check if neural_net attribute exists and is None (fallback occurred)
+            nn = getattr(ai, "neural_net", "NOT_FOUND")
+            if nn is None:
+                fallback_used = True
+                fallback_models.append(model.get("model_id", "unknown"))
+                print(f"  [WARNING] Model {model.get('model_id')} fell back to heuristic (NN failed to load)")
+
+    if fallback_used:
+        return {
+            "winner": "skipped",
+            "game_length": 0,
+            "duration_sec": 0,
+            "game_id": game_id,
+            "error": f"Neural net fallback detected for: {fallback_models}",
+            "termination_reason": "nn_fallback",
+            "recordable": False,
+            "fallback_models": fallback_models,
+        }
 
     # Track player types for metadata
     player_types = []
@@ -758,6 +880,32 @@ def play_nn_vs_nn_game(
             "game_length": 0,
             "duration_sec": time.time() - start_time,
             "error": str(e),
+        }
+
+    # Check if any neural net model fell back to heuristic
+    fallback_used = False
+    fallback_models = []
+    for i, ai in enumerate(ais):
+        model_path = model_paths[i % 2]
+        # Check if neural_net attribute exists and is None (fallback occurred)
+        nn = getattr(ai, "neural_net", "NOT_FOUND")
+        if nn is None:
+            fallback_used = True
+            model_name = Path(model_path).stem if model_path else f"player_{i+1}"
+            fallback_models.append(model_name)
+            print(f"  [WARNING] Model {model_name} fell back to heuristic (NN failed to load)")
+
+    if fallback_used:
+        clear_model_cache()
+        return {
+            "winner": "skipped",
+            "game_length": 0,
+            "duration_sec": time.time() - start_time,
+            "game_id": game_state.id,
+            "error": f"Neural net fallback detected for: {fallback_models}",
+            "termination_reason": "nn_fallback",
+            "recordable": False,
+            "fallback_models": fallback_models,
         }
 
     rules_engine = DefaultRulesEngine()
@@ -1078,6 +1226,12 @@ def run_model_matchup(
             results["errors"] += 1
             continue
 
+        # Skip games where neural net fallback was detected
+        if result.get("winner") == "skipped" or result.get("termination_reason") == "nn_fallback":
+            print(f"  [SKIP] Game skipped due to NN fallback: {result.get('fallback_models', [])}")
+            results["errors"] += 1  # Count as error for stats
+            continue
+
         # Save game record to JSONL for training data
         game_record = result.get("game_record")
         if jsonl_path and game_record:
@@ -1258,14 +1412,37 @@ def discover_models(
     models = []
 
     # Look for .pth files matching the board/player config
-    pattern = f"{board_type.replace('square', 'sq')}_{num_players}p"
+    # Generate patterns for various naming conventions
+    base_pattern = board_type.replace("square", "sq").replace("hexagonal", "hex")
+    pattern = f"{base_pattern}_{num_players}p"
+    # Also match hex8 naming for hexagonal boards
+    alt_patterns = []
+    if board_type == "hexagonal":
+        alt_patterns = [f"hex_{num_players}p", f"hex8_{num_players}p", f"hexagonal_{num_players}p"]
 
     for f in models_dir.glob("*.pth"):
         name = f.stem
 
         # Check if it matches the board/player pattern FIRST (for performance)
-        if not (pattern in name or "ringrift_v" in name):
-            continue
+        # For ringrift_v models, validate board type compatibility
+        if "ringrift_v" in name:
+            # ringrift_v models need board type validation
+            name_lower = name.lower()
+            if board_type == "square8":
+                # Accept sq8, square8, or no explicit board type (legacy default)
+                if "sq19" in name_lower or "square19" in name_lower or "hex" in name_lower:
+                    continue
+            elif board_type == "square19":
+                if "sq19" not in name_lower and "square19" not in name_lower:
+                    continue
+            elif board_type in ("hexagonal", "hex8"):
+                if "hex" not in name_lower:
+                    continue
+        else:
+            # Check main pattern and alternate patterns
+            matches_pattern = pattern in name or any(p in name for p in alt_patterns)
+            if not matches_pattern:
+                continue
 
         # Skip NNUE-style checkpoints that use sparse feature architecture.
         # These have names like "policy_sq8_2p_*" and contain accumulator/hidden layers

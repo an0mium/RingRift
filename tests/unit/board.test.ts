@@ -84,7 +84,7 @@ describe('BoardState Test Fixtures', () => {
 
       expect(gameState.boardType).toBe('hexagonal');
       expect(gameState.board.type).toBe('hexagonal');
-      expect(gameState.board.size).toBe(13); // radius=12
+      expect(gameState.board.size).toBe(25); // bounding box = 2*radius+1 = 25 for radius=12
     });
   });
 });

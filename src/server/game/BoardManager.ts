@@ -198,9 +198,10 @@ export class BoardManager {
 
     if (this.boardType === 'hexagonal' || this.boardType === 'hex8') {
       // Generate hexagonal board positions
-      // For hexagonal: size=13 means radius 12, giving 469 positions
-      // For hex8: size=9 means radius 4, giving 61 positions
-      const radius = this.size - 1;
+      // For hex boards: size = bounding box = 2*radius + 1. radius = (size - 1) / 2.
+      // hexagonal: size=25 -> radius=12 (469 positions)
+      // hex8: size=9 -> radius=4 (61 positions)
+      const radius = (this.size - 1) / 2;
       for (let q = -radius; q <= radius; q++) {
         const r1 = Math.max(-radius, -q - radius);
         const r2 = Math.min(radius, -q + radius);
@@ -750,8 +751,8 @@ export class BoardManager {
 
     if (this.boardType === 'hexagonal' || this.boardType === 'hex8') {
       // Hexagonal edge positions
-      // size=13 means radius 12, so edge is at distance 12 (hex8: radius 4)
-      const radius = this.size - 1;
+      // For hex boards: size = bounding box = 2*radius + 1. radius = (size - 1) / 2.
+      const radius = (this.size - 1) / 2;
       return allPositions.filter((pos) => {
         const distance = Math.max(Math.abs(pos.x), Math.abs(pos.y), Math.abs(pos.z || 0));
         return distance === radius;
@@ -785,8 +786,8 @@ export class BoardManager {
 
   isOnEdge(position: Position): boolean {
     if (this.boardType === 'hexagonal' || this.boardType === 'hex8') {
-      // size=13 means radius 12, so edge is at distance 12 (hex8: radius 4)
-      const radius = this.size - 1;
+      // For hex boards: size = bounding box = 2*radius + 1. radius = (size - 1) / 2.
+      const radius = (this.size - 1) / 2;
       const distance = Math.max(
         Math.abs(position.x),
         Math.abs(position.y),

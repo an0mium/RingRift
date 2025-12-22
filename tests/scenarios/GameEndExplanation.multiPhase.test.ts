@@ -195,6 +195,17 @@ function convertVectorMove(vectorMove: any): Move {
   return move as Move;
 }
 
+function isBookkeepingMoveType(type: string): boolean {
+  return (
+    type === 'no_line_action' ||
+    type === 'no_territory_action' ||
+    type === 'no_placement_action' ||
+    type === 'no_movement_action' ||
+    type === 'skip_capture' ||
+    type === 'skip_territory_processing'
+  );
+}
+
 function makeBookkeepingMove(decisionType: string, state: GameState, player: number): Move | null {
   const moveNumber = state.moveHistory.length + 1;
   const base = {
@@ -668,17 +679,33 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
 
         const initialMove = convertVectorMove((vector.input as any).initialMove);
         const phaseHints = buildPhaseHints(vector);
+        // Track real moves (non-bookkeeping) for hadAnyActionThisTurn computation
+        const turnSequenceRealMoves: Move[] = [];
 
-        let result = processTurn(state, initialMove);
+        let result = processTurn(state, initialMove, { turnSequenceRealMoves });
         const phases = [...result.metadata.phasesTraversed];
         let currentState = result.nextState;
+        // Track the initial move if it's a real action (not bookkeeping)
+        if (!isBookkeepingMoveType(initialMove.type)) {
+          turnSequenceRealMoves.push(initialMove);
+        }
 
         while (result.status === 'awaiting_decision' && result.pendingDecision) {
           const chosen = pickDecisionMove(result.pendingDecision, currentState, phaseHints);
-          result = processTurn(currentState, chosen);
+          result = processTurn(currentState, chosen, { turnSequenceRealMoves });
           phases.push(...result.metadata.phasesTraversed);
           currentState = result.nextState;
+          // Track chosen move if it's a real action
+          if (!isBookkeepingMoveType(chosen.type)) {
+            turnSequenceRealMoves.push(chosen);
+          }
         }
+
+        console.log(`[DEBUG ${id}] Phases:`, phases);
+        console.log(`[DEBUG ${id}] Status:`, result.status);
+        console.log(`[DEBUG ${id}] Victory:`, result.victoryResult);
+        console.log(`[DEBUG ${id}] Current phase:`, currentState.currentPhase);
+        console.log(`[DEBUG ${id}] Territory spaces:`, currentState.players.map((p: any) => ({ num: p.playerNumber, ts: p.territorySpaces })));
 
         expect(phases).toEqual(expect.arrayContaining(['line_processing', 'territory_processing']));
         expect(result.status).toBe('complete');

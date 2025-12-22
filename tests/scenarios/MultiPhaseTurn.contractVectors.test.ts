@@ -143,20 +143,40 @@ function driveInitialMoveVector(vector: ContractTestVector) {
 
   const phases: string[] = [];
   const decisionTypes: Set<string> = new Set();
+  // Track real moves (non-bookkeeping) for hadAnyActionThisTurn computation
+  const turnSequenceRealMoves: Move[] = [];
 
-  let result = processTurn(state, initialMove);
+  let result = processTurn(state, initialMove, { turnSequenceRealMoves });
   phases.push(...result.metadata.phasesTraversed);
   let currentState = result.nextState;
+  // Track the initial move if it's a real action (not bookkeeping)
+  if (!isBookkeepingMoveType(initialMove.type)) {
+    turnSequenceRealMoves.push(initialMove);
+  }
 
   while (result.status === 'awaiting_decision' && result.pendingDecision) {
     decisionTypes.add(result.pendingDecision.type);
     const chosen = pickDecisionMove(result.pendingDecision, currentState, phaseHints);
-    result = processTurn(currentState, chosen);
+    result = processTurn(currentState, chosen, { turnSequenceRealMoves });
     phases.push(...result.metadata.phasesTraversed);
     currentState = result.nextState;
+    // Track chosen move if it's a real action
+    if (!isBookkeepingMoveType(chosen.type)) {
+      turnSequenceRealMoves.push(chosen);
+    }
   }
 
   return { result, phases, decisionTypes };
+}
+
+function isBookkeepingMoveType(type: string): boolean {
+  return (
+    type === 'no_line_action' ||
+    type === 'no_territory_action' ||
+    type === 'no_placement_action' ||
+    type === 'skip_capture' ||
+    type === 'skip_territory_processing'
+  );
 }
 
 function resolvePendingDecisions(

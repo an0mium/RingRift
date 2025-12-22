@@ -339,40 +339,45 @@ def chunked_transfer(
 
         # Reassemble on remote
         logger.info("Reassembling chunks on remote...")
-        # Handle trailing slash in remote_path
-        remote_path_clean = remote_path.rstrip('/')
-        remote_base = os.path.dirname(remote_path_clean)
-        remote_filename = os.path.basename(remote_path_clean)
-        # If remote_path was a directory, use the local filename
-        if not remote_filename or remote_filename == os.path.basename(remote_base):
-            remote_filename = local_path.name if hasattr(local_path, 'name') else os.path.basename(str(local_path))
 
-        # If we compressed, reassemble to .gz file first, then decompress
-        # Use bash -c to ensure proper glob expansion
+        # Determine where chunks are and what the final filename should be
+        # remote_dir is where chunks were transferred (from line 266)
+        # If remote_path ends with /, it's a directory - use local filename
+        if remote_path.endswith('/'):
+            final_filename = local_path.name
+        else:
+            # remote_path is full path to file
+            final_filename = os.path.basename(remote_path)
+
+        # Chunks are in remote_dir, reassemble there
         chunk_pattern = f"{transfer_path.stem}_chunk_*"
         if cleanup_compressed:
             shell_cmd = (
-                f"cd {remote_base} && "
-                f"cat {chunk_pattern} > {remote_filename}.gz && "
-                f"gunzip -f {remote_filename}.gz && "
+                f"cd {remote_dir} && "
+                f"cat {chunk_pattern} > {final_filename}.gz && "
+                f"gunzip -f {final_filename}.gz && "
                 f"rm -f {chunk_pattern}"
             )
         else:
             shell_cmd = (
-                f"cd {remote_base} && "
-                f"cat {chunk_pattern} > {remote_filename} && "
+                f"cd {remote_dir} && "
+                f"cat {chunk_pattern} > {final_filename} && "
                 f"rm -f {chunk_pattern}"
             )
+        # Pass the shell command as a single quoted string to SSH
+        # SSH will pass this to the remote shell, which will handle glob expansion
         reassemble_cmd = [
             "ssh", "-i", config.ssh_key,
             "-o", "StrictHostKeyChecking=no",
             "-o", "ConnectTimeout=30",
             "-p", str(port),
             f"root@{host}",
-            "bash", "-c", shell_cmd
+            shell_cmd  # Pass directly - SSH will run via remote shell
         ]
 
         result = subprocess.run(reassemble_cmd, capture_output=True, text=True, timeout=120)
+        logger.debug(f"Reassemble stdout: {result.stdout[:500] if result.stdout else 'empty'}")
+        logger.debug(f"Reassemble stderr: {result.stderr[:500] if result.stderr else 'empty'}")
 
         # Cleanup local compressed file
         if cleanup_compressed and compressed_path.exists():

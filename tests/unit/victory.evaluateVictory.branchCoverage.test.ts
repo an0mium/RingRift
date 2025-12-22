@@ -745,7 +745,8 @@ describe('victory evaluateVictory branch coverage', () => {
       const state = makeGameState();
       state.board.type = 'hexagonal';
       state.boardType = 'hexagonal';
-      state.board.size = 5;
+      // Size = bounding box = 2*radius+1. size=9 means radius=4.
+      state.board.size = 9;
       state.players[0].ringsInHand = 5;
       state.players[1].ringsInHand = 0;
 
@@ -759,7 +760,8 @@ describe('victory evaluateVictory branch coverage', () => {
       const state = makeGameState();
       state.board.type = 'hexagonal';
       state.boardType = 'hexagonal';
-      state.board.size = 2; // Small hex board
+      // Size = bounding box = 2*radius+1. size=3 means radius=1.
+      state.board.size = 3; // Small hex board
       state.players[0].ringsInHand = 5;
       state.players[1].ringsInHand = 0;
 

@@ -455,9 +455,11 @@ class Notifier:
 class UnifiedPromotionDaemon:
     """Main promotion daemon."""
 
-    def __init__(self, config: DaemonConfig):
+    def __init__(self, config: DaemonConfig, shard_index: int = 0, shard_total: int = 1):
         self.config = config
         self.models_dir = AI_SERVICE_ROOT / config.models_dir
+        self.shard_index = shard_index
+        self.shard_total = shard_total
 
         self.watcher = ModelWatcher(self.models_dir)
         self.gauntlet = GauntletRunner(config)
@@ -466,6 +468,9 @@ class UnifiedPromotionDaemon:
         self.notifier = Notifier(config)
 
         self.state = self._load_state()
+
+        if shard_total > 1:
+            logger.info(f"Running as shard {shard_index}/{shard_total}")
 
     def _load_state(self) -> DaemonState:
         """Load persistent state."""
@@ -501,7 +506,17 @@ class UnifiedPromotionDaemon:
         }
 
         # Find new models
-        new_models = self.watcher.get_new_models(self.state.known_models)
+        all_new_models = self.watcher.get_new_models(self.state.known_models)
+
+        # Apply sharding if configured
+        if self.shard_total > 1:
+            # Sort models by name for consistent sharding across nodes
+            all_new_models = sorted(all_new_models, key=lambda p: p.name)
+            new_models = [m for i, m in enumerate(all_new_models) if i % self.shard_total == self.shard_index]
+            logger.info(f"Shard {self.shard_index}/{self.shard_total}: {len(new_models)}/{len(all_new_models)} models")
+        else:
+            new_models = all_new_models
+
         results["new_models"] = len(new_models)
 
         if not new_models:
@@ -726,6 +741,8 @@ def main():
     parser.add_argument("--status", action="store_true", help="Show daemon status")
     parser.add_argument("--dry-run", action="store_true", help="Don't actually promote")
     parser.add_argument("--config", type=str, default=str(CONFIG_FILE), help="Config file path")
+    parser.add_argument("--shard-index", type=int, default=0, help="Shard index for parallel eval (0-indexed)")
+    parser.add_argument("--shard-total", type=int, default=1, help="Total number of shards")
 
     # =========================================================================
     # elo-gate subcommand (consolidated from elo_promotion_gate.py)
@@ -780,7 +797,11 @@ def main():
 
     # Handle main daemon commands
     config = DaemonConfig.from_yaml(Path(args.config))
-    daemon = UnifiedPromotionDaemon(config)
+    daemon = UnifiedPromotionDaemon(
+        config,
+        shard_index=args.shard_index,
+        shard_total=args.shard_total,
+    )
 
     if args.status:
         daemon.show_status()
