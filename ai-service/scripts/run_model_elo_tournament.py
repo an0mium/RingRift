@@ -316,8 +316,15 @@ def validate_model_for_board(
     model_path: str | Path,
     board_type: BoardType,
     num_players: int = 2,
+    run_inference_probe: bool = False,
 ) -> tuple[bool, str]:
     """Validate that a model checkpoint is compatible with the given board type.
+
+    Args:
+        model_path: Path to the model checkpoint
+        board_type: Expected board type
+        num_players: Expected player count
+        run_inference_probe: If True, run actual inference to validate (slower but definitive)
 
     Returns:
         (is_valid, reason) - True if compatible, False with reason if not.
@@ -337,67 +344,131 @@ def validate_model_for_board(
     except Exception as e:
         return False, f"Failed to load checkpoint: {e}"
 
-    # Check metadata if available
+    # Expected policy sizes for each board type
+    POLICY_SIZES = {
+        "square8": 7000,
+        "square19": 67000,
+        "hex8": 4500,
+        "hexagonal": 91876,
+    }
+
+    # Expected board sizes (spatial dimension)
+    BOARD_SIZES = {
+        "square8": 8,
+        "square19": 19,
+        "hex8": 9,       # 9x9 bounding box for radius-4 hex
+        "hexagonal": 25,  # 25x25 bounding box for radius-12 hex
+    }
+
+    expected_board = str(board_type.value if hasattr(board_type, 'value') else board_type).lower()
+    expected_policy_size = POLICY_SIZES.get(expected_board, 0)
+    expected_board_size = BOARD_SIZES.get(expected_board, 0)
+
+    # Check versioning metadata first (most reliable)
+    versioning_metadata = checkpoint.get("_versioning_metadata", {})
+    if versioning_metadata:
+        config = versioning_metadata.get("config", {})
+        model_board_type = config.get("board_type", "")
+        model_board_size = config.get("board_size", 0)
+        model_policy_size = config.get("policy_size", 0)
+
+        if model_board_type:
+            actual = str(model_board_type).lower()
+            # Strict matching for hex8 vs hexagonal (they are NOT compatible)
+            if expected_board in ["hex8", "hexagonal"] and actual in ["hex8", "hexagonal"]:
+                if expected_board != actual:
+                    return False, f"Hex board size mismatch: model is {actual}, expected {expected_board}"
+            elif expected_board in ["square8", "sq8"] and actual in ["square8", "sq8"]:
+                pass  # Compatible
+            elif expected_board in ["square19", "sq19"] and actual in ["square19", "sq19"]:
+                pass  # Compatible
+            elif expected_board != actual:
+                return False, f"Board type mismatch: model is {actual}, expected {expected_board}"
+
+        # Board size is the most reliable indicator
+        if model_board_size and expected_board_size and model_board_size != expected_board_size:
+            return False, f"Board size mismatch: model has {model_board_size}, expected {expected_board_size}"
+
+        # Policy size can vary based on action encoding, so only warn if very different
+        # (disabled for now since policy sizes vary widely)
+
+    # Check old-style metadata
     metadata = checkpoint.get("metadata", {})
-    model_board_type = metadata.get("board_type")
+    if metadata:
+        model_board_type = metadata.get("board_type", "")
+        if model_board_type:
+            actual = str(model_board_type).lower()
+            if expected_board in ["hex8", "hexagonal"] and actual in ["hex8", "hexagonal"]:
+                if expected_board != actual:
+                    return False, f"Hex board size mismatch: model is {actual}, expected {expected_board}"
 
-    if model_board_type:
-        # Normalize board type names for comparison
-        expected = str(board_type.value if hasattr(board_type, 'value') else board_type).lower()
-        actual = str(model_board_type).lower()
-
-        # Map variations
-        board_type_map = {
-            "square8": ["square8", "sq8"],
-            "square19": ["square19", "sq19"],
-            "hexagonal": ["hexagonal", "hex", "hex8"],
-        }
-
-        expected_variants = board_type_map.get(expected, [expected])
-        actual_variants = board_type_map.get(actual, [actual])
-
-        if not any(e in actual_variants or a in expected_variants for e, a in [(expected, actual)]):
-            # Check if any variant matches
-            matches = False
-            for exp_var in expected_variants:
-                for act_var in actual_variants:
-                    if exp_var == act_var:
-                        matches = True
-                        break
-            if not matches:
-                return False, f"Board type mismatch: model trained on {model_board_type}, expected {board_type}"
-
-    # Infer board type from model architecture if metadata missing
+    # Infer from architecture if metadata missing
     state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
     if isinstance(state_dict, dict):
-        # Check input layer shape - different board types have different channel counts
-        for key in ["conv1.weight", "initial_conv.weight", "encoder.conv1.weight"]:
-            if key in state_dict:
-                in_channels = state_dict[key].shape[1]
-                # Hexagonal models typically have different channel counts than square
-                # Square8/19: usually 40-64 channels
-                # Hex: usually 56 channels for v2 encoder
+        # Check hex_mask shape (definitive for hex models)
+        if "hex_mask" in state_dict:
+            hex_mask_shape = state_dict["hex_mask"].shape
+            # hex_mask is (1, 1, board_size, board_size)
+            if len(hex_mask_shape) == 4:
+                mask_size = hex_mask_shape[2]
+                if expected_board == "hex8" and mask_size != 9:
+                    return False, f"hex_mask size {mask_size} doesn't match hex8 (expected 9)"
+                elif expected_board == "hexagonal" and mask_size != 25:
+                    return False, f"hex_mask size {mask_size} doesn't match hexagonal (expected 25)"
+                elif expected_board in ["square8", "square19"]:
+                    return False, f"Model has hex_mask but expected square board type"
 
-                # Check output layer for board size hints
-                for out_key in ["policy_fc.weight", "policy_head.weight"]:
-                    if out_key in state_dict:
-                        out_size = state_dict[out_key].shape[0]
-                        # Square8: 64 cells * ~10 actions = 640-1500 outputs
-                        # Square19: 361 cells * ~10 actions = 3610+ outputs
-                        # Hex8: ~61 cells * actions
+        # Check board_size from state_dict keys if hex_mask wasn't found
+        # This is less reliable but still useful
+        if "hex_mask" not in state_dict:
+            # For square boards, check if any hex-specific keys exist
+            hex_keys = ["hex_mask", "hex_conv", "axial_conv"]
+            has_hex_architecture = any(k for k in state_dict.keys() if any(hk in k.lower() for hk in hex_keys))
 
-                        expected_board = str(board_type.value if hasattr(board_type, 'value') else board_type).lower()
+            if has_hex_architecture and expected_board in ["square8", "square19"]:
+                return False, f"Model has hex architecture but expected square board"
+            elif not has_hex_architecture and expected_board in ["hex8", "hexagonal"]:
+                return False, f"Model lacks hex architecture but expected hex board"
 
-                        if expected_board in ["square8", "sq8"]:
-                            if out_size > 3000:
-                                return False, f"Output size {out_size} suggests square19, not square8"
-                        elif expected_board in ["square19", "sq19"]:
-                            if out_size < 2000:
-                                return False, f"Output size {out_size} suggests square8, not square19"
-                        break
-                break
+    # Optional: Run actual inference probe (slowest but most reliable)
+    if run_inference_probe:
+        try:
+            probe_result = _run_inference_probe(str(path), board_type, num_players)
+            if not probe_result[0]:
+                return probe_result
+        except Exception as e:
+            return False, f"Inference probe failed: {e}"
 
     return True, "compatible"
+
+
+def _run_inference_probe(model_path: str, board_type: BoardType, num_players: int) -> tuple[bool, str]:
+    """Run a single inference pass to verify model compatibility."""
+    try:
+        from app.ai.neural_net import NeuralNetAI
+        from app.models import AIConfig, AIType
+        from app.training.initial_state import create_initial_state
+
+        config = AIConfig(
+            ai_type=AIType.NEURAL_DEMO,
+            board_type=board_type,
+            nn_model_id=model_path,
+        )
+        nn_ai = NeuralNetAI(player_number=1, config=config, board_type=board_type)
+
+        # Create test state and run inference
+        test_state = create_initial_state(board_type, num_players)
+        values, policy = nn_ai.evaluate_batch([test_state])
+
+        if len(values) != 1:
+            return False, f"Inference returned {len(values)} values, expected 1"
+
+        return True, "inference_ok"
+    except Exception as e:
+        error_msg = str(e)
+        if "size mismatch" in error_msg:
+            return False, f"Architecture mismatch during inference: {error_msg[:200]}"
+        return False, f"Inference failed: {error_msg[:200]}"
 
 
 # ============================================
@@ -1400,14 +1471,16 @@ def discover_models(
     board_type: str = "square8",
     num_players: int = 2,
     include_nnue: bool = False,
+    validate_compatibility: bool = True,
 ) -> list[dict[str, Any]]:
     """Discover all trained models for a given board type.
 
     Args:
         models_dir: Directory to search for NN models
-        board_type: Board type (square8, square19, hexagonal)
+        board_type: Board type (square8, square19, hex8, hexagonal)
         num_players: Number of players (2, 3, 4)
         include_nnue: If True, also discover NNUE models in models/nnue/
+        validate_compatibility: If True, validate each model's architecture matches board_type
     """
     models = []
 
@@ -1505,6 +1578,40 @@ def discover_models(
                         "model_type": "nnue",
                         "ai_type": "nnue",
                     })
+
+    # Validate model compatibility if requested
+    if validate_compatibility and models:
+        from app.models import BoardType
+
+        # Map string board_type to BoardType enum
+        board_type_map = {
+            "square8": BoardType.SQUARE8,
+            "square19": BoardType.SQUARE19,
+            "hex8": BoardType.HEX8,
+            "hexagonal": BoardType.HEXAGONAL,
+        }
+        board_type_enum = board_type_map.get(board_type.lower())
+
+        if board_type_enum:
+            valid_models = []
+            skipped_count = 0
+            for model in models:
+                is_valid, reason = validate_model_for_board(
+                    model["model_path"], board_type_enum, num_players
+                )
+                if is_valid:
+                    valid_models.append(model)
+                else:
+                    skipped_count += 1
+                    # Only log first few to avoid spam
+                    if skipped_count <= 5:
+                        print(f"  [SKIP] {model['model_id']}: {reason}")
+                    elif skipped_count == 6:
+                        print(f"  [SKIP] ... and more (suppressing further messages)")
+
+            if skipped_count > 0:
+                print(f"  Filtered out {skipped_count} incompatible models")
+            models = valid_models
 
     return sorted(models, key=lambda x: x["created_at"], reverse=True)
 
