@@ -160,6 +160,11 @@ class ReanalysisEngine:
 
         batch_size = self.config.batch_size
 
+        # Check if model requires globals argument (v3 models do)
+        import inspect
+        forward_sig = inspect.signature(self.model.forward)
+        requires_globals = "globals" in forward_sig.parameters
+
         with torch.no_grad():
             for start_idx in range(0, n_samples, batch_size):
                 end_idx = min(start_idx + batch_size, n_samples)
@@ -169,8 +174,16 @@ class ReanalysisEngine:
                     device=self.device,
                 )
 
-                # Model inference
-                output = self.model(batch_features)
+                # Model inference - pass globals if model requires it
+                if requires_globals:
+                    batch_globals = torch.tensor(
+                        globals_vec[start_idx:end_idx],
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
+                    output = self.model(batch_features, batch_globals)
+                else:
+                    output = self.model(batch_features)
 
                 if isinstance(output, tuple):
                     batch_values, batch_policies = output[:2]
