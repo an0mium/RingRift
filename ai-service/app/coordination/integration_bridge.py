@@ -54,6 +54,8 @@ EVENT_CLUSTER_HEALTH_CHANGED = "cluster_health_changed"
 EVENT_SELFPLAY_SCALED = "selfplay_scaled"
 EVENT_FEEDBACK_SIGNAL = "feedback_signal"
 EVENT_PARITY_VALIDATION_COMPLETE = "parity_validation_complete"
+EVENT_ELO_UPDATED = "elo_updated"
+EVENT_REGISTRY_SYNC_NEEDED = "registry_sync_needed"
 
 
 # =============================================================================
@@ -346,6 +348,73 @@ def wire_pipeline_feedback_events(
 
 
 # =============================================================================
+# Sync Manager Integration (December 2025)
+# =============================================================================
+
+def wire_sync_manager_events() -> None:
+    """Wire sync managers to respond to model and ELO events.
+
+    This enables automatic sync triggers when:
+    - A model is promoted (triggers registry sync)
+    - ELO ratings are updated (triggers ELO sync)
+    """
+    logger.info("[IntegrationBridge] Wiring sync managers to event router")
+
+    # Wire model_promoted → registry sync
+    def on_model_promoted_sync_registry(event: RouterEvent) -> None:
+        if not isinstance(event.payload, dict):
+            return
+
+        model_id = event.payload.get("model_id") or event.payload.get("model")
+        if not model_id:
+            return
+
+        async def _sync_registry() -> None:
+            try:
+                from app.training.registry_sync_manager import get_registry_sync_manager
+
+                sync_mgr = get_registry_sync_manager()
+                if sync_mgr:
+                    await sync_mgr.sync_model_metadata(str(model_id))
+                    logger.debug(f"[IntegrationBridge] Registry sync triggered for {model_id}")
+            except ImportError:
+                pass  # Module not available
+            except Exception as e:
+                logger.warning(f"[IntegrationBridge] Registry sync error: {e}")
+
+        _run_coroutine(_sync_registry())
+
+    # Wire elo_updated → ELO sync
+    def on_elo_updated_sync(event: RouterEvent) -> None:
+        if not isinstance(event.payload, dict):
+            return
+
+        config = event.payload.get("config")
+        if not config:
+            return
+
+        async def _sync_elo() -> None:
+            try:
+                from app.tournament.elo_sync_manager import get_elo_sync_manager
+
+                sync_mgr = get_elo_sync_manager()
+                if sync_mgr:
+                    await sync_mgr.sync_with_cluster()
+                    logger.debug(f"[IntegrationBridge] ELO sync triggered for {config}")
+            except ImportError:
+                pass  # Module not available
+            except Exception as e:
+                logger.warning(f"[IntegrationBridge] ELO sync error: {e}")
+
+        _run_coroutine(_sync_elo())
+
+    subscribe(EVENT_MODEL_PROMOTED, on_model_promoted_sync_registry)
+    subscribe(EVENT_ELO_UPDATED, on_elo_updated_sync)
+
+    logger.info("[IntegrationBridge] Sync managers wired successfully")
+
+
+# =============================================================================
 # Unified Wiring Entry Point
 # =============================================================================
 
@@ -416,6 +485,14 @@ async def wire_all_integrations() -> dict[str, bool]:
     except Exception as e:
         logger.error(f"[IntegrationBridge] Error wiring PipelineFeedbackController: {e}")
         results["pipeline_feedback"] = False
+
+    # Wire sync managers (December 2025)
+    try:
+        wire_sync_manager_events()
+        results["sync_managers"] = True
+    except Exception as e:
+        logger.error(f"[IntegrationBridge] Error wiring sync managers: {e}")
+        results["sync_managers"] = False
 
     _integration_wired = True
     logger.info(f"[IntegrationBridge] Integration wiring complete: {results}")
