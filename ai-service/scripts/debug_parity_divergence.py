@@ -67,9 +67,9 @@ def compare_states(gpu_stacks: dict, cpu_stacks: dict) -> list:
     return diffs
 
 
-def find_matching_move(state, move_type_str, from_pos, to_pos):
+def find_matching_move(state, engine, move_type_str, from_pos, to_pos):
     """Find a matching valid move on CPU side."""
-    valid_moves = state.valid_moves
+    valid_moves = engine.get_valid_moves(state)
     m_to = to_pos.to_key() if to_pos else None
     move_type = getattr(MoveType, move_type_str.upper(), None)
 
@@ -151,7 +151,7 @@ def debug_seed(seed: int):
         diffs = compare_states(gpu_stacks, cpu_stacks)
 
         # Try to find matching CPU move
-        matching_move = find_matching_move(cpu_state, move_type_str, from_pos, to_pos)
+        matching_move = find_matching_move(cpu_state, engine, move_type_str, from_pos, to_pos)
 
         move_desc = f"{move_type_str} from={from_pos.to_key() if from_pos else None} to={to_pos.to_key() if to_pos else None}"
 
@@ -167,16 +167,17 @@ def debug_seed(seed: int):
                 first_divergence = i
 
         if matching_move is None:
+            cpu_valid = engine.get_valid_moves(cpu_state)
             print(f"\nMove {i}: {move_desc} (player={gpu_player}, phase={gpu_phase})")
             print(f"  CPU phase: {cpu_state.current_phase}, player: {cpu_state.current_player}")
             print(f"  NO MATCHING CPU MOVE FOUND")
-            print(f"  CPU valid moves ({len(cpu_state.valid_moves)}):")
-            for v in cpu_state.valid_moves[:10]:
+            print(f"  CPU valid moves ({len(cpu_valid)}):")
+            for v in cpu_valid[:10]:
                 v_from = v.from_pos.to_key() if v.from_pos else None
                 v_to = v.to_pos.to_key() if v.to_pos else None
                 print(f"    {v.type.name}: from={v_from} to={v_to}")
-            if len(cpu_state.valid_moves) > 10:
-                print(f"    ... and {len(cpu_state.valid_moves)-10} more")
+            if len(cpu_valid) > 10:
+                print(f"    ... and {len(cpu_valid)-10} more")
 
             if first_divergence is None:
                 first_divergence = i
