@@ -447,7 +447,7 @@ def wire_evaluation_curriculum_bridge() -> bool:
 
             if config_key and (elo is not None or win_rate is not None):
                 # Update curriculum with evaluation results
-                bridge.on_evaluation_result(
+                bridge.add_evaluation_result(
                     config_key=config_key,
                     elo=elo,
                     win_rate=win_rate,
