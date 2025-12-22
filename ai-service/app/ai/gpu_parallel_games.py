@@ -716,6 +716,70 @@ class ParallelGameRunner:
             logger.debug(f"Feature extraction failed for game {game_idx}: {e}")
             return None
 
+    def _emit_gpu_selfplay_complete(
+        self,
+        games_count: int,
+        elapsed_seconds: float,
+        success: bool = True,
+        task_id: str | None = None,
+        iteration: int = 0,
+        error: str = "",
+    ) -> None:
+        """Emit GPU_SELFPLAY_COMPLETE event (December 2025).
+
+        This notifies downstream pipeline stages that GPU selfplay has completed,
+        enabling coordination with training, evaluation, and data aggregation.
+
+        Args:
+            games_count: Number of games completed
+            elapsed_seconds: Duration of selfplay in seconds
+            success: Whether selfplay completed without error
+            task_id: Optional task identifier
+            iteration: Pipeline iteration number
+            error: Error message if failed
+        """
+        try:
+            import asyncio
+            import socket
+
+            from app.coordination.selfplay_orchestrator import emit_selfplay_completion
+
+            node_id = socket.gethostname()
+            if task_id is None:
+                task_id = f"gpu_selfplay_{self.batch_size}_{int(time.time())}"
+
+            board_type = self.board_type or f"square{self.board_size}"
+
+            async def emit():
+                return await emit_selfplay_completion(
+                    task_id=task_id,
+                    board_type=board_type,
+                    num_players=self.num_players,
+                    games_generated=games_count,
+                    success=success,
+                    node_id=node_id,
+                    selfplay_type="gpu_selfplay",
+                    iteration=iteration,
+                    error=error,
+                )
+
+            try:
+                loop = asyncio.get_running_loop()
+                # Fire and forget in existing loop
+                loop.create_task(emit())
+            except RuntimeError:
+                # No event loop running, run synchronously
+                asyncio.run(emit())
+
+            logger.debug(
+                f"Emitted GPU_SELFPLAY_COMPLETE: {games_count} games, "
+                f"{elapsed_seconds:.2f}s, task_id={task_id}"
+            )
+        except ImportError:
+            pass  # SelfplayOrchestrator not available
+        except Exception as e:
+            logger.debug(f"Failed to emit GPU_SELFPLAY_COMPLETE: {e}")
+
     @torch.no_grad()
     def run_games(
         self,
@@ -724,6 +788,9 @@ class ParallelGameRunner:
         callback: Callable[[int, BatchGameState], None] | None = None,
         snapshot_interval: int = 0,
         snapshot_callback: Callable[[int, int, "GameState"], None] | None = None,
+        emit_events: bool = True,
+        task_id: str | None = None,
+        iteration: int = 0,
     ) -> dict[str, Any]:
         """Run all games to completion.
 
@@ -735,6 +802,10 @@ class ParallelGameRunner:
                              Useful for NNUE training with full game trajectories.
             snapshot_callback: Called with (game_idx, move_number, GameState) when a
                              snapshot is captured. Use to save to database.
+            emit_events: If True, emit GPU_SELFPLAY_COMPLETE event on completion
+                       (December 2025). Default True.
+            task_id: Optional task identifier for event emission. Auto-generated if None.
+            iteration: Pipeline iteration number for event metadata.
 
         Returns:
             Dictionary with:
@@ -833,6 +904,16 @@ class ParallelGameRunner:
             results["shadow_validation"] = self.shadow_validator.get_report()
         if self.state_validator:
             results["state_validation"] = self.state_validator.get_report()
+
+        # Emit GPU_SELFPLAY_COMPLETE event for pipeline coordination (December 2025)
+        if emit_events:
+            self._emit_gpu_selfplay_complete(
+                games_count=self.batch_size,
+                elapsed_seconds=elapsed,
+                success=True,
+                task_id=task_id,
+                iteration=iteration,
+            )
 
         return results
 

@@ -167,8 +167,9 @@ class IntegratedEnhancementsConfig:
     # =========================================================================
     reanalysis_enabled: bool = True
     reanalysis_blend_ratio: float = 0.7  # 70% new, 30% old (MuZero-style)
-    reanalysis_interval_steps: int = 5000
+    reanalysis_interval_steps: int = 2000  # Trigger more frequently for faster iteration
     reanalysis_batch_size: int = 1000
+    reanalysis_min_elo_delta: int = 25  # Lower threshold for more frequent reanalysis
 
     # =========================================================================
     # Knowledge Distillation
@@ -874,11 +875,13 @@ class IntegratedTrainingManager:
         if self._reanalysis_engine is None:
             return False
 
-        # Check Elo improvement threshold
+        # Check Elo improvement threshold (use config's threshold if set)
         current_elo = self.get_current_elo()
         if current_elo is not None:
             elo_delta = current_elo - getattr(self, '_last_reanalysis_elo', 0.0)
-            if elo_delta < self._reanalysis_engine.config.min_model_elo_delta:
+            min_delta = getattr(self.config, 'reanalysis_min_elo_delta',
+                                self._reanalysis_engine.config.min_model_elo_delta)
+            if elo_delta < min_delta:
                 return False
 
         # Check time interval

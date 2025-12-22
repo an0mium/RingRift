@@ -51,7 +51,7 @@ class ParallelSelfplayConfig:
     board_type: BoardType = BoardType.SQUARE8
     num_players: int = 2
     max_moves: int = 10000
-    engine: str = "descent"  # "descent", "mcts", "gumbel", or "ebmo"
+    engine: str = "gumbel"  # "descent", "mcts", "gumbel", or "ebmo" - Gumbel provides best soft policy targets
     nn_model_id: str | None = None
     multi_player_values: bool = False
     max_players: int = 4

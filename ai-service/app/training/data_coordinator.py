@@ -66,6 +66,12 @@ except ImportError:
     should_auto_discover = None
     DiscoveryResult = None
 
+# Parity exclusions - databases with known parity failures
+from app.training.parity_exclusions import (
+    EXCLUDED_DB_PATTERNS,
+    should_exclude_database,
+)
+
 # Default paths
 DEFAULT_DATA_DIR = Path(__file__).parent.parent.parent / "data"
 DEFAULT_SELFPLAY_DIR = DEFAULT_DATA_DIR / "games"
@@ -87,6 +93,8 @@ class CoordinatorConfig:
         refresh_interval_seconds: How often to refresh quality data
         auto_load_from_db: Automatically load games from DB on startup
         auto_discovery_target_games: Target number of games for auto-discovery
+        excluded_db_patterns: Database filename patterns to exclude from training
+            (e.g., databases with known parity failures or phase coercion issues)
     """
     enable_quality_scoring: bool = True
     enable_sync: bool = True
@@ -99,6 +107,9 @@ class CoordinatorConfig:
     refresh_interval_seconds: float = 300.0
     auto_load_from_db: bool = True
     auto_discovery_target_games: int = 50000
+    # RR-PARITY-FIX-2025-12-21: Exclude databases with known parity failures
+    # See app.training.parity_exclusions for the full list and documentation
+    excluded_db_patterns: tuple[str, ...] | None = None  # Uses EXCLUDED_DB_PATTERNS
 
 
 @dataclass
@@ -464,7 +475,12 @@ class TrainingDataCoordinator:
         board_type: str,
         num_players: int,
     ) -> int:
-        """Load games from local selfplay databases."""
+        """Load games from local selfplay databases.
+
+        Automatically excludes databases matching patterns in
+        config.excluded_db_patterns (e.g., databases with known
+        parity failures or phase coercion issues).
+        """
         if not self._hot_buffer:
             self._create_hot_buffer()
 
@@ -472,10 +488,17 @@ class TrainingDataCoordinator:
             return 0
 
         total_loaded = 0
+        skipped_dbs = []
 
         # Find all relevant databases
         db_pattern = f"*{board_type}*.db"
         for db_path in self._selfplay_dir.glob(db_pattern):
+            # RR-PARITY-FIX-2025-12-21: Skip excluded databases
+            exclusion_patterns = self._config.excluded_db_patterns or EXCLUDED_DB_PATTERNS
+            if should_exclude_database(db_path, exclusion_patterns):
+                skipped_dbs.append(db_path.stem)
+                continue
+
             try:
                 loaded = self._hot_buffer.load_from_db(
                     db_path=db_path,
@@ -487,6 +510,11 @@ class TrainingDataCoordinator:
                 total_loaded += loaded
             except Exception as e:
                 logger.warning(f"Failed to load from {db_path}: {e}")
+
+        if skipped_dbs:
+            logger.info(
+                f"Skipped {len(skipped_dbs)} non-canonical databases: {skipped_dbs}"
+            )
 
         self._stats.last_load_time = time.time()
         return total_loaded

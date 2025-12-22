@@ -385,6 +385,12 @@ class HexNeuralNet_v3(nn.Module):
         self.max_distance = max_distance
         self.movement_channels = num_directions * max_distance  # 6 × 24 = 144
 
+        # Compute layout spans dynamically based on board_size
+        # This ensures hex8 (9x9) and hexagonal (25x25) use correct indices
+        self.placement_span = board_size * board_size * num_ring_counts
+        self.movement_span = board_size * board_size * num_directions * max_distance
+        self.special_base = self.placement_span + self.movement_span
+
         # Pre-compute hex validity mask
         self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
 
@@ -425,27 +431,28 @@ class HexNeuralNet_v3(nn.Module):
         Pre-compute index tensors for scattering spatial logits into flat policy.
 
         Placement indexing: idx = y * W * 3 + x * 3 + ring_count
-        Movement indexing: idx = HEX_MOVEMENT_BASE + y * W * 6 * 24 + x * 6 * 24 + dir * 24 + (dist - 1)
+        Movement indexing: idx = placement_span + y * W * dirs * dists + x * dirs * dists + dir * dists + (dist - 1)
         """
         H, W = board_size, board_size
 
-        # Placement indices: [3, H, W] → flat index in [0, 1874]
+        # Placement indices: [3, H, W] → flat index in [0, placement_span)
         placement_idx = torch.zeros(self.num_ring_counts, H, W, dtype=torch.long)
         for y in range(H):
             for x in range(W):
                 for r in range(self.num_ring_counts):
-                    placement_idx[r, y, x] = y * W * 3 + x * 3 + r
+                    placement_idx[r, y, x] = y * W * self.num_ring_counts + x * self.num_ring_counts + r
         self.register_buffer("placement_idx", placement_idx)
 
-        # Movement indices: [144, H, W] → flat index in [1875, 91874]
+        # Movement indices: [144, H, W] → flat index in [placement_span, special_base)
         movement_idx = torch.zeros(self.movement_channels, H, W, dtype=torch.long)
+        movement_base = self.placement_span
         for y in range(H):
             for x in range(W):
                 for d in range(self.num_directions):
                     for dist_minus_1 in range(self.max_distance):
                         channel = d * self.max_distance + dist_minus_1
                         flat_idx = (
-                            HEX_MOVEMENT_BASE
+                            movement_base
                             + y * W * self.num_directions * self.max_distance
                             + x * self.num_directions * self.max_distance
                             + d * self.max_distance
@@ -509,8 +516,8 @@ class HexNeuralNet_v3(nn.Module):
         policy.scatter_(1, placement_idx_flat, placement_flat)
         policy.scatter_(1, movement_idx_flat, movement_flat)
 
-        # Add special action logit at index HEX_SPECIAL_BASE
-        policy[:, HEX_SPECIAL_BASE : HEX_SPECIAL_BASE + 1] = special_logits
+        # Add special action logit at dynamically computed special_base
+        policy[:, self.special_base : self.special_base + 1] = special_logits
 
         return policy
 
@@ -629,6 +636,12 @@ class HexNeuralNet_v3_Lite(nn.Module):
         self.max_distance = max_distance
         self.movement_channels = num_directions * max_distance
 
+        # Compute layout spans dynamically based on board_size
+        # This ensures hex8 (9x9) and hexagonal (25x25) use correct indices
+        self.placement_span = board_size * board_size * num_ring_counts
+        self.movement_span = board_size * board_size * num_directions * max_distance
+        self.special_base = self.placement_span + self.movement_span
+
         # Pre-compute hex validity mask
         self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
 
@@ -664,17 +677,18 @@ class HexNeuralNet_v3_Lite(nn.Module):
         for y in range(H):
             for x in range(W):
                 for r in range(self.num_ring_counts):
-                    placement_idx[r, y, x] = y * W * 3 + x * 3 + r
+                    placement_idx[r, y, x] = y * W * self.num_ring_counts + x * self.num_ring_counts + r
         self.register_buffer("placement_idx", placement_idx)
 
         movement_idx = torch.zeros(self.movement_channels, H, W, dtype=torch.long)
+        movement_base = self.placement_span
         for y in range(H):
             for x in range(W):
                 for d in range(self.num_directions):
                     for dist_minus_1 in range(self.max_distance):
                         channel = d * self.max_distance + dist_minus_1
                         flat_idx = (
-                            HEX_MOVEMENT_BASE
+                            movement_base
                             + y * W * self.num_directions * self.max_distance
                             + x * self.num_directions * self.max_distance
                             + d * self.max_distance
@@ -721,7 +735,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
 
         policy.scatter_(1, placement_idx_flat, placement_flat)
         policy.scatter_(1, movement_idx_flat, movement_flat)
-        policy[:, HEX_SPECIAL_BASE : HEX_SPECIAL_BASE + 1] = special_logits
+        policy[:, self.special_base : self.special_base + 1] = special_logits
 
         return policy
 

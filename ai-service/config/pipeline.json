@@ -45,8 +45,8 @@
       "hex_3p": 30,
       "hex_4p": 20
     },
-    "engine_modes": ["descent-only", "heuristic-only", "mixed"],
-    "default_engine_mode": "descent-only",
+    "engine_modes": ["gumbel", "descent-only", "mcts", "heuristic-only", "mixed"],
+    "default_engine_mode": "gumbel",
     "max_moves": {
       "square8": 500,
       "square19": 800,
