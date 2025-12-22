@@ -88,7 +88,7 @@ while IFS=: read -r type arg1 arg2 arg3 arg4; do
         user="$arg3"
         port="$arg4"
         ((total_count++))
-        update_ssh "$name" "$host" "$user" "$port" &
+        update_ssh "$name" "$host" "$user" "$port" </dev/null &
     fi
 done < "$TMPFILE"
 
