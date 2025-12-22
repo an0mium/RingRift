@@ -436,6 +436,18 @@ class UnifiedModelLoader:
                 raise
             return self._create_fresh_model(board_type, num_players)
 
+        # Apply NNUE-specific migration if needed (V1 -> V2 feature padding)
+        if architecture in {ModelArchitecture.NNUE_VALUE_ONLY, ModelArchitecture.NNUE_WITH_POLICY}:
+            from app.ai.nnue import (
+                _migrate_legacy_state_dict,
+                FEATURE_DIMS,
+            )
+            arch_version = metadata.get("architecture_version", "v1.0.0")
+            target_input_size = FEATURE_DIMS.get(config.board_type, FEATURE_DIMS[BoardType.SQUARE8])
+            state_dict, detected_version = _migrate_legacy_state_dict(
+                state_dict, arch_version, target_input_size, config.board_type
+            )
+
         # Load weights
         try:
             model.load_state_dict(state_dict, strict=strict)
