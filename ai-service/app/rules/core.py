@@ -62,17 +62,17 @@ def get_effective_line_length(board_type: BoardType, num_players: int) -> int:
     Canonical semantics (RR-CANON-R120):
     - square8 2-player: line length = 4
     - square8 3-4 player: line length = 3
-    - square19, hex8, and hexagonal: line length = 4 (all player counts)
+    - hex8 2-player: line length = 4
+    - hex8 3-4 player: line length = 3
+    - square19 and hexagonal: line length = 4 (all player counts)
     """
-    # Per RR-CANON-R120: square8 2-player games require line length 4,
+    # Per RR-CANON-R120: square8 and hex8 2-player games require line length 4,
     # while 3-4 player games require line length 3.
-    if board_type == BoardType.SQUARE8 and num_players == 2:
-        return 4
+    if board_type in (BoardType.SQUARE8, BoardType.HEX8):
+        return 4 if num_players == 2 else 3
 
     # For all other configurations, use the base line_length from BOARD_CONFIGS:
-    # - square8 3-4p: 3
     # - square19: 4
-    # - hex8: 4
     # - hexagonal: 4
     return BOARD_CONFIGS[board_type].line_length
 

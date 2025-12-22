@@ -41,13 +41,13 @@ This document specifies the **hex8** board variant, a smaller hexagonal board de
 
 ### 2.2 Game Parameters
 
-| Parameter            | Hex8 Value   | Comparison        |
-| -------------------- | ------------ | ----------------- |
-| `ringsPerPlayer`     | 18           | Same as square8   |
-| `lineLength`         | 4            | Same as square8   |
-| `movementAdjacency`  | 6 (hex dirs) | Same as hexagonal |
-| `lineAdjacency`      | 6 (hex dirs) | Same as hexagonal |
-| `territoryAdjacency` | 6 (hex dirs) | Same as hexagonal |
+| Parameter            | Hex8 Value        | Comparison                        |
+| -------------------- | ----------------- | --------------------------------- |
+| `ringsPerPlayer`     | 18                | Same as square8                   |
+| `lineLength`         | 4 (2p) / 3 (3-4p) | Same as square8 per RR-CANON-R120 |
+| `movementAdjacency`  | 6 (hex dirs)      | Same as hexagonal                 |
+| `lineAdjacency`      | 6 (hex dirs)      | Same as hexagonal                 |
+| `territoryAdjacency` | 6 (hex dirs)      | Same as hexagonal                 |
 
 ### 2.3 Coordinate System
 
@@ -130,7 +130,8 @@ Total:           4,132 → POLICY_SIZE_HEX8 = 4,500 (padded)
    - Add `HEX8_RADIUS = 4` constant
 
 3. **`src/shared/engine/rules/config.ts`**
-   - Add hex8 configuration object with lineLength=4, ringsPerPlayer=18
+   - Add hex8 configuration object with lineLength=4 (base), ringsPerPlayer=18
+   - Note: Effective lineLength is 4 for 2-player, 3 for 3-4 player (per RR-CANON-R120)
 
 ### 4.3 Phase 3: Neural Network (Priority: Medium)
 
@@ -222,10 +223,14 @@ ringrift_v5_hex8_4p.pth
 
 ---
 
-## 7. Open Questions
+## 7. Resolved Design Questions
 
-1. **Line length:** Should hex8 use lineLength=4 (same as square8) or lineLength=3 (scaled proportionally)?
-   - **Recommendation:** lineLength=4 for consistency with square8
+1. **Line length:** ✅ RESOLVED (RR-CANON-R120)
+   - hex8 2-player: lineLength=4
+   - hex8 3-4 player: lineLength=3 (same as square8 3-4p)
+   - Rationale: With 4 players competing on 61 hexagonal cells, markers are frequently
+     overwritten. LineLength=4 causes lines to form too rarely, breaking S-invariant
+     termination guarantees. LineLength=3 ensures sufficient line formation.
 
 2. **Victory thresholds:** Should hex8 use same victory thresholds as square8?
    - **Recommendation:** Yes, same thresholds for parallel behavior
