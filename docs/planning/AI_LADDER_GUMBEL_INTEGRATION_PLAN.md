@@ -1,6 +1,6 @@
 # AI Ladder + Gumbel MCTS Integration Plan
 
-Status: in_progress (2025-12-21)
+Status: **COMPLETE** (2025-12-22)
 Owner: Tool-driven agent
 Scope: AI ladder selection, AI service instantiation, docs alignment
 
@@ -31,5 +31,22 @@ Scope: AI ladder selection, AI service instantiation, docs alignment
 
 - [x] Step 1: AI service now instantiates Gumbel MCTS and treats it as
       neural-capable for gating/caching/ladder artifact checks.
-- [ ] Step 2: Ladder alignment decision captured.
-- [ ] Step 3: Apply alignment + docs/tests as needed.
+- [x] Step 2: Ladder alignment decision captured (see below).
+- [x] Step 3: Alignment verified - ladder_config.py already implements the decision.
+
+## Decision: Hybrid Approach (December 2025)
+
+**D9/D10 tier algorithm selection by player count:**
+
+| Player Count | D9 Algorithm | D10 Algorithm | Rationale                                      |
+| ------------ | ------------ | ------------- | ---------------------------------------------- |
+| 2-player     | Gumbel MCTS  | Gumbel MCTS   | Stronger for 2p; sequential policy improvement |
+| 3-player     | Descent      | Descent       | Better multiplayer opponent modeling           |
+| 4-player     | Descent      | Descent       | Better multiplayer opponent modeling           |
+
+This hybrid approach leverages each algorithm's strengths:
+
+- **Gumbel MCTS**: Excels at 2-player games with its sequential halving approach
+- **Descent**: Better handles multi-agent dynamics in 3+ player games
+
+The ladder_config.py already implements this decision correctly.
