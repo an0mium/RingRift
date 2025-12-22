@@ -1889,7 +1889,8 @@ class ParallelGameRunner:
 
         # Process the lines (collapses markers to territory, sets pending elimination flag)
         # Returns first line position per game for move recording
-        line_positions = process_lines_batch(self.state, mask)
+        # Use option2_probability=0.0 for CPU parity (always use Option 1 with elimination)
+        line_positions = process_lines_batch(self.state, mask, option2_probability=0.0)
         # RR-CANON-R123: Auto-apply line elimination for self-play (no interactive choice)
         # Capture elimination positions for move recording
         elimination_positions = apply_line_elimination_batch(self.state, mask)
@@ -2550,7 +2551,8 @@ class ParallelGameRunner:
                 break
 
             # Process lines (collapse markers, set pending elimination flag)
-            process_lines_batch(self.state, single_game_mask)
+            # Use option2_probability=0.0 for CPU parity (always use Option 1 with elimination)
+            process_lines_batch(self.state, single_game_mask, option2_probability=0.0)
             # RR-CANON-R123: Auto-apply line elimination for cascade processing
             apply_line_elimination_batch(self.state, single_game_mask)
 

@@ -34,6 +34,7 @@ scripts/deploy_gossip_sync.sh
 scripts/deploy_gpu_fix.sh
 scripts/deploy_systemd_services.sh
 scripts/deploy_unified_loop.sh
+scripts/deploy_cpu_canonical_selfplay.sh
 scripts/fix_p2p_network.sh
 scripts/local_data_sync.sh
 scripts/monitor_all_jobs.sh

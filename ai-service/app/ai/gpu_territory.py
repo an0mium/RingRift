@@ -299,10 +299,12 @@ def _is_physically_disconnected(
         border_player = blocking_marker_players.pop()
         return (True, border_player)
 
-    # Edge case: region is isolated by collapsed spaces and/or board edges only
-    # This is physically disconnected with no border player
-    # For territory purposes, any player who can claim it may do so
-    return (True, None)
+    # Edge case: region is isolated by collapsed spaces and/or board edges only (no markers)
+    # Per CPU semantics, this is NOT considered a disconnected territory region.
+    # CPU's find_disconnected_regions iterates through marker colors as borders -
+    # if there are no blocking markers, the region is not bounded by a single-color barrier.
+    # December 2025: Fixed to match CPU behavior - require marker barrier for territory.
+    return (False, None)
 
 
 def _is_color_disconnected(

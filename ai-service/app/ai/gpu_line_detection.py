@@ -334,6 +334,11 @@ def _eliminate_one_ring_from_any_stack(
     state.eliminated_rings[game_idx, player] += 1
     state.rings_caused_eliminated[game_idx, player] += 1
 
+    # Update ring_stack: remove the top ring (owner's ring is eliminated from top)
+    # The top ring is at index (stack_height - 1)
+    if stack_height > 0:
+        state.ring_stack[game_idx, y, x, stack_height - 1] = 0
+
     if new_height == 0:
         # Stack fully eliminated - clear ownership and buried tracking
         state.stack_owner[game_idx, y, x] = 0
