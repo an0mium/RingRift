@@ -1381,14 +1381,20 @@ def apply_single_chain_capture(
         # December 2025: Use ring_under_cap for correct owner ordering
         new_owner = target_ring_under if target_ring_under > 0 else (1 if target_owner == 2 else 2)
         state.stack_owner[game_idx, target_y, target_x] = new_owner
-        state.cap_height[game_idx, target_y, target_x] = new_target_height  # All remaining rings are new owner's cap
-        # Compute new ring_under_cap from remaining buried_at
+        # Compute new ring_under_cap from remaining buried_at BEFORE setting cap
         new_ring_under = 0
         for p in range(1, state.num_players + 1):
             if p != new_owner and state.buried_at[game_idx, p, target_y, target_x].item() > 0:
                 new_ring_under = p
                 break
         state.ring_under_cap[game_idx, target_y, target_x] = new_ring_under
+        # BUG FIX 2025-12-21: cap_height depends on whether opponent rings exist below
+        # If new_ring_under > 0, there's an opponent ring below the exposed ring, so cap = 1
+        # If new_ring_under == 0, all remaining rings are new owner's color, so cap = new_target_height
+        if new_ring_under > 0:
+            state.cap_height[game_idx, target_y, target_x] = 1
+        else:
+            state.cap_height[game_idx, target_y, target_x] = new_target_height
         # BUG FIX 2025-12-20: If new owner had buried ring here, decrement since it's now cap
         if target_ring_under > 0:
             state.buried_at[game_idx, target_ring_under, target_y, target_x] -= 1
@@ -1424,7 +1430,13 @@ def apply_single_chain_capture(
         # The remaining stack: captured ring (bottom) + buried opponent rings (now cap)
         opponent = 1 if player == 2 else 2
         new_owner = opponent
-        new_cap = buried_count
+        # December 2025: BUG FIX - If captured ring is same owner as new owner (opponent),
+        # the entire remaining stack is same color, so cap = new_height.
+        # Otherwise, captured ring at bottom doesn't extend cap, so cap = buried_count.
+        if target_owner == opponent:
+            new_cap = new_height
+        else:
+            new_cap = buried_count
         # The buried rings are now exposed - clear buried tracking
         buried_count_at_pos = state.buried_at[game_idx, opponent, to_y, to_x].item()
         if buried_count_at_pos > 0:
@@ -1614,14 +1626,20 @@ def apply_single_initial_capture(
         # December 2025: Use ring_under_cap for correct owner ordering
         new_owner = target_ring_under if target_ring_under > 0 else (1 if target_owner == 2 else 2)
         state.stack_owner[game_idx, target_y, target_x] = new_owner
-        state.cap_height[game_idx, target_y, target_x] = new_target_height  # All remaining rings are new owner's cap
-        # Compute new ring_under_cap from remaining buried_at
+        # Compute new ring_under_cap from remaining buried_at BEFORE setting cap
         new_ring_under = 0
         for p in range(1, state.num_players + 1):
             if p != new_owner and state.buried_at[game_idx, p, target_y, target_x].item() > 0:
                 new_ring_under = p
                 break
         state.ring_under_cap[game_idx, target_y, target_x] = new_ring_under
+        # BUG FIX 2025-12-21: cap_height depends on whether opponent rings exist below
+        # If new_ring_under > 0, there's an opponent ring below the exposed ring, so cap = 1
+        # If new_ring_under == 0, all remaining rings are new owner's color, so cap = new_target_height
+        if new_ring_under > 0:
+            state.cap_height[game_idx, target_y, target_x] = 1
+        else:
+            state.cap_height[game_idx, target_y, target_x] = new_target_height
         # BUG FIX 2025-12-20: Decrement buried tracking for newly exposed ring
         if target_ring_under > 0:
             state.buried_at[game_idx, target_ring_under, target_y, target_x] -= 1
@@ -1656,7 +1674,13 @@ def apply_single_initial_capture(
         # The remaining stack: captured ring (bottom) + buried opponent rings (now cap)
         opponent = 1 if player == 2 else 2
         new_owner = opponent
-        new_cap = buried_count
+        # December 2025: BUG FIX - If captured ring is same owner as new owner (opponent),
+        # the entire remaining stack is same color, so cap = new_height.
+        # Otherwise, captured ring at bottom doesn't extend cap, so cap = buried_count.
+        if target_owner == opponent:
+            new_cap = new_height
+        else:
+            new_cap = buried_count
         # The buried rings are now exposed - clear buried tracking
         buried_count_at_pos = state.buried_at[game_idx, opponent, to_y, to_x].item()
         if buried_count_at_pos > 0:
