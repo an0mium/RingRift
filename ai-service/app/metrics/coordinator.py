@@ -11,7 +11,7 @@ Usage:
     )
 
     # Update coordinator status
-    update_coordinator_status("RecoveryManager", "running")
+    update_coordinator_status("UnifiedHealthManager", "running")
 
     # Record an operation
     record_coordinator_operation("BandwidthManager", "request", success=True)
@@ -64,12 +64,12 @@ COORDINATOR_ERRORS: Final[Counter] = _safe_metric(Counter,
 
 
 # =============================================================================
-# Recovery Manager Specific Metrics
+# Health Management Metrics (UnifiedHealthManager)
 # =============================================================================
 
 RECOVERY_ATTEMPTS: Final[Counter] = _safe_metric(Counter,
     "ringrift_recovery_attempts_total",
-    "Total recovery attempts by RecoveryManager.",
+    "Total recovery attempts by UnifiedHealthManager.",
     labelnames=("target_type", "action", "result"),
 )
 
@@ -81,12 +81,12 @@ RECOVERY_ESCALATIONS: Final[Counter] = _safe_metric(Counter,
 
 NODES_TRACKED: Final[Gauge] = _safe_metric(Gauge,
     "ringrift_recovery_nodes_tracked",
-    "Number of nodes being tracked by RecoveryManager.",
+    "Number of nodes being tracked by UnifiedHealthManager.",
 )
 
 JOBS_TRACKED: Final[Gauge] = _safe_metric(Gauge,
     "ringrift_recovery_jobs_tracked",
-    "Number of jobs being tracked by RecoveryManager.",
+    "Number of jobs being tracked by UnifiedHealthManager.",
 )
 
 
@@ -225,14 +225,14 @@ def record_coordinator_error(
 
 
 # =============================================================================
-# Recovery Manager Updates
+# Health Manager Updates
 # =============================================================================
 
 def update_recovery_stats(stats: dict[str, Any]) -> None:
-    """Update RecoveryManager metrics from stats dict.
+    """Update UnifiedHealthManager metrics from stats dict.
 
     Args:
-        stats: Stats dict from RecoveryManager.get_stats()
+        stats: Stats dict from UnifiedHealthManager.get_stats()
     """
     NODES_TRACKED.set(stats.get("nodes_tracked", 0))
     JOBS_TRACKED.set(stats.get("jobs_tracked", 0))

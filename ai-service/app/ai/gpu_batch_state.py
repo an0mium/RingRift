@@ -103,6 +103,7 @@ class BatchGameState:
     stack_owner: torch.Tensor      # 0=empty, 1-4=player
     stack_height: torch.Tensor     # 0-5 (total rings in stack)
     cap_height: torch.Tensor       # 0-5 (consecutive top rings of owner's color per RR-CANON-R101)
+    ring_under_cap: torch.Tensor   # 0=none, 1-4=player (December 2025 - ownership transfer fix)
     marker_owner: torch.Tensor     # 0=none, 1-4=player
     territory_owner: torch.Tensor  # 0=neutral, 1-4=player
     is_collapsed: torch.Tensor     # bool
@@ -228,6 +229,7 @@ class BatchGameState:
             stack_owner=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
             stack_height=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
             cap_height=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
+            ring_under_cap=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
             marker_owner=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
             territory_owner=torch.zeros((batch_size, board_size, board_size), dtype=torch.int8, device=device),
             is_collapsed=torch.zeros((batch_size, board_size, board_size), dtype=torch.bool, device=device),
