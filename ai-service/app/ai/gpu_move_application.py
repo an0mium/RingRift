@@ -234,7 +234,7 @@ def apply_capture_moves_vectorized(
         # +1 captured ring (to bottom) - landing marker elimination cost.
         # December 2025: BUG FIX - When landing marker eliminates the attacker's entire cap,
         # ownership transfers to the target's original owner.
-        attacker_ring_under = int(state.ring_under_cap[g, from_y, from_x].item())
+        # Note: attacker_ring_under extracted at line 92 with other attacker info
         new_height = attacker_height + 1 - landing_ring_cost
         state.stack_height[g, to_y, to_x] = new_height
 
@@ -1921,14 +1921,25 @@ def apply_capture_moves_batch_vectorized(
     )
 
     # Compute ring_under_cap for landing position (December 2025 - ownership transfer fix)
-    # - Cap eliminated with buried: ring_under_cap = 0 (need to compute from buried_at later)
+    # - Cap eliminated with buried: ring_under_cap = 0 (computed from buried_at later)
     # - Cap fully eliminated (no buried): ring_under_cap = 0 (captured ring is at bottom)
     # - Self-capture no buried: ring_under_cap = 0 (all same color)
-    # - Otherwise: ring_under_cap = attacker_ring_under (captured ring goes to bottom)
+    # - Attacker has ruc: ring_under_cap = attacker_ring_under (captured ring goes below)
+    # - Enemy capture with no ruc: ring_under_cap = defender_owner (captured ring becomes ruc)
+    # BUG FIX 2025-12-22: When attacker has no ring_under_cap (cap == height) and captures
+    # an opponent's ring, the captured ring BECOMES the new ring_under_cap, not buried.
+    attacker_no_ruc = attacker_ring_under == 0
+    is_enemy_capture = defender_owner != players
+    captured_becomes_ruc = attacker_no_ruc & is_enemy_capture & ~cap_fully_eliminated & ~is_self_capture_no_buried
+
     new_ring_under = torch.where(
         cap_elim_with_buried | cap_fully_eliminated | is_self_capture_no_buried,
         torch.zeros_like(attacker_ring_under),
-        attacker_ring_under  # Preserved from attacker (captured ring goes to bottom)
+        torch.where(
+            captured_becomes_ruc,
+            defender_owner,  # Captured ring becomes ring_under_cap
+            attacker_ring_under  # Preserved from attacker (captured ring goes below existing ruc)
+        )
     )
 
     state.stack_owner[game_indices, to_y, to_x] = new_owner.to(state.stack_owner.dtype)
