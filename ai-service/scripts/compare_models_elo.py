@@ -143,57 +143,80 @@ def play_single_game(
         num_players: Number of players
         game_id: Game identifier
         model_a_player: Which player (1 or 2) model_a plays as
-        mcts_simulations: Number of MCTS simulations per move
+        mcts_simulations: Number of MCTS simulations per move (used for depth scaling)
 
     Returns:
         MatchResult with game outcome
     """
-    from app.ai.mcts_ai import MCTSAI
-    from app.ai.nnue import NNUEEvaluator
+    from app.ai.minimax_ai import MinimaxAI
+    from app.ai.nnue import BatchNNUEEvaluator
     from app.game_engine import GameEngine
-    from app.models import AIConfig, BoardType, GameStatus
+    from app.models import AIConfig, AIType, BoardType, GameStatus
     from app.training.generate_data import create_initial_state
 
     start_time = time.time()
 
-    # Load models - NNUEEvaluator needs (board_type, player_number, num_players)
-    # For model comparison, we create evaluators for player 1 (will swap based on model_a_player)
-    # Use model_id by extracting from path, or fall back to None for default path
-    from pathlib import Path
-
-    def get_model_id_from_path(model_path: str) -> str | None:
-        """Extract model_id from path like models/nnue/nnue_square8_2p.pt -> nnue_square8_2p"""
-        p = Path(model_path)
-        if p.exists() and p.suffix == ".pt":
-            # For explicit paths, we need to load directly
-            return None
-        return p.stem if p.stem else None
-
-    # Create evaluators - load model directly from path if specified
-    evaluator_a = NNUEEvaluator(
+    # Load NNUE models from explicit paths using BatchNNUEEvaluator
+    evaluator_a = BatchNNUEEvaluator(
         board_type=BoardType(board_type),
-        player_number=1,  # Will be swapped if needed
         num_players=num_players,
-        model_id=get_model_id_from_path(model_a_path),
-        allow_fresh=True,
+        model_path=model_a_path,
     )
-    evaluator_b = NNUEEvaluator(
+    evaluator_b = BatchNNUEEvaluator(
         board_type=BoardType(board_type),
-        player_number=2,
         num_players=num_players,
-        model_id=get_model_id_from_path(model_b_path),
-        allow_fresh=True,
+        model_path=model_b_path,
     )
 
-    # Create AIs
-    config = AIConfig(difficulty=5, think_time=1000)
+    if not evaluator_a.available:
+        raise RuntimeError(f"Failed to load model A from {model_a_path}")
+    if not evaluator_b.available:
+        raise RuntimeError(f"Failed to load model B from {model_b_path}")
 
+    # Create AIs - use MinimaxAI with NNUE evaluation
+    # Scale depth based on simulations parameter (simulations/20 -> depth 3-7)
+    depth = max(3, min(7, mcts_simulations // 20))
+    config = AIConfig(
+        ai_type=AIType.MINIMAX,
+        difficulty=depth,  # Maps to search depth
+        think_time=5000,
+        use_neural_net=True,
+        board_type=BoardType(board_type),
+    )
+
+    # Create MinimaxAI instances and inject custom evaluators
+    ai_1 = MinimaxAI(1, config)
+    ai_2 = MinimaxAI(2, config)
+
+    # Override the NNUE evaluators with our custom loaded models
     if model_a_player == 1:
-        ai_1 = MCTSAI(1, config, evaluator=evaluator_a, simulations=mcts_simulations)
-        ai_2 = MCTSAI(2, config, evaluator=evaluator_b, simulations=mcts_simulations)
+        ai_1._nnue_evaluator_override = evaluator_a
+        ai_2._nnue_evaluator_override = evaluator_b
     else:
-        ai_1 = MCTSAI(1, config, evaluator=evaluator_b, simulations=mcts_simulations)
-        ai_2 = MCTSAI(2, config, evaluator=evaluator_a, simulations=mcts_simulations)
+        ai_1._nnue_evaluator_override = evaluator_b
+        ai_2._nnue_evaluator_override = evaluator_a
+
+    # Monkey-patch the evaluate method to use our custom evaluators
+    def make_custom_evaluate(ai, evaluator):
+        original_evaluate = ai.evaluate_mutable
+        def custom_evaluate(state):
+            try:
+                # Use BatchNNUEEvaluator's single-state evaluation
+                import torch
+                from app.ai.nnue_features import extract_features_from_gamestate
+                features = extract_features_from_gamestate(state, evaluator.board_type)
+                features_tensor = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
+                with torch.no_grad():
+                    score = evaluator.model(features_tensor).item()
+                # Scale to centipawn-like values and adjust for player perspective
+                scaled = score * 10000
+                return scaled if state.current_player == ai.player_number else -scaled
+            except Exception:
+                return original_evaluate(state)
+        return custom_evaluate
+
+    ai_1.evaluate_mutable = make_custom_evaluate(ai_1, ai_1._nnue_evaluator_override)
+    ai_2.evaluate_mutable = make_custom_evaluate(ai_2, ai_2._nnue_evaluator_override)
 
     # Create game
     state = create_initial_state(BoardType(board_type), num_players=num_players)
