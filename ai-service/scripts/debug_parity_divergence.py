@@ -69,7 +69,7 @@ def compare_states(gpu_stacks: dict, cpu_stacks: dict) -> list:
 
 def find_matching_move(state, engine, move_type_str, from_pos, to_pos):
     """Find a matching valid move on CPU side."""
-    valid_moves = engine.get_valid_moves(state)
+    valid_moves = engine.get_valid_moves(state, state.current_player)
     m_to = to_pos.to_key() if to_pos else None
     move_type = getattr(MoveType, move_type_str.upper(), None)
 
@@ -167,7 +167,7 @@ def debug_seed(seed: int):
                 first_divergence = i
 
         if matching_move is None:
-            cpu_valid = engine.get_valid_moves(cpu_state)
+            cpu_valid = engine.get_valid_moves(cpu_state, cpu_state.current_player)
             print(f"\nMove {i}: {move_desc} (player={gpu_player}, phase={gpu_phase})")
             print(f"  CPU phase: {cpu_state.current_phase}, player: {cpu_state.current_player}")
             print(f"  NO MATCHING CPU MOVE FOUND")
