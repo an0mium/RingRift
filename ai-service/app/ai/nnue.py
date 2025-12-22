@@ -341,6 +341,53 @@ class RingRiftNNUE(nn.Module):
         # Output with tanh for [-1, 1] range
         return torch.tanh(self.output(x))
 
+    def forward_with_hidden(
+        self, features: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass returning both value and hidden features.
+
+        Useful for auxiliary task training that needs access to hidden
+        representations.
+
+        Args:
+            features: Shape (batch, input_dim) sparse/dense input features
+
+        Returns:
+            Tuple of (values, hidden):
+              - values: Shape (batch, 1) in [-1, 1]
+              - hidden: Shape (batch, 32) last hidden layer features
+        """
+        # Multi-head or single accumulator projection
+        if self.head_projections is not None:
+            chunk_size = features.shape[-1] // self.num_heads
+            chunks = [
+                features[..., i * chunk_size : (i + 1) * chunk_size]
+                for i in range(self.num_heads)
+            ]
+            head_outputs = [
+                proj(chunk)
+                for proj, chunk in zip(self.head_projections, chunks, strict=False)
+            ]
+            acc = torch.cat(head_outputs, dim=-1)
+        else:
+            acc = self.accumulator(features)
+
+        if self.acc_batch_norm is not None:
+            acc = self.acc_batch_norm(acc)
+
+        acc = torch.clamp(acc, 0.0, 1.0)
+        x = torch.cat([acc, acc], dim=-1)
+
+        if self.hidden_blocks:
+            for block in self.hidden_blocks:
+                x = block(x)
+        elif self.hidden is not None:
+            x = self.hidden(x)
+
+        hidden = x  # Save hidden features before output layer
+        values = torch.tanh(self.output(x))
+        return values, hidden
+
     def forward_single(self, features: np.ndarray) -> float:
         """Convenience method for single-sample inference.
 

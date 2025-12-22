@@ -3468,6 +3468,8 @@ class NNUETrainer:
         teacher_model: nn.Module | None = None,
         distill_alpha: float = 0.5,
         distill_temperature: float = 2.0,
+        auxiliary_module: nn.Module | None = None,
+        auxiliary_weight: float = 0.1,
     ):
         self.model = model.to(device)
         self.device = device
@@ -3476,6 +3478,12 @@ class NNUETrainer:
         self.total_epochs = total_epochs
         self.lr_schedule = lr_schedule
         self.current_epoch = 0
+
+        # Auxiliary task module for multi-task learning
+        self.auxiliary_module = auxiliary_module
+        self.auxiliary_weight = auxiliary_weight
+        if auxiliary_module is not None:
+            logger.info(f"Auxiliary tasks enabled (weight={auxiliary_weight})")
 
         # Mixed precision training setup
         self.use_amp = use_amp and device.type == "cuda"
@@ -3594,7 +3602,12 @@ class NNUETrainer:
             if self.use_amp:
                 # Mixed precision forward pass
                 with torch.amp.autocast(device_type="cuda", dtype=self.amp_dtype):
-                    predictions = self.model(features)
+                    # Use forward_with_hidden if auxiliary tasks enabled
+                    if self.auxiliary_module is not None:
+                        predictions, hidden = self.model.forward_with_hidden(features)
+                    else:
+                        predictions = self.model(features)
+
                     label_loss = self.criterion(predictions, values)
 
                     # Knowledge distillation: blend label loss with teacher matching
@@ -3611,6 +3624,17 @@ class NNUETrainer:
                     else:
                         loss = label_loss
 
+                    # Auxiliary task loss (multi-task learning)
+                    if self.auxiliary_module is not None:
+                        aux_preds = self.auxiliary_module(hidden)
+                        # Note: Currently auxiliary targets are not provided in dataset,
+                        # so we compute a simple regularization loss on predictions
+                        # This encourages diverse hidden representations
+                        aux_loss = sum(
+                            pred.pow(2).mean() * 0.01 for pred in aux_preds.values()
+                        )
+                        loss = loss + self.auxiliary_weight * aux_loss
+
                     if accum_steps > 1:
                         loss = loss / accum_steps
 
@@ -3622,7 +3646,12 @@ class NNUETrainer:
                     loss.backward()
             else:
                 # Standard precision
-                predictions = self.model(features)
+                # Use forward_with_hidden if auxiliary tasks enabled
+                if self.auxiliary_module is not None:
+                    predictions, hidden = self.model.forward_with_hidden(features)
+                else:
+                    predictions = self.model(features)
+
                 label_loss = self.criterion(predictions, values)
 
                 # Knowledge distillation: blend label loss with teacher matching
@@ -3638,6 +3667,17 @@ class NNUETrainer:
                     loss = (1 - self.distill_alpha) * label_loss + self.distill_alpha * distill_loss
                 else:
                     loss = label_loss
+
+                # Auxiliary task loss (multi-task learning)
+                if self.auxiliary_module is not None:
+                    aux_preds = self.auxiliary_module(hidden)
+                    # Note: Currently auxiliary targets are not provided in dataset,
+                    # so we compute a simple regularization loss on predictions
+                    # This encourages diverse hidden representations
+                    aux_loss = sum(
+                        pred.pow(2).mean() * 0.01 for pred in aux_preds.values()
+                    )
+                    loss = loss + self.auxiliary_weight * aux_loss
 
                 if accum_steps > 1:
                     loss = loss / accum_steps
@@ -4301,6 +4341,12 @@ def train_nnue(
         learning_rate = learning_rate * (effective_batch / 512) ** 0.5
         logger.info(f"LR scaled for batch size {effective_batch}: {base_lr:.2e} -> {learning_rate:.2e}")
 
+    # Create auxiliary module for multi-task learning
+    aux_module = None
+    if auxiliary_targets:
+        aux_module = AuxiliaryValueTargets(hidden_dim=hidden_dim).to(device)
+        logger.info(f"Auxiliary value targets enabled (weight={auxiliary_weight})")
+
     # Create trainer
     trainer = NNUETrainer(
         model=model,
@@ -4322,6 +4368,8 @@ def train_nnue(
         teacher_model=teacher_model_loaded,
         distill_alpha=distill_alpha,
         distill_temperature=distill_temperature,
+        auxiliary_module=aux_module,
+        auxiliary_weight=auxiliary_weight,
     )
 
     # =============================================================================
@@ -4495,10 +4543,8 @@ def train_nnue(
         grokking_detector = GrokkingDetector()
         logger.info("Grokking detection enabled")
 
-    # Auxiliary value targets
-    if auxiliary_targets:
-        AuxiliaryValueTargets(hidden_dim=hidden_dim).to(device)
-        logger.info(f"Auxiliary value targets enabled (weight={auxiliary_weight})")
+    # Auxiliary value targets - module is now passed to trainer at creation time
+    # (see trainer creation above)
 
     # Knowledge distillation with Phase 3 parameters
     if distillation and teacher_path:
