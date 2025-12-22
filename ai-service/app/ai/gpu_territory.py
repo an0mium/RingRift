@@ -29,6 +29,55 @@ if TYPE_CHECKING:
 # Territory Processing (RR-CANON-R140-R146)
 # =============================================================================
 
+# Neighbor offsets for different board types
+# Square boards: 4-connectivity (von Neumann)
+SQUARE_DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+# Hexagonal boards in offset coordinates (odd-r layout):
+# Even rows have different neighbor offsets than odd rows
+HEX_EVEN_ROW_DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, 1), (1, 1)]
+HEX_ODD_ROW_DIRECTIONS = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1)]
+
+
+def _get_neighbors(
+    y: int,
+    x: int,
+    board_size: int,
+    is_hex: bool,
+) -> list[tuple[int, int]]:
+    """Get valid neighbor positions for a cell.
+
+    Args:
+        y: Row coordinate
+        x: Column coordinate
+        board_size: Size of the board grid
+        is_hex: True for hexagonal boards, False for square boards
+
+    Returns:
+        List of (ny, nx) neighbor positions within board bounds
+    """
+    if is_hex:
+        # Hexagonal boards use offset coordinates with row-dependent neighbors
+        directions = HEX_EVEN_ROW_DIRECTIONS if y % 2 == 0 else HEX_ODD_ROW_DIRECTIONS
+    else:
+        directions = SQUARE_DIRECTIONS
+
+    neighbors = []
+    for dy, dx in directions:
+        ny, nx = y + dy, x + dx
+        if 0 <= ny < board_size and 0 <= nx < board_size:
+            neighbors.append((ny, nx))
+    return neighbors
+
+
+def _is_hex_board(board_size: int) -> bool:
+    """Check if board size indicates a hexagonal board.
+
+    Hexagonal boards use sizes 25 (canonical hex) or 9 (hex8).
+    Square boards use sizes 8 or 19.
+    """
+    return board_size in (25, 9)
+
 
 def _find_eligible_territory_cap(
     state: BatchGameState,
@@ -90,7 +139,11 @@ def _find_all_regions(
 
     Uses BFS to discover all connected regions of non-collapsed cells.
     A region is a maximal set of non-collapsed cells where each cell is connected
-    to at least one other cell in the region via 4-connectivity.
+    to at least one other cell in the region.
+
+    December 2025: Fixed to use proper neighbor connectivity:
+    - Square boards: 4-connectivity (von Neumann)
+    - Hexagonal boards: 6-connectivity with row-dependent offsets
 
     Optimized 2025-12-13: Use deque for O(1) queue ops and numpy for visited tracking.
 
@@ -103,6 +156,7 @@ def _find_all_regions(
     """
     board_size = state.board_size
     g = game_idx
+    is_hex = _is_hex_board(board_size)
 
     # Non-collapsed cells are those that are not territory (collapsed spaces)
     non_collapsed = ~state.is_collapsed[g].cpu().numpy()
@@ -110,9 +164,6 @@ def _find_all_regions(
     # Use numpy array for visited tracking (faster than Python list of lists)
     visited = np.zeros((board_size, board_size), dtype=np.bool_)
     regions = []
-
-    # Pre-compute direction offsets
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
     for start_y in range(board_size):
         for start_x in range(board_size):
@@ -128,10 +179,9 @@ def _find_all_regions(
                 y, x = queue.popleft()  # O(1) instead of O(n) with list.pop(0)
                 region.add((y, x))
 
-                for dy, dx in directions:
-                    ny, nx = y + dy, x + dx
-                    if (0 <= ny < board_size and 0 <= nx < board_size
-                            and not visited[ny, nx] and non_collapsed[ny, nx]):
+                # Use board-type-appropriate neighbor connectivity
+                for ny, nx in _get_neighbors(y, x, board_size, is_hex):
+                    if not visited[ny, nx] and non_collapsed[ny, nx]:
                         visited[ny, nx] = True
                         queue.append((ny, nx))
 
@@ -154,6 +204,8 @@ def _is_physically_disconnected(
     - Board edge (off-board), and/or
     - Markers belonging to exactly ONE player B (the border color)
 
+    December 2025: Fixed to use proper neighbor connectivity for hexagonal boards.
+
     Optimized 2025-12-13: Use numpy arrays for membership checks.
 
     Args:
@@ -167,6 +219,7 @@ def _is_physically_disconnected(
     """
     board_size = state.board_size
     g = game_idx
+    is_hex = _is_hex_board(board_size)
 
     # Pre-extract all numpy arrays at once
     non_collapsed = ~state.is_collapsed[g].cpu().numpy()
@@ -187,20 +240,18 @@ def _is_physically_disconnected(
 
     # BFS from region boundary to check what separates region from outside
     blocking_marker_players = set()
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
     # Find region boundary cells (region cells adjacent to non-region cells or board edge)
     region_boundary = set()
     for y, x in region:
-        for dy, dx in directions:
-            ny, nx = y + dy, x + dx
-            if 0 <= ny < board_size and 0 <= nx < board_size:
-                if not region_mask[ny, nx]:
-                    region_boundary.add((y, x))
-                    break
-            else:
-                # Edge of board - this boundary touches edge
-                region_boundary.add((y, x))
+        neighbors = _get_neighbors(y, x, board_size, is_hex)
+        # Check if any neighbor is outside region or if we're at board edge
+        has_outside_neighbor = any(not region_mask[ny, nx] for ny, nx in neighbors)
+        # For hex boards, also check if we have fewer than expected neighbors (at edge)
+        expected_neighbors = 6 if is_hex else 4
+        at_edge = len(neighbors) < expected_neighbors
+        if has_outside_neighbor or at_edge:
+            region_boundary.add((y, x))
 
     # Check what separates region from outside by examining all neighbors of boundary cells
     # Use numpy array for visited tracking (faster than set for dense boards)
@@ -208,13 +259,8 @@ def _is_physically_disconnected(
     can_reach_outside = False
 
     for y, x in region_boundary:
-        for dy, dx in directions:
-            ny, nx = y + dy, x + dx
-
-            # Off-board - counts as barrier (edge of board)
-            if not (0 <= ny < board_size and 0 <= nx < board_size):
-                continue
-
+        # Use board-type-appropriate neighbor connectivity
+        for ny, nx in _get_neighbors(y, x, board_size, is_hex):
             if visited[ny, nx]:
                 continue
 
@@ -348,6 +394,7 @@ def compute_territory_batch(
     elimination_positions: dict[int, list[tuple[int, int, int]]] = {}
     batch_size = state.batch_size
     board_size = state.board_size
+    is_hex = _is_hex_board(board_size)
 
     if game_mask is None:
         game_mask = state.get_active_mask()
@@ -454,13 +501,11 @@ def compute_territory_batch(
                             for x in range(board_size):
                                 if marker_owner_np[y, x] == border_player:
                                     # Check if this marker is on the boundary of region
-                                    is_boundary = False
-                                    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                                        ny, nx = y + dy, x + dx
-                                        if (0 <= ny < board_size and 0 <= nx < board_size
-                                                and (ny, nx) in region_set):
-                                            is_boundary = True
-                                            break
+                                    # Use board-type-appropriate neighbor connectivity
+                                    is_boundary = any(
+                                        (ny, nx) in region_set
+                                        for ny, nx in _get_neighbors(y, x, board_size, is_hex)
+                                    )
 
                                     if is_boundary and not is_collapsed_np[y, x]:
                                         state.is_collapsed[g, y, x] = True

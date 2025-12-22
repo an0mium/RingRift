@@ -202,27 +202,82 @@ function isValidBoardPosition(position: Position, board: BoardState): boolean {
 
 /**
  * Get the marker owner at a position.
+ * RR-PARITY-FIX-2025-12-21: For hex boards, tries both "x,y,z" and "x,y" key formats
+ * to match Python's _get_position_keys_for_lookup behavior.
  */
 function getMarkerOwner(position: Position, board: BoardState): number | undefined {
   const posKey = positionToString(position);
   const marker = board.markers.get(posKey);
-  return marker?.player;
+  if (marker) return marker.player;
+
+  // For hex boards, also try alternate key format (with or without z)
+  const isHex = board.type === 'hexagonal' || board.type === 'hex8';
+  if (isHex) {
+    const parts = posKey.split(',');
+    if (parts.length === 3) {
+      // Primary was "x,y,z", also try "x,y"
+      const shortKey = `${parts[0]},${parts[1]}`;
+      const shortMarker = board.markers.get(shortKey);
+      if (shortMarker) return shortMarker.player;
+    } else if (parts.length === 2) {
+      // Primary was "x,y", also try "x,y,z"
+      const z = -Number(parts[0]) - Number(parts[1]);
+      const fullKey = `${parts[0]},${parts[1]},${z}`;
+      const fullMarker = board.markers.get(fullKey);
+      if (fullMarker) return fullMarker.player;
+    }
+  }
+
+  return undefined;
 }
 
 /**
  * Check if a position is a collapsed space.
+ * RR-PARITY-FIX-2025-12-21: For hex boards, tries both key formats.
  */
 function isCollapsedSpace(position: Position, board: BoardState): boolean {
   const posKey = positionToString(position);
-  return board.collapsedSpaces.has(posKey);
+  if (board.collapsedSpaces.has(posKey)) return true;
+
+  const isHex = board.type === 'hexagonal' || board.type === 'hex8';
+  if (isHex) {
+    const parts = posKey.split(',');
+    if (parts.length === 3) {
+      const shortKey = `${parts[0]},${parts[1]}`;
+      if (board.collapsedSpaces.has(shortKey)) return true;
+    } else if (parts.length === 2) {
+      const z = -Number(parts[0]) - Number(parts[1]);
+      const fullKey = `${parts[0]},${parts[1]},${z}`;
+      if (board.collapsedSpaces.has(fullKey)) return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Get stack at a position.
+ * RR-PARITY-FIX-2025-12-21: For hex boards, tries both key formats.
  */
 function getStackAt(position: Position, board: BoardState): RingStack | undefined {
   const posKey = positionToString(position);
-  return board.stacks.get(posKey);
+  const stack = board.stacks.get(posKey);
+  if (stack) return stack;
+
+  const isHex = board.type === 'hexagonal' || board.type === 'hex8';
+  if (isHex) {
+    const parts = posKey.split(',');
+    if (parts.length === 3) {
+      const shortKey = `${parts[0]},${parts[1]}`;
+      const shortStack = board.stacks.get(shortKey);
+      if (shortStack) return shortStack;
+    } else if (parts.length === 2) {
+      const z = -Number(parts[0]) - Number(parts[1]);
+      const fullKey = `${parts[0]},${parts[1]},${z}`;
+      const fullStack = board.stacks.get(fullKey);
+      if (fullStack) return fullStack;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -243,10 +298,13 @@ export function findLineInDirection(
   // Helper to step one cell in the given direction
   const step = (current: Position, sign: 1 | -1): Position => {
     if (isHex) {
+      // RR-PARITY-FIX-2025-12-21: Ensure z is properly set before arithmetic.
+      // If z is missing (from "x,y" format), compute it from cube constraint.
+      const currentZ = typeof current.z === 'number' ? current.z : -current.x - current.y;
       return {
         x: current.x + sign * direction.x,
         y: current.y + sign * direction.y,
-        z: (current.z || 0) + sign * (direction.z || 0),
+        z: currentZ + sign * (direction.z || 0),
       };
     }
     return {
@@ -516,10 +574,18 @@ export function findAllLines(board: BoardState): DetectedLine[] {
   const lines: DetectedLine[] = [];
   const processedLines = new Set<string>();
   const config = BOARD_CONFIGS[board.type];
+  const isHex = board.type === 'hexagonal' || board.type === 'hex8';
 
   // Iterate through all MARKERS (not stacks!)
   for (const [posStr, marker] of board.markers) {
     const position = stringToPosition(posStr);
+
+    // RR-PARITY-FIX-2025-12-21: For hex boards, ensure z coordinate is set.
+    // Markers may be stored with "x,y" keys, but cube coordinate arithmetic
+    // requires z = -x - y. Without this, line traversal computes wrong positions.
+    if (isHex && typeof position.z !== 'number') {
+      position.z = -position.x - position.y;
+    }
 
     // Treat stacks and collapsed spaces as hard blockers
     if (isCollapsedSpace(position, board) || getStackAt(position, board)) {
