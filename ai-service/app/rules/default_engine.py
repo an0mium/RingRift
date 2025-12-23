@@ -532,11 +532,27 @@ class DefaultRulesEngine(RulesEngine):
                 new_state.current_phase
             )
 
-        # Soft S-invariant check after the move; we currently do not enforce
-        # monotonicity here, but the snapshot is available for diagnostics.
+        # S-invariant check: S should never decrease.
+        # Bookkeeping moves (NO_*_ACTION) may have ΔS=0, but S must never go down.
         after_snapshot = BoardManager.compute_progress_snapshot(new_state)
-        _ = after_snapshot
-        _ = before_snapshot
+        s_before = before_snapshot['S']
+        s_after = after_snapshot['S']
+        if s_after < s_before:
+            # S-invariant violation detected - this is a rules bug!
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                "S-INVARIANT VIOLATION: S decreased from %d to %d (ΔS=%d) "
+                "after move type=%s, player=%d, phase=%s->%s. "
+                "Before: M=%d, C=%d, E=%d. After: M=%d, C=%d, E=%d.",
+                s_before, s_after, s_after - s_before,
+                move.type.value if hasattr(move.type, 'value') else str(move.type),
+                move.player,
+                state.current_phase.value if hasattr(state.current_phase, 'value') else str(state.current_phase),
+                new_state.current_phase.value if hasattr(new_state.current_phase, 'value') else str(new_state.current_phase),
+                before_snapshot['markers'], before_snapshot['collapsed'], before_snapshot['eliminated'],
+                after_snapshot['markers'], after_snapshot['collapsed'], after_snapshot['eliminated'],
+            )
 
         GameEngine._check_victory(new_state)
 

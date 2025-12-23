@@ -225,11 +225,36 @@ class StateEncoder(nn.Module):
             nn.Linear(hidden_dim, embed_dim),
         )
 
-    def extract_features(self, state: GameState) -> np.ndarray:
-        """Extract feature vector from game state."""
+    def extract_features(
+        self, state: GameState, current_player: int | None = None
+    ) -> np.ndarray:
+        """Extract feature vector from game state.
+
+        Uses player-relative encoding: plane 0 = current player, plane 1 = opponent.
+        This ensures the model sees consistent patterns regardless of which player
+        it's playing as.
+
+        Args:
+            state: The game state to encode
+            current_player: The player making the decision. If None, uses state.current_player.
+        """
         features = np.zeros(self.input_dim, dtype=np.float32)
         board_size = self.board_size
         num_positions = board_size * board_size
+
+        # Use provided player or fall back to state's current player
+        if current_player is None:
+            current_player = state.current_player
+
+        # Create player-relative mapping: current player → 0, opponent → 1, etc.
+        # For 2-player games: {current_player: 0, opponent: 1}
+        # For N-player games: cycle through starting from current player
+        num_players = state.num_players if hasattr(state, 'num_players') else 2
+        player_to_plane = {}
+        for i in range(num_players):
+            # Map players relative to current: current=0, next=1, etc.
+            absolute_player = ((current_player - 1 + i) % num_players) + 1
+            player_to_plane[absolute_player] = i
 
         # Extract stack features
         for _key, stack in state.board.stacks.items():
@@ -237,21 +262,21 @@ class StateEncoder(nn.Module):
             idx = pos.y * board_size + pos.x
 
             if 0 <= idx < num_positions:
-                # Ring presence per player (planes 0-3)
+                # Ring presence per player (planes 0-3) - PLAYER RELATIVE
                 for ring_owner in stack.rings:
-                    if 1 <= ring_owner <= 4:
-                        plane_idx = ring_owner - 1
+                    if ring_owner in player_to_plane:
+                        plane_idx = player_to_plane[ring_owner]
                         features[plane_idx * num_positions + idx] = 1.0
 
-                # Stack presence for controlling player (planes 4-7)
-                if 1 <= stack.controlling_player <= 4:
-                    plane_idx = 4 + stack.controlling_player - 1
+                # Stack presence for controlling player (planes 4-7) - PLAYER RELATIVE
+                if stack.controlling_player in player_to_plane:
+                    plane_idx = 4 + player_to_plane[stack.controlling_player]
                     features[plane_idx * num_positions + idx] = 1.0
 
-        # Territory ownership (planes 8-11)
+        # Territory ownership (planes 8-11) - PLAYER RELATIVE
         for _key, territory in state.board.territories.items():
-            if 1 <= territory.controlling_player <= 4:
-                plane_idx = 8 + territory.controlling_player - 1
+            if territory.controlling_player in player_to_plane:
+                plane_idx = 8 + player_to_plane[territory.controlling_player]
                 for space in territory.spaces:
                     idx = space.y * board_size + space.x
                     if 0 <= idx < num_positions:
@@ -1313,6 +1338,7 @@ def nll_loss_with_uncertainty(
     pred_value: torch.Tensor,
     pred_log_var: torch.Tensor,
     target_value: torch.Tensor,
+    min_log_var: float = -4.0,
 ) -> torch.Tensor:
     """Negative log likelihood with learned uncertainty.
 
@@ -1323,13 +1349,17 @@ def nll_loss_with_uncertainty(
         pred_value: Predicted values (batch,)
         pred_log_var: Predicted log variance (batch,)
         target_value: Target values (batch,)
+        min_log_var: Minimum log variance to prevent overconfidence and negative loss.
+                     Default -4.0 corresponds to variance ~0.018
 
     Returns:
-        Scalar loss
+        Scalar loss (always non-negative with default min_log_var)
     """
-    precision = torch.exp(-pred_log_var)
+    # Clamp log_var to prevent overconfidence which leads to negative loss
+    clamped_log_var = torch.clamp(pred_log_var.squeeze(), min=min_log_var)
+    precision = torch.exp(-clamped_log_var)
     mse = (pred_value.squeeze() - target_value) ** 2
-    loss = precision.squeeze() * mse + pred_log_var.squeeze()
+    loss = precision * mse + clamped_log_var
     return loss.mean()
 
 

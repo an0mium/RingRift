@@ -305,3 +305,4 @@ parity_failures_v2/
 
 # Automation scripts with cluster-specific configs
 ai-service/scripts/automation/
+nginx.production.conf

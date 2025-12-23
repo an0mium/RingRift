@@ -263,6 +263,9 @@ class ActionEncoderHex:
             return self.movement_base + from_idx * (NUM_HEX_DIRS * self.max_dist) + dir_idx * self.max_dist + (dist - 1)
 
         # --- Special ---
+        # All "no-op" and choice moves map to the special sentinel index.
+        # For training, the value target is derived from game outcome;
+        # the policy target for these moves is a single-action "categorical".
         if move.type in (
             MoveType.SKIP_PLACEMENT,
             MoveType.NO_PLACEMENT_ACTION,
@@ -272,6 +275,12 @@ class ActionEncoderHex:
             MoveType.NO_TERRITORY_ACTION,
             MoveType.SKIP_TERRITORY_PROCESSING,
             MoveType.FORCED_ELIMINATION,
+            # Additional choice/action moves that need encoding:
+            MoveType.ELIMINATE_RINGS_FROM_STACK,
+            MoveType.CHOOSE_TERRITORY_OPTION,
+            MoveType.PROCESS_LINE,
+            MoveType.CHOOSE_LINE_OPTION,
+            MoveType.SKIP_RECOVERY,
         ):
             return self.special_base
 

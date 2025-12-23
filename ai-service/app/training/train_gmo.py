@@ -31,6 +31,7 @@ from ..ai.gmo_ai import (
     StateEncoder,
     nll_loss_with_uncertainty,
 )
+from ..game_engine import GameEngine
 from ..models import AIConfig, BoardType, GameState, Move
 from .data_augmentation import DataAugmentor
 
@@ -98,8 +99,9 @@ class GMODataset(Dataset):
     def _process_record(self, record: dict) -> None:
         """Process a single game record.
 
-        Uses simplified approach: encode initial state once and pair with each move.
-        The value is the game outcome from the perspective of the player making the move.
+        Replays the game forward and extracts (state, move, outcome) tuples with
+        player-relative state encoding. This ensures the model learns from the
+        correct perspective regardless of which player is making each move.
         """
         # Extract winner (1 or 2)
         winner = record.get("winner")
@@ -114,17 +116,13 @@ class GMODataset(Dataset):
             return
 
         try:
-            # Parse initial state and encode once
+            # Parse initial state
             state = GameState.model_validate(initial_state_dict)
-            with torch.no_grad():
-                state_features = torch.from_numpy(
-                    self.state_encoder.extract_features(state)
-                ).float()
         except Exception as e:
-            logger.debug(f"Error parsing/encoding initial state: {e}")
+            logger.debug(f"Error parsing initial state: {e}")
             return
 
-        # Process each move (without replaying - simpler approach)
+        # Replay game and extract features at each step with player-relative encoding
         for i, move_dict in enumerate(moves_data):
             try:
                 # Add id if missing (training data may not have it)
@@ -134,6 +132,13 @@ class GMODataset(Dataset):
                 # Parse move
                 move = Move.model_validate(move_dict)
                 player = move.player
+
+                # Extract features RELATIVE to the player making this move
+                # This is critical: plane 0 = current player's pieces, plane 1 = opponent's
+                with torch.no_grad():
+                    state_features = torch.from_numpy(
+                        self.state_encoder.extract_features(state, current_player=player)
+                    ).float()
 
                 # Determine outcome for this player (+1 if winner, -1 if loser)
                 # Use temporal discounting: earlier moves have values closer to 0
@@ -146,6 +151,9 @@ class GMODataset(Dataset):
                     move_embed = self.move_encoder.encode_move(move)
 
                 self.samples.append((state_features, move_embed, player_outcome))
+
+                # Apply move to advance state for next iteration
+                state = GameEngine.apply_move(state, move)
 
             except Exception as e:
                 logger.debug(f"Error processing move {i}: {e}")
