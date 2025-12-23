@@ -277,6 +277,9 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
         const sandboxMove = sandboxRegionByKey[regionKey];
         expect(backendMove).toBeDefined();
         expect(sandboxMove).toBeDefined();
+        // Parity: Both engines should enumerate the same move type and target region
+        expect(backendMove.type).toBe(sandboxMove.type);
+        expect(backendMove.player).toBe(sandboxMove.player);
 
         // Backend: apply via the shared helper so we focus purely on the
         // canonical territory-processing semantics. This bypasses
@@ -352,6 +355,9 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
 
       expect(backendElimMove).toBeDefined();
       expect(sandboxElimMove).toBeDefined();
+      // Parity: Both engines should select equivalent elimination targets with same move type
+      expect(backendElimMove!.type).toBe(sandboxElimMove!.type);
+      expect(backendElimMove!.player).toBe(sandboxElimMove!.player);
 
       // Apply elimination in both engines.
       {

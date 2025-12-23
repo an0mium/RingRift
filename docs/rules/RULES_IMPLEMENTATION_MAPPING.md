@@ -74,7 +74,7 @@ Frameworks and libraries that materially affect rules behaviour:
   - Lines and rewards in [`TypeScript.lineDetection`](src/shared/engine/lineDetection.ts:1) and [`TypeScript.lineDecisionHelpers`](src/shared/engine/lineDecisionHelpers.ts:1).
   - Territory disconnection and processing in [`TypeScript.territoryDetection`](src/shared/engine/territoryDetection.ts:1), [`TypeScript.territoryProcessing`](src/shared/engine/territoryProcessing.ts:1), and [`TypeScript.territoryDecisionHelpers`](src/shared/engine/territoryDecisionHelpers.ts:1).
   - Turn/phase and forced elimination in [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:1).
-  - Victory and S‑invariant bookkeeping in [`TypeScript.victoryLogic`](src/shared/engine/victoryLogic.ts:45) and [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531).
+  - Victory and S‑invariant bookkeeping in [`TypeScript.VictoryAggregate`](src/shared/engine/aggregates/VictoryAggregate.ts:45) and [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531).
 - The **server** packages these helpers into a networked game implementation:
   - Stateful game loop in [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92).
   - Stateless rules interface in [`TypeScript.RuleEngine`](src/server/game/RuleEngine.ts:46).
@@ -252,7 +252,7 @@ Status legend:
     - Territory region processing via [`TypeScript.territoryProcessing.applyTerritoryRegion`](src/shared/engine/territoryProcessing.ts:172).
     - Forced elimination via [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:135) delegates and [`TypeScript.turn.processForcedElimination`](src/server/game/turn/TurnEngine.ts:286).
     - Sandbox forced elimination in [`TypeScript.sandboxElimination.forceEliminateCapOnBoard`](src/client/sandbox/sandboxElimination.ts:1).
-    - Stalemate conversion of rings in hand in [`TypeScript.victoryLogic.evaluateVictory`](src/shared/engine/victoryLogic.ts:45) and Python equivalents.
+    - Stalemate conversion of rings in hand in [`TypeScript.VictoryAggregate.evaluateVictory`](src/shared/engine/aggregates/VictoryAggregate.ts:45) and Python equivalents.
 - **Supporting / tests**
   - Victory and elimination accounting tests in [`tests/unit/GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts).
   - Stalemate and tiebreaker behaviour in tests under `tests/scenarios/**` and `ai-service/tests/invariants/**`.
@@ -456,7 +456,7 @@ Status legend:
 (Explicitly covering R170 ring-elimination victory, R171 territory-control victory, and R172 last-player-standing.)
 
 - **Primary implementation**
-  - Victory evaluation in [`TypeScript.victoryLogic.evaluateVictory`](src/shared/engine/victoryLogic.ts:45), which:
+  - Victory evaluation in [`TypeScript.VictoryAggregate.evaluateVictory`](src/shared/engine/aggregates/VictoryAggregate.ts:45), which:
     - Checks ring-elimination thresholds (`victoryThreshold`).
     - Checks `territorySpaces` vs `territoryVictoryThreshold`.
     - Encodes last-player-standing semantics via per-player legal-action availability at the next turn.
@@ -471,7 +471,7 @@ Status legend:
 **R173 Global stalemate and tiebreakers (HC)**
 
 - **Primary implementation**
-  - Stalemate handling and tiebreakers in [`TypeScript.victoryLogic.evaluateVictory`](src/shared/engine/victoryLogic.ts:45), including:
+  - Stalemate handling and tiebreakers in [`TypeScript.VictoryAggregate.evaluateVictory`](src/shared/engine/aggregates/VictoryAggregate.ts:45), including:
     - Conversion of rings in hand to eliminated rings.
     - Ranking by collapsed spaces, then eliminated rings, then markers, then last actor.
   - Backend invocation via `RuleEngine.checkGameEnd()` and `GameEngine` termination hooks.
@@ -574,7 +574,7 @@ Status legend:
 
 - **Primary implementation**
   - Global legal action enumeration via [`TypeScript.getValidMoves`](src/shared/engine/orchestration/turnOrchestrator.ts) and [`TypeScript.hasValidMoves`](src/shared/engine/orchestration/turnOrchestrator.ts), which aggregate placements, movements, captures, decisions, and forced elimination into a unified Move list.
-  - Turn-material predicates computed in [`TypeScript.victoryLogic`](src/shared/engine/victoryLogic.ts:45) when determining whether a player has controlled stacks or rings in hand.
+  - Turn-material predicates computed in [`TypeScript.VictoryAggregate`](src/shared/engine/aggregates/VictoryAggregate.ts:45) when determining whether a player has controlled stacks or rings in hand.
   - Backend usage in [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92) via `getValidMovesForCurrentPlayer()` and orchestrator-backed `TurnEngineAdapter`.
   - Sandbox equivalent via [`TypeScript.ClientSandboxEngine.getValidMovesForCurrentPlayer`](src/client/sandbox/ClientSandboxEngine.ts).
 - **Supporting / tests**
@@ -613,7 +613,7 @@ Status legend:
 **R207 Real actions vs forced elimination for LPS and termination (HC)**
 
 - **Primary implementation**
-  - Last-player-standing (LPS) victory logic in [`TypeScript.victoryLogic.evaluateVictory`](src/shared/engine/victoryLogic.ts:45) distinguishes real actions (placements, movements, captures) from forced elimination.
+  - Last-player-standing (LPS) victory logic in [`TypeScript.VictoryAggregate.evaluateVictory`](src/shared/engine/aggregates/VictoryAggregate.ts:45) distinguishes real actions (placements, movements, captures) from forced elimination.
   - S‑invariant monotonicity and termination guarantees enforced via [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531).
 - **Supporting / tests**
   - LPS victory tests in `tests/unit/GameEngine.victory.scenarios.test.ts`.
@@ -663,7 +663,7 @@ This section lists the major rules-related components and the canonical rules th
   - **Rules:** R070–R072 (turn phases and deterministic progression), R100 (forced elimination entry via delegates), R172–R173 (last-player-standing and stalemate readiness via legal-action checks).
   - **Notes:** Implementation chooses concrete parameters (like maximum loop counts) that are not specified in RR‑CANON but do not change semantics.
 
-- [`TypeScript.victoryLogic`](src/shared/engine/victoryLogic.ts:45)
+- [`TypeScript.VictoryAggregate`](src/shared/engine/aggregates/VictoryAggregate.ts:45)
   - **Rules:** R170–R173, R061–R062, R191 (termination justification).
   - **Notes:** This is the canonical place where all three victory conditions and stalemate ladders are encoded.
 
@@ -770,7 +770,7 @@ Overall, for the main RR‑CANON clusters (geometry, placement, movement, captur
 
 Focus areas:
 
-- Prove or mechanically check that shared helpers in [`TypeScript.core`](src/shared/engine/core.ts:1), [`TypeScript.movementLogic`](src/shared/engine/movementLogic.ts:1), [`TypeScript.captureLogic`](src/shared/engine/captureLogic.ts:1), [`TypeScript.lineDecisionHelpers`](src/shared/engine/lineDecisionHelpers.ts:1), [`TypeScript.territoryDetection`](src/shared/engine/territoryDetection.ts:36), [`TypeScript.territoryProcessing`](src/shared/engine/territoryProcessing.ts:1), [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:135), and [`TypeScript.victoryLogic`](src/shared/engine/victoryLogic.ts:45) satisfy the corresponding RR‑CANON rules enumerated in Section 3.
+- Prove or mechanically check that shared helpers in [`TypeScript.core`](src/shared/engine/core.ts:1), [`TypeScript.movementLogic`](src/shared/engine/movementLogic.ts:1), [`TypeScript.captureLogic`](src/shared/engine/captureLogic.ts:1), [`TypeScript.lineDecisionHelpers`](src/shared/engine/lineDecisionHelpers.ts:1), [`TypeScript.territoryDetection`](src/shared/engine/territoryDetection.ts:36), [`TypeScript.territoryProcessing`](src/shared/engine/territoryProcessing.ts:1), [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:135), and [`TypeScript.VictoryAggregate`](src/shared/engine/aggregates/VictoryAggregate.ts:45) satisfy the corresponding RR‑CANON rules enumerated in Section 3.
 - Check that S‑invariant accounting in [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531) is monotone and bounded for all rule-legal transitions (movement, capture, line, territory, forced elimination, stalemate).
 - Confirm that legacy helpers marked deprecated (e.g., old territory region search in [`TypeScript.sandboxTerritory`](src/client/sandbox/sandboxTerritory.ts:199) and server `territoryProcessing.ts`) are not used in normal game flows.
 - Ensure no randomness or non-determinism leaks into the core transition functions; randomness should be confined to AI selectors and not influence legality or state transitions.

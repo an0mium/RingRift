@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-17
+> **Last Updated:** 2025-12-23
 > **Organization:** Core docs in root, organized subdirectories in `/docs/` and `/ai-service/docs/`
 
 This index catalogs all project documentation organized by topic and location. For a lightweight landing page, see `docs/INDEX.md`.
@@ -227,7 +227,7 @@ Active planning and roadmap documents.
 | ---------------------------------------------------------------------------------------------- | ----------------------- |
 | [DEPLOYMENT_REQUIREMENTS.md](docs/planning/DEPLOYMENT_REQUIREMENTS.md)                         | Production requirements |
 | [ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md](docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md) | Parity research roadmap |
-| [WAVE_PLAN_2025_12.md](docs/planning/WAVE_PLAN_2025_12.md)                                     | December 2025 wave plan |
+| [WAVE_2025_12.md](docs/planning/WAVE_2025_12.md)                                               | December 2025 wave plan |
 
 ### /docs/ux/
 

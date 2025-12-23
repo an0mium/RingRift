@@ -20,7 +20,7 @@ If you are making non‑trivial edits anywhere in this repository, read this fir
   - `src/server/**` – backend hosts for the TS engine.
   - `ai-service/**` – Python AI service:
     - `app/models/**` – Python mirrors of TS types.
-    - `app/game_engine.py` – Python GameEngine replay semantics.
+    - `app/game_engine/` – Python GameEngine replay semantics (directory containing `__init__.py` and `phase_requirements.py`).
     - `app/db/**` – GameReplayDB and helpers.
     - `app/rules/**` – Python rules abstraction + history validators.
     - `scripts/**` – parity harnesses, self‑play, training utilities.
@@ -42,7 +42,7 @@ The rules semantics SSoT is:
 - `ringrift_complete_rules.md`
 - `ringrift_compact_rules.md`
 - Supporting UX/rules documents:
-  - `docs/UX_RULES_WEIRD_STATES_SPEC.md`
+  - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
   - `docs/UX_RULES_TEACHING_SCENARIOS.md`
   - `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md`
 
@@ -64,7 +64,7 @@ The rules semantics SSoT is:
 
 - When changing rules or turn/phase behavior:
   - Update TS engine + TS types first.
-  - Then propagate changes to Python mirrors (`ai-service/app/models/core.py`, `ai-service/app/game_engine.py`) and tests.
+  - Then propagate changes to Python mirrors (`ai-service/app/models/core.py`, `ai-service/app/game_engine/`) and tests.
   - Keep the specs (`RULES_CANONICAL_SPEC.md`, etc.) in sync.
 - Never “fix” parity by weakening canonical rules; instead, fix TS/Python logic or filter out invalid data.
 
@@ -89,7 +89,7 @@ A terminal `game_over` phase is used when the game ends (victory/stalemate). It 
 Locations:
 
 - TS: `src/shared/types/game.ts` (`GamePhase`).
-- Python: `ai-service/app/models/core.py` (`GamePhase` enum).
+- Python: `ai-service/app/ai/gpu_game_types.py` (`GamePhase` enum).
 
 Agents must keep these in lockstep between TS, Python, and any docs.
 
@@ -296,7 +296,7 @@ Core UX/rules alignment:
   - `tests/unit/GameEndExplanation.builder.test.ts`
   - `tests/unit/GameEndExplanation.fromEngineView.test.ts`
 - Teaching & weird‑state specs:
-  - `docs/UX_RULES_WEIRD_STATES_SPEC.md`
+  - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
   - `docs/UX_RULES_TEACHING_SCENARIOS.md`
   - `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md`
 - UI components:
@@ -388,7 +388,7 @@ RingRift/
 ├── ai-service/                    # Python FastAPI microservice
 │   ├── app/
 │   │   ├── main.py                # FastAPI app & difficulty ladder config
-│   │   ├── game_engine.py         # Python rules engine (mirrors TS)
+│   │   ├── game_engine/           # Python rules engine (mirrors TS)
 │   │   ├── ai/                    # AI implementations (Random, Heuristic, Minimax, MCTS, Descent)
 │   │   └── rules/                 # Rules mutators & validators
 │   ├── scripts/                   # Training scripts, parity harnesses, self-play

@@ -73,9 +73,26 @@ except ImportError:
 TARGET_GAMES = MIN_GAMES_FOR_TRAINING * 2  # Target for robust training
 POLL_INTERVAL_SECONDS = 300  # Check every 5 minutes
 
+# Databases that contain hex8 game data (board_type='hex8' or 'hexagonal' with 2p)
+# The actual data is in central databases, not per-node hex8_*.db files
+CENTRAL_DATABASES = [
+    "data/games/selfplay.db",
+    "data/games/jsonl_aggregated.db",
+    "data/selfplay/canonical_hex8_2p.db",
+]
+
+# Board types to consider as hex8 data
+HEX8_BOARD_TYPES = ("hex8", "hexagonal")
+
+
 # Remote database locations - loaded from config
 def _load_remote_databases() -> dict:
-    """Load remote database hosts from config/distributed_hosts.yaml."""
+    """Load remote database hosts from config/distributed_hosts.yaml.
+
+    Note: hex8 data lives in central databases (selfplay.db, jsonl_aggregated.db)
+    rather than per-node hex8_{nodename}.db files. This function returns hosts
+    for syncing those central databases.
+    """
     config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
     if not config_path.exists():
         logger.warning("[Pipeline] No config found at %s", config_path)
@@ -98,11 +115,13 @@ def _load_remote_databases() -> dict:
 
             ssh_user = info.get("ssh_user", "ubuntu")
             ringrift_path = info.get("ringrift_path", "~/ringrift/ai-service")
-            db_path = f"{ringrift_path}/data/games/hex8_{name.replace('-', '_')}.db"
 
+            # Hex8 data is in central databases, not per-node files
+            # We'll sync selfplay.db and jsonl_aggregated.db from each node
             entry = {
                 "ssh_host": f"{ssh_user}@{ssh_host}",
-                "db_path": db_path,
+                "ringrift_path": ringrift_path,
+                "central_dbs": [f"{ringrift_path}/{db}" for db in CENTRAL_DATABASES],
             }
 
             # Add optional SSH key and port
@@ -121,20 +140,48 @@ def _load_remote_databases() -> dict:
 
 REMOTE_DATABASES = _load_remote_databases()
 
-# Local database (from current local selfplay)
-LOCAL_DB = Path("data/games/hex8_training.db")
+# Local database paths
+LOCAL_CENTRAL_DBS = [Path(db) for db in CENTRAL_DATABASES]
 CONSOLIDATED_DB = Path("data/games/hex8_consolidated.db")
 TRAINING_NPZ = Path("data/training/hex8_2p_consolidated.npz")
 
 
+def get_local_hex8_game_count() -> dict[str, int]:
+    """Get number of hex8 games from local central databases.
+
+    Returns dict mapping db_name -> count of hex8/hexagonal games.
+    """
+    counts = {}
+    for db_path in LOCAL_CENTRAL_DBS:
+        if not db_path.exists():
+            continue
+        try:
+            conn = sqlite3.connect(str(db_path))
+            # Count hex8 and hexagonal board types
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL "
+                "AND board_type IN (?, ?)",
+                HEX8_BOARD_TYPES,
+            )
+            count = cursor.fetchone()[0]
+            conn.close()
+            if count > 0:
+                counts[db_path.name] = count
+        except Exception as e:
+            logger.warning(f"Error reading {db_path}: {e}")
+    return counts
+
+
 def get_local_game_count(db_path: Path) -> int:
-    """Get number of completed games in a local database."""
+    """Get number of completed hex8 games in a local database."""
     if not db_path.exists():
         return 0
     try:
         conn = sqlite3.connect(str(db_path))
         cursor = conn.execute(
-            "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL"
+            "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL "
+            "AND board_type IN (?, ?)",
+            HEX8_BOARD_TYPES,
         )
         count = cursor.fetchone()[0]
         conn.close()
@@ -144,96 +191,135 @@ def get_local_game_count(db_path: Path) -> int:
         return 0
 
 
-def get_remote_game_count(node_name: str, config: dict) -> int:
-    """Get number of completed games from a remote database using Python."""
+def get_remote_hex8_game_count(node_name: str, config: dict) -> dict[str, int]:
+    """Get number of hex8 games from remote central databases.
+
+    Returns dict mapping db_name -> count of hex8/hexagonal games.
+    """
     ssh_host = config["ssh_host"]
-    db_path = config["db_path"]
     ssh_key = config.get("ssh_key", "~/.ssh/id_cluster")
     ssh_port = config.get("ssh_port")
+    ringrift_path = config.get("ringrift_path", "~/ringrift/ai-service")
 
-    # Expand ~ to absolute path for reliability
-    db_abs_path = db_path.replace("~", "$HOME")
-
-    # Build SSH command using Python to query SQLite
-    # Use bash -c to properly expand $HOME and handle the python command
-    python_cmd = (
-        f"bash -c 'python3 -c \"import sqlite3; "
-        f"conn=sqlite3.connect(\\\"{db_abs_path}\\\"); "
-        f"print(conn.execute(\\\"SELECT COUNT(*) FROM games WHERE winner IS NOT NULL\\\").fetchone()[0])\" "
-        f"2>/dev/null || echo 0'"
-    )
-
-    ssh_cmd = ["ssh"]
-    if ssh_port:
-        ssh_cmd.extend(["-p", str(ssh_port)])
-    ssh_cmd.extend(["-i", os.path.expanduser(ssh_key), "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=no"])
-    ssh_cmd.append(ssh_host)
-    ssh_cmd.append(python_cmd)
-
-    try:
-        result = subprocess.run(
-            ssh_cmd, capture_output=True, text=True, timeout=45
-        )
-        # Parse output, handling Vast welcome messages
-        lines = result.stdout.strip().split("\n")
-        for line in reversed(lines):
-            line = line.strip()
-            if line.isdigit():
-                return int(line)
-        return 0
-    except Exception as e:
-        logger.warning(f"Error getting count from {node_name}: {e}")
-        return 0
-
-
-def collect_game_counts() -> dict[str, int]:
-    """Collect game counts from all sources."""
     counts = {}
+    for db_rel_path in CENTRAL_DATABASES:
+        db_path = f"{ringrift_path}/{db_rel_path}"
+        db_abs_path = db_path.replace("~", "$HOME")
 
-    # Local database
-    counts["local"] = get_local_game_count(LOCAL_DB)
+        # Query for hex8/hexagonal board types
+        python_cmd = (
+            f"bash -c 'python3 -c \"import sqlite3; import os; "
+            f"db=os.path.expandvars(\\\"{db_abs_path}\\\"); "
+            f"conn=sqlite3.connect(db) if os.path.exists(db) else None; "
+            f"print(conn.execute(\\\"SELECT COUNT(*) FROM games WHERE winner IS NOT NULL "
+            f"AND board_type IN (\\\\\\\"hex8\\\\\\\", \\\\\\\"hexagonal\\\\\\\")\\\").fetchone()[0] if conn else 0)\" "
+            f"2>/dev/null || echo 0'"
+        )
 
-    # Remote databases
-    for node_name, config in REMOTE_DATABASES.items():
-        counts[node_name] = get_remote_game_count(node_name, config)
+        ssh_cmd = ["ssh"]
+        if ssh_port:
+            ssh_cmd.extend(["-p", str(ssh_port)])
+        ssh_cmd.extend(["-i", os.path.expanduser(ssh_key), "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=no"])
+        ssh_cmd.append(ssh_host)
+        ssh_cmd.append(python_cmd)
+
+        try:
+            result = subprocess.run(
+                ssh_cmd, capture_output=True, text=True, timeout=45
+            )
+            # Parse output, handling Vast welcome messages
+            lines = result.stdout.strip().split("\n")
+            for line in reversed(lines):
+                line = line.strip()
+                if line.isdigit():
+                    count = int(line)
+                    if count > 0:
+                        db_name = Path(db_rel_path).name
+                        counts[f"{node_name}:{db_name}"] = count
+                    break
+        except Exception as e:
+            logger.warning(f"Error getting count from {node_name}/{db_rel_path}: {e}")
 
     return counts
 
 
-def rsync_remote_db(node_name: str, config: dict, dest_dir: Path) -> Path | None:
-    """Rsync a remote database to local destination."""
+def get_remote_game_count(node_name: str, config: dict) -> int:
+    """Get total number of hex8 games from a remote node's central databases."""
+    counts = get_remote_hex8_game_count(node_name, config)
+    return sum(counts.values())
+
+
+def collect_game_counts() -> dict[str, int]:
+    """Collect hex8 game counts from all sources (local and remote central databases)."""
+    counts = {}
+
+    # Local central databases
+    local_counts = get_local_hex8_game_count()
+    for db_name, count in local_counts.items():
+        counts[f"local:{db_name}"] = count
+
+    # Remote databases - sample a few key nodes to avoid long waits
+    # Focus on nodes most likely to have hex8 data
+    key_nodes = ["lambda-a10", "lambda-h100", "vast-3070b"]
+    for node_name, config in REMOTE_DATABASES.items():
+        # Only check key nodes in quick mode
+        if node_name not in key_nodes and len(counts) > 5:
+            continue
+        remote_counts = get_remote_hex8_game_count(node_name, config)
+        counts.update(remote_counts)
+
+    return counts
+
+
+def rsync_remote_db(node_name: str, config: dict, dest_dir: Path, db_name: str = "selfplay.db") -> Path | None:
+    """Rsync a remote central database to local destination.
+
+    Args:
+        node_name: Name of the remote node
+        config: Node configuration dict
+        dest_dir: Local destination directory
+        db_name: Name of the database file to sync (default: selfplay.db)
+
+    Returns:
+        Path to synced file or None if failed
+    """
     ssh_host = config["ssh_host"]
-    db_path = config["db_path"]
     ssh_key = config.get("ssh_key", "~/.ssh/id_cluster")
     ssh_port = config.get("ssh_port")
+    ringrift_path = config.get("ringrift_path", "~/ringrift/ai-service")
 
-    dest_path = dest_dir / f"hex8_{node_name}.db"
+    # Find the right remote path
+    remote_db_path = f"{ringrift_path}/data/games/{db_name}"
+    dest_path = dest_dir / f"{node_name}_{db_name}"
 
     # Build rsync command
     rsync_cmd = ["rsync", "-avz", "--progress"]
-    ssh_opts = f"-i {os.path.expanduser(ssh_key)} -o ConnectTimeout=30"
+    ssh_opts = f"-i {os.path.expanduser(ssh_key)} -o ConnectTimeout=30 -o StrictHostKeyChecking=no"
     if ssh_port:
         ssh_opts += f" -p {ssh_port}"
     rsync_cmd.extend(["-e", f"ssh {ssh_opts}"])
-    rsync_cmd.append(f"{ssh_host}:{db_path}")
+    rsync_cmd.append(f"{ssh_host}:{remote_db_path}")
     rsync_cmd.append(str(dest_path))
 
     try:
-        logger.info(f"Syncing {node_name} database...")
-        result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=300)
+        logger.info(f"Syncing {node_name}/{db_name}...")
+        result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=600)
         if result.returncode == 0:
-            logger.info(f"Successfully synced {node_name}")
+            logger.info(f"Successfully synced {node_name}/{db_name}")
             return dest_path
         else:
-            logger.warning(f"Rsync failed for {node_name}: {result.stderr}")
+            logger.warning(f"Rsync failed for {node_name}/{db_name}: {result.stderr}")
             return None
     except Exception as e:
-        logger.warning(f"Error syncing {node_name}: {e}")
+        logger.warning(f"Error syncing {node_name}/{db_name}: {e}")
         return None
 
 
 def consolidate_databases(db_paths: list[Path], output_path: Path) -> int:
-    """Consolidate multiple SQLite databases into one."""
+    """Consolidate hex8 games from multiple SQLite databases into one.
+
+    Only copies games where board_type is 'hex8' or 'hexagonal'.
+    """
     if output_path.exists():
         output_path.unlink()
 
@@ -280,10 +366,12 @@ def consolidate_databases(db_paths: list[Path], output_path: Path) -> int:
         try:
             src_conn = sqlite3.connect(str(db_path))
 
-            # Copy games
+            # Copy only hex8/hexagonal games
             games = src_conn.execute(
                 "SELECT game_id, board_type, num_players, winner, num_moves, "
-                "created_at, completed_at FROM games WHERE winner IS NOT NULL"
+                "created_at, completed_at FROM games WHERE winner IS NOT NULL "
+                "AND board_type IN (?, ?)",
+                HEX8_BOARD_TYPES,
             ).fetchall()
 
             for game in games:
@@ -319,6 +407,7 @@ def consolidate_databases(db_paths: list[Path], output_path: Path) -> int:
                         pass
 
             src_conn.close()
+            logger.info(f"  -> Added {len(games)} hex8 games from {source_name}")
 
         except Exception as e:
             logger.error(f"Error processing {db_path}: {e}")
@@ -326,7 +415,7 @@ def consolidate_databases(db_paths: list[Path], output_path: Path) -> int:
     conn.commit()
     conn.close()
 
-    logger.info(f"Consolidated {total_games} games with {total_moves} moves")
+    logger.info(f"Consolidated {total_games} hex8 games with {total_moves} moves")
     return total_games
 
 
@@ -449,7 +538,11 @@ def monitor_and_train():
 
 
 async def _collect_via_sync_coordinator() -> list[Path]:
-    """Collect databases using SyncCoordinator with fallback transport methods."""
+    """Collect databases using SyncCoordinator with fallback transport methods.
+
+    Returns paths to databases that may contain hex8 data. The consolidation
+    step will filter to only hex8/hexagonal games.
+    """
     collected = []
     try:
         coordinator = get_sync_coordinator()
@@ -459,13 +552,24 @@ async def _collect_via_sync_coordinator() -> list[Path]:
 
         if stats.files_synced > 0:
             logger.info(f"SyncCoordinator synced {stats.files_synced} files via {stats.transport_used}")
-            # Games are synced to the provider's selfplay_dir
-            # Look for hex8 databases there
-            selfplay_dir = coordinator._provider.selfplay_dir
-            for db_path in selfplay_dir.glob("*hex8*.db"):
-                if db_path.exists():
-                    collected.append(db_path)
-                    logger.info(f"SyncCoordinator collected: {db_path}")
+
+            # Look for databases that might contain hex8 data
+            # Check both the selfplay_dir and games directories
+            search_dirs = [
+                coordinator._provider.selfplay_dir,
+                coordinator._provider.selfplay_dir.parent / "games",
+            ]
+
+            for search_dir in search_dirs:
+                if not search_dir.exists():
+                    continue
+                # Look for central databases that contain hex8 data
+                for pattern in ["selfplay.db", "jsonl_aggregated.db", "*hex*.db"]:
+                    for db_path in search_dir.glob(pattern):
+                        if db_path.exists() and db_path.stat().st_size > 0:
+                            if db_path not in collected:
+                                collected.append(db_path)
+                                logger.info(f"SyncCoordinator found: {db_path}")
 
     except Exception as e:
         logger.warning(f"SyncCoordinator collection failed: {e}")
@@ -474,57 +578,61 @@ async def _collect_via_sync_coordinator() -> list[Path]:
 
 
 def run_collection_and_training():
-    """Collect data from all sources and run training."""
+    """Collect hex8 data from local central databases and run training.
+
+    Hex8 data lives in central databases (selfplay.db, jsonl_aggregated.db),
+    not in per-node hex8_*.db files. This function consolidates hex8 games
+    from those databases and trains a model.
+    """
     # Create temp directory for synced databases
     sync_dir = Path("data/games/hex8_sync")
     sync_dir.mkdir(parents=True, exist_ok=True)
 
     db_paths = []
-    failed_nodes = set(REMOTE_DATABASES.keys())
 
-    # Try SyncCoordinator first for better connectivity (aria2, ssh, p2p fallback)
+    # Add local central databases (primary source of hex8 data)
+    for db_path in LOCAL_CENTRAL_DBS:
+        if db_path.exists() and db_path.stat().st_size > 0:
+            db_paths.append(db_path)
+            logger.info(f"Found local database: {db_path}")
+
+    # Also check for any existing hex8 databases in data/games
+    games_dir = Path("data/games")
+    for db_path in games_dir.glob("hex8*.db"):
+        if db_path.stat().st_size > 0 and db_path not in db_paths:
+            db_paths.append(db_path)
+            logger.info(f"Found hex8 database: {db_path}")
+
+    # Also check hexagonal databases
+    for db_path in games_dir.glob("hexagonal*.db"):
+        if db_path.stat().st_size > 0 and db_path not in db_paths:
+            db_paths.append(db_path)
+            logger.info(f"Found hexagonal database: {db_path}")
+
+    # Try SyncCoordinator for any additional remote data
     if HAS_SYNC_COORDINATOR:
         logger.info("Trying SyncCoordinator for enhanced data collection...")
-        collected = asyncio.run(_collect_via_sync_coordinator())
-        if collected:
-            db_paths.extend(collected)
-            # Track which nodes succeeded via SyncCoordinator (based on filename pattern)
-            for db_path in collected:
-                # Filename format: nodename_hex8_*.db
-                stem = db_path.stem
-                for node_name in list(failed_nodes):
-                    if node_name in stem:
-                        failed_nodes.discard(node_name)
-            logger.info(f"SyncCoordinator collected {len(collected)} databases")
-
-    # Fallback to direct SSH/rsync for nodes that failed via DataSync
-    if failed_nodes:
-        logger.info(f"Falling back to SSH for {len(failed_nodes)} nodes: {failed_nodes}")
-        for node_name in list(failed_nodes):
-            if node_name in REMOTE_DATABASES:
-                config = REMOTE_DATABASES[node_name]
-                db_path = rsync_remote_db(node_name, config, sync_dir)
-                if db_path:
-                    db_paths.append(db_path)
-                    failed_nodes.discard(node_name)
-
-    # Log any nodes that still failed
-    if failed_nodes:
-        logger.warning(f"Failed to collect from nodes: {failed_nodes}")
-
-    # Add local database
-    if LOCAL_DB.exists():
-        db_paths.append(LOCAL_DB)
+        try:
+            collected = asyncio.run(_collect_via_sync_coordinator())
+            if collected:
+                for db_path in collected:
+                    if db_path not in db_paths:
+                        db_paths.append(db_path)
+                logger.info(f"SyncCoordinator collected {len(collected)} additional databases")
+        except Exception as e:
+            logger.warning(f"SyncCoordinator failed: {e}")
 
     if not db_paths:
-        logger.error("No databases to consolidate!")
+        logger.error("No databases found with hex8 data!")
         return False
 
-    # Consolidate
+    logger.info(f"\nConsolidating hex8 data from {len(db_paths)} databases...")
+
+    # Consolidate (will filter to hex8/hexagonal games only)
     total_games = consolidate_databases(db_paths, CONSOLIDATED_DB)
 
     if total_games < MIN_GAMES_FOR_TRAINING:
-        logger.warning(f"Only {total_games} games consolidated, need {MIN_GAMES_FOR_TRAINING}")
+        logger.warning(f"Only {total_games} hex8 games consolidated, need {MIN_GAMES_FOR_TRAINING}")
         return False
 
     # Export to NPZ

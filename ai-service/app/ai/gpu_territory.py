@@ -230,11 +230,8 @@ def _find_regions_with_border_color(
     visited = np.zeros((board_size, board_size), dtype=np.bool_)
     regions = []
 
-    # Iterate x-outer, y-inner (column-first) to match CPU's iteration order
-    # CPU uses: for x in range(8): for y in range(8): Position(x=x, y=y)
-    # This ensures BFS start positions match CPU's spaces[0] selection
-    for start_x in range(board_size):
-        for start_y in range(board_size):
+    for start_y in range(board_size):
+        for start_x in range(board_size):
             if visited[start_y, start_x] or not passable[start_y, start_x]:
                 continue
 
@@ -253,8 +250,7 @@ def _find_regions_with_border_color(
                         queue.append((ny, nx))
 
             if region:
-                # Use BFS start position as representative (matches CPU's spaces[0])
-                # CPU's Territory.spaces is a list where spaces[0] is the BFS start position
+                # Use BFS start position as representative
                 rep = (start_y, start_x)
                 regions.append((region, border_color, rep))
 

@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-17
+> **Last Updated:** 2025-12-23
 > **Total Docs:** ~180 active + ~65 archived
 
 This index provides navigation and status tracking for all project documentation.
@@ -92,7 +92,7 @@ This index provides navigation and status tracking for all project documentation
 | `docs/ux/UX_RULES_COPY_SPEC.md`             | UI copy specifications        | Active  |
 | `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`     | Edge case UX handling         | Active  |
 | `docs/ux/UX_RULES_TELEMETRY_SPEC.md`        | UX telemetry design           | Active  |
-| `docs/AUDIENCE.md`                          | Target audience positioning   | **New** |
+| `docs/getting-started/AUDIENCE.md`          | Target audience positioning   | Active  |
 
 ---
 
@@ -100,12 +100,12 @@ This index provides navigation and status tracking for all project documentation
 
 ### Production Operations
 
-| Document                                 | Purpose                     | Status |
-| ---------------------------------------- | --------------------------- | ------ |
-| `docs/PRODUCTION_RUNBOOK.md`             | Production operations guide | Active |
-| `docs/PRODUCTION_READINESS_CHECKLIST.md` | Go-live checklist           | Active |
-| `docs/CLUSTER_OPERATIONS.md`             | Cluster management          | Active |
-| `docs/operations/STAGING_ENVIRONMENT.md` | Staging setup               | Active |
+| Document                                            | Purpose                     | Status |
+| --------------------------------------------------- | --------------------------- | ------ |
+| `docs/production/PRODUCTION_RUNBOOK.md`             | Production operations guide | Active |
+| `docs/production/PRODUCTION_READINESS_CHECKLIST.md` | Go-live checklist           | Active |
+| `docs/operations/CLUSTER_OPERATIONS.md`             | Cluster management          | Active |
+| `docs/operations/STAGING_ENVIRONMENT.md`            | Staging setup               | Active |
 
 ### Incident Response
 
@@ -143,11 +143,11 @@ See `docs/runbooks/` for 25+ specific runbooks covering:
 | Document                                       | Purpose               | Status     |
 | ---------------------------------------------- | --------------------- | ---------- |
 | `docs/COMPREHENSIVE_ACTION_PLAN_2025_12_17.md` | Current action plan   | **Active** |
-| `docs/CURRENT_STATE.md`                        | Project state summary | Active     |
+| `docs/archive/historical/CURRENT_STATE.md`     | Project state summary | Reference  |
 | `PROJECT_GOALS.md`                             | High-level goals      | Active     |
 | `TODO.md`                                      | Active TODO list      | Active     |
 | `KNOWN_ISSUES.md`                              | Known issues tracker  | Active     |
-| `docs/RELEASE_NOTES_v0.1.0-beta.md`            | Release notes draft   | **New**    |
+| `docs/production/RELEASE_NOTES_v0.1.0-beta.md` | Release notes draft   | Active     |
 
 ---
 

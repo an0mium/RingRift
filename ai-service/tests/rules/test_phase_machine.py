@@ -377,10 +377,16 @@ def test_compute_had_any_action_considers_current_move_when_history_empty():
     """
     compute_had_any_action_this_turn should account for the current move even
     when it is not yet in move_history (mirrors TS behaviour).
+
+    Per RR-CANON-R072/R100: The function checks for "board state changes", not
+    "any decision". Voluntary skips (SKIP_TERRITORY_PROCESSING) do NOT count
+    as board state changes and thus do NOT prevent forced elimination.
     """
     state = _make_minimal_state(GamePhase.TERRITORY_PROCESSING, current_player=1)
     now = datetime.now()
 
+    # SKIP_TERRITORY_PROCESSING is a voluntary skip - it does NOT change the
+    # board state and should NOT count as an action for FE gating purposes.
     skip_move = Move(
         id="m-skip",
         type=MoveType.SKIP_TERRITORY_PROCESSING,
@@ -390,7 +396,8 @@ def test_compute_had_any_action_considers_current_move_when_history_empty():
         thinkTime=0,
         moveNumber=1,
     )
-    assert compute_had_any_action_this_turn(state, current_move=skip_move) is True
+    # Per updated RR-CANON-R073: voluntary skips don't prevent forced elimination
+    assert compute_had_any_action_this_turn(state, current_move=skip_move) is False
 
     no_action_move = Move(
         id="m-no-territory",
@@ -402,6 +409,18 @@ def test_compute_had_any_action_considers_current_move_when_history_empty():
         moveNumber=1,
     )
     assert compute_had_any_action_this_turn(state, current_move=no_action_move) is False
+
+    # But a real action like CHOOSE_TERRITORY_OPTION DOES count (changes board)
+    territory_move = Move(
+        id="m-territory",
+        type=MoveType.CHOOSE_TERRITORY_OPTION,
+        player=1,
+        to=Position(x=0, y=0),
+        timestamp=now,
+        thinkTime=0,
+        moveNumber=1,
+    )
+    assert compute_had_any_action_this_turn(state, current_move=territory_move) is True
 
 
 def test_no_territory_action_enters_forced_elimination_when_blocked():

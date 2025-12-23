@@ -186,6 +186,12 @@ describe('forced_elimination phase (RR-CANON-R070, R100, R204)', () => {
       const result = applyForcedEliminationForPlayer(state, 1, targetPos);
 
       expect(result).toBeDefined();
+      expect(result).toMatchObject({
+        eliminatedPlayer: expect.any(Number),
+        eliminatedFrom: expect.any(Object),
+        eliminatedCount: expect.any(Number),
+        nextState: expect.any(Object),
+      });
       expect(result!.eliminatedPlayer).toBe(1);
       expect(result!.eliminatedFrom).toEqual(targetPos);
       expect(result!.eliminatedCount).toBeGreaterThan(0);

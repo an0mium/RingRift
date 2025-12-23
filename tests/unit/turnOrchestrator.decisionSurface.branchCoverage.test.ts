@@ -125,8 +125,10 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = validateMove(state, move);
       expect(result.valid).toBe(false);
-      // Reason should exist (exact wording may vary)
+      // Reason should exist with meaningful error message
       expect(result.reason).toBeDefined();
+      expect(typeof result.reason).toBe('string');
+      expect(result.reason!.length).toBeGreaterThan(0);
     });
 
     it('rejects move in game_over phase', () => {
@@ -280,8 +282,10 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toBe('active');
       // Should have placed the ring
       expect(result.nextState.board.stacks.has(positionToString({ x: 3, y: 3 }))).toBe(true);
+      expect(result.nextState.currentPhase).toBe('movement');
     });
 
     it('processes no_placement_action when blocked', () => {
@@ -308,6 +312,8 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toMatch(/active|completed/);
+      expect(result.nextState.currentPhase).toBeDefined();
     });
 
     it('processes skip_placement move', () => {
@@ -334,6 +340,8 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toMatch(/active|completed/);
+      expect(result.nextState.currentPhase).toBeDefined();
     });
 
     it('processes no_line_action move', () => {
@@ -355,6 +363,7 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toMatch(/active|completed/);
       // Per RR-CANON-R075, should transition to territory_processing
       expect(['territory_processing', 'movement', 'turn_end', 'game_over']).toContain(
         result.nextState.currentPhase
@@ -380,6 +389,8 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toMatch(/active|completed/);
+      expect(result.nextState.currentPhase).toBeDefined();
       // Should advance turn or end game
     });
 
@@ -403,6 +414,8 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toMatch(/active|completed/);
+      expect(result.nextState.currentPhase).toBeDefined();
     });
   });
 

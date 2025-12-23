@@ -213,7 +213,8 @@ class MaxNAI(HeuristicAI):
             return
 
         try:
-            from .gpu_parallel_games import BatchGameState, evaluate_positions_batch
+            from .gpu_parallel_games import BatchGameState
+            from .gpu_heuristic import evaluate_positions_batch
             from .heuristic_weights import get_weights_for_player_count
 
             # States are already immutable (converted when added to buffer)

@@ -180,7 +180,7 @@ def advance_cpu_through_phases(state, target_phase_str: str, target_player: int)
     return state
 
 
-def find_matching_move(valid_moves, move_type, from_pos, to_pos):
+def find_matching_move(valid_moves, move_type, from_pos, to_pos, state=None):
     """Find a matching move from valid moves list."""
     for v in valid_moves:
         if v.type != move_type:
@@ -210,6 +210,12 @@ def find_matching_move(valid_moves, move_type, from_pos, to_pos):
             # Match by position (representative cell of the region)
             if v_to == m_to:
                 return v
+            # If positions differ, check if they refer to the same region
+            # GPU and CPU may use different representatives for the same region
+            if state is not None and to_pos is not None and v.to is not None:
+                matched = _territory_regions_equivalent(state, to_pos, v.to)
+                if matched:
+                    return v
         elif move_type == MoveType.ELIMINATE_RINGS_FROM_STACK:
             if v_to == m_to:
                 return v
@@ -219,6 +225,37 @@ def find_matching_move(valid_moves, move_type, from_pos, to_pos):
             if v_from == m_from and v_to == m_to:
                 return v
     return None
+
+
+def _territory_regions_equivalent(state, gpu_pos: Position, cpu_pos: Position) -> bool:
+    """Check if two territory representative positions refer to the same region.
+
+    GPU and CPU may find the same territory region but use different cells as
+    the representative due to different iteration orders. This function checks
+    if both positions are part of the same disconnected region.
+    """
+    from app.board_manager import BoardManager
+
+    # Get all disconnected regions for the current player
+    player = state.current_player
+    regions = BoardManager.find_disconnected_regions(state.board, player)
+
+    # Find regions containing each position
+    gpu_region = None
+    cpu_region = None
+
+    for region in regions:
+        spaces_keys = {s.to_key() for s in region.spaces}
+        if gpu_pos.to_key() in spaces_keys:
+            gpu_region = spaces_keys
+        if cpu_pos.to_key() in spaces_keys:
+            cpu_region = spaces_keys
+
+    # If both positions are in the same region, they're equivalent
+    if gpu_region is not None and cpu_region is not None and gpu_region == cpu_region:
+        return True
+
+    return False
 
 
 def capture_gpu_state(runner, move_idx: int) -> dict:
@@ -319,19 +356,19 @@ def test_seed(seed: int, debug: bool = False) -> tuple[int, int, int, int, list]
 
         # First try: check if move is valid in current state (without advancing)
         valid = GameEngine.get_valid_moves(state, state.current_player)
-        matched = find_matching_move(valid, move_type, from_pos, to_pos)
+        matched = find_matching_move(valid, move_type, from_pos, to_pos, state)
 
         # Second try: advance to inferred phase based on move type
         if not matched:
             state = advance_cpu_through_phases(state, inferred_phase, gpu_player)
             valid = GameEngine.get_valid_moves(state, state.current_player)
-            matched = find_matching_move(valid, move_type, from_pos, to_pos)
+            matched = find_matching_move(valid, move_type, from_pos, to_pos, state)
 
         # Third try: advance to GPU's stated phase (might be different player's turn)
         if not matched and gpu_phase != inferred_phase:
             state = advance_cpu_through_phases(state, gpu_phase, gpu_player)
             valid = GameEngine.get_valid_moves(state, state.current_player)
-            matched = find_matching_move(valid, move_type, from_pos, to_pos)
+            matched = find_matching_move(valid, move_type, from_pos, to_pos, state)
 
         # Fourth try: check if we need to advance through bookkeeping then retry
         if not matched:
@@ -340,7 +377,7 @@ def test_seed(seed: int, debug: bool = False) -> tuple[int, int, int, int, list]
                 synth = GameEngine.synthesize_bookkeeping_move(req, state)
                 state = GameEngine.apply_move(state, synth)
                 valid = GameEngine.get_valid_moves(state, state.current_player)
-                matched = find_matching_move(valid, move_type, from_pos, to_pos)
+                matched = find_matching_move(valid, move_type, from_pos, to_pos, state)
 
         if matched:
             state = GameEngine.apply_move(state, matched)

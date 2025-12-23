@@ -3733,25 +3733,39 @@ function playerHasStacksOnBoard(state: GameState, player: number): boolean {
 }
 
 /**
- * Identify forced no-op bookkeeping move types that do not count as "real"
- * actions for the purposes of forced_elimination gating.
+ * Identify move types that do NOT change the board state and thus do NOT
+ * prevent forced elimination from triggering.
  *
- * Per RR-CANON lpsTracking.ts lines 11-12:
- *   "Non-real actions (that don't count for LPS): skip_placement, forced elimination,
- *    line/territory processing decisions."
+ * Per RR-CANON-R072/R100: Forced elimination triggers when a player controls
+ * stacks but made no "board state change" during their turn. This includes:
  *
- * SKIP_PLACEMENT is included because it does NOT represent real progress.
- * When a player skips placement but then has no movement/capture available,
- * the S-metric (markers + collapsed + eliminated) does not increase, and
- * forced elimination must trigger to ensure game termination.
+ * 1. **Forced no-ops (NO_*_ACTION)**: Player entered a phase with no options.
+ *    These are bookkeeping moves that record the phase was visited.
+ *
+ * 2. **Voluntary skips (SKIP_*)**: Player chose to skip an optional action.
+ *    These don't change the board and thus don't prevent forced elimination.
+ *    - skip_placement: Player has rings but chose not to place
+ *    - skip_territory_processing: Player has territory options but chose to skip
+ *    - skip_capture: Player has capture available but chose not to take it
+ *    - skip_recovery: Player has recovery slide available but chose to skip
+ *
+ * Note: For LPS (Last Player Standing) purposes, the distinction between
+ * voluntary skip vs forced no-op matters for determining if a player has
+ * "real actions available". For forced elimination gating, the criterion is
+ * simpler: did the player change the board state during their turn?
  */
 function isNoActionBookkeepingMove(type: MoveType): boolean {
   return (
+    // Forced no-ops (player had no choice)
     type === 'no_placement_action' ||
     type === 'no_movement_action' ||
     type === 'no_line_action' ||
     type === 'no_territory_action' ||
-    type === 'skip_placement' // Per LPS rules: skip_placement is NOT a real action
+    // Voluntary skips (player chose not to act, but didn't change board)
+    type === 'skip_placement' ||
+    type === 'skip_territory_processing' ||
+    type === 'skip_capture' ||
+    type === 'skip_recovery'
   );
 }
 

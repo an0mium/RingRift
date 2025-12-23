@@ -1217,6 +1217,8 @@ describe('TurnOrchestrator core branch coverage', () => {
       expect(result.status).toBe('awaiting_decision');
       expect(result.pendingDecision?.type).toBe('no_line_action_required');
       expect(result.nextState.currentPhase).toBe('line_processing');
+      expect(result.nextState.gameStatus).toBe('active');
+      expect(result.nextState.currentPlayer).toBe(1);
     });
 
     it('treats no_placement_action as phase advancement with no side effects', () => {
@@ -1228,6 +1230,8 @@ describe('TurnOrchestrator core branch coverage', () => {
 
       expect(result.status).toBe('complete');
       expect(result.nextState.currentPhase).toBe('movement');
+      expect(result.nextState.gameStatus).toBe('active');
+      expect(result.nextState.currentPlayer).toBe(1);
       expect(result.pendingDecision).toBeUndefined();
     });
 
@@ -1254,6 +1258,12 @@ describe('TurnOrchestrator core branch coverage', () => {
       // Since elimination moves are needed, it returns awaiting_decision.
       expect(result.status).toBe('awaiting_decision');
       expect(result.pendingDecision).toBeDefined();
+      // Strengthen: verify decision has required structure
+      expect(result.pendingDecision).toMatchObject({
+        type: expect.any(String),
+        player: expect.any(Number),
+      });
+      expect(result.nextState.gameStatus).toBe('active');
     });
   });
 

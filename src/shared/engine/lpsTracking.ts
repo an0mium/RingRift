@@ -8,7 +8,20 @@
  *
  * Real actions are: ring placement, non-capture movement, and overtaking capture.
  * Non-real actions (do not count for LPS): recovery_slide, forced_elimination,
- * and bookkeeping/post-processing decisions (skip_*, no_*, line/territory processing).
+ * and bookkeeping/post-processing decisions (no_*, line/territory processing).
+ *
+ * Distinction between voluntary skips and forced no-ops (per RR-CANON-R073):
+ * - **Forced no-ops (NO_*_ACTION)**: Player entered a phase with no options.
+ *   These are bookkeeping moves indicating "player had no choice". Do NOT count
+ *   as having "real actions available" for LPS purposes.
+ * - **Voluntary skips (SKIP_*)**: Player chose to forgo an available action.
+ *   These indicate "player had a choice but declined". For LPS purposes, having
+ *   a voluntary skip available means the player has agency.
+ *
+ * For FORCED ELIMINATION gating (per RR-CANON-R072/R100), the criterion is
+ * different: did the player make any BOARD STATE CHANGE during their turn?
+ * Voluntary skips do NOT change the board and thus do NOT prevent forced
+ * elimination from triggering.
  *
  * @module lpsTracking
  *

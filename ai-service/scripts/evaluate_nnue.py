@@ -256,7 +256,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--board",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hex"],
+        choices=["square8", "square19", "hex", "hex8"],
         help="Board type (default: square8)",
     )
     parser.add_argument(
@@ -288,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
         "hex": BoardType.HEXAGONAL,
+        "hex8": BoardType.HEX8,
     }
     board_type = board_map[args.board]
     difficulty = max(4, args.difficulty)  # NNUE requires D4+

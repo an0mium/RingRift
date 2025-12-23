@@ -158,6 +158,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      expect(result.nextState.gameStatus).toMatch(/active|completed/);
       // Should either be in territory_processing, have advanced, or enter forced_elimination
       // (forced_elimination triggers when player has no real actions this turn but has stacks)
       expect([
@@ -194,8 +195,10 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
-      // Game should continue or reach a terminal state
+      // Game should continue or reach a terminal state with valid phase
       expect(['active', 'completed']).toContain(result.nextState.gameStatus);
+      expect(result.nextState.currentPlayer).toBeGreaterThanOrEqual(1);
+      expect(result.nextState.currentPhase).toBeDefined();
     });
   });
 
@@ -310,10 +313,14 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       // Should detect game ending condition
       // Victory evaluation depends on actual game state evaluation
       expect(victory).toBeDefined();
-      expect(typeof victory.isGameOver).toBe('boolean');
+      expect(victory).toMatchObject({
+        isGameOver: expect.any(Boolean),
+        winner: expect.anything(),
+      });
       // If game is over, winner should be defined
       if (victory.isGameOver) {
         expect(victory.winner).toBeDefined();
+        expect(victory.reason).toBeDefined();
       }
     });
 
@@ -381,10 +388,14 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       const victory = toVictoryState(state);
       // Should evaluate victory condition
       expect(victory).toBeDefined();
-      expect(typeof victory.isGameOver).toBe('boolean');
+      expect(victory).toMatchObject({
+        isGameOver: expect.any(Boolean),
+        winner: expect.anything(),
+      });
       // If game is over, winner should be defined
       if (victory.isGameOver) {
         expect(victory.winner).toBeDefined();
+        expect(victory.reason).toBeDefined();
       }
     });
 
@@ -413,6 +424,11 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       const victory = toVictoryState(state);
       // Game should detect this as terminal
       expect(victory).toBeDefined();
+      expect(typeof victory.isGameOver).toBe('boolean');
+      // In stalemate scenarios, winner may be undefined (draw) or defined (one player wins)
+      if (victory.isGameOver && victory.winner !== undefined) {
+        expect(victory.reason).toBeDefined();
+      }
     });
 
     it('handles game_over phase with winner already set', () => {
@@ -432,6 +448,10 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       const victory = toVictoryState(state);
       // Should return the victory state (may or may not be isGameOver based on evaluation)
       expect(victory).toBeDefined();
+      expect(victory).toMatchObject({
+        isGameOver: expect.any(Boolean),
+        winner: expect.anything(),
+      });
     });
   });
 
@@ -949,6 +969,11 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const victory = toVictoryState(state);
       expect(victory).toBeDefined();
+      expect(typeof victory.isGameOver).toBe('boolean');
+      // Stalemate may result in undefined winner (draw) or defined winner
+      if (victory.isGameOver && victory.winner !== undefined) {
+        expect(victory.reason).toBeDefined();
+      }
     });
 
     it('game_completed reason without forced elimination', () => {
@@ -977,6 +1002,11 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const victory = toVictoryState(state);
       expect(victory).toBeDefined();
+      expect(typeof victory.isGameOver).toBe('boolean');
+      // Stalemate may result in undefined winner (draw) or defined winner
+      if (victory.isGameOver && victory.winner !== undefined) {
+        expect(victory.reason).toBeDefined();
+      }
     });
   });
 

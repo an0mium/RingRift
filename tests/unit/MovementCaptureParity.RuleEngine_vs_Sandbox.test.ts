@@ -215,6 +215,13 @@ describe('Movement/capture parity: stack at (4,7) over intermediate stack at (4,
     );
 
     expect(backendCapture).toBeDefined();
+    // Strengthen: verify the capture has correct structure and target
+    expect(backendCapture).toMatchObject({
+      type: 'overtaking_capture',
+      from: expect.any(Object),
+      to: expect.any(Object),
+      captureTarget: expect.any(Object),
+    });
 
     // Now check Sandbox capture enumeration matches this segment.
     const sandbox = createSandboxEngine(boardType, 2);

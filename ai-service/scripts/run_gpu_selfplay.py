@@ -1176,6 +1176,50 @@ def run_quality_tier_selfplay(
             state.current_phase == GamePhase.GAME_OVER
         )
 
+    def is_no_action_move(move) -> bool:
+        """Check if a move is a no-action/skip move."""
+        if move is None:
+            return False
+        move_type = move.type.value if hasattr(move.type, 'value') else str(move.type)
+        return move_type in (
+            "no_placement_action", "no_movement_action", "no_line_action",
+            "no_territory_action", "skip_territory_processing", "skip_placement",
+            "skip_capture", "NO_PLACEMENT_ACTION", "NO_MOVEMENT_ACTION",
+            "NO_LINE_ACTION", "NO_TERRITORY_ACTION"
+        )
+
+    def determine_winner_by_scoring(state) -> int | None:
+        """Determine winner by scoring when stalemate detected.
+
+        Uses the canonical tiebreaker ladder:
+        1. Most territory (collapsed spaces)
+        2. Most eliminated rings
+        3. Most markers
+        4. Last player to make a real move
+        """
+        scores = {}
+        for player in state.players:
+            pid = player.player_number
+
+            # Count territory (collapsed spaces)
+            territory = sum(1 for owner in state.board.collapsed_spaces.values()
+                          if owner == pid)
+
+            # Eliminated rings
+            eliminated = getattr(player, 'eliminated_rings', 0)
+
+            # Markers
+            markers = sum(1 for m in state.board.markers.values()
+                         if getattr(m, 'player', None) == pid)
+
+            scores[pid] = (territory, eliminated, markers)
+
+        # Sort by score (higher is better)
+        sorted_players = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        if sorted_players:
+            return sorted_players[0][0]
+        return None
+
     np.random.seed(seed)
     random.seed(seed)
 
@@ -1238,13 +1282,21 @@ def run_quality_tier_selfplay(
     start_time = time.time()
     game_records = []
 
+    # Stalemate safety net: detect games stuck in no-action loops.
+    # With the fix to phase_machine.py (SKIP_* moves now don't prevent forced
+    # elimination), this should rarely trigger. If it does, it indicates a bug.
+    # Threshold: 16 consecutive no-action moves across all players (2 full turns)
+    STALEMATE_THRESHOLD = 16 * num_players
+
     for game_idx in range(num_games):
         # Create initial state
         state = create_initial_state(board_type, num_players)
         moves_made = []
         move_count = 0
+        consecutive_no_action = 0  # Track consecutive no-action moves
 
         game_start = time.time()
+        stalemate_detected = False
 
         while not is_game_over(state) and move_count < max_moves:
             current_player = state.current_player
@@ -1254,6 +1306,15 @@ def run_quality_tier_selfplay(
             move = ai.select_move(state)
             if move is None:
                 break
+
+            # Track no-action moves for stalemate detection
+            if is_no_action_move(move):
+                consecutive_no_action += 1
+                if consecutive_no_action >= STALEMATE_THRESHOLD:
+                    stalemate_detected = True
+                    break
+            else:
+                consecutive_no_action = 0
 
             # Apply move
             state = engine.apply_move(state, move)
@@ -1266,8 +1327,20 @@ def run_quality_tier_selfplay(
 
         # Determine winner
         winner = None
-        game_over = is_game_over(state)
-        if game_over:
+        game_over = is_game_over(state) or stalemate_detected
+
+        if stalemate_detected:
+            # Stalemate safety net triggered - this indicates a potential bug
+            # since the phase_machine fix should prevent infinite no-action loops
+            logger.warning(
+                f"Stalemate safety net triggered in game {game_idx}: "
+                f"{consecutive_no_action} consecutive no-action moves at move {move_count}. "
+                f"This may indicate a bug in forced elimination logic."
+            )
+            winner = determine_winner_by_scoring(state)
+            stats["completed_games"] += 1
+            stats["stalemates"] = stats.get("stalemates", 0) + 1
+        elif game_over:
             stats["completed_games"] += 1
             # Find winner (player with most points or last standing)
             if state.winner:
@@ -1277,11 +1350,14 @@ def run_quality_tier_selfplay(
                 active_players = [p for p in state.players if not p.eliminated]
                 if len(active_players) == 1:
                     winner = active_players[0].player_number
+                elif len(active_players) > 1:
+                    # Multiple players still active at game over - use scoring
+                    winner = determine_winner_by_scoring(state)
 
-            if winner:
-                stats["wins_by_player"][winner] = stats["wins_by_player"].get(winner, 0) + 1
-            else:
-                stats["draws"] += 1
+        if winner:
+            stats["wins_by_player"][winner] = stats["wins_by_player"].get(winner, 0) + 1
+        else:
+            stats["draws"] += 1
 
         # Create game record
         record = {

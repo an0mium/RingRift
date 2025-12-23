@@ -44,60 +44,87 @@ class PhaseTransitionInput:
     trace_mode: bool = False
 
 
-def _is_no_action_bookkeeping_move(move_type: MoveType) -> bool:
-    """Return True for forced no-op bookkeeping moves that do NOT count as actions.
+def _is_no_board_state_change_move(move_type: MoveType) -> bool:
+    """Return True for moves that do NOT change the board state.
 
-    Mirrors the TS turnOrchestrator.isNoActionBookkeepingMove helper.
+    These moves do NOT prevent forced elimination from triggering. A player who
+    only makes these moves during their turn (with no placement, movement, or
+    capture) must undergo forced elimination if they control stacks.
 
-    Per RR-CANON lpsTracking.ts lines 11-12:
-      "Non-real actions (that don't count for LPS): skip_placement, forced elimination,
-       line/territory processing decisions."
+    Per RR-CANON-R072/R100: Forced elimination triggers when a player has no
+    "real progress" actions. This includes:
 
-    SKIP_PLACEMENT is included here because it does NOT represent real progress.
-    When a player skips placement but then has no movement/capture available,
-    the S-metric (markers + collapsed + eliminated) does not increase, and
-    forced elimination must trigger to ensure game termination.
+    1. **Forced no-ops (NO_*_ACTION)**: Player entered a phase with no options.
+       These are bookkeeping moves that record the phase was visited.
+
+    2. **Voluntary skips (SKIP_*)**: Player chose to skip an optional action.
+       These don't change the board and thus don't prevent forced elimination.
+       - SKIP_PLACEMENT: Player has rings but chose not to place
+       - SKIP_TERRITORY_PROCESSING: Player has territory options but chose to skip
+       - SKIP_CAPTURE: Player has capture available but chose not to take it
+       - SKIP_RECOVERY: Player has recovery slide available but chose to skip
+
+    Note: For LPS (Last Player Standing) purposes, the distinction between
+    voluntary skip vs forced no-op matters for determining if a player has
+    "real actions available". For forced elimination gating, the criterion is
+    simpler: did the player change the board state during their turn?
     """
     return move_type in {
+        # Forced no-ops (player had no choice)
         MoveType.NO_PLACEMENT_ACTION,
         MoveType.NO_MOVEMENT_ACTION,
         MoveType.NO_LINE_ACTION,
         MoveType.NO_TERRITORY_ACTION,
-        MoveType.SKIP_PLACEMENT,  # Per LPS rules: skip_placement is NOT a real action
+        # Voluntary skips (player chose not to act, but didn't change board)
+        MoveType.SKIP_PLACEMENT,
+        MoveType.SKIP_TERRITORY_PROCESSING,
+        MoveType.SKIP_CAPTURE,
+        MoveType.SKIP_RECOVERY,
     }
 
 
-def compute_had_any_action_this_turn(
+def compute_had_any_board_state_change_this_turn(
     game_state: GameState,
     current_move: Move | None = None,
 ) -> bool:
     """
-    Python analogue of the TS computeHadAnyActionThisTurn helper.
+    Check if the current player made any board state change this turn.
 
-    Walk backwards through move_history for the current_player until the player
-    changes. Any move that is not a forced no-op bookkeeping move counts as an
-    action. Voluntary skips (e.g. SKIP_TERRITORY_PROCESSING) and
-    FORCED_ELIMINATION both count as actions; the various NO_*_ACTION moves do
-    not.
+    Returns True if the player made any move that changed the board (placement,
+    movement, capture, territory collapse, etc.). Returns False if the player
+    only made no-action or skip moves.
+
+    This is the criterion for forced elimination gating: a player who controls
+    stacks but made no board state change this turn must undergo forced
+    elimination.
+
+    Per RR-CANON-R072/R100: Forced elimination triggers when P controls stacks
+    and had no "real progress" actions during their turn. Voluntary skips
+    (SKIP_TERRITORY_PROCESSING, SKIP_CAPTURE, etc.) do NOT prevent forced
+    elimination because they don't change the board state.
     """
     current_player = game_state.current_player
     history = game_state.move_history
 
-    # Mirror TS computeHadAnyActionThisTurn: include the current move being
-    # applied when it may not yet be present in move_history.
+    # Include the current move being applied when it may not yet be in history.
     if (
         current_move is not None
         and current_move.player == current_player
-        and not _is_no_action_bookkeeping_move(current_move.type)
+        and not _is_no_board_state_change_move(current_move.type)
     ):
         return True
 
     for move in reversed(history):
         if move.player != current_player:
             break
-        if not _is_no_action_bookkeeping_move(move.type):
+        if not _is_no_board_state_change_move(move.type):
             return True
     return False
+
+
+# Backward compatibility alias
+compute_had_any_action_this_turn = compute_had_any_board_state_change_this_turn
+_is_no_action_bookkeeping_move = _is_no_board_state_change_move
 
 
 def player_has_stacks_on_board(game_state: GameState, player: int) -> bool:
