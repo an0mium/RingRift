@@ -26211,11 +26211,11 @@ print(json.dumps({{
                         job_type = JobType.CPU_SELFPLAY
                         task_type_str = "CPU-only (hybrid mode)"
                     elif node.has_gpu and is_high_end_gpu and not is_apple_gpu and not gpu_seems_unavailable:
-                        # High-end CUDA GPUs: Use HYBRID selfplay for quality + speed
-                        # CHANGED: Prioritize diverse/quality selfplay over raw GPU throughput
-                        # HYBRID uses CPU rules (quality) + GPU evaluation (speed)
-                        job_type = JobType.HYBRID_SELFPLAY
-                        task_type_str = "HYBRID (quality-first)"
+                        # High-end CUDA GPUs: Use GPU_SELFPLAY for maximum throughput
+                        # GPU selfplay now has high parity with CPU rules (2025-12 upgrade)
+                        # This achieves 10-100x speedup with full GPU parallelization
+                        job_type = JobType.GPU_SELFPLAY
+                        task_type_str = "GPU (high-parity)"
                     elif node.has_gpu and not is_apple_gpu and not gpu_seems_unavailable:
                         # Mid-tier GPUs: Use hybrid (CPU rules + GPU eval)
                         job_type = JobType.HYBRID_SELFPLAY

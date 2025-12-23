@@ -40,8 +40,10 @@ from app.ai.heuristic_weights import (
     HEURISTIC_V1_TERRITORIAL,
     HEURISTIC_V1_DEFENSIVE,
 )
-from app.game_engine import GameEngine
-from app.models import AIConfig, BoardType, GamePhase, GameStatus
+from app._game_engine_legacy import GameEngine
+from app.models import AIConfig, BoardType, BoardState, GamePhase, GameState, GameStatus, Player, TimeControl
+from app.rules.core import BOARD_CONFIGS, get_territory_victory_threshold, get_victory_threshold
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -161,6 +163,78 @@ def create_ai(player_number: int, profile_id: str, seed: int = 0) -> HeuristicAI
     return HeuristicAI(player_number, config)
 
 
+def create_initial_state(board_type: BoardType, num_players: int, game_idx: int = 0) -> GameState:
+    """Create initial game state for a given board and player count."""
+    # Get board configuration
+    if board_type in BOARD_CONFIGS:
+        config = BOARD_CONFIGS[board_type]
+        size = config.size
+        rings_per_player = config.rings_per_player
+    else:
+        size = 8
+        rings_per_player = 18
+
+    # Create players
+    players = [
+        Player(
+            id=f"p{idx}",
+            username=f"AI {idx}",
+            type="ai",
+            playerNumber=idx,
+            isReady=True,
+            timeRemaining=600,
+            ringsInHand=rings_per_player,
+            eliminatedRings=0,
+            territorySpaces=0,
+            aiDifficulty=10,
+        )
+        for idx in range(1, num_players + 1)
+    ]
+
+    total_rings = rings_per_player * num_players
+    victory_threshold = get_victory_threshold(board_type, num_players)
+    territory_threshold = get_territory_victory_threshold(board_type)
+
+    state_seed = (game_idx * 1_000_003 + 12345) & 0xFFFFFFFF
+
+    return GameState(
+        id="tournament",
+        boardType=board_type,
+        rngSeed=state_seed,
+        board=BoardState(
+            type=board_type,
+            size=size,
+            stacks={},
+            markers={},
+            collapsedSpaces={},
+            eliminatedRings={},
+        ),
+        players=players,
+        currentPhase=GamePhase.RING_PLACEMENT,
+        currentPlayer=1,
+        moveHistory=[],
+        timeControl=TimeControl(
+            initialTime=600,
+            increment=0,
+            type="blitz",
+        ),
+        gameStatus=GameStatus.ACTIVE,
+        createdAt=datetime.now(),
+        lastMoveAt=datetime.now(),
+        isRated=False,
+        maxPlayers=num_players,
+        totalRingsInPlay=total_rings,
+        totalRingsEliminated=0,
+        victoryThreshold=victory_threshold,
+        territoryVictoryThreshold=territory_threshold,
+        chainCaptureState=None,
+        mustMoveFromStackKey=None,
+        zobristHash=None,
+        lpsRoundIndex=0,
+        lpsExclusivePlayerForCompletedRound=None,
+    )
+
+
 def play_game(
     board_type: BoardType,
     num_players: int,
@@ -170,11 +244,7 @@ def play_game(
     max_moves: int = 2000,
 ) -> tuple[int | None, str]:
     """Play a single game and return (winner_player_number, victory_reason)."""
-    engine = GameEngine()
-    engine.initialize_game(
-        board_type=board_type,
-        num_players=num_players,
-    )
+    state = create_initial_state(board_type, num_players, game_idx)
 
     # Create AIs for each player
     ais = {}
@@ -183,28 +253,27 @@ def play_game(
         ais[player_num] = create_ai(player_num, persona.profile_id, seed)
 
     moves = 0
-    while engine.game_state.game_status == GameStatus.IN_PROGRESS and moves < max_moves:
-        current_player = engine.game_state.current_player
+    while state.game_status == GameStatus.ACTIVE and moves < max_moves:
+        current_player = state.current_player
         ai = ais.get(current_player)
 
         if ai is None:
             break
 
         try:
-            move = ai.get_move(engine.game_state)
+            move = ai.select_move(state)
             if move is None:
                 break
-            engine.apply_move(move)
+            state = GameEngine.apply_move(state, move)
             moves += 1
         except Exception as e:
-            logger.warning(f"Error in game: {e}")
+            logger.warning(f"Error in game {game_idx}: {e}")
             break
 
     # Determine winner
-    if engine.game_state.winner is not None:
-        winner = engine.game_state.winner
+    if state.winner is not None:
+        winner = state.winner
         # Infer victory reason
-        state = engine.game_state
         elim = state.board.eliminated_rings.get(str(winner), 0)
         terr = sum(1 for p in state.board.collapsed_spaces.values() if p == winner)
 

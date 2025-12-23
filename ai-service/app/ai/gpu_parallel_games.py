@@ -1208,7 +1208,7 @@ class ParallelGameRunner:
             return has_action
 
         # Check 2: Must control at least one stack (vectorized)
-        controls_stack = (self.state.stack_owner == player).any(dim=(1, 2))
+        controls_stack = (self.state.stack_owner == player).flatten(1).any(dim=1)
         needs_move_check = needs_move_check & controls_stack
 
         if not needs_move_check.any():
@@ -1478,8 +1478,8 @@ class ParallelGameRunner:
         # a recovery action (RR-CANON-R110): skipping placement is permitted
         # even when rings remain in hand.
         player_expanded = current_players.view(self.batch_size, 1, 1).expand_as(self.state.stack_owner)
-        controls_stack = (self.state.stack_owner == player_expanded).any(dim=(1, 2))
-        has_marker = (self.state.marker_owner == player_expanded).any(dim=(1, 2))
+        controls_stack = (self.state.stack_owner == player_expanded).flatten(1).any(dim=1)
+        has_marker = (self.state.marker_owner == player_expanded).flatten(1).any(dim=1)
         buried_for_current = torch.gather(
             self.state.buried_rings,
             dim=1,
@@ -1621,7 +1621,7 @@ class ParallelGameRunner:
         # Expand current_player to match stack_owner shape for comparison
         # stack_owner shape: (batch_size, board_size, board_size)
         player_expanded = current_players.view(self.batch_size, 1, 1).expand_as(self.state.stack_owner)
-        has_any_stack = (self.state.stack_owner == player_expanded).any(dim=(1, 2))
+        has_any_stack = (self.state.stack_owner == player_expanded).flatten(1).any(dim=1)
         has_stacks = mask & has_any_stack
 
         games_with_stacks = has_stacks
@@ -2556,7 +2556,7 @@ class ParallelGameRunner:
             has_in_hand = self.state.rings_in_hand[:, p] > 0
 
             # Check controlled stacks (any cell where stack_owner == p)
-            has_controlled = (self.state.stack_owner == p).any(dim=(1, 2))
+            has_controlled = (self.state.stack_owner == p).flatten(1).any(dim=1)
 
             # Check buried rings
             has_buried = self.state.buried_rings[:, p] > 0
@@ -2976,7 +2976,7 @@ class ParallelGameRunner:
             state.stack_owner
             == current_players.unsqueeze(-1).unsqueeze(-1)
         )
-        has_stacks = player_mask.any(dim=(1, 2))
+        has_stacks = player_mask.flatten(1).any(dim=1)
 
         # Check if player has rings in hand (vectorized using gather)
         player_indices = current_players.unsqueeze(-1)  # (batch_size, 1)
@@ -2989,7 +2989,7 @@ class ParallelGameRunner:
             state.marker_owner
             == current_players.unsqueeze(-1).unsqueeze(-1)
         )
-        has_markers = marker_mask.any(dim=(1, 2))
+        has_markers = marker_mask.flatten(1).any(dim=1)
 
         # Check buried rings (vectorized)
         has_buried = (
