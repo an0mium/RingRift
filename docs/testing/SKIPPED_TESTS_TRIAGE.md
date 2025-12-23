@@ -114,18 +114,33 @@
 | 1        | Python_vs_TS.selfplayReplayFixtureParity describe.skip | Parity infrastructure (PA-1/PA-3) | 4 hours (after blocker resolved) |
 | 2        | Backend_vs_Sandbox combined line+territory             | Sandbox traceMode fix needed      | 2-4 hours                        |
 
-#### E. REWRITE (~~5~~ 3 tests remaining, 2 FIXED)
+#### E. REWRITE (~~5~~ 0 tests remaining - ALL FIXED/DELETED)
 
-| Priority | Test                                                 | Issue                               | Estimated Effort | Status                  |
-| -------- | ---------------------------------------------------- | ----------------------------------- | ---------------- | ----------------------- |
-| ~~1~~    | ~~test_evaluate_fitness_zero_profile~~               | ~~HeuristicAI hardcoded penalties~~ | ~~2-4 hours~~    | ✅ **FIXED 2025-12-06** |
-| ~~2~~    | ~~test_overlength_line_option2_segments_exhaustive~~ | ~~Mock cleanup isolation~~          | ~~1-2 hours~~    | ✅ **FIXED 2025-12-06** |
+| Priority | Test                                                 | Issue                                  | Estimated Effort | Status                    |
+| -------- | ---------------------------------------------------- | -------------------------------------- | ---------------- | ------------------------- |
+| ~~1~~    | ~~test_evaluate_fitness_zero_profile~~               | ~~HeuristicAI hardcoded penalties~~    | ~~2-4 hours~~    | ✅ **FIXED 2025-12-06**   |
+| ~~2~~    | ~~test_overlength_line_option2_segments_exhaustive~~ | ~~Mock cleanup isolation~~             | ~~1-2 hours~~    | ✅ **FIXED 2025-12-06**   |
+| ~~3~~    | ~~Q23-style territory test (GameEndExplanation)~~    | ~~Incorrect mini-region assertions~~   | ~~1 hour~~       | ✅ **FIXED 2025-12-23**   |
+| ~~4~~    | ~~LPS sandboxFixtureRegression test~~                | ~~Incomplete fixture~~                 | ~~N/A~~          | ✅ **DELETED 2025-12-23** |
+| ~~5~~    | ~~TestDistributedTrainer (distributed_training)~~    | ~~Obsolete DistributedTrainer class~~  | ~~N/A~~          | ✅ **DELETED 2025-12-23** |
+| ~~6~~    | ~~TestDescentAIHex (descent_ai)~~                    | ~~Obsolete hex_model attribute~~       | ~~N/A~~          | ✅ **DELETED 2025-12-23** |
+| ~~7~~    | ~~test_monitor_alerting.py~~                         | ~~Tests non-existent alerting module~~ | ~~N/A~~          | ✅ **DELETED 2025-12-23** |
 
 **Fixes applied:**
 
 1. **test_evaluate_fitness_zero_profile** → Rewrote as `test_evaluate_fitness_zero_profile_wiring_and_stats`. The original test had a flawed premise (assuming zero-weight profile = worse play), but zero weights actually lead to deterministic first-move selection which can paradoxically win. The new test is a **wiring test** that verifies the harness tracks stats correctly and applies weights, without asserting which profile wins.
 
 2. **test_overlength_line_option2_segments_exhaustive** → Already fixed in prior work. Uses pytest `monkeypatch` fixture for proper test isolation. All 3 parametrized tests (square8, square19, hexagonal) pass when run in suite or isolation.
+
+3. **Q23-style territory test** → Updated assertions to match correct behavior. A 5-cell territory region exceeds the mini-region threshold (≤4 cells), so `primaryConceptId` should be undefined for normal territory victories.
+
+4. **LPS sandboxFixtureRegression test** → Deleted. Fixture was fundamentally incomplete (missing initial game moves from ring placement phase). LPS behavior is thoroughly covered by 106+ other passing tests.
+
+5. **TestDistributedTrainer** → Deleted. Tested the obsolete `DistributedTrainer` class which was replaced by `IntegratedTrainingManager`. The new architecture has its own tests in `test_training_integrations.py`.
+
+6. **TestDescentAIHex** → Deleted. Tested a legacy `hex_model` attribute that was removed during v3 architecture migration. Hex NN integration is now handled internally by `NeuralNetAI` and tested via `test_hex_training.py`, `test_hex_augmentation.py`, etc.
+
+7. **test_monitor_alerting.py** → Deleted entire file. Tests a `scripts.monitor.alerting` module that was never implemented. If alerting is added in the future, new tests should be written for the actual implementation.
 
 ---
 

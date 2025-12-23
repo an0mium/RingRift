@@ -6,7 +6,7 @@ system. Extracted from gpu_parallel_games.py for modularity.
 December 2025: Extracted as part of R17 refactoring.
 December 2025: Optimized for ~2x speedup via batched player operations.
 
-Implements comprehensive 45-weight heuristic evaluation per RR-CANON rules.
+Implements comprehensive 49-weight heuristic evaluation per RR-CANON rules.
 """
 
 from __future__ import annotations
@@ -45,6 +45,8 @@ def _precompute_weights(weights: dict[str, float]) -> dict[str, float]:
         'four_in_row': get_w("WEIGHT_FOUR_IN_ROW", None, 4.36),
         'line_potential': get_w("WEIGHT_LINE_POTENTIAL", "line_potential_weight", 7.24),
         'victory_proximity': get_w("WEIGHT_VICTORY_PROXIMITY", None, 20.94),
+        'rings_proximity_factor': get_w("WEIGHT_RINGS_PROXIMITY_FACTOR", None, 50.75),
+        'territory_proximity_factor': get_w("WEIGHT_TERRITORY_PROXIMITY_FACTOR", None, 53.47),
         'connected_neighbor': get_w("WEIGHT_CONNECTED_NEIGHBOR", None, 2.21),
         'gap_potential': get_w("WEIGHT_GAP_POTENTIAL", None, 0.03),
         'marker_count': get_w("WEIGHT_MARKER_COUNT", None, 3.76),
@@ -415,10 +417,18 @@ def evaluate_positions_batch(
         stack_mobility = stack_count * 3.0  # Avg 3 directions per stack
 
         # === VICTORY PROXIMITY ===
-        # How close to winning (normalized 0-1)
+        # How close to winning - using CPU-compatible formulation
+        # CPU uses inverse of "needed" values: 1/max(1, rings_needed)
         territory_progress = territory / territory_victory_minimum
         elim_progress = eliminated_rings / ring_victory_threshold
         victory_proximity = torch.max(territory_progress, elim_progress)
+
+        # Compute rings_needed and territory_needed for proximity factors (CPU parity)
+        rings_needed = ring_victory_threshold - eliminated_rings
+        territory_needed = territory_victory_minimum - territory
+        # Inverse proximity scores (1/needed), clamped to avoid division by zero
+        rings_proximity_score = 1.0 / torch.clamp(rings_needed, min=1.0)
+        territory_proximity_score = 1.0 / torch.clamp(territory_needed, min=1.0)
 
         # === FORCED ELIMINATION RISK ===
         # Risk of being forced to eliminate (few stacks, surrounded)
@@ -559,6 +569,9 @@ def evaluate_positions_batch(
         )
         score += line_potential * w['line_potential']
         score += victory_proximity * w['victory_proximity']
+        # Separate proximity factors for rings and territory (CPU parity)
+        score += rings_proximity_score * w['rings_proximity_factor']
+        score += territory_proximity_score * w['territory_proximity_factor']
         score += connected_neighbors * w['connected_neighbor']
         score += gap_potential * w['gap_potential']
 
