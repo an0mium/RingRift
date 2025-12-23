@@ -507,6 +507,7 @@ class GPUSelfPlayGenerator:
         temperature_mix: str | None = None,
         canonical_export: bool = False,
         snapshot_interval: int = 0,
+        record_policy: bool = False,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -523,6 +524,7 @@ class GPUSelfPlayGenerator:
         self.temperature_mix = temperature_mix
         self.canonical_export = canonical_export
         self.snapshot_interval = snapshot_interval
+        self.record_policy = record_policy
         # Store pending snapshots during batch generation: {game_idx: [(move_num, state_json), ...]}
         self._pending_snapshots: dict[int, list[tuple[int, str]]] = {}
         self.base_temperature = temperature
@@ -579,6 +581,7 @@ class GPUSelfPlayGenerator:
             temperature=temperature,
             noise_scale=noise_scale,
             random_opening_moves=random_opening_moves,
+            record_policy=record_policy,
         )
 
         # Log shadow validation status
@@ -944,6 +947,15 @@ class GPUSelfPlayGenerator:
                             for move_num, state_json in snapshots
                         ]
 
+                    # Add policy data if captured
+                    if self.record_policy:
+                        policy_data = self.runner.pop_policy_data(i)
+                        if policy_data:
+                            record["move_policies"] = [
+                                {"move_number": move_num, "policy": policy_dict}
+                                for move_num, policy_dict in policy_data
+                            ]
+
                     all_records.append(record)
 
                     # Buffered write: accumulate records and flush periodically
@@ -1072,6 +1084,7 @@ def run_gpu_selfplay(
     temperature_mix: str | None = None,
     canonical_export: bool = False,
     snapshot_interval: int = 0,
+    record_policy: bool = False,
 ) -> dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -1095,6 +1108,7 @@ def run_gpu_selfplay(
         weight_noise: Multiplicative noise factor (0.0-1.0) for heuristic weights diversity
         canonical_export: Output moves in canonical format (with phase/type strings)
         snapshot_interval: Capture GameState snapshots every N moves (0 = disabled)
+        record_policy: Record move policy distributions for training (requires heuristic mode)
 
     Returns:
         Statistics dict
@@ -1194,7 +1208,13 @@ def run_gpu_selfplay(
         temperature_mix=temperature_mix,
         canonical_export=canonical_export,
         snapshot_interval=snapshot_interval,
+        record_policy=record_policy,
     )
+
+    if record_policy:
+        if not use_heuristic_selection:
+            logger.warning("Policy recording requires heuristic mode; enabling use_heuristic_selection")
+        logger.info("Policy recording: ENABLED (move scores/probabilities will be recorded)")
 
     if snapshot_interval > 0:
         logger.info(f"Snapshot interval: {snapshot_interval} moves (trajectory capture enabled)")
@@ -1345,6 +1365,12 @@ def main():
         help="SQLite database path to store trajectory snapshots. If not specified, "
              "snapshots are stored in-memory with game records (increases memory usage).",
     )
+    parser.add_argument(
+        "--record-policy",
+        action="store_true",
+        help="Record move policy distributions (candidate moves + scores/probabilities) "
+             "for each move. Requires --engine heuristic-only. Enables policy training.",
+    )
 
     parsed = parser.parse_args()
     engine_mode = parsed.engine_mode
@@ -1396,6 +1422,7 @@ def main():
             "canonical_export": getattr(parsed, "canonical_export", False),
             "snapshot_interval": getattr(parsed, "snapshot_interval", 0),
             "snapshot_db": getattr(parsed, "snapshot_db", None),
+            "record_policy": getattr(parsed, "record_policy", False),
         },
     )
 
@@ -1434,6 +1461,7 @@ def main():
         "canonical_export": selfplay_config.extra_options["canonical_export"],
         "snapshot_interval": selfplay_config.extra_options["snapshot_interval"],
         "snapshot_db": selfplay_config.extra_options["snapshot_db"],
+        "record_policy": selfplay_config.extra_options["record_policy"],
     })()
 
     if args.benchmark_only:
@@ -1574,6 +1602,7 @@ def main():
             temperature_mix=args.temperature_mix,
             canonical_export=args.canonical_export,
             snapshot_interval=args.snapshot_interval,
+            record_policy=args.record_policy,
         )
     finally:
         # Stop ramdrive syncer and perform final sync

@@ -117,8 +117,20 @@ except ImportError:
 from app.ai.heuristic_weights import (
     BASE_V1_BALANCED_WEIGHTS,
     HEURISTIC_WEIGHT_KEYS,
+    HEURISTIC_V1_BALANCED,
+    HEURISTIC_V1_AGGRESSIVE,
+    HEURISTIC_V1_TERRITORIAL,
+    HEURISTIC_V1_DEFENSIVE,
     HeuristicWeights,
 )
+
+# Persona profiles mapping
+PERSONA_WEIGHTS = {
+    "balanced": dict(HEURISTIC_V1_BALANCED),
+    "aggressive": dict(HEURISTIC_V1_AGGRESSIVE),
+    "territorial": dict(HEURISTIC_V1_TERRITORIAL),
+    "defensive": dict(HEURISTIC_V1_DEFENSIVE),
+}
 from app.rules.core import BOARD_CONFIGS, BoardType
 
 try:

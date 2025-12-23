@@ -45,18 +45,22 @@ function getAdjacencyGraph(boardType: string): Map<string, string[]> {
 export function findDisconnectedRegions(board: BoardState): Territory[] {
   const disconnectedRegions: Territory[] = [];
 
-  // Get all active players (those with stacks on board)
+  // RR-CANON-R142: ActiveColors = ALL players with ANY ring on board (including buried)
+  // This is different from controllingPlayer which only tracks the top ring
   const activePlayers = new Set<number>();
   for (const [, stack] of board.stacks) {
-    if (stack) {
-      activePlayers.add(stack.controllingPlayer);
+    if (stack?.rings) {
+      // Add ALL ring owners in the stack, not just the controlling player
+      for (const ringOwner of stack.rings) {
+        activePlayers.add(ringOwner);
+      }
     }
   }
 
-  // PARITY FIX: If there is only one or zero active players, there is no
-  // meaningful notion of disconnection. One player cannot be "cut off" from
-  // themselves. This matches Python's find_disconnected_regions behavior.
-  if (activePlayers.size <= 1) {
+  // RR-CANON-R142: Only exit if no rings exist on board at all
+  // NOTE: We do NOT exit when only 1 active player - empty regions can still be
+  // color-disconnected (RegionColors = {} is a strict subset of any non-empty ActiveColors)
+  if (activePlayers.size === 0) {
     return [];
   }
 

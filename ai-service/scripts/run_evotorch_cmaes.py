@@ -84,6 +84,29 @@ DEFAULT_WEIGHTS = {
 }
 
 WEIGHT_NAMES = list(DEFAULT_WEIGHTS.keys())
+
+# Persona profiles for baseline opponents
+try:
+    from app.ai.heuristic_weights import (
+        HEURISTIC_V1_BALANCED,
+        HEURISTIC_V1_AGGRESSIVE,
+        HEURISTIC_V1_TERRITORIAL,
+        HEURISTIC_V1_DEFENSIVE,
+    )
+    PERSONA_WEIGHTS = {
+        "balanced": dict(HEURISTIC_V1_BALANCED),
+        "aggressive": dict(HEURISTIC_V1_AGGRESSIVE),
+        "territorial": dict(HEURISTIC_V1_TERRITORIAL),
+        "defensive": dict(HEURISTIC_V1_DEFENSIVE),
+    }
+except ImportError:
+    logger.warning("Could not import persona weights, using defaults")
+    PERSONA_WEIGHTS = {
+        "balanced": DEFAULT_WEIGHTS.copy(),
+        "aggressive": DEFAULT_WEIGHTS.copy(),
+        "territorial": DEFAULT_WEIGHTS.copy(),
+        "defensive": DEFAULT_WEIGHTS.copy(),
+    }
 NUM_WEIGHTS = len(WEIGHT_NAMES)
 
 
@@ -461,6 +484,11 @@ def main():
         "--check-deps", action="store_true",
         help="Check dependencies and exit"
     )
+    parser.add_argument(
+        "--persona", type=str, default="balanced",
+        choices=["balanced", "aggressive", "territorial", "defensive"],
+        help="Baseline persona to optimize against"
+    )
 
     args = parser.parse_args()
 
@@ -472,15 +500,23 @@ def main():
         print(f"EvoTorch: {evotorch.__version__ if hasattr(evotorch, '__version__') else 'available'}")
         return
 
+    # Get baseline weights for the specified persona
+    baseline_weights = PERSONA_WEIGHTS.get(args.persona, DEFAULT_WEIGHTS)
+    logger.info(f"Using {args.persona} persona as baseline opponent")
+
+    # Update output directory to include persona
+    output_dir = f"{args.output_dir}/{args.board}_{args.num_players}p_{args.persona}"
+
     run_evotorch_cmaes(
         board_type=args.board,
         num_players=args.num_players,
         generations=args.generations,
         population_size=args.population_size,
         games_per_eval=args.games_per_eval,
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         sigma=args.sigma,
         max_moves=args.max_moves,
+        baseline_weights=baseline_weights,
         seed=args.seed,
     )
 

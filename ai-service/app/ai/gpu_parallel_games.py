@@ -292,6 +292,43 @@ class ParallelGameRunner:
             rings_per_player=self.rings_per_player,
             board_type=self.board_type,
         )
+        # Clear policy recording buffer
+        self._pending_policy.clear()
+
+    def get_policy_data(self, game_idx: int) -> list[tuple[int, dict]]:
+        """Get recorded policy data for a game.
+
+        Args:
+            game_idx: Index of the game
+
+        Returns:
+            List of (move_number, policy_dict) tuples where policy_dict contains:
+            - candidates: list of {move_type, from_y, from_x, to_y, to_x, score, probability}
+            - selected_idx: index of selected move in candidates list
+        """
+        return self._pending_policy.get(game_idx, [])
+
+    def pop_policy_data(self, game_idx: int) -> list[tuple[int, dict]]:
+        """Get and remove recorded policy data for a game.
+
+        Args:
+            game_idx: Index of the game
+
+        Returns:
+            List of (move_number, policy_dict) tuples
+        """
+        return self._pending_policy.pop(game_idx, [])
+
+    def clear_policy_data(self, game_idx: int | None = None) -> None:
+        """Clear recorded policy data.
+
+        Args:
+            game_idx: If provided, clear only this game's data. If None, clear all.
+        """
+        if game_idx is not None:
+            self._pending_policy.pop(game_idx, None)
+        else:
+            self._pending_policy.clear()
 
     def set_temperature(self, temperature: float) -> None:
         """Dynamically set the temperature for move selection.
@@ -380,6 +417,9 @@ class ParallelGameRunner:
         Uses self.temperature for softmax temperature (curriculum learning).
         During opening phase (move_count < random_opening_moves), uses very high
         temperature to make selections nearly uniform random.
+
+        When self.record_policy is True and heuristic selection is used,
+        policy data is captured and stored in self._pending_policy.
         """
         # Check if any games are in opening phase (need random selection)
         if self.random_opening_moves > 0:
@@ -401,6 +441,10 @@ class ParallelGameRunner:
                 if self.use_policy_selection and self.policy_model is not None:
                     return self._select_moves_policy(moves, active_mask, temperature=elevated_temp)
                 elif self.use_heuristic_selection:
+                    if self.record_policy:
+                        return self._select_moves_with_policy_recording(
+                            moves, active_mask, temperature=elevated_temp
+                        )
                     return select_moves_heuristic(
                         moves, self.state, active_mask, temperature=elevated_temp
                     )
@@ -413,6 +457,10 @@ class ParallelGameRunner:
         if self.use_policy_selection and self.policy_model is not None:
             return self._select_moves_policy(moves, active_mask, temperature=self.temperature)
         elif self.use_heuristic_selection:
+            if self.record_policy:
+                return self._select_moves_with_policy_recording(
+                    moves, active_mask, temperature=self.temperature
+                )
             return select_moves_heuristic(
                 moves, self.state, active_mask, temperature=self.temperature
             )
@@ -420,6 +468,41 @@ class ParallelGameRunner:
             return select_moves_vectorized(
                 moves, active_mask, self.board_size, temperature=self.temperature
             )
+
+    def _select_moves_with_policy_recording(
+        self,
+        moves: BatchMoves,
+        active_mask: torch.Tensor,
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
+        """Select moves with heuristic scoring and record policy data.
+
+        Uses select_moves_heuristic_with_policy to capture the full probability
+        distribution over candidate moves, then stores policy data for each
+        active game in self._pending_policy.
+
+        Args:
+            moves: BatchMoves containing flattened moves
+            active_mask: (batch_size,) bool tensor of active games
+            temperature: Softmax temperature
+
+        Returns:
+            (batch_size,) tensor of selected local move indices
+        """
+        selected, policy_data = select_moves_heuristic_with_policy(
+            moves, self.state, active_mask, temperature=temperature
+        )
+
+        # Store policy data for each active game
+        for g in range(self.batch_size):
+            if active_mask[g] and moves.moves_per_game[g] > 0:
+                move_num = int(self.state.move_count[g].item())
+                policy_dict = policy_data.extract_for_game(g)
+                if g not in self._pending_policy:
+                    self._pending_policy[g] = []
+                self._pending_policy[g].append((move_num, policy_dict))
+
+        return selected
 
     def _select_moves_policy(
         self,
