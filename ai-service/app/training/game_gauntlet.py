@@ -345,6 +345,19 @@ def run_baseline_gauntlet(
         raise ValueError("Must provide either model_path or model_getter")
     _ensure_game_modules()
 
+    # Log encoder expectations for debugging channel mismatches
+    if board_type is not None:
+        try:
+            from app.training.encoder_registry import get_encoder_config
+            for version in ["v2", "v3"]:
+                config = get_encoder_config(board_type, version)
+                logger.debug(
+                    f"[gauntlet] {board_type.name} {version}: expects {config.in_channels} channels "
+                    f"({config.base_channels} base × {config.frames} frames)"
+                )
+        except Exception:
+            pass  # Registry not available, continue without
+
     if opponents is None:
         opponents = [BaselineOpponent.RANDOM, BaselineOpponent.HEURISTIC]
 

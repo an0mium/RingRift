@@ -59,8 +59,8 @@ class EncoderConfig:
 
 # Import policy sizes lazily to avoid circular imports
 def _get_policy_sizes() -> dict[str, int]:
-    """Get policy sizes from encoding module."""
-    from app.training.encoding import P_HEX, POLICY_SIZE_8x8, POLICY_SIZE_HEX8
+    """Get policy sizes from neural_net module."""
+    from app.ai.neural_net import P_HEX, POLICY_SIZE_8x8, POLICY_SIZE_HEX8
     return {
         "P_HEX": P_HEX,
         "POLICY_SIZE_HEX8": POLICY_SIZE_HEX8,

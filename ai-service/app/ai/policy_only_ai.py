@@ -84,6 +84,18 @@ class PolicyOnlyAI(BaseAI):
         self.board_type = board_type
         self.temperature = config.policy_temperature or 1.0
 
+        # Log expected encoder configuration for debugging
+        try:
+            from app.training.encoder_registry import get_encoder_config
+            for version in ["v2", "v3"]:
+                enc_config = get_encoder_config(self.board_type, version)
+                logger.debug(
+                    f"PolicyOnlyAI: {self.board_type.name} {version} expects "
+                    f"{enc_config.in_channels}ch ({enc_config.encoder_type})"
+                )
+        except ImportError:
+            pass  # Registry not available
+
         # Load neural network
         self.neural_net: NeuralNetAI | None = None
         try:
