@@ -165,7 +165,7 @@ def load_teacher_model(
 
 
 def get_nn_value(
-    model: nn.Module,
+    model,  # NeuralNetAI instance
     game_state: GameState,
     player_number: int,
     device: str = "cpu",
@@ -175,38 +175,14 @@ def get_nn_value(
     Args:
         model: Teacher NN model (NeuralNetAI instance)
         game_state: Game state to evaluate
-        player_number: Player perspective for value
-        device: Device model is on
+        player_number: Player perspective for value (unused, NeuralNetAI handles this)
+        device: Device model is on (unused, NeuralNetAI uses its own device)
 
     Returns:
         Value in [-1, 1] from the NN
     """
-    # Use NeuralNetAI's _extract_features to get both board and global features
-    features, globals_vec = model._extract_features(game_state)
-
-    # Get value prediction
-    with torch.no_grad():
-        x = torch.from_numpy(features[None, ...]).float().to(device)
-        g = torch.from_numpy(globals_vec[None, ...]).float().to(device)
-        output = model.model(x, g)
-
-        # Handle different output formats (v2 vs v3)
-        if isinstance(output, tuple):
-            if len(output) >= 2:
-                value_tensor = output[0]  # (batch, num_players)
-            else:
-                value_tensor = output[0]
-        else:
-            value_tensor = output
-
-        # Get value for the specified player (0-indexed)
-        player_idx = player_number - 1
-        if value_tensor.dim() > 1 and value_tensor.size(1) > player_idx:
-            value = float(value_tensor[0, player_idx].item())
-        else:
-            value = float(value_tensor[0].item())
-
-    return value
+    # NeuralNetAI.evaluate_position handles all the encoding and forward pass
+    return model.evaluate_position(game_state)
 
 
 # =============================================================================

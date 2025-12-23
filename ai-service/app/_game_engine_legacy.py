@@ -915,6 +915,28 @@ class GameEngine:
             new_state.current_player = move.player
             return new_state
 
+        # Case 6: In capture/chain_capture but move is a placement/movement action
+        # This happens with GPU selfplay format that doesn't record capture phases
+        if phase in (GamePhase.CAPTURE, GamePhase.CHAIN_CAPTURE):
+            if mtype in placement_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.RING_PLACEMENT
+                new_state.current_player = move.player
+                return new_state
+            if mtype in movement_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.MOVEMENT
+                new_state.current_player = move.player
+                return new_state
+
+        # Case 7: Player mismatch without phase mismatch (GPU selfplay format)
+        # GPU selfplay uses a different turn structure: P1 place+move, P2 place+move, etc.
+        # Always coerce current_player to match the move's player in trace_mode
+        if game_state.current_player != move.player:
+            new_state = game_state.model_copy()
+            new_state.current_player = move.player
+            return new_state
+
         return game_state
 
     @staticmethod

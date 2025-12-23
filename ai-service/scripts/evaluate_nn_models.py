@@ -130,10 +130,11 @@ def create_ai(
 
     elif model_type == "ebmo":
         from app.ai.ebmo_ai import create_ebmo_ai
+        ebmo_config = AIConfig(difficulty=6)
         return create_ebmo_ai(
             player_number=player_number,
-            device=device,
-            checkpoint_path=checkpoint_path,
+            config=ebmo_config,
+            model_path=checkpoint_path,
         )
 
     else:

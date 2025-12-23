@@ -83,6 +83,7 @@ from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_b
 from app.game_engine import GameEngine
 from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
 from app.rules.global_actions import apply_forced_elimination_for_player
+from app.rules.legacy.replay_phase_injection import auto_inject_before_move
 from app.rules.serialization import deserialize_game_state
 from app.training.encoding import HexStateEncoder, HexStateEncoderV3
 
@@ -111,6 +112,8 @@ NO_ACTION_MOVES = {
     "movement": MoveType.NO_MOVEMENT_ACTION,
     "line_processing": MoveType.NO_LINE_ACTION,
     "territory_processing": MoveType.NO_TERRITORY_ACTION,
+    "capture": MoveType.SKIP_CAPTURE,
+    "chain_capture": MoveType.SKIP_CAPTURE,
 }
 
 # Valid move types per phase
@@ -160,8 +163,8 @@ def _complete_remaining_phases(
         MoveType.PROCESS_TERRITORY_REGION: ["territory_processing"],
         MoveType.SKIP_TERRITORY_PROCESSING: ["territory_processing"],
         MoveType.NO_TERRITORY_ACTION: ["territory_processing"],
-        MoveType.OVERTAKING_CAPTURE: ["capture"],
-        MoveType.SKIP_CAPTURE: ["capture"],
+        MoveType.OVERTAKING_CAPTURE: ["capture", "movement"],  # Can capture during movement
+        MoveType.SKIP_CAPTURE: ["capture", "chain_capture"],
         MoveType.CONTINUE_CAPTURE_SEGMENT: ["chain_capture"],
         MoveType.FORCED_ELIMINATION: ["forced_elimination"],
     }
@@ -226,28 +229,26 @@ def _complete_remaining_phases(
         # Handle forced_elimination phase - GPU selfplay applies this implicitly
         if phase_str == "forced_elimination":
             # Apply forced elimination for the current player (mutates state)
-            import sys
-            print(f"DEBUG: In forced_elimination phase, player={current_player}, target={target_player}", file=sys.stderr)
             result = apply_forced_elimination_for_player(state, current_player)
             if result:
                 state = result.next_state
-                print(f"DEBUG: Applied forced_elimination, new phase={_get_phase_str(state)}", file=sys.stderr)
                 iterations += 1
                 continue
             else:
-                # No forced elimination applicable, try other players or return
-                print(f"DEBUG: No forced_elimination for player {current_player}, checking others", file=sys.stderr)
-                # Try all players in case FE is required for a different player
+                # No forced elimination applicable, try other players
                 for p in range(1, len(state.players) + 1):
                     result = apply_forced_elimination_for_player(state, p)
                     if result:
                         state = result.next_state
-                        print(f"DEBUG: Applied forced_elimination for player {p}, new phase={_get_phase_str(state)}", file=sys.stderr)
                         break
                 else:
-                    # No forced elimination for anyone - return as-is
-                    print(f"DEBUG: No forced_elimination for any player", file=sys.stderr)
-                    return state
+                    # No forced elimination for anyone - GPU selfplay already handled it
+                    # Coerce phase directly to advance (matches replay_phase_injection.py approach)
+                    from app.models import GamePhase
+                    # Advance to next player's ring_placement phase
+                    next_player = (current_player % len(state.players)) + 1
+                    state.current_phase = GamePhase.RING_PLACEMENT
+                    state.current_player = next_player
                 iterations += 1
                 continue
 
@@ -409,16 +410,22 @@ def _process_gpu_selfplay_record(
                 history_frames.append(base_features)
                 if len(history_frames) > history_length + 1:
                     history_frames.pop(0)
-                # Complete phase transitions before applying recorded move
-                current_state = _complete_remaining_phases(current_state, move.player, move_type)
-                current_state = GameEngine.apply_move(current_state, move)
+                # Use legacy phase injection (handles GPU selfplay format)
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    current_state = auto_inject_before_move(current_state, move)
+                current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
             except Exception:
                 break  # Stop on error
             continue
 
         try:
-            # Complete phase transitions to get to the right player/phase
-            current_state = _complete_remaining_phases(current_state, move.player, move_type)
+            # Use legacy phase injection (handles GPU selfplay format)
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                current_state = auto_inject_before_move(current_state, move)
 
             # Encode state with history BEFORE applying the move
             stacked, globals_vec = encode_state_with_history(
@@ -433,7 +440,7 @@ def _process_gpu_selfplay_record(
                 history_frames.append(base_features)
                 if len(history_frames) > history_length + 1:
                     history_frames.pop(0)
-                current_state = GameEngine.apply_move(current_state, move)
+                current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
                 continue
 
             # Value from perspective of current player
@@ -466,8 +473,8 @@ def _process_gpu_selfplay_record(
             if len(history_frames) > history_length + 1:
                 history_frames.pop(0)
 
-            # Apply move for next iteration
-            current_state = GameEngine.apply_move(current_state, move)
+            # Apply move for next iteration (trace_mode for GPU selfplay format)
+            current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
 
         except Exception as e:
             # Stop on error - state may be desynced
@@ -668,7 +675,7 @@ def parse_move(move_dict: dict[str, Any]) -> Move:
         player=move_dict.get("player", 1),
         from_pos=parse_position(move_dict.get("from_pos") or move_dict.get("from")),
         to=parse_position(move_dict.get("to_pos") or move_dict.get("to")),
-        capture_target=parse_position(move_dict.get("capture_target")),
+        capture_target=parse_position(move_dict.get("captureTarget") or move_dict.get("capture_target")),
         captured_stacks=move_dict.get("captured_stacks"),
         capture_chain=move_dict.get("capture_chain"),
         overtaken_rings=move_dict.get("overtaken_rings"),
@@ -1088,11 +1095,13 @@ def process_jsonl_file(
                 for move in moves:
                     try:
                         # Handle GPU selfplay simplified format:
-                        # Complete phase transitions before applying the recorded move
+                        # Use legacy phase injection before applying the recorded move
                         if gpu_selfplay_mode:
-                            move_type = move.type if isinstance(move.type, MoveType) else _move_type_from_str(str(move.type))
-                            final_state = _complete_remaining_phases(final_state, move.player, move_type)
-                        final_state = GameEngine.apply_move(final_state, move)
+                            import warnings
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore", DeprecationWarning)
+                                final_state = auto_inject_before_move(final_state, move)
+                        final_state = GameEngine.apply_move(final_state, move, trace_mode=gpu_selfplay_mode)
                         moves_succeeded += 1
                     except Exception:
                         # Stop at first error - state is now desynced
@@ -1123,8 +1132,11 @@ def process_jsonl_file(
                             history_frames.pop(0)
                         # Handle GPU selfplay simplified format
                         if gpu_selfplay_mode:
-                            current_state = _complete_remaining_phases(current_state, move.player, move_type_for_phase)
-                        current_state = GameEngine.apply_move(current_state, move)
+                            import warnings
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore", DeprecationWarning)
+                                current_state = auto_inject_before_move(current_state, move)
+                        current_state = GameEngine.apply_move(current_state, move, trace_mode=gpu_selfplay_mode)
                         continue
 
                     # Encode state with history
@@ -1142,7 +1154,7 @@ def process_jsonl_file(
                     action_idx = encode_move_for_board(move, current_state.board)
                     if action_idx == INVALID_MOVE_INDEX:
                         # Skip invalid moves
-                        current_state = GameEngine.apply_move(current_state, move)
+                        current_state = GameEngine.apply_move(current_state, move, trace_mode=gpu_selfplay_mode)
                         continue
 
                     # Value from perspective of current player
@@ -1174,8 +1186,11 @@ def process_jsonl_file(
                     # Apply move for next iteration
                     # Handle GPU selfplay simplified format
                     if gpu_selfplay_mode:
-                        current_state = _complete_remaining_phases(current_state, move.player, move_type_for_phase)
-                    current_state = GameEngine.apply_move(current_state, move)
+                        import warnings
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore", DeprecationWarning)
+                            current_state = auto_inject_before_move(current_state, move)
+                    current_state = GameEngine.apply_move(current_state, move, trace_mode=gpu_selfplay_mode)
 
                 games_in_file += 1
                 stats.games_processed += 1
