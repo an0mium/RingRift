@@ -239,6 +239,8 @@ def run_selfplay_soak(
         "--summary-json",
         str(summary_path),
         "--fail-on-anomaly",
+        # CRITICAL: Disable lean-db to store full move history for training
+        "--no-lean-db",
         *extra_args,
     ]
     if seed is not None:
