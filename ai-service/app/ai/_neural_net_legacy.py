@@ -3695,9 +3695,10 @@ class NeuralNetAI(BaseAI):
                         # If we initialize the model with the wrong num_players, we will hit
                         # shape mismatches for value_fc2 / rank_dist_fc2 and neural tiers will
                         # silently fall back to heuristic rollouts in search AIs.
-                        value_fc2_weight = state_dict.get("value_fc2.weight")
-                        if value_fc2_weight is not None and hasattr(value_fc2_weight, "shape"):
-                            inferred_players = int(value_fc2_weight.shape[0])
+                        # V2/V3 models use value_fc2, V4 models use value_fc3.
+                        value_weight = state_dict.get("value_fc2.weight") or state_dict.get("value_fc3.weight")
+                        if value_weight is not None and hasattr(value_weight, "shape"):
+                            inferred_players = int(value_weight.shape[0])
                             if inferred_players in (2, 3, 4) and inferred_players != num_players_override:
                                 logger.warning(
                                     "Checkpoint metadata num_players=%s disagrees with weights (%s); "
