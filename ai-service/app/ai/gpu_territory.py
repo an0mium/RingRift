@@ -230,8 +230,11 @@ def _find_regions_with_border_color(
     visited = np.zeros((board_size, board_size), dtype=np.bool_)
     regions = []
 
-    for start_y in range(board_size):
-        for start_x in range(board_size):
+    # Iterate x-outer, y-inner (column-first) to match CPU's iteration order
+    # CPU: for x in range(8): for y in range(8): Position(x=x, y=y)
+    # This is column-first: all rows in col 0, then col 1, etc.
+    for start_x in range(board_size):
+        for start_y in range(board_size):
             if visited[start_y, start_x] or not passable[start_y, start_x]:
                 continue
 
@@ -250,9 +253,9 @@ def _find_regions_with_border_color(
                         queue.append((ny, nx))
 
             if region:
-                # Use min(region) for deterministic representative selection
-                # This is consistent regardless of iteration order
-                rep = min(region)  # (y, x) tuple, lexicographically smallest
+                # Use BFS start position as representative (matches CPU's spaces[0])
+                # CPU's Territory.spaces is a list where spaces[0] is the BFS start position
+                rep = (start_y, start_x)
                 regions.append((region, border_color, rep))
 
     return regions

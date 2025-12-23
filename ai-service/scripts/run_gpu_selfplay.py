@@ -1116,6 +1116,226 @@ class GPUSelfPlayGenerator:
 
 
 # =============================================================================
+# Quality Tier Selfplay (Hybrid / MaxN)
+# =============================================================================
+
+
+def run_quality_tier_selfplay(
+    board_type: str,
+    num_players: int,
+    num_games: int,
+    output_dir: str,
+    quality_tier: str,
+    policy_model_path: str | None = None,
+    hybrid_depth: int = 2,
+    hybrid_top_k: int = 8,
+    max_moves: int = 500,
+    seed: int = 42,
+    output_db: str | None = None,
+    canonical_export: bool = False,
+) -> dict[str, Any]:
+    """Run quality-tier selfplay using Hybrid or MaxN AI.
+
+    This runs games sequentially (not parallel) to achieve higher quality
+    move selection through tree search.
+
+    Args:
+        board_type: Board type (square8, hex8, etc.)
+        num_players: Number of players
+        num_games: Number of games to generate
+        output_dir: Output directory
+        quality_tier: "hybrid" or "maxn"
+        policy_model_path: Path to policy model for hybrid tier
+        hybrid_depth: Search depth for hybrid tier
+        hybrid_top_k: Number of top moves to search in hybrid tier
+        max_moves: Maximum moves per game
+        seed: Random seed
+        output_db: Optional SQLite database for game storage
+        canonical_export: Export in canonical format
+
+    Returns:
+        Statistics dict
+    """
+    import random
+    from datetime import datetime
+
+    from app.models import AIConfig, BoardType, GameStatus, GamePhase
+    from app.training.initial_state import create_initial_state
+    from app.game_engine import GameEngine
+
+    def is_game_over(state) -> bool:
+        """Check if game is over."""
+        return (
+            state.game_status == GameStatus.COMPLETED or
+            state.winner is not None or
+            state.current_phase == GamePhase.GAME_OVER
+        )
+
+    np.random.seed(seed)
+    random.seed(seed)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create AI instances based on quality tier
+    ais = []
+    for player_num in range(1, num_players + 1):
+        config = AIConfig(difficulty=7)  # High difficulty for quality play
+
+        if quality_tier == "hybrid":
+            from app.ai.hybrid_tree_policy_ai import HybridTreePolicyAI
+            ai = HybridTreePolicyAI(
+                player_number=player_num,
+                config=config,
+                top_k=hybrid_top_k,
+                search_depth=hybrid_depth,
+            )
+            if policy_model_path:
+                ai.load_policy_model(policy_model_path)
+            else:
+                # Try to load default model
+                default_path = os.path.join(
+                    os.path.dirname(__file__), "..",
+                    "models", "nnue", f"nnue_policy_{board_type}_{num_players}p_v3.pt"
+                )
+                if os.path.exists(default_path):
+                    ai.load_policy_model(default_path)
+            ais.append(ai)
+
+        elif quality_tier == "maxn":
+            from app.ai.maxn_ai import MaxNAI
+            ai = MaxNAI(player_number=player_num, config=config)
+            ais.append(ai)
+
+        else:
+            raise ValueError(f"Unknown quality tier: {quality_tier}")
+
+    logger.info(f"Quality tier selfplay: {quality_tier}")
+    logger.info(f"  Board: {board_type}, Players: {num_players}")
+    logger.info(f"  Games: {num_games}, Max moves: {max_moves}")
+    if quality_tier == "hybrid":
+        logger.info(f"  Hybrid config: depth={hybrid_depth}, top_k={hybrid_top_k}")
+
+    # Game engine for rules
+    engine = GameEngine()
+
+    # Output files
+    games_file = os.path.join(output_dir, "games.jsonl")
+    stats = {
+        "total_games": 0,
+        "completed_games": 0,
+        "wins_by_player": {p: 0 for p in range(1, num_players + 1)},
+        "draws": 0,
+        "total_moves": 0,
+        "avg_game_length": 0,
+        "quality_tier": quality_tier,
+    }
+
+    start_time = time.time()
+    game_records = []
+
+    for game_idx in range(num_games):
+        # Create initial state
+        state = create_initial_state(board_type, num_players)
+        moves_made = []
+        move_count = 0
+
+        game_start = time.time()
+
+        while not is_game_over(state) and move_count < max_moves:
+            current_player = state.current_player
+            ai = ais[current_player - 1]
+
+            # Get AI move
+            move = ai.select_move(state)
+            if move is None:
+                break
+
+            # Apply move
+            state = engine.apply_move(state, move)
+            moves_made.append(move)
+            move_count += 1
+
+        game_elapsed = time.time() - game_start
+        stats["total_games"] += 1
+        stats["total_moves"] += move_count
+
+        # Determine winner
+        winner = None
+        game_over = is_game_over(state)
+        if game_over:
+            stats["completed_games"] += 1
+            # Find winner (player with most points or last standing)
+            if state.winner:
+                winner = state.winner
+            else:
+                # Check eliminated players
+                active_players = [p for p in state.players if not p.eliminated]
+                if len(active_players) == 1:
+                    winner = active_players[0].player_number
+
+            if winner:
+                stats["wins_by_player"][winner] = stats["wins_by_player"].get(winner, 0) + 1
+            else:
+                stats["draws"] += 1
+
+        # Create game record
+        record = {
+            "game_id": f"quality_{quality_tier}_{game_idx}",
+            "board_type": board_type,
+            "num_players": num_players,
+            "quality_tier": quality_tier,
+            "winner": winner,
+            "move_count": move_count,
+            "game_over": game_over,
+            "elapsed_seconds": game_elapsed,
+            "timestamp": datetime.now().isoformat(),
+            "moves": [
+                {
+                    "type": m.type.value if hasattr(m.type, 'value') else str(m.type),
+                    "player": m.player,
+                    "to": {"x": m.to.x, "y": m.to.y} if m.to else None,
+                    "from": {"x": m.from_pos.x, "y": m.from_pos.y} if m.from_pos else None,
+                }
+                for m in moves_made
+            ],
+        }
+        game_records.append(record)
+
+        # Log progress every 10 games
+        if (game_idx + 1) % 10 == 0 or game_idx == 0:
+            elapsed = time.time() - start_time
+            games_per_sec = (game_idx + 1) / elapsed
+            logger.info(
+                f"Game {game_idx + 1}/{num_games}: {move_count} moves, "
+                f"winner=P{winner}, {games_per_sec:.2f} games/sec"
+            )
+
+    # Write games to JSONL
+    with open(games_file, "w") as f:
+        for record in game_records:
+            f.write(json.dumps(record) + "\n")
+
+    # Calculate final stats
+    elapsed = time.time() - start_time
+    stats["elapsed_seconds"] = elapsed
+    stats["games_per_second"] = num_games / elapsed if elapsed > 0 else 0
+    stats["avg_game_length"] = stats["total_moves"] / num_games if num_games > 0 else 0
+
+    # Write stats
+    stats_file = os.path.join(output_dir, "stats.json")
+    with open(stats_file, "w") as f:
+        json.dump(stats, f, indent=2)
+
+    logger.info("")
+    logger.info(f"Quality tier selfplay complete: {num_games} games in {elapsed:.1f}s")
+    logger.info(f"  Speed: {stats['games_per_second']:.3f} games/sec")
+    logger.info(f"  Avg length: {stats['avg_game_length']:.1f} moves")
+    logger.info(f"  Output: {games_file}")
+
+    return stats
+
+
+# =============================================================================
 # Main Entry Point
 # =============================================================================
 
@@ -1429,6 +1649,26 @@ def main():
         help="Path to custom policy model (default: auto-detect based on board type)",
     )
     parser.add_argument(
+        "--quality-tier",
+        type=str,
+        default=None,
+        choices=["bulk", "hybrid", "maxn"],
+        help="Quality tier for selfplay: bulk (fast GPU parallel), hybrid (policy+tree search), "
+             "maxn (full MaxN tree search). Overrides --use-policy when set.",
+    )
+    parser.add_argument(
+        "--hybrid-depth",
+        type=int,
+        default=2,
+        help="Search depth for hybrid quality tier (default: 2)",
+    )
+    parser.add_argument(
+        "--hybrid-top-k",
+        type=int,
+        default=8,
+        help="Number of top policy moves to search in hybrid tier (default: 8)",
+    )
+    parser.add_argument(
         "--noise-scale",
         type=float,
         default=0.1,
@@ -1534,6 +1774,9 @@ def main():
             "per_player_personas": getattr(parsed, "per_player_personas", False),
             "matchup": getattr(parsed, "matchup", None),
             "continuous": getattr(parsed, "continuous", False),
+            "quality_tier": getattr(parsed, "quality_tier", None),
+            "hybrid_depth": getattr(parsed, "hybrid_depth", 2),
+            "hybrid_top_k": getattr(parsed, "hybrid_top_k", 8),
         },
     )
 
@@ -1578,6 +1821,9 @@ def main():
         "per_player_personas": selfplay_config.extra_options["per_player_personas"],
         "matchup": selfplay_config.extra_options["matchup"],
         "continuous": selfplay_config.extra_options["continuous"],
+        "quality_tier": selfplay_config.extra_options["quality_tier"],
+        "hybrid_depth": selfplay_config.extra_options["hybrid_depth"],
+        "hybrid_top_k": selfplay_config.extra_options["hybrid_top_k"],
     })()
 
     if args.benchmark_only:
@@ -1751,6 +1997,9 @@ def main():
         if continuous:
             logger.info("CONTINUOUS MODE: Will restart automatically after each batch")
 
+        # Check for quality tier mode
+        quality_tier = args.quality_tier
+
         while True:
             iteration += 1
             current_seed = args.seed + (iteration - 1) * 10000 if args.seed else None
@@ -1760,37 +2009,55 @@ def main():
                 logger.info(f"========== CONTINUOUS ITERATION {iteration} ==========")
                 logger.info("")
 
-            run_gpu_selfplay(
-                board_type=args.board,
-                num_players=args.num_players,
-                num_games=args.num_games,
-                output_dir=output_dir,
-                batch_size=args.batch_size,
-                max_moves=args.max_moves,
-                weights=weights,
-                engine_mode=args.engine_mode,
-                seed=current_seed,
-                shadow_validation=args.shadow_validation,
-                shadow_sample_rate=args.shadow_sample_rate,
-                shadow_threshold=args.shadow_threshold,
-                lps_victory_rounds=args.lps_victory_rounds,
-                rings_per_player=args.rings_per_player,
-                output_db=args.output_db,
-                use_heuristic_selection=args.use_heuristic,
-                weight_noise=args.weight_noise,
-                use_policy=args.use_policy,
-                policy_model_path=args.policy_model,
-                temperature=args.temperature,
-                noise_scale=args.noise_scale,
-                min_game_length=args.min_game_length,
-                random_opening_moves=args.random_opening_moves,
-                temperature_mix=args.temperature_mix,
-                canonical_export=args.canonical_export,
-                snapshot_interval=args.snapshot_interval,
-                record_policy=args.record_policy,
-                persona_pool=persona_pool,
-                per_player_personas=per_player_personas_list,
-            )
+            # Use quality tier selfplay if specified (hybrid or maxn)
+            if quality_tier and quality_tier in ("hybrid", "maxn"):
+                run_quality_tier_selfplay(
+                    board_type=args.board,
+                    num_players=args.num_players,
+                    num_games=args.num_games,
+                    output_dir=output_dir,
+                    quality_tier=quality_tier,
+                    policy_model_path=args.policy_model,
+                    hybrid_depth=args.hybrid_depth,
+                    hybrid_top_k=args.hybrid_top_k,
+                    max_moves=args.max_moves,
+                    seed=current_seed or 42,
+                    output_db=args.output_db,
+                    canonical_export=args.canonical_export,
+                )
+            else:
+                # Standard GPU parallel selfplay (bulk tier or default)
+                run_gpu_selfplay(
+                    board_type=args.board,
+                    num_players=args.num_players,
+                    num_games=args.num_games,
+                    output_dir=output_dir,
+                    batch_size=args.batch_size,
+                    max_moves=args.max_moves,
+                    weights=weights,
+                    engine_mode=args.engine_mode,
+                    seed=current_seed,
+                    shadow_validation=args.shadow_validation,
+                    shadow_sample_rate=args.shadow_sample_rate,
+                    shadow_threshold=args.shadow_threshold,
+                    lps_victory_rounds=args.lps_victory_rounds,
+                    rings_per_player=args.rings_per_player,
+                    output_db=args.output_db,
+                    use_heuristic_selection=args.use_heuristic,
+                    weight_noise=args.weight_noise,
+                    use_policy=args.use_policy,
+                    policy_model_path=args.policy_model,
+                    temperature=args.temperature,
+                    noise_scale=args.noise_scale,
+                    min_game_length=args.min_game_length,
+                    random_opening_moves=args.random_opening_moves,
+                    temperature_mix=args.temperature_mix,
+                    canonical_export=args.canonical_export,
+                    snapshot_interval=args.snapshot_interval,
+                    record_policy=args.record_policy,
+                    persona_pool=persona_pool,
+                    per_player_personas=per_player_personas_list,
+                )
 
             if not continuous:
                 break

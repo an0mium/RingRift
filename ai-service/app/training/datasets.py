@@ -408,7 +408,29 @@ class RingRiftDataset(Dataset):
             # The object array may contain arrays that need explicit casting
             indices_arr = np.asarray(policy_indices, dtype=np.int64)
             values_arr = np.asarray(policy_values, dtype=np.float32)
+
+            # Phase 4 Validation: Check indices are in valid range
+            max_valid_idx = self.policy_size - 1
+            if np.any(indices_arr < 0) or np.any(indices_arr > max_valid_idx):
+                invalid_indices = indices_arr[(indices_arr < 0) | (indices_arr > max_valid_idx)]
+                raise ValueError(
+                    f"Policy index out of range [0, {max_valid_idx}] at sample {idx}: "
+                    f"invalid indices = {invalid_indices[:5].tolist()}"
+                )
+
             policy_vector[indices_arr] = torch.from_numpy(values_arr)
+
+            # Phase 4 Validation: Check policy vector normalization
+            policy_sum = policy_vector.sum().item()
+            if not (0.99 < policy_sum < 1.01):
+                # Only raise error for severely denormalized vectors
+                if policy_sum < 0.5 or policy_sum > 1.5:
+                    raise ValueError(
+                        f"Policy vector severely denormalized at sample {idx}: "
+                        f"sum={policy_sum:.6f}, "
+                        f"indices={indices_arr[:5].tolist()}, "
+                        f"values={values_arr[:5].tolist()}"
+                    )
 
         # Scalar vs multi-player value targets:
         # - Scalar: shape (1,) tensor containing float

@@ -8,7 +8,12 @@ December 2025: Extracted from neural_net.py as part of N7 refactoring.
 
 from __future__ import annotations
 
+import logging
+import warnings
+
 import torch
+
+logger = logging.getLogger(__name__)
 
 # Maximum number of players for multi-player value head
 MAX_PLAYERS = 4
@@ -269,7 +274,24 @@ def masked_policy_kl(
     torch.Tensor
         Scalar KL divergence loss averaged over valid samples.
         Returns 0.0 if no valid samples exist.
+
+    Raises
+    ------
+    ValueError
+        If inputs contain NaN values or targets are severely denormalized.
     """
+    # Phase 3 Sanity Checks: Validate inputs
+    if torch.any(torch.isnan(policy_log_probs)):
+        raise ValueError(
+            f"NaN detected in policy_log_probs! "
+            f"Count: {torch.isnan(policy_log_probs).sum().item()}"
+        )
+    if torch.any(torch.isnan(policy_targets)):
+        raise ValueError(
+            f"NaN detected in policy_targets! "
+            f"Count: {torch.isnan(policy_targets).sum().item()}"
+        )
+
     target_sums = policy_targets.sum(dim=1)
     valid_mask = target_sums > 0
     if not torch.any(valid_mask):
@@ -277,13 +299,53 @@ def masked_policy_kl(
 
     targets = policy_targets[valid_mask]
     log_probs = policy_log_probs[valid_mask]
+
+    # Phase 3 Sanity Check: targets should sum to ~1.0
+    valid_target_sums = targets.sum(dim=1)
+    expected_ones = torch.ones(targets.size(0), device=targets.device)
+    if not torch.allclose(valid_target_sums, expected_ones, atol=1e-4):
+        min_sum = valid_target_sums.min().item()
+        max_sum = valid_target_sums.max().item()
+        if min_sum < 0.5 or max_sum > 1.5:
+            raise ValueError(
+                f"Policy targets severely denormalized in loss computation. "
+                f"Sums range: [{min_sum:.4f}, {max_sum:.4f}]"
+            )
+        else:
+            warnings.warn(
+                f"Policy targets slightly denormalized. "
+                f"Sums range: [{min_sum:.6f}, {max_sum:.6f}]"
+            )
+
     log_targets = torch.log(targets.clamp_min(1e-12))
     loss_terms = torch.where(
         targets > 0,
         targets * (log_targets - log_probs),
         torch.zeros_like(targets),
     )
-    return loss_terms.sum(dim=1).mean()
+
+    per_sample_loss = loss_terms.sum(dim=1)
+
+    # Phase 3 Sanity Check: loss should be reasonable
+    # For a policy with ~4500 actions, max reasonable loss is -log(1e-43) ≈ 100
+    # Loss > 1000 indicates severe numerical issues
+    max_reasonable_loss = 1000.0
+    max_loss = per_sample_loss.max().item()
+    if max_loss > max_reasonable_loss:
+        # Log detailed diagnostics for debugging
+        worst_idx = per_sample_loss.argmax()
+        worst_target = targets[worst_idx]
+        worst_log_prob = log_probs[worst_idx]
+        target_positions = (worst_target > 0).nonzero(as_tuple=True)[0]
+
+        warnings.warn(
+            f"Extreme policy loss detected: max={max_loss:.2e}. "
+            f"This indicates model outputs extremely negative logits at target positions. "
+            f"Target positions: {target_positions[:5].tolist()}..., "
+            f"Log probs at targets: {worst_log_prob[target_positions[:3]].tolist()}"
+        )
+
+    return per_sample_loss.mean()
 
 
 def build_rank_targets(

@@ -356,11 +356,19 @@ class EloDatabase:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_match_game_id
             ON match_history(game_id) WHERE game_id IS NOT NULL;
 
-            -- Index for composite key deduplication fallback
-            CREATE INDEX IF NOT EXISTS idx_match_dedupe_key
-            ON match_history(participant_a, participant_b, board_type, num_players, timestamp);
+            -- Index for composite key deduplication fallback (only if old schema columns exist)
         """)
         conn.commit()
+
+        # Conditionally create index on old schema columns if they exist
+        cursor = conn.execute("PRAGMA table_info(match_history)")
+        match_cols = {row[1] for row in cursor.fetchall()}
+        if "participant_a" in match_cols and "participant_b" in match_cols:
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_match_dedupe_key
+                ON match_history(participant_a, participant_b, board_type, num_players, timestamp)
+            """)
+            conn.commit()
 
     def _upgrade_schema_if_needed(self, conn: sqlite3.Connection):
         """Add missing columns to existing tables for schema upgrades."""

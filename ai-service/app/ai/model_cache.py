@@ -52,6 +52,25 @@ MODEL_CACHE_TTL_SECONDS = ONE_HOUR  # 1 hour TTL for cached models
 MODEL_CACHE_MAX_SIZE = 10  # Maximum number of models to keep in cache
 
 
+def set_tournament_mode(enabled: bool, max_models: int = 50) -> None:
+    """Enable or disable tournament mode with larger cache.
+
+    In tournament mode, the cache size is increased to hold all tournament
+    models in memory, avoiding repeated disk I/O for checkpoint loading.
+
+    Args:
+        enabled: True to enable tournament mode, False to restore defaults.
+        max_models: Maximum number of models to cache (only used if enabled).
+    """
+    global MODEL_CACHE_MAX_SIZE
+    if enabled:
+        MODEL_CACHE_MAX_SIZE = max_models
+        logger.info(f"Tournament mode enabled: cache size increased to {max_models}")
+    else:
+        MODEL_CACHE_MAX_SIZE = 10  # Restore default
+        logger.info("Tournament mode disabled: cache size restored to default")
+
+
 def _clear_gpu_caches() -> None:
     """Clear GPU and MPS caches after model eviction."""
     if torch.cuda.is_available():

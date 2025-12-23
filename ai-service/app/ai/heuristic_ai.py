@@ -119,6 +119,12 @@ from .batch_eval import (
     get_or_update_board_arrays,
     prepare_moves_for_batch,
 )
+from .evaluators import (
+    MaterialEvaluator,
+    MaterialWeights,
+    PositionalEvaluator,
+    PositionalWeights,
+)
 from .fast_geometry import FastGeometry
 from .heuristic_weights import HEURISTIC_WEIGHT_PROFILES
 from .lightweight_eval import evaluate_position_light, extract_weights_from_ai
@@ -372,6 +378,12 @@ class HeuristicAI(BaseAI):
         # Initialize swap evaluator with current weights
         self._swap_evaluator: SwapEvaluator | None = None
 
+        # Initialize material evaluator (lazily updated after weight profile)
+        self._material_evaluator: MaterialEvaluator | None = None
+
+        # Initialize positional evaluator (lazily updated after weight profile)
+        self._positional_evaluator: PositionalEvaluator | None = None
+
     def _apply_weight_profile(self) -> None:
         """Override evaluation weights for this instance from a profile.
 
@@ -445,6 +457,25 @@ class HeuristicAI(BaseAI):
                 fast_geo=self._fast_geo,
             )
         return self._swap_evaluator
+
+    @property
+    def material_evaluator(self) -> MaterialEvaluator:
+        """Lazily create material evaluator with current weights."""
+        if self._material_evaluator is None:
+            self._material_evaluator = MaterialEvaluator(
+                weights=MaterialWeights.from_heuristic_ai(self),
+            )
+        return self._material_evaluator
+
+    @property
+    def positional_evaluator(self) -> PositionalEvaluator:
+        """Lazily create positional evaluator with current weights."""
+        if self._positional_evaluator is None:
+            self._positional_evaluator = PositionalEvaluator(
+                weights=PositionalWeights.from_heuristic_ai(self),
+                fast_geo=self._fast_geo,
+            )
+        return self._positional_evaluator
 
     def _victory_proximity_base_for_player(
         self,
@@ -1100,6 +1131,8 @@ class HeuristicAI(BaseAI):
     def _evaluate_stack_control(self, game_state: GameState) -> float:
         """Evaluate stack control (made symmetric).
 
+        Delegates to MaterialEvaluator for consistent evaluation.
+        
         All penalties and bonuses use configurable weights to enable
         full weight-space exploration during training.
 
@@ -1108,105 +1141,48 @@ class HeuristicAI(BaseAI):
 
         v1.6: Made diversification penalties symmetric by computing relative
         advantage (my_penalty - opponent_penalty) instead of absolute penalty.
+        
+        v1.7: Delegates to MaterialEvaluator for decomposition.
         """
-        score = 0.0
-        my_stacks = 0
-        opponent_stacks = 0
-        my_height = 0
-        opponent_height = 0
-        my_cap_height = 0
-        opponent_cap_height = 0
-
-        for stack in game_state.board.stacks.values():
-            if stack.controlling_player == self.player_number:
-                my_stacks += 1
-                # Diminishing returns for height > 5 to discourage mega-stacks
-                h = stack.stack_height
-                effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
-                my_height += effective_height
-                # Cap height measures capture power (per rules §10.1)
-                my_cap_height += stack.cap_height
-            else:
-                opponent_stacks += 1
-                h = stack.stack_height
-                effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
-                opponent_height += effective_height
-                opponent_cap_height += stack.cap_height
-
-        # Stack diversification - now symmetric using relative penalties
-        def diversification_score(stacks: int) -> float:
-            """Compute diversification score for a stack count."""
-            if stacks == 0:
-                return -self.WEIGHT_NO_STACKS_PENALTY
-            elif stacks == 1:
-                return -self.WEIGHT_SINGLE_STACK_PENALTY
-            else:
-                return stacks * self.WEIGHT_STACK_DIVERSITY_BONUS
-
-        my_diversity = diversification_score(my_stacks)
-        opp_diversity = diversification_score(opponent_stacks)
-        score += (my_diversity - opp_diversity)
-
-        score += (my_stacks - opponent_stacks) * self.WEIGHT_STACK_CONTROL
-        score += (my_height - opponent_height) * self.WEIGHT_STACK_HEIGHT
-        score += (my_cap_height - opponent_cap_height) * self.WEIGHT_CAP_HEIGHT
-
-        return score
+        return self.material_evaluator.evaluate_stack_control(
+            game_state, self.player_number
+        )
 
     def _evaluate_territory(self, game_state: GameState) -> float:
-        """Evaluate territory control"""
-        my_player = self.get_player_info(game_state)
-        if not my_player:
-            return 0.0
+        """Evaluate territory control.
 
-        my_territory = my_player.territory_spaces
+        Delegates to PositionalEvaluator for consistent evaluation.
 
-        # Compare with opponents
-        opponent_territory = 0
-        for player in game_state.players:
-            if player.player_number != self.player_number:
-                opponent_territory = max(
-                    opponent_territory,
-                    player.territory_spaces
-                )
-
-        return (my_territory - opponent_territory) * self.WEIGHT_TERRITORY
+        v1.8: Delegates to PositionalEvaluator for decomposition.
+        """
+        return self.positional_evaluator.evaluate_territory(
+            game_state, self.player_number
+        )
 
     def _evaluate_rings_in_hand(self, game_state: GameState) -> float:
         """Evaluate rings remaining in hand (relative to opponents).
 
+        Delegates to MaterialEvaluator for consistent evaluation.
+        
         Made symmetric: computes (my_rings - max_opponent_rings) so that
         the evaluation sums to approximately zero across all players.
+        
+        v1.7: Delegates to MaterialEvaluator for decomposition.
         """
-        my_player = self.get_player_info(game_state)
-        if not my_player:
-            return 0.0
-
-        my_rings = my_player.rings_in_hand
-
-        # Find max opponent rings for symmetric evaluation
-        max_opponent_rings = 0
-        for p in game_state.players:
-            if p.player_number != self.player_number:
-                max_opponent_rings = max(max_opponent_rings, p.rings_in_hand)
-
-        # Symmetric: advantage over best opponent
-        return (my_rings - max_opponent_rings) * self.WEIGHT_RINGS_IN_HAND
+        return self.material_evaluator.evaluate_rings_in_hand(
+            game_state, self.player_number
+        )
 
     def _evaluate_center_control(self, game_state: GameState) -> float:
-        """Evaluate control of center positions"""
-        score = 0.0
-        center_positions = self._get_center_positions(game_state)
+        """Evaluate control of center positions.
 
-        for pos_key in center_positions:
-            if pos_key in game_state.board.stacks:
-                stack = game_state.board.stacks[pos_key]
-                if stack.controlling_player == self.player_number:
-                    score += self.WEIGHT_CENTER_CONTROL
-                else:
-                    score -= self.WEIGHT_CENTER_CONTROL * 0.5
+        Delegates to PositionalEvaluator for consistent evaluation.
 
-        return score
+        v1.8: Delegates to PositionalEvaluator for decomposition.
+        """
+        return self.positional_evaluator.evaluate_center_control(
+            game_state, self.player_number
+        )
 
     def _evaluate_opponent_threats(self, game_state: GameState) -> float:
         """Evaluate opponent threats (stacks near our stacks)"""
@@ -1404,12 +1380,15 @@ class HeuristicAI(BaseAI):
         return total_influence * 2.0  # Weight for influence
 
     def _evaluate_eliminated_rings(self, game_state: GameState) -> float:
-        """Evaluate eliminated rings"""
-        my_player = self.get_player_info(game_state)
-        if not my_player:
-            return 0.0
-
-        return my_player.eliminated_rings * self.WEIGHT_ELIMINATED_RINGS
+        """Evaluate eliminated rings.
+        
+        Delegates to MaterialEvaluator for consistent evaluation.
+        
+        v1.7: Delegates to MaterialEvaluator for decomposition.
+        """
+        return self.material_evaluator.evaluate_eliminated_rings(
+            game_state, self.player_number
+        )
 
     def _evaluate_line_potential(self, game_state: GameState) -> float:
         """Evaluate potential to form lines (2, 3, 4 in a row).
@@ -1573,13 +1552,15 @@ class HeuristicAI(BaseAI):
         return -relative_threat * self.WEIGHT_OPPONENT_VICTORY_THREAT
 
     def _evaluate_marker_count(self, game_state: GameState) -> float:
-        """Evaluate number of markers on board"""
-        my_markers = 0
-        for marker in game_state.board.markers.values():
-            if marker.player == self.player_number:
-                my_markers += 1
-
-        return my_markers * self.WEIGHT_MARKER_COUNT
+        """Evaluate number of markers on board.
+        
+        Delegates to MaterialEvaluator for consistent evaluation.
+        
+        v1.7: Delegates to MaterialEvaluator for decomposition.
+        """
+        return self.material_evaluator.evaluate_marker_count(
+            game_state, self.player_number
+        )
 
     def _get_visible_stacks(
         self,
@@ -1714,58 +1695,14 @@ class HeuristicAI(BaseAI):
         return score * self.WEIGHT_OVERTAKE_POTENTIAL
 
     def _evaluate_territory_closure(self, game_state: GameState) -> float:
+        """Evaluate how close we are to enclosing a territory.
+
+        Delegates to PositionalEvaluator for consistent evaluation.
+
+        v1.8: Delegates to PositionalEvaluator for decomposition.
         """
-        Evaluate how close we are to enclosing a territory.
-        Uses a simplified metric: number of markers vs board size/density.
-        """
-        # This is a complex heuristic to implement perfectly without
-        # pathfinding. As a proxy, we look at marker density and clustering.
-
-        my_markers = [m for m in game_state.board.markers.values()
-                      if m.player == self.player_number]
-
-        if not my_markers:
-            return 0.0
-
-        # Calculate "clustering" - average distance between markers
-        # Closer markers are more likely to form a closed loop
-        total_dist = 0.0
-        count = 0
-
-        # Sample a few pairs to estimate density if too many markers
-        # Deterministic subsampling: take first 10
-        if len(my_markers) < 10:
-            markers_to_check = my_markers
-        else:
-            markers_to_check = my_markers[:10]
-
-        for i, m1 in enumerate(markers_to_check):
-            for m2 in markers_to_check[i+1:]:
-                dist = (
-                    abs(m1.position.x - m2.position.x) +
-                    abs(m1.position.y - m2.position.y)
-                )
-                if m1.position.z is not None and m2.position.z is not None:
-                    dist += abs(m1.position.z - m2.position.z)
-
-                total_dist += dist
-                count += 1
-
-        if count == 0:
-            return 0.0
-
-        avg_dist = total_dist / count
-
-        # Lower average distance is better (more clustered)
-        # We invert it for the score
-        clustering_score = 10.0 / max(1.0, avg_dist)
-
-        # Also reward total number of markers as a prerequisite for territory
-        marker_count_score = len(my_markers) * 0.5
-
-        return (
-            (clustering_score + marker_count_score) *
-            self.WEIGHT_TERRITORY_CLOSURE
+        return self.positional_evaluator.evaluate_territory_closure(
+            game_state, self.player_number
         )
 
     # _evaluate_move is deprecated in favor of evaluate_position
@@ -1837,45 +1774,15 @@ class HeuristicAI(BaseAI):
         return score * self.WEIGHT_LINE_CONNECTIVITY
 
     def _evaluate_territory_safety(self, game_state: GameState) -> float:
+        """Evaluate safety of potential territories.
+
+        Delegates to PositionalEvaluator for consistent evaluation.
+
+        v1.8: Delegates to PositionalEvaluator for decomposition.
         """
-        Evaluate safety of potential territories.
-        Penalizes if opponent has stacks near our marker clusters.
-        """
-        score = 0.0
-        board = game_state.board
-
-        # Identify clusters of markers (simplified)
-        # For each of my markers, check distance to nearest opponent stack
-        my_markers = [
-            m for m in board.markers.values()
-            if m.player == self.player_number
-        ]
-        opponent_stacks = [
-            s for s in board.stacks.values()
-            if s.controlling_player != self.player_number
-        ]
-
-        if not my_markers or not opponent_stacks:
-            return 0.0
-
-        for marker in my_markers:
-            min_dist = float('inf')
-            for stack in opponent_stacks:
-                # Manhattan distance approximation
-                dist = (
-                    abs(marker.position.x - stack.position.x) +
-                    abs(marker.position.y - stack.position.y)
-                )
-                if (marker.position.z is not None and
-                        stack.position.z is not None):
-                    dist += abs(marker.position.z - stack.position.z)
-                min_dist = min(min_dist, dist)
-
-            # If opponent is very close (dist 1 or 2), penalty
-            if min_dist <= 2:
-                score -= (3.0 - min_dist)  # -2 for dist 1, -1 for dist 2
-
-        return score * self.WEIGHT_TERRITORY_SAFETY
+        return self.positional_evaluator.evaluate_territory_safety(
+            game_state, self.player_number
+        )
 
     def _evaluate_stack_mobility(self, game_state: GameState) -> float:
         """Evaluate mobility of individual stacks (relative to opponents).

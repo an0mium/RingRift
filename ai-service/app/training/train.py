@@ -559,6 +559,103 @@ from app.training.schedulers import create_lr_scheduler
 # RingRiftDataset and WeightedRingRiftDataset are imported from app.training.datasets
 
 
+def _validate_training_compatibility(
+    model: nn.Module,
+    dataset: Any,
+    config: "TrainConfig",
+) -> None:
+    """Phase 6: Validate model and dataset are compatible before training.
+
+    This function catches common issues early to prevent wasted GPU hours:
+    - Policy size mismatches between model and data
+    - Board type incompatibility
+    - Invalid sample data
+
+    Parameters
+    ----------
+    model : nn.Module
+        The neural network model to train.
+    dataset : Any
+        The training dataset (RingRiftDataset or similar).
+    config : TrainConfig
+        Training configuration.
+
+    Raises
+    ------
+    ValueError
+        If model/dataset are incompatible or data validation fails.
+    """
+    logger.info("Running training compatibility validation...")
+
+    # 1. Policy size compatibility
+    model_policy_size = getattr(model, 'policy_size', None)
+    dataset_policy_size = getattr(dataset, 'policy_size', None)
+
+    if model_policy_size is not None and dataset_policy_size is not None:
+        if dataset_policy_size > model_policy_size:
+            raise ValueError(
+                f"Dataset policy_size ({dataset_policy_size}) > model policy_size ({model_policy_size}). "
+                f"Dataset contains indices the model cannot predict. "
+                f"Check board type settings and encoder version."
+            )
+        elif dataset_policy_size < model_policy_size:
+            logger.info(
+                f"Dataset policy_size ({dataset_policy_size}) < model policy_size ({model_policy_size}). "
+                f"Policy targets will be zero-padded (this is normal)."
+            )
+
+    # 2. Board type compatibility (if available)
+    model_board_type = getattr(model, 'board_type', None)
+    dataset_board_type = getattr(dataset, 'board_type', None)
+
+    if model_board_type is not None and dataset_board_type is not None:
+        if model_board_type != dataset_board_type:
+            logger.warning(
+                f"Board type mismatch: model expects {model_board_type}, "
+                f"dataset contains {dataset_board_type}. "
+                f"This may cause encoding issues."
+            )
+
+    # 3. Sample validation - check first few samples
+    num_samples_to_check = min(10, len(dataset))
+    policy_size = model_policy_size or dataset_policy_size or 4500
+
+    invalid_samples = []
+    for i in range(num_samples_to_check):
+        try:
+            sample = dataset[i]
+            # Handle different return formats
+            if isinstance(sample, tuple) and len(sample) >= 4:
+                _, _, _, policy = sample[:4]
+            else:
+                continue
+
+            # Check policy vector
+            if hasattr(policy, 'sum'):
+                policy_sum = policy.sum().item()
+                if policy_sum > 0 and not (0.5 < policy_sum < 1.5):
+                    invalid_samples.append((i, f"policy_sum={policy_sum:.4f}"))
+
+                # Check for NaN
+                if hasattr(policy, 'isnan') and policy.isnan().any():
+                    invalid_samples.append((i, "contains NaN"))
+
+        except Exception as e:
+            invalid_samples.append((i, f"error: {str(e)[:50]}"))
+
+    if invalid_samples:
+        logger.warning(
+            f"Found {len(invalid_samples)} potentially invalid samples in first {num_samples_to_check}: "
+            f"{invalid_samples[:5]}"
+        )
+        if len(invalid_samples) > num_samples_to_check // 2:
+            raise ValueError(
+                f"More than half of checked samples are invalid. "
+                f"Dataset may be corrupted or incompatible. "
+                f"Issues: {invalid_samples[:5]}"
+            )
+
+    logger.info("Training compatibility validation passed")
 
 
 def train_model(
@@ -2338,6 +2435,17 @@ def train_model(
                     shuffle=False,
                 )
 
+    # Phase 6: Validate training compatibility before starting
+    if not distributed or is_main_process():
+        try:
+            _validate_training_compatibility(model, full_dataset, config)
+        except ValueError as e:
+            logger.error(f"Training compatibility validation failed: {e}")
+            if fail_on_invalid_data:
+                raise
+            else:
+                logger.warning("Continuing despite validation failure (fail_on_invalid_data=False)")
+
     if not distributed or is_main_process():
         logger.info(
             f"Starting training for {config.epochs_per_iter} epochs..."
@@ -2784,6 +2892,23 @@ def train_model(
 
                 policy_valid_mask = policy_targets.sum(dim=1) > 0
 
+                # Phase 1 Diagnostics: Validate policy target normalization
+                if torch.any(policy_valid_mask):
+                    target_sums = policy_targets[policy_valid_mask].sum(dim=1)
+                    if not torch.allclose(target_sums, torch.ones_like(target_sums), atol=1e-4):
+                        bad_sums = target_sums[~torch.isclose(target_sums, torch.ones_like(target_sums), atol=1e-4)]
+                        logger.error(
+                            f"Policy targets not normalized at batch {i}! "
+                            f"Expected sum=1.0, got: min={target_sums.min():.6f}, "
+                            f"max={target_sums.max():.6f}, "
+                            f"num_bad={len(bad_sums)}/{len(target_sums)}"
+                        )
+                        if target_sums.min() < 0.5 or target_sums.max() > 1.5:
+                            raise ValueError(
+                                f"Policy targets severely denormalized at batch {i}. "
+                                f"Check data export pipeline."
+                            )
+
                 # Apply label smoothing to policy targets if configured
                 # smoothed = (1 - eps) * target + eps * uniform
                 if config.policy_label_smoothing > 0 and torch.any(policy_valid_mask):
@@ -2847,6 +2972,29 @@ def train_model(
                             value_pred, policy_pred = out
                             rank_dist_pred = None
                         backbone_features = None
+
+                    # Phase 1 Diagnostics: Detect numerical issues in policy predictions
+                    if torch.any(torch.isnan(policy_pred)) or torch.any(torch.isinf(policy_pred)):
+                        nan_count = torch.isnan(policy_pred).sum().item()
+                        inf_count = torch.isinf(policy_pred).sum().item()
+                        logger.error(
+                            f"NaN/Inf detected in policy_pred! "
+                            f"NaNs: {nan_count}, Infs: {inf_count}, "
+                            f"Range: [{policy_pred[~torch.isnan(policy_pred)].min():.2e}, "
+                            f"{policy_pred[~torch.isnan(policy_pred)].max():.2e}]"
+                        )
+                        raise ValueError(
+                            f"Model produced NaN/Inf in policy predictions at batch {i}. "
+                            f"Check model weights and learning rate."
+                        )
+
+                    policy_pred_max = policy_pred.abs().max().item()
+                    if policy_pred_max > 1e6:
+                        logger.warning(
+                            f"Extreme policy logits detected at batch {i}: "
+                            f"max_abs={policy_pred_max:.2e}, "
+                            f"range=[{policy_pred.min():.2e}, {policy_pred.max():.2e}]"
+                        )
 
                     # Apply log_softmax to policy prediction for KLDivLoss
                     policy_log_probs = torch.log_softmax(policy_pred, dim=1)

@@ -689,6 +689,24 @@ def export_replay_dataset_multi(
         except Exception as exc:
             print(f"Warning: failed to append to existing {output_path}: {exc}")
 
+    # Phase 5: Compute additional metadata for validation
+    # Compute max policy index across all samples
+    max_policy_index = 0
+    for indices in policy_indices_list:
+        if len(indices) > 0:
+            max_policy_index = max(max_policy_index, max(indices))
+
+    # Determine encoder type for hex boards
+    effective_encoder = encoder_version if encoder_version in ("v2", "v3") else "v3"
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        encoder_type_str = f"hex_{effective_encoder}"
+    else:
+        encoder_type_str = f"square_v{feature_version}"
+
+    # Get policy size from constants
+    from app.ai.neural_net.constants import get_policy_size_for_board
+    policy_size = get_policy_size_for_board(board_type)
+
     save_kwargs = {
         "features": features_arr,
         "globals": globals_arr,
@@ -704,6 +722,12 @@ def export_replay_dataset_multi(
         "total_game_moves": total_game_moves_arr,
         "phases": phases_arr,
         "victory_types": victory_types_arr,  # For victory-type-balanced sampling
+        # Phase 5 Metadata: Additional fields for training compatibility validation
+        "encoder_type": np.asarray(encoder_type_str),
+        "policy_size": np.asarray(int(policy_size)),
+        "max_policy_index": np.asarray(int(max_policy_index)),
+        "policies_normalized": np.asarray(True),  # All policy values sum to 1.0
+        "export_version": np.asarray("2.0"),  # Mark as having validation metadata
     }
     if write_mp:
         save_kwargs.update({"values_mp": values_mp_arr, "num_players": num_players_arr})

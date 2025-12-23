@@ -598,6 +598,29 @@ class HexNeuralNet_v3(nn.Module):
         # Scatter into flat policy vector
         policy_logits = self._scatter_policy_logits(placement_logits, movement_logits, special_logits, hex_mask)
 
+        # Phase 2: Output validation during training to catch numerical issues early
+        if self.training:
+            # Check for NaN/Inf in policy outputs
+            if torch.any(torch.isnan(policy_logits)) or torch.any(torch.isinf(policy_logits)):
+                raise RuntimeError(
+                    f"NaN/Inf detected in policy_logits during forward pass. "
+                    f"Check backbone weights and input normalization. "
+                    f"NaNs: {torch.isnan(policy_logits).sum().item()}, "
+                    f"Infs: {torch.isinf(policy_logits).sum().item()}"
+                )
+
+            # Check for extreme logit values (excluding -1e9 masking)
+            valid_mask = policy_logits > -1e8  # -1e9 is intentional invalid cell masking
+            if torch.any(valid_mask):
+                valid_logits = policy_logits[valid_mask]
+                max_abs = valid_logits.abs().max().item()
+                if max_abs > 1e6:
+                    import warnings
+                    warnings.warn(
+                        f"Extreme policy logits in HexNeuralNet_v3 forward: "
+                        f"max_abs={max_abs:.2e}. This may cause numerical issues in loss."
+                    )
+
         if return_features:
             # Return backbone features (pooled), not value head features (v_cat)
             # out_pooled has shape [B, num_filters] which is expected by auxiliary tasks

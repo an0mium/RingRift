@@ -176,7 +176,7 @@ def run_worker_server(port: int, board_size: int, num_players: int):
     """Run HTTP worker server for remote evaluation."""
     try:
         import uvicorn
-        from fastapi import FastAPI
+        from fastapi import FastAPI, Body
         from pydantic import BaseModel
     except ImportError:
         logger.error("FastAPI/uvicorn not installed. Run: pip install fastapi uvicorn")
@@ -202,7 +202,7 @@ def run_worker_server(port: int, board_size: int, num_players: int):
         error: str | None = None
 
     @app.post("/evaluate", response_model=TaskResponse)
-    async def evaluate_task(request: TaskRequest):
+    async def evaluate_task(request: TaskRequest = Body(...)):
         task = EvalTask(
             task_id=request.task_id,
             candidate_weights=request.candidate_weights,
@@ -242,7 +242,7 @@ def run_worker_server(port: int, board_size: int, num_players: int):
         error: str | None = None
 
     @app.post("/evaluate_multi", response_model=MultiOpponentResponse)
-    async def evaluate_multi_task(request: MultiOpponentRequest):
+    async def evaluate_multi_task(request: MultiOpponentRequest = Body(...)):
         """Evaluate candidate against all baseline opponents."""
         start_time = time.time()
         try:

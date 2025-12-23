@@ -577,12 +577,16 @@ class GameReplayDB:
         db_path: str,
         snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
         enforce_canonical_history: bool = True,
+        journal_mode: str = "WAL",
     ):
         """Initialize database connection.
 
         Args:
             db_path: Path to SQLite database file
             snapshot_interval: Create snapshots every N moves
+            enforce_canonical_history: Enforce canonical move history
+            journal_mode: SQLite journal mode ("WAL" or "DELETE").
+                          Use "DELETE" for NFS mounts where WAL has locking issues.
         """
         self._db_path = Path(db_path)
         self._snapshot_interval = snapshot_interval
@@ -591,6 +595,9 @@ class GameReplayDB:
         # This is the default for new DBs so that self‑play/training
         # pipelines cannot silently write non‑canonical histories.
         self._enforce_canonical_history = enforce_canonical_history
+        # Journal mode: WAL for local storage (better concurrency),
+        # DELETE for NFS (avoids file locking issues)
+        self._journal_mode = journal_mode.upper()
 
         # Ensure parent directory exists
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -602,12 +609,13 @@ class GameReplayDB:
     def _get_conn(self):
         """Get a database connection with proper cleanup.
 
-        Uses WAL mode and busy timeout for better concurrency with multiple workers.
+        Uses configurable journal mode and busy timeout for better concurrency.
+        WAL mode is best for local storage, DELETE mode is best for NFS.
         """
         conn = sqlite3.connect(str(self._db_path), timeout=float(SQLITE_TIMEOUT))
         conn.row_factory = sqlite3.Row
-        # WAL mode allows concurrent reads during writes
-        conn.execute("PRAGMA journal_mode=WAL")
+        # Set journal mode (WAL for local, DELETE for NFS)
+        conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
         # Wait for locks using centralized threshold
         conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_LONG_MS}")
         conn.execute("PRAGMA foreign_keys = ON")

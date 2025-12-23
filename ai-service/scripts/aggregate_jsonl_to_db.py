@@ -287,8 +287,15 @@ def import_to_database(
     records: list[dict[str, Any]],
     db_path: Path,
     dry_run: bool = False,
+    journal_mode: str = "WAL",
 ) -> dict[str, int]:
     """Import parsed records to GameReplayDB.
+
+    Args:
+        records: Parsed game records to import
+        db_path: Path to output SQLite database
+        dry_run: If True, just report what would be imported
+        journal_mode: SQLite journal mode (WAL or DELETE). Use DELETE for NFS.
 
     Returns statistics dict.
     """
@@ -327,7 +334,7 @@ def import_to_database(
     from app.db.game_replay import GameReplayDB
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    db = GameReplayDB(str(db_path), enforce_canonical_history=False)
+    db = GameReplayDB(str(db_path), enforce_canonical_history=False, journal_mode=journal_mode)
 
     for i, record in enumerate(new_records):
         try:
@@ -713,6 +720,13 @@ def main():
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--journal-mode",
+        type=str,
+        choices=["WAL", "DELETE"],
+        default="WAL",
+        help="SQLite journal mode (WAL=local storage, DELETE=NFS compatible)",
+    )
 
     args = parser.parse_args()
 
@@ -802,7 +816,9 @@ def main():
     logger.info("")
 
     # Import to database
-    stats = import_to_database(all_records, output_db, dry_run=args.dry_run)
+    stats = import_to_database(
+        all_records, output_db, dry_run=args.dry_run, journal_mode=args.journal_mode
+    )
 
     logger.info("")
     logger.info("=" * 60)

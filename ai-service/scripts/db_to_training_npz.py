@@ -358,6 +358,12 @@ def export_db_to_npz(
 
     # Save to NPZ
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Phase 5: Get policy size from constants for validation metadata
+    from app.ai.neural_net.constants import get_policy_size_for_board
+    from app.models import BoardType as BT
+    bt = BT[board_type.upper()] if isinstance(board_type, str) else board_type
+    policy_size = get_policy_size_for_board(bt)
+
     np.savez_compressed(
         output_path,
         features=features_arr,
@@ -373,6 +379,10 @@ def export_db_to_npz(
         encoder_type=np.asarray(encoder_metadata["encoder_type"]),
         base_channels=np.asarray(encoder_metadata["base_channels"]),
         in_channels=np.asarray(encoder_metadata["in_channels"]),
+        # Phase 5 Metadata: Additional fields for training compatibility validation
+        policy_size=np.asarray(int(policy_size)),
+        policies_normalized=np.asarray(True),
+        export_version=np.asarray("2.0"),
     )
 
     logger.info(f"Saved {len(all_features)} positions to {output_path}")

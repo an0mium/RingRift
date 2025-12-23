@@ -818,6 +818,7 @@ def play_nn_vs_nn_game(
     from datetime import datetime
 
     from app.ai.neural_net import NeuralNetAI, clear_model_cache
+    from app.ai.model_cache import set_tournament_mode
 
     def _timeout_tiebreak_winner(final_state: GameState) -> int | None:
         """Deterministically select a winner for evaluation-only timeouts."""
@@ -1067,7 +1068,9 @@ def play_nn_vs_nn_game(
 
     # Determine winner
     duration = time.time() - start_time
-    clear_model_cache()
+    # NOTE: Model cache is preserved for tournament efficiency.
+    # Cache clearing after every game caused 74+ min stuck on model loading.
+    # LRU eviction handles memory; cache is cleared at tournament end.
 
     # Derive victory type for canonical format
     victory_type, stalemate_tb = derive_victory_type(game_state, max_moves)
@@ -2671,6 +2674,11 @@ def main():
         db.close()
         return
 
+    # Enable tournament mode with cache sized for all models
+    # This prevents cache thrashing when playing many games with a fixed set of models
+    from app.ai.model_cache import set_tournament_mode
+    set_tournament_mode(True, max_models=len(models) + 10)
+
     # Run the tournament
     import uuid
     tournament_id = str(uuid.uuid4())[:8]
@@ -2888,6 +2896,11 @@ def main():
                 )
             except Exception as e:
                 print(f"[Tournament] NPZ export failed: {e}")
+
+    # Restore normal cache mode and clean up
+    from app.ai.model_cache import clear_model_cache as clear_cache
+    set_tournament_mode(False)
+    clear_cache()
 
     # Record task completion for duration learning
     if HAS_COORDINATION and task_id:
