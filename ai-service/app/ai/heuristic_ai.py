@@ -109,9 +109,7 @@ from ..models import (
     Position,
     RingStack,
 )
-from ..rules.core import count_buried_rings, is_eligible_for_recovery
 from ..rules.geometry import BoardGeometry
-from ..rules.recovery import has_any_recovery_move
 from .base import BaseAI
 from .batch_eval import (
     BoardArrays,
@@ -120,10 +118,16 @@ from .batch_eval import (
     prepare_moves_for_batch,
 )
 from .evaluators import (
+    EndgameEvaluator,
+    EndgameWeights,
     MaterialEvaluator,
     MaterialWeights,
+    MobilityEvaluator,
+    MobilityWeights,
     PositionalEvaluator,
     PositionalWeights,
+    StrategicEvaluator,
+    StrategicWeights,
     TacticalEvaluator,
     TacticalWeights,
 )
@@ -389,6 +393,15 @@ class HeuristicAI(BaseAI):
         # Initialize tactical evaluator (lazily updated after weight profile)
         self._tactical_evaluator: TacticalEvaluator | None = None
 
+        # Initialize mobility evaluator (lazily updated after weight profile)
+        self._mobility_evaluator: MobilityEvaluator | None = None
+
+        # Initialize strategic evaluator (lazily updated after weight profile)
+        self._strategic_evaluator: StrategicEvaluator | None = None
+
+        # Initialize endgame evaluator (lazily updated after weight profile)
+        self._endgame_evaluator: EndgameEvaluator | None = None
+
     def _apply_weight_profile(self) -> None:
         """Override evaluation weights for this instance from a profile.
 
@@ -491,6 +504,36 @@ class HeuristicAI(BaseAI):
                 fast_geo=self._fast_geo,
             )
         return self._tactical_evaluator
+
+    @property
+    def mobility_evaluator(self) -> MobilityEvaluator:
+        """Lazily create mobility evaluator with current weights."""
+        if self._mobility_evaluator is None:
+            self._mobility_evaluator = MobilityEvaluator(
+                weights=MobilityWeights.from_heuristic_ai(self),
+                fast_geo=self._fast_geo,
+            )
+        return self._mobility_evaluator
+
+    @property
+    def strategic_evaluator(self) -> StrategicEvaluator:
+        """Lazily create strategic evaluator with current weights."""
+        if self._strategic_evaluator is None:
+            self._strategic_evaluator = StrategicEvaluator(
+                weights=StrategicWeights.from_heuristic_ai(self),
+                fast_geo=self._fast_geo,
+            )
+        return self._strategic_evaluator
+
+    @property
+    def endgame_evaluator(self) -> EndgameEvaluator:
+        """Lazily create endgame evaluator with current weights."""
+        if self._endgame_evaluator is None:
+            self._endgame_evaluator = EndgameEvaluator(
+                weights=EndgameWeights.from_heuristic_ai(self),
+                fast_geo=self._fast_geo,
+            )
+        return self._endgame_evaluator
 
     def _victory_proximity_base_for_player(
         self,
@@ -1030,49 +1073,56 @@ class HeuristicAI(BaseAI):
         """
         Compute per-feature component scores for the current position.
 
-        This helper centralises mode-aware gating for Tier 0/1/2 features so
-        that :meth:`evaluate_position` and :meth:`get_evaluation_breakdown`
-        remain consistent. In ``"light"`` mode, Tier-2 structural features are
-        not evaluated at all and are reported as ``0.0``.
+        This method calls the class's ``_evaluate_*`` methods (which delegate
+        to specialized evaluators) and centralises mode-aware gating for
+        Tier 0/1/2 features. In ``"light"`` mode, Tier-2 structural features
+        are not evaluated at all and are reported as ``0.0``.
+
+        Evaluator delegation (Phase 7 refactor):
+        - MaterialEvaluator: stack_control, rings_in_hand, eliminated_rings,
+          marker_count
+        - PositionalEvaluator: territory, center_control, territory_closure,
+          territory_safety
+        - TacticalEvaluator: opponent_threats, vulnerability, overtake_potential
+        - MobilityEvaluator: mobility, stack_mobility
+        - StrategicEvaluator: victory_proximity, opponent_victory_threat,
+          forced_elimination_risk, lps_action_advantage, multi_leader_threat
+        - EndgameEvaluator: recovery_potential
         """
-        # Clear visibility cache for this evaluation (avoids stale data)
-        self._visible_stacks_cache: dict[str, list] = {}
         scores: dict[str, float] = {}
 
-        # Tier 0 (core) features – always computed.
+        # === Tier 0 (core) features – always computed ===
         scores["stack_control"] = self._evaluate_stack_control(game_state)
         scores["territory"] = self._evaluate_territory(game_state)
         scores["rings_in_hand"] = self._evaluate_rings_in_hand(game_state)
         scores["center_control"] = self._evaluate_center_control(game_state)
 
-        # Tier 1 (local adjacency/mobility) features – always computed.
-        scores["opponent_threats"] = self._evaluate_opponent_threats(
-            game_state
-        )
+        # === Tier 1 (local adjacency/mobility) features – always computed ===
+        scores["opponent_threats"] = self._evaluate_opponent_threats(game_state)
         scores["mobility"] = self._evaluate_mobility(game_state)
 
-        # Remaining Tier 0 core features.
-        scores["eliminated_rings"] = self._evaluate_eliminated_rings(
-            game_state
-        )
-
-        # Tier 2 (structural/global) – gated by eval_mode.
-        if self.eval_mode == "full":
-            scores["line_potential"] = self._evaluate_line_potential(
-                game_state
-            )
-        else:
-            scores["line_potential"] = 0.0
-
-        scores["victory_proximity"] = self._evaluate_victory_proximity(
-            game_state
-        )
-        scores["opponent_victory_threat"] = (
-            self._evaluate_opponent_victory_threat(game_state)
-        )
+        # Remaining Tier 0 core features
+        scores["eliminated_rings"] = self._evaluate_eliminated_rings(game_state)
         scores["marker_count"] = self._evaluate_marker_count(game_state)
 
+        # Victory/threat features (always computed)
+        scores["victory_proximity"] = self._evaluate_victory_proximity(game_state)
+        scores["opponent_victory_threat"] = self._evaluate_opponent_victory_threat(
+            game_state
+        )
+
+        # Tier 1 stack-level mobility – always computed
+        scores["stack_mobility"] = self._evaluate_stack_mobility(game_state)
+
+        # Multi-leader threat is considered core and always computed
+        scores["multi_leader_threat"] = self._evaluate_multi_leader_threat(game_state)
+
+        # === Tier 2 (structural/global) – gated by eval_mode ===
         if self.eval_mode == "full":
+            scores["line_potential"] = self._evaluate_line_potential(game_state)
+            scores["line_connectivity"] = self._evaluate_line_connectivity(
+                game_state
+            )
             scores["vulnerability"] = self._evaluate_vulnerability(game_state)
             scores["overtake_potential"] = self._evaluate_overtake_potential(
                 game_state
@@ -1080,46 +1130,25 @@ class HeuristicAI(BaseAI):
             scores["territory_closure"] = self._evaluate_territory_closure(
                 game_state
             )
-            scores["line_connectivity"] = self._evaluate_line_connectivity(
+            scores["territory_safety"] = self._evaluate_territory_safety(game_state)
+            scores["forced_elimination_risk"] = self._evaluate_forced_elimination_risk(
                 game_state
             )
-            scores["territory_safety"] = self._evaluate_territory_safety(
+            scores["lps_action_advantage"] = self._evaluate_lps_action_advantage(
                 game_state
             )
-        else:
-            scores["vulnerability"] = 0.0
-            scores["overtake_potential"] = 0.0
-            scores["territory_closure"] = 0.0
-            scores["line_connectivity"] = 0.0
-            scores["territory_safety"] = 0.0
-
-        # Tier 1 stack-level mobility – always computed.
-        scores["stack_mobility"] = self._evaluate_stack_mobility(game_state)
-
-        # High-signal structural features – gated by eval_mode.
-        if self.eval_mode == "full":
-            scores["forced_elimination_risk"] = (
-                self._evaluate_forced_elimination_risk(game_state)
-            )
-            scores["lps_action_advantage"] = (
-                self._evaluate_lps_action_advantage(game_state)
-            )
-        else:
-            scores["forced_elimination_risk"] = 0.0
-            scores["lps_action_advantage"] = 0.0
-
-        # Multi-leader threat is considered core and always computed.
-        scores["multi_leader_threat"] = self._evaluate_multi_leader_threat(
-            game_state
-        )
-
-        # Recovery potential evaluation (v1.6) – gated by eval_mode.
-        # This captures the strategic value of recovery as a threat/resource.
-        if self.eval_mode == "full":
             scores["recovery_potential"] = self._evaluate_recovery_potential(
                 game_state
             )
         else:
+            scores["line_potential"] = 0.0
+            scores["line_connectivity"] = 0.0
+            scores["vulnerability"] = 0.0
+            scores["overtake_potential"] = 0.0
+            scores["territory_closure"] = 0.0
+            scores["territory_safety"] = 0.0
+            scores["forced_elimination_risk"] = 0.0
+            scores["lps_action_advantage"] = 0.0
             scores["recovery_potential"] = 0.0
 
         return scores
@@ -1211,60 +1240,15 @@ class HeuristicAI(BaseAI):
         )
 
     def _evaluate_mobility(self, game_state: GameState) -> float:
-        """Evaluate mobility (number of valid moves)"""
-        # Optimization: Use pseudo-mobility instead of full move generation
-        # Full move generation is too expensive for evaluation function.
+        """Evaluate mobility (number of valid moves).
 
-        board = game_state.board
-        board_type = board.type
-        stacks = board.stacks
-        collapsed = board.collapsed_spaces
+        Delegates to MobilityEvaluator for consistent evaluation.
 
-        # My pseudo-mobility
-        my_stacks = [
-            s for s in stacks.values()
-            if s.controlling_player == self.player_number
-        ]
-        my_mobility = 0
-        for stack in my_stacks:
-            # Use fast key-based adjacency lookup
-            pos_key = stack.position.to_key()
-            adjacent_keys = self._get_adjacent_keys(pos_key, board_type)
-            for adj_key in adjacent_keys:
-                if adj_key in collapsed:
-                    continue
-                if adj_key in stacks:
-                    target = stacks[adj_key]
-                    # Capture power is based on cap height per compact rules §10.1
-                    if (target.controlling_player != self.player_number
-                            and stack.cap_height >= target.cap_height):
-                        my_mobility += 1
-                else:
-                    my_mobility += 1
-
-        # Opponent pseudo-mobility
-        opp_stacks = [
-            s for s in stacks.values()
-            if s.controlling_player != self.player_number
-        ]
-        opp_mobility = 0
-        for stack in opp_stacks:
-            # Use fast key-based adjacency lookup
-            pos_key = stack.position.to_key()
-            adjacent_keys = self._get_adjacent_keys(pos_key, board_type)
-            for adj_key in adjacent_keys:
-                if adj_key in collapsed:
-                    continue
-                if adj_key in stacks:
-                    target = stacks[adj_key]
-                    # Capture power is based on cap height per compact rules §10.1
-                    if (target.controlling_player == self.player_number
-                            and stack.cap_height >= target.cap_height):
-                        opp_mobility += 1
-                else:
-                    opp_mobility += 1
-        score = (my_mobility - opp_mobility) * self.WEIGHT_MOBILITY
-        return score
+        v1.10: Delegates to MobilityEvaluator for decomposition.
+        """
+        return self.mobility_evaluator.evaluate_mobility(
+            game_state, self.player_number
+        )
 
     def _iterate_board_keys(self, board) -> list[str]:
         """
@@ -1496,24 +1480,16 @@ class HeuristicAI(BaseAI):
     def _evaluate_victory_proximity(self, game_state: GameState) -> float:
         """Evaluate how close we are to winning (relative to opponents).
 
+        Delegates to StrategicEvaluator for consistent evaluation.
+
         Made symmetric: computes (my_proximity - max_opponent_proximity) so
         that the evaluation sums to approximately zero across all players.
+        
+        v1.11: Delegates to StrategicEvaluator for decomposition.
         """
-        my_player = self.get_player_info(game_state)
-        if not my_player:
-            return 0.0
-
-        my_proximity = self._victory_proximity_base_for_player(game_state, my_player)
-
-        # Find max opponent proximity for symmetric evaluation
-        max_opponent_proximity = 0.0
-        for p in game_state.players:
-            if p.player_number != self.player_number:
-                opp_proximity = self._victory_proximity_base_for_player(game_state, p)
-                max_opponent_proximity = max(max_opponent_proximity, opp_proximity)
-
-        # Symmetric: advantage over best opponent
-        return (my_proximity - max_opponent_proximity) * self.WEIGHT_VICTORY_PROXIMITY
+        return self.strategic_evaluator.evaluate_victory_proximity(
+            game_state, self.player_number
+        )
 
     def _evaluate_opponent_victory_threat(
         self,
@@ -1523,29 +1499,18 @@ class HeuristicAI(BaseAI):
         Evaluate how much closer the leading opponent is to victory
         than we are.
 
+        Delegates to StrategicEvaluator for consistent evaluation.
+
         This mirrors the self victory proximity computation and
         compares our proximity score to the maximum proximity score
         among all opponents. A positive gap is treated as a threat
         and converted into a penalty.
+        
+        v1.11: Delegates to StrategicEvaluator for decomposition.
         """
-        my_player = self.get_player_info(game_state)
-        if not my_player:
-            return 0.0
-
-        self_prox = self._victory_proximity_base_for_player(game_state, my_player)
-
-        max_opp_prox = 0.0
-        for p in game_state.players:
-            if p.player_number == self.player_number:
-                continue
-            prox = self._victory_proximity_base_for_player(game_state, p)
-            if prox > max_opp_prox:
-                max_opp_prox = prox
-
-        raw_gap = max_opp_prox - self_prox
-        relative_threat = max(0.0, raw_gap)
-
-        return -relative_threat * self.WEIGHT_OPPONENT_VICTORY_THREAT
+        return self.strategic_evaluator.evaluate_opponent_victory_threat(
+            game_state, self.player_number
+        )
 
     def _evaluate_marker_count(self, game_state: GameState) -> float:
         """Evaluate number of markers on board.
@@ -1751,51 +1716,13 @@ class HeuristicAI(BaseAI):
     def _evaluate_stack_mobility(self, game_state: GameState) -> float:
         """Evaluate mobility of individual stacks (relative to opponents).
 
-        Made symmetric: computes (my_mobility - max_opponent_mobility) so
-        that the evaluation sums to approximately zero across all players.
+        Delegates to MobilityEvaluator for consistent evaluation.
+
+        v1.10: Delegates to MobilityEvaluator for decomposition.
         """
-        board = game_state.board
-        board_type = board.type
-        stacks = board.stacks
-        collapsed = board.collapsed_spaces
-
-        def compute_mobility_for_player(player_num: int) -> float:
-            """Compute raw mobility score for a player."""
-            player_stacks = [
-                s for s in stacks.values()
-                if s.controlling_player == player_num
-            ]
-            mobility = 0.0
-            for stack in player_stacks:
-                pos_key = stack.position.to_key()
-                adjacent_keys = self._get_adjacent_keys(pos_key, board_type)
-                valid_moves = 0
-                for adj_key in adjacent_keys:
-                    if adj_key in collapsed:
-                        continue
-                    if adj_key in stacks:
-                        target = stacks[adj_key]
-                        if (target.controlling_player != player_num
-                                and stack.cap_height >= target.cap_height):
-                            valid_moves += 1
-                        continue
-                    valid_moves += 1
-                mobility += valid_moves
-                if valid_moves == 0:
-                    mobility -= self.WEIGHT_BLOCKED_STACK_PENALTY
-            return mobility
-
-        my_mobility = compute_mobility_for_player(self.player_number)
-
-        # Find max opponent mobility for symmetric evaluation
-        max_opponent_mobility = 0.0
-        for p in game_state.players:
-            if p.player_number != self.player_number:
-                opp_mobility = compute_mobility_for_player(p.player_number)
-                max_opponent_mobility = max(max_opponent_mobility, opp_mobility)
-
-        # Symmetric: advantage over best opponent
-        return (my_mobility - max_opponent_mobility) * self.WEIGHT_STACK_MOBILITY
+        return self.mobility_evaluator.evaluate_stack_mobility(
+            game_state, self.player_number
+        )
 
     def _evaluate_forced_elimination_risk(
         self,
@@ -1804,30 +1731,14 @@ class HeuristicAI(BaseAI):
         """
         Penalise positions where we control many stacks but have very few
         real actions (moves or placements), indicating forced-elimination risk.
+        
+        Delegates to StrategicEvaluator for consistent evaluation.
+        
+        v1.11: Delegates to StrategicEvaluator for decomposition.
         """
-        board = game_state.board
-        my_stacks = [
-            s for s in board.stacks.values()
-            if s.controlling_player == self.player_number
-        ]
-        controlled_stacks = len(my_stacks)
-        if controlled_stacks == 0:
-            return 0.0
-
-        approx_actions = self._approx_real_actions_for_player(
-            game_state,
-            self.player_number,
+        return self.strategic_evaluator.evaluate_forced_elimination_risk(
+            game_state, self.player_number
         )
-        ratio = approx_actions / max(1, controlled_stacks)
-
-        if ratio >= 2.0:
-            risk_factor = 0.0
-        elif ratio >= 1.0:
-            risk_factor = 2.0 - ratio
-        else:
-            risk_factor = 1.0 + (1.0 - ratio)
-
-        return -risk_factor * self.WEIGHT_FORCED_ELIMINATION_RISK
 
     def _evaluate_lps_action_advantage(
         self,
@@ -1838,41 +1749,14 @@ class HeuristicAI(BaseAI):
 
         In 3+ player games, reward being one of the few players with real
         actions left and penalise being the only player without actions.
+        
+        Delegates to StrategicEvaluator for consistent evaluation.
+        
+        v1.11: Delegates to StrategicEvaluator for decomposition.
         """
-        players = game_state.players
-        if len(players) <= 2:
-            return 0.0
-
-        actions = {
-            p.player_number: self._approx_real_actions_for_player(
-                game_state,
-                p.player_number,
-            )
-            for p in players
-        }
-        self_actions = actions.get(self.player_number, 0)
-        self_has = self_actions > 0
-
-        opp_with_action = sum(
-            1
-            for p in players
-            if p.player_number != self.player_number
-            and actions.get(p.player_number, 0) > 0
+        return self.strategic_evaluator.evaluate_lps_action_advantage(
+            game_state, self.player_number
         )
-
-        if not self_has:
-            advantage = -1.0
-        else:
-            total_opponents = len(players) - 1
-            if total_opponents <= 0:
-                advantage = 0.0
-            else:
-                inactive_fraction = (
-                    total_opponents - opp_with_action
-                ) / float(total_opponents)
-                advantage = inactive_fraction
-
-        return advantage * self.WEIGHT_LPS_ACTION_ADVANTAGE
 
     def _evaluate_multi_leader_threat(
         self,
@@ -1883,31 +1767,14 @@ class HeuristicAI(BaseAI):
 
         In 3+ player games, penalise positions where a single opponent is
         much closer to victory than the other opponents.
+        
+        Delegates to StrategicEvaluator for consistent evaluation.
+        
+        v1.11: Delegates to StrategicEvaluator for decomposition.
         """
-        players = game_state.players
-        if len(players) <= 2:
-            return 0.0
-
-        prox_by_player = {
-            p.player_number: self._victory_proximity_base_for_player(game_state, p)
-            for p in players
-        }
-
-        opp_prox = [
-            prox_by_player[p.player_number]
-            for p in players
-            if p.player_number != self.player_number
-        ]
-        if len(opp_prox) < 2:
-            return 0.0
-
-        opp_prox_sorted = sorted(opp_prox, reverse=True)
-        opp_top1 = opp_prox_sorted[0]
-        opp_top2 = opp_prox_sorted[1]
-
-        leader_gap = max(0.0, opp_top1 - opp_top2)
-
-        return -leader_gap * self.WEIGHT_MULTI_LEADER_THREAT
+        return self.strategic_evaluator.evaluate_multi_leader_threat(
+            game_state, self.player_number
+        )
 
     def _get_adjacent_positions(
         self,
@@ -2024,6 +1891,8 @@ class HeuristicAI(BaseAI):
         """
         Evaluate recovery potential for all players (v1.6).
 
+        Delegates to EndgameEvaluator for consistent evaluation.
+
         Recovery (RR-CANON-R110–R115) allows temporarily eliminated players to
         slide markers to form lines, paying costs with buried ring extraction.
         This heuristic captures:
@@ -2032,43 +1901,11 @@ class HeuristicAI(BaseAI):
         2. Threat from opponents who have recovery potential
         3. Value of buried rings as recovery resources
 
+        v1.12: Delegates to EndgameEvaluator for decomposition.
+
         Returns:
-            Score representing recovery strategic value (positive = good for us)
+            Score representing recovery strategic value (positive = good)
         """
-        score = 0.0
-
-        # Check our recovery status
-        my_eligible = is_eligible_for_recovery(game_state, self.player_number)
-        my_buried = count_buried_rings(
-            game_state.board, self.player_number
+        return self.endgame_evaluator.evaluate_recovery_potential(
+            game_state, self.player_number
         )
-
-        if my_eligible:
-            # Bonus for having recovery available
-            score += self.WEIGHT_RECOVERY_ELIGIBILITY
-
-            # Additional bonus if we actually have recovery moves
-            if has_any_recovery_move(game_state, self.player_number):
-                score += self.WEIGHT_RECOVERY_POTENTIAL
-        else:
-            # Small bonus for buried rings even if not currently eligible
-            # (potential future recovery resource)
-            score += my_buried * self.WEIGHT_BURIED_RING_VALUE * 0.3
-
-        # Evaluate opponent recovery threats
-        for player in game_state.players:
-            if player.player_number == self.player_number:
-                continue
-
-            opp_eligible = is_eligible_for_recovery(
-                game_state, player.player_number
-            )
-            if opp_eligible:
-                # Penalty for opponent having recovery potential
-                score -= self.WEIGHT_RECOVERY_ELIGIBILITY * 0.5
-
-                # Extra penalty if opponent actually has recovery moves
-                if has_any_recovery_move(game_state, player.player_number):
-                    score -= self.WEIGHT_RECOVERY_THREAT
-
-        return score

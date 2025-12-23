@@ -1,15 +1,67 @@
 # HeuristicAI Decomposition Plan
 
-> **Doc Status (2025-12-23): Active**
+> **Doc Status (2025-12-23): COMPLETED ✓**
 >
-> Comprehensive decomposition plan for refactoring the HeuristicAI god class into focused, testable evaluator components.
+> All 7 phases of the HeuristicAI decomposition have been successfully
+> completed. The monolithic god class has been refactored into 6 focused
+> evaluator components with clean delegation.
 >
 > **Related Documents:**
 >
 > - [`REFACTORING_OPPORTUNITIES_ANALYSIS.md`](./REFACTORING_OPPORTUNITIES_ANALYSIS.md) - Parent analysis document
-> - [`ai-service/app/ai/heuristic_ai.py`](../../ai-service/app/ai/heuristic_ai.py) - Target class (2,203 LOC)
+> - [`ai-service/app/ai/heuristic_ai.py`](../../ai-service/app/ai/heuristic_ai.py) - Coordinator (~1,911 LOC)
+> - [`ai-service/app/ai/evaluators/`](../../ai-service/app/ai/evaluators/) - Extracted evaluators (3,525 LOC total)
 > - [`ai-service/app/ai/evaluation_provider.py`](../../ai-service/app/ai/evaluation_provider.py) - Existing interface
 > - [`AI_ARCHITECTURE.md`](./AI_ARCHITECTURE.md) - AI service architecture
+
+---
+
+## Completion Summary
+
+### Phase Completion Status
+
+| Phase | Component           | Status      | LOC Change         | Date       |
+| ----- | ------------------- | ----------- | ------------------ | ---------- |
+| 1     | MaterialEvaluator   | ✅ Complete | +539 (extracted)   | 2025-12-XX |
+| 2     | PositionalEvaluator | ✅ Complete | +576 (extracted)   | 2025-12-XX |
+| 3     | TacticalEvaluator   | ✅ Complete | +547 (extracted)   | 2025-12-XX |
+| 4     | MobilityEvaluator   | ✅ Complete | +474 (extracted)   | 2025-12-XX |
+| 5     | StrategicEvaluator  | ✅ Complete | +796 (extracted)   | 2025-12-XX |
+| 6     | EndgameEvaluator    | ✅ Complete | +522 (extracted)   | 2025-12-XX |
+| 7     | Core Refactor       | ✅ Complete | Delegation pattern | 2025-12-23 |
+
+### Final Metrics
+
+| Metric             | Before          | After                     | Change      |
+| ------------------ | --------------- | ------------------------- | ----------- |
+| HeuristicAI LOC    | ~2,203          | ~1,911                    | -292 (-13%) |
+| Evaluators Package | 0               | 3,525                     | +3,525      |
+| Testability        | Monolithic      | Modular                   | ✓           |
+| Weight Isolation   | Class constants | Per-evaluator dataclasses | ✓           |
+
+### Architectural Improvements
+
+1. **Clean Delegation Pattern**: `_compute_component_scores()` delegates to
+   `_evaluate_*` methods which delegate to evaluators
+2. **Per-Evaluator Caching**: Each evaluator manages its own visibility/state
+   cache (e.g., `TacticalEvaluator._visible_stacks_cache`)
+3. **Lazy Initialization**: Evaluators created on first access via `@property`
+4. **Weight Dataclasses**: Each evaluator has `*Weights.from_heuristic_ai()`
+   factory for consistent weight extraction
+5. **Tier 0/1/2 Gating**: `eval_mode` ("full"/"light") gates Tier-2 features
+
+### Test Verification
+
+All 55 heuristic tests pass after Phase 7 completion:
+
+- `tests/test_heuristic_ai.py`: 46 tests ✓
+- `tests/test_heuristic_eval_modes.py`: 9 tests ✓
+
+Key tests validating the refactor:
+
+- `test_heuristic_eval_mode_gates_tier2_features` - Verifies Tier-2 gating
+- `test_tier2_methods_called_in_full_mode_and_skipped_in_light` - Verifies
+  method call routing through `_evaluate_*` wrappers
 
 ---
 
@@ -1892,14 +1944,47 @@ classDiagram
 
 ---
 
-## 8. Next Steps
+## 8. Implementation Status
 
-To implement this plan, switch to Code mode and execute Phase 1 tasks:
+### Completed Implementation (2025-12-23)
 
-1. Create `ai-service/app/ai/evaluators/` package
-2. Implement `evaluators/base.py` with protocols
-3. Implement `evaluator_registry.py`
-4. Implement `composite_evaluator.py`
-5. Add initial unit tests
+All phases of the decomposition plan have been executed:
 
-**Estimated total effort:** 7 weeks (as detailed in Section 3)
+1. ✅ Created `ai-service/app/ai/evaluators/` package
+2. ✅ Implemented 6 evaluators with `*Weights` dataclasses:
+   - `MaterialEvaluator` (539 LOC)
+   - `PositionalEvaluator` (576 LOC)
+   - `TacticalEvaluator` (547 LOC)
+   - `MobilityEvaluator` (474 LOC)
+   - `StrategicEvaluator` (796 LOC)
+   - `EndgameEvaluator` (522 LOC)
+3. ✅ HeuristicAI core refactored with clean delegation pattern
+4. ✅ All 55 heuristic tests passing
+
+### Deferred Items
+
+The following items from the original plan were **intentionally deferred**:
+
+1. **CompositeEvaluator / EvaluatorRegistry**: The simpler delegation pattern
+   via `_evaluate_*` methods provides sufficient modularity without the
+   overhead of a formal registry. This can be revisited if dynamic evaluator
+   toggling becomes a requirement.
+
+2. **LineStructureEvaluator**: Line potential and connectivity evaluation
+   remain in HeuristicAI as they are tightly coupled with the main class's
+   FastGeometry usage. Could be extracted in a future refactor.
+
+3. **Consolidation with evaluation_provider.py**: The `HeuristicEvaluator`
+   class maintains its own implementation for now. Full consolidation would
+   require interface changes that are out of scope.
+
+### Future Enhancements
+
+If further decomposition is needed:
+
+1. Extract `_evaluate_line_potential` and `_evaluate_line_connectivity` to
+   a `LineStructureEvaluator`
+2. Implement `EvaluatorRegistry` for dynamic feature toggling
+3. Add `CompositeEvaluator` for formal aggregation with feature breakdown
+
+**Total actual effort:** ~6 phases over multiple sessions

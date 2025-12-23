@@ -930,17 +930,22 @@ class GPUSelfPlayGenerator:
                             if to_pos and isinstance(to_pos, tuple):
                                 canonical_move["to"] = _canvas_to_cube_coords(to_pos[0], to_pos[1], board_type_str)
                                 # Add captureTarget for capture moves
-                                # captureTarget is the position of the captured stack, which is
-                                # one step before the landing position along the move direction
+                                # December 2025 FIX: Use actual capture_target from move history,
+                                # not computed position. Multi-step captures have targets that are
+                                # NOT simply "one step back from landing".
                                 if canonical_type in ("overtaking_capture", "continue_capture_segment") and from_pos:
-                                    # Compute the captured stack position (one step before landing)
-                                    from_y, from_x = from_pos
-                                    to_y, to_x = to_pos
-                                    dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
-                                    dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
-                                    # The captured stack is one step back from landing
-                                    target_y = to_y - dy
-                                    target_x = to_x - dx
+                                    # Use capture_target from raw_move if available (correct)
+                                    capture_target = raw_move.get("capture_target")
+                                    if capture_target and isinstance(capture_target, tuple):
+                                        target_y, target_x = capture_target
+                                    else:
+                                        # Fallback: compute from direction (may be wrong for multi-step)
+                                        from_y, from_x = from_pos
+                                        to_y, to_x = to_pos
+                                        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
+                                        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
+                                        target_y = to_y - dy
+                                        target_x = to_x - dx
                                     canonical_move["captureTarget"] = _canvas_to_cube_coords(target_y, target_x, board_type_str)
                             canonical_moves.append(canonical_move)
                         moves_for_record = canonical_moves

@@ -10,23 +10,38 @@ Available Evaluators:
 - MaterialEvaluator: Ring counts, stack heights, material balance
 - PositionalEvaluator: Territory control, center positions, connectivity
 - TacticalEvaluator: Captures, threats, vulnerability
+- MobilityEvaluator: Movement options, pseudo-mobility, stack mobility
+- StrategicEvaluator: Victory proximity, forced elimination risk, LPS
+- EndgameEvaluator: Terminal detection, game phase, recovery potential
 
 Future Evaluators (planned):
-- StrategicEvaluator: Victory proximity, forced elimination risk
-- MobilityEvaluator: Movement options
 - LineStructureEvaluator: Line potential, marker connectivity
-- RecoveryEvaluator: Recovery mechanics (RR-CANON-R110-R115)
 """
 
+from .endgame_evaluator import (
+    EndgameEvaluator,
+    EndgameScore,
+    EndgameWeights,
+)
 from .material_evaluator import (
     MaterialEvaluator,
     MaterialScore,
     MaterialWeights,
 )
+from .mobility_evaluator import (
+    MobilityEvaluator,
+    MobilityScore,
+    MobilityWeights,
+)
 from .positional_evaluator import (
     PositionalEvaluator,
     PositionalScore,
     PositionalWeights,
+)
+from .strategic_evaluator import (
+    StrategicEvaluator,
+    StrategicScore,
+    StrategicWeights,
 )
 from .tactical_evaluator import (
     TacticalEvaluator,
@@ -35,12 +50,21 @@ from .tactical_evaluator import (
 )
 
 __all__ = [
+    "EndgameEvaluator",
+    "EndgameScore",
+    "EndgameWeights",
     "MaterialEvaluator",
     "MaterialScore",
     "MaterialWeights",
+    "MobilityEvaluator",
+    "MobilityScore",
+    "MobilityWeights",
     "PositionalEvaluator",
     "PositionalScore",
     "PositionalWeights",
+    "StrategicEvaluator",
+    "StrategicScore",
+    "StrategicWeights",
     "TacticalEvaluator",
     "TacticalScore",
     "TacticalWeights",

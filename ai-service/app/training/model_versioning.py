@@ -275,6 +275,28 @@ MODEL_VERSIONS: dict[str, str] = {
     "HexNeuralNet_v4": HEX_NEURAL_NET_V4_VERSION,
 }
 
+# Version compatibility mapping: {(checkpoint_version, expected_version): is_compatible}
+# Allows loading older checkpoints when architecture is backwards compatible
+COMPATIBLE_VERSIONS: dict[tuple[str, str], bool] = {
+    # v3.0.0 checkpoints can be loaded by v3.1.0 code (minor version bump, backwards compatible)
+    ("v3.0.0", "v3.1.0"): True,
+    ("v3.0.0-lite", "v3.1.0-lite"): True,
+    # v2.0.0 checkpoints can be loaded by v2.x code
+    ("v2.0.0", "v2.0.0"): True,
+}
+
+
+def are_versions_compatible(checkpoint_version: str, expected_version: str) -> bool:
+    """Check if a checkpoint version is compatible with the expected version.
+
+    Returns True if:
+    - Versions match exactly
+    - Versions are in the COMPATIBLE_VERSIONS mapping
+    """
+    if checkpoint_version == expected_version:
+        return True
+    return COMPATIBLE_VERSIONS.get((checkpoint_version, expected_version), False)
+
 
 def get_model_version(model: nn.Module) -> str:
     """Get the architecture version for a model instance."""
@@ -692,9 +714,14 @@ class ModelVersionManager:
                     checkpoint_path=path,
                 )
 
-        # Version validation
+        # Version validation with compatibility check
         if expected_version is not None and metadata.architecture_version != expected_version:
-            if strict:
+            if are_versions_compatible(metadata.architecture_version, expected_version):
+                logger.info(
+                    f"Version compatibility: checkpoint={metadata.architecture_version} "
+                    f"is compatible with expected={expected_version}. Loading."
+                )
+            elif strict:
                 raise VersionMismatchError(
                     checkpoint_version=metadata.architecture_version,
                     current_version=expected_version,

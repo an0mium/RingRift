@@ -909,6 +909,9 @@ class BatchGameState:
                 to_y = int(history_cpu[g, i, 4])
                 to_x = int(history_cpu[g, i, 5])
                 phase = int(history_cpu[g, i, 6])
+                # December 2025: Extract capture_target from columns 7-8 for chain captures
+                capture_target_y = int(history_cpu[g, i, 7]) if history_cpu.shape[2] > 7 else -1
+                capture_target_x = int(history_cpu[g, i, 8]) if history_cpu.shape[2] > 8 else -1
 
                 move = {
                     "move_type": MoveType(move_type).name,
@@ -917,6 +920,9 @@ class BatchGameState:
                     "to_pos": (to_y, to_x) if to_y >= 0 else None,
                     "phase": GamePhase(phase).name if phase >= 0 else None,
                 }
+                # Include capture_target for capture moves (needed for correct replay)
+                if capture_target_y >= 0 and capture_target_x >= 0:
+                    move["capture_target"] = (capture_target_y, capture_target_x)
                 game_moves.append(move)
             all_moves.append(game_moves)
 

@@ -230,10 +230,11 @@ def _find_regions_with_border_color(
     visited = np.zeros((board_size, board_size), dtype=np.bool_)
     regions = []
 
-    # Iterate y-outer, x-inner (row-first) for GPU-native ordering
-    # Use BFS start position as representative for deterministic selection
-    for start_y in range(board_size):
-        for start_x in range(board_size):
+    # Iterate x-outer, y-inner (column-first) to match CPU's iteration order
+    # CPU uses: for x in range(8): for y in range(8): Position(x=x, y=y)
+    # This ensures BFS start positions match CPU's spaces[0] selection
+    for start_x in range(board_size):
+        for start_y in range(board_size):
             if visited[start_y, start_x] or not passable[start_y, start_x]:
                 continue
 
@@ -614,9 +615,14 @@ def compute_territory_batch(
                             stack_owner_np[y, x] = 0
 
                         # Collapse the cell - use numpy for reading
+                        # RR-CANON-R145: Remove any markers when collapsing interior cells
                         if not is_collapsed_np[y, x]:
                             state.is_collapsed[g, y, x] = True
                             state.territory_owner[g, y, x] = player
+                            # Clear any marker at this position (per R145: "remove any stacks or markers")
+                            if marker_owner_np is not None and marker_owner_np[y, x] > 0:
+                                state.marker_owner[g, y, x] = 0
+                                marker_owner_np[y, x] = 0
                             territory_count += 1
                             is_collapsed_np[y, x] = True
 
