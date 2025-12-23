@@ -155,6 +155,11 @@ DEFAULT_MATCHUP_TIMEOUT = 600  # 10 minutes per matchup
 DEFAULT_TOURNAMENT_TIMEOUT = 7200  # 2 hours for entire tournament
 HEARTBEAT_INTERVAL = 60  # Log progress every 60 seconds
 
+# Validation result cache to avoid repeated checkpoint loading during discovery
+# Key: (model_path, board_type, num_players, file_mtime)
+# Value: (is_valid, reason)
+_VALIDATION_CACHE: dict[tuple[str, str, int, float], tuple[bool, str]] = {}
+
 
 # ============================================
 # JSON Serialization Helpers
@@ -339,10 +344,26 @@ def validate_model_for_board(
     if str(model_path).startswith("__BASELINE_"):
         return True, "baseline"
 
+    # Check validation cache (keyed by path, board_type, num_players, file_mtime)
+    try:
+        file_mtime = path.stat().st_mtime
+    except OSError:
+        file_mtime = 0.0
+
+    board_key = str(board_type.value if hasattr(board_type, 'value') else board_type)
+    cache_key = (str(path), board_key, num_players, file_mtime)
+    if cache_key in _VALIDATION_CACHE:
+        return _VALIDATION_CACHE[cache_key]
+
+    def cache_and_return(result: tuple[bool, str]) -> tuple[bool, str]:
+        """Cache validation result before returning."""
+        _VALIDATION_CACHE[cache_key] = result
+        return result
+
     try:
         checkpoint = safe_load_checkpoint(str(path), map_location="cpu", warn_on_unsafe=False)
     except Exception as e:
-        return False, f"Failed to load checkpoint: {e}"
+        return cache_and_return((False, f"Failed to load checkpoint: {e}"))
 
     # Expected policy sizes for each board type
     POLICY_SIZES = {
@@ -377,17 +398,17 @@ def validate_model_for_board(
             # Strict matching for hex8 vs hexagonal (they are NOT compatible)
             if expected_board in ["hex8", "hexagonal"] and actual in ["hex8", "hexagonal"]:
                 if expected_board != actual:
-                    return False, f"Hex board size mismatch: model is {actual}, expected {expected_board}"
+                    return cache_and_return((False, f"Hex board size mismatch: model is {actual}, expected {expected_board}"))
             elif expected_board in ["square8", "sq8"] and actual in ["square8", "sq8"]:
                 pass  # Compatible
             elif expected_board in ["square19", "sq19"] and actual in ["square19", "sq19"]:
                 pass  # Compatible
             elif expected_board != actual:
-                return False, f"Board type mismatch: model is {actual}, expected {expected_board}"
+                return cache_and_return((False, f"Board type mismatch: model is {actual}, expected {expected_board}"))
 
         # Board size is the most reliable indicator
         if model_board_size and expected_board_size and model_board_size != expected_board_size:
-            return False, f"Board size mismatch: model has {model_board_size}, expected {expected_board_size}"
+            return cache_and_return((False, f"Board size mismatch: model has {model_board_size}, expected {expected_board_size}"))
 
         # Policy size can vary based on action encoding, so only warn if very different
         # (disabled for now since policy sizes vary widely)
@@ -400,7 +421,7 @@ def validate_model_for_board(
             actual = str(model_board_type).lower()
             if expected_board in ["hex8", "hexagonal"] and actual in ["hex8", "hexagonal"]:
                 if expected_board != actual:
-                    return False, f"Hex board size mismatch: model is {actual}, expected {expected_board}"
+                    return cache_and_return((False, f"Hex board size mismatch: model is {actual}, expected {expected_board}"))
 
     # Infer from architecture if metadata missing
     state_dict = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
@@ -412,11 +433,11 @@ def validate_model_for_board(
             if len(hex_mask_shape) == 4:
                 mask_size = hex_mask_shape[2]
                 if expected_board == "hex8" and mask_size != 9:
-                    return False, f"hex_mask size {mask_size} doesn't match hex8 (expected 9)"
+                    return cache_and_return((False, f"hex_mask size {mask_size} doesn't match hex8 (expected 9)"))
                 elif expected_board == "hexagonal" and mask_size != 25:
-                    return False, f"hex_mask size {mask_size} doesn't match hexagonal (expected 25)"
+                    return cache_and_return((False, f"hex_mask size {mask_size} doesn't match hexagonal (expected 25)"))
                 elif expected_board in ["square8", "square19"]:
-                    return False, f"Model has hex_mask but expected square board type"
+                    return cache_and_return((False, f"Model has hex_mask but expected square board type"))
 
         # Check board_size from state_dict keys if hex_mask wasn't found
         # This is less reliable but still useful
@@ -426,20 +447,20 @@ def validate_model_for_board(
             has_hex_architecture = any(k for k in state_dict.keys() if any(hk in k.lower() for hk in hex_keys))
 
             if has_hex_architecture and expected_board in ["square8", "square19"]:
-                return False, f"Model has hex architecture but expected square board"
+                return cache_and_return((False, f"Model has hex architecture but expected square board"))
             elif not has_hex_architecture and expected_board in ["hex8", "hexagonal"]:
-                return False, f"Model lacks hex architecture but expected hex board"
+                return cache_and_return((False, f"Model lacks hex architecture but expected hex board"))
 
     # Optional: Run actual inference probe (slowest but most reliable)
     if run_inference_probe:
         try:
             probe_result = _run_inference_probe(str(path), board_type, num_players)
             if not probe_result[0]:
-                return probe_result
+                return cache_and_return(probe_result)
         except Exception as e:
-            return False, f"Inference probe failed: {e}"
+            return cache_and_return((False, f"Inference probe failed: {e}"))
 
-    return True, "compatible"
+    return cache_and_return((True, "compatible"))
 
 
 def _run_inference_probe(model_path: str, board_type: BoardType, num_players: int) -> tuple[bool, str]:

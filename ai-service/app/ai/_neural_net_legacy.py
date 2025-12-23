@@ -103,6 +103,9 @@ from .neural_net.hex_encoding import ActionEncoderHex  # For hex board move enco
 
 logger = logging.getLogger(__name__)
 
+# Track models that have already emitted checkpoint metadata warnings (deduplicate)
+_WARNED_CHECKPOINT_METADATA: set[str] = set()
+
 # Reference to the shared model cache (for direct access in this module)
 _MODEL_CACHE = _get_model_cache()
 
@@ -3727,12 +3730,16 @@ class NeuralNetAI(BaseAI):
                         if conv1_weight is not None and hasattr(conv1_weight, "shape"):
                             inferred_filters = int(conv1_weight.shape[0])
                             if inferred_filters and inferred_filters != num_filters:
-                                logger.warning(
-                                    "Checkpoint metadata num_filters=%s disagrees with weights (%s); "
-                                    "using inferred value.",
-                                    num_filters,
-                                    inferred_filters,
-                                )
+                                # Deduplicate warning per model path
+                                warn_key = f"num_filters:{chosen_path}"
+                                if warn_key not in _WARNED_CHECKPOINT_METADATA:
+                                    _WARNED_CHECKPOINT_METADATA.add(warn_key)
+                                    logger.warning(
+                                        "Checkpoint metadata num_filters=%s disagrees with weights (%s); "
+                                        "using inferred value.",
+                                        num_filters,
+                                        inferred_filters,
+                                    )
                                 num_filters = inferred_filters
                             inferred_in_channels = int(conv1_weight.shape[1])
                             if inferred_in_channels and inferred_in_channels % 14 == 0:
@@ -3742,12 +3749,16 @@ class NeuralNetAI(BaseAI):
                                     inferred_history >= 0
                                     and inferred_history != history_length_override
                                 ):
-                                    logger.warning(
-                                        "Checkpoint metadata history_length=%s disagrees with weights (%s); "
-                                        "using inferred value.",
-                                        history_length_override,
-                                        inferred_history,
-                                    )
+                                    # Deduplicate warning per model path
+                                    warn_key = f"history_length:{chosen_path}"
+                                    if warn_key not in _WARNED_CHECKPOINT_METADATA:
+                                        _WARNED_CHECKPOINT_METADATA.add(warn_key)
+                                        logger.warning(
+                                            "Checkpoint metadata history_length=%s disagrees with weights (%s); "
+                                            "using inferred value.",
+                                            history_length_override,
+                                            inferred_history,
+                                        )
                                     history_length_override = inferred_history
 
                         # Infer num_players from the value head when metadata is absent.
@@ -3770,12 +3781,16 @@ class NeuralNetAI(BaseAI):
                                     inferred_players = candidate
                                     break
                         if inferred_players is not None and inferred_players != num_players_override:
-                                logger.warning(
-                                    "Checkpoint metadata num_players=%s disagrees with weights (%s); "
-                                    "using inferred value.",
-                                    num_players_override,
-                                    inferred_players,
-                                )
+                                # Deduplicate warning per model path
+                                warn_key = f"num_players:{chosen_path}"
+                                if warn_key not in _WARNED_CHECKPOINT_METADATA:
+                                    _WARNED_CHECKPOINT_METADATA.add(warn_key)
+                                    logger.warning(
+                                        "Checkpoint metadata num_players=%s disagrees with weights (%s); "
+                                        "using inferred value.",
+                                        num_players_override,
+                                        inferred_players,
+                                    )
                                 num_players_override = inferred_players
 
                         # Infer model architecture from weight keys when metadata is absent.
