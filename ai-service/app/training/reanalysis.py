@@ -192,7 +192,15 @@ class ReanalysisEngine:
                     batch_policies = None
 
                 # Store reanalyzed values
-                new_values[start_idx:end_idx] = batch_values.cpu().numpy().squeeze()
+                # Handle multi-player value heads: take player 0's value (current player perspective)
+                values_np = batch_values.cpu().numpy()
+                if values_np.ndim == 2 and values_np.shape[1] > 1:
+                    # Multi-player value head (shape: batch x num_players)
+                    # Use player 0's value since training data is from current player's perspective
+                    values_np = values_np[:, 0]
+                else:
+                    values_np = values_np.squeeze()
+                new_values[start_idx:end_idx] = values_np
 
                 # Store reanalyzed policies
                 if batch_policies is not None:

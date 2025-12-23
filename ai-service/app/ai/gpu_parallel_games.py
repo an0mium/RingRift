@@ -1682,29 +1682,49 @@ class ParallelGameRunner:
             # exist from the new landing position, the chain MUST continue.
             #
             # BUG FIX December 2025: If must_move_from is set (after a placement), the player
-            # MUST move first before any captures are allowed. Direct captures are only
-            # permitted when must_move_from is NOT set (meaning we're not constrained to
-            # move from a specific position). After movement, captures from the landing
-            # position are handled separately in the post-movement capture check below.
+            # can ONLY move/capture FROM that specific position. Captures from other positions
+            # are blocked, but captures FROM must_move_from are allowed.
             has_must_move_constraint = self.state.must_move_from_y >= 0  # (batch_size,)
+
+            # For games with must_move_from constraint, check if there are captures FROM that position
+            games_with_constrained_captures = torch.zeros_like(games_with_stacks)
+            if has_must_move_constraint.any():
+                for g in torch.where(has_must_move_constraint & games_with_stacks)[0].tolist():
+                    if capture_moves.moves_per_game[g].item() == 0:
+                        continue
+                    # Check if any capture originates from must_move_from position
+                    start = capture_moves.move_offsets[g].item()
+                    count = capture_moves.moves_per_game[g].item()
+                    must_y = self.state.must_move_from_y[g].item()
+                    must_x = self.state.must_move_from_x[g].item()
+                    for idx in range(start, start + count):
+                        if capture_moves.from_y[idx].item() == must_y and capture_moves.from_x[idx].item() == must_x:
+                            games_with_constrained_captures[g] = True
+                            break
+
+            # Games with captures: either unconstrained, or constrained but from must_move_from
             games_with_captures = (
                 games_with_stacks &
                 (capture_moves.moves_per_game > 0) &
-                ~has_must_move_constraint  # Only allow direct captures if no movement constraint
+                (~has_must_move_constraint | games_with_constrained_captures)
             )
             games_movement_only = games_with_stacks & ~games_with_captures & (movement_moves.moves_per_game > 0)
             games_no_action = games_with_stacks & (capture_moves.moves_per_game == 0) & (movement_moves.moves_per_game == 0)
 
             # Apply capture moves with chain capture support (RR-CANON-R103)
-            if games_with_captures.any():
-                selected_captures = self._select_moves(capture_moves, games_with_captures)
+            # Split handling: unconstrained games use batch logic, constrained games use per-game logic
+            games_unconstrained_captures = games_with_captures & ~has_must_move_constraint
+            games_constrained_captures = games_with_captures & has_must_move_constraint
+
+            if games_unconstrained_captures.any():
+                selected_captures = self._select_moves(capture_moves, games_unconstrained_captures)
                 apply_capture_moves_batch(
                     self.state, selected_captures, capture_moves
                 )
 
                 # Track landing positions for chain capture continuation
                 # Pre-extract data in batch to minimize .item() calls
-                game_indices = torch.where(games_with_captures)[0]
+                game_indices = torch.where(games_unconstrained_captures)[0]
 
                 if game_indices.numel() > 0:
                     # Batch extract local indices and compute global indices
@@ -1764,6 +1784,44 @@ class ParallelGameRunner:
 
                             # Update landing position for next iteration
                             landing_y, landing_x = new_y, new_x
+
+            # Handle constrained captures (from must_move_from position)
+            if games_constrained_captures.any():
+                for g in torch.where(games_constrained_captures)[0].tolist():
+                    # Get captures from must_move_from position
+                    from_y = int(self.state.must_move_from_y[g].item())
+                    from_x = int(self.state.must_move_from_x[g].item())
+
+                    captures = generate_chain_capture_moves_from_position(
+                        self.state, g, from_y, from_x
+                    )
+                    if not captures:
+                        continue
+
+                    # Apply the initial capture
+                    to_y, to_x = captures[0]
+                    landing_y, landing_x = apply_single_initial_capture(
+                        self.state, g, from_y, from_x, to_y, to_x
+                    )
+
+                    # Chain capture loop
+                    max_chain_depth = 10
+                    chain_depth = 0
+                    while chain_depth < max_chain_depth:
+                        chain_depth += 1
+                        chain_captures = generate_chain_capture_moves_from_position(
+                            self.state, g, landing_y, landing_x
+                        )
+                        if not chain_captures:
+                            break
+                        to_y, to_x = chain_captures[0]
+                        new_y, new_x = apply_single_chain_capture(
+                            self.state, g, landing_y, landing_x, to_y, to_x
+                        )
+                        landing_y, landing_x = new_y, new_x
+
+                # Track constrained captures as real actions
+                mark_real_action_batch(self.state, games_constrained_captures)
 
             # Apply movement moves for games without captures
             if games_movement_only.any():

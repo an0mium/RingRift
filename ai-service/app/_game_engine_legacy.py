@@ -800,10 +800,12 @@ class GameEngine:
             if mtype in line_moves:
                 new_state = game_state.model_copy()
                 new_state.current_phase = GamePhase.LINE_PROCESSING
+                new_state.current_player = move.player
                 return new_state
             if mtype in territory_moves:
                 new_state = game_state.model_copy()
                 new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                new_state.current_player = move.player
                 return new_state
 
         # Case 0b: In ring_placement/movement but move is line/territory action
@@ -812,10 +814,12 @@ class GameEngine:
             if mtype in line_moves:
                 new_state = game_state.model_copy()
                 new_state.current_phase = GamePhase.LINE_PROCESSING
+                new_state.current_player = move.player
                 return new_state
             if mtype in territory_moves:
                 new_state = game_state.model_copy()
                 new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                new_state.current_player = move.player
                 return new_state
 
         # Case 1: In line_processing but move is a territory action
@@ -828,6 +832,7 @@ class GameEngine:
                 new_state = game_state.model_copy()
                 new_state.current_phase = GamePhase.TERRITORY_PROCESSING
                 new_state.pending_line_reward_elimination = False
+                new_state.current_player = move.player
                 return new_state
 
             # Also check if Python sees line moves that recording skipped
@@ -840,12 +845,14 @@ class GameEngine:
             if has_line_moves:
                 new_state = game_state.model_copy()
                 new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                new_state.current_player = move.player
                 return new_state
 
         # Case 2: In ring_placement/movement but move is forced_elimination
         if phase in (GamePhase.RING_PLACEMENT, GamePhase.MOVEMENT) and mtype == MoveType.FORCED_ELIMINATION:
             new_state = game_state.model_copy()
             new_state.current_phase = GamePhase.FORCED_ELIMINATION
+            new_state.current_player = move.player
             return new_state
 
         # Case 3: In forced_elimination but move is a territory action
@@ -853,7 +860,38 @@ class GameEngine:
         if phase == GamePhase.FORCED_ELIMINATION and mtype in territory_moves:
             new_state = game_state.model_copy()
             new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+            new_state.current_player = move.player
             return new_state
+
+        # Placement-related move types
+        placement_moves = {
+            MoveType.PLACE_RING,
+            MoveType.NO_PLACEMENT_ACTION,
+            MoveType.SKIP_PLACEMENT,
+        }
+
+        # Movement-related move types
+        movement_moves = {
+            MoveType.MOVE_STACK,
+            MoveType.MOVE_RING,
+            MoveType.NO_MOVEMENT_ACTION,
+            MoveType.RECOVERY_SLIDE,
+            MoveType.SKIP_RECOVERY,
+        }
+
+        # Case 4: In territory/line/forced_elim but move is a placement/movement action
+        # This happens when recording has different turn rotation that already moved to next turn
+        if phase in (GamePhase.TERRITORY_PROCESSING, GamePhase.LINE_PROCESSING, GamePhase.FORCED_ELIMINATION):
+            if mtype in placement_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.RING_PLACEMENT
+                new_state.current_player = move.player
+                return new_state
+            if mtype in movement_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.MOVEMENT
+                new_state.current_player = move.player
+                return new_state
 
         return game_state
 

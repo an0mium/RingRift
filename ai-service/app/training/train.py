@@ -1550,6 +1550,8 @@ def train_model(
     elif multi_player:
         # Multi-player mode: RingRiftCNN_v2 with per-player value head + multi_player_value_loss
         # The model outputs [B, num_players] values; loss masks inactive player slots
+        # Use the actual num_players from the dataset, not MAX_PLAYERS
+        mp_num_players = num_players if num_players in (2, 3, 4) else MAX_PLAYERS
         model = RingRiftCNN_v2(
             board_size=board_size,
             in_channels=14,  # 14 spatial feature channels per frame
@@ -1558,14 +1560,16 @@ def train_model(
             policy_size=policy_size,
             num_res_blocks=effective_blocks,
             num_filters=effective_filters,
-            num_players=MAX_PLAYERS,  # Explicitly set for per-player value head
+            num_players=mp_num_players,  # Use actual player count, not MAX_PLAYERS
         )
         if not distributed or is_main_process():
             logger.info(
-                f"Multi-player mode: RingRiftCNN_v2 with {MAX_PLAYERS}-player value head."
+                f"Multi-player mode: RingRiftCNN_v2 with {mp_num_players}-player value head."
             )
     else:
         # RingRiftCNN_v2 for square boards
+        # Use num_players to set the correct value head output dimension
+        v2_num_players = num_players if num_players in (2, 3, 4) else 2
         model = RingRiftCNN_v2(
             board_size=board_size,
             in_channels=14,  # 14 spatial feature channels per frame
@@ -1574,6 +1578,7 @@ def train_model(
             policy_size=policy_size,
             num_res_blocks=effective_blocks,
             num_filters=effective_filters,
+            num_players=v2_num_players,
         )
     with contextlib.suppress(Exception):
         model.feature_version = config_feature_version
