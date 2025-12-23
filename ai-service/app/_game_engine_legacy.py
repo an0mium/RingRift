@@ -879,6 +879,13 @@ class GameEngine:
             MoveType.SKIP_RECOVERY,
         }
 
+        # Capture-related move types
+        capture_moves = {
+            MoveType.OVERTAKING_CAPTURE,
+            MoveType.CONTINUE_CAPTURE_SEGMENT,
+            MoveType.SKIP_CAPTURE,
+        }
+
         # Case 4: In territory/line/forced_elim but move is a placement/movement action
         # This happens when recording has different turn rotation that already moved to next turn
         if phase in (GamePhase.TERRITORY_PROCESSING, GamePhase.LINE_PROCESSING, GamePhase.FORCED_ELIMINATION):
@@ -892,6 +899,21 @@ class GameEngine:
                 new_state.current_phase = GamePhase.MOVEMENT
                 new_state.current_player = move.player
                 return new_state
+            # RR-PARITY-FIX (Dec 2025): Handle capture moves during line/territory processing
+            # Historical hexagonal recordings may have capture moves interleaved differently
+            if mtype in capture_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.CAPTURE
+                new_state.current_player = move.player
+                return new_state
+
+        # Case 5: In movement but move is a capture action
+        # This can happen when recording has different capture detection timing
+        if phase == GamePhase.MOVEMENT and mtype in capture_moves:
+            new_state = game_state.model_copy()
+            new_state.current_phase = GamePhase.CAPTURE
+            new_state.current_player = move.player
+            return new_state
 
         return game_state
 

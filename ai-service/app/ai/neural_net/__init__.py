@@ -123,6 +123,9 @@ from app.ai.neural_net.hex_architectures import (
     HexNeuralNet_v3_Lite,
 )
 
+# HexNeuralNet_v4 - NAS-optimized attention architecture (pending migration)
+from app.ai._neural_net_legacy import HexNeuralNet_v4
+
 # Graph encoding - extracted from archive/cage_network.py (December 2025)
 # Enables GNN-based position evaluation
 from app.ai.neural_net.graph_encoding import (
@@ -218,6 +221,7 @@ __all__ = [
     "HexNeuralNet_v2_Lite",
     "HexNeuralNet_v3",
     "HexNeuralNet_v3_Lite",
+    "HexNeuralNet_v4",
     "NeuralNetAI",
     "POLICY_SIZE_8x8",
     "POLICY_SIZE_19x19",

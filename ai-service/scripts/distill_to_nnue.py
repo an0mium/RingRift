@@ -264,7 +264,9 @@ class DistillationDataset(IterableDataset):
 
             try:
                 db = GameReplayDB(db_path)
-                for game_meta, initial_state, moves in db.iterate_games():
+                for game_meta, initial_state, moves in db.iterate_games(
+                    board_type=self.config.board_type
+                ):
                     if positions_yielded >= self.max_positions:
                         break
 

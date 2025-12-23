@@ -101,6 +101,7 @@ from app.ai.neural_net import (
     MAX_PLAYERS,
     HexNeuralNet_v2,
     HexNeuralNet_v3,
+    HexNeuralNet_v4,
     RingRiftCNN_v2,
     RingRiftCNN_v3,
     get_policy_size_for_board,
@@ -1394,8 +1395,9 @@ def train_model(
     hex_num_players = num_players
     # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
     hex_radius = 4 if config.board_type == BoardType.HEX8 else 12
-    # HexNeuralNet_v3 uses spatial policy heads that assume board-aware (P_HEX)
-    # indices. Enforce board-aware encoding for v3 via dataset metadata checks.
+    # HexNeuralNet_v3 and v4 use spatial policy heads that assume board-aware (P_HEX)
+    # indices. Enforce board-aware encoding for v3/v4 via dataset metadata checks.
+    use_hex_v4 = bool(use_hex_model and model_version == 'v4')
     use_hex_v3 = bool(use_hex_model and model_version == 'v3')
     if use_hex_model:
         # Try to infer in_channels from the dataset's feature shape
@@ -1419,7 +1421,7 @@ def train_model(
                         exc,
                     )
 
-        hex_base_channels = 16 if use_hex_v3 else 10
+        hex_base_channels = 16 if (use_hex_v3 or use_hex_v4) else 10
         expected_in_channels = hex_base_channels * (config.history_length + 1)
 
         if inferred_in_channels is not None:
@@ -1447,7 +1449,12 @@ def train_model(
 
     if not distributed or is_main_process():
         if use_hex_model:
-            hex_model_name = "HexNeuralNet_v3" if use_hex_v3 else "HexNeuralNet_v2"
+            if use_hex_v4:
+                hex_model_name = "HexNeuralNet_v4"
+            elif use_hex_v3:
+                hex_model_name = "HexNeuralNet_v3"
+            else:
+                hex_model_name = "HexNeuralNet_v2"
             logger.info(
                 f"Initializing {hex_model_name} with board_size={board_size}, "
                 f"policy_size={policy_size}, in_channels={hex_in_channels}, "
@@ -1460,8 +1467,11 @@ def train_model(
             )
 
     # Determine model architecture size (allow CLI override for scaling up)
-    # Default: 12 blocks / 192 filters for v3/hex, 6 blocks / 96 filters for v2
-    if model_version == 'v3' or use_hex_model:
+    # Default: 13 blocks / 128 filters for v4, 12 blocks / 192 filters for v3/hex, 6 blocks / 96 filters for v2
+    if use_hex_v4 or model_version == 'v4':
+        effective_blocks = num_res_blocks if num_res_blocks is not None else 13  # NAS optimal
+        effective_filters = num_filters if num_filters is not None else 128  # NAS optimal
+    elif model_version == 'v3' or use_hex_model:
         effective_blocks = num_res_blocks if num_res_blocks is not None else 12
         effective_filters = num_filters if num_filters is not None else 192
     else:
@@ -1476,7 +1486,20 @@ def train_model(
         )
 
     # Initialize model based on board type and multi-player mode
-    if use_hex_v3:
+    if use_hex_v4:
+        # HexNeuralNet_v4 for hexagonal boards with NAS-optimized attention
+        # V4 uses 16 base channels * (history_length + 1) frames = 64 channels
+        model = HexNeuralNet_v4(
+            in_channels=hex_in_channels,
+            global_features=20,  # V4 encoder provides 20 global features
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
+            board_size=board_size,
+            hex_radius=hex_radius,
+            policy_size=policy_size,
+            num_players=hex_num_players,
+        )
+    elif use_hex_v3:
         # HexNeuralNet_v3 for hexagonal boards with spatial policy heads
         # V3 uses 16 base channels * (history_length + 1) frames = 64 channels
         model = HexNeuralNet_v3(
