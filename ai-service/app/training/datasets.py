@@ -121,6 +121,7 @@ class RingRiftDataset(Dataset):
 
                     # Check if policy data is available (value-only datasets won't have it)
                     self.has_policy = 'policy_indices' in self.data and 'policy_values' in self.data
+                    policy_indices_arr = None  # Initialize for later use in policy_size inference
                     if not self.has_policy:
                         logger.info(
                             f"No policy data in {data_path} - value-only training mode"
@@ -145,6 +146,9 @@ class RingRiftDataset(Dataset):
                                 f"total samples"
                             )
                     else:
+                        # has_policy=True but filter_empty_policies=False
+                        # Still need policy_indices_arr for policy_size inference
+                        policy_indices_arr = self.data['policy_indices']
                         self.valid_indices = list(range(total_samples))
 
                     self.length = len(self.valid_indices)
@@ -241,16 +245,17 @@ class RingRiftDataset(Dataset):
                     # Infer effective policy_size from sparse indices.
                     try:
                         max_index = -1
-                        for i in self.valid_indices or []:
-                            indices = np.asarray(
-                                policy_indices_arr[i],
-                                dtype=np.int64,
-                            )
-                            if indices.size == 0:
-                                continue
-                            local_max = int(indices.max())
-                            if local_max > max_index:
-                                max_index = local_max
+                        if policy_indices_arr is not None:
+                            for i in self.valid_indices or []:
+                                indices = np.asarray(
+                                    policy_indices_arr[i],
+                                    dtype=np.int64,
+                                )
+                                if indices.size == 0:
+                                    continue
+                                local_max = int(indices.max())
+                                if local_max > max_index:
+                                    max_index = local_max
                         if max_index >= 0:
                             self.policy_size = max_index + 1
                             logger.info(

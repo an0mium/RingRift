@@ -219,13 +219,26 @@ def find_disconnected_regions_fast(
     board_type_str = board.type.value if hasattr(board.type, 'value') else str(board.type)
     geo = BoardGeometryCache.get(board_type_str, board.size)
 
-    # Find active players
-    active_players = set()
+    # FIXED per RR-CANON-R142: ActiveColors includes ALL rings on board, not just controlling players
+    # A player has rings on board if they control stacks OR have buried rings in stacks
+    active_colors = set()
     for stack in board.stacks.values():
-        active_players.add(stack.controlling_player)
+        # Add all players who have ANY ring in this stack (controlling or buried)
+        for ring_owner in stack.rings:
+            active_colors.add(ring_owner)
 
-    if len(active_players) <= 1:
+    # If no rings on board at all, no territory processing possible
+    if not active_colors:
         return []
+
+    # Note: We do NOT early-exit if len(active_colors) <= 1
+    # Even with 1 player's rings on board, empty disconnected regions CAN be processed
+    # because RegionColors = {} is always a strict subset of non-empty ActiveColors
+    # The _is_color_disconnected check inside region detection handles this correctly
+
+    # Keep active_players for color-disconnection checks in helper functions
+    # (they check if region colors are a strict subset of active colors)
+    active_players = active_colors  # Renamed for clarity - these ARE the active colors
 
     # Check cache validity
     if cache is not None and cache.is_valid(

@@ -73,7 +73,12 @@ from .gpu_move_generation import (
     generate_placement_moves_batch,
     generate_recovery_moves_batch,
 )
-from .gpu_selection import select_moves_heuristic, select_moves_vectorized
+from .gpu_selection import (
+    PolicyData,
+    select_moves_heuristic,
+    select_moves_heuristic_with_policy,
+    select_moves_vectorized,
+)
 from .gpu_territory import compute_territory_batch
 from .shadow_validation import (
     AsyncShadowValidator,
@@ -141,6 +146,7 @@ class ParallelGameRunner:
         temperature: float = 1.0,
         noise_scale: float = 0.1,
         random_opening_moves: int = 0,
+        record_policy: bool = False,
     ):
         """Initialize parallel game runner.
 
@@ -176,6 +182,9 @@ class ParallelGameRunner:
             random_opening_moves: Number of initial moves to select uniformly at random
                        instead of using heuristic/policy. Increases opening diversity
                        for training. Default 0 (no random opening).
+            record_policy: When True, record policy distributions (move scores and
+                       probabilities) for each move. This enables capturing policy
+                       targets during GPU selfplay for training. Default False.
         """
         self.batch_size = batch_size
         self.board_size = board_size
@@ -187,8 +196,11 @@ class ParallelGameRunner:
         self.temperature = temperature
         self.noise_scale = noise_scale
         self.random_opening_moves = random_opening_moves
+        self.record_policy = record_policy
         self.use_policy_selection = False
         self.policy_model: RingRiftNNUEWithPolicy | None = None
+        # Policy recording buffer: {game_idx: [(move_num, policy_dict), ...]}
+        self._pending_policy: dict[int, list[tuple[int, dict]]] = {}
         # Default LPS victory rounds to 3 if not specified
         self.lps_victory_rounds = lps_victory_rounds if lps_victory_rounds is not None else 3
         self.rings_per_player = rings_per_player
@@ -2264,7 +2276,19 @@ class ParallelGameRunner:
             player = int(self.state.current_player[g].item())
 
             # Get board state as numpy for efficiency
+            stack_owner_np = self.state.stack_owner[g].cpu().numpy()
+            stack_height_np = self.state.stack_height[g].cpu().numpy()
             marker_owner_np = self.state.marker_owner[g].cpu().numpy()
+
+            # RR-CANON-R142 fix: Don't early-exit based on controlling player count
+            # ActiveColors includes ALL rings (buried too), not just controlling players.
+            # Empty regions can be color-disconnected even with 1 controlling player
+            # if another player has buried rings. Let _is_color_disconnected handle filtering.
+            # Only skip if no stacks exist at all.
+            has_any_stacks = (stack_height_np > 0).any()
+            if not has_any_stacks:
+                continue  # No stacks on board, no territory processing possible
+
             marker_colors = {int(c) for c in np.unique(marker_owner_np) if c > 0}
 
             if not marker_colors:

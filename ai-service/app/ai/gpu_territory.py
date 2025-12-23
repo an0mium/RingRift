@@ -378,16 +378,20 @@ def _is_color_disconnected(
     game_idx: int,
     region: set[tuple[int, int]],
 ) -> bool:
-    """Check if a region is color-disconnected per R142.
+    """Check if a region is color-disconnected per RR-CANON-R142.
 
     R is color-disconnected if RegionColors is a strict subset of ActiveColors.
-    - ActiveColors: players with at least one ring anywhere on the board (any stack)
-    - RegionColors: players controlling at least one stack (by top ring) in R
+
+    CRITICAL per RR-CANON-R142:
+    - ActiveColors: players with at least one ring ANYWHERE on the board
+      (INCLUDING buried rings, not just controlling players)
+    - RegionColors: players CONTROLLING at least one stack (by top ring) in R
 
     Empty regions (no stacks) have RegionColors = empty set, which is always a strict
     subset of any non-empty ActiveColors, so they satisfy color-disconnection.
 
-    Optimized 2025-12-13: Use numpy to compute colors without .item() calls.
+    December 2025: Fixed to use ring_stack to count ALL rings (including buried),
+    not just stack_owner (controlling player). This matches canonical spec R142.
 
     Args:
         state: BatchGameState
@@ -403,15 +407,32 @@ def _is_color_disconnected(
     stack_owner_np = state.stack_owner[g].cpu().numpy()
     stack_height_np = state.stack_height[g].cpu().numpy()
 
-    # Compute ActiveColors: unique owners with height > 0 across entire board
-    active_mask = (stack_owner_np > 0) & (stack_height_np > 0)
-    active_colors = set(stack_owner_np[active_mask].tolist())
+    # FIXED: Compute ActiveColors per RR-CANON-R142 - ALL players with ANY ring on board
+    # This includes buried rings, not just controlling players (top rings)
+    active_colors = set()
+    if hasattr(state, 'ring_stack'):
+        # Use ring_stack to find all players with any ring on board
+        ring_stack_np = state.ring_stack[g].cpu().numpy()
+        board_size = stack_height_np.shape[0]
+        for y in range(board_size):
+            for x in range(board_size):
+                height = stack_height_np[y, x]
+                if height > 0:
+                    # Check all rings in the stack (bottom to top)
+                    for depth in range(int(height)):
+                        ring_owner = ring_stack_np[y, x, depth]
+                        if ring_owner > 0:
+                            active_colors.add(int(ring_owner))
+    else:
+        # Fallback: use stack_owner (less accurate but works if ring_stack unavailable)
+        active_mask = (stack_owner_np > 0) & (stack_height_np > 0)
+        active_colors = set(stack_owner_np[active_mask].tolist())
 
     # If no active colors (empty board), no territory processing possible
     if not active_colors:
         return False
 
-    # Compute RegionColors: players controlling stacks in the region
+    # Compute RegionColors: players CONTROLLING stacks in the region (top ring only)
     region_colors = set()
     for y, x in region:
         owner = stack_owner_np[y, x]
@@ -487,12 +508,28 @@ def compute_territory_batch(
         is_collapsed_np = state.is_collapsed[g].cpu().numpy()
         marker_owner_np = state.marker_owner[g].cpu().numpy() if hasattr(state, 'marker_owner') else None
 
-        # CPU parity: Skip territory detection if only 1 or 0 active players
-        # (matches CPU BoardManager.find_disconnected_regions early exit)
-        active_mask = (stack_owner_np > 0) & (stack_height_np > 0)
-        active_players = set(stack_owner_np[active_mask].tolist())
-        if len(active_players) <= 1:
-            continue
+        # RR-CANON-R142: ActiveColors = ALL players with ANY ring on board (including buried)
+        # Only skip if no rings exist on board at all
+        # NOTE: We do NOT skip when only 1 active color - empty regions can still be processed
+        active_colors = set()
+        if hasattr(state, 'ring_stack'):
+            ring_stack_np = state.ring_stack[g].cpu().numpy()
+            board_size = stack_height_np.shape[0]
+            for y in range(board_size):
+                for x in range(board_size):
+                    height = int(stack_height_np[y, x])
+                    if height > 0:
+                        for depth in range(height):
+                            ring_owner = int(ring_stack_np[y, x, depth])
+                            if ring_owner > 0:
+                                active_colors.add(ring_owner)
+        else:
+            # Fallback: use controlling players if ring_stack not available
+            active_mask = (stack_owner_np > 0) & (stack_height_np > 0)
+            active_colors = set(stack_owner_np[active_mask].tolist())
+
+        if not active_colors:
+            continue  # No rings on board at all, skip territory detection
 
         # Collect all marker colors on the board (matches CPU algorithm)
         marker_colors = set()
@@ -742,12 +779,13 @@ def compute_territory_batch(
             is_collapsed_np = state.is_collapsed[g].cpu().numpy()
             marker_owner_np = state.marker_owner[g].cpu().numpy() if hasattr(state, 'marker_owner') else None
 
-            # CPU parity: Check if we still have 2+ active players
-            # Territory detection requires at least 2 active players (matches CPU early exit)
-            active_mask = (stack_owner_np > 0) & (stack_height_np > 0)
-            active_players = set(stack_owner_np[active_mask].tolist())
-            if len(active_players) <= 1:
-                break  # No more territory processing possible
+            # RR-CANON-R142 fix: Compute ActiveColors correctly (ALL rings, not just controlling)
+            # Empty regions can still be color-disconnected even with 1 controlling player
+            # if another player has buried rings. Let _is_color_disconnected handle filtering.
+            # Only break if no rings exist on board at all.
+            has_any_stacks = (stack_height_np > 0).any()
+            if not has_any_stacks:
+                break  # No stacks on board, no territory processing possible
 
             # Recompute marker colors and candidate regions
             marker_colors = set()
