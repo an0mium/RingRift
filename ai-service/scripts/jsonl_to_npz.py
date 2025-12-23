@@ -597,6 +597,49 @@ def build_encoder(
     return encoder
 
 
+def get_encoder_metadata(
+    board_type: BoardType,
+    encoder_version: str = "v2",
+    history_length: int = 3,
+) -> dict[str, Any]:
+    """Get metadata about the encoder configuration for NPZ files.
+
+    This metadata helps ensure training data is used with compatible models.
+
+    Returns:
+        Dict with keys:
+        - encoder_type: str (e.g., "hex_v2", "hex_v3", "square")
+        - base_channels: int (channels per frame before history stacking)
+        - in_channels: int (total input channels = base × (history + 1))
+        - board_type: str (board type name)
+    """
+    frames = history_length + 1  # Current + history
+
+    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        if encoder_version == "v3":
+            return {
+                "encoder_type": "hex_v3",
+                "base_channels": 16,
+                "in_channels": 16 * frames,
+                "board_type": board_type.name,
+            }
+        else:
+            return {
+                "encoder_type": "hex_v2",
+                "base_channels": 10,
+                "in_channels": 10 * frames,
+                "board_type": board_type.name,
+            }
+    else:
+        # Square boards use 14 base channels
+        return {
+            "encoder_type": "square",
+            "base_channels": 14,
+            "in_channels": 14 * frames,
+            "board_type": board_type.name,
+        }
+
+
 def parse_position(pos_data: dict[str, Any] | list | None) -> Position | None:
     """Parse position dict or list to Position object.
 
@@ -797,6 +840,7 @@ class CheckpointManager:
         history_length: int = 3,
         feature_version: int = 2,
         policy_encoding: str = "board_aware",
+        encoder_metadata: dict[str, Any] | None = None,
     ):
         self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
         self.checkpoint_interval = checkpoint_interval
@@ -807,6 +851,8 @@ class CheckpointManager:
         self.history_length = int(history_length)
         self.feature_version = int(feature_version)
         self.policy_encoding = policy_encoding
+        # Encoder metadata for NPZ validation
+        self.encoder_metadata = encoder_metadata or {}
 
         if self.enabled:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -883,6 +929,11 @@ class CheckpointManager:
                 history_length=np.asarray(int(self.history_length)),
                 feature_version=np.asarray(int(self.feature_version)),
                 policy_encoding=np.asarray(self.policy_encoding),
+                # Encoder metadata for model compatibility validation
+                encoder_type=np.asarray(self.encoder_metadata.get("encoder_type", "unknown")),
+                base_channels=np.asarray(self.encoder_metadata.get("base_channels", 0)),
+                in_channels=np.asarray(self.encoder_metadata.get("in_channels", 0)),
+                board_type=np.asarray(self.encoder_metadata.get("board_type", "unknown")),
             )
 
             self.chunk_count += 1
@@ -963,6 +1014,11 @@ class CheckpointManager:
             history_length=np.asarray(int(self.history_length)),
             feature_version=np.asarray(int(self.feature_version)),
             policy_encoding=np.asarray(self.policy_encoding),
+            # Encoder metadata for model compatibility validation
+            encoder_type=np.asarray(self.encoder_metadata.get("encoder_type", "unknown")),
+            base_channels=np.asarray(self.encoder_metadata.get("base_channels", 0)),
+            in_channels=np.asarray(self.encoder_metadata.get("in_channels", 0)),
+            board_type=np.asarray(self.encoder_metadata.get("board_type", "unknown")),
         )
 
         logger.info(f"Merged {len(features_arr)} samples into {output_path}")
@@ -1251,6 +1307,18 @@ def convert_jsonl_to_npz(
         feature_version=feature_version,
     )
 
+    # Get encoder metadata for NPZ validation
+    encoder_metadata = get_encoder_metadata(
+        board_type=board_type,
+        encoder_version=encoder_version,
+        history_length=history_length,
+    )
+    logger.info(
+        f"Encoder metadata: {encoder_metadata['encoder_type']} "
+        f"({encoder_metadata['in_channels']} channels = "
+        f"{encoder_metadata['base_channels']} base × {history_length + 1} frames)"
+    )
+
     # Initialize checkpoint manager
     checkpoint_mgr = CheckpointManager(
         checkpoint_dir=checkpoint_dir,
@@ -1259,6 +1327,7 @@ def convert_jsonl_to_npz(
         history_length=history_length,
         feature_version=feature_version,
         policy_encoding="board_aware",
+        encoder_metadata=encoder_metadata,
     )
 
     # Check for resume
@@ -1406,6 +1475,11 @@ def convert_jsonl_to_npz(
             history_length=np.asarray(int(history_length)),
             feature_version=np.asarray(int(feature_version)),
             policy_encoding=np.asarray("board_aware"),
+            # Encoder metadata for model compatibility validation
+            encoder_type=np.asarray(encoder_metadata.get("encoder_type", "unknown")),
+            base_channels=np.asarray(encoder_metadata.get("base_channels", 0)),
+            in_channels=np.asarray(encoder_metadata.get("in_channels", 0)),
+            board_type=np.asarray(encoder_metadata.get("board_type", "unknown")),
         )
     else:
         logger.warning("No training data extracted!")

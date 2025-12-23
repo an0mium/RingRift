@@ -142,6 +142,52 @@ def get_encoder(
         return encoder
 
 
+def get_encoder_metadata(
+    board_type: str,
+    hex_encoder_version: str = "v3",
+    history_length: int = 3,
+) -> dict:
+    """Get metadata about the encoder configuration for NPZ files.
+
+    This metadata helps ensure training data is used with compatible models.
+
+    Returns:
+        Dict with keys:
+        - encoder_type: str (e.g., "hex_v2", "hex_v3", "square")
+        - base_channels: int (channels per frame before history stacking)
+        - in_channels: int (total input channels = base × (history + 1))
+        - board_type: str (board type string)
+    """
+    from app.models import BoardType
+
+    bt = BOARD_TYPE_MAP.get(board_type, BoardType.SQUARE8)
+    frames = history_length + 1  # Current + history
+
+    if bt in (BoardType.HEXAGONAL, BoardType.HEX8):
+        if hex_encoder_version == "v3":
+            return {
+                "encoder_type": "hex_v3",
+                "base_channels": 16,
+                "in_channels": 16 * frames,
+                "board_type": board_type,
+            }
+        else:
+            return {
+                "encoder_type": "hex_v2",
+                "base_channels": 10,
+                "in_channels": 10 * frames,
+                "board_type": board_type,
+            }
+    else:
+        # Square boards use 14 base channels
+        return {
+            "encoder_type": "square",
+            "base_channels": 14,
+            "in_channels": 14 * frames,
+            "board_type": board_type,
+        }
+
+
 def export_db_to_npz(
     db_path: Path,
     output_path: Path,
@@ -166,6 +212,18 @@ def export_db_to_npz(
     from app.db.game_replay import GameReplayDB
 
     logger.info(f"Loading database: {db_path}")
+
+    # Get encoder metadata for NPZ validation
+    encoder_metadata = get_encoder_metadata(
+        board_type=board_type,
+        hex_encoder_version=hex_encoder_version,
+        history_length=history_length,
+    )
+    logger.info(
+        f"Encoder metadata: {encoder_metadata['encoder_type']} "
+        f"({encoder_metadata['in_channels']} channels = "
+        f"{encoder_metadata['base_channels']} base × {history_length + 1} frames)"
+    )
 
     # When legacy_injection is enabled, open DB with enforce_canonical_history=False
     # to allow phase injection during replay
@@ -300,6 +358,11 @@ def export_db_to_npz(
         num_players=num_players_arr,
         board_type=board_type,
         source_db=str(db_path),
+        history_length=np.asarray(int(history_length)),
+        # Encoder metadata for model compatibility validation
+        encoder_type=np.asarray(encoder_metadata["encoder_type"]),
+        base_channels=np.asarray(encoder_metadata["base_channels"]),
+        in_channels=np.asarray(encoder_metadata["in_channels"]),
     )
 
     logger.info(f"Saved {len(all_features)} positions to {output_path}")

@@ -427,10 +427,10 @@ For high-confidence parity validation:
 - Machine: vast-4x5090-new (384 CPU cores, 4x RTX 5090)
 - Throughput: ~1.9 seeds/sec
 
-**Results (at 80% completion):**
+**FINAL Results (100% complete):**
 
 ```
-7997 passed, 3 failed (99.96% parity)
+9995 passed, 5 failed (99.95% parity)
 ```
 
 **Bug Fixes Applied (this session):**
@@ -441,7 +441,15 @@ For high-confidence parity validation:
 | Territory re-detection      | `gpu_territory.py:745-750`       | Added active player count check before re-detection loop                         |
 | PyTorch 2.0.1 compatibility | `gpu_parallel_games.py`          | Changed `.any(dim=(1,2))` to `.flatten(1).any(dim=1)` at 7 locations             |
 
-**Remaining Failures:** 3 edge cases under investigation (likely rare game state combinations).
+**Remaining Failures:** 5 edge cases - all show phase desync at territory_processing ↔ ring_placement boundary:
+
+| Seed  | GPU Phase                 | CPU Phase                 | Move |
+| ----- | ------------------------- | ------------------------- | ---- |
+| 20210 | ring_placement (P1)       | territory_processing (P2) | 56   |
+| 34159 | ring_placement (P2)       | territory_processing (P1) | 53   |
+| 93329 | territory_processing (P1) | ring_placement (P2)       | 56   |
+
+**Hypothesis:** Territory cascade detection edge case where GPU and CPU differ on whether a new territory region was detected after line processing.
 
 ### GPU Selfplay Training Data Usability
 

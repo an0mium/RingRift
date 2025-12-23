@@ -895,7 +895,8 @@ class MCTSAI(HeuristicAI):
         # Prior uniform mix - blends policy priors with uniform distribution.
         # 0.0 = pure policy, 1.0 = pure uniform, 0.5 = 50% policy + 50% uniform.
         # Helps when policy accuracy is low (< 20%). Tuned via grid search.
-        self.prior_uniform_mix: float = getattr(config, "prior_uniform_mix", 0.5)
+        _mix = getattr(config, "prior_uniform_mix", None)
+        self.prior_uniform_mix: float = _mix if _mix is not None else 0.5
 
         # Enable NNUE policy priors by default when no neural net is available
         # or explicitly via use_nnue_policy_priors config

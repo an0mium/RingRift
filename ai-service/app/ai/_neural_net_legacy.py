@@ -3546,9 +3546,17 @@ class NeuralNetAI(BaseAI):
                 if hasattr(self.model, 'conv1') and hasattr(self.model.conv1, 'weight'):
                     model_in_channels = self.model.conv1.weight.shape[1]
 
+                # Fail fast if we can't determine model input channels
+                if model_in_channels is None:
+                    raise ValueError(
+                        f"Cannot determine model input channels for hex board inference. "
+                        f"Model type: {type(self.model).__name__}. "
+                        f"Ensure the model has a conv1 layer with accessible weight shape."
+                    )
+
                 # Encoder selection based on expected input channels:
                 # - 40 channels = V2 encoder (10 base × 4 frames, 2-player hex)
-                # - 56 channels = 4-player hex models (14 base × 4 frames) - UNSUPPORTED
+                # - 56 channels = Square encoder (14 base × 4 frames) - INCOMPATIBLE with hex
                 # - 64 channels = V3 encoder (16 base × 4 frames, 2-player hex)
                 if model_in_channels == 40:
                     from ..training.encoding import HexStateEncoder
@@ -3591,24 +3599,17 @@ class NeuralNetAI(BaseAI):
                             feature_version=self.feature_version,
                         )
                 else:
-                    # Unknown channel count - default to V3 but warn
-                    logger.warning(
-                        f"Unknown hex model input channels: {model_in_channels}. "
-                        "Defaulting to V3 encoder (64 channels). This may cause shape mismatches."
+                    # Unknown channel count - fail fast with clear error
+                    # Supported configurations:
+                    #   40 channels: V2 encoder (10 base × 4 frames, 2-player hex)
+                    #   64 channels: V3 encoder (16 base × 4 frames, 2-player hex)
+                    raise ValueError(
+                        f"Unsupported hex model input channels: {model_in_channels}. "
+                        f"Supported configurations:\n"
+                        f"  - 40 channels: HexStateEncoder (V2, 10 base × 4 frames)\n"
+                        f"  - 64 channels: HexStateEncoderV3 (V3, 16 base × 4 frames)\n"
+                        f"Check that your model was trained with a compatible hex encoder."
                     )
-                    from ..training.encoding import HexStateEncoderV3
-                    if board_type == BoardType.HEX8:
-                        self._hex_encoder = HexStateEncoderV3(
-                            board_size=HEX8_BOARD_SIZE,
-                            policy_size=POLICY_SIZE_HEX8,
-                            feature_version=self.feature_version,
-                        )
-                    else:
-                        self._hex_encoder = HexStateEncoderV3(
-                            board_size=HEX_BOARD_SIZE,
-                            policy_size=P_HEX,
-                            feature_version=self.feature_version,
-                        )
 
             logger.debug(
                 f"Reusing cached model: board={board_type}, "
@@ -5562,7 +5563,7 @@ class NeuralNetAI(BaseAI):
         Board size is derived from the logical board via _infer_board_size so
         that this encoder works for 8×8, 19×19, and hexagonal boards.
         """
-        # Use hex encoder for hex boards (produces 16 channels matching V3 models)
+        # Use hex encoder for hex boards (produces 10 or 16 channels depending on version)
         if self._hex_encoder is not None:
             board_features, global_features = self._hex_encoder.encode_state(game_state)
             # Update board_size hint for external callers
@@ -5570,6 +5571,16 @@ class NeuralNetAI(BaseAI):
             return board_features, global_features
 
         board = game_state.board
+
+        # Enforce hex encoder for hex boards - failing here means _ensure_model_initialized
+        # was not called or the model is incompatible with hex encoding
+        if board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
+            raise ValueError(
+                f"Hex encoder not initialized for {board.type}. "
+                f"Cannot use square board encoding (14 channels) for hex boards. "
+                f"Ensure _ensure_model_initialized() was called with the correct board type "
+                f"and that the model is compatible with hex encoding."
+            )
         # Derive spatial dimension from logical board geometry and keep a hint
         # for components (e.g. training augmentation) that still need to know
         # the current spatial dimension.

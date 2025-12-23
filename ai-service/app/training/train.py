@@ -1869,6 +1869,10 @@ def train_model(
         dataset_feature_version: int | None = None
         dataset_in_channels: int | None = None
         dataset_globals_dim: int | None = None
+        # New encoder metadata fields (added 2025-12)
+        dataset_encoder_type: str | None = None
+        dataset_base_channels: int | None = None
+        dataset_board_type_meta: str | None = None
         is_npz = bool(first_path and first_path.endswith(".npz"))
         try:
             if first_path and os.path.exists(first_path):
@@ -1896,6 +1900,22 @@ def train_model(
                             dataset_feature_version = int(np.asarray(d["feature_version"]).item())
                         except Exception:
                             dataset_feature_version = None
+                    # Read new encoder metadata fields (added 2025-12)
+                    if "encoder_type" in d:
+                        try:
+                            dataset_encoder_type = str(np.asarray(d["encoder_type"]).item())
+                        except Exception:
+                            dataset_encoder_type = None
+                    if "base_channels" in d:
+                        try:
+                            dataset_base_channels = int(np.asarray(d["base_channels"]).item())
+                        except Exception:
+                            dataset_base_channels = None
+                    if "board_type" in d:
+                        try:
+                            dataset_board_type_meta = str(np.asarray(d["board_type"]).item())
+                        except Exception:
+                            dataset_board_type_meta = None
         except Exception as exc:
             if not distributed or is_main_process():
                 logger.warning(
@@ -1969,16 +1989,43 @@ def train_model(
             if use_hex_model:
                 hex_base = 16 if use_hex_v3 else 10
                 expected_in_channels = hex_base * (config.history_length + 1)
+                expected_encoder = "hex_v3" if use_hex_v3 else "hex_v2"
             else:
                 expected_in_channels = 14 * (config.history_length + 1)
+                expected_encoder = "square"
+
+            # Log encoder metadata if available
+            if dataset_encoder_type and (not distributed or is_main_process()):
+                logger.info(
+                    "Dataset encoder metadata: type=%s, base_channels=%s, "
+                    "in_channels=%s, board_type=%s",
+                    dataset_encoder_type,
+                    dataset_base_channels,
+                    dataset_in_channels,
+                    dataset_board_type_meta,
+                )
+
             if dataset_in_channels != expected_in_channels:
+                # Build enhanced error message with encoder metadata if available
+                encoder_info = ""
+                if dataset_encoder_type:
+                    encoder_info = f"  dataset_encoder_type={dataset_encoder_type}\n"
+                    encoder_info += f"  dataset_base_channels={dataset_base_channels}\n"
+                    if dataset_board_type_meta:
+                        encoder_info += f"  dataset_board_type={dataset_board_type_meta}\n"
+
                 raise ValueError(
                     "Dataset feature channels do not match the expected encoder.\n"
                     f"  dataset={first_path}\n"
                     f"  dataset_in_channels={dataset_in_channels}\n"
-                    f"  expected_in_channels={expected_in_channels}\n"
-                    "Regenerate the dataset with scripts/export_replay_dataset.py "
-                    "or app.training.generate_data using the matching encoder."
+                    f"  expected_in_channels={expected_in_channels} ({expected_encoder})\n"
+                    f"{encoder_info}"
+                    f"Model expects {expected_encoder} encoder ({expected_in_channels} channels).\n"
+                    "Solutions:\n"
+                    "  1. Regenerate dataset with matching encoder version:\n"
+                    f"     --encoder-version {'v3' if use_hex_v3 else 'v2'}\n"
+                    "  2. Or use matching model version for your data:\n"
+                    f"     --model-version {'v2' if dataset_in_channels == 40 else 'v3' if dataset_in_channels == 64 else 'unknown'}"
                 )
         elif is_npz:
             raise ValueError(

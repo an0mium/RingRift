@@ -678,6 +678,17 @@ class AIConfig(BaseModel):
             "When None, defaults to True when no neural net is loaded."
         ),
     )
+    prior_uniform_mix: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Blend factor between policy priors and uniform distribution for MCTS. "
+            "0.0 = pure policy priors, 1.0 = pure uniform distribution. "
+            "Useful for self-play with value-only models where policy accuracy is low. "
+            "When None, defaults to 0.5 in MCTSAI."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Policy-Only AI Configuration

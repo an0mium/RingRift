@@ -13,8 +13,13 @@ Usage:
 import argparse
 import json
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,9 +30,18 @@ logger = logging.getLogger(__name__)
 
 def run_evaluation(checkpoint_path: str, output_path: str, device: str = "cuda"):
     """Run comprehensive GMO evaluation."""
-    from scripts.evaluate_nn_models import (
-        evaluate_model, run_tournament, print_summary, save_results
+    # Import from scripts directory with proper path
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "evaluate_nn_models",
+        Path(__file__).parent / "evaluate_nn_models.py"
     )
+    evaluate_nn_models = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(evaluate_nn_models)
+
+    evaluate_model = evaluate_nn_models.evaluate_model
+    print_summary = evaluate_nn_models.print_summary
+    save_results = evaluate_nn_models.save_results
 
     results = []
 
