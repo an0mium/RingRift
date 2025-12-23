@@ -173,15 +173,21 @@ def detect_architecture(state_dict: dict[str, Any]) -> ModelArchitecture:
             # Refine hex vs square detection
             if arch in (ModelArchitecture.CNN_V2, ModelArchitecture.HEX_V2):
                 if has_prefix("hex_mask"):
-                    arch = ModelArchitecture.HEX_V2
+                    # Detect V3 vs V2 hex: V3 has spatial policy heads (placement_conv, movement_conv)
+                    if has_prefix("placement_conv.") and has_prefix("movement_conv."):
+                        arch = ModelArchitecture.HEX_V3
+                    else:
+                        arch = ModelArchitecture.HEX_V2
                 else:
                     arch = ModelArchitecture.CNN_V2
 
-            # Refine CNN_V2 -> CNN_V4 detection
+            # Refine CNN_V2 -> CNN_V3/V4 detection
+            # V3 models have spatial policy heads (placement_conv, movement_conv)
             # V4 models have attention blocks (keys containing "attn" or "attention")
             if arch == ModelArchitecture.CNN_V2:
-                has_attention = any("attn" in k or "attention" in k for k in keys)
-                if has_attention:
+                if has_prefix("placement_conv.") and has_prefix("movement_conv."):
+                    arch = ModelArchitecture.CNN_V3
+                elif any("attn" in k or "attention" in k for k in keys):
                     arch = ModelArchitecture.CNN_V4
 
             return arch
@@ -609,9 +615,13 @@ class UnifiedModelLoader:
             )
 
             cls = HexNeuralNet_v2_Lite if config.is_lite_variant else HexNeuralNet_v2
+            # Hex models use total input channels (base * (history+1))
+            total_in_channels = config.input_channels
+            if config.history_length > 0:
+                total_in_channels = config.input_channels * (config.history_length + 1)
             return cls(
                 hex_radius=config.hex_radius,
-                in_channels=config.input_channels,
+                in_channels=total_in_channels,
                 global_features=config.global_features,
                 num_res_blocks=config.num_res_blocks,
                 num_filters=config.num_filters,
@@ -626,9 +636,17 @@ class UnifiedModelLoader:
             )
 
             cls = HexNeuralNet_v3_Lite if config.is_lite_variant else HexNeuralNet_v3
+            # V3 uses board_size (2*hex_radius+1) as the primary spatial dimension
+            hex_board_size = 2 * config.hex_radius + 1
+            # Hex models use total input channels (base * (history+1))
+            # If history_length is inferred, compute total; otherwise use as-is
+            total_in_channels = config.input_channels
+            if config.history_length > 0:
+                total_in_channels = config.input_channels * (config.history_length + 1)
             return cls(
+                board_size=hex_board_size,
                 hex_radius=config.hex_radius,
-                in_channels=config.input_channels,
+                in_channels=total_in_channels,
                 global_features=config.global_features,
                 num_res_blocks=config.num_res_blocks,
                 num_filters=config.num_filters,

@@ -74,14 +74,18 @@ import {
   logSandboxScenarioCompleted,
 } from '../sandbox/sandboxRulesUxTelemetry';
 import { getGameOverBannerText } from '../utils/gameCopy';
-import { buildTestFixtureFromGameState, exportGameStateToFile } from '../sandbox/statePersistence';
 import { getSandboxAiDiagnostics } from '../sandbox/sandboxAiDiagnostics';
+import { useSandboxDiagnostics } from '../hooks/useSandboxDiagnostics';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useBoardOverlays } from '../hooks/useBoardViewProps';
 import { useSandboxPersistence } from '../hooks/useSandboxPersistence';
 import { useSandboxEvaluation } from '../hooks/useSandboxEvaluation';
 import { useSandboxScenarios, type LoadedScenario } from '../hooks/useSandboxScenarios';
 import { useGameSoundEffects } from '../hooks/useGameSoundEffects';
+import { useSandboxClock } from '../hooks/useSandboxClock';
+import { useSandboxAITracking } from '../hooks/useSandboxAITracking';
+import { useSandboxBoardSelection } from '../hooks/useSandboxBoardSelection';
+import { useSandboxGameLifecycle } from '../hooks/useSandboxGameLifecycle';
 import { useGlobalGameShortcuts } from '../hooks/useKeyboardNavigation';
 import { useSoundOptional } from '../contexts/SoundContext';
 
@@ -415,41 +419,40 @@ export const SandboxGameHost: React.FC = () => {
   // Local-only diagnostics / UX state
   const [isSandboxVictoryModalDismissed, setIsSandboxVictoryModalDismissed] = useState(false);
 
-  // AI think time tracking: timestamp when AI started thinking on current turn
-  const [aiThinkingStartedAt, setAiThinkingStartedAt] = useState<number | null>(null);
+  // Game view once configured (local sandbox) - needed early for clock hook
+  const sandboxGameStateForClock: GameState | null = sandboxEngine
+    ? sandboxEngine.getGameState()
+    : null;
 
-  // Sandbox clock: time control settings (default 15min + 10s increment)
-  const [sandboxClockEnabled, setSandboxClockEnabled] = useState(false);
-  const [sandboxTimeControl, _setSandboxTimeControl] = useState<{
-    initialTimeMs: number;
-    incrementMs: number;
-  }>({
-    initialTimeMs: 15 * 60 * 1000, // 15 minutes
-    incrementMs: 10 * 1000, // 10 seconds
-  });
-  // Track time remaining per player (playerNumber → ms remaining)
-  const [sandboxPlayerTimes, setSandboxPlayerTimes] = useState<Record<number, number>>({});
-  // Track when the current player's turn started (for clock decrement)
-  const sandboxTurnStartTimeRef = useRef<number | null>(null);
-  // Track the previous current player to detect turn changes
-  const prevCurrentPlayerRef = useRef<number | null>(null);
+  // Sandbox clock: time control state via extracted hook
+  const {
+    clockEnabled: sandboxClockEnabled,
+    setClockEnabled: setSandboxClockEnabled,
+    timeControl: sandboxTimeControl,
+    playerTimes: sandboxPlayerTimes,
+    resetPlayerTimes: resetSandboxPlayerTimes,
+  } = useSandboxClock(sandboxGameStateForClock);
 
-  // Selection + valid target highlighting
-  const [selected, setSelected] = useState<Position | undefined>();
-  const [validTargets, setValidTargets] = useState<Position[]>([]);
+  // Selection + valid target highlighting (extracted to useSandboxBoardSelection hook)
+  const [boardSelection, boardSelectionActions] = useSandboxBoardSelection();
+  // Destructure for convenience - 'selected' is used extensively throughout the component
+  // Note: internal 'selected' remains Position | undefined for compatibility with useSandboxInteractions
+  const selected = boardSelection.selectedCell ?? undefined;
+  const validTargets = boardSelection.highlightedCells;
+  const setSelected = (pos: Position | undefined) =>
+    boardSelectionActions.setSelectedCell(pos ?? null);
+  const setValidTargets = boardSelectionActions.setHighlightedCells;
 
   // When a self-play scenario is loaded, this bridges the gameId into the
   // ReplayPanel so it can attempt to drive the board from the AI service's
   // /api/replay endpoints (Option A).
   const [_requestedReplayGameId, setRequestedReplayGameId] = useState<string | null>(null);
 
-  // Save state dialog (kept separate from scenarios hook)
-  const [showSaveStateDialog, setShowSaveStateDialog] = useState(false);
-
-  // AI ladder health (AI service internal) – loaded on-demand from the devtools panel.
-  const [aiLadderHealth, setAiLadderHealth] = useState<Record<string, unknown> | null>(null);
-  const [aiLadderHealthError, setAiLadderHealthError] = useState<string | null>(null);
-  const [aiLadderHealthLoading, setAiLadderHealthLoading] = useState(false);
+  // Sandbox diagnostics: save state dialog, export handlers, debug utilities
+  // Extracted via useSandboxDiagnostics hook for cleaner component structure
+  const { state: diagnosticsState, actions: diagnosticsActions } = useSandboxDiagnostics(
+    sandboxEngine ? sandboxEngine.getGameState() : null
+  );
 
   // Board overlay visibility configuration - using extracted hook
   // Start with movement grid overlay enabled by default; it helps
@@ -916,6 +919,31 @@ export const SandboxGameHost: React.FC = () => {
     choiceResolverRef: sandboxChoiceResolverRef,
   });
 
+  // Game lifecycle: start, reset, rematch, and preset handlers via extracted hook
+  const { actions: lifecycleActions } = useSandboxGameLifecycle({
+    config,
+    setConfig,
+    user,
+    initLocalSandboxEngine,
+    resetSandboxEngine,
+    createSandboxInteractionHandler,
+    maybeRunSandboxAiIfNeeded,
+    clearScenarioContext,
+    resetGameUIState,
+    markWelcomeSeen,
+    setBackendSandboxError,
+    setSelected,
+    setValidTargets,
+    setSandboxPendingChoice,
+    setSandboxCaptureChoice,
+    setSandboxCaptureTargets,
+    setSandboxStallWarning,
+    setSandboxLastProgressAt,
+    setSandboxStateVersion,
+    setLastLoadedScenario,
+    setIsSandboxVictoryModalDismissed,
+  });
+
   const isMobile = useIsMobile();
 
   // Consume any recent line highlights from the sandbox engine whenever the
@@ -982,120 +1010,16 @@ export const SandboxGameHost: React.FC = () => {
     });
   };
 
-  const startLocalSandboxGame = (snapshot: LocalConfig) => {
-    const nextBoardType = snapshot.boardType;
+  // Game lifecycle functions are now provided by useSandboxGameLifecycle hook:
+  // - lifecycleActions.startLocalGame(config) - start local-only sandbox
+  // - lifecycleActions.startGame(config) - attempt backend, fallback to local
+  // - lifecycleActions.applyQuickStartPreset(preset) - apply preset and start
+  // - lifecycleActions.resetToSetup() - return to setup screen
+  // - lifecycleActions.rematch() - start new game with same config
 
-    // Fallback: local sandbox engine using orchestrator-first semantics.
-    const interactionHandler = createSandboxInteractionHandler(
-      snapshot.playerTypes.slice(0, snapshot.numPlayers)
-    );
-    const engine = initLocalSandboxEngine({
-      boardType: nextBoardType,
-      numPlayers: snapshot.numPlayers,
-      playerTypes: snapshot.playerTypes.slice(0, snapshot.numPlayers) as LocalPlayerType[],
-      aiDifficulties: snapshot.aiDifficulties.slice(0, snapshot.numPlayers),
-      interactionHandler,
-    });
-
-    setSelected(undefined);
-    setValidTargets([]);
-    setSandboxPendingChoice(null);
-
-    // If the first player is an AI, immediately start the sandbox AI turn loop.
-    if (engine) {
-      const state = engine.getGameState();
-      const current = state.players.find((p) => p.playerNumber === state.currentPlayer);
-      if (current && current.type === 'ai') {
-        maybeRunSandboxAiIfNeeded();
-      }
-    }
-  };
-
-  const startSandboxGame = async (snapshot: LocalConfig) => {
-    const nextBoardType = snapshot.boardType;
-
-    // Starting a non-scenario sandbox game; clear any prior scenario context so
-    // scenario-specific telemetry does not attribute future victories here.
-    setLastLoadedScenario(null);
-
-    // When not authenticated, skip backend game creation entirely and go
-    // straight to the local sandbox engine to avoid expected 401 noise.
-    if (!user) {
-      startLocalSandboxGame(snapshot);
-      return;
-    }
-
-    // First, attempt to create a real backend game using the same CreateGameRequest
-    // shape as the lobby. On success, navigate into the real backend game route.
-    try {
-      const payload: CreateGameRequest = {
-        boardType: nextBoardType,
-        maxPlayers: snapshot.numPlayers,
-        isRated: false,
-        isPrivate: true,
-        timeControl: {
-          type: 'rapid',
-          initialTime: 600,
-          increment: 0,
-        },
-        aiOpponents: (() => {
-          const clampDifficulty = (value: number) => Math.max(1, Math.min(10, Math.round(value)));
-          const seatTypes = snapshot.playerTypes.slice(0, snapshot.numPlayers);
-          const aiDifficulties = seatTypes
-            .map((t, idx) =>
-              t === 'ai' ? clampDifficulty(snapshot.aiDifficulties[idx] ?? 5) : null
-            )
-            .filter((d): d is number => d !== null);
-          const aiSeats = aiDifficulties.length;
-          if (aiSeats <= 0) return undefined;
-          return {
-            count: aiSeats,
-            difficulty: aiDifficulties,
-            mode: 'service',
-            aiType: 'heuristic',
-          };
-        })(),
-        // Pie rule (swap sides) is opt-in for 2-player games.
-        // Data shows P2 wins >55% with pie rule enabled by default.
-        rulesOptions: snapshot.numPlayers === 2 ? { swapRuleEnabled: false } : undefined,
-      };
-
-      const game = await gameApi.createGame(payload);
-      navigate(`/game/${game.id}`);
-      return;
-    } catch (err) {
-      console.error('Failed to create backend sandbox game, falling back to local-only board', err);
-      setBackendSandboxError(
-        'Backend sandbox game could not be created; falling back to local-only board only.'
-      );
-    }
-
-    startLocalSandboxGame(snapshot);
-  };
-
+  // Wrapper to match QUICK_START_PRESETS type with hook's QuickStartPreset type
   const handleQuickStartPreset = (preset: (typeof QUICK_START_PRESETS)[number]) => {
-    if (preset.id === 'learn-basics') {
-      markWelcomeSeen();
-    }
-    clearScenarioContext();
-    resetGameUIState();
-
-    // Build an explicit snapshot so we can both update config and launch a
-    // game immediately without relying on async state updates.
-    const baseTypes = [...config.playerTypes];
-    const updatedTypes = baseTypes.map((t, idx) =>
-      idx < preset.config.playerTypes.length ? preset.config.playerTypes[idx] : t
-    );
-
-    const snapshot: LocalConfig = {
-      boardType: preset.config.boardType,
-      numPlayers: preset.config.numPlayers,
-      playerTypes: updatedTypes,
-      aiDifficulties: [...config.aiDifficulties],
-    };
-
-    setConfig(snapshot);
-    void startSandboxGame(snapshot);
+    lifecycleActions.applyQuickStartPreset(preset);
   };
 
   const presetHandledRef = useRef<string | null>(null);
@@ -1148,170 +1072,18 @@ export const SandboxGameHost: React.FC = () => {
   };
 
   const handleStartLocalGame = async () => {
-    await startSandboxGame(config);
-  };
-
-  const handleCopySandboxTrace = async () => {
-    try {
-      if (typeof window === 'undefined') {
-        return;
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing debug global
-      const anyWindow = window as any;
-      const trace = anyWindow.__RINGRIFT_SANDBOX_TRACE__ ?? [];
-      const payload = JSON.stringify(trace, null, 2);
-
-      if (
-        typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        navigator.clipboard.writeText
-      ) {
-        await navigator.clipboard.writeText(payload);
-        toast.success('Sandbox AI trace copied to clipboard');
-      } else {
-        // eslint-disable-next-line no-console
-        console.log('Sandbox AI trace', trace);
-        toast.success('Sandbox AI trace logged to console (clipboard API unavailable).');
-      }
-    } catch (err) {
-      console.error('Failed to export sandbox AI trace', err);
-      toast.error('Failed to export sandbox AI trace; see console for details.');
-    }
-  };
-
-  const handleCopySandboxAiMeta = async () => {
-    try {
-      const meta = getSandboxAiDiagnostics();
-      const payload = JSON.stringify(meta, null, 2);
-
-      if (
-        typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        navigator.clipboard.writeText
-      ) {
-        await navigator.clipboard.writeText(payload);
-        toast.success('Sandbox AI metadata copied to clipboard');
-      } else {
-        // eslint-disable-next-line no-console
-        console.log('Sandbox AI metadata', meta);
-        toast.success('Sandbox AI metadata logged to console (clipboard API unavailable).');
-      }
-    } catch (err) {
-      console.error('Failed to export sandbox AI metadata', err);
-      toast.error('Failed to export sandbox AI metadata; see console for details.');
-    }
-  };
-
-  const handleRefreshAiLadderHealth = async () => {
-    if (!sandboxGameState) {
-      toast.error('No sandbox game is currently active.');
-      return;
-    }
-    if (typeof fetch !== 'function') {
-      toast.error('Fetch API unavailable.');
-      return;
-    }
-
-    setAiLadderHealthLoading(true);
-    setAiLadderHealthError(null);
-    try {
-      const params = new URLSearchParams({
-        boardType: sandboxGameState.boardType,
-        numPlayers: String(sandboxGameState.players.length),
-      });
-      const response = await fetch(`/api/games/sandbox/ai/ladder/health?${params.toString()}`);
-      if (!response.ok) {
-        const details = await response.text().catch(() => '');
-        throw new Error(details || `HTTP ${response.status}`);
-      }
-
-      const data = (await response.json()) as Record<string, unknown>;
-      setAiLadderHealth(data);
-      toast.success('AI ladder health loaded');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load AI ladder health';
-      setAiLadderHealthError(message);
-      toast.error('Failed to load AI ladder health; see console for details.');
-      console.error('Failed to load AI ladder health', err);
-    } finally {
-      setAiLadderHealthLoading(false);
-    }
-  };
-
-  const handleCopyAiLadderHealth = async () => {
-    if (!aiLadderHealth) {
-      toast.error('AI ladder health has not been loaded yet.');
-      return;
-    }
-
-    try {
-      const payload = JSON.stringify(aiLadderHealth, null, 2);
-      if (
-        typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        navigator.clipboard.writeText
-      ) {
-        await navigator.clipboard.writeText(payload);
-        toast.success('AI ladder health copied to clipboard');
-      } else {
-        // eslint-disable-next-line no-console
-        console.log('AI ladder health', aiLadderHealth);
-        toast.success('AI ladder health logged to console (clipboard API unavailable).');
-      }
-    } catch (err) {
-      console.error('Failed to copy AI ladder health', err);
-      toast.error('Failed to copy AI ladder health; see console for details.');
-    }
-  };
-
-  const handleCopySandboxFixture = async () => {
-    try {
-      if (!sandboxGameState) {
-        toast.error('No sandbox game is currently active.');
-        return;
-      }
-
-      const fixture = buildTestFixtureFromGameState(sandboxGameState);
-      const payload = JSON.stringify(fixture, null, 2);
-
-      if (
-        typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        navigator.clipboard.writeText
-      ) {
-        await navigator.clipboard.writeText(payload);
-        toast.success('Sandbox test fixture copied to clipboard');
-      } else {
-        // eslint-disable-next-line no-console
-        console.log('Sandbox test fixture', fixture);
-        toast.success('Sandbox test fixture logged to console (clipboard API unavailable).');
-      }
-    } catch (err) {
-      console.error('Failed to export sandbox test fixture', err);
-      toast.error('Failed to export sandbox test fixture; see console for details.');
-    }
-  };
-
-  const handleExportScenarioJson = () => {
-    try {
-      if (!sandboxGameState) {
-        toast.error('No sandbox game is currently active.');
-        return;
-      }
-
-      const turnLabel = sandboxGameState.moveHistory.length + 1;
-      const name = `Sandbox Scenario - Turn ${turnLabel}`;
-      exportGameStateToFile(sandboxGameState, name);
-      toast.success('Sandbox scenario JSON downloaded');
-    } catch (err) {
-      console.error('Failed to export sandbox scenario JSON', err);
-      toast.error('Failed to export sandbox scenario; see console for details.');
-    }
+    await lifecycleActions.startGame(config);
   };
 
   // Game view once configured (local sandbox)
   const sandboxGameState: GameState | null = sandboxEngine ? sandboxEngine.getGameState() : null;
+
+  // AI tracking: timing, diagnostics, ladder health via extracted hook
+  const { state: aiTrackingState, actions: aiTrackingActions } = useSandboxAITracking(
+    sandboxEngine,
+    sandboxGameState,
+    maybeRunSandboxAiIfNeeded
+  );
   const sandboxVictoryResult = sandboxEngine ? sandboxEngine.getVictoryResult() : null;
   const sandboxGameEndExplanation = sandboxEngine ? sandboxEngine.getGameEndExplanation() : null;
 
@@ -1596,142 +1368,10 @@ export const SandboxGameHost: React.FC = () => {
   const humanSeatCount = sandboxPlayersList.filter((p) => p.type === 'human').length;
   const aiSeatCount = sandboxPlayersList.length - humanSeatCount;
 
-  // Track AI thinking state for progress bar: set start time when AI turn begins,
-  // clear when turn ends or game is not active.
-  useEffect(() => {
-    if (!sandboxEngine || !sandboxGameState) {
-      setAiThinkingStartedAt(null);
-      return;
-    }
+  // AI tracking effects (thinking state, auto-trigger) are now managed by useSandboxAITracking hook
 
-    const current = sandboxGameState.players.find(
-      (p) => p.playerNumber === sandboxGameState.currentPlayer
-    );
-
-    const isAiTurn = sandboxGameState.gameStatus === 'active' && current && current.type === 'ai';
-
-    if (isAiTurn) {
-      // Only set start time if not already set (avoid resetting mid-turn)
-      setAiThinkingStartedAt((prev) => prev ?? Date.now());
-    } else {
-      setAiThinkingStartedAt(null);
-    }
-  }, [sandboxEngine, sandboxGameState]);
-
-  // Whenever the sandbox state reflects an active AI turn, trigger the
-  // sandbox AI loop after a short delay. This keeps AI progression in
-  // sync with orchestrator-driven state changes (including line/territory
-  // processing and elimination decisions) without requiring an extra
-  // board click from the user.
-  useEffect(() => {
-    if (!sandboxEngine || !sandboxGameState) {
-      return;
-    }
-
-    const current = sandboxGameState.players.find(
-      (p) => p.playerNumber === sandboxGameState.currentPlayer
-    );
-
-    if (sandboxGameState.gameStatus !== 'active' || !current || current.type !== 'ai') {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      maybeRunSandboxAiIfNeeded();
-    }, 60);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [sandboxEngine, sandboxGameState, maybeRunSandboxAiIfNeeded]);
-
-  // Initialize sandbox clocks when the sandbox is configured
-  useEffect(() => {
-    if (!sandboxClockEnabled || !sandboxGameState) {
-      return;
-    }
-    // Initialize times for all players if not already set
-    const needsInit = sandboxGameState.players.some(
-      (p) => sandboxPlayerTimes[p.playerNumber] === undefined
-    );
-    if (needsInit) {
-      const initialTimes: Record<number, number> = {};
-      sandboxGameState.players.forEach((p) => {
-        initialTimes[p.playerNumber] = sandboxTimeControl.initialTimeMs;
-      });
-      setSandboxPlayerTimes(initialTimes);
-      sandboxTurnStartTimeRef.current = Date.now();
-      prevCurrentPlayerRef.current = sandboxGameState.currentPlayer;
-    }
-  }, [sandboxClockEnabled, sandboxGameState, sandboxTimeControl.initialTimeMs, sandboxPlayerTimes]);
-
-  // Handle turn changes: apply increment to the player who just moved
-  useEffect(() => {
-    if (!sandboxClockEnabled || !sandboxGameState) {
-      return;
-    }
-    const currentPlayer = sandboxGameState.currentPlayer;
-    const prevPlayer = prevCurrentPlayerRef.current;
-
-    // Detect turn change
-    if (
-      prevPlayer !== null &&
-      prevPlayer !== currentPlayer &&
-      sandboxGameState.gameStatus === 'active'
-    ) {
-      // Apply increment to the player who just finished their turn
-      setSandboxPlayerTimes((prev) => {
-        const prevTime = prev[prevPlayer] ?? sandboxTimeControl.initialTimeMs;
-        // Deduct time spent on this turn before adding increment
-        const elapsed = sandboxTurnStartTimeRef.current
-          ? Date.now() - sandboxTurnStartTimeRef.current
-          : 0;
-        const timeAfterMove = Math.max(0, prevTime - elapsed);
-        const timeWithIncrement = timeAfterMove + sandboxTimeControl.incrementMs;
-        return { ...prev, [prevPlayer]: timeWithIncrement };
-      });
-      // Reset turn start time for the new player
-      sandboxTurnStartTimeRef.current = Date.now();
-    }
-    prevCurrentPlayerRef.current = currentPlayer;
-  }, [
-    sandboxClockEnabled,
-    sandboxGameState,
-    sandboxTimeControl.incrementMs,
-    sandboxTimeControl.initialTimeMs,
-  ]);
-
-  // Decrement the active player's clock every second
-  useEffect(() => {
-    if (!sandboxClockEnabled || !sandboxGameState || sandboxGameState.gameStatus !== 'active') {
-      return;
-    }
-    const interval = setInterval(() => {
-      const currentPlayer = sandboxGameState.currentPlayer;
-      const turnStart = sandboxTurnStartTimeRef.current;
-      if (turnStart === null) return;
-
-      const elapsed = Date.now() - turnStart;
-      const baseTime = sandboxPlayerTimes[currentPlayer] ?? sandboxTimeControl.initialTimeMs;
-      const _newTime = Math.max(0, baseTime - elapsed);
-
-      // Update the display (this doesn't persist the deduction - that happens on turn change)
-      // For now, we re-render to show the countdown
-      setSandboxPlayerTimes((prev) => {
-        // Only update if turn hasn't changed
-        if (sandboxGameState.currentPlayer === currentPlayer) {
-          const currentBase = prev[currentPlayer] ?? sandboxTimeControl.initialTimeMs;
-          const displayTime = Math.max(0, currentBase - elapsed);
-          if (displayTime !== prev[currentPlayer]) {
-            return { ...prev, [currentPlayer]: displayTime };
-          }
-        }
-        return prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [sandboxClockEnabled, sandboxGameState, sandboxPlayerTimes, sandboxTimeControl.initialTimeMs]);
+  // Clock state and effects are now managed by useSandboxClock hook
+  // (initialization, turn change handling, and decrement interval)
 
   // Derive board VM + HUD-like summaries
   const primaryValidTargets =
@@ -2517,9 +2157,9 @@ export const SandboxGameHost: React.FC = () => {
                           checked={sandboxClockEnabled}
                           onChange={(e) => {
                             setSandboxClockEnabled(e.target.checked);
-                            // Reset player times when toggling
+                            // Reset player times when toggling (hook will reinitialize them)
                             if (e.target.checked) {
-                              setSandboxPlayerTimes({});
+                              resetSandboxPlayerTimes();
                             }
                           }}
                         />
@@ -2615,7 +2255,7 @@ export const SandboxGameHost: React.FC = () => {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={handleCopySandboxTrace}
+                    onClick={diagnosticsActions.copyAiTrace}
                     className="text-[11px] px-3 py-1"
                   >
                     Copy AI trace
@@ -2652,52 +2292,8 @@ export const SandboxGameHost: React.FC = () => {
             onClose={() => {
               setIsSandboxVictoryModalDismissed(true);
             }}
-            onReturnToLobby={() => {
-              resetSandboxEngine();
-              setSelected(undefined);
-              setValidTargets([]);
-              setBackendSandboxError(null);
-              setSandboxPendingChoice(null);
-              setIsSandboxVictoryModalDismissed(false);
-              setLastLoadedScenario(null);
-            }}
-            onRematch={() => {
-              // Reset state and start a new game with the same configuration.
-              // Rematches are treated as generic sandbox games rather than
-              // curated teaching scenarios, so we clear any scenario context.
-              setIsSandboxVictoryModalDismissed(false);
-              setSelected(undefined);
-              setValidTargets([]);
-              setSandboxPendingChoice(null);
-              setSandboxCaptureChoice(null);
-              setSandboxCaptureTargets([]);
-              setSandboxStallWarning(null);
-              setSandboxLastProgressAt(null);
-              setLastLoadedScenario(null);
-
-              // Re-initialize with the same config
-              const interactionHandler = createSandboxInteractionHandler(
-                config.playerTypes.slice(0, config.numPlayers)
-              );
-              const engine = initLocalSandboxEngine({
-                boardType: config.boardType,
-                numPlayers: config.numPlayers,
-                playerTypes: config.playerTypes.slice(0, config.numPlayers) as LocalPlayerType[],
-                aiDifficulties: config.aiDifficulties.slice(0, config.numPlayers),
-                interactionHandler,
-              });
-
-              // If the first player is AI, start the AI turn loop
-              if (engine) {
-                const state = engine.getGameState();
-                const current = state.players.find((p) => p.playerNumber === state.currentPlayer);
-                if (current && current.type === 'ai') {
-                  maybeRunSandboxAiIfNeeded();
-                }
-              }
-
-              toast.success('New game started with the same settings!');
-            }}
+            onReturnToLobby={lifecycleActions.resetToSetup}
+            onRematch={lifecycleActions.rematch}
           />
         )}
 
@@ -2779,7 +2375,7 @@ export const SandboxGameHost: React.FC = () => {
                         {/* Save State - always visible for undo/redo */}
                         <button
                           type="button"
-                          onClick={() => setShowSaveStateDialog(true)}
+                          onClick={() => diagnosticsActions.setShowSaveStateDialog(true)}
                           className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-sky-400 hover:text-sky-200 transition"
                         >
                           Save State
@@ -2789,14 +2385,14 @@ export const SandboxGameHost: React.FC = () => {
                           <>
                             <button
                               type="button"
-                              onClick={handleExportScenarioJson}
+                              onClick={diagnosticsActions.exportScenarioJson}
                               className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-sky-400 hover:text-sky-200 transition"
                             >
                               Export Scenario JSON
                             </button>
                             <button
                               type="button"
-                              onClick={handleCopySandboxFixture}
+                              onClick={diagnosticsActions.copyTestFixture}
                               className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
                             >
                               Copy Test Fixture
@@ -3025,8 +2621,8 @@ export const SandboxGameHost: React.FC = () => {
                 currentAiPlayer.username || `AI Player ${currentAiPlayer.playerNumber}`;
               return (
                 <AIThinkTimeProgress
-                  isAiThinking={aiThinkingStartedAt !== null}
-                  thinkingStartedAt={aiThinkingStartedAt}
+                  isAiThinking={aiTrackingState.aiThinkingStartedAt !== null}
+                  thinkingStartedAt={aiTrackingState.aiThinkingStartedAt}
                   aiDifficulty={aiDifficulty}
                   aiPlayerName={aiPlayerName}
                 />
@@ -3312,7 +2908,7 @@ export const SandboxGameHost: React.FC = () => {
                         <h2 className="font-semibold">AI Ladder Diagnostics (sandbox)</h2>
                         <button
                           type="button"
-                          onClick={handleCopySandboxAiMeta}
+                          onClick={diagnosticsActions.copyAiMeta}
                           className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
                         >
                           Copy
@@ -3412,16 +3008,16 @@ export const SandboxGameHost: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={handleRefreshAiLadderHealth}
-                            disabled={aiLadderHealthLoading}
+                            onClick={aiTrackingActions.refreshLadderHealth}
+                            disabled={aiTrackingState.aiLadderHealthLoading}
                             className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition"
                           >
-                            {aiLadderHealthLoading ? 'Loading…' : 'Refresh'}
+                            {aiTrackingState.aiLadderHealthLoading ? 'Loading…' : 'Refresh'}
                           </button>
                           <button
                             type="button"
-                            onClick={handleCopyAiLadderHealth}
-                            disabled={!aiLadderHealth}
+                            onClick={aiTrackingActions.copyLadderHealth}
+                            disabled={!aiTrackingState.aiLadderHealth}
                             className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition"
                           >
                             Copy
@@ -3429,16 +3025,16 @@ export const SandboxGameHost: React.FC = () => {
                         </div>
                       </div>
 
-                      {aiLadderHealthError && (
+                      {aiTrackingState.aiLadderHealthError && (
                         <p
                           className="text-xs text-amber-400"
                           data-testid="sandbox-ai-ladder-health-error"
                         >
-                          {aiLadderHealthError}
+                          {aiTrackingState.aiLadderHealthError}
                         </p>
                       )}
 
-                      {!aiLadderHealth ? (
+                      {!aiTrackingState.aiLadderHealth ? (
                         <p className="text-xs text-slate-400">
                           Click Refresh to query `/internal/ladder/health` from the AI service.
                         </p>
@@ -3451,8 +3047,8 @@ export const SandboxGameHost: React.FC = () => {
                             return value as Record<string, unknown>;
                           };
 
-                          const summary = asRecord(aiLadderHealth['summary']) ?? {};
-                          const tiersRaw = aiLadderHealth['tiers'];
+                          const summary = asRecord(aiTrackingState.aiLadderHealth['summary']) ?? {};
+                          const tiersRaw = aiTrackingState.aiLadderHealth['tiers'];
                           const tiers: unknown[] = Array.isArray(tiersRaw) ? tiersRaw : [];
 
                           return (
@@ -3766,8 +3362,8 @@ export const SandboxGameHost: React.FC = () => {
         />
 
         <SaveStateDialog
-          isOpen={showSaveStateDialog}
-          onClose={() => setShowSaveStateDialog(false)}
+          isOpen={diagnosticsState.showSaveStateDialog}
+          onClose={() => diagnosticsActions.setShowSaveStateDialog(false)}
           gameState={sandboxGameState}
           onSaved={(scenario) => {
             toast.success(`Saved state: ${scenario.name}`);

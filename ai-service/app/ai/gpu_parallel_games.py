@@ -950,6 +950,10 @@ class ParallelGameRunner:
         # Use default weights if not provided (with optional noise for diversity)
         if weights_list is None:
             weights_list = self._generate_weights_list()
+        elif weights_list and isinstance(weights_list[0], dict):
+            # Normalize 1D weights list (one dict per game) to 2D format (per game, per player)
+            # This maintains backward compatibility with callers that pass [weights] * batch_size
+            weights_list = [[w] * self.num_players for w in weights_list]
 
         # In this runner, a single call to ``_step_games`` advances one phase
         # (ring_placement, movement, line_processing, territory_processing, end_turn).
@@ -1074,7 +1078,9 @@ class ParallelGameRunner:
         if self.state_validator:
             self.state_validator.reset_stats()
 
-    def _step_games(self, weights_list: list[list[dict[str, float]]]) -> None:
+    def _step_games(
+        self, weights_list: list[list[dict[str, float]]] | list[dict[str, float]] | None = None
+    ) -> None:
         """Execute one phase step for all active games using full rules FSM.
 
         Phase flow per turn (per RR-CANON):
@@ -1572,7 +1578,7 @@ class ParallelGameRunner:
     def _step_placement_phase(
         self,
         mask: torch.Tensor,
-        weights_list: list[list[dict[str, float]]],
+        weights_list: list[list[dict[str, float]]] | list[dict[str, float]] | None = None,
     ) -> None:
         """Handle RING_PLACEMENT phase for games in mask.
 
@@ -1728,7 +1734,7 @@ class ParallelGameRunner:
     def _step_movement_phase(
         self,
         mask: torch.Tensor,
-        weights_list: list[list[dict[str, float]]],
+        weights_list: list[list[dict[str, float]]] | list[dict[str, float]] | None = None,
     ) -> None:
         """Handle MOVEMENT phase for games in mask.
 
@@ -3355,21 +3361,45 @@ class ParallelGameRunner:
             return weights_list
 
     def get_weights_for_current_players(
-        self, weights_list: list[list[dict[str, float]]]
-    ) -> list[dict[str, float]]:
+        self, weights_list: list[list[dict[str, float]]] | list[dict[str, float]] | None
+    ) -> list[dict[str, float]] | None:
         """Get weights for the current player of each game.
 
+        Supports multiple input formats for backward compatibility:
+        - 2D format: list[list[dict]] - [game][player] -> dict
+        - 1D format: list[dict] - [game] -> dict (same for all players)
+        - Empty/None: Returns None (use default weights)
+
         Args:
-            weights_list: 2D weights [game][player]
+            weights_list: Weights in any supported format
 
         Returns:
-            List of weight dicts, one per game, for that game's current player.
+            List of weight dicts (one per game) for current player, or None for defaults.
         """
-        current_players = self.state.current_player.cpu().numpy()
-        return [
-            weights_list[game_idx][int(current_players[game_idx]) - 1]  # Players are 1-indexed
-            for game_idx in range(self.batch_size)
-        ]
+        # Handle None or empty
+        if not weights_list:
+            return None
+
+        # Detect format by checking first element
+        first_elem = weights_list[0]
+
+        # 2D format: first element is a list of dicts
+        if isinstance(first_elem, list):
+            current_players = self.state.current_player.cpu().numpy()
+            return [
+                weights_list[game_idx][int(current_players[game_idx]) - 1]  # Players are 1-indexed
+                for game_idx in range(self.batch_size)
+            ]
+
+        # 1D format: first element is a dict
+        if isinstance(first_elem, dict):
+            # If it's empty dict or single-element list, return None for defaults
+            if not first_elem or len(weights_list) == 1:
+                return None
+            # Otherwise return as-is (one dict per game)
+            return weights_list
+
+        return None
 
     @staticmethod
     def get_available_personas() -> list[str]:
@@ -3402,7 +3432,157 @@ class ParallelGameRunner:
             full_id = f"heuristic_v1_{short_name}"
             if full_id in HEURISTIC_WEIGHT_PROFILES:
                 personas[short_name] = HEURISTIC_WEIGHT_PROFILES[full_id]
-        return personas
+
+    # ==========================================================================
+    # Matchup Configurations for Training
+    # ==========================================================================
+
+    # Predefined matchup configurations for systematic training
+    TRAINING_MATCHUPS: dict[str, list[str]] = {
+        # Standard matchups (for 2-player games)
+        "aggressive_vs_defensive": ["aggressive", "defensive"],
+        "territorial_vs_aggressive": ["territorial", "aggressive"],
+        "balanced_vs_aggressive": ["balanced", "aggressive"],
+        "balanced_vs_defensive": ["balanced", "defensive"],
+        "balanced_vs_territorial": ["balanced", "territorial"],
+        "defensive_vs_territorial": ["defensive", "territorial"],
+        # Mirror matchups (same style vs same style)
+        "aggressive_mirror": ["aggressive", "aggressive"],
+        "defensive_mirror": ["defensive", "defensive"],
+        "balanced_mirror": ["balanced", "balanced"],
+        "territorial_mirror": ["territorial", "territorial"],
+    }
+
+    @classmethod
+    def get_training_matchup(cls, matchup_name: str) -> list[str]:
+        """Get a predefined training matchup configuration.
+
+        Args:
+            matchup_name: Name of the matchup (e.g., "aggressive_vs_defensive")
+
+        Returns:
+            List of persona IDs for each player.
+
+        Raises:
+            ValueError: If matchup_name is not recognized.
+        """
+        if matchup_name not in cls.TRAINING_MATCHUPS:
+            available = list(cls.TRAINING_MATCHUPS.keys())
+            raise ValueError(f"Unknown matchup '{matchup_name}'. Available: {available}")
+        return cls.TRAINING_MATCHUPS[matchup_name]
+
+    @classmethod
+    def get_all_training_matchups(cls) -> list[str]:
+        """Get all available training matchup names.
+
+        Returns:
+            List of matchup configuration names.
+        """
+        return list(cls.TRAINING_MATCHUPS.keys())
+
+    @classmethod
+    def create_with_matchup(
+        cls,
+        matchup_name: str,
+        batch_size: int = 64,
+        **kwargs,
+    ) -> "ParallelGameRunner":
+        """Factory method to create a runner with a predefined matchup.
+
+        Args:
+            matchup_name: Name of the matchup configuration
+            batch_size: Number of games to run in parallel
+            **kwargs: Additional arguments for ParallelGameRunner
+
+        Returns:
+            ParallelGameRunner configured with the specified matchup.
+
+        Example:
+            >>> runner = ParallelGameRunner.create_with_matchup(
+            ...     "aggressive_vs_defensive",
+            ...     batch_size=1000,
+            ...     use_heuristic_selection=True,
+            ... )
+            >>> results = runner.run_games()
+        """
+        matchup = cls.get_training_matchup(matchup_name)
+        return cls(
+            batch_size=batch_size,
+            num_players=len(matchup),
+            per_player_personas=matchup,
+            use_heuristic_selection=True,  # Enable heuristic selection by default
+            **kwargs,
+        )
+
+    @classmethod
+    def run_matchup_tournament(
+        cls,
+        matchups: list[str] | None = None,
+        games_per_matchup: int = 100,
+        max_moves: int = 200,
+        **runner_kwargs,
+    ) -> dict[str, dict[str, Any]]:
+        """Run a tournament across multiple matchup configurations.
+
+        This is useful for systematic training data generation with variety.
+
+        Args:
+            matchups: List of matchup names to run, or None for all matchups
+            games_per_matchup: Number of games per matchup
+            max_moves: Maximum moves per game
+            **runner_kwargs: Additional arguments for ParallelGameRunner
+
+        Returns:
+            Dictionary mapping matchup name to results:
+            {
+                "aggressive_vs_defensive": {
+                    "p1_wins": 45,
+                    "p2_wins": 38,
+                    "draws": 17,
+                    "total_games": 100,
+                    "avg_game_length": 87.5,
+                },
+                ...
+            }
+
+        Example:
+            >>> results = ParallelGameRunner.run_matchup_tournament(
+            ...     matchups=["aggressive_vs_defensive", "balanced_mirror"],
+            ...     games_per_matchup=500,
+            ... )
+            >>> print(results["aggressive_vs_defensive"]["p1_wins"])
+        """
+        if matchups is None:
+            matchups = cls.get_all_training_matchups()
+
+        tournament_results = {}
+
+        for matchup_name in matchups:
+            runner = cls.create_with_matchup(
+                matchup_name,
+                batch_size=games_per_matchup,
+                **runner_kwargs,
+            )
+            game_results = runner.run_games(max_moves=max_moves)
+
+            # Aggregate results
+            winners = game_results.get("winners", [])
+            move_counts = game_results.get("move_counts", [])
+
+            p1_wins = sum(1 for w in winners if w == 1)
+            p2_wins = sum(1 for w in winners if w == 2)
+            draws = sum(1 for w in winners if w == 0 or w is None)
+
+            tournament_results[matchup_name] = {
+                "p1_wins": p1_wins,
+                "p2_wins": p2_wins,
+                "draws": draws,
+                "total_games": len(winners),
+                "avg_game_length": sum(move_counts) / len(move_counts) if move_counts else 0,
+                "personas": cls.get_training_matchup(matchup_name),
+            }
+
+        return tournament_results
 
     def get_stats(self) -> dict[str, float]:
         """Get performance statistics."""

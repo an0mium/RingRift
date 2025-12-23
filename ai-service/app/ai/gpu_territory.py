@@ -250,8 +250,9 @@ def _find_regions_with_border_color(
                         queue.append((ny, nx))
 
             if region:
-                # Use min(region) as deterministic representative for consistent behavior
-                rep = min(region)  # (y, x) tuple
+                # Use min(region) for deterministic representative selection
+                # This is consistent regardless of iteration order
+                rep = min(region)  # (y, x) tuple, lexicographically smallest
                 regions.append((region, border_color, rep))
 
     return regions
@@ -674,7 +675,7 @@ def compute_territory_batch(
                     # Track region representative position for CHOOSE_TERRITORY_OPTION recording
                     # Use first cell of region (deterministic) matching CPU's Territory.spaces[0]
                     if g not in region_positions:
-                        region_positions[g] = rep  # rep is min(region), gives (y, x)
+                        region_positions[g] = rep  # rep is BFS seed position (y, x)
 
                     # Update territory count BEFORE checking victory
                     state.territory_count[g, player] += territory_count
@@ -759,7 +760,7 @@ def compute_territory_batch(
                         # Include region position so each elimination is paired with its territory
                         if g not in territory_moves:
                             territory_moves[g] = []
-                        # rep is (y, x) tuple from min(region)
+                        # rep is (y, x) tuple from BFS seed position
                         territory_moves[g].append((player, rep[0], rep[1], cap_y, cap_x))
 
                     processed_representatives.add(rep)

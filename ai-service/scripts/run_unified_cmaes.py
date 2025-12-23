@@ -1439,6 +1439,16 @@ Examples:
     parser.add_argument("--eval-boards", type=str, default="",
                         help="Comma-separated boards to evaluate on (default: square8,hexagonal,square19)")
 
+    # Multi-opponent evaluation (recommended for robust training)
+    parser.add_argument("--multi-opponent", action="store_true",
+                        help="Use multi-opponent round-robin fitness evaluation (recommended)")
+    parser.add_argument("--games-per-opponent", type=int, default=32,
+                        help="Games per opponent in multi-opponent mode")
+    parser.add_argument("--self-play-games", type=int, default=24,
+                        help="Self-play games per evaluation in multi-opponent mode")
+    parser.add_argument("--diversity-bonus", action="store_true",
+                        help="Enable population diversity bonus")
+
     # Output
     parser.add_argument("--output", default="logs/cmaes")
     parser.add_argument("--run-id", type=str, default=None)
@@ -1523,8 +1533,30 @@ Examples:
         logger.error("No CMA-ES backend available. Install evotorch or cma.")
         sys.exit(1)
 
+    # Check for multi-opponent mode (recommended for robust training)
+    if args.multi_opponent:
+        logger.info("Multi-opponent mode enabled - using robust CMA-ES")
+        from scripts.run_robust_cmaes import run_robust_cmaes, RobustCMAESConfig
+        robust_config = RobustCMAESConfig(
+            board_type=config.board_type,
+            num_players=config.num_players,
+            generations=config.generations,
+            population_size=config.population_size,
+            sigma=config.sigma,
+            games_per_opponent=args.games_per_opponent,
+            self_play_games=args.self_play_games,
+            use_diversity_bonus=args.diversity_bonus,
+            max_moves=config.max_moves,
+            distributed=config.distributed,
+            worker_urls=config.workers,
+            output_dir=config.output_dir,
+            device=config.device,
+        )
+        results = run_robust_cmaes(robust_config)
+        best_weights = results["best_weights"]
+        best_fitness = results["best_fitness"]
     # Run appropriate mode
-    if config.mode == "distributed":
+    elif config.mode == "distributed":
         best_weights, best_fitness = run_distributed_cmaes(config)
     elif config.mode == "iterative":
         best_weights, best_fitness = run_iterative_cmaes(config)

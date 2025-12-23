@@ -153,8 +153,39 @@ RINGRIFT_ENABLE_SEED17_PARITY=1 npm test -- Seed17
 - May require increased heap size
 - May have expected failures (tracked in `KNOWN_ISSUES.md`)
 - Not required for PR merge
+- Excluded from default `npm test` and `npm run test:core` runs
+- Run nightly or on-demand via dedicated npm scripts
 
-#### Heavy Suites
+#### 3.1 Parity Tests (`tests/parity/`)
+
+**Run:**
+
+```bash
+npm run test:parity
+# or equivalently:
+npm run test:diagnostic
+```
+
+**Files:** (8 tests in `tests/parity/`)
+
+- `Backend_vs_Sandbox.eliminationTrace.test.ts`
+- `Backend_vs_Sandbox.seed5.bisectParity.test.ts`
+- `Backend_vs_Sandbox.seed5.checkpoints.test.ts`
+- `Backend_vs_Sandbox.seed5.internalStateParity.test.ts`
+- `Backend_vs_Sandbox.seed5.move1Checkpoints.test.ts`
+- `Backend_vs_Sandbox.seed5.prefixDiagnostics.test.ts`
+- `Python_vs_TS.selfplayReplayFixtureParity.test.ts`
+- `SelfPlayDbTsReplay.canonicalization.test.ts`
+
+**Purpose:** TS↔Python parity comparisons, seed-specific debugging, and full game simulations.
+
+**Notes:**
+
+- These tests are excluded from `npm test` and `test:core` by default (see `jest.config.js`).
+- Run nightly or on-demand when investigating parity issues.
+- Configured in `jest.config.js` via `PARITY_DIAGNOSTIC_PATTERNS`.
+
+#### 3.2 Heavy Suites
 
 ```bash
 NODE_OPTIONS="--max-old-space-size=8192" npm run test:diagnostics
@@ -419,17 +450,18 @@ pytest tests/parity -q
 
 ## Test Organization
 
-| Directory                     | Category               | Description                              |
-| ----------------------------- | ---------------------- | ---------------------------------------- |
-| `tests/unit/`                 | CI-Gated (mostly)      | Unit tests for modules/components        |
-| `tests/unit/*.shared.test.ts` | CI-Gated               | Canonical shared engine tests            |
-| `tests/contracts/`            | CI-Gated               | Contract vector runner                   |
-| `tests/scenarios/`            | CI-Gated               | Rules/FAQ scenario tests                 |
-| `tests/integration/`          | Environment-Gated      | Service integration tests                |
-| `tests/e2e/`                  | E2E (Playwright)       | Browser automation tests                 |
-| `tests/fixtures/`             | N/A                    | Test data and vectors                    |
-| `tests/helpers/`              | N/A                    | Test utilities                           |
-| `ai-service/tests/`           | Python (core + parity) | Python rules/AI + TS↔Python parity tests |
+| Directory                     | Category               | Description                               |
+| ----------------------------- | ---------------------- | ----------------------------------------- |
+| `tests/unit/`                 | CI-Gated (mostly)      | Unit tests for modules/components         |
+| `tests/unit/*.shared.test.ts` | CI-Gated               | Canonical shared engine tests             |
+| `tests/contracts/`            | CI-Gated               | Contract vector runner                    |
+| `tests/scenarios/`            | CI-Gated               | Rules/FAQ scenario tests                  |
+| `tests/integration/`          | Environment-Gated      | Service integration tests                 |
+| `tests/parity/`               | Diagnostic (nightly)   | TS↔Python parity tests (excluded from CI) |
+| `tests/e2e/`                  | E2E (Playwright)       | Browser automation tests                  |
+| `tests/fixtures/`             | N/A                    | Test data and vectors                     |
+| `tests/helpers/`              | N/A                    | Test utilities                            |
+| `ai-service/tests/`           | Python (core + parity) | Python rules/AI + TS↔Python parity tests  |
 
 ---
 
@@ -511,6 +543,12 @@ npm run test:orchestrator:s-invariant
 ### Diagnostic / Parity Profiles
 
 ```bash
+# Parity tests (tests/parity/) - TS↔Python comparisons, seed debugging
+# These are excluded from default npm test and test:core
+npm run test:parity
+# or equivalently:
+npm run test:diagnostic
+
 # Heavy diagnostics (legacy GameEngine/RuleEngine helpers, large suites)
 npm run test:diagnostics
 

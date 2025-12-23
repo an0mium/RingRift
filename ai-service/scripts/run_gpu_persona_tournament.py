@@ -418,9 +418,14 @@ class TournamentGameRunner(ParallelGameRunner):
         self,
         moves,
         active_mask: torch.Tensor,
+        per_game_weights: list[dict[str, float]] | None = None,
     ) -> torch.Tensor:
-        """Override base _select_moves to use per-game weights."""
-        # Use our per-game weighted selection
+        """Override base _select_moves to use per-game weights.
+
+        Note: per_game_weights parameter is ignored - we get weights from
+        the current player's assigned persona for tournament fairness.
+        """
+        # Use our per-game weighted selection (ignores passed weights)
         return self._select_moves_with_per_game_weights(moves, active_mask)
 
     def run_tournament_games(

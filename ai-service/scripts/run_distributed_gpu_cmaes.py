@@ -49,6 +49,11 @@ from app.ai.gpu_parallel_games import (
     benchmark_parallel_games,
     evaluate_candidate_fitness_gpu,
 )
+from app.ai.multi_opponent_fitness import (
+    evaluate_multi_opponent,
+    MultiOpponentResult,
+    BASELINE_OPPONENTS,
+)
 
 # Unified logging setup
 from scripts.lib.logging_config import setup_script_logging
@@ -216,6 +221,63 @@ def run_worker_server(port: int, board_size: int, num_players: int):
             error=result.error,
         )
 
+    # Multi-opponent evaluation request/response models
+    class MultiOpponentRequest(BaseModel):
+        task_id: str
+        candidate_weights: dict[str, float]
+        games_per_opponent: int = 32
+        self_play_games: int = 24
+        min_weight: float = 0.4
+        board_size: int = 8
+        num_players: int = 2
+        max_moves: int = 200
+
+    class MultiOpponentResponse(BaseModel):
+        task_id: str
+        per_opponent: dict[str, float]
+        aggregate: float
+        self_play: float
+        games_played: int
+        elapsed_seconds: float
+        error: str | None = None
+
+    @app.post("/evaluate_multi", response_model=MultiOpponentResponse)
+    async def evaluate_multi_task(request: MultiOpponentRequest):
+        """Evaluate candidate against all baseline opponents."""
+        start_time = time.time()
+        try:
+            result = evaluate_multi_opponent(
+                candidate_weights=request.candidate_weights,
+                games_per_opponent=request.games_per_opponent,
+                self_play_games=request.self_play_games,
+                min_weight=request.min_weight,
+                board_size=request.board_size,
+                num_players=request.num_players,
+                max_moves=request.max_moves,
+                device=worker.device,
+            )
+            elapsed = time.time() - start_time
+            return MultiOpponentResponse(
+                task_id=request.task_id,
+                per_opponent=result.per_opponent,
+                aggregate=result.aggregate,
+                self_play=result.self_play,
+                games_played=result.games_played,
+                elapsed_seconds=elapsed,
+            )
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"Multi-opponent evaluation failed: {e}")
+            return MultiOpponentResponse(
+                task_id=request.task_id,
+                per_opponent={},
+                aggregate=0.0,
+                self_play=0.0,
+                games_played=0,
+                elapsed_seconds=elapsed,
+                error=str(e),
+            )
+
     @app.get("/health")
     async def health_check():
         return {
@@ -223,6 +285,7 @@ def run_worker_server(port: int, board_size: int, num_players: int):
             "device": str(worker.device),
             "board_size": worker.board_size,
             "num_players": worker.num_players,
+            "multi_opponent_enabled": True,
         }
 
     @app.get("/benchmark")

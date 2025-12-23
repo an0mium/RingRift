@@ -537,10 +537,12 @@ class GPUSelfPlayGenerator:
         snapshot_interval: int = 0,
         record_policy: bool = False,
         persona_pool: list[str] | None = None,
+        per_player_personas: list[str] | None = None,
     ):
         self.board_size = board_size
         self.num_players = num_players
         self.persona_pool = persona_pool
+        self.per_player_personas = per_player_personas
         self.batch_size = batch_size
         self.max_moves = max_moves
         self.device = device or get_device()
@@ -557,6 +559,7 @@ class GPUSelfPlayGenerator:
         self.record_policy = record_policy
         # Store pending snapshots during batch generation: {game_idx: [(move_num, state_json), ...]}
         self._pending_snapshots: dict[int, list[tuple[int, str]]] = {}
+        self._current_batch_persona: str | None = None  # Track current persona for metadata
         self.base_temperature = temperature
         # Temperature levels for difficulty mixing: optimal → random
         self.mix_temperatures = [0.5, 1.0, 2.0, 4.0]
@@ -612,12 +615,18 @@ class GPUSelfPlayGenerator:
             noise_scale=noise_scale,
             random_opening_moves=random_opening_moves,
             record_policy=record_policy,
+            per_player_personas=per_player_personas,
         )
 
         # Store persona pool for per-batch rotation (handled in generate_batch)
         if persona_pool:
             logger.info(f"Persona pool ENABLED: {persona_pool}")
             logger.info("  Weights will rotate through personas per batch")
+
+        # Per-player personas: different weights per player position
+        if per_player_personas:
+            logger.info(f"Per-player personas ENABLED: {per_player_personas}")
+            logger.info("  Each player uses different heuristic weights")
 
         # Log shadow validation status
         if shadow_validation:
@@ -722,9 +731,12 @@ class GPUSelfPlayGenerator:
             persona_name = self.persona_pool[persona_idx]
             batch_weights = PERSONA_WEIGHTS.get(persona_name, PERSONA_WEIGHTS["balanced"]).copy()
             weights_list = [batch_weights] * self.batch_size
+            self._current_batch_persona = persona_name  # Track for record metadata
         elif self.weights is None:
+            self._current_batch_persona = None
             weights_list = None  # Uniform random
         else:
+            self._current_batch_persona = None
             weights_list = [self.weights] * self.batch_size
 
         # Clear pending snapshots and create callback if snapshot_interval enabled
@@ -983,6 +995,11 @@ class GPUSelfPlayGenerator:
                         "device": str(self.device),
                         # === Canonical export flag ===
                         "canonical_format": self.canonical_export,
+                        # === Training metadata ===
+                        "metadata": {
+                            "persona": self._current_batch_persona,
+                            "persona_pool": list(self.persona_pool) if self.persona_pool else None,
+                        },
                     }
 
                     # Add trajectory snapshots if captured
@@ -1132,6 +1149,7 @@ def run_gpu_selfplay(
     snapshot_interval: int = 0,
     record_policy: bool = False,
     persona_pool: list[str] | None = None,
+    per_player_personas: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -1156,6 +1174,7 @@ def run_gpu_selfplay(
         canonical_export: Output moves in canonical format (with phase/type strings)
         snapshot_interval: Capture GameState snapshots every N moves (0 = disabled)
         record_policy: Record move policy distributions for training (requires heuristic mode)
+        per_player_personas: List of persona names per player position (e.g., ['aggressive', 'defensive'])
 
     Returns:
         Statistics dict
@@ -1257,10 +1276,14 @@ def run_gpu_selfplay(
         snapshot_interval=snapshot_interval,
         record_policy=record_policy,
         persona_pool=persona_pool,
+        per_player_personas=per_player_personas,
     )
 
     if persona_pool:
         logger.info(f"Persona pool: {persona_pool} (full 45-weight profiles)")
+
+    if per_player_personas:
+        logger.info(f"Per-player personas: {per_player_personas} (full 45-weight profiles)")
 
     if record_policy:
         if not use_heuristic_selection:
@@ -1381,6 +1404,13 @@ def main():
         help="Assign different personas to different players (enables varied strategy matchups)",
     )
     parser.add_argument(
+        "--matchup",
+        type=str,
+        default=None,
+        help="Use a predefined matchup configuration (e.g., 'aggressive_vs_defensive', 'balanced_mirror'). "
+             "See ParallelGameRunner.TRAINING_MATCHUPS for available matchups.",
+    )
+    parser.add_argument(
         "--personas",
         type=str,
         default=None,
@@ -1441,6 +1471,12 @@ def main():
         help="Record move policy distributions (candidate moves + scores/probabilities) "
              "for each move. Requires --engine heuristic-only. Enables policy training.",
     )
+    parser.add_argument(
+        "--continuous",
+        action="store_true",
+        help="Run continuously in an infinite loop, restarting after each batch of games. "
+             "Eliminates GPU idle cycles between runs.",
+    )
 
     parsed = parser.parse_args()
     engine_mode = parsed.engine_mode
@@ -1496,6 +1532,8 @@ def main():
             "persona": getattr(parsed, "persona", None),
             "personas": getattr(parsed, "personas", None),
             "per_player_personas": getattr(parsed, "per_player_personas", False),
+            "matchup": getattr(parsed, "matchup", None),
+            "continuous": getattr(parsed, "continuous", False),
         },
     )
 
@@ -1538,6 +1576,8 @@ def main():
         "persona": selfplay_config.extra_options["persona"],
         "personas": selfplay_config.extra_options["personas"],
         "per_player_personas": selfplay_config.extra_options["per_player_personas"],
+        "matchup": selfplay_config.extra_options["matchup"],
+        "continuous": selfplay_config.extra_options["continuous"],
     })()
 
     if args.benchmark_only:
@@ -1558,15 +1598,30 @@ def main():
             )
         return
 
-    # Load weights - persona takes priority over file
-    # Priority: --personas > --persona mixed > --persona <single> > --weights-file
+    # Load weights - matchup/persona takes priority over file
+    # Priority: --matchup > --personas > --persona mixed > --persona <single> > --weights-file
     weights = None
     persona_pool = None
+    per_player_personas_list = None  # List of persona names per player position
     persona = getattr(args, "persona", None)
     personas_arg = getattr(args, "personas", None)
     per_player_personas = getattr(args, "per_player_personas", False)
+    matchup = getattr(args, "matchup", None)
 
-    if personas_arg:
+    if matchup:
+        # --matchup takes highest priority: use predefined matchup configuration
+        try:
+            per_player_personas_list = ParallelGameRunner.get_training_matchup(matchup)
+            logger.info(f"Using matchup '{matchup}': {per_player_personas_list}")
+            logger.info("  Per-player personas ENABLED (different weights per player position)")
+            if not args.use_heuristic:
+                logger.info("Matchup mode enables heuristic-based move selection")
+                args.use_heuristic = True
+        except KeyError:
+            available = list(ParallelGameRunner.get_all_training_matchups())
+            logger.error(f"Unknown matchup '{matchup}'. Available: {available}")
+            sys.exit(1)
+    elif personas_arg:
         # --personas takes highest priority: comma-separated list of personas
         persona_pool = [p.strip() for p in personas_arg.split(",") if p.strip()]
         # Validate all personas exist
@@ -1691,36 +1746,57 @@ def main():
             logger.info(f"Started ramdrive sync: {output_dir} -> {sync_target} every {sync_interval}s")
 
     try:
-        run_gpu_selfplay(
-            board_type=args.board,
-            num_players=args.num_players,
-            num_games=args.num_games,
-            output_dir=output_dir,
-            batch_size=args.batch_size,
-            max_moves=args.max_moves,
-            weights=weights,
-            engine_mode=args.engine_mode,
-            seed=args.seed,
-            shadow_validation=args.shadow_validation,
-            shadow_sample_rate=args.shadow_sample_rate,
-            shadow_threshold=args.shadow_threshold,
-            lps_victory_rounds=args.lps_victory_rounds,
-            rings_per_player=args.rings_per_player,
-            output_db=args.output_db,
-            use_heuristic_selection=args.use_heuristic,
-            weight_noise=args.weight_noise,
-            use_policy=args.use_policy,
-            policy_model_path=args.policy_model,
-            temperature=args.temperature,
-            noise_scale=args.noise_scale,
-            min_game_length=args.min_game_length,
-            random_opening_moves=args.random_opening_moves,
-            temperature_mix=args.temperature_mix,
-            canonical_export=args.canonical_export,
-            snapshot_interval=args.snapshot_interval,
-            record_policy=args.record_policy,
-            persona_pool=persona_pool,
-        )
+        iteration = 0
+        continuous = getattr(args, "continuous", False)
+        if continuous:
+            logger.info("CONTINUOUS MODE: Will restart automatically after each batch")
+
+        while True:
+            iteration += 1
+            current_seed = args.seed + (iteration - 1) * 10000 if args.seed else None
+
+            if continuous and iteration > 1:
+                logger.info("")
+                logger.info(f"========== CONTINUOUS ITERATION {iteration} ==========")
+                logger.info("")
+
+            run_gpu_selfplay(
+                board_type=args.board,
+                num_players=args.num_players,
+                num_games=args.num_games,
+                output_dir=output_dir,
+                batch_size=args.batch_size,
+                max_moves=args.max_moves,
+                weights=weights,
+                engine_mode=args.engine_mode,
+                seed=current_seed,
+                shadow_validation=args.shadow_validation,
+                shadow_sample_rate=args.shadow_sample_rate,
+                shadow_threshold=args.shadow_threshold,
+                lps_victory_rounds=args.lps_victory_rounds,
+                rings_per_player=args.rings_per_player,
+                output_db=args.output_db,
+                use_heuristic_selection=args.use_heuristic,
+                weight_noise=args.weight_noise,
+                use_policy=args.use_policy,
+                policy_model_path=args.policy_model,
+                temperature=args.temperature,
+                noise_scale=args.noise_scale,
+                min_game_length=args.min_game_length,
+                random_opening_moves=args.random_opening_moves,
+                temperature_mix=args.temperature_mix,
+                canonical_export=args.canonical_export,
+                snapshot_interval=args.snapshot_interval,
+                record_policy=args.record_policy,
+                persona_pool=persona_pool,
+                per_player_personas=per_player_personas_list,
+            )
+
+            if not continuous:
+                break
+
+            # Brief pause before next iteration to allow resource checks
+            time.sleep(2)
     finally:
         # Stop ramdrive syncer and perform final sync
         if syncer:

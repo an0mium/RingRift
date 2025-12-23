@@ -783,6 +783,8 @@ class LocalSelfplayGenerator:
         batch_size: int = 64,
         nn_model_path: str | None = None,
         temperature: float = 1.0,
+        matchup: str | None = None,
+        per_player_personas: list[str] | None = None,
     ) -> dict[str, Any]:
         """Generate selfplay games using GPU-accelerated parallel game runner.
 
@@ -795,6 +797,8 @@ class LocalSelfplayGenerator:
             batch_size: Number of games to run in parallel on GPU
             nn_model_path: Optional path to policy model for move selection
             temperature: Move selection temperature
+            matchup: Optional predefined matchup name (e.g., "aggressive_vs_defensive")
+            per_player_personas: Optional list of persona names per player position
 
         Returns:
             Dict with generation results
@@ -839,12 +843,23 @@ class LocalSelfplayGenerator:
 
             start_time = time.time()
 
+            # Resolve matchup to per_player_personas if specified
+            resolved_personas = per_player_personas
+            if matchup and not resolved_personas:
+                try:
+                    resolved_personas = ParallelGameRunner.get_training_matchup(matchup)
+                    logger.info(f"[GPUSelfplay] Using matchup '{matchup}': {resolved_personas}")
+                except KeyError:
+                    logger.warning(f"[GPUSelfplay] Unknown matchup '{matchup}', using default")
+
             runner = ParallelGameRunner(
                 batch_size=min(batch_size, num_games),
                 board_size=board_size,
                 num_players=num_players,
                 device=device,
                 temperature=temperature,
+                per_player_personas=resolved_personas,
+                use_heuristic_selection=resolved_personas is not None,
             )
 
             # Load policy model if provided

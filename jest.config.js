@@ -78,6 +78,13 @@ const HEAVY_DIAGNOSTIC_SUITES = [
   'RuleEngine\\.movementCapture\\.test\\.ts$',
 ];
 
+// Parity/diagnostic test patterns (excluded from default runs, run via test:diagnostic)
+// These are heavy TS↔Python parity comparisons and seed-specific debugging tests.
+// Run nightly or on-demand, not on every PR.
+const PARITY_DIAGNOSTIC_PATTERNS = [
+  '<rootDir>/tests/parity/',
+];
+
   // Detect when Jest is invoked with coverage so we can safely exclude
  // heavy diagnostic suites that are known to be unstable under instrumentation.
  const isCoverageRun = process.argv.includes('--coverage');
@@ -86,6 +93,7 @@ const HEAVY_DIAGNOSTIC_SUITES = [
  const COVERAGE_TEST_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes per-test timeout for coverage runs
  
  // Base ignore patterns that always apply (regardless of coverage).
+// Includes parity/diagnostic tests which should only run nightly or on-demand.
 const BASE_TEST_PATH_IGNORE_PATTERNS = [
   '/node_modules/',
   '/dist/',
@@ -93,6 +101,7 @@ const BASE_TEST_PATH_IGNORE_PATTERNS = [
   '<rootDir>/tests/e2e/',
   '<rootDir>/tests/unit/archive/',
   '<rootDir>/archive/',  // Root-level archive directory for deprecated tests
+  ...PARITY_DIAGNOSTIC_PATTERNS,  // Parity tests excluded from default runs
 ];
 
 // When collecting coverage, also ignore the heavy diagnostics suites to avoid

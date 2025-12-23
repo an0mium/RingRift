@@ -599,7 +599,9 @@ class HexNeuralNet_v3(nn.Module):
         policy_logits = self._scatter_policy_logits(placement_logits, movement_logits, special_logits, hex_mask)
 
         if return_features:
-            return v_out, policy_logits, v_cat
+            # Return backbone features (pooled), not value head features (v_cat)
+            # out_pooled has shape [B, num_filters] which is expected by auxiliary tasks
+            return v_out, policy_logits, out_pooled
 
         return v_out, policy_logits
 
@@ -808,6 +810,8 @@ class HexNeuralNet_v3_Lite(nn.Module):
         policy_logits = self._scatter_policy_logits(placement_logits, movement_logits, special_logits, hex_mask)
 
         if return_features:
-            return v_out, policy_logits, v_cat
+            # Return backbone features (pooled), not value head features (v_cat)
+            # out_pooled has shape [B, num_filters] which is expected by auxiliary tasks
+            return v_out, policy_logits, out_pooled
 
         return v_out, policy_logits
