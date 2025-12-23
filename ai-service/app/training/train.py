@@ -2755,6 +2755,10 @@ def train_model(
                         # V3+ models with features return (values, policy, rank_dist, features)
                         if isinstance(out, tuple) and len(out) == 4:
                             value_pred, policy_pred, rank_dist_pred, backbone_features = out
+                        elif isinstance(out, tuple) and len(out) == 3:
+                            # V2 models with features return (values, policy, features)
+                            value_pred, policy_pred, backbone_features = out
+                            rank_dist_pred = None
                         else:
                             # Fallback: model doesn't support return_features
                             value_pred, policy_pred = out[:2]

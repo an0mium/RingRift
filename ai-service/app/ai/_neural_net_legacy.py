@@ -1298,7 +1298,24 @@ class RingRiftCNN_v2(nn.Module):
         self.policy_fc2 = nn.Linear(policy_intermediate, self.policy_size)
         self.dropout = nn.Dropout(0.3)
 
-    def forward(self, x: torch.Tensor, globals: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        globals: torch.Tensor,
+        return_features: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Forward pass.
+
+        Args:
+            x: Input features [B, in_channels, H, W]
+            globals: Global features [B, global_features]
+            return_features: If True, also return backbone features for auxiliary tasks
+
+        Returns:
+            value: [B, num_players] value predictions
+            policy: [B, policy_size] policy logits
+            features (optional): [B, num_filters + global_features] backbone features
+        """
         # Backbone with SE blocks
         x = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
@@ -1320,6 +1337,8 @@ class RingRiftCNN_v2(nn.Module):
         p = self.dropout(p)
         policy = self.policy_fc2(p)
 
+        if return_features:
+            return value, policy, x
         return value, policy
 
     def forward_single(
@@ -1430,7 +1449,24 @@ class RingRiftCNN_v2_Lite(nn.Module):
         self.policy_fc2 = nn.Linear(policy_intermediate, self.policy_size)
         self.dropout = nn.Dropout(0.3)
 
-    def forward(self, x: torch.Tensor, globals: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        globals: torch.Tensor,
+        return_features: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Forward pass.
+
+        Args:
+            x: Input features [B, in_channels, H, W]
+            globals: Global features [B, global_features]
+            return_features: If True, also return backbone features for auxiliary tasks
+
+        Returns:
+            value: [B, num_players] value predictions
+            policy: [B, policy_size] policy logits
+            features (optional): [B, num_filters + global_features] backbone features
+        """
         # Backbone with SE blocks
         x = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
@@ -1452,6 +1488,8 @@ class RingRiftCNN_v2_Lite(nn.Module):
         p = self.dropout(p)
         policy = self.policy_fc2(p)
 
+        if return_features:
+            return value, policy, x
         return value, policy
 
     def forward_single(
