@@ -510,6 +510,13 @@ class GameEngine:
         # Optimization: Manual shallow copy of GameState and BoardState
         # We only deep copy mutable structures that we intend to modify
 
+        # RR-PARITY-FIX (Dec 2025): In trace_mode (legacy replay), handle phase
+        # divergence between Python and TypeScript recordings. When Python is in
+        # line_processing with pending_line_reward_elimination=True but the recording
+        # has a territory action, coerce the phase to match the recording.
+        if trace_mode:
+            game_state = GameEngine._coerce_phase_for_trace_mode(game_state, move)
+
         # Strict phase/move invariant: ensure that the incoming move is
         # appropriate for the current phase. This enforces the canonical
         # per-phase move taxonomy (action / skip / no-action) and will
@@ -744,6 +751,111 @@ class GameEngine:
             game_state.winner = winner
         else:
             game_state.winner = None
+
+    @staticmethod
+    def _coerce_phase_for_trace_mode(
+        game_state: GameState,
+        move: Move,
+    ) -> GameState:
+        """
+        Coerce phase to match legacy recordings during trace_mode replay.
+
+        RR-PARITY-FIX (Dec 2025): This handles phase divergence between Python
+        and TypeScript recordings. Key scenarios:
+
+        1. line_processing → territory_processing when:
+           - Python has pending_line_reward_elimination=True (expects elimination)
+           - Recording has a territory action (no_territory_action, skip_territory, etc.)
+           - This happens because older TS versions didn't require elimination step
+
+        2. line_processing → territory_processing when:
+           - Python detects lines that TS didn't (has_line_moves=True)
+           - Recording has a territory action instead of line action
+
+        This function returns a (possibly modified) game_state with the phase
+        coerced to match the incoming move's expected phase.
+        """
+        phase = game_state.current_phase
+        mtype = move.type
+
+        # Territory-related move types
+        territory_moves = {
+            MoveType.NO_TERRITORY_ACTION,
+            MoveType.SKIP_TERRITORY_PROCESSING,
+            MoveType.CHOOSE_TERRITORY_OPTION,
+            MoveType.PROCESS_TERRITORY_REGION,
+        }
+
+        # Line-related move types
+        line_moves = {
+            MoveType.NO_LINE_ACTION,
+            MoveType.PROCESS_LINE,
+            MoveType.CHOOSE_LINE_OPTION,
+            MoveType.CHOOSE_LINE_REWARD,
+        }
+
+        # Case 0: In capture/chain_capture but move is line/territory action
+        # This happens when recording skipped capture phase that Python expects
+        if phase in (GamePhase.CAPTURE, GamePhase.CHAIN_CAPTURE):
+            if mtype in line_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.LINE_PROCESSING
+                return new_state
+            if mtype in territory_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                return new_state
+
+        # Case 0b: In ring_placement/movement but move is line/territory action
+        # This can happen when recording has different turn rotation timing
+        if phase in (GamePhase.RING_PLACEMENT, GamePhase.MOVEMENT):
+            if mtype in line_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.LINE_PROCESSING
+                return new_state
+            if mtype in territory_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                return new_state
+
+        # Case 1: In line_processing but move is a territory action
+        if phase == GamePhase.LINE_PROCESSING and mtype in territory_moves:
+            pending_elim = getattr(game_state, 'pending_line_reward_elimination', False)
+
+            # Check if Python expects line actions that recording doesn't have
+            if pending_elim:
+                # Create a copy to modify (avoid mutating input)
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                new_state.pending_line_reward_elimination = False
+                return new_state
+
+            # Also check if Python sees line moves that recording skipped
+            # (This is a more expensive check, so only do it if needed)
+            valid_moves = GameEngine.get_valid_moves(game_state, game_state.current_player)
+            has_line_moves = any(
+                m.type in {MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION, MoveType.CHOOSE_LINE_REWARD}
+                for m in valid_moves
+            )
+            if has_line_moves:
+                new_state = game_state.model_copy()
+                new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                return new_state
+
+        # Case 2: In ring_placement/movement but move is forced_elimination
+        if phase in (GamePhase.RING_PLACEMENT, GamePhase.MOVEMENT) and mtype == MoveType.FORCED_ELIMINATION:
+            new_state = game_state.model_copy()
+            new_state.current_phase = GamePhase.FORCED_ELIMINATION
+            return new_state
+
+        # Case 3: In forced_elimination but move is a territory action
+        # This can happen when recording didn't have forced elimination but Python detected it
+        if phase == GamePhase.FORCED_ELIMINATION and mtype in territory_moves:
+            new_state = game_state.model_copy()
+            new_state.current_phase = GamePhase.TERRITORY_PROCESSING
+            return new_state
+
+        return game_state
 
     @staticmethod
     def _assert_phase_move_invariant(

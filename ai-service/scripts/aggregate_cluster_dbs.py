@@ -6,6 +6,11 @@ This script aggregates SQLite game databases from multiple cluster nodes into
 a single unified database for training. It handles deduplication, validation,
 and parity checking.
 
+IMPORTANT: This script creates GameReplayDB-compatible output with the
+standard `game_moves` table and `move_json` format. It can read from:
+- Old format: `moves` table with action_type, action_data columns
+- New format: `game_moves` table with move_json column
+
 Usage:
     python scripts/aggregate_cluster_dbs.py --input-dir PATH --output PATH [options]
 
@@ -55,12 +60,95 @@ def get_game_count(conn: sqlite3.Connection) -> int:
 
 
 def get_move_count(conn: sqlite3.Connection) -> int:
-    """Get the number of moves in a database."""
+    """Get the number of moves in a database (handles both schema formats)."""
+    # Try new format first (game_moves)
+    try:
+        cursor = conn.execute("SELECT COUNT(*) FROM game_moves")
+        return cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        pass
+    # Fall back to old format (moves)
     try:
         cursor = conn.execute("SELECT COUNT(*) FROM moves")
         return cursor.fetchone()[0]
     except sqlite3.OperationalError:
         return 0
+
+
+def detect_db_format(conn: sqlite3.Connection) -> str:
+    """Detect whether DB uses old 'moves' or new 'game_moves' table format.
+
+    Returns:
+        'game_moves' if using GameReplayDB format with move_json
+        'moves' if using old format with action_type/action_data
+        'unknown' if neither table exists
+    """
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('game_moves', 'moves')"
+    )
+    tables = {row[0] for row in cursor.fetchall()}
+
+    if 'game_moves' in tables:
+        # Verify it has move_json column
+        cursor = conn.execute("PRAGMA table_info(game_moves)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'move_json' in columns:
+            return 'game_moves'
+
+    if 'moves' in tables:
+        return 'moves'
+
+    return 'unknown'
+
+
+def convert_old_move_to_json(
+    player: int,
+    action_type: str,
+    action_data: str,
+    move_number: int
+) -> str:
+    """Convert old format (action_type, action_data) to move_json.
+
+    Creates a Move-compatible JSON structure from legacy format.
+    """
+    # Parse action_data if it's JSON
+    try:
+        data = json.loads(action_data) if action_data else {}
+    except (json.JSONDecodeError, TypeError):
+        data = {"raw": action_data}
+
+    # Build a Move-like structure
+    move_dict = {
+        "type": action_type,
+        "player": player,
+    }
+
+    # Map common action types to Move fields
+    if action_type in ("placement", "place"):
+        move_dict["type"] = "placement"
+        if "position" in data:
+            move_dict["to"] = data["position"]
+        elif "to" in data:
+            move_dict["to"] = data["to"]
+    elif action_type in ("movement", "move", "slide"):
+        move_dict["type"] = "movement"
+        if "from" in data:
+            move_dict["from"] = data["from"]
+        if "to" in data:
+            move_dict["to"] = data["to"]
+    elif action_type in ("line_process", "process_line"):
+        move_dict["type"] = "line_process"
+        if "positions" in data:
+            move_dict["positions"] = data["positions"]
+    elif action_type in ("territory_claim", "claim"):
+        move_dict["type"] = "territory_claim"
+        if "position" in data:
+            move_dict["position"] = data["position"]
+    else:
+        # Keep original type and merge data
+        move_dict.update(data)
+
+    return json.dumps(move_dict)
 
 
 def compute_game_hash(game_row: tuple, moves: List[tuple]) -> str:
@@ -95,43 +183,138 @@ def validate_game(game_row: tuple, moves: List[tuple]) -> Tuple[bool, str]:
 
 
 def create_output_schema(conn: sqlite3.Connection):
-    """Create the output database schema."""
+    """Create the output database schema (GameReplayDB-compatible).
+
+    Uses the standard `game_moves` table with `move_json` column for
+    compatibility with GameReplayDB.iterate_games() and export_replay_dataset.
+    """
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS metadata (
+        -- Schema metadata table
+        CREATE TABLE IF NOT EXISTS schema_metadata (
             key TEXT PRIMARY KEY,
             value TEXT
         );
 
+        -- Games table (GameReplayDB-compatible)
         CREATE TABLE IF NOT EXISTS games (
-            id TEXT PRIMARY KEY,
+            game_id TEXT PRIMARY KEY,
             original_id TEXT,
             source_db TEXT,
             board_type TEXT NOT NULL,
             num_players INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            winner_id TEXT,
+            game_status TEXT NOT NULL,
+            winner INTEGER,
+            termination_reason TEXT,
             created_at TEXT,
             ended_at TEXT,
-            move_count INTEGER,
-            game_hash TEXT UNIQUE
+            total_moves INTEGER,
+            game_hash TEXT UNIQUE,
+            -- Additional GameReplayDB columns
+            victory_type TEXT,
+            excluded_from_training INTEGER DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS moves (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- Moves table (GameReplayDB-compatible with move_json)
+        CREATE TABLE IF NOT EXISTS game_moves (
             game_id TEXT NOT NULL,
             move_number INTEGER NOT NULL,
+            turn_number INTEGER NOT NULL DEFAULT 0,
             player INTEGER NOT NULL,
-            action_type TEXT NOT NULL,
-            action_data TEXT,
-            board_state TEXT,
-            FOREIGN KEY (game_id) REFERENCES games(id)
+            phase TEXT NOT NULL DEFAULT 'play',
+            move_type TEXT NOT NULL,
+            move_json TEXT NOT NULL,
+            timestamp TEXT,
+            think_time_ms INTEGER,
+            PRIMARY KEY (game_id, move_number),
+            FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
         );
 
+        -- Game initial state (required by GameReplayDB)
+        CREATE TABLE IF NOT EXISTS game_initial_state (
+            game_id TEXT PRIMARY KEY,
+            state_json TEXT NOT NULL,
+            FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+        );
+
+        -- Indexes for efficient querying
         CREATE INDEX IF NOT EXISTS idx_games_board_type ON games(board_type);
         CREATE INDEX IF NOT EXISTS idx_games_num_players ON games(num_players);
-        CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
-        CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
+        CREATE INDEX IF NOT EXISTS idx_games_status ON games(game_status);
+        CREATE INDEX IF NOT EXISTS idx_games_hash ON games(game_hash);
+        CREATE INDEX IF NOT EXISTS idx_moves_game_id ON game_moves(game_id);
+        CREATE INDEX IF NOT EXISTS idx_moves_game_turn ON game_moves(game_id, turn_number);
     """)
+
+
+def get_moves_from_db(
+    input_conn: sqlite3.Connection,
+    game_id: str,
+    db_format: str
+) -> List[Dict]:
+    """Get moves from a database, handling both old and new formats.
+
+    Returns list of dicts with standardized fields:
+    - move_number, turn_number, player, phase, move_type, move_json
+    """
+    moves = []
+
+    if db_format == 'game_moves':
+        # New GameReplayDB format - move_json already present
+        cursor = input_conn.execute("""
+            SELECT move_number, turn_number, player, phase, move_type, move_json
+            FROM game_moves
+            WHERE game_id = ?
+            ORDER BY move_number
+        """, (game_id,))
+        for row in cursor:
+            moves.append({
+                'move_number': row[0],
+                'turn_number': row[1],
+                'player': row[2],
+                'phase': row[3],
+                'move_type': row[4],
+                'move_json': row[5],
+            })
+    elif db_format == 'moves':
+        # Old format - need to convert to move_json
+        cursor = input_conn.execute("""
+            SELECT move_number, player, action_type, action_data
+            FROM moves
+            WHERE game_id = ?
+            ORDER BY move_number
+        """, (game_id,))
+        for row in cursor:
+            move_number = row[0]
+            player = row[1]
+            action_type = row[2]
+            action_data = row[3]
+            move_json = convert_old_move_to_json(player, action_type, action_data, move_number)
+            moves.append({
+                'move_number': move_number,
+                'turn_number': move_number,  # Approximate turn from move number
+                'player': player,
+                'phase': 'play',  # Default phase
+                'move_type': action_type,
+                'move_json': move_json,
+            })
+
+    return moves
+
+
+def get_initial_state_from_db(
+    input_conn: sqlite3.Connection,
+    game_id: str
+) -> Optional[str]:
+    """Get initial state JSON from database if available."""
+    try:
+        cursor = input_conn.execute(
+            "SELECT state_json FROM game_initial_state WHERE game_id = ?",
+            (game_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except sqlite3.OperationalError:
+        return None
 
 
 def aggregate_database(
@@ -140,11 +323,16 @@ def aggregate_database(
     seen_hashes: Set[str],
     stats: Dict[str, int]
 ) -> Dict[str, int]:
-    """Aggregate games from a single input database."""
+    """Aggregate games from a single input database.
+
+    Handles both old 'moves' format and new 'game_moves' format,
+    outputting in GameReplayDB-compatible format.
+    """
     source_name = input_path.name
 
     try:
         input_conn = sqlite3.connect(str(input_path))
+        input_conn.row_factory = sqlite3.Row
     except sqlite3.Error as e:
         logger.warning(f"Could not open {input_path}: {e}")
         stats["failed_dbs"] += 1
@@ -157,41 +345,71 @@ def aggregate_database(
             stats["empty_dbs"] += 1
             return stats
 
-        logger.info(f"  Processing {source_name}: {game_count} games")
+        # Detect source format
+        db_format = detect_db_format(input_conn)
+        if db_format == 'unknown':
+            logger.warning(f"  Skipping {source_name}: unknown schema format")
+            stats["failed_dbs"] += 1
+            return stats
 
-        # Get all games
-        games_cursor = input_conn.execute("""
-            SELECT id, board_type, num_players, status, winner_id,
-                   created_at, ended_at, move_count
+        logger.info(f"  Processing {source_name}: {game_count} games (format: {db_format})")
+
+        # Detect games table columns (may vary between versions)
+        cursor = input_conn.execute("PRAGMA table_info(games)")
+        games_columns = {row[1] for row in cursor.fetchall()}
+
+        # Build flexible query based on available columns
+        game_id_col = 'game_id' if 'game_id' in games_columns else 'id'
+        status_col = 'game_status' if 'game_status' in games_columns else 'status'
+        winner_col = 'winner' if 'winner' in games_columns else 'winner_id'
+        moves_col = 'total_moves' if 'total_moves' in games_columns else 'move_count'
+
+        query = f"""
+            SELECT {game_id_col} as game_id, board_type, num_players,
+                   {status_col} as status, {winner_col} as winner,
+                   created_at, ended_at, {moves_col} as move_count
             FROM games
-            WHERE status IN ('completed', 'finished', 'abandoned')
-        """)
+            WHERE {status_col} IN ('completed', 'finished', 'abandoned')
+        """
+
+        games_cursor = input_conn.execute(query)
 
         added = 0
         skipped_dup = 0
         skipped_invalid = 0
 
         for game_row in games_cursor:
-            game_id = game_row[0]
+            game_id = game_row['game_id']
 
-            # Get moves for this game
-            moves_cursor = input_conn.execute("""
-                SELECT id, game_id, player, action_type, action_data,
-                       board_state, move_number
-                FROM moves
-                WHERE game_id = ?
-                ORDER BY move_number
-            """, (game_id,))
-            moves = moves_cursor.fetchall()
+            # Get moves using format-aware function
+            moves = get_moves_from_db(input_conn, game_id, db_format)
+
+            # Create tuple for validation (legacy format)
+            game_tuple = (
+                game_id,
+                game_row['board_type'],
+                game_row['num_players'],
+                game_row['status'],
+                game_row['winner'],
+                game_row['created_at'],
+            )
+            moves_tuples = [
+                (None, game_id, m['player'], m['move_type'], m['move_json'], None, m['move_number'])
+                for m in moves
+            ]
 
             # Validate
-            is_valid, reason = validate_game(game_row, moves)
+            is_valid, reason = validate_game(game_tuple, moves_tuples)
             if not is_valid:
                 skipped_invalid += 1
                 continue
 
-            # Compute hash for deduplication
-            game_hash = compute_game_hash(game_row, moves)
+            # Compute hash for deduplication (using move_json for consistency)
+            hash_data = f"{game_row['board_type']}:{game_row['num_players']}:"
+            for m in moves:
+                hash_data += f"{m['player']}:{m['move_json']},"
+            game_hash = hashlib.sha256(hash_data.encode()).hexdigest()[:16]
+
             if game_hash in seen_hashes:
                 skipped_dup += 1
                 continue
@@ -201,27 +419,38 @@ def aggregate_database(
             # Generate new ID
             new_game_id = f"agg_{game_hash}"
 
-            # Insert game
+            # Insert game (GameReplayDB-compatible format)
             output_conn.execute("""
                 INSERT INTO games
-                (id, original_id, source_db, board_type, num_players,
-                 status, winner_id, created_at, ended_at, move_count, game_hash)
+                (game_id, original_id, source_db, board_type, num_players,
+                 game_status, winner, created_at, ended_at, total_moves, game_hash)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 new_game_id, game_id, source_name,
-                game_row[1], game_row[2], game_row[3], game_row[4],
-                game_row[5], game_row[6], game_row[7], game_hash
+                game_row['board_type'], game_row['num_players'],
+                game_row['status'], game_row['winner'],
+                game_row['created_at'], game_row['ended_at'],
+                game_row['move_count'], game_hash
             ))
 
-            # Insert moves
-            for move in moves:
+            # Insert moves (GameReplayDB-compatible format)
+            for m in moves:
                 output_conn.execute("""
-                    INSERT INTO moves
-                    (game_id, move_number, player, action_type, action_data, board_state)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO game_moves
+                    (game_id, move_number, turn_number, player, phase, move_type, move_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    new_game_id, move[6], move[2], move[3], move[4], move[5]
+                    new_game_id, m['move_number'], m['turn_number'],
+                    m['player'], m['phase'], m['move_type'], m['move_json']
                 ))
+
+            # Copy initial state if available
+            initial_state = get_initial_state_from_db(input_conn, game_id)
+            if initial_state:
+                output_conn.execute("""
+                    INSERT INTO game_initial_state (game_id, state_json)
+                    VALUES (?, ?)
+                """, (new_game_id, initial_state))
 
             added += 1
 
@@ -313,10 +542,11 @@ def main():
     for db_path in input_dbs:
         stats = aggregate_database(db_path, output_conn, seen_hashes, stats)
 
-    # Add metadata
+    # Add schema metadata (GameReplayDB-compatible)
     output_conn.execute("""
-        INSERT OR REPLACE INTO metadata (key, value) VALUES
-        ('schema_version', '1.0'),
+        INSERT OR REPLACE INTO schema_metadata (key, value) VALUES
+        ('schema_version', '9'),
+        ('aggregator_version', '2.0'),
         ('created_at', ?),
         ('source_dir', ?),
         ('dbs_processed', ?),
@@ -325,9 +555,9 @@ def main():
     """, (
         datetime.now().isoformat(),
         str(input_dir),
-        stats["dbs_processed"],
-        stats["games_added"],
-        stats["games_skipped_dup"]
+        str(stats["dbs_processed"]),
+        str(stats["games_added"]),
+        str(stats["games_skipped_dup"])
     ))
     output_conn.commit()
     output_conn.close()
