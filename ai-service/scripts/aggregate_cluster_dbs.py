@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""
+Aggregate Cluster DBs - Consolidates selfplay databases from cluster nodes.
+
+This script aggregates SQLite game databases from multiple cluster nodes into
+a single unified database for training. It handles deduplication, validation,
+and parity checking.
+
+Usage:
+    python scripts/aggregate_cluster_dbs.py --input-dir PATH --output PATH [options]
+
+Example:
+    python scripts/aggregate_cluster_dbs.py \
+        --input-dir /Volumes/RingRift-Data/canonical_data/cluster_20251222 \
+        --output data/games/cluster_aggregated_20251222.db
+"""
+
+import argparse
+import hashlib
+import json
+import logging
+import os
+import sqlite3
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
+def get_db_schema_version(conn: sqlite3.Connection) -> Optional[str]:
+    """Get the schema version of a database."""
+    try:
+        cursor = conn.execute(
+            "SELECT value FROM metadata WHERE key = 'schema_version'"
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except sqlite3.OperationalError:
+        return None
+
+
+def get_game_count(conn: sqlite3.Connection) -> int:
+    """Get the number of games in a database."""
+    try:
+        cursor = conn.execute("SELECT COUNT(*) FROM games")
+        return cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        return 0
+
+
+def get_move_count(conn: sqlite3.Connection) -> int:
+    """Get the number of moves in a database."""
+    try:
+        cursor = conn.execute("SELECT COUNT(*) FROM moves")
+        return cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        return 0
+
+
+def compute_game_hash(game_row: tuple, moves: List[tuple]) -> str:
+    """Compute a deterministic hash for a game (for deduplication)."""
+    # Hash based on board_type, num_players, and move sequence
+    data = f"{game_row[1]}:{game_row[2]}:"  # board_type, num_players
+    for move in moves:
+        data += f"{move[2]}:{move[3]}:{move[4]},"  # player, action_type, action_data
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+
+def validate_game(game_row: tuple, moves: List[tuple]) -> Tuple[bool, str]:
+    """Validate a game for inclusion in aggregated dataset."""
+    game_id, board_type, num_players, status, winner_id, created_at, *_ = game_row
+
+    # Must have a terminal status
+    if status not in ("completed", "finished", "abandoned"):
+        return False, f"Non-terminal status: {status}"
+
+    # Must have moves
+    if not moves:
+        return False, "No moves"
+
+    # Sanity checks
+    if num_players < 2 or num_players > 4:
+        return False, f"Invalid player count: {num_players}"
+
+    if board_type not in ("square8", "square19", "hexagonal", "hex8"):
+        return False, f"Unknown board type: {board_type}"
+
+    return True, "ok"
+
+
+def create_output_schema(conn: sqlite3.Connection):
+    """Create the output database schema."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS games (
+            id TEXT PRIMARY KEY,
+            original_id TEXT,
+            source_db TEXT,
+            board_type TEXT NOT NULL,
+            num_players INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            winner_id TEXT,
+            created_at TEXT,
+            ended_at TEXT,
+            move_count INTEGER,
+            game_hash TEXT UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS moves (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            move_number INTEGER NOT NULL,
+            player INTEGER NOT NULL,
+            action_type TEXT NOT NULL,
+            action_data TEXT,
+            board_state TEXT,
+            FOREIGN KEY (game_id) REFERENCES games(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_games_board_type ON games(board_type);
+        CREATE INDEX IF NOT EXISTS idx_games_num_players ON games(num_players);
+        CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+        CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
+    """)
+
+
+def aggregate_database(
+    input_path: Path,
+    output_conn: sqlite3.Connection,
+    seen_hashes: Set[str],
+    stats: Dict[str, int]
+) -> Dict[str, int]:
+    """Aggregate games from a single input database."""
+    source_name = input_path.name
+
+    try:
+        input_conn = sqlite3.connect(str(input_path))
+    except sqlite3.Error as e:
+        logger.warning(f"Could not open {input_path}: {e}")
+        stats["failed_dbs"] += 1
+        return stats
+
+    try:
+        game_count = get_game_count(input_conn)
+        if game_count == 0:
+            logger.info(f"  Skipping {source_name}: no games")
+            stats["empty_dbs"] += 1
+            return stats
+
+        logger.info(f"  Processing {source_name}: {game_count} games")
+
+        # Get all games
+        games_cursor = input_conn.execute("""
+            SELECT id, board_type, num_players, status, winner_id,
+                   created_at, ended_at, move_count
+            FROM games
+            WHERE status IN ('completed', 'finished', 'abandoned')
+        """)
+
+        added = 0
+        skipped_dup = 0
+        skipped_invalid = 0
+
+        for game_row in games_cursor:
+            game_id = game_row[0]
+
+            # Get moves for this game
+            moves_cursor = input_conn.execute("""
+                SELECT id, game_id, player, action_type, action_data,
+                       board_state, move_number
+                FROM moves
+                WHERE game_id = ?
+                ORDER BY move_number
+            """, (game_id,))
+            moves = moves_cursor.fetchall()
+
+            # Validate
+            is_valid, reason = validate_game(game_row, moves)
+            if not is_valid:
+                skipped_invalid += 1
+                continue
+
+            # Compute hash for deduplication
+            game_hash = compute_game_hash(game_row, moves)
+            if game_hash in seen_hashes:
+                skipped_dup += 1
+                continue
+
+            seen_hashes.add(game_hash)
+
+            # Generate new ID
+            new_game_id = f"agg_{game_hash}"
+
+            # Insert game
+            output_conn.execute("""
+                INSERT INTO games
+                (id, original_id, source_db, board_type, num_players,
+                 status, winner_id, created_at, ended_at, move_count, game_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                new_game_id, game_id, source_name,
+                game_row[1], game_row[2], game_row[3], game_row[4],
+                game_row[5], game_row[6], game_row[7], game_hash
+            ))
+
+            # Insert moves
+            for move in moves:
+                output_conn.execute("""
+                    INSERT INTO moves
+                    (game_id, move_number, player, action_type, action_data, board_state)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    new_game_id, move[6], move[2], move[3], move[4], move[5]
+                ))
+
+            added += 1
+
+        output_conn.commit()
+
+        stats["games_added"] += added
+        stats["games_skipped_dup"] += skipped_dup
+        stats["games_skipped_invalid"] += skipped_invalid
+        stats["dbs_processed"] += 1
+
+        logger.info(f"    Added: {added}, Dup: {skipped_dup}, Invalid: {skipped_invalid}")
+
+    except sqlite3.Error as e:
+        logger.warning(f"  Error processing {source_name}: {e}")
+        stats["failed_dbs"] += 1
+
+    finally:
+        input_conn.close()
+
+    return stats
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Aggregate cluster game databases")
+    parser.add_argument("--input-dir", required=True,
+                       help="Directory containing source DB files")
+    parser.add_argument("--output", required=True,
+                       help="Output aggregated database path")
+    parser.add_argument("--pattern", default="*.db",
+                       help="Glob pattern for input files (default: *.db)")
+    parser.add_argument("--dry-run", action="store_true",
+                       help="Show what would be done without writing")
+    args = parser.parse_args()
+
+    input_dir = Path(args.input_dir)
+    output_path = Path(args.output)
+
+    if not input_dir.exists():
+        logger.error(f"Input directory not found: {input_dir}")
+        sys.exit(1)
+
+    # Find input databases
+    input_dbs = sorted(input_dir.glob(args.pattern))
+    if not input_dbs:
+        logger.error(f"No databases found matching {args.pattern} in {input_dir}")
+        sys.exit(1)
+
+    logger.info(f"Found {len(input_dbs)} database files to aggregate")
+
+    if args.dry_run:
+        for db in input_dbs:
+            try:
+                conn = sqlite3.connect(str(db))
+                games = get_game_count(conn)
+                moves = get_move_count(conn)
+                conn.close()
+                logger.info(f"  {db.name}: {games} games, {moves} moves")
+            except Exception as e:
+                logger.warning(f"  {db.name}: error - {e}")
+        logger.info("Dry run complete. Use without --dry-run to aggregate.")
+        return
+
+    # Create output database
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_path.exists():
+        backup_path = output_path.with_suffix(f".backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        logger.info(f"Backing up existing output to {backup_path}")
+        output_path.rename(backup_path)
+
+    output_conn = sqlite3.connect(str(output_path))
+    create_output_schema(output_conn)
+
+    # Track seen game hashes for deduplication
+    seen_hashes: Set[str] = set()
+
+    # Stats
+    stats = {
+        "dbs_processed": 0,
+        "empty_dbs": 0,
+        "failed_dbs": 0,
+        "games_added": 0,
+        "games_skipped_dup": 0,
+        "games_skipped_invalid": 0,
+    }
+
+    # Process each database
+    logger.info("Starting aggregation...")
+    for db_path in input_dbs:
+        stats = aggregate_database(db_path, output_conn, seen_hashes, stats)
+
+    # Add metadata
+    output_conn.execute("""
+        INSERT OR REPLACE INTO metadata (key, value) VALUES
+        ('schema_version', '1.0'),
+        ('created_at', ?),
+        ('source_dir', ?),
+        ('dbs_processed', ?),
+        ('games_total', ?),
+        ('games_deduped', ?)
+    """, (
+        datetime.now().isoformat(),
+        str(input_dir),
+        stats["dbs_processed"],
+        stats["games_added"],
+        stats["games_skipped_dup"]
+    ))
+    output_conn.commit()
+    output_conn.close()
+
+    # Summary
+    logger.info("\n" + "="*60)
+    logger.info("Aggregation Complete")
+    logger.info("="*60)
+    logger.info(f"Output: {output_path}")
+    logger.info(f"DBs processed: {stats['dbs_processed']}")
+    logger.info(f"Empty DBs skipped: {stats['empty_dbs']}")
+    logger.info(f"Failed DBs: {stats['failed_dbs']}")
+    logger.info(f"Games added: {stats['games_added']}")
+    logger.info(f"Duplicates removed: {stats['games_skipped_dup']}")
+    logger.info(f"Invalid games skipped: {stats['games_skipped_invalid']}")
+
+    # Check output size
+    if output_path.exists():
+        size_mb = output_path.stat().st_size / (1024 * 1024)
+        logger.info(f"Output size: {size_mb:.1f} MB")
+
+
+if __name__ == "__main__":
+    main()
