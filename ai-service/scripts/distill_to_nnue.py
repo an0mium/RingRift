@@ -665,6 +665,7 @@ def main() -> None:
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
         "hexagonal": BoardType.HEXAGONAL,
+        "hex8": BoardType.HEX8,
     }
     board_type = board_type_map[args.board_type]
 
