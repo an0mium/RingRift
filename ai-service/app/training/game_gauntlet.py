@@ -228,6 +228,9 @@ def create_neural_ai(
         if isinstance(model_info, dict):
             if 'state_dict' in model_info:
                 state_dict = model_info['state_dict']
+            elif 'model_state_dict' in model_info:
+                # Versioned checkpoint format
+                state_dict = model_info['model_state_dict']
             else:
                 # Assume the dict is the state_dict itself
                 state_dict = model_info

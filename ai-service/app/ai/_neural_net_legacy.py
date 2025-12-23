@@ -4105,6 +4105,13 @@ class NeuralNetAI(BaseAI):
         """
         import re
 
+        # Handle nested checkpoint formats (versioned checkpoints)
+        if isinstance(state_dict, dict):
+            if 'model_state_dict' in state_dict:
+                state_dict = state_dict['model_state_dict']
+            elif 'state_dict' in state_dict:
+                state_dict = state_dict['state_dict']
+
         # Strip module. prefix (DDP compatibility)
         state_dict = _strip_module_prefix(state_dict)
 

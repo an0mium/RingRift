@@ -257,6 +257,7 @@ RINGRIFT_CNN_V3_VERSION = "v3.1.0"
 RINGRIFT_CNN_V4_VERSION = "v4.0.0"
 HEX_NEURAL_NET_V2_VERSION = "v2.0.0"
 HEX_NEURAL_NET_V3_VERSION = "v3.0.0"
+HEX_NEURAL_NET_V4_VERSION = "v4.0.0"
 
 # Model class name to version mapping
 MODEL_VERSIONS: dict[str, str] = {
@@ -271,6 +272,7 @@ MODEL_VERSIONS: dict[str, str] = {
     "HexNeuralNet_v2_Lite": "v2.0.0-lite",
     "HexNeuralNet_v3": HEX_NEURAL_NET_V3_VERSION,
     "HexNeuralNet_v3_Lite": "v3.0.0-lite",
+    "HexNeuralNet_v4": HEX_NEURAL_NET_V4_VERSION,
 }
 
 
@@ -346,6 +348,48 @@ def get_model_config(model: nn.Module) -> dict[str, Any]:
             "board_size": getattr(model, "board_size", 25),  # Radius-12 hex: 25×25 frame
             "policy_size": getattr(model, "policy_size", 91876),  # P_HEX for radius-12
         }
+    elif class_name in ("HexNeuralNet_v3", "HexNeuralNet_v3_Lite"):
+        # HexNeuralNet_v3: critical shape-defining params for compatibility checks
+        config = {
+            "in_channels": getattr(model, "in_channels", 16),
+            "global_features": getattr(model, "global_features", 20),
+            "num_res_blocks": getattr(model, "num_res_blocks", 12),
+            "num_filters": getattr(model, "num_filters", 192),
+            "board_size": getattr(model, "board_size", 25),
+            "policy_size": getattr(model, "policy_size", 91876),
+            "num_players": getattr(model, "num_players", 4),
+            # Critical compatibility parameters
+            "max_distance": getattr(model, "max_distance", 24),
+            "num_directions": getattr(model, "num_directions", 6),
+            "movement_channels": getattr(model, "movement_channels", 144),
+            "num_ring_counts": getattr(model, "num_ring_counts", 3),
+            "num_line_dirs": getattr(model, "num_line_dirs", 4),
+        }
+        # Capture movement_idx shape from buffer if available
+        if hasattr(model, "movement_idx"):
+            config["movement_idx_shape"] = list(model.movement_idx.shape)
+    elif class_name == "HexNeuralNet_v4":
+        # HexNeuralNet_v4: NAS-optimized architecture with attention
+        config = {
+            "in_channels": getattr(model, "in_channels", 64),
+            "global_features": getattr(model, "global_features", 20),
+            "num_blocks": getattr(model, "num_blocks", 13),
+            "num_filters": getattr(model, "num_filters", 128),
+            "board_size": getattr(model, "board_size", 25),
+            "policy_size": getattr(model, "policy_size", 91876),
+            "num_players": getattr(model, "num_players", 4),
+            # Critical compatibility parameters
+            "max_distance": getattr(model, "max_distance", 24),
+            "num_directions": getattr(model, "num_directions", 6),
+            "movement_channels": getattr(model, "movement_channels", 144),
+            "num_ring_counts": getattr(model, "num_ring_counts", 3),
+            "num_line_dirs": getattr(model, "num_line_dirs", 4),
+            # V4-specific
+            "attention_heads": getattr(model, "attention_heads", 4),
+        }
+        # Capture movement_idx shape from buffer if available
+        if hasattr(model, "movement_idx"):
+            config["movement_idx_shape"] = list(model.movement_idx.shape)
     else:
         # Generic extraction for unknown models
         attrs = ['board_size', 'in_channels', 'num_filters', 'policy_size']
@@ -371,7 +415,7 @@ def get_model_config(model: nn.Module) -> dict[str, Any]:
         if hex_radius is not None:
             # Hex model: radius 4 = hex8, radius 12 = hexagonal
             config["board_type"] = "hex8" if hex_radius <= 4 else "hexagonal"
-        elif class_name in ("HexNeuralNet_v2", "HexNeuralNet_v2_Lite", "HexNeuralNet_v3", "HexNeuralNet_v3_Lite"):
+        elif class_name in ("HexNeuralNet_v2", "HexNeuralNet_v2_Lite", "HexNeuralNet_v3", "HexNeuralNet_v3_Lite", "HexNeuralNet_v4"):
             # Hex model without explicit radius - infer from board_size
             config["board_type"] = "hex8" if board_size <= 9 else "hexagonal"
         elif board_size == 8:
@@ -765,8 +809,11 @@ class ModelVersionManager:
         # Critical keys that affect tensor shapes and feature compatibility
         critical_keys = {
             'board_size', 'total_in_channels', 'in_channels',
-            'num_filters', 'num_res_blocks', 'policy_size',
+            'num_filters', 'num_res_blocks', 'num_blocks', 'policy_size',
             'global_features', 'feature_version',  # feature_version affects encoding
+            # Hex model critical keys (v3/v4)
+            'max_distance', 'movement_channels', 'num_directions',
+            'num_ring_counts', 'num_line_dirs', 'movement_idx_shape',
         }
 
         keys_to_check = (
@@ -1065,3 +1112,163 @@ def save_model_checkpoint(
     )
 
     return metadata
+
+
+def check_checkpoint_compatibility(
+    checkpoint_path: str,
+    expected_model_class: str,
+    expected_config: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """
+    Check if a checkpoint is compatible with an expected model configuration.
+
+    This function performs compatibility checking by:
+    1. Reading checkpoint metadata if available
+    2. Comparing model class and critical configuration values
+    3. Checking state_dict tensor shapes for shape mismatches
+
+    Args:
+        checkpoint_path: Path to the checkpoint file.
+        expected_model_class: Expected model class name (e.g., "HexNeuralNet_v3").
+        expected_config: Optional dict of expected configuration values to check.
+
+    Returns:
+        Tuple of (is_compatible: bool, reason: str).
+        If compatible, reason is "compatible".
+        If not compatible, reason describes the incompatibility.
+
+    Example:
+        compatible, reason = check_checkpoint_compatibility(
+            "models/hex8_v3.pth",
+            "HexNeuralNet_v3",
+            {"in_channels": 16, "movement_channels": 48}
+        )
+        if not compatible:
+            print(f"Checkpoint incompatible: {reason}")
+    """
+    if not os.path.exists(checkpoint_path):
+        return False, f"File not found: {checkpoint_path}"
+
+    try:
+        checkpoint = safe_load_checkpoint(
+            checkpoint_path,
+            map_location=torch.device("cpu"),
+            warn_on_unsafe=False,
+        )
+    except Exception as e:
+        return False, f"Failed to load checkpoint: {e}"
+
+    manager = ModelVersionManager()
+
+    # Check if checkpoint has metadata
+    if manager.METADATA_KEY in checkpoint:
+        metadata = ModelMetadata.from_dict(checkpoint[manager.METADATA_KEY])
+
+        # Check model class
+        if metadata.model_class != expected_model_class:
+            return False, (
+                f"Model class mismatch: checkpoint has {metadata.model_class}, "
+                f"expected {expected_model_class}"
+            )
+
+        # Check configuration values
+        if expected_config:
+            for key, expected_value in expected_config.items():
+                if key in metadata.config:
+                    actual_value = metadata.config[key]
+                    if actual_value != expected_value:
+                        return False, (
+                            f"Config mismatch for '{key}': "
+                            f"checkpoint has {actual_value}, expected {expected_value}"
+                        )
+
+    # Check state_dict shapes for critical tensors
+    state_dict = checkpoint.get(manager.STATE_DICT_KEY, checkpoint)
+    if not isinstance(state_dict, dict):
+        return False, "Could not extract state_dict from checkpoint"
+
+    # Check for common shape-defining tensors
+    critical_shapes = {}
+    for key in ['conv1.weight', 'movement_idx', 'movement_conv.weight', 'movement_conv.bias']:
+        if key in state_dict:
+            critical_shapes[key] = list(state_dict[key].shape)
+
+    if expected_config and 'expected_shapes' in expected_config:
+        for key, expected_shape in expected_config['expected_shapes'].items():
+            if key in critical_shapes:
+                actual_shape = critical_shapes[key]
+                if actual_shape != expected_shape:
+                    return False, (
+                        f"Shape mismatch for '{key}': "
+                        f"checkpoint has {actual_shape}, expected {expected_shape}"
+                    )
+
+    return True, "compatible"
+
+
+def get_checkpoint_info(checkpoint_path: str) -> dict[str, Any]:
+    """
+    Extract information from a checkpoint file for diagnostics.
+
+    Args:
+        checkpoint_path: Path to checkpoint file.
+
+    Returns:
+        Dict with checkpoint information including:
+        - has_metadata: bool
+        - model_class: str or None
+        - architecture_version: str or None
+        - config: dict or None
+        - critical_shapes: dict of tensor name -> shape
+        - created_at: str or None
+    """
+    info: dict[str, Any] = {
+        "has_metadata": False,
+        "model_class": None,
+        "architecture_version": None,
+        "config": None,
+        "critical_shapes": {},
+        "created_at": None,
+        "error": None,
+    }
+
+    if not os.path.exists(checkpoint_path):
+        info["error"] = f"File not found: {checkpoint_path}"
+        return info
+
+    try:
+        checkpoint = safe_load_checkpoint(
+            checkpoint_path,
+            map_location=torch.device("cpu"),
+            warn_on_unsafe=False,
+        )
+    except Exception as e:
+        info["error"] = f"Failed to load checkpoint: {e}"
+        return info
+
+    manager = ModelVersionManager()
+
+    # Extract metadata if present
+    if manager.METADATA_KEY in checkpoint:
+        info["has_metadata"] = True
+        try:
+            metadata = ModelMetadata.from_dict(checkpoint[manager.METADATA_KEY])
+            info["model_class"] = metadata.model_class
+            info["architecture_version"] = metadata.architecture_version
+            info["config"] = metadata.config
+            info["created_at"] = metadata.created_at
+        except Exception as e:
+            info["error"] = f"Failed to parse metadata: {e}"
+
+    # Extract critical shapes
+    state_dict = checkpoint.get(manager.STATE_DICT_KEY, checkpoint)
+    if isinstance(state_dict, dict):
+        critical_keys = [
+            'conv1.weight', 'movement_idx', 'movement_conv.weight',
+            'movement_conv.bias', 'placement_conv.weight', 'policy_head.weight',
+        ]
+        for key in critical_keys:
+            if key in state_dict and hasattr(state_dict[key], 'shape'):
+                info["critical_shapes"][key] = list(state_dict[key].shape)
+
+    return info

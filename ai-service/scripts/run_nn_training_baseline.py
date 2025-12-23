@@ -346,6 +346,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Enable D6 symmetry augmentation for hex boards (12x effective data).",
     )
+    parser.add_argument(
+        "--no-gauntlet",
+        action="store_true",
+        help=(
+            "Disable baseline gauntlet evaluation during training. "
+            "Useful when training new architectures that may have incompatible "
+            "checkpoints, or for faster experimental runs."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -561,6 +570,11 @@ def main(argv: list[str] | None = None) -> int:
         enabled.append(f"policy_label_smoothing={training_improvements['policy_label_smoothing']}")
     if enabled:
         print(f"[Training] 2024-12 improvements enabled: {', '.join(enabled)}")
+
+    # Handle --no-gauntlet flag to disable baseline evaluation
+    if args.no_gauntlet:
+        training_improvements['enable_background_eval'] = False
+        print("[Training] Baseline gauntlet evaluation DISABLED (--no-gauntlet)")
 
     train_model(
         config=train_cfg,
