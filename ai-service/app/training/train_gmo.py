@@ -175,7 +175,7 @@ class GMODataset(Dataset):
             # Apply random D4 transform (0-7)
             transform_idx = random.randint(0, 7)
             if transform_idx > 0:  # 0 is identity
-                features_2d = self.augmentor.transformer.apply_transform(
+                features_2d = self.augmentor.transform_board(
                     features_2d, transform_idx
                 )
             # Reshape back to 1D
