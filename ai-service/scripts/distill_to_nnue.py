@@ -158,11 +158,10 @@ def load_teacher_model(
     if neural_ai.model is None:
         raise RuntimeError(f"Failed to load model from {model_path}")
 
-    model = neural_ai.model
-    model.eval()
+    neural_ai.model.eval()
 
-    logger.info(f"Loaded teacher model: {type(model).__name__}")
-    return model
+    logger.info(f"Loaded teacher model: {type(neural_ai.model).__name__}")
+    return neural_ai  # Return NeuralNetAI wrapper, not bare model
 
 
 def get_nn_value(
@@ -347,8 +346,9 @@ def train_nnue_distillation(
     Returns:
         Tuple of (trained NNUE model, training metrics dict)
     """
-    teacher_model.eval()
-    for param in teacher_model.parameters():
+    # teacher_model is NeuralNetAI, access the inner model for PyTorch operations
+    teacher_model.model.eval()
+    for param in teacher_model.model.parameters():
         param.requires_grad = False
 
     student_model = student_model.to(device)

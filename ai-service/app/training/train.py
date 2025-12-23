@@ -1426,14 +1426,30 @@ def train_model(
 
         if inferred_in_channels is not None:
             if inferred_in_channels != expected_in_channels:
+                # Determine which model version the data was encoded for
+                if inferred_in_channels == 40:
+                    data_encoding = "V2 (10 base channels × 4 frames = 40)"
+                    compatible_versions = "v2"
+                elif inferred_in_channels == 64:
+                    data_encoding = "V3/V4 (16 base channels × 4 frames = 64)"
+                    compatible_versions = "v3 or v4"
+                else:
+                    data_encoding = f"unknown ({inferred_in_channels} channels)"
+                    compatible_versions = "unknown"
+
                 raise ValueError(
-                    "Hex dataset feature channels do not match the selected model version.\n"
-                    f"  dataset={data_path_str}\n"
-                    f"  inferred_in_channels={inferred_in_channels}\n"
-                    f"  expected_in_channels={expected_in_channels}\n"
-                    f"  model_version={model_version}\n"
-                    "Regenerate the dataset with the matching encoder version "
-                    "or adjust --model-version."
+                    f"\n{'='*70}\n"
+                    f"EARLY VALIDATION FAILURE: Dataset/model version mismatch\n"
+                    f"{'='*70}\n\n"
+                    f"Dataset: {data_path_str}\n"
+                    f"  - Has {inferred_in_channels} input channels ({data_encoding})\n"
+                    f"  - Compatible with: --model-version {compatible_versions}\n\n"
+                    f"Requested: --model-version {model_version}\n"
+                    f"  - Expects {expected_in_channels} input channels\n\n"
+                    f"SOLUTIONS:\n"
+                    f"  1. Use --model-version {compatible_versions} (recommended for existing data)\n"
+                    f"  2. Regenerate dataset with V3/V4 encoder for {model_version} models\n"
+                    f"{'='*70}"
                 )
             hex_in_channels = inferred_in_channels
             if not distributed or is_main_process():

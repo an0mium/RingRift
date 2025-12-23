@@ -4128,11 +4128,16 @@ class NeuralNetAI(BaseAI):
         v3_rank_dist_keys = ("rank_dist_fc1.weight", "rank_dist_fc2.weight")
         v2_policy_keys = ("policy_fc1.weight", "policy_fc2.weight")
         v4_attention_patterns = ("res_blocks.0.query.weight", "res_blocks.0.key.weight")
+        # Hex model signatures - hex_mask is the definitive marker
+        hex_model_keys = ("hex_mask",)
+        hex_v3_keys = ("placement_conv.weight", "movement_conv.weight")  # HexNeuralNet_v3 spatial heads
 
         has_v3_spatial = any(k in state_dict for k in v3_spatial_keys)
         has_v3_rank_dist = any(k in state_dict for k in v3_rank_dist_keys)
         has_v2_policy = any(k in state_dict for k in v2_policy_keys)
         has_v4_attention = any(k in state_dict for k in v4_attention_patterns)
+        is_hex_model = any(k in state_dict for k in hex_model_keys)
+        has_hex_v3_spatial = any(k in state_dict for k in hex_v3_keys)
 
         # Check value_fc1 hidden size to distinguish Lite from full models
         # V2/V3 full: 128 hidden units, Lite: 64 hidden units
@@ -4142,7 +4147,13 @@ class NeuralNetAI(BaseAI):
             hidden_units = int(value_fc1_weight.shape[0])
             is_lite_fc = hidden_units <= 64
 
-        if has_v4_attention:
+        # Hex model detection takes priority
+        if is_hex_model:
+            if has_hex_v3_spatial:
+                model_class_name = "HexNeuralNet_v3_Lite" if is_lite_fc else "HexNeuralNet_v3"
+            else:
+                model_class_name = "HexNeuralNet_v2_Lite" if is_lite_fc else "HexNeuralNet_v2"
+        elif has_v4_attention:
             model_class_name = "RingRiftCNN_v4"
         elif has_v3_spatial and has_v3_rank_dist:
             # Lite models have smaller FC layers (is_lite_fc) - prioritize this check
@@ -4176,6 +4187,13 @@ class NeuralNetAI(BaseAI):
             "RingRiftCNN_v4": RingRiftCNN_v4,
         }
 
+        hex_model_classes = {
+            "HexNeuralNet_v2": HexNeuralNet_v2,
+            "HexNeuralNet_v2_Lite": HexNeuralNet_v2_Lite,
+            "HexNeuralNet_v3": HexNeuralNet_v3,
+            "HexNeuralNet_v3_Lite": HexNeuralNet_v3_Lite,
+        }
+
         if model_class_name in square_model_classes:
             cls = square_model_classes[model_class_name]
             self.model = cls(
@@ -4186,6 +4204,17 @@ class NeuralNetAI(BaseAI):
                 num_filters=num_filters,
                 history_length=history_length_override,
                 policy_size=policy_size_override,
+                num_players=num_players_override,
+            )
+        elif model_class_name in hex_model_classes:
+            cls = hex_model_classes[model_class_name]
+            # Hex models use different in_channels: v3=16, v2=10
+            hex_in_channels = in_channels_override or (16 if "v3" in model_class_name else 10)
+            self.model = cls(
+                board_size=self.board_size,
+                in_channels=hex_in_channels,
+                num_res_blocks=num_res_blocks,
+                num_filters=num_filters,
                 num_players=num_players_override,
             )
         else:

@@ -82,6 +82,7 @@ logger = setup_script_logging("jsonl_to_npz")
 from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.game_engine import GameEngine
 from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
+from app.rules.global_actions import apply_forced_elimination_for_player
 from app.rules.serialization import deserialize_game_state
 from app.training.encoding import HexStateEncoder, HexStateEncoderV3
 
@@ -162,6 +163,7 @@ def _complete_remaining_phases(
         MoveType.OVERTAKING_CAPTURE: ["capture"],
         MoveType.SKIP_CAPTURE: ["capture"],
         MoveType.CONTINUE_CAPTURE_SEGMENT: ["chain_capture"],
+        MoveType.FORCED_ELIMINATION: ["forced_elimination"],
     }
 
     target_phases = MOVE_VALID_PHASES.get(target_move_type, []) if target_move_type else []
@@ -200,11 +202,54 @@ def _complete_remaining_phases(
             continue
 
         # If we're at ring_placement for target player but need a different phase,
-        # we can't skip ring placement - return as-is
+        # try to skip placement (GPU selfplay records placement+movement for same player)
         if phase_str == "ring_placement" and current_player == target_player and target_move_type and target_phases and "ring_placement" not in target_phases:
-            # This shouldn't happen - we need ring_placement but target wants different phase
-            # Return as-is and let caller handle
-            return state
+            # GPU selfplay format: player places ring then immediately moves
+            # Try to skip placement to advance to movement phase
+            no_place_move = Move(
+                id="auto_skip_placement",
+                type=MoveType.NO_PLACEMENT_ACTION,
+                player=current_player,
+                timestamp="1970-01-01T00:00:00Z",
+                thinkTime=0,
+                moveNumber=0,
+            )
+            try:
+                state = GameEngine.apply_move(state, no_place_move)
+                iterations += 1
+                continue  # Try again after skipping placement
+            except Exception:
+                # Can't skip placement - must place a ring first
+                # Return as-is and let caller handle
+                return state
+
+        # Handle forced_elimination phase - GPU selfplay applies this implicitly
+        if phase_str == "forced_elimination":
+            # Apply forced elimination for the current player (mutates state)
+            import sys
+            print(f"DEBUG: In forced_elimination phase, player={current_player}, target={target_player}", file=sys.stderr)
+            result = apply_forced_elimination_for_player(state, current_player)
+            if result:
+                state = result.next_state
+                print(f"DEBUG: Applied forced_elimination, new phase={_get_phase_str(state)}", file=sys.stderr)
+                iterations += 1
+                continue
+            else:
+                # No forced elimination applicable, try other players or return
+                print(f"DEBUG: No forced_elimination for player {current_player}, checking others", file=sys.stderr)
+                # Try all players in case FE is required for a different player
+                for p in range(1, len(state.players) + 1):
+                    result = apply_forced_elimination_for_player(state, p)
+                    if result:
+                        state = result.next_state
+                        print(f"DEBUG: Applied forced_elimination for player {p}, new phase={_get_phase_str(state)}", file=sys.stderr)
+                        break
+                else:
+                    # No forced elimination for anyone - return as-is
+                    print(f"DEBUG: No forced_elimination for any player", file=sys.stderr)
+                    return state
+                iterations += 1
+                continue
 
         # Check if we can apply a no-action move for the current phase
         if phase_str in NO_ACTION_MOVES:
@@ -424,8 +469,12 @@ def _process_gpu_selfplay_record(
             # Apply move for next iteration
             current_state = GameEngine.apply_move(current_state, move)
 
-        except Exception:
+        except Exception as e:
             # Stop on error - state may be desynced
+            import sys
+            print(f"DEBUG: Exception at move {move_idx}: {type(e).__name__}: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
             break
 
     return (features_list, globals_list, values_list, values_mp_list,
@@ -434,7 +483,33 @@ def _process_gpu_selfplay_record(
 
 
 def _move_type_from_str(type_str: str) -> MoveType | None:
-    """Convert move type string to MoveType enum."""
+    """Convert move type string to MoveType enum.
+
+    Handles both canonical MoveType values (e.g., 'place_ring') and
+    GPU selfplay simplified names (e.g., 'PLACEMENT').
+    """
+    # GPU selfplay uses simplified names - map them to canonical MoveType values
+    GPU_SELFPLAY_MAP = {
+        'PLACEMENT': 'place_ring',
+        'MOVEMENT': 'move_stack',
+        'NO_LINE_ACTION': 'no_line_action',
+        'NO_TERRITORY_ACTION': 'no_territory_action',
+        'OVERTAKING_CAPTURE': 'overtaking_capture',
+        'CONTINUE_CAPTURE': 'continue_capture_segment',
+        'SKIP_CAPTURE': 'skip_capture',
+        'SWAP_SIDES': 'swap_sides',
+        'LINE_FORMATION': 'line_formation',
+        'TERRITORY_CLAIM': 'territory_claim',
+        'CHAIN_CAPTURE': 'chain_capture',
+        'FORCED_ELIMINATION': 'forced_elimination',
+        'RECOVERY_SLIDE': 'recovery_slide',
+        'SKIP_RECOVERY': 'skip_recovery',
+    }
+
+    # Try GPU selfplay mapping first
+    if type_str in GPU_SELFPLAY_MAP:
+        type_str = GPU_SELFPLAY_MAP[type_str]
+
     try:
         return MoveType(type_str)
     except ValueError:
