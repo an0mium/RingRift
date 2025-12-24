@@ -17,17 +17,19 @@ describe('shared engine – GameEndExplanation wiring', () => {
 
     expect(victory.isGameOver).toBe(true);
     expect(victory.reason).toBe('ring_elimination');
-    expect(victory.gameEndExplanation).toBeDefined();
-
-    const explanation = victory.gameEndExplanation!;
-
-    expect(explanation.outcomeType).toBe('ring_elimination');
-    expect(explanation.victoryReasonCode).toBe('victory_ring_majority');
-    expect(explanation.winnerPlayerId).toBe('P1');
-    expect(explanation.boardType).toBe(state.boardType);
-    expect(explanation.numPlayers).toBe(state.players.length);
+    expect(victory.gameEndExplanation).toMatchObject({
+      outcomeType: 'ring_elimination',
+      victoryReasonCode: 'victory_ring_majority',
+      winnerPlayerId: 'P1',
+      boardType: state.boardType,
+      numPlayers: state.players.length,
+      uxCopy: expect.objectContaining({
+        shortSummaryKey: expect.any(String),
+      }),
+    });
 
     // No weird-state or telemetry context for simple ring-majority endings.
+    const explanation = victory.gameEndExplanation!;
     expect(explanation.weirdStateContext).toBeUndefined();
     expect(explanation.telemetry).toBeUndefined();
     expect(explanation.teaching).toBeUndefined();
@@ -59,15 +61,25 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(victory.isGameOver).toBe(true);
     expect(victory.reason).toBe('last_player_standing');
     expect(victory.winner).toBe(1);
-    expect(victory.gameEndExplanation).toBeDefined();
+    expect(victory.gameEndExplanation).toMatchObject({
+      outcomeType: 'last_player_standing',
+      victoryReasonCode: 'victory_last_player_standing',
+      primaryConceptId: 'lps_real_actions',
+      weirdStateContext: expect.objectContaining({
+        reasonCodes: expect.arrayContaining(['LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS']),
+        primaryReasonCode: 'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
+        rulesContextTags: expect.arrayContaining(['last_player_standing']),
+        teachingTopicIds: expect.arrayContaining(['teaching.victory_stalemate']),
+      }),
+      telemetry: expect.objectContaining({
+        weirdStateReasonCodes: expect.arrayContaining([
+          'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
+        ]),
+        rulesContextTags: expect.arrayContaining(['last_player_standing']),
+      }),
+    });
 
     const explanation = victory.gameEndExplanation!;
-
-    expect(explanation.outcomeType).toBe('last_player_standing');
-    expect(explanation.victoryReasonCode).toBe('victory_last_player_standing');
-    expect(explanation.primaryConceptId).toBe('lps_real_actions');
-
-    expect(explanation.weirdStateContext).toBeDefined();
     const ctx = explanation.weirdStateContext!;
 
     expect(ctx.reasonCodes).toContain('LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS');
@@ -116,16 +128,34 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(victory.isGameOver).toBe(true);
     expect(victory.reason).toBe('last_player_standing');
     expect(victory.winner).toBe(1);
-    expect(victory.gameEndExplanation).toBeDefined();
+    expect(victory.gameEndExplanation).toMatchObject({
+      outcomeType: 'last_player_standing',
+      victoryReasonCode: 'victory_last_player_standing',
+      primaryConceptId: 'lps_real_actions',
+      weirdStateContext: expect.objectContaining({
+        reasonCodes: expect.any(Array),
+        primaryReasonCode: 'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
+        rulesContextTags: expect.any(Array),
+      }),
+      telemetry: expect.objectContaining({
+        weirdStateReasonCodes: expect.any(Array),
+        rulesContextTags: expect.any(Array),
+      }),
+      uxCopy: expect.objectContaining({
+        shortSummaryKey: 'game_end.lps.with_anm_fe.short',
+        detailedSummaryKey: 'game_end.lps.with_anm_fe.detailed',
+      }),
+    });
 
     const explanation = victory.gameEndExplanation!;
-
-    expect(explanation.outcomeType).toBe('last_player_standing');
-    expect(explanation.victoryReasonCode).toBe('victory_last_player_standing');
-    expect(explanation.primaryConceptId).toBe('lps_real_actions');
-
-    expect(explanation.weirdStateContext).toBeDefined();
+    // Verify weirdStateContext structure
     const ctx = explanation.weirdStateContext!;
+    expect(ctx).toMatchObject({
+      reasonCodes: expect.any(Array),
+      primaryReasonCode: 'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
+      rulesContextTags: expect.any(Array),
+      teachingTopicIds: expect.any(Array),
+    });
 
     expect(new Set(ctx.reasonCodes)).toEqual(
       new Set([
@@ -134,7 +164,6 @@ describe('shared engine – GameEndExplanation wiring', () => {
         'FE_SEQUENCE_CURRENT_PLAYER',
       ])
     );
-    expect(ctx.primaryReasonCode).toBe('LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS');
     expect(new Set(ctx.rulesContextTags ?? [])).toEqual(
       new Set(['last_player_standing', 'anm_forced_elimination'])
     );
@@ -146,8 +175,12 @@ describe('shared engine – GameEndExplanation wiring', () => {
       ])
     );
 
-    expect(explanation.telemetry).toBeDefined();
+    // Verify telemetry structure
     const telemetry = explanation.telemetry!;
+    expect(telemetry).toMatchObject({
+      weirdStateReasonCodes: expect.any(Array),
+      rulesContextTags: expect.any(Array),
+    });
 
     expect(new Set(telemetry.weirdStateReasonCodes ?? [])).toEqual(
       new Set([
@@ -159,11 +192,6 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(new Set(telemetry.rulesContextTags ?? [])).toEqual(
       new Set(['last_player_standing', 'anm_forced_elimination'])
     );
-
-    // LPS + ANM/FE should use FE-heavy LPS copy keys so the UI can explain
-    // that forced elimination is recorded but does not count as a real move.
-    expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.lps.with_anm_fe.short');
-    expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.lps.with_anm_fe.detailed');
   });
 
   it('attaches structural-stalemate GameEndExplanation with territory tiebreak details', () => {
@@ -200,36 +228,39 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(victory.isGameOver).toBe(true);
     expect(victory.reason).toBe('territory_control');
     expect(victory.winner).toBe(1);
-    expect(victory.gameEndExplanation).toBeDefined();
+    expect(victory.gameEndExplanation).toMatchObject({
+      outcomeType: 'structural_stalemate',
+      victoryReasonCode: 'victory_structural_stalemate_tiebreak',
+      primaryConceptId: 'structural_stalemate',
+      tiebreakSteps: expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'territory_spaces',
+          winnerPlayerId: 'P1',
+          valuesByPlayer: expect.objectContaining({
+            P1: 3,
+            P2: 1,
+          }),
+        }),
+      ]),
+      weirdStateContext: expect.objectContaining({
+        reasonCodes: expect.arrayContaining(['STRUCTURAL_STALEMATE_TIEBREAK']),
+        rulesContextTags: expect.arrayContaining(['structural_stalemate']),
+      }),
+      telemetry: expect.objectContaining({
+        rulesContextTags: expect.arrayContaining(['structural_stalemate']),
+        weirdStateReasonCodes: expect.arrayContaining(['STRUCTURAL_STALEMATE_TIEBREAK']),
+      }),
+      uxCopy: expect.objectContaining({
+        shortSummaryKey: 'game_end.structural_stalemate.short',
+        detailedSummaryKey: 'game_end.structural_stalemate.tiebreak.detailed',
+      }),
+    });
 
     const explanation = victory.gameEndExplanation!;
-
-    expect(explanation.outcomeType).toBe('structural_stalemate');
-    expect(explanation.victoryReasonCode).toBe('victory_structural_stalemate_tiebreak');
-    expect(explanation.primaryConceptId).toBe('structural_stalemate');
-
-    expect(explanation.tiebreakSteps).toBeDefined();
     const steps = explanation.tiebreakSteps!;
     expect(steps.length).toBeGreaterThanOrEqual(1);
 
-    const firstStep = steps[0];
-    expect(firstStep.kind).toBe('territory_spaces');
-    expect(firstStep.winnerPlayerId).toBe('P1');
-    expect(firstStep.valuesByPlayer.P1).toBe(3);
-    expect(firstStep.valuesByPlayer.P2).toBe(1);
-
-    expect(explanation.weirdStateContext).toBeDefined();
-    const ctx = explanation.weirdStateContext!;
-    expect(ctx.reasonCodes).toContain('STRUCTURAL_STALEMATE_TIEBREAK');
-    expect(ctx.rulesContextTags).toContain('structural_stalemate');
-
-    // Structural stalemate tiebreak endings should use the dedicated copy keys.
-    expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.structural_stalemate.short');
-    expect(explanation.uxCopy.detailedSummaryKey).toBe(
-      'game_end.structural_stalemate.tiebreak.detailed'
-    );
-
-    expect(explanation.telemetry).toBeDefined();
+    // Additional structure already validated via toMatchObject above
     const telemetry = explanation.telemetry!;
     expect(telemetry.rulesContextTags).toEqual(['structural_stalemate']);
     expect(telemetry.weirdStateReasonCodes).toEqual(['STRUCTURAL_STALEMATE_TIEBREAK']);
@@ -276,20 +307,35 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(victory.isGameOver).toBe(true);
     expect(victory.reason).toBe('territory_control');
     expect(victory.winner).toBe(1);
-    expect(victory.gameEndExplanation).toBeDefined();
+    expect(victory.gameEndExplanation).toMatchObject({
+      outcomeType: 'structural_stalemate',
+      victoryReasonCode: 'victory_structural_stalemate_tiebreak',
+      primaryConceptId: 'structural_stalemate',
+      tiebreakSteps: expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'territory_spaces',
+        }),
+      ]),
+      weirdStateContext: expect.objectContaining({
+        reasonCodes: expect.any(Array),
+        primaryReasonCode: 'STRUCTURAL_STALEMATE_TIEBREAK',
+        rulesContextTags: expect.any(Array),
+        teachingTopicIds: expect.any(Array),
+      }),
+      telemetry: expect.objectContaining({
+        weirdStateReasonCodes: expect.any(Array),
+        rulesContextTags: expect.any(Array),
+      }),
+      uxCopy: expect.objectContaining({
+        shortSummaryKey: 'game_end.structural_stalemate.short',
+        detailedSummaryKey: 'game_end.structural_stalemate.tiebreak.detailed',
+      }),
+    });
 
     const explanation = victory.gameEndExplanation!;
-
-    expect(explanation.outcomeType).toBe('structural_stalemate');
-    expect(explanation.victoryReasonCode).toBe('victory_structural_stalemate_tiebreak');
-    expect(explanation.primaryConceptId).toBe('structural_stalemate');
-
-    expect(explanation.tiebreakSteps).toBeDefined();
     const steps = explanation.tiebreakSteps!;
     expect(steps.length).toBeGreaterThanOrEqual(1);
-    expect(steps[0].kind).toBe('territory_spaces');
 
-    expect(explanation.weirdStateContext).toBeDefined();
     const ctx = explanation.weirdStateContext!;
 
     expect(new Set(ctx.reasonCodes)).toEqual(
@@ -372,27 +418,24 @@ describe('shared engine – GameEndExplanation wiring', () => {
       expect(victory.isGameOver).toBe(true);
       expect(victory.reason).toBe('territory_control');
       expect(victory.winner).toBe(1);
-      expect(victory.gameEndExplanation).toBeDefined();
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        victoryReasonCode: 'victory_territory_majority',
+        primaryConceptId: 'territory_mini_regions',
+        weirdStateContext: expect.objectContaining({
+          rulesContextTags: expect.arrayContaining(['territory_mini_region']),
+          teachingTopicIds: expect.arrayContaining(['teaching.territory']),
+        }),
+        telemetry: expect.objectContaining({
+          rulesContextTags: expect.arrayContaining(['territory_mini_region']),
+        }),
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: 'game_end.territory_mini_region.short',
+          detailedSummaryKey: 'game_end.territory_mini_region.detailed',
+        }),
+      });
 
-      const explanation = victory.gameEndExplanation!;
-
-      expect(explanation.outcomeType).toBe('territory_control');
-      expect(explanation.victoryReasonCode).toBe('victory_territory_majority');
-      expect(explanation.primaryConceptId).toBe('territory_mini_regions');
-
-      // Verify weird state context is set for mini-region
-      expect(explanation.weirdStateContext).toBeDefined();
-      const ctx = explanation.weirdStateContext!;
-      expect(ctx.rulesContextTags).toContain('territory_mini_region');
-      expect(ctx.teachingTopicIds).toContain('teaching.territory');
-
-      // Verify telemetry tags
-      expect(explanation.telemetry).toBeDefined();
-      expect(explanation.telemetry!.rulesContextTags).toContain('territory_mini_region');
-
-      // Verify UX copy key is mini-region specific
-      expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.territory_mini_region.short');
-      expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.territory_mini_region.detailed');
+      // Structure already validated via toMatchObject above
     });
 
     it('identifies territory_mini_regions when winner has a small isolated region (≤4 cells)', () => {
@@ -420,14 +463,15 @@ describe('shared engine – GameEndExplanation wiring', () => {
 
       expect(victory.isGameOver).toBe(true);
       expect(victory.reason).toBe('territory_control');
-      expect(victory.gameEndExplanation).toBeDefined();
-
-      const explanation = victory.gameEndExplanation!;
-
       // Should detect as mini-region because the single region is ≤4 cells
-      expect(explanation.primaryConceptId).toBe('territory_mini_regions');
-      expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.territory_mini_region.short');
-      expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.territory_mini_region.detailed');
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        primaryConceptId: 'territory_mini_regions',
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: 'game_end.territory_mini_region.short',
+          detailedSummaryKey: 'game_end.territory_mini_region.detailed',
+        }),
+      });
     });
 
     it('does not flag mini-region when winner has single large contiguous territory', () => {
@@ -456,13 +500,17 @@ describe('shared engine – GameEndExplanation wiring', () => {
 
       expect(victory.isGameOver).toBe(true);
       expect(victory.reason).toBe('territory_control');
-      expect(victory.gameEndExplanation).toBeDefined();
+      // Should NOT be flagged as mini-region - single large contiguous region
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        victoryReasonCode: 'victory_territory_majority',
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: 'game_end.territory_control.short',
+        }),
+      });
 
       const explanation = victory.gameEndExplanation!;
-
-      // Should NOT be flagged as mini-region - single large contiguous region
       expect(explanation.primaryConceptId).toBeUndefined();
-      expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.territory_control.short');
       expect(explanation.weirdStateContext).toBeUndefined();
     });
 

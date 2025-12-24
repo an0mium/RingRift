@@ -198,7 +198,12 @@ describe('ClientSandboxEngine chain capture parity', () => {
         m.to?.y === 4
     );
 
-    expect(initialCapture).toBeDefined();
+    expect(initialCapture).toMatchObject({
+      type: 'overtaking_capture',
+      from: { x: 2, y: 2 },
+      captureTarget: { x: 2, y: 3 },
+      to: { x: 2, y: 4 },
+    });
     if (!initialCapture) return;
 
     // Apply the initial capture
@@ -223,9 +228,11 @@ describe('ClientSandboxEngine chain capture parity', () => {
     expect(stackAtRed).toBeUndefined();
     expect(stackAtBlue).toBeUndefined();
     expect(stackAtGreen).toBeUndefined();
-    expect(stackAtFinal).toBeDefined();
-    expect(stackAtFinal!.stackHeight).toBe(4);
-    expect(stackAtFinal!.controllingPlayer).toBe(1);
+    expect(stackAtFinal).toMatchObject({
+      stackHeight: 4,
+      controllingPlayer: 1,
+      position: { x: 2, y: 7 },
+    });
 
     // Phase should have advanced past chain_capture
     expect(finalState.currentPhase).not.toBe('chain_capture');
@@ -277,7 +284,12 @@ describe('ClientSandboxEngine chain capture parity', () => {
         m.to?.y === 5
     );
 
-    expect(initialCapture).toBeDefined();
+    expect(initialCapture).toMatchObject({
+      type: 'overtaking_capture',
+      from: { x: 3, y: 3 },
+      captureTarget: { x: 3, y: 4 },
+      to: { x: 3, y: 5 },
+    });
     if (!initialCapture) return;
 
     // Apply the initial capture
@@ -364,7 +376,11 @@ describe('ClientSandboxEngine chain capture parity', () => {
         m.from?.x === 2 && m.from?.y === 2 && m.captureTarget?.x === 2 && m.captureTarget?.y === 3
     );
 
-    expect(capture).toBeDefined();
+    expect(capture).toMatchObject({
+      type: 'overtaking_capture',
+      from: { x: 2, y: 2 },
+      captureTarget: { x: 2, y: 3 },
+    });
     if (!capture) return;
 
     await engine.applyCanonicalMove(capture);

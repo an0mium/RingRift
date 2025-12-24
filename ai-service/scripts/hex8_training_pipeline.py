@@ -59,6 +59,14 @@ except ImportError:
         return True  # type: ignore
     RESOURCE_LIMITS = None  # type: ignore
 
+# Unified game discovery - finds all game databases across all storage patterns
+try:
+    from app.utils.game_discovery import GameDiscovery
+    HAS_GAME_DISCOVERY = True
+except ImportError:
+    HAS_GAME_DISCOVERY = False
+    GameDiscovery = None
+
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("hex8_training_pipeline")
@@ -147,11 +155,27 @@ TRAINING_NPZ = Path("data/training/hex8_2p_consolidated.npz")
 
 
 def get_local_hex8_game_count() -> dict[str, int]:
-    """Get number of hex8 games from local central databases.
+    """Get number of hex8 games from all local databases using unified discovery.
 
     Returns dict mapping db_name -> count of hex8/hexagonal games.
     """
     counts = {}
+
+    # Use unified game discovery if available
+    if HAS_GAME_DISCOVERY:
+        discovery = GameDiscovery()
+        # Get hex8 2p games (primary focus)
+        for db_info in discovery.find_databases_for_config("hex8", 2):
+            if db_info.game_count > 0:
+                counts[f"local:{db_info.path.name}"] = db_info.game_count
+        # Also get hexagonal 2p games (same board topology)
+        for db_info in discovery.find_databases_for_config("hexagonal", 2):
+            key = f"local:{db_info.path.name}"
+            if key not in counts and db_info.game_count > 0:
+                counts[key] = db_info.game_count
+        return counts
+
+    # Fallback to manual search if game discovery not available
     for db_path in LOCAL_CENTRAL_DBS:
         if not db_path.exists():
             continue
@@ -578,36 +602,58 @@ async def _collect_via_sync_coordinator() -> list[Path]:
 
 
 def run_collection_and_training():
-    """Collect hex8 data from local central databases and run training.
+    """Collect hex8 data from all local databases and run training.
 
-    Hex8 data lives in central databases (selfplay.db, jsonl_aggregated.db),
-    not in per-node hex8_*.db files. This function consolidates hex8 games
-    from those databases and trains a model.
+    Uses unified game discovery to find ALL databases containing hex8 data,
+    regardless of where they're stored (central DBs, selfplay dirs, p2p dirs, etc.).
     """
     # Create temp directory for synced databases
     sync_dir = Path("data/games/hex8_sync")
     sync_dir.mkdir(parents=True, exist_ok=True)
 
     db_paths = []
+    seen_paths: set[Path] = set()
 
-    # Add local central databases (primary source of hex8 data)
-    for db_path in LOCAL_CENTRAL_DBS:
-        if db_path.exists() and db_path.stat().st_size > 0:
-            db_paths.append(db_path)
-            logger.info(f"Found local database: {db_path}")
+    # Use unified game discovery if available (preferred method)
+    if HAS_GAME_DISCOVERY:
+        logger.info("Using unified game discovery to find all hex8 databases...")
+        discovery = GameDiscovery()
 
-    # Also check for any existing hex8 databases in data/games
-    games_dir = Path("data/games")
-    for db_path in games_dir.glob("hex8*.db"):
-        if db_path.stat().st_size > 0 and db_path not in db_paths:
-            db_paths.append(db_path)
-            logger.info(f"Found hex8 database: {db_path}")
+        # Get all databases with hex8 games
+        for db_info in discovery.find_databases_for_config("hex8", 2):
+            if db_info.path not in seen_paths and db_info.game_count > 0:
+                db_paths.append(db_info.path)
+                seen_paths.add(db_info.path)
+                logger.info(f"Found {db_info.path}: {db_info.game_count:,} hex8 games")
 
-    # Also check hexagonal databases
-    for db_path in games_dir.glob("hexagonal*.db"):
-        if db_path.stat().st_size > 0 and db_path not in db_paths:
-            db_paths.append(db_path)
-            logger.info(f"Found hexagonal database: {db_path}")
+        # Also get hexagonal 2p games (same board topology)
+        for db_info in discovery.find_databases_for_config("hexagonal", 2):
+            if db_info.path not in seen_paths and db_info.game_count > 0:
+                db_paths.append(db_info.path)
+                seen_paths.add(db_info.path)
+                logger.info(f"Found {db_info.path}: {db_info.game_count:,} hexagonal games")
+    else:
+        # Fallback to manual search
+        logger.info("Falling back to manual database search...")
+
+        # Add local central databases (primary source of hex8 data)
+        for db_path in LOCAL_CENTRAL_DBS:
+            if db_path.exists() and db_path.stat().st_size > 0:
+                db_paths.append(db_path)
+                logger.info(f"Found local database: {db_path}")
+
+        # Also check for any existing hex8 databases in data/games
+        games_dir = Path("data/games")
+        for db_path in games_dir.glob("hex8*.db"):
+            if db_path.stat().st_size > 0 and db_path not in db_paths:
+                db_paths.append(db_path)
+                logger.info(f"Found hex8 database: {db_path}")
+
+        # Also check hexagonal databases
+        for db_path in games_dir.glob("hexagonal*.db"):
+            if db_path.stat().st_size > 0 and db_path not in db_paths:
+                db_paths.append(db_path)
+                logger.info(f"Found hexagonal database: {db_path}")
 
     # Try SyncCoordinator for any additional remote data
     if HAS_SYNC_COORDINATOR:
@@ -616,8 +662,9 @@ def run_collection_and_training():
             collected = asyncio.run(_collect_via_sync_coordinator())
             if collected:
                 for db_path in collected:
-                    if db_path not in db_paths:
+                    if db_path not in seen_paths:
                         db_paths.append(db_path)
+                        seen_paths.add(db_path)
                 logger.info(f"SyncCoordinator collected {len(collected)} additional databases")
         except Exception as e:
             logger.warning(f"SyncCoordinator failed: {e}")

@@ -1,16 +1,17 @@
 # Production Validation Gate Checklist
 
-> **Doc Status (2025-12-20): Active**
+> **Doc Status (2025-12-23): Active**
 >
 > **Purpose:** Executable checklist for RingRift v1.0 production release validation. This consolidates all validation criteria from the PV-01 through PV-11 production validation remediation work.
 >
-> **Last Validated:** 2025-12-20
+> **Last Validated:** 2025-12-23
 >
 > **References:**
 >
 > - [`PRODUCTION_VALIDATION_REMEDIATION_PLAN.md`](../planning/PRODUCTION_VALIDATION_REMEDIATION_PLAN.md) - Full remediation details
 > - [`PRODUCTION_READINESS_CHECKLIST.md`](./PRODUCTION_READINESS_CHECKLIST.md) - Comprehensive readiness checklist
 > - [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md) §4.1, §4.4 - SLO requirements
+> - [`SLO_GATE_CI_RUNBOOK.md`](../operations/SLO_GATE_CI_RUNBOOK.md) - Automated SLO gate CI/CD integration
 
 ---
 

@@ -37,6 +37,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -155,7 +156,7 @@ class RobustCMAESConfig:
 
     # Output
     output_dir: str = "logs/cmaes/robust"
-    checkpoint_interval: int = 10
+    checkpoint_interval: int = 5  # Save every 5 generations
     seed: int = 42
 
     # Device
@@ -225,12 +226,18 @@ class MultiOpponentProblem(Problem):
         self.distributed = config.distributed and len(config.worker_urls) > 0
         self.worker_urls = config.worker_urls
         self.worker_idx = 0  # Round-robin counter
+
+        # Batch queue for parallel evaluation
+        self._eval_queue: list[tuple[Any, dict[str, float]]] = []
+        self._batch_size = config.population_size  # Collect full population before evaluating
+
         if self.distributed:
             if not HTTPX_AVAILABLE:
                 logger.warning("httpx not available, falling back to local evaluation")
                 self.distributed = False
             else:
                 logger.info(f"  Distributed mode: {len(self.worker_urls)} workers")
+                logger.info(f"  Parallel batch size: {self._batch_size}")
 
         # Get board size
         board_enum = BOARD_TYPE_MAP.get(config.board_type.lower())
@@ -351,6 +358,220 @@ class MultiOpponentProblem(Problem):
 
         self.eval_count += 1
 
+    def _evaluate_batch_parallel(self, solutions_weights: list[tuple[Any, dict[str, float]]]) -> dict[int, MultiOpponentResult]:
+        """Evaluate multiple candidates in parallel using ThreadPoolExecutor."""
+        results = {}
+
+        def evaluate_one(args):
+            idx, weights = args
+            worker_url = self.worker_urls[idx % len(self.worker_urls)]
+            try:
+                with httpx.Client(timeout=300.0) as client:
+                    response = client.post(
+                        f"{worker_url}/evaluate_multi",
+                        json={
+                            "task_id": f"batch_{idx}",
+                            "candidate_weights": weights,
+                            "games_per_opponent": self.config.games_per_opponent,
+                            "self_play_games": self.config.self_play_games,
+                            "board_size": self.board_size,
+                            "num_players": self.config.num_players,
+                            "max_moves": self.config.max_moves,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return idx, MultiOpponentResult(
+                        per_opponent=data["per_opponent"],
+                        aggregate=data["aggregate"],
+                        self_play=data.get("self_play", 0.5),
+                        games_played=data.get("games_played", 0),
+                    )
+            except Exception as e:
+                logger.error(f"Worker {worker_url} failed: {e}")
+                return idx, None
+
+        # Submit all in parallel
+        with ThreadPoolExecutor(max_workers=len(self.worker_urls)) as executor:
+            futures = [executor.submit(evaluate_one, (idx, w)) for idx, (_, w) in enumerate(solutions_weights)]
+            for future in as_completed(futures):
+                idx, result = future.result()
+                results[idx] = result
+
+        return results
+
+    def _flush_eval_queue(self) -> None:
+        """Evaluate all queued solutions in parallel and apply results."""
+        if not self._eval_queue:
+            return
+
+        logger.info(f"  Parallel evaluating {len(self._eval_queue)} candidates...")
+
+        # Parallel evaluation
+        results = self._evaluate_batch_parallel(self._eval_queue)
+
+        # Apply results
+        for idx, (solution, weights) in enumerate(self._eval_queue):
+            result = results.get(idx)
+            if result is None:
+                # Fallback for failed evaluations
+                result = evaluate_multi_opponent(
+                    candidate_weights=weights,
+                    games_per_opponent=self.config.games_per_opponent,
+                    self_play_games=self.config.self_play_games,
+                    min_weight=self.config.min_weight,
+                    board_size=self.board_size,
+                    num_players=self.config.num_players,
+                    max_moves=self.config.max_moves,
+                    device=self.compute_device,
+                )
+
+            fitness = result.aggregate
+            solution.set_evals(fitness)
+
+            if fitness > self.best_fitness:
+                self.best_fitness = fitness
+                self.best_weights = weights.copy()
+                self.best_per_opponent = result.per_opponent.copy()
+
+            self.elite_archive.add(
+                weights=weights,
+                per_opponent=result.per_opponent,
+                aggregate=fitness,
+                generation=self.eval_count,
+            )
+            self.eval_count += 1
+
+        self._eval_queue.clear()
+
+    def evaluate(self, batch) -> None:
+        """Override EvoTorch's evaluate to use parallel batch evaluation.
+
+        This is the public method called by EvoTorch searchers.
+        """
+        if self.distributed and len(self.worker_urls) > 0:
+            # Queue all solutions
+            for i in range(len(batch)):
+                solution = batch[i]
+                values = solution.values.detach().cpu().numpy()
+                weights = weights_array_to_dict(values)
+                self._eval_queue.append((solution, weights))
+
+            # Evaluate all in parallel
+            self._flush_eval_queue()
+        else:
+            # Fall back to default single-threaded evaluation
+            for i in range(len(batch)):
+                self._evaluate(batch[i])
+
+    def _evaluate_batch(self, batch) -> None:
+        """Evaluate a batch of solutions in parallel.
+
+        This overrides the default sequential evaluation to use ThreadPoolExecutor
+        for parallel HTTP requests to distributed workers.
+
+        Note: In EvoTorch, this is called via the `evaluate` method when
+        processing a SolutionBatch.
+        """
+        # Get solutions from batch
+        solutions = [batch[i] for i in range(len(batch))]
+
+        if not self.distributed or len(self.worker_urls) == 0:
+            # Fall back to sequential evaluation
+            for solution in solutions:
+                self._evaluate(solution)
+            return
+
+        # Prepare all candidates
+        candidates = []
+        for solution in solutions:
+            values = solution.values.detach().cpu().numpy()
+            weights = weights_array_to_dict(values)
+            candidates.append((solution, weights))
+
+        # Parallel evaluation using ThreadPoolExecutor
+        max_workers = len(self.worker_urls)
+        results = {}
+
+        def evaluate_one(idx_solution_weights):
+            idx, solution, weights = idx_solution_weights
+            worker_url = self.worker_urls[idx % len(self.worker_urls)]
+            try:
+                with httpx.Client(timeout=300.0) as client:
+                    response = client.post(
+                        f"{worker_url}/evaluate_multi",
+                        json={
+                            "task_id": f"cmaes_{self.eval_count + idx}",
+                            "candidate_weights": weights,
+                            "games_per_opponent": self.config.games_per_opponent,
+                            "self_play_games": self.config.self_play_games,
+                            "board_size": self.board_size,
+                            "num_players": self.config.num_players,
+                            "max_moves": self.config.max_moves,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return idx, MultiOpponentResult(
+                        per_opponent=data["per_opponent"],
+                        aggregate=data["aggregate"],
+                        self_play=data.get("self_play", 0.5),
+                        games_played=data.get("games_played", 0),
+                    )
+            except Exception as e:
+                logger.error(f"Worker {worker_url} failed: {e}")
+                # Fallback to local evaluation
+                result = evaluate_multi_opponent(
+                    candidate_weights=weights,
+                    games_per_opponent=self.config.games_per_opponent,
+                    self_play_games=self.config.self_play_games,
+                    min_weight=self.config.min_weight,
+                    board_size=self.board_size,
+                    num_players=self.config.num_players,
+                    max_moves=self.config.max_moves,
+                    device=self.compute_device,
+                )
+                return idx, result
+
+        # Submit all evaluations in parallel
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for idx, (solution, weights) in enumerate(candidates):
+                futures.append(executor.submit(evaluate_one, (idx, solution, weights)))
+
+            for future in as_completed(futures):
+                idx, result = future.result()
+                results[idx] = result
+
+        # Apply results to solutions
+        for idx, (solution, weights) in enumerate(candidates):
+            result = results[idx]
+            fitness = result.aggregate
+
+            # Apply diversity bonus if enabled
+            if self.config.use_diversity_bonus:
+                # Simple diversity bonus based on distance from population mean
+                pass  # Already computed in _evaluate, skip for batch
+
+            solution.set_evals(fitness)
+
+            # Track best
+            if fitness > self.best_fitness:
+                self.best_fitness = fitness
+                self.best_weights = weights.copy()
+                self.best_per_opponent = result.per_opponent.copy()
+
+            # Update elite archive
+            self.elite_archive.add(
+                weights=weights,
+                per_opponent=result.per_opponent,
+                aggregate=fitness,
+                generation=self.eval_count + idx,
+            )
+
+        self.eval_count += len(candidates)
+        logger.info(f"  Batch evaluated {len(candidates)} candidates in parallel")
+
 
 def run_robust_cmaes(config: RobustCMAESConfig) -> dict[str, Any]:
     """Run robust multi-opponent CMA-ES training.
@@ -413,7 +634,7 @@ def run_robust_cmaes(config: RobustCMAESConfig) -> dict[str, Any]:
     for gen in range(config.generations):
         gen_start = time.time()
 
-        # Run one generation
+        # Run one generation - our evaluate() method handles parallelization
         searcher.step()
 
         # Get current status

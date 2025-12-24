@@ -164,6 +164,16 @@ class RingRiftCNN_v2(nn.Module):
             policy: [B, policy_size] policy logits
             features (optional): [B, num_filters + global_features] backbone features
         """
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         # Backbone with SE blocks
         x = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
@@ -315,6 +325,16 @@ class RingRiftCNN_v2_Lite(nn.Module):
             policy: [B, policy_size] policy logits
             features (optional): [B, num_filters + global_features] backbone features
         """
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         # Backbone with SE blocks
         x = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
@@ -612,6 +632,16 @@ class RingRiftCNN_v3(nn.Module):
         return_features: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with spatial policy heads and rank distribution output."""
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         out = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
             out = block(out)
@@ -896,6 +926,16 @@ class RingRiftCNN_v3_Lite(nn.Module):
         return_features: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with spatial policy heads and rank distribution output."""
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         out = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
             out = block(out)
@@ -1205,6 +1245,16 @@ class RingRiftCNN_v4(nn.Module):
         return_features: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass with attention backbone and spatial policy heads."""
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         out = self.relu(self.bn1(self.conv1(x)))
         for block in self.res_blocks:
             out = block(out)

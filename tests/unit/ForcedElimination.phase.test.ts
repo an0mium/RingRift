@@ -185,16 +185,18 @@ describe('forced_elimination phase (RR-CANON-R070, R100, R204)', () => {
       const targetPos: Position = { x: 3, y: 3 };
       const result = applyForcedEliminationForPlayer(state, 1, targetPos);
 
-      expect(result).toBeDefined();
       expect(result).toMatchObject({
-        eliminatedPlayer: expect.any(Number),
-        eliminatedFrom: expect.any(Object),
+        eliminatedPlayer: 1,
+        eliminatedFrom: targetPos,
         eliminatedCount: expect.any(Number),
-        nextState: expect.any(Object),
+        nextState: expect.objectContaining({
+          gameStatus: expect.any(String),
+          board: expect.any(Object),
+          players: expect.any(Array),
+        }),
       });
-      expect(result!.eliminatedPlayer).toBe(1);
-      expect(result!.eliminatedFrom).toEqual(targetPos);
       expect(result!.eliminatedCount).toBeGreaterThan(0);
+      expect(result!.nextState.players).toHaveLength(2);
     });
 
     it('auto-selects a valid stack when no target specified', () => {
@@ -204,9 +206,17 @@ describe('forced_elimination phase (RR-CANON-R070, R100, R204)', () => {
       // Only the blocked stack at (3,3) exists
       const result = applyForcedEliminationForPlayer(state, 1);
 
-      expect(result).toBeDefined();
-      // Should select the only available stack at (3,3)
-      expect(result!.eliminatedFrom).toEqual({ x: 3, y: 3 });
+      expect(result).toMatchObject({
+        eliminatedPlayer: 1,
+        eliminatedFrom: { x: 3, y: 3 },
+        eliminatedCount: expect.any(Number),
+        nextState: expect.objectContaining({
+          gameStatus: expect.any(String),
+          board: expect.objectContaining({
+            stacks: expect.any(Map),
+          }),
+        }),
+      });
     });
 
     it('updates ring counts correctly', () => {
@@ -217,7 +227,13 @@ describe('forced_elimination phase (RR-CANON-R070, R100, R204)', () => {
       const eliminatedBefore = playerBefore.eliminatedRings;
 
       const result = applyForcedEliminationForPlayer(state, 1);
-      expect(result).toBeDefined();
+      expect(result).toMatchObject({
+        eliminatedPlayer: 1,
+        eliminatedCount: expect.any(Number),
+        nextState: expect.objectContaining({
+          players: expect.arrayContaining([expect.objectContaining({ playerNumber: 1 })]),
+        }),
+      });
 
       const playerAfter = result!.nextState.players.find((p) => p.playerNumber === 1)!;
       expect(playerAfter.eliminatedRings).toBeGreaterThan(eliminatedBefore);

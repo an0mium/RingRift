@@ -242,8 +242,17 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
 
       // Apply forced elimination using the shared helper
       const forcedElimOutcome = applyForcedEliminationForPlayer(gameState, 1);
-      expect(forcedElimOutcome).toBeDefined();
-      expect(forcedElimOutcome!.eliminatedCount).toBe(1);
+      expect(forcedElimOutcome).toMatchObject({
+        eliminatedPlayer: 1,
+        eliminatedFrom: { x: 3, y: 3 },
+        eliminatedCount: 1,
+        nextState: expect.objectContaining({
+          players: expect.any(Array),
+          board: expect.objectContaining({
+            stacks: expect.any(Map),
+          }),
+        }),
+      });
 
       // Update gameState with the result
       const updatedState = forcedElimOutcome!.nextState;
@@ -313,7 +322,11 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
 
       // Apply forced elimination using the shared helper
       const forcedElimOutcome = applyForcedEliminationForPlayer(gameState, 1);
-      expect(forcedElimOutcome).toBeDefined();
+      expect(forcedElimOutcome).toMatchObject({
+        eliminatedPlayer: 1,
+        eliminatedFrom: { x: 0, y: 0 },
+        eliminatedCount: 1,
+      });
 
       // Update gameState with the result
       const updatedState = forcedElimOutcome!.nextState;
@@ -389,21 +402,32 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
 
       // Apply forced elimination for player 1
       const p1Outcome = applyForcedEliminationForPlayer(gameState, 1);
-      expect(p1Outcome).toBeDefined();
-      expect(p1Outcome!.eliminatedCount).toBe(1);
+      expect(p1Outcome).toMatchObject({
+        eliminatedPlayer: 1,
+        eliminatedFrom: { x: 0, y: 0 },
+        eliminatedCount: 1,
+      });
       gameState = p1Outcome!.nextState;
 
       // P1's stack should be eliminated
       expect(gameState.board.stacks.get('0,0')).toBeUndefined();
       expect(gameState.players[0].eliminatedRings).toBe(3); // 2 + 1
 
-      // P2's stack should still exist
-      expect(gameState.board.stacks.get('7,7')).toBeDefined();
+      // P2's stack should still exist with expected structure
+      const p2Stack = gameState.board.stacks.get('7,7');
+      expect(p2Stack).toMatchObject({
+        position: { x: 7, y: 7 },
+        controllingPlayer: 2,
+        stackHeight: 1,
+      });
 
       // Apply forced elimination for player 2
       const p2Outcome = applyForcedEliminationForPlayer(gameState, 2);
-      expect(p2Outcome).toBeDefined();
-      expect(p2Outcome!.eliminatedCount).toBe(1);
+      expect(p2Outcome).toMatchObject({
+        eliminatedPlayer: 2,
+        eliminatedFrom: { x: 7, y: 7 },
+        eliminatedCount: 1,
+      });
       gameState = p2Outcome!.nextState;
 
       // Both stacks should now be eliminated

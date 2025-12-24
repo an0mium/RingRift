@@ -353,6 +353,7 @@ def _expand_gpu_moves_to_canonical(
                             type=terr_move.type,
                             player=player,
                             to=terr_move.to,
+                            disconnected_regions=terr_move.disconnected_regions,  # Dec 2025: Include geometry for replay
                             timestamp=gpu_move.timestamp,
                             think_time=0,
                             move_number=move_num,

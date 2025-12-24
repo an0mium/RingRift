@@ -147,6 +147,16 @@ class HexNeuralNet_v2(nn.Module):
         hex_mask: torch.Tensor | None = None,
         return_features: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         # Apply hex mask to input to prevent information bleeding
         if hex_mask is not None:
             x = x * hex_mask.to(dtype=x.dtype, device=x.device)
@@ -298,6 +308,16 @@ class HexNeuralNet_v2_Lite(nn.Module):
         hex_mask: torch.Tensor | None = None,
         return_features: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         # Apply hex mask to input to prevent information bleeding
         if hex_mask is not None:
             x = x * hex_mask.to(dtype=x.dtype, device=x.device)
@@ -557,6 +577,16 @@ class HexNeuralNet_v3(nn.Module):
             policy: [B, P_HEX] flat policy logits
             features (optional): [B, feat_dim] pooled backbone features (if return_features=True)
         """
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
         # Apply hex mask to input to prevent information bleeding
         mask = hex_mask if hex_mask is not None else self.hex_mask
         if mask is not None:

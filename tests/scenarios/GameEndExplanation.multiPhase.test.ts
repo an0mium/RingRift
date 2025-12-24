@@ -342,20 +342,22 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
         expect(victory.winner).toBe(1);
         expect(victory.reason).toBe('ring_elimination');
 
-        // Assert GameEndExplanation structure
-        expect(victory.gameEndExplanation).toBeDefined();
-        const explanation = victory.gameEndExplanation!;
-
-        expect(explanation.outcomeType).toBe('ring_elimination');
-        expect(explanation.victoryReasonCode).toBe('victory_ring_majority');
-        expect(explanation.winnerPlayerId).toBe('P1');
-        expect(explanation.boardType).toBe(boardType);
-        expect(explanation.numPlayers).toBe(2);
-
-        // Score breakdown should reflect final state
-        expect(explanation.scoreBreakdown).toBeDefined();
-        const p1Score = explanation.scoreBreakdown!['P1'];
-        expect(p1Score.eliminatedRings).toBe(threshold);
+        // Assert GameEndExplanation structure with strong validation
+        expect(victory.gameEndExplanation).toMatchObject({
+          outcomeType: 'ring_elimination',
+          victoryReasonCode: 'victory_ring_majority',
+          winnerPlayerId: 'P1',
+          boardType: boardType,
+          numPlayers: 2,
+          scoreBreakdown: expect.objectContaining({
+            P1: expect.objectContaining({
+              eliminatedRings: threshold,
+            }),
+          }),
+          uxCopy: expect.objectContaining({
+            shortSummaryKey: expect.any(String),
+          }),
+        });
       }
     );
   });
@@ -381,16 +383,22 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.winner).toBe(1);
       expect(victory.reason).toBe('territory_control');
 
-      expect(victory.gameEndExplanation).toBeDefined();
-      const explanation = victory.gameEndExplanation!;
-
-      expect(explanation.outcomeType).toBe('territory_control');
-      expect(explanation.victoryReasonCode).toBe('victory_territory_majority');
-      expect(explanation.winnerPlayerId).toBe('P1');
-      expect(explanation.boardType).toBe('square8');
-
-      // Score breakdown
-      const p1Score = explanation.scoreBreakdown!['P1'];
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        victoryReasonCode: 'victory_territory_majority',
+        winnerPlayerId: 'P1',
+        boardType: 'square8',
+        numPlayers: 2,
+        scoreBreakdown: expect.objectContaining({
+          P1: expect.objectContaining({
+            territorySpaces: expect.any(Number),
+          }),
+        }),
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
+      const p1Score = victory.gameEndExplanation!.scoreBreakdown!['P1'];
       expect(p1Score.territorySpaces).toBeGreaterThanOrEqual(33);
     });
 
@@ -416,13 +424,16 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.winner).toBe(1);
       expect(victory.reason).toBe('territory_control');
 
-      expect(victory.gameEndExplanation).toBeDefined();
-      const explanation = victory.gameEndExplanation!;
-
-      expect(explanation.outcomeType).toBe('territory_control');
-      expect(explanation.victoryReasonCode).toBe('victory_territory_majority');
-      expect(explanation.winnerPlayerId).toBe('P1');
-      expect(explanation.boardType).toBe('square19');
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        victoryReasonCode: 'victory_territory_majority',
+        winnerPlayerId: 'P1',
+        boardType: 'square19',
+        numPlayers: 2,
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
     });
 
     it('generates GameEndExplanation for territory victory on hexagonal board', () => {
@@ -461,11 +472,14 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.winner).toBe(1);
       expect(victory.reason).toBe('territory_control');
 
-      expect(victory.gameEndExplanation).toBeDefined();
-      const explanation = victory.gameEndExplanation!;
-
-      expect(explanation.outcomeType).toBe('territory_control');
-      expect(explanation.boardType).toBe('hexagonal');
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        boardType: 'hexagonal',
+        numPlayers: 2,
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
     });
   });
 
@@ -497,12 +511,14 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
         // Should trigger ring elimination (opponent reached threshold)
         // or LPS depending on exact state
         expect(victory.isGameOver).toBe(true);
-        expect(victory.gameEndExplanation).toBeDefined();
-
-        const explanation = victory.gameEndExplanation!;
-        expect(explanation.boardType).toBe(boardType);
-        expect(explanation.numPlayers).toBe(2);
-        expect(['ring_elimination', 'last_player_standing']).toContain(explanation.outcomeType);
+        expect(victory.gameEndExplanation).toMatchObject({
+          boardType: boardType,
+          numPlayers: 2,
+          outcomeType: expect.stringMatching(/ring_elimination|last_player_standing/),
+          uxCopy: expect.objectContaining({
+            shortSummaryKey: expect.any(String),
+          }),
+        });
       }
     );
   });
@@ -533,14 +549,25 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       const victory = toVictoryState(state);
 
       expect(victory.isGameOver).toBe(true);
-      expect(victory.gameEndExplanation).toBeDefined();
-
-      const explanation = victory.gameEndExplanation!;
-      expect(explanation.scoreBreakdown).toBeDefined();
+      expect(victory.gameEndExplanation).toMatchObject({
+        numPlayers: 2,
+        boardType: 'square8',
+        scoreBreakdown: expect.objectContaining({
+          P1: expect.objectContaining({
+            markers: expect.any(Number),
+          }),
+          P2: expect.objectContaining({
+            markers: expect.any(Number),
+          }),
+        }),
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
 
       // Check score breakdown reflects marker difference
-      const p1Score = explanation.scoreBreakdown!['P1'];
-      const p2Score = explanation.scoreBreakdown!['P2'];
+      const p1Score = victory.gameEndExplanation!.scoreBreakdown!['P1'];
+      const p2Score = victory.gameEndExplanation!.scoreBreakdown!['P2'];
       expect(p1Score.markers).toBeGreaterThan(p2Score.markers);
     });
 
@@ -564,7 +591,15 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       const victory = toVictoryState(state);
 
       expect(victory.isGameOver).toBe(true);
-      expect(victory.gameEndExplanation).toBeDefined();
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'last_player_standing',
+        numPlayers: 2,
+        boardType: 'square8',
+        weirdStateContext: expect.objectContaining({
+          reasonCodes: expect.any(Array),
+          rulesContextTags: expect.any(Array),
+        }),
+      });
 
       const explanation = victory.gameEndExplanation!;
       // With a valid game state, tiebreakers resolve to last_player_standing
@@ -603,17 +638,26 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.winner).toBe(1);
       expect(victory.reason).toBe('ring_elimination');
 
-      expect(victory.gameEndExplanation).toBeDefined();
-      const explanation = victory.gameEndExplanation!;
-
-      expect(explanation.numPlayers).toBe(3);
-      expect(explanation.outcomeType).toBe('ring_elimination');
-      expect(explanation.scoreBreakdown).toBeDefined();
-
-      // All 3 players should be in score breakdown
-      expect(explanation.scoreBreakdown!['P1']).toBeDefined();
-      expect(explanation.scoreBreakdown!['P2']).toBeDefined();
-      expect(explanation.scoreBreakdown!['P3']).toBeDefined();
+      expect(victory.gameEndExplanation).toMatchObject({
+        numPlayers: 3,
+        outcomeType: 'ring_elimination',
+        victoryReasonCode: expect.any(String),
+        winnerPlayerId: 'P1',
+        scoreBreakdown: expect.objectContaining({
+          P1: expect.objectContaining({
+            eliminatedRings: expect.any(Number),
+          }),
+          P2: expect.objectContaining({
+            eliminatedRings: expect.any(Number),
+          }),
+          P3: expect.objectContaining({
+            eliminatedRings: expect.any(Number),
+          }),
+        }),
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
     });
 
     it('generates GameEndExplanation for 4-player territory victory', () => {
@@ -640,18 +684,29 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.winner).toBe(3);
       expect(victory.reason).toBe('territory_control');
 
-      expect(victory.gameEndExplanation).toBeDefined();
-      const explanation = victory.gameEndExplanation!;
-
-      expect(explanation.numPlayers).toBe(4);
-      expect(explanation.outcomeType).toBe('territory_control');
-      expect(explanation.winnerPlayerId).toBe('P3');
-
-      // All 4 players should be in score breakdown
-      expect(explanation.scoreBreakdown!['P1']).toBeDefined();
-      expect(explanation.scoreBreakdown!['P2']).toBeDefined();
-      expect(explanation.scoreBreakdown!['P3']).toBeDefined();
-      expect(explanation.scoreBreakdown!['P4']).toBeDefined();
+      expect(victory.gameEndExplanation).toMatchObject({
+        numPlayers: 4,
+        outcomeType: 'territory_control',
+        winnerPlayerId: 'P3',
+        boardType: 'square8',
+        scoreBreakdown: expect.objectContaining({
+          P1: expect.objectContaining({
+            territorySpaces: expect.any(Number),
+          }),
+          P2: expect.objectContaining({
+            territorySpaces: expect.any(Number),
+          }),
+          P3: expect.objectContaining({
+            territorySpaces: expect.any(Number),
+          }),
+          P4: expect.objectContaining({
+            territorySpaces: expect.any(Number),
+          }),
+        }),
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
     });
   });
 
@@ -687,17 +742,20 @@ describe('GameEndExplanation for multi-phase turn scenarios', () => {
       expect(victory.winner).toBe(1);
       expect(victory.reason).toBe('territory_control');
 
-      const explanation: GameEndExplanation = victory.gameEndExplanation!;
-      expect(explanation).toBeDefined();
-      expect(explanation.outcomeType).toBe('territory_control');
-      expect(explanation.boardType).toBe('square8');
-      expect(explanation.winnerPlayerId).toBe('P1');
-      expect(explanation.numPlayers).toBe(2);
-
-      // Score breakdown should include territory information
-      expect(explanation.scoreBreakdown).toBeDefined();
-      const p1Score = explanation.scoreBreakdown!['P1'];
-      expect(p1Score.territorySpaces).toBe(12);
+      expect(victory.gameEndExplanation).toMatchObject({
+        outcomeType: 'territory_control',
+        boardType: 'square8',
+        winnerPlayerId: 'P1',
+        numPlayers: 2,
+        scoreBreakdown: expect.objectContaining({
+          P1: expect.objectContaining({
+            territorySpaces: 12,
+          }),
+        }),
+        uxCopy: expect.objectContaining({
+          shortSummaryKey: expect.any(String),
+        }),
+      });
     });
 
     it('handles territory victory when threshold is exactly met', () => {

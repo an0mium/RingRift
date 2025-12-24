@@ -2102,6 +2102,40 @@ def train_model(
                     dataset_board_type_meta,
                 )
 
+            # HARD ERROR: Encoder type must match model version (Dec 2025)
+            if dataset_encoder_type and dataset_encoder_type != expected_encoder:
+                raise ValueError(
+                    "========================================\n"
+                    "ENCODER TYPE MISMATCH - CANNOT TRAIN\n"
+                    "========================================\n"
+                    f"Dataset encoded with: {dataset_encoder_type}\n"
+                    f"Model expects:        {expected_encoder}\n"
+                    f"Model version:        {model_version}\n"
+                    f"Dataset:              {first_path}\n"
+                    "\n"
+                    "SOLUTION: Re-export data with --encoder-version matching model version\n"
+                    f"  For v3 model: use --encoder-version v3\n"
+                    f"  For v2 model: use --encoder-version v2\n"
+                    "========================================"
+                )
+
+            # HARD ERROR: Board type must match (Dec 2025)
+            if dataset_board_type_meta:
+                dataset_board_upper = dataset_board_type_meta.upper()
+                config_board_name = config.board_type.name
+                if dataset_board_upper != config_board_name:
+                    raise ValueError(
+                        "========================================\n"
+                        "BOARD TYPE MISMATCH - CANNOT TRAIN\n"
+                        "========================================\n"
+                        f"Dataset board type:   {dataset_board_type_meta}\n"
+                        f"Training board type:  {config.board_type.name}\n"
+                        f"Dataset:              {first_path}\n"
+                        "\n"
+                        "Dataset and training board types must match.\n"
+                        "========================================"
+                    )
+
             if dataset_in_channels != expected_in_channels:
                 # Build enhanced error message with encoder metadata if available
                 encoder_info = ""

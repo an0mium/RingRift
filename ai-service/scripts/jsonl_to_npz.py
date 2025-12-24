@@ -81,7 +81,7 @@ logger = setup_script_logging("jsonl_to_npz")
 
 from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI, encode_move_for_board
 from app.game_engine import GameEngine
-from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
+from app.models import AIConfig, BoardType, GameState, LineInfo, Move, MoveType, Position, Territory
 from app.rules.global_actions import apply_forced_elimination_for_player
 from app.rules.serialization import deserialize_game_state
 from app.training.encoding import HexStateEncoder, HexStateEncoderV3
@@ -612,31 +612,45 @@ def get_encoder_metadata(
         - base_channels: int (channels per frame before history stacking)
         - in_channels: int (total input channels = base × (history + 1))
         - board_type: str (board type name)
+        - spatial_size: int (H=W dimension for the board)
+        - policy_size: int (policy head output size)
+        - data_schema_version: str (schema version for future changes)
     """
+    from app.ai.neural_net import get_policy_size_for_board, get_spatial_size_for_board
+
     frames = history_length + 1  # Current + history
+    spatial_size = get_spatial_size_for_board(board_type)
+    policy_size = get_policy_size_for_board(board_type)
+
+    base_metadata = {
+        "board_type": board_type.name,
+        "spatial_size": spatial_size,
+        "policy_size": policy_size,
+        "data_schema_version": "v2",
+    }
 
     if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
         if encoder_version == "v3":
             return {
+                **base_metadata,
                 "encoder_type": "hex_v3",
                 "base_channels": 16,
                 "in_channels": 16 * frames,
-                "board_type": board_type.name,
             }
         else:
             return {
+                **base_metadata,
                 "encoder_type": "hex_v2",
                 "base_channels": 10,
                 "in_channels": 10 * frames,
-                "board_type": board_type.name,
             }
     else:
         # Square boards use 14 base channels
         return {
+            **base_metadata,
             "encoder_type": "square",
             "base_channels": 14,
             "in_channels": 14 * frames,
-            "board_type": board_type.name,
         }
 
 
@@ -725,6 +739,46 @@ def parse_move(move_dict: dict[str, Any]) -> Move:
             mid_z = (from_pos.z + to_pos.z) // 2
         capture_target = Position(x=mid_x, y=mid_y, z=mid_z)
 
+    # Parse line and territory data (Dec 2025: required for replay)
+    formed_lines_raw = move_dict.get("formed_lines") or move_dict.get("formedLines")
+    formed_lines = None
+    if formed_lines_raw:
+        try:
+            formed_lines = tuple(
+                LineInfo(
+                    positions=[parse_position(p) for p in line.get("positions", [])],
+                    player=line.get("player", 0),
+                    length=line.get("length", 0),
+                    direction=parse_position(line.get("direction")) or Position(x=0, y=0),
+                ) if isinstance(line, dict) else line
+                for line in formed_lines_raw
+            )
+        except Exception:
+            formed_lines = None
+
+    collapsed_markers_raw = move_dict.get("collapsed_markers") or move_dict.get("collapsedMarkers")
+    collapsed_markers = None
+    if collapsed_markers_raw:
+        try:
+            collapsed_markers = tuple(parse_position(p) for p in collapsed_markers_raw if p)
+        except Exception:
+            collapsed_markers = None
+
+    disconnected_regions_raw = move_dict.get("disconnected_regions") or move_dict.get("disconnectedRegions")
+    disconnected_regions = None
+    if disconnected_regions_raw:
+        try:
+            disconnected_regions = tuple(
+                Territory(
+                    spaces=[parse_position(p) for p in region.get("spaces", [])],
+                    controlling_player=region.get("controlling_player", region.get("controllingPlayer", 0)),
+                    is_disconnected=region.get("is_disconnected", region.get("isDisconnected", True)),
+                ) if isinstance(region, dict) else region
+                for region in disconnected_regions_raw
+            )
+        except Exception:
+            disconnected_regions = None
+
     return Move(
         id=move_dict.get("id", "imported"),
         type=move_type,
@@ -739,6 +793,9 @@ def parse_move(move_dict: dict[str, Any]) -> Move:
         placement_count=move_dict.get("placement_count"),
         stack_moved=move_dict.get("stack_moved"),
         minimum_distance=move_dict.get("minimum_distance"),
+        formed_lines=formed_lines,
+        collapsed_markers=collapsed_markers,
+        disconnected_regions=disconnected_regions,
         # Required fields with defaults - use epoch time if timestamp missing
         timestamp=move_dict.get("timestamp") or "1970-01-01T00:00:00Z",
         thinkTime=move_dict.get("think_time", move_dict.get("thinkTime", 0)),
@@ -934,6 +991,9 @@ class CheckpointManager:
                 base_channels=np.asarray(self.encoder_metadata.get("base_channels", 0)),
                 in_channels=np.asarray(self.encoder_metadata.get("in_channels", 0)),
                 board_type=np.asarray(self.encoder_metadata.get("board_type", "unknown")),
+                spatial_size=np.asarray(self.encoder_metadata.get("spatial_size", 0)),
+                policy_size=np.asarray(self.encoder_metadata.get("policy_size", 0)),
+                data_schema_version=np.asarray(self.encoder_metadata.get("data_schema_version", "v1")),
             )
 
             self.chunk_count += 1
@@ -1019,6 +1079,9 @@ class CheckpointManager:
             base_channels=np.asarray(self.encoder_metadata.get("base_channels", 0)),
             in_channels=np.asarray(self.encoder_metadata.get("in_channels", 0)),
             board_type=np.asarray(self.encoder_metadata.get("board_type", "unknown")),
+            spatial_size=np.asarray(self.encoder_metadata.get("spatial_size", 0)),
+            policy_size=np.asarray(self.encoder_metadata.get("policy_size", 0)),
+            data_schema_version=np.asarray(self.encoder_metadata.get("data_schema_version", "v1")),
         )
 
         logger.info(f"Merged {len(features_arr)} samples into {output_path}")
@@ -1480,6 +1543,9 @@ def convert_jsonl_to_npz(
             base_channels=np.asarray(encoder_metadata.get("base_channels", 0)),
             in_channels=np.asarray(encoder_metadata.get("in_channels", 0)),
             board_type=np.asarray(encoder_metadata.get("board_type", "unknown")),
+            spatial_size=np.asarray(encoder_metadata.get("spatial_size", 0)),
+            policy_size=np.asarray(encoder_metadata.get("policy_size", 0)),
+            data_schema_version=np.asarray(encoder_metadata.get("data_schema_version", "v1")),
         )
     else:
         logger.warning("No training data extracted!")

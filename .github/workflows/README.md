@@ -373,6 +373,7 @@ Automatically verifies TS↔Python engine parity on PRs that modify rules/engine
 ### Trigger Conditions
 
 The workflow runs when PRs modify:
+
 - `src/shared/engine/**` - TypeScript engine
 - `src/client/sandbox/**` - TypeScript sandbox adapter
 - `ai-service/app/rules/**` - Python rules implementation
@@ -398,6 +399,82 @@ PYTHONPATH=. python scripts/run_parity_healthcheck.py --fail-on-mismatch
 - [`docs/PARITY_VERIFICATION_RUNBOOK.md`](../../docs/PARITY_VERIFICATION_RUNBOOK.md) - Full parity verification documentation
 - [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) - Canonical data inventory
 - [`AGENTS.md`](../../AGENTS.md) - Section 4 (TS↔Python Parity)
+
+---
+
+## SLO Gate Workflow (`slo-gate.yml`)
+
+### Purpose
+
+Implements automated SLO (Service Level Objective) validation gates for staging deployments and production promotion decisions. Provides automated quality gates based on load test results.
+
+### Trigger Methods
+
+1. **Manual Dispatch** - On-demand validation via GitHub Actions UI
+2. **Workflow Call** - Reusable workflow from deployment pipelines
+3. **Scheduled** - Nightly production readiness assessment (3:00 AM UTC)
+
+### Gate Types
+
+| Gate Type              | Purpose                            | When to Use                  |
+| ---------------------- | ---------------------------------- | ---------------------------- |
+| `staging-promotion`    | Validate staging before production | After staging deployment     |
+| `production-readiness` | Full production SLO check          | Before production deployment |
+| `smoke-test`           | Quick validation                   | Local testing, quick checks  |
+
+### Gate Statuses
+
+| Status        | Meaning                             | CI Behavior              |
+| ------------- | ----------------------------------- | ------------------------ |
+| `APPROVED`    | All critical + high SLOs passed     | Continues pipeline       |
+| `CONDITIONAL` | Critical passed, some high breached | Requires manual approval |
+| `BLOCKED`     | One or more critical SLOs breached  | Fails pipeline           |
+
+### Key SLOs Gated
+
+**Critical (Zero Tolerance):**
+
+- Service Availability: ≥99.9%
+- Error Rate: ≤0.5% (production) / ≤1% (staging)
+- Contract Failures: 0
+- Lifecycle Mismatches: 0
+
+**High Priority:**
+
+- API Latency p95: <500ms (production) / <800ms (staging)
+- Move Latency E2E p95: <200ms (production) / <300ms (staging)
+- AI Response Time p95: <1000ms (production) / <1500ms (staging)
+
+### Running Locally
+
+```bash
+# Run SLO gate check on existing results
+npm run slo:gate -- --results-file tests/load/results/baseline.json --env staging
+
+# Run full verification pipeline
+npm run slo:check
+
+# Run with production thresholds
+npm run slo:gate:production -- --results-file tests/load/results/baseline.json --fail-on-breach
+```
+
+### Workflow Integration
+
+```yaml
+# Use as a reusable workflow
+jobs:
+  slo-validation:
+    uses: ./.github/workflows/slo-gate.yml
+    with:
+      environment: staging
+      gate_type: staging-promotion
+```
+
+### Related Documentation
+
+- [`docs/operations/SLO_GATE_CI_RUNBOOK.md`](../../docs/operations/SLO_GATE_CI_RUNBOOK.md) - Full runbook
+- [`docs/production/PRODUCTION_VALIDATION_GATE.md`](../../docs/production/PRODUCTION_VALIDATION_GATE.md) - Validation checklist
+- [`docs/planning/SLO_THRESHOLD_ALIGNMENT_AUDIT.md`](../../docs/planning/SLO_THRESHOLD_ALIGNMENT_AUDIT.md) - SLO analysis
 
 ---
 

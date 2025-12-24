@@ -442,7 +442,9 @@ def main():
         seeds = [random.randint(0, 100000) for _ in range(args.seeds)]
 
     results = []
-    for seed in seeds:
+    import time
+    start_time = time.time()
+    for idx, seed in enumerate(seeds):
         moves, exported, skipped, error_count, errors = test_seed(seed)
         status = 'PASS' if error_count == 0 else 'FAIL'
         results.append((seed, moves, exported, skipped, status, error_count))
@@ -450,6 +452,13 @@ def main():
             print(f'Seed {seed}: FAIL ({error_count} errors)')
             for i, mtype, phase in errors:
                 print(f'  Move {i}: {mtype} in phase {phase}')
+        # Progress every 100 seeds
+        if (idx + 1) % 100 == 0:
+            elapsed = time.time() - start_time
+            passed = sum(1 for r in results if r[4] == 'PASS')
+            rate = (idx + 1) / elapsed
+            eta = (len(seeds) - idx - 1) / rate if rate > 0 else 0
+            print(f'Progress: {idx + 1}/{len(seeds)} ({passed} passed, {elapsed:.1f}s elapsed, ETA: {eta:.1f}s)', flush=True)
 
     print('\nSummary:')
     print('Seed  | Moves | Exported | Skipped | Status')

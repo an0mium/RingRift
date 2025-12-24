@@ -116,6 +116,81 @@ class RingRiftDataset(Dataset):
                 # Convert to dict to force-load all arrays into memory
                 self.data = {k: np.asarray(v) for k, v in npz_data.items()}
 
+                # ================================================================
+                # Early validation: Fail fast on encoder/dimension mismatches
+                # Added Dec 2025 to catch issues at load time, not forward pass
+                # ================================================================
+                available_keys = set(self.data.keys())
+
+                # Extract encoder metadata for validation
+                self._encoder_type = None
+                self._base_channels = None
+                self._in_channels_meta = None
+                self._spatial_size_meta = None
+                self._policy_head_size_meta = None
+
+                if "encoder_type" in available_keys:
+                    raw = self.data["encoder_type"]
+                    self._encoder_type = str(raw.item() if raw.ndim == 0 else raw)
+                if "base_channels" in available_keys:
+                    raw = self.data["base_channels"]
+                    self._base_channels = int(raw.item() if raw.ndim == 0 else raw)
+                if "in_channels" in available_keys:
+                    raw = self.data["in_channels"]
+                    self._in_channels_meta = int(raw.item() if raw.ndim == 0 else raw)
+                if "spatial_size" in available_keys:
+                    raw = self.data["spatial_size"]
+                    self._spatial_size_meta = int(raw.item() if raw.ndim == 0 else raw)
+                if "policy_head_size" in available_keys:
+                    raw = self.data["policy_head_size"]
+                    self._policy_head_size_meta = int(raw.item() if raw.ndim == 0 else raw)
+
+                # Validate feature dimensions if metadata available
+                if 'features' in self.data:
+                    feat_shape = self.data['features'].shape
+                    if len(feat_shape) >= 4:
+                        actual_channels = feat_shape[1]
+                        actual_h, actual_w = feat_shape[2], feat_shape[3]
+
+                        # Validate channel count matches in_channels metadata
+                        if self._in_channels_meta is not None:
+                            if actual_channels != self._in_channels_meta:
+                                raise ValueError(
+                                    f"========================================\n"
+                                    f"CHANNEL MISMATCH IN NPZ DATA\n"
+                                    f"========================================\n"
+                                    f"File: {data_path}\n"
+                                    f"Features have {actual_channels} channels\n"
+                                    f"Metadata says in_channels={self._in_channels_meta}\n"
+                                    f"Encoder type: {self._encoder_type or 'unknown'}\n"
+                                    f"\n"
+                                    f"This indicates corrupted or inconsistent data.\n"
+                                    f"========================================"
+                                )
+
+                        # Validate spatial dimensions match metadata
+                        if self._spatial_size_meta is not None:
+                            if actual_h != self._spatial_size_meta or actual_w != self._spatial_size_meta:
+                                raise ValueError(
+                                    f"========================================\n"
+                                    f"SPATIAL DIMENSION MISMATCH IN NPZ DATA\n"
+                                    f"========================================\n"
+                                    f"File: {data_path}\n"
+                                    f"Features have {actual_h}x{actual_w} spatial size\n"
+                                    f"Metadata says spatial_size={self._spatial_size_meta}\n"
+                                    f"Board type: {board_type.name}\n"
+                                    f"\n"
+                                    f"This indicates board type mismatch or data corruption.\n"
+                                    f"========================================"
+                                )
+
+                        # Log validation success
+                        logger.debug(
+                            f"NPZ validation passed: {actual_channels}ch, "
+                            f"{actual_h}x{actual_w} spatial, "
+                            f"encoder={self._encoder_type or 'unknown'}"
+                        )
+
                 if 'features' in self.data:
                     total_samples = len(self.data['values'])
 
@@ -169,7 +244,7 @@ class RingRiftDataset(Dataset):
                     # Newer datasets may include scalar or per-sample arrays
                     # named 'board_type' and/or 'board_size'. Older datasets
                     # will simply omit these keys.
-                    available_keys = set(self.data.keys())
+                    # Note: available_keys was already set above during validation
                     if "board_type" in available_keys:
                         self.board_type_meta = self.data["board_type"]
                     if "board_size" in available_keys:

@@ -181,10 +181,13 @@ describe('Scenario: Extended chain capture with 4+ targets (P19B.2-2)', () => {
     expect(blueStacks[0].controllingPlayer).toBe(1);
     expect(redStacks.length).toBe(0);
 
-    // Verify final position
+    // Verify final position with comprehensive structure validation
     const finalStack = stacks.get(positionToString(fixture.expectedFinalPosition));
-    expect(finalStack).toBeDefined();
-    expect(finalStack!.controllingPlayer).toBe(1);
+    expect(finalStack).toMatchObject({
+      controllingPlayer: 1,
+      stackHeight: fixture.expectedFinalHeight,
+      position: fixture.expectedFinalPosition,
+    });
   });
 
   test('should complete 5-target chain capture', async () => {
@@ -228,10 +231,13 @@ describe('Scenario: Extended chain capture with 4+ targets (P19B.2-2)', () => {
     expect(blueStacks[0].controllingPlayer).toBe(1);
     expect(redStacks.length).toBe(0);
 
-    // Verify final position
+    // Verify final position with comprehensive structure validation
     const finalStack = stacks.get(positionToString(fixture.expectedFinalPosition));
-    expect(finalStack).toBeDefined();
-    expect(finalStack!.controllingPlayer).toBe(1);
+    expect(finalStack).toMatchObject({
+      controllingPlayer: 1,
+      stackHeight: fixture.expectedFinalHeight,
+      position: fixture.expectedFinalPosition,
+    });
   });
 
   test('should handle chain capture decisions correctly at each step', async () => {
@@ -456,10 +462,13 @@ describe('Scenario: Extended chain capture with 4+ targets (P19B.2-2)', () => {
     expect(blueStacks[0].stackHeight).toBe(fixture.expectedFinalHeight);
     expect(redStacks.length).toBe(0);
 
-    // Verify final position
+    // Verify final position with comprehensive structure validation
     const finalStack = stacks.get(positionToString(fixture.expectedFinalPosition));
-    expect(finalStack).toBeDefined();
-    expect(finalStack!.controllingPlayer).toBe(1);
+    expect(finalStack).toMatchObject({
+      controllingPlayer: 1,
+      stackHeight: fixture.expectedFinalHeight,
+      position: fixture.expectedFinalPosition,
+    });
   });
 
   test('should complete zigzag chain capture with direction changes', async () => {
@@ -572,11 +581,13 @@ describe('Scenario: Extended chain capture with 4+ targets (P19B.2-2)', () => {
     const board = engineAny.gameState.board;
     const stacks = board.stacks as Map<string, RingStack>;
 
-    // Final stack at corner (7,7)
+    // Final stack at corner (7,7) with comprehensive structure validation
     const finalStack = stacks.get(positionToString(fixture.expectedFinalPosition));
-    expect(finalStack).toBeDefined();
-    expect(finalStack!.stackHeight).toBe(2);
-    expect(finalStack!.controllingPlayer).toBe(1);
+    expect(finalStack).toMatchObject({
+      stackHeight: 2,
+      controllingPlayer: 1,
+      position: fixture.expectedFinalPosition,
+    });
 
     // Phase should have moved past chain_capture
     expect(engineAny.gameState.currentPhase).not.toBe('chain_capture');

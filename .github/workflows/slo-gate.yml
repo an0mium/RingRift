@@ -1,0 +1,455 @@
+name: SLO Gate Validation
+
+# SLO Gate CI/CD Workflow
+#
+# This workflow implements automated SLO (Service Level Objective) validation
+# gates for staging deployments and production promotion decisions.
+#
+# Trigger conditions:
+# 1. Manual dispatch - for on-demand validation
+# 2. After staging deployment (workflow_call from deploy workflows)
+# 3. Scheduled nightly validation for production readiness assessment
+#
+# Key SLOs gated:
+# - Service Availability: ≥99.9%
+# - Error Rate: ≤0.5% (production) / ≤1% (staging)
+# - API Latency p95: <500ms (production) / <800ms (staging)
+# - Move Latency E2E p95: <200ms (production) / <300ms (staging)
+# - AI Response Time p95: <1000ms (production) / <1500ms (staging)
+# - Contract Failures: 0
+#
+# References:
+# - docs/production/PRODUCTION_VALIDATION_GATE.md
+# - docs/planning/SLO_THRESHOLD_ALIGNMENT_AUDIT.md
+# - tests/load/configs/slo-definitions.json
+
+on:
+  # Manual trigger with configurable options
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'SLO environment thresholds to use'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: 'staging'
+      gate_type:
+        description: 'Type of gate validation'
+        required: true
+        type: choice
+        options:
+          - staging-promotion
+          - production-readiness
+          - smoke-test
+        default: 'staging-promotion'
+      target_url:
+        description: 'Target URL for load tests (leave empty for local)'
+        required: false
+        type: string
+        default: ''
+      load_test_scenario:
+        description: 'Load test scenario to run'
+        required: true
+        type: choice
+        options:
+          - baseline
+          - target-scale
+          - websocket-gameplay
+          - skip
+        default: 'baseline'
+      results_file:
+        description: 'Path to existing results file (if skipping load test)'
+        required: false
+        type: string
+        default: ''
+      fail_on_breach:
+        description: 'Fail workflow if critical SLOs are breached'
+        required: true
+        type: boolean
+        default: true
+
+  # Reusable workflow for integration with deploy pipelines
+  workflow_call:
+    inputs:
+      environment:
+        description: 'SLO environment thresholds'
+        required: true
+        type: string
+      gate_type:
+        description: 'Gate type'
+        required: true
+        type: string
+      target_url:
+        description: 'Target URL'
+        required: false
+        type: string
+      results_file:
+        description: 'Results file path'
+        required: false
+        type: string
+    outputs:
+      gate_status:
+        description: 'Gate status: APPROVED, BLOCKED, or CONDITIONAL'
+        value: ${{ jobs.slo-gate.outputs.gate_status }}
+      report_url:
+        description: 'URL to the SLO report artifact'
+        value: ${{ jobs.slo-gate.outputs.report_url }}
+
+  # Nightly validation for production readiness assessment
+  schedule:
+    # Run at 3:00 AM UTC every day
+    - cron: '0 3 * * *'
+
+env:
+  # Default environment for scheduled runs
+  DEFAULT_ENV: staging
+  DEFAULT_GATE_TYPE: production-readiness
+
+jobs:
+  slo-gate:
+    name: SLO Gate Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      gate_status: ${{ steps.slo-check.outputs.gate_status }}
+      report_url: ${{ steps.upload-report.outputs.artifact-url }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: ringrift
+          POSTGRES_PASSWORD: ringrift
+          POSTGRES_DB: ringrift_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Python (for AI service if needed)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Determine configuration
+        id: config
+        run: |
+          # Handle different trigger types
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "gate_type=${{ inputs.gate_type }}" >> $GITHUB_OUTPUT
+            echo "target_url=${{ inputs.target_url }}" >> $GITHUB_OUTPUT
+            echo "load_test_scenario=${{ inputs.load_test_scenario }}" >> $GITHUB_OUTPUT
+            echo "results_file=${{ inputs.results_file }}" >> $GITHUB_OUTPUT
+            echo "fail_on_breach=${{ inputs.fail_on_breach }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_call" ]; then
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "gate_type=${{ inputs.gate_type }}" >> $GITHUB_OUTPUT
+            echo "target_url=${{ inputs.target_url }}" >> $GITHUB_OUTPUT
+            echo "load_test_scenario=baseline" >> $GITHUB_OUTPUT
+            echo "results_file=${{ inputs.results_file }}" >> $GITHUB_OUTPUT
+            echo "fail_on_breach=true" >> $GITHUB_OUTPUT
+          else
+            # Scheduled run - use defaults for production readiness assessment
+            echo "environment=${{ env.DEFAULT_ENV }}" >> $GITHUB_OUTPUT
+            echo "gate_type=${{ env.DEFAULT_GATE_TYPE }}" >> $GITHUB_OUTPUT
+            echo "target_url=" >> $GITHUB_OUTPUT
+            echo "load_test_scenario=baseline" >> $GITHUB_OUTPUT
+            echo "results_file=" >> $GITHUB_OUTPUT
+            echo "fail_on_breach=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://ringrift:ringrift@localhost:5432/ringrift_test
+
+      - name: Seed load test users
+        if: steps.config.outputs.load_test_scenario != 'skip'
+        run: npm run load:seed-users
+        env:
+          DATABASE_URL: postgresql://ringrift:ringrift@localhost:5432/ringrift_test
+
+      - name: Start application server
+        if: steps.config.outputs.load_test_scenario != 'skip' && steps.config.outputs.target_url == ''
+        run: |
+          npm run build
+          npm start &
+          echo "APP_PID=$!" >> $GITHUB_ENV
+          # Wait for server to be ready
+          timeout 60 bash -c 'until curl -s http://localhost:3000/health > /dev/null; do sleep 2; done'
+          echo "Server is ready"
+        env:
+          DATABASE_URL: postgresql://ringrift:ringrift@localhost:5432/ringrift_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: slo-gate-test-secret
+          NODE_ENV: test
+
+      - name: Run preflight check
+        if: steps.config.outputs.load_test_scenario != 'skip'
+        run: npm run load:preflight -- --skip-ai
+        env:
+          BASE_URL: ${{ steps.config.outputs.target_url || 'http://localhost:3000' }}
+
+      - name: Run load test (baseline)
+        if: steps.config.outputs.load_test_scenario == 'baseline'
+        id: load-test-baseline
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          RESULTS_FILE="tests/load/results/slo_gate_baseline_${TIMESTAMP}.json"
+          mkdir -p tests/load/results
+
+          k6 run \
+            --out json=${RESULTS_FILE} \
+            --env BASE_URL=${{ steps.config.outputs.target_url || 'http://localhost:3000' }} \
+            --env WS_URL=${{ steps.config.outputs.target_url && format('ws://{0}', steps.config.outputs.target_url) || 'ws://localhost:3000' }} \
+            --env THRESHOLD_ENV=${{ steps.config.outputs.environment }} \
+            tests/load/scenarios/websocket-gameplay.js
+
+          echo "results_file=${RESULTS_FILE}" >> $GITHUB_OUTPUT
+
+      - name: Run load test (target-scale)
+        if: steps.config.outputs.load_test_scenario == 'target-scale'
+        id: load-test-target
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          RESULTS_FILE="tests/load/results/slo_gate_target_scale_${TIMESTAMP}.json"
+          mkdir -p tests/load/results
+
+          ENABLE_WS_GAMEPLAY_THROUGHPUT=true k6 run \
+            --out json=${RESULTS_FILE} \
+            --env BASE_URL=${{ steps.config.outputs.target_url || 'http://localhost:3000' }} \
+            --env WS_URL=${{ steps.config.outputs.target_url && format('ws://{0}', steps.config.outputs.target_url) || 'ws://localhost:3000' }} \
+            --env THRESHOLD_ENV=${{ steps.config.outputs.environment }} \
+            tests/load/scenarios/websocket-gameplay.js
+
+          echo "results_file=${RESULTS_FILE}" >> $GITHUB_OUTPUT
+
+      - name: Run load test (websocket-gameplay)
+        if: steps.config.outputs.load_test_scenario == 'websocket-gameplay'
+        id: load-test-ws
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          RESULTS_FILE="tests/load/results/slo_gate_ws_gameplay_${TIMESTAMP}.json"
+          mkdir -p tests/load/results
+
+          k6 run \
+            --out json=${RESULTS_FILE} \
+            --env BASE_URL=${{ steps.config.outputs.target_url || 'http://localhost:3000' }} \
+            --env WS_URL=${{ steps.config.outputs.target_url && format('ws://{0}', steps.config.outputs.target_url) || 'ws://localhost:3000' }} \
+            --env THRESHOLD_ENV=${{ steps.config.outputs.environment }} \
+            tests/load/scenarios/websocket-gameplay.js
+
+          echo "results_file=${RESULTS_FILE}" >> $GITHUB_OUTPUT
+
+      - name: Determine results file
+        id: results
+        run: |
+          if [ -n "${{ steps.config.outputs.results_file }}" ]; then
+            echo "file=${{ steps.config.outputs.results_file }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ steps.load-test-baseline.outputs.results_file }}" ]; then
+            echo "file=${{ steps.load-test-baseline.outputs.results_file }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ steps.load-test-target.outputs.results_file }}" ]; then
+            echo "file=${{ steps.load-test-target.outputs.results_file }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ steps.load-test-ws.outputs.results_file }}" ]; then
+            echo "file=${{ steps.load-test-ws.outputs.results_file }}" >> $GITHUB_OUTPUT
+          else
+            echo "Error: No results file available"
+            exit 1
+          fi
+
+      - name: Run SLO Gate Check
+        id: slo-check
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          REPORT_FILE="tests/load/results/slo_gate_report_${TIMESTAMP}.json"
+
+          # Run the SLO gate check script
+          npx ts-node scripts/slo-gate-check.ts \
+            --results-file "${{ steps.results.outputs.file }}" \
+            --env "${{ steps.config.outputs.environment }}" \
+            --gate-type "${{ steps.config.outputs.gate_type }}" \
+            --format console \
+            --output-file "${REPORT_FILE}" \
+            ${{ steps.config.outputs.fail_on_breach == 'true' && '--fail-on-breach' || '' }} || EXIT_CODE=$?
+
+          # Extract gate status from report
+          if [ -f "${REPORT_FILE}" ]; then
+            GATE_STATUS=$(jq -r '.decision.gateStatus' "${REPORT_FILE}")
+            echo "gate_status=${GATE_STATUS}" >> $GITHUB_OUTPUT
+            echo "report_file=${REPORT_FILE}" >> $GITHUB_OUTPUT
+          else
+            echo "gate_status=UNKNOWN" >> $GITHUB_OUTPUT
+            echo "report_file=" >> $GITHUB_OUTPUT
+          fi
+
+          # Also run the existing verify-slos.js for compatibility
+          node tests/load/scripts/verify-slos.js "${{ steps.results.outputs.file }}" console --env "${{ steps.config.outputs.environment }}" || true
+
+          exit ${EXIT_CODE:-0}
+
+      - name: Generate SLO Dashboard
+        if: always()
+        run: |
+          if [ -f "${{ steps.slo-check.outputs.report_file }}" ]; then
+            node tests/load/scripts/generate-slo-dashboard.js "${{ steps.slo-check.outputs.report_file }}" || true
+          fi
+
+      - name: Upload SLO report artifacts
+        id: upload-report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slo-gate-report-${{ github.run_id }}
+          path: |
+            tests/load/results/slo_gate_*.json
+            tests/load/results/slo_gate_*.html
+          retention-days: 30
+
+      - name: Create job summary
+        if: always()
+        run: |
+          echo "## SLO Gate Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          GATE_STATUS="${{ steps.slo-check.outputs.gate_status }}"
+          if [ "$GATE_STATUS" = "APPROVED" ]; then
+            echo "### ✅ Gate Status: APPROVED" >> $GITHUB_STEP_SUMMARY
+          elif [ "$GATE_STATUS" = "BLOCKED" ]; then
+            echo "### ❌ Gate Status: BLOCKED" >> $GITHUB_STEP_SUMMARY
+          elif [ "$GATE_STATUS" = "CONDITIONAL" ]; then
+            echo "### ⚠️ Gate Status: CONDITIONAL" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❓ Gate Status: UNKNOWN" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ steps.config.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate Type | ${{ steps.config.outputs.gate_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Workflow Run | [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |" >> $GITHUB_STEP_SUMMARY
+
+          # Include detailed results if report exists
+          if [ -f "${{ steps.slo-check.outputs.report_file }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### SLO Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Extract key metrics
+            PASSED=$(jq -r '.overall.passedCount' "${{ steps.slo-check.outputs.report_file }}")
+            TOTAL=$(jq -r '.overall.totalCount' "${{ steps.slo-check.outputs.report_file }}")
+            CRITICAL=$(jq -r '.overall.criticalBreaches' "${{ steps.slo-check.outputs.report_file }}")
+            HIGH=$(jq -r '.overall.highBreaches' "${{ steps.slo-check.outputs.report_file }}")
+
+            echo "- **SLOs Passed:** ${PASSED}/${TOTAL}" >> $GITHUB_STEP_SUMMARY
+            if [ "$CRITICAL" != "0" ]; then
+              echo "- **❌ Critical Breaches:** ${CRITICAL}" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ "$HIGH" != "0" ]; then
+              echo "- **⚠️ High-Priority Breaches:** ${HIGH}" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            # Table of individual SLOs
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Detailed SLO Results</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| SLO | Target | Actual | Status | Priority |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----|--------|--------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            jq -r '.slos | to_entries[] | "| \(.value.name) | \(.value.target) \(.value.unit) | \(.value.actual) \(.value.unit) | \(if .value.passed then "✅" else "❌" end) | \(.value.priority) |"' "${{ steps.slo-check.outputs.report_file }}" >> $GITHUB_STEP_SUMMARY
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Stop application server
+        if: always() && env.APP_PID != ''
+        run: |
+          kill ${{ env.APP_PID }} || true
+
+      - name: Fail on blocked gate
+        if: steps.config.outputs.fail_on_breach == 'true' && steps.slo-check.outputs.gate_status == 'BLOCKED'
+        run: |
+          echo "❌ SLO Gate is BLOCKED - critical SLO breaches detected"
+          echo "See the SLO report artifact for details"
+          exit 1
+
+  notify-on-failure:
+    name: Notify on Gate Failure
+    runs-on: ubuntu-latest
+    needs: slo-gate
+    if: failure() && needs.slo-gate.outputs.gate_status == 'BLOCKED'
+    steps:
+      - name: Create issue for blocked gate
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Nightly SLO Gate BLOCKED - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            ## SLO Gate Validation Failed
+
+            The nightly SLO gate validation has detected critical breaches.
+
+            **Gate Status:** BLOCKED
+            **Workflow Run:** [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+
+            ### Required Actions
+            1. Review the SLO report artifact in the workflow run
+            2. Identify the root cause of SLO breaches
+            3. Implement fixes before the next production deployment
+
+            ### Related Documentation
+            - [Production Validation Gate](docs/production/PRODUCTION_VALIDATION_GATE.md)
+            - [SLO Threshold Alignment Audit](docs/planning/SLO_THRESHOLD_ALIGNMENT_AUDIT.md)
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['slo-breach', 'automation', 'p0']
+            });

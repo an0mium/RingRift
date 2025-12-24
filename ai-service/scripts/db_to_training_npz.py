@@ -167,34 +167,44 @@ def get_encoder_metadata(
         - base_channels: int (channels per frame before history stacking)
         - in_channels: int (total input channels = base × (history + 1))
         - board_type: str (board type string)
+        - spatial_size: int (H=W dimension for the board)
+        - data_schema_version: str (schema version for future changes)
     """
     from app.models import BoardType
+    from app.ai.neural_net import get_spatial_size_for_board
 
     bt = BOARD_TYPE_MAP.get(board_type, BoardType.SQUARE8)
     frames = history_length + 1  # Current + history
+    spatial_size = get_spatial_size_for_board(bt)
+
+    base_metadata = {
+        "board_type": board_type,
+        "spatial_size": spatial_size,
+        "data_schema_version": "v2",
+    }
 
     if bt in (BoardType.HEXAGONAL, BoardType.HEX8):
         if hex_encoder_version == "v3":
             return {
+                **base_metadata,
                 "encoder_type": "hex_v3",
                 "base_channels": 16,
                 "in_channels": 16 * frames,
-                "board_type": board_type,
             }
         else:
             return {
+                **base_metadata,
                 "encoder_type": "hex_v2",
                 "base_channels": 10,
                 "in_channels": 10 * frames,
-                "board_type": board_type,
             }
     else:
         # Square boards use 14 base channels
         return {
+            **base_metadata,
             "encoder_type": "square",
             "base_channels": 14,
             "in_channels": 14 * frames,
-            "board_type": board_type,
         }
 
 
@@ -379,6 +389,8 @@ def export_db_to_npz(
         encoder_type=np.asarray(encoder_metadata["encoder_type"]),
         base_channels=np.asarray(encoder_metadata["base_channels"]),
         in_channels=np.asarray(encoder_metadata["in_channels"]),
+        spatial_size=np.asarray(encoder_metadata.get("spatial_size", 0)),
+        data_schema_version=np.asarray(encoder_metadata.get("data_schema_version", "v1")),
         # Phase 5 Metadata: Additional fields for training compatibility validation
         policy_size=np.asarray(int(policy_size)),
         policies_normalized=np.asarray(True),

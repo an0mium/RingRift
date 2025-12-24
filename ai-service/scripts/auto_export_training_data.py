@@ -50,6 +50,14 @@ from scripts.lib.state_manager import StateManager
 
 logger = setup_script_logging("auto_export_training_data")
 
+# Unified game discovery - finds all game databases across all storage patterns
+try:
+    from app.utils.game_discovery import GameDiscovery
+    HAS_GAME_DISCOVERY = True
+except ImportError:
+    HAS_GAME_DISCOVERY = False
+    GameDiscovery = None
+
 
 @dataclass
 class ExportConfig:
@@ -176,8 +184,15 @@ def save_state(state: ExportState) -> None:
 
 
 def find_databases(config: ExportConfig) -> list[Path]:
-    """Find all database files matching the config patterns."""
+    """Find all database files matching the config patterns.
+
+    First tries configured patterns, then falls back to unified GameDiscovery
+    to find databases in any storage location.
+    """
     databases = []
+    seen_paths: set[Path] = set()
+
+    # Try configured patterns first
     for pattern in config.db_patterns:
         full_pattern = SELFPLAY_DIR / pattern
         # Handle glob patterns
@@ -185,11 +200,25 @@ def find_databases(config: ExportConfig) -> list[Path]:
             parent = full_pattern.parent
             if parent.exists():
                 for match in parent.parent.glob(pattern.split("/")[-2] + "/" + pattern.split("/")[-1]):
-                    if match.exists() and match.stat().st_size > 0:
+                    if match.exists() and match.stat().st_size > 0 and match not in seen_paths:
                         databases.append(match)
+                        seen_paths.add(match)
         else:
-            if full_pattern.exists() and full_pattern.stat().st_size > 0:
+            if full_pattern.exists() and full_pattern.stat().st_size > 0 and full_pattern not in seen_paths:
                 databases.append(full_pattern)
+                seen_paths.add(full_pattern)
+
+    # If no databases found via patterns, use unified game discovery
+    if not databases and HAS_GAME_DISCOVERY:
+        logger.info(f"No databases found via patterns for {config.board_type}/{config.num_players}p, "
+                    "trying unified game discovery...")
+        discovery = GameDiscovery(AI_SERVICE_ROOT)
+        for db_info in discovery.find_databases_for_config(config.board_type, config.num_players):
+            if db_info.path not in seen_paths and db_info.game_count > 0:
+                databases.append(db_info.path)
+                seen_paths.add(db_info.path)
+                logger.info(f"  Found via discovery: {db_info.path} ({db_info.game_count:,} games)")
+
     return databases
 
 

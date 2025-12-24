@@ -753,7 +753,7 @@ class MCTSAI(HeuristicAI):
         if should_use_neural:
             try:
                 from .neural_net import NeuralNetAI  # Lazy import
-                self.neural_net = NeuralNetAI(player_number, config)
+                self.neural_net = NeuralNetAI(player_number, config, board_type=config.board_type)
                 logger.info(
                     f"MCTSAI(player={player_number}, difficulty={config.difficulty}): "
                     "neural evaluation enabled"

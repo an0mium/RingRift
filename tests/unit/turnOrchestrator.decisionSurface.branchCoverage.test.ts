@@ -281,11 +281,16 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       };
 
       const result = processTurn(state, move);
-      expect(result.nextState).toBeDefined();
-      expect(result.nextState.gameStatus).toBe('active');
+      expect(result).toMatchObject({
+        success: true,
+        nextState: expect.objectContaining({
+          gameStatus: 'active',
+          currentPhase: 'movement',
+          currentPlayer: expect.any(Number),
+        }),
+      });
       // Should have placed the ring
       expect(result.nextState.board.stacks.has(positionToString({ x: 3, y: 3 }))).toBe(true);
-      expect(result.nextState.currentPhase).toBe('movement');
     });
 
     it('processes no_placement_action when blocked', () => {
@@ -311,9 +316,15 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       };
 
       const result = processTurn(state, move);
-      expect(result.nextState).toBeDefined();
-      expect(result.nextState.gameStatus).toMatch(/active|completed/);
-      expect(result.nextState.currentPhase).toBeDefined();
+      expect(result).toMatchObject({
+        success: expect.any(Boolean),
+        nextState: expect.objectContaining({
+          gameStatus: expect.stringMatching(/active|completed/),
+          currentPhase: expect.any(String),
+          currentPlayer: expect.any(Number),
+          board: expect.any(Object),
+        }),
+      });
     });
 
     it('processes skip_placement move', () => {
@@ -339,9 +350,17 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       };
 
       const result = processTurn(state, move);
-      expect(result.nextState).toBeDefined();
-      expect(result.nextState.gameStatus).toMatch(/active|completed/);
-      expect(result.nextState.currentPhase).toBeDefined();
+      expect(result).toMatchObject({
+        success: expect.any(Boolean),
+        nextState: expect.objectContaining({
+          gameStatus: expect.stringMatching(/active|completed/),
+          currentPhase: expect.any(String),
+          board: expect.objectContaining({
+            stacks: expect.any(Map),
+            markers: expect.any(Map),
+          }),
+        }),
+      });
     });
 
     it('processes no_line_action move', () => {
@@ -362,8 +381,14 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       };
 
       const result = processTurn(state, move);
-      expect(result.nextState).toBeDefined();
-      expect(result.nextState.gameStatus).toMatch(/active|completed/);
+      expect(result).toMatchObject({
+        success: expect.any(Boolean),
+        nextState: expect.objectContaining({
+          gameStatus: expect.stringMatching(/active|completed/),
+          currentPlayer: expect.any(Number),
+          board: expect.any(Object),
+        }),
+      });
       // Per RR-CANON-R075, should transition to territory_processing
       expect(['territory_processing', 'movement', 'turn_end', 'game_over']).toContain(
         result.nextState.currentPhase
@@ -388,9 +413,17 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       };
 
       const result = processTurn(state, move);
-      expect(result.nextState).toBeDefined();
-      expect(result.nextState.gameStatus).toMatch(/active|completed/);
-      expect(result.nextState.currentPhase).toBeDefined();
+      expect(result).toMatchObject({
+        success: expect.any(Boolean),
+        nextState: expect.objectContaining({
+          gameStatus: expect.stringMatching(/active|completed/),
+          currentPhase: expect.any(String),
+          currentPlayer: expect.any(Number),
+          board: expect.objectContaining({
+            stacks: expect.any(Map),
+          }),
+        }),
+      });
       // Should advance turn or end game
     });
 
@@ -413,9 +446,14 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
       };
 
       const result = processTurn(state, move);
-      expect(result.nextState).toBeDefined();
-      expect(result.nextState.gameStatus).toMatch(/active|completed/);
-      expect(result.nextState.currentPhase).toBeDefined();
+      expect(result).toMatchObject({
+        success: expect.any(Boolean),
+        nextState: expect.objectContaining({
+          gameStatus: expect.stringMatching(/active|completed/),
+          currentPhase: expect.any(String),
+          currentPlayer: expect.any(Number),
+        }),
+      });
     });
   });
 
