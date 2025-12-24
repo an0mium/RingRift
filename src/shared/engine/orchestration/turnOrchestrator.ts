@@ -60,8 +60,8 @@ import type {
   PlayerScore,
   FSMDecisionSurface,
 } from './types';
+import type { TurnProcessingState, PerTurnFlags } from './types';
 
-import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
 import { flagEnabled, debugLog, fsmTraceLog } from '../../utils/envFlags';
 import { applySwapSidesIdentitySwap, validateSwapSidesMove } from '../swapSidesHelpers';
 import { createLegacyCoercionError } from '../errors/CanonicalRecordError';
@@ -150,6 +150,118 @@ interface ExtendedMoveProperties {
 import { isEligibleForRecovery } from '../playerStateHelpers';
 
 import { countRingsOnBoardForPlayer } from '../core';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Inline Processing State Container
+// ═══════════════════════════════════════════════════════════════════════════
+// The PhaseStateMachine from phaseStateMachine.ts is deprecated. This inline
+// class provides the same mutable state container functionality without the
+// external dependency. This allows phaseStateMachine.ts to be removed in
+// a future cleanup while maintaining backward compatibility.
+
+/**
+ * Mutable container for turn processing state.
+ *
+ * This is a lightweight state container that holds TurnProcessingState and
+ * provides convenient getters/setters for use during processTurn and
+ * processPostMovePhases. It does NOT implement phase transition logic -
+ * that is handled by the FSM (TurnStateMachine).
+ *
+ * @internal Used only within turnOrchestrator.ts
+ */
+class ProcessingStateContainer {
+  private state: TurnProcessingState;
+
+  constructor(initialState: TurnProcessingState) {
+    this.state = initialState;
+  }
+
+  /** Get current phase from game state. */
+  get currentPhase(): GamePhase {
+    return this.state.gameState.currentPhase;
+  }
+
+  /** Get current game state. */
+  get gameState(): GameState {
+    return this.state.gameState;
+  }
+
+  /** Get current processing state. */
+  get processingState(): TurnProcessingState {
+    return this.state;
+  }
+
+  /** Update the game state. */
+  updateGameState(newState: GameState): void {
+    this.state.gameState = newState;
+    this.state.phasesTraversed.push(newState.currentPhase);
+  }
+
+  /** Update per-turn flags. */
+  updateFlags(flags: Partial<PerTurnFlags>): void {
+    this.state.perTurnFlags = { ...this.state.perTurnFlags, ...flags };
+  }
+
+  /** Set chain capture state. */
+  setChainCapture(inProgress: boolean, position?: Position): void {
+    this.state.chainCaptureInProgress = inProgress;
+    this.state.chainCapturePosition = position;
+  }
+
+  /** Transition to a specific phase. */
+  transitionTo(phase: GamePhase): void {
+    this.state.gameState = {
+      ...this.state.gameState,
+      currentPhase: phase,
+    };
+    this.state.phasesTraversed.push(phase);
+  }
+
+  /** Set pending lines for processing. */
+  setPendingLines(lines: TurnProcessingState['pendingLines']): void {
+    this.state.pendingLines = lines;
+  }
+
+  /** Set pending regions for processing. */
+  setPendingRegions(regions: TurnProcessingState['pendingRegions']): void {
+    this.state.pendingRegions = regions;
+  }
+
+  /** Get the number of pending lines. */
+  get pendingLineCount(): number {
+    return this.state.pendingLines.length;
+  }
+
+  /** Get the number of pending regions. */
+  get pendingRegionCount(): number {
+    return this.state.pendingRegions.length;
+  }
+}
+
+/**
+ * Create a fresh turn processing state.
+ * @internal Used only within turnOrchestrator.ts
+ */
+function createProcessingState(gameState: GameState, move: Move): TurnProcessingState {
+  return {
+    gameState,
+    originalMove: move,
+    perTurnFlags: {
+      hasPlacedThisTurn: false,
+      mustMoveFromStackKey: undefined,
+      eliminationRewardPending: false,
+      eliminationRewardCount: 0,
+      hadActionThisTurn: false,
+    },
+    pendingLines: [],
+    pendingRegions: [],
+    chainCaptureInProgress: false,
+    chainCapturePosition: undefined,
+    events: [],
+    phasesTraversed: [gameState.currentPhase],
+    startTime: Date.now(),
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Turn Rotation Helper
@@ -1374,7 +1486,7 @@ export function processTurn(
 
   const sInvariantBefore = computeSInvariant(state);
   const startTime = Date.now();
-  const stateMachine = new PhaseStateMachine(createTurnProcessingState(state, move));
+  const stateMachine = new ProcessingStateContainer(createProcessingState(state, move));
 
   // Compute hash before applying move to detect if the move actually changed state
   const hashBefore = hashGameState(stateMachine.gameState);
@@ -1690,7 +1802,9 @@ export function processTurn(
           // For 2-player games, winner is the non-resigning player
           winner:
             finalState.players.length === 2
-              ? finalState.players.find((p) => p.playerNumber !== move.player)?.playerNumber
+              ? finalState.players.find(
+                  (p: { playerNumber: number }) => p.playerNumber !== move.player
+                )?.playerNumber
               : undefined,
         };
       } else if (!isPhaseHandledByProcessPostMovePhases) {
@@ -2529,7 +2643,7 @@ function performFSMValidation(
  * @see derivePendingDecisionFromFSM in this file
  */
 function processPostMovePhases(
-  stateMachine: PhaseStateMachine,
+  stateMachine: ProcessingStateContainer,
   options?: ProcessTurnOptions
 ): {
   pendingDecision?: PendingDecision;
@@ -2565,7 +2679,7 @@ function processPostMovePhases(
     const currentState = stateMachine.gameState;
     const players = currentState.players;
     const currentPlayerIndex = players.findIndex(
-      (p) => p.playerNumber === currentState.currentPlayer
+      (p: { playerNumber: number }) => p.playerNumber === currentState.currentPlayer
     );
 
     // Skip permanently eliminated players (RR-CANON-R201)
@@ -3054,7 +3168,7 @@ function processPostMovePhases(
     const currentState = stateMachine.gameState;
     const players = currentState.players;
     const currentPlayerIndex = players.findIndex(
-      (p) => p.playerNumber === currentState.currentPlayer
+      (p: { playerNumber: number }) => p.playerNumber === currentState.currentPlayer
     );
     const { nextPlayer } = computeNextNonEliminatedPlayer(
       currentState,
@@ -3091,7 +3205,7 @@ function processPostMovePhases(
   const currentState = stateMachine.gameState;
   const players = currentState.players;
   const currentPlayerIndex = players.findIndex(
-    (p) => p.playerNumber === currentState.currentPlayer
+    (p: { playerNumber: number }) => p.playerNumber === currentState.currentPlayer
   );
   const { nextPlayer } = computeNextNonEliminatedPlayer(currentState, currentPlayerIndex, players);
   // Per RR-CANON-R073: ALL players start in ring_placement without exception.
