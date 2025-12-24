@@ -196,7 +196,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         '--model-version', type=str, default=None,
         choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v4'],
-        help='Model architecture version'
+        help='Model architecture version (for CNN models)'
+    )
+    parser.add_argument(
+        '--model-type', type=str, default='cnn',
+        choices=['cnn', 'gnn', 'hybrid'],
+        help='Model type: cnn (default), gnn (Graph Neural Network), or hybrid (CNN-GNN). '
+             'GNN/hybrid require PyTorch Geometric.'
     )
     parser.add_argument(
         '--num-res-blocks', type=int, default=None,
@@ -557,7 +563,28 @@ def main() -> None:
     model_version = args.model_version
     if model_version is None:
         model_version = get_model_version_for_board(config.board_type)
-    # Run training
+
+    # Route to GNN/hybrid training if model-type specified (2025-12)
+    model_type = getattr(args, 'model_type', 'cnn')
+    if model_type in ('gnn', 'hybrid'):
+        from app.training.train_gnn_policy import train_gnn_policy
+        logger.info(f"[TrainCLI] Using GNN training pipeline (model_type={model_type})")
+        train_gnn_policy(
+            data_path=data_path,
+            board_type=config.board_type.value if hasattr(config.board_type, 'value') else config.board_type,
+            num_players=args.num_players,
+            model_variant=model_type,  # 'gnn' or 'hybrid'
+            epochs=config.epochs_per_iter,
+            batch_size=config.batch_size,
+            learning_rate=config.learning_rate,
+            save_path=save_path,
+            checkpoint_dir=args.checkpoint_dir,
+            resume_path=args.resume,
+            early_stopping_patience=args.early_stopping_patience,
+        )
+        return
+
+    # Run CNN training
     train_model(
         config=config,
         data_path=data_path,

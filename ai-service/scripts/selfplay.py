@@ -30,6 +30,8 @@ Engine Modes:
     nn-descent    Neural descent search
     mixed         Mix of engines for diversity
     random        Random moves (baseline)
+    gnn           Pure GNN policy network (requires PyTorch Geometric)
+    hybrid        CNN-GNN hybrid model (requires PyTorch Geometric)
 """
 
 from __future__ import annotations
@@ -48,6 +50,7 @@ from app.training.selfplay_config import (
 )
 from app.training.selfplay_runner import (
     GameResult,
+    GNNSelfplayRunner,
     GumbelMCTSSelfplayRunner,
     HeuristicSelfplayRunner,
     RunStats,
@@ -100,15 +103,25 @@ def get_runner_for_config(config: SelfplayConfig) -> SelfplayRunner:
         # Default to Gumbel MCTS for quality
         return GumbelMCTSSelfplayRunner(config)
 
+    elif mode == EngineMode.GNN:
+        # Pure GNN policy network
+        logger.info(f"Using GNNSelfplayRunner for {mode.value}")
+        return GNNSelfplayRunner(config, model_tier="gnn")
+
+    elif mode == EngineMode.HYBRID:
+        # CNN-GNN hybrid network
+        logger.info(f"Using GNNSelfplayRunner (hybrid) for {mode.value}")
+        return GNNSelfplayRunner(config, model_tier="hybrid")
+
     elif mode in (EngineMode.GMO, EngineMode.EBMO, EngineMode.IG_GMO, EngineMode.CAGE):
-        # Experimental AI modes
-        try:
-            from app.ai.experimental import get_experimental_runner
-            logger.info(f"Using experimental runner for {mode.value}")
-            return get_experimental_runner(mode, config)
-        except ImportError:
-            logger.warning(f"Experimental AI {mode.value} not available, falling back to heuristic")
-            return HeuristicSelfplayRunner(config)
+        # Deprecated experimental AI modes - emit warning and fall back
+        import warnings
+        warnings.warn(
+            f"{mode.value} is deprecated. Use 'gnn' or 'hybrid' instead.",
+            DeprecationWarning,
+        )
+        logger.warning(f"{mode.value} is deprecated, falling back to heuristic")
+        return HeuristicSelfplayRunner(config)
 
     else:
         # Default fallback

@@ -38,10 +38,13 @@ class EngineMode(str, Enum):
     MAXN = "maxn"
     BRS = "brs"
     # Experimental AI engine modes
-    GMO = "gmo"  # Gradient Move Optimization (entropy-guided gradient ascent)
-    EBMO = "ebmo"  # Energy-Based Move Optimization (gradient descent on action embeddings)
-    IG_GMO = "ig-gmo"  # Information-Gain GMO (MI-based exploration + GNN)
-    CAGE = "cage"  # Constraint-Aware Graph Energy-based optimization (GNN + primal-dual)
+    GMO = "gmo"  # Gradient Move Optimization (entropy-guided gradient ascent) [DEPRECATED]
+    EBMO = "ebmo"  # Energy-Based Move Optimization [DEPRECATED]
+    IG_GMO = "ig-gmo"  # Information-Gain GMO [DEPRECATED]
+    CAGE = "cage"  # Constraint-Aware Graph Energy-based optimization [DEPRECATED]
+    # GNN-based engine modes (replaces deprecated GMO/EBMO)
+    GNN = "gnn"  # Pure GNN policy network with Gumbel sampling
+    HYBRID = "hybrid"  # CNN-GNN hybrid with Gumbel MCTS
 
 
 ENGINE_MODE_ALIASES: dict[str, str] = {
@@ -59,6 +62,13 @@ ENGINE_MODE_ALIASES: dict[str, str] = {
     "heuristic": EngineMode.HEURISTIC.value,
     "heuristic_only": EngineMode.HEURISTIC.value,
     "random-only": EngineMode.RANDOM.value,
+    # GNN aliases
+    "gnn-policy": EngineMode.GNN.value,
+    "gnn_policy": EngineMode.GNN.value,
+    "hybrid-gnn": EngineMode.HYBRID.value,
+    "hybrid_gnn": EngineMode.HYBRID.value,
+    "cnn-gnn": EngineMode.HYBRID.value,
+    "cnn_gnn": EngineMode.HYBRID.value,
 }
 
 

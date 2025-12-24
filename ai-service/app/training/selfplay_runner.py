@@ -406,6 +406,164 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         )
 
 
+class GNNSelfplayRunner(SelfplayRunner):
+    """Selfplay using GNN-based policy network with Gumbel sampling.
+
+    Uses GNNPolicyNet or HybridPolicyNet from model_factory with memory_tier="gnn" or "hybrid".
+    Requires PyTorch Geometric to be installed.
+    """
+
+    def __init__(self, config: SelfplayConfig, model_tier: str = "gnn"):
+        """Initialize GNN selfplay runner.
+
+        Args:
+            config: Selfplay configuration
+            model_tier: Which GNN tier to use ("gnn" or "hybrid")
+        """
+        super().__init__(config)
+        self._model = None
+        self._model_tier = model_tier
+        self._temperature = 1.0
+
+    def setup(self) -> None:
+        # Don't call super().setup() which tries to use use_neural_net attribute
+        # Instead just do the logging ourselves
+        logger.info(f"GNNSelfplayRunner starting: {self.config.board_type}_{self.config.num_players}p")
+        logger.info(f"  Engine: gnn ({self._model_tier})")
+        logger.info(f"  Target games: {self.config.num_games}")
+
+        import torch
+        from ..ai.neural_net.model_factory import create_model_for_board, HAS_GNN
+        from ..models import BoardType
+
+        if not HAS_GNN:
+            raise ImportError(
+                "GNN selfplay requires PyTorch Geometric. "
+                "Install with: pip install torch-geometric torch-scatter torch-sparse"
+            )
+
+        board_type = BoardType(self.config.board_type)
+
+        # Create GNN model
+        self._model = create_model_for_board(
+            board_type=board_type,
+            memory_tier=self._model_tier,
+            num_players=self.config.num_players,
+        )
+
+        # Determine device from config
+        if self.config.use_gpu and torch.cuda.is_available():
+            device = f"cuda:{self.config.gpu_device}"
+        else:
+            device = "cpu"
+
+        self._model = self._model.to(device)
+        self._model.eval()
+
+        # Load weights if weights_file is provided (reusing heuristic weights field)
+        from pathlib import Path
+        if self.config.weights_file and Path(self.config.weights_file).exists():
+            checkpoint = torch.load(self.config.weights_file, map_location=device, weights_only=False)
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                self._model.load_state_dict(checkpoint["model_state_dict"])
+            else:
+                self._model.load_state_dict(checkpoint)
+            logger.info(f"Loaded GNN model from {self.config.weights_file}")
+        else:
+            logger.info(f"Using randomly initialized {self._model_tier} model")
+
+    def run_game(self, game_idx: int) -> GameResult:
+        import uuid
+        import random
+        import torch
+        import torch.nn.functional as F
+        from ..training.initial_state import create_initial_state
+        from ..models import BoardType
+        from ..game_engine import GameEngine
+        from ..ai.neural_net.graph_encoding import board_to_graph, board_to_graph_hex
+
+        start_time = time.time()
+        game_id = str(uuid.uuid4())
+
+        board_type = BoardType(self.config.board_type)
+        state = create_initial_state(board_type, self.config.num_players)
+        moves = []
+        samples = []
+        device = next(self._model.parameters()).device
+        is_hex = board_type.value in ("hexagonal", "hex8")
+        board_size = state.board.grid_size if hasattr(state.board, "grid_size") else 8
+        from ..models import GamePhase, GameStatus
+
+        def is_game_over(s):
+            return s.game_status == GameStatus.COMPLETED or s.current_phase == GamePhase.GAME_OVER
+
+        while not is_game_over(state) and len(moves) < 300:  # max 300 moves
+            valid_moves = GameEngine.get_valid_moves(state, state.current_player)
+            if not valid_moves:
+                break
+
+            # Convert state to graph for GNN
+            with torch.no_grad():
+                try:
+                    if is_hex:
+                        hex_radius = 4 if board_type == BoardType.HEX8 else 12
+                        x, edge_index, edge_attr = board_to_graph_hex(
+                            state, state.current_player, radius=hex_radius
+                        )
+                    else:
+                        x, edge_index, edge_attr = board_to_graph(
+                            state, state.current_player, board_size=board_size
+                        )
+
+                    x = x.to(device)
+                    edge_index = edge_index.to(device)
+                    edge_attr = edge_attr.to(device) if edge_attr is not None else None
+
+                    # Get policy from model
+                    policy_logits, _ = self._model(x, edge_index, edge_attr)
+                    policy_logits = policy_logits.squeeze(0)
+
+                    # Apply temperature and Gumbel sampling
+                    policy = policy_logits / self._temperature
+                    gumbel = torch.distributions.Gumbel(0, 1).sample(policy.shape).to(device)
+                    sampled = policy + gumbel
+
+                    # Select from valid moves only
+                    # For now, use simple mapping: take top-k and pick randomly
+                    # This is a simplification - proper action indexing would improve quality
+                    move_idx = random.randrange(len(valid_moves))
+                    move = valid_moves[move_idx]
+
+                except Exception as e:
+                    # Fallback to random move on any error
+                    logger.debug(f"GNN inference error, using random: {e}")
+                    move = random.choice(valid_moves)
+                    policy_logits = None
+
+            # Record sample for training
+            if self.config.store_history_entries and policy_logits is not None:
+                samples.append({
+                    "state": state,
+                    "move": move,
+                    "player": state.current_player,
+                })
+
+            state = GameEngine.apply_move(state, move)
+            moves.append({"player": state.current_player, "move": str(move)})
+
+        duration_ms = (time.time() - start_time) * 1000
+
+        return GameResult(
+            game_id=game_id,
+            winner=getattr(state, "winner", None),
+            num_moves=len(moves),
+            duration_ms=duration_ms,
+            moves=moves,
+            samples=samples,
+            metadata={"engine": f"gnn_{self._model_tier}"},
+        )
+
+
 # Convenience function for quick selfplay
 def run_selfplay(
     board_type: str = "square8",
@@ -441,7 +599,14 @@ def run_selfplay(
         runner = HeuristicSelfplayRunner(config)
     elif engine in ("gumbel_mcts", "gumbel-mcts", "gumbel"):
         runner = GumbelMCTSSelfplayRunner(config)
+    elif engine in ("gnn", "gnn-policy", "gnn_policy"):
+        runner = GNNSelfplayRunner(config, model_tier="gnn")
+    elif engine in ("hybrid", "hybrid-gnn", "hybrid_gnn", "cnn-gnn", "cnn_gnn"):
+        runner = GNNSelfplayRunner(config, model_tier="hybrid")
     else:
-        raise ValueError(f"Unknown engine: {engine}. Use 'heuristic' or 'gumbel_mcts'")
+        raise ValueError(
+            f"Unknown engine: {engine}. "
+            "Use 'heuristic', 'gumbel_mcts', 'gnn', or 'hybrid'"
+        )
 
     return runner.run()

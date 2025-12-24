@@ -549,5 +549,42 @@ python scripts/check_ts_python_replay_parity.py \
 
 ---
 
+## 9. Progress Log
+
+### 2025-12-24: square8 2P Training Complete
+
+**Phase 1: Data Generation**
+
+- square8 2P: 46,892 games consolidated (176% of target)
+- square19 2P: 77 games generated (1.5% of target 5,000)
+
+**Phase 2: Training**
+
+- Model: ringrift_v5_sq8_2p_2xh100.pth (31.6 MB)
+- Best epoch: 13 (Val Loss: 2.10, Policy Accuracy: 30.1%)
+- Early stopping at epoch 18
+
+**Phase 3: Evaluation**
+
+- Win rate vs Random: 82%
+- Win rate vs Heuristic: 54%
+- Elo improvement: +28 (exceeds +20 threshold)
+- New Elo estimate: 1597 (up from 1562)
+
+**Phase 4: Promotion**
+
+- Status: ✅ PROMOTED to production tier
+- Model path: models/production/square8_2p/model_elo1597_20251224_140300.pth
+- Symlink updated: models/production/square8_2p/latest.pth
+
+**Next Steps:**
+
+1. Wait for square19 2P to reach 5,000 games (currently at 77)
+2. Train square19 2P model
+3. Activate unified AI loop for continuous improvement
+
+---
+
 _Document created: 2025-12-24_
+_Last updated: 2025-12-24_
 _Author: Kilo Code Architecture Mode_

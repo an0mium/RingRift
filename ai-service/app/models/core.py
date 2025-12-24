@@ -166,6 +166,7 @@ class AIType(str, Enum):
     CAGE = "cage"  # Constraint-Aware Graph Energy-based move optimization (GNN + primal-dual)
     IMPROVED_MCTS = "improved_mcts"  # Advanced MCTS with PUCT, progressive widening, transposition tables
     HYBRID_NN = "hybrid_nn"  # Fast heuristic + NN value ranking (5-10x faster than full MCTS)
+    GNN = "gnn"  # Graph Neural Network policy (message passing for territory connectivity)
 
 
 class Position(BaseModel):

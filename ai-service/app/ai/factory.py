@@ -704,6 +704,9 @@ class AIFactory:
         elif ai_type == AIType.HYBRID_NN:
             from app.ai.hybrid_gpu import HybridNNAI
             ai_class = HybridNNAI
+        elif ai_type == AIType.GNN:
+            from app.ai.gnn_ai import GNNAI
+            ai_class = GNNAI
         else:
             raise ValueError(f"Unsupported AI type: {ai_type}")
 
@@ -1061,6 +1064,26 @@ class AIFactory:
             )
             from app.ai.archive.cage_ai import CAGE_AI
             return CAGE_AI(player_number, config, model_path=model_path)
+
+        # GNN AI (Graph Neural Network - message passing for territory connectivity)
+        if agent_key == "gnn" or agent_key.startswith("gnn_"):
+            # Parse optional model path: gnn_modelpath
+            model_path = "models/gnn_hex8_2p/gnn_policy_best.pt"  # Default
+            if "_" in agent_lower and agent_lower != "gnn":
+                try:
+                    parts = agent_lower.split("_", 1)
+                    if len(parts) > 1:
+                        model_path = parts[1]
+                except (ValueError, IndexError):
+                    pass
+
+            config = AIConfig(
+                difficulty=6,
+                rng_seed=rng_seed,
+                nn_model_id=nn_model_id,
+            )
+            from app.ai.gnn_ai import GNNAI
+            return GNNAI(player_number, config, model_path=model_path)
 
         # Improved MCTS AI (advanced MCTS with PUCT, progressive widening, etc.)
         if agent_key == "improved_mcts" or agent_key.startswith("improved_mcts_"):

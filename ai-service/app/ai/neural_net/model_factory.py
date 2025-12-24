@@ -481,18 +481,18 @@ def _get_tier_config(board_type: BoardType, tier: str) -> dict[str, Any]:
         },
         "gnn": {
             "num_res_blocks": 0,  # Not applicable for GNN
-            "num_filters": 64,  # hidden_channels
-            "estimated_params_m": 0.255,
+            "num_filters": 128,  # hidden_dim
+            "estimated_params_m": 0.9,
             "recommended_model": "GNNPolicyNet",
-            "description": "Pure GNN model (~255K params, requires PyTorch Geometric)",
+            "description": "Pure GNN model (~900K params, requires PyTorch Geometric)",
             "requires_pyg": True,
         },
         "hybrid": {
-            "num_res_blocks": 0,  # Not applicable for hybrid CNN-GNN
-            "num_filters": 64,  # cnn_channels
-            "estimated_params_m": 15.5,
+            "num_res_blocks": 6,  # cnn_blocks
+            "num_filters": 128,  # hidden_channels
+            "estimated_params_m": 17.3,
             "recommended_model": "HybridPolicyNet",
-            "description": "CNN-GNN hybrid model (~15.5M params, requires PyTorch Geometric)",
+            "description": "CNN-GNN hybrid model (~17M params, requires PyTorch Geometric)",
             "requires_pyg": True,
         },
     }
