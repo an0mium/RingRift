@@ -117,6 +117,7 @@ class RingRiftCNN_v2(nn.Module):
 
         # Input channels = base_channels * (history_length + 1)
         self.total_in_channels = in_channels * (history_length + 1)
+        self.in_channels = self.total_in_channels  # For forward() validation
 
         # Initial convolution
         self.conv1 = nn.Conv2d(self.total_in_channels, num_filters, kernel_size=3, padding=1)
@@ -443,6 +444,7 @@ class RingRiftCNN_v3(nn.Module):
 
         # Input channels = base_channels * (history_length + 1)
         self.total_in_channels = in_channels * (history_length + 1)
+        self.in_channels = self.total_in_channels  # For forward() validation
 
         # Determine policy size
         if policy_size is not None:
