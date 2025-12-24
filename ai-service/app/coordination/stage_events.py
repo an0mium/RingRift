@@ -357,6 +357,26 @@ class StageEventBus:
                         f"{result.event.value}: {e}"
                     )
 
+                # Capture to dead letter queue if enabled (December 2025)
+                if hasattr(self, "_dlq") and self._dlq is not None:
+                    try:
+                        payload = {
+                            "event": result.event.value,
+                            "success": result.success,
+                            "iteration": result.iteration,
+                            "timestamp": result.timestamp,
+                            "metadata": result.metadata,
+                        }
+                        self._dlq.capture(
+                            event_type=result.event.value,
+                            payload=payload,
+                            handler_name=callback.__name__,
+                            error=str(e),
+                            source="stage_events",
+                        )
+                    except Exception as dlq_error:
+                        logger.warning(f"Failed to capture to DLQ: {dlq_error}")
+
         return invoked
 
     async def emit_and_wait(

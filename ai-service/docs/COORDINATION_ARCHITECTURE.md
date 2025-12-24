@@ -155,3 +155,150 @@ router = get_router()
 for event in router.get_recent_events(limit=100):
     print(f"{event.timestamp}: {event.type} from {event.source}")
 ```
+
+---
+
+## December 2025: Coordination Infrastructure Consolidation
+
+### New Pipeline Actions (`app/coordination/pipeline_actions.py`)
+
+Triggers actual work for each pipeline stage with circuit breaker protection:
+
+```python
+from app.coordination.pipeline_actions import (
+    trigger_data_sync,
+    trigger_npz_export,
+    trigger_training,
+    trigger_evaluation,
+    trigger_promotion,
+)
+
+# Trigger data sync from cluster
+result = await trigger_data_sync(
+    board_type="hex8",
+    num_players=2,
+    iteration=1,
+)
+
+if result.success:
+    print(f"Sync completed in {result.duration_seconds:.1f}s")
+else:
+    print(f"Sync failed: {result.error}")
+```
+
+### Circuit Breaker (`app/coordination/data_pipeline_orchestrator.py`)
+
+Prevents cascading failures by opening after repeated errors:
+
+```python
+from app.coordination.data_pipeline_orchestrator import CircuitBreaker
+
+cb = CircuitBreaker(failure_threshold=3, reset_timeout_seconds=300)
+
+if cb.can_execute():
+    try:
+        result = await trigger_training(...)
+        cb.record_success("training")
+    except Exception as e:
+        cb.record_failure("training", str(e))
+        # After 3 failures, circuit opens for 5 minutes
+```
+
+States:
+
+- **CLOSED**: Normal operation
+- **OPEN**: Rejecting requests (auto-recovers after timeout)
+- **HALF_OPEN**: Testing recovery with limited requests
+
+### Bandwidth Coordination (`app/coordination/sync_bandwidth.py`)
+
+Prevents network contention during parallel syncs:
+
+```python
+from app.coordination.sync_bandwidth import (
+    BandwidthCoordinatedRsync,
+    TransferPriority,
+    get_bandwidth_manager,
+)
+
+rsync = BandwidthCoordinatedRsync()
+result = await rsync.sync(
+    source="/data/games/",
+    dest="ubuntu@lambda-gh200:/data/games/",
+    host="lambda-gh200",
+    priority=TransferPriority.HIGH,
+)
+
+# Check manager status
+manager = get_bandwidth_manager()
+print(manager.get_status())
+```
+
+Features:
+
+- Per-host bandwidth allocation
+- Priority-based scheduling (LOW, NORMAL, HIGH, CRITICAL)
+- Concurrent transfer limits
+- Automatic allocation expiry
+
+### Daemon Adapters (`app/coordination/daemon_adapters.py`)
+
+Unified lifecycle management for all daemons:
+
+```python
+from app.coordination.daemon_adapters import get_daemon_adapter
+from app.coordination.daemon_manager import DaemonType
+
+adapter = get_daemon_adapter(DaemonType.DISTILLATION)
+await adapter.run()  # Handles role acquisition, health checks, restart
+```
+
+Available adapters:
+
+- `DistillationDaemonAdapter` - Acquires `DISTILLATION_LEADER` role
+- `PromotionDaemonAdapter` - Acquires `PROMOTION_LEADER` role
+- `ExternalDriveSyncAdapter` - Acquires `EXTERNAL_SYNC_LEADER` role
+- `VastCpuPipelineAdapter` - Acquires `VAST_PIPELINE_LEADER` role
+
+### Master Daemon Launcher (`scripts/launch_daemons.py`)
+
+Single command to launch all daemons:
+
+```bash
+# Launch all daemons
+python scripts/launch_daemons.py --all
+
+# Launch specific types
+python scripts/launch_daemons.py --sync-only
+python scripts/launch_daemons.py --training-only
+
+# Check status
+python scripts/launch_daemons.py --status
+```
+
+### Backwards Compatibility
+
+The `event_router.py` provides aliases for `unified_event_coordinator.py`:
+
+```python
+# Old imports still work
+from app.coordination.event_router import (
+    UnifiedEventCoordinator,  # Alias for UnifiedEventRouter
+    get_event_coordinator,    # Alias for get_router
+    CoordinatorStats,         # Backwards-compat dataclass
+    emit_training_started,    # Helper functions
+    emit_training_completed,
+)
+```
+
+### Archived Modules
+
+The following modules have been superseded:
+
+| Old Module                     | Replacement                  |
+| ------------------------------ | ---------------------------- |
+| `unified_event_coordinator.py` | `event_router.py`            |
+| `cluster_monitor_daemon.py`    | `unified_cluster_monitor.py` |
+| `robust_cluster_monitor.py`    | `unified_cluster_monitor.py` |
+
+See `archive/deprecated_coordination/README.md` for migration guides.

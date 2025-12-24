@@ -25,13 +25,17 @@ def deprecated_legacy(removal_target: str = "Q2 2026") -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            warnings.warn(
-                f"{func.__module__}.{func.__name__}() is deprecated. "
-                f"This legacy function will be removed in {removal_target}. "
-                f"See app/rules/legacy/CANONICAL_PATH.md for migration.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+            warn = kwargs.get("warn", True)
+            if len(args) >= 2 and isinstance(args[1], bool):
+                warn = args[1]
+            if warn:
+                warnings.warn(
+                    f"{func.__module__}.{func.__name__}() is deprecated. "
+                    f"This legacy function will be removed in {removal_target}. "
+                    f"See app/rules/legacy/CANONICAL_PATH.md for migration.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
             return func(*args, **kwargs)
         return wrapper  # type: ignore
     return decorator

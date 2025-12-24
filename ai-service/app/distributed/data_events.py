@@ -387,6 +387,19 @@ class EventBus:
                     self._errors_by_type.get(event.event_type, 0) + 1
                 )
                 print(f"[EventBus] Error in subscriber for {event.event_type.value}: {e}")
+
+                # Capture to dead letter queue if enabled (December 2025)
+                if hasattr(self, "_dlq") and self._dlq is not None:
+                    try:
+                        self._dlq.capture(
+                            event_type=event.event_type.value,
+                            payload=event.payload,
+                            handler_name=getattr(callback, "__name__", "unknown"),
+                            error=str(e),
+                            source="data_events",
+                        )
+                    except Exception as dlq_error:
+                        print(f"[EventBus] Failed to capture to DLQ: {dlq_error}")
             finally:
                 # Track callback latency
                 latency_ms = (time.time() - callback_start) * 1000

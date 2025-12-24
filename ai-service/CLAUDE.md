@@ -410,6 +410,19 @@ Major consolidation of duplicated code:
 - **`temperature_scheduling.py`**: 7 schedule types (linear, cosine, adaptive, curriculum, etc.)
 - **`online_learning.py`**: EBMO online learning with TD-Energy updates
 
+**Quality & Event System** (Dec 24, 2025):
+
+- **`unified_quality.py`**: Single source of truth for quality scoring (`UnifiedQualityScorer`)
+- **`event_router.py`**: Fixed fire-and-forget task handling with error callbacks
+- **`game_gauntlet.py`**: Now emits EVALUATION_COMPLETED events for curriculum feedback
+- **`training_coordinator.py`**: Subscribes to cluster health events for training decisions
+
+**Deprecated Modules** (with runtime warnings):
+
+- `orchestrated_training.py` → use `unified_orchestrator.py`
+- `integrated_enhancements.py` → use `unified_orchestrator.py`
+- `training_enhancements.DataQualityScorer` → use `unified_quality.UnifiedQualityScorer`
+
 See `archive/deprecated_scripts/README.md` and `archive/deprecated_coordination/README.md` for archived module documentation.
 
 ### Auto-Promotion Workflow

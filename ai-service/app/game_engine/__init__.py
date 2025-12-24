@@ -39,10 +39,16 @@ def __getattr__(name):
     """Lazy attribute access for GameEngine and related symbols."""
     if name in ("GameEngine", "STRICT_NO_MOVE_INVARIANT"):
         if name not in _lazy_cache:
-            from app._game_engine_legacy import (
-                STRICT_NO_MOVE_INVARIANT as _STRICT,
-                GameEngine as _GameEngine,
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"app\._game_engine_legacy is deprecated.*",
+                    category=DeprecationWarning,
+                )
+                from app._game_engine_legacy import (
+                    STRICT_NO_MOVE_INVARIANT as _STRICT,
+                    GameEngine as _GameEngine,
+                )
             _lazy_cache["GameEngine"] = _GameEngine
             _lazy_cache["STRICT_NO_MOVE_INVARIANT"] = _STRICT
         return _lazy_cache[name]

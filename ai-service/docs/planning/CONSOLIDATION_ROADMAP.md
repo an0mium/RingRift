@@ -315,6 +315,27 @@ SYNC_COMPLETE → auto-trigger EXPORT
 NPZ_EXPORT_COMPLETE → auto-trigger TRAINING
 ```
 
+### Phase 3.2: Dead Letter Queue ✅
+
+Created `app/coordination/dead_letter_queue.py` (Dec 24, 2025):
+
+- `DeadLetterQueue` class with SQLite-backed persistence
+- `FailedEvent` dataclass for tracking failed events
+- Automatic retry with exponential backoff
+- Integration with StageEventBus and DataEventBus
+- `run_retry_daemon()` for background retry processing
+
+### Phase 3.3: Coordinator Initialization Ordering ✅
+
+Enhanced `initialize_all_coordinators()` (Dec 24, 2025):
+
+- Layered dependency graph:
+  - **Layer 1**: Foundational (task_lifecycle, resources, cache)
+  - **Layer 2**: Core (selfplay, pipeline)
+  - **Layer 3**: Application (optimization, metrics)
+- Dependency checking - coordinators skip if dependencies failed
+- Dead letter queue initialized first and attached to all event buses
+
 ## Timeline
 
 - **Phase 1:** Complete ✅ (38 scripts archived)
@@ -324,9 +345,10 @@ NPZ_EXPORT_COMPLETE → auto-trigger TRAINING
   - 2.3 CLI Args: ✅ Extended `scripts/lib/cli.py` with consolidated helpers
   - 2.4 Model Factories: Deferred (complementary purposes)
   - 2.5 Export Caching: Deferred (already integrated in optimized_pipeline)
-- **Phase 3:** In Progress
+- **Phase 3:** Complete ✅
   - 3.1 Pipeline Events: ✅ Event triggers for selfplay → export → training
-  - 3.2 Event Hardening: Pending (dead letter queue, init ordering)
+  - 3.2 Dead Letter Queue: ✅ SQLite-backed with retry daemon
+  - 3.3 Init Ordering: ✅ Layered dependency graph with checking
 - **Phase 4:** Pending (feedback loop completion)
 
 **Total:** 2-3 weeks for full consolidation
@@ -339,3 +361,5 @@ NPZ_EXPORT_COMPLETE → auto-trigger TRAINING
 - Identified existing solutions (db_utils.py, optimized_pipeline.py)
 - Consolidated CLI argument helpers (add_db_args, add_model_args, etc.)
 - Event-driven pipeline triggers (selfplay → export → training)
+- Dead letter queue for failed event recovery
+- Layered coordinator initialization with dependency checking

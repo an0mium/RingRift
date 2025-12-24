@@ -884,14 +884,15 @@ def initialize_all_coordinators(
     logger = logging.getLogger(__name__)
 
     status = {
-        "selfplay": False,
-        "pipeline": False,
-        "task_lifecycle": False,
-        "optimization": False,
-        "metrics": False,
-        "resources": False,
-        "cache": False,
-        "event_coordinator": False,
+        "dead_letter_queue": False,  # Initialized first (December 2025)
+        "task_lifecycle": False,      # Layer 1: Foundational
+        "resources": False,           # Layer 1: Foundational
+        "cache": False,               # Layer 1: Foundational
+        "selfplay": False,            # Layer 2: Core
+        "pipeline": False,            # Layer 2: Core
+        "optimization": False,        # Layer 3: Application
+        "metrics": False,             # Layer 3: Application
+        "event_coordinator": False,   # Started last
     }
     errors = {}
     instances = {}
@@ -925,18 +926,47 @@ def initialize_all_coordinators(
         coord = wire_metrics_events()
         return (coord, coord._subscribed)
 
-    # Initialize in dependency order (foundational first)
+    # Initialize in dependency order (December 2025 - enhanced ordering)
+    # Layer 1: Foundational infrastructure (no dependencies)
+    # Layer 2: Core coordinators (depend on Layer 1)
+    # Layer 3: Application coordinators (depend on Layer 2)
     init_order = [
-        ("task_lifecycle", init_task_lifecycle),
-        ("resources", init_resources),
-        ("cache", init_cache),
-        ("selfplay", init_selfplay),
-        ("pipeline", init_pipeline),
-        ("optimization", init_optimization),
-        ("metrics", init_metrics),
+        # Layer 1: Foundational
+        ("task_lifecycle", init_task_lifecycle, []),  # No dependencies
+        ("resources", init_resources, []),            # No dependencies
+        ("cache", init_cache, []),                    # No dependencies
+        # Layer 2: Core (depend on foundational)
+        ("selfplay", init_selfplay, ["task_lifecycle"]),
+        ("pipeline", init_pipeline, ["task_lifecycle", "selfplay"]),
+        # Layer 3: Application (depend on core)
+        ("optimization", init_optimization, ["pipeline"]),
+        ("metrics", init_metrics, ["task_lifecycle"]),
     ]
 
-    for name, init_func in init_order:
+    # Initialize Dead Letter Queue first (December 2025)
+    dlq = None
+    try:
+        from app.coordination.dead_letter_queue import get_dead_letter_queue, enable_dead_letter_queue
+        dlq = get_dead_letter_queue()
+        status["dead_letter_queue"] = True
+        instances["dead_letter_queue"] = dlq
+        logger.info("[initialize_all_coordinators] Dead letter queue initialized")
+    except Exception as e:
+        logger.warning(f"[initialize_all_coordinators] Dead letter queue not available: {e}")
+        status["dead_letter_queue"] = False
+
+    for name, init_func, dependencies in init_order:
+        # Check dependencies are satisfied (December 2025)
+        deps_satisfied = all(status.get(dep, False) for dep in dependencies)
+        if not deps_satisfied:
+            failed_deps = [dep for dep in dependencies if not status.get(dep, False)]
+            logger.warning(
+                f"[initialize_all_coordinators] {name} skipped - dependencies failed: {failed_deps}"
+            )
+            status[name] = False
+            errors[name] = f"Dependencies not satisfied: {failed_deps}"
+            continue
+
         instance, success, error = _init_with_retry(
             name,
             init_func,
@@ -947,6 +977,12 @@ def initialize_all_coordinators(
         status[name] = success
         if instance:
             instances[name] = instance
+            # Enable DLQ for event buses in this coordinator (December 2025)
+            if dlq and hasattr(instance, "_bus"):
+                try:
+                    enable_dead_letter_queue(dlq, instance._bus)
+                except Exception:
+                    pass
         if error:
             errors[name] = error
 
