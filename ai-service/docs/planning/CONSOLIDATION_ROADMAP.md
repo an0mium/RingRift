@@ -70,27 +70,40 @@ scripts/selfplay.py              # Unified CLI entry point
 2. Reduce each variant script to config + runner invocation
 3. Archive 20+ redundant scripts
 
-### 2.3 Model Factory Unification (MEDIUM)
+### 2.3 Model Factory Unification (MEDIUM) - DEFERRED
 
-**Current:** Two factories with 60-70% overlap
+**Current:** Two factories with complementary functionality
 
-- `app/training/model_factory.py` - Training-centric
-- `app/ai/neural_net/model_factory.py` - Inference-centric
+- `app/training/model_factory.py` (347 lines) - Training-centric
+  - `ModelConfig` dataclass, DDP wrapping, weight loading, channel computation
+- `app/ai/neural_net/model_factory.py` (402 lines) - Inference-centric
+  - Memory tiers (high/low/v3-high/v3-low/v4), lite variants
 
-**Target:** Single factory in `app/ai/neural_net/model_factory.py`
+**Status:** DEFERRED - Factories serve different purposes with unique helper functions.
+Unification requires careful refactoring to maintain backwards compatibility.
 
-- Keep memory tier support (v2_lite, v3_lite, etc.)
-- Add training config wrapper for backwards compatibility
+**Future approach:**
 
-### 2.4 Export Caching Consolidation (MEDIUM)
+- Keep inference factory as primary
+- Add `create_model_from_config(config: ModelConfig)` for training compatibility
+- Move training-specific helpers to a training utilities module
 
-**Current:** 3 caching strategies in 6 files
+### 2.4 Export Caching Consolidation (MEDIUM) - ANALYZED
 
-- Mtime-based (`export_cache.py`)
-- Hash-based (`dynamic_export.py`)
-- Game-ID-based (`incremental_export.py`)
+**Current:** 3 modules serving complementary purposes (1,184 lines total)
 
-**Target:** Single `ExportManager` with configurable strategy
+- `export_cache.py` (396 lines) - File-level caching via mtime/hash
+- `dynamic_export.py` (294 lines) - Optimal settings calculation (not caching)
+- `incremental_export.py` (494 lines) - Game-ID-level tracking
+
+**Status:** DEFERRED - These modules are already integrated in `optimized_pipeline.py`.
+They serve different layers of the export process and work together:
+
+1. `ExportCache` checks if NPZ is up-to-date (file level)
+2. `get_export_settings` computes optimal settings (configuration)
+3. `IncrementalExporter` tracks which games to export (row level)
+
+**Future approach:** Create `ExportManager` facade that coordinates all three.
 
 ## Phase 3: Pipeline Integration
 
@@ -241,11 +254,50 @@ async def on_new_games(event): ...
 | Event systems          | 3 (fragmented) | 1 (unified) |
 | Pipeline auto-trigger  | Manual         | Automatic   |
 
+## Implementation Progress
+
+### Phase 2.1: Database Connection Pooling ✅
+
+Infrastructure already exists in `app/distributed/db_utils.py` (925 lines):
+
+- `ThreadLocalConnectionPool` - Thread-safe connection management
+- `DatabaseRegistry` singleton - Central database registration
+- `PragmaProfile` - STANDARD/EXTENDED/QUICK timeout tiers
+- `get_database()` context manager
+
+Adoption by 25+ modules is now a gradual migration (low priority).
+
+### Phase 2.2: Unified Selfplay Entry Point ✅
+
+Created `scripts/selfplay.py` (Dec 24, 2025):
+
+- Single CLI for all selfplay modes
+- Uses `SelfplayConfig` and `SelfplayRunner` base class
+- Dispatches to appropriate runner based on engine mode
+- Supports all engine modes: heuristic, gumbel, mcts, nnue-guided, etc.
+
+Remaining specialized scripts kept for unique functionality:
+
+- `run_gpu_selfplay.py` - Full GPU parallel implementation
+- `run_distributed_selfplay.py` - Cluster-wide coordination
+- `run_canonical_selfplay_parity_gate.py` - Parity testing
+
 ## Timeline
 
-- **Phase 1:** Complete ✅
-- **Phase 2:** 3-5 days
-- **Phase 3:** 5-7 days
-- **Phase 4:** 5-10 days
+- **Phase 1:** Complete ✅ (38 scripts archived)
+- **Phase 2:** Analyzed ✅
+  - 2.1 DB Pooling: ✅ Infrastructure exists, gradual adoption
+  - 2.2 Selfplay CLI: ✅ Created `scripts/selfplay.py`
+  - 2.3 Model Factories: Deferred (complementary purposes)
+  - 2.4 Export Caching: Deferred (already integrated in optimized_pipeline)
+- **Phase 3:** 5-7 days (pipeline integration)
+- **Phase 4:** 5-10 days (event system hardening)
 
 **Total:** 2-3 weeks for full consolidation
+
+**Key Wins So Far:**
+
+- Unified selfplay entry point (`scripts/selfplay.py`)
+- 38 deprecated scripts archived
+- Clear documentation of infrastructure state
+- Identified existing solutions (db_utils.py, optimized_pipeline.py)

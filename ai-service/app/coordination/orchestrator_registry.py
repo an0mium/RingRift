@@ -136,6 +136,12 @@ class OrchestratorRole(Enum):
     DATA_SYNC = "data_sync"
     UNIFIED_LOOP = "unified_loop"
 
+    # Training enhancement roles (December 2025)
+    DISTILLATION_LEADER = "distillation_leader"
+    PROMOTION_LEADER = "promotion_leader"
+    EXTERNAL_SYNC_LEADER = "external_sync_leader"
+    VAST_PIPELINE_LEADER = "vast_pipeline_leader"
+
 
 class OrchestratorState(Enum):
     """State of an orchestrator."""

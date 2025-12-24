@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""Master Daemon Launcher - Unified interface for managing all daemons.
+
+This script provides a centralized CLI for starting, stopping, and monitoring
+all daemons through the DaemonManager.
+
+Usage:
+    # Start all daemons
+    python scripts/launch_daemons.py --all
+
+    # Start specific daemon categories
+    python scripts/launch_daemons.py --sync        # Sync daemons only
+    python scripts/launch_daemons.py --training    # Training daemons only
+    python scripts/launch_daemons.py --monitoring  # Monitoring daemons only
+
+    # Start specific daemons
+    python scripts/launch_daemons.py --daemon sync_coordinator --daemon event_router
+
+    # Show daemon status
+    python scripts/launch_daemons.py --status
+
+    # Stop all daemons
+    python scripts/launch_daemons.py --stop-all
+
+    # Watch mode (show live status)
+    python scripts/launch_daemons.py --watch --interval 5
+"""
+
+import argparse
+import asyncio
+import json
+import logging
+import signal
+import sys
+import time
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from app.coordination.daemon_manager import (
+    DaemonManager,
+    DaemonManagerConfig,
+    DaemonType,
+    get_daemon_manager,
+    setup_signal_handlers,
+)
+from app.coordination.daemon_adapters import register_all_adapters_with_manager
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+# Daemon categories for grouped launching
+DAEMON_CATEGORIES = {
+    "sync": [
+        DaemonType.SYNC_COORDINATOR,
+        DaemonType.HIGH_QUALITY_SYNC,
+        DaemonType.ELO_SYNC,
+        DaemonType.MODEL_SYNC,
+    ],
+    "training": [
+        DaemonType.DATA_PIPELINE,
+        DaemonType.TRAINING_WATCHER,
+        DaemonType.SELFPLAY_COORDINATOR,
+        DaemonType.DISTILLATION,
+        DaemonType.UNIFIED_PROMOTION,
+    ],
+    "monitoring": [
+        DaemonType.HEALTH_CHECK,
+        DaemonType.CLUSTER_MONITOR,
+        DaemonType.QUEUE_MONITOR,
+    ],
+    "events": [
+        DaemonType.EVENT_ROUTER,
+        DaemonType.CROSS_PROCESS_POLLER,
+    ],
+    "p2p": [
+        DaemonType.P2P_BACKEND,
+        DaemonType.GOSSIP_SYNC,
+        DaemonType.DATA_SERVER,
+    ],
+    "external": [
+        DaemonType.EXTERNAL_DRIVE_SYNC,
+        DaemonType.VAST_CPU_PIPELINE,
+    ],
+}
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Master Daemon Launcher",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Categories:
+  --sync        Start sync daemons (data, models, elo)
+  --training    Start training pipeline daemons
+  --monitoring  Start monitoring daemons
+  --events      Start event processing daemons
+  --p2p         Start P2P service daemons
+  --external    Start external integration daemons
+
+Examples:
+  python scripts/launch_daemons.py --all
+  python scripts/launch_daemons.py --sync --training
+  python scripts/launch_daemons.py --status --watch
+        """,
+    )
+
+    # Daemon selection
+    group = parser.add_argument_group("Daemon Selection")
+    group.add_argument(
+        "--all", action="store_true",
+        help="Start all available daemons",
+    )
+    group.add_argument(
+        "--daemon", action="append", dest="daemons",
+        help="Start specific daemon(s) by name (can repeat)",
+    )
+
+    # Category shortcuts
+    cat_group = parser.add_argument_group("Category Shortcuts")
+    cat_group.add_argument("--sync", action="store_true", help="Start sync daemons")
+    cat_group.add_argument("--training", action="store_true", help="Start training daemons")
+    cat_group.add_argument("--monitoring", action="store_true", help="Start monitoring daemons")
+    cat_group.add_argument("--events", action="store_true", help="Start event daemons")
+    cat_group.add_argument("--p2p", action="store_true", help="Start P2P daemons")
+    cat_group.add_argument("--external", action="store_true", help="Start external daemons")
+
+    # Actions
+    action_group = parser.add_argument_group("Actions")
+    action_group.add_argument("--status", action="store_true", help="Show daemon status")
+    action_group.add_argument("--stop-all", action="store_true", help="Stop all daemons")
+    action_group.add_argument("--stop", action="append", dest="stop_daemons",
+                               help="Stop specific daemon(s)")
+
+    # Display options
+    display_group = parser.add_argument_group("Display Options")
+    display_group.add_argument("--watch", action="store_true", help="Watch mode (live updates)")
+    display_group.add_argument("--interval", type=float, default=5.0,
+                                help="Watch interval in seconds")
+    display_group.add_argument("--json", action="store_true", help="Output in JSON format")
+    display_group.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    # Configuration
+    config_group = parser.add_argument_group("Configuration")
+    config_group.add_argument("--health-interval", type=float, default=30.0,
+                               help="Health check interval in seconds")
+    config_group.add_argument("--no-auto-restart", action="store_true",
+                               help="Disable auto-restart on failure")
+
+    return parser.parse_args()
+
+
+def get_daemons_to_start(args: argparse.Namespace) -> list[DaemonType]:
+    """Determine which daemons to start based on arguments."""
+    daemons: set[DaemonType] = set()
+
+    # Handle --all
+    if args.all:
+        return list(DaemonType)
+
+    # Handle categories
+    if args.sync:
+        daemons.update(DAEMON_CATEGORIES["sync"])
+    if args.training:
+        daemons.update(DAEMON_CATEGORIES["training"])
+    if args.monitoring:
+        daemons.update(DAEMON_CATEGORIES["monitoring"])
+    if args.events:
+        daemons.update(DAEMON_CATEGORIES["events"])
+    if args.p2p:
+        daemons.update(DAEMON_CATEGORIES["p2p"])
+    if args.external:
+        daemons.update(DAEMON_CATEGORIES["external"])
+
+    # Handle specific daemons
+    if args.daemons:
+        for name in args.daemons:
+            try:
+                daemon_type = DaemonType(name)
+                daemons.add(daemon_type)
+            except ValueError:
+                logger.warning(f"Unknown daemon type: {name}")
+
+    return list(daemons)
+
+
+def format_status(status: dict, use_json: bool = False) -> str:
+    """Format daemon status for display."""
+    if use_json:
+        return json.dumps(status, indent=2)
+
+    lines = []
+    lines.append("=" * 60)
+    lines.append("DAEMON MANAGER STATUS")
+    lines.append("=" * 60)
+
+    summary = status.get("summary", {})
+    lines.append(f"Running: {status.get('running', False)}")
+    lines.append(f"Total: {summary.get('total', 0)} | "
+                 f"Running: {summary.get('running', 0)} | "
+                 f"Failed: {summary.get('failed', 0)} | "
+                 f"Stopped: {summary.get('stopped', 0)}")
+    lines.append("")
+
+    daemons = status.get("daemons", {})
+    if daemons:
+        lines.append("Daemons:")
+        lines.append("-" * 40)
+        for name, info in sorted(daemons.items()):
+            state = info.get("state", "unknown")
+            uptime = info.get("uptime_seconds", 0)
+            restarts = info.get("restart_count", 0)
+
+            state_icon = {
+                "running": "✓",
+                "stopped": "○",
+                "failed": "✗",
+                "starting": "→",
+                "stopping": "←",
+                "restarting": "↻",
+            }.get(state, "?")
+
+            uptime_str = ""
+            if uptime > 0:
+                if uptime > 3600:
+                    uptime_str = f" ({uptime / 3600:.1f}h)"
+                elif uptime > 60:
+                    uptime_str = f" ({uptime / 60:.1f}m)"
+                else:
+                    uptime_str = f" ({uptime:.0f}s)"
+
+            restart_str = f" [restarts: {restarts}]" if restarts > 0 else ""
+
+            lines.append(f"  {state_icon} {name}: {state}{uptime_str}{restart_str}")
+
+            if info.get("last_error"):
+                lines.append(f"      Error: {info['last_error'][:50]}...")
+
+    lines.append("")
+    lines.append("=" * 60)
+    return "\n".join(lines)
+
+
+async def show_status(manager: DaemonManager, args: argparse.Namespace) -> None:
+    """Show daemon status."""
+    status = manager.get_status()
+    print(format_status(status, use_json=args.json))
+
+
+async def watch_status(manager: DaemonManager, args: argparse.Namespace) -> None:
+    """Watch daemon status with live updates."""
+    import os
+
+    try:
+        while True:
+            # Clear screen
+            os.system("clear" if os.name == "posix" else "cls")
+
+            status = manager.get_status()
+            print(format_status(status, use_json=args.json))
+            print(f"\nRefreshing every {args.interval}s... (Ctrl+C to exit)")
+
+            await asyncio.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nStopped watching.")
+
+
+async def start_daemons(
+    manager: DaemonManager,
+    daemons: list[DaemonType],
+    args: argparse.Namespace,
+) -> None:
+    """Start specified daemons."""
+    if not daemons:
+        logger.info("No daemons specified to start")
+        return
+
+    logger.info(f"Starting {len(daemons)} daemon(s)...")
+
+    # Register adapter-based daemons
+    register_all_adapters_with_manager()
+
+    # Start daemons
+    results = await manager.start_all(daemons)
+
+    # Report results
+    success = sum(1 for v in results.values() if v)
+    failed = len(results) - success
+
+    if args.verbose:
+        for daemon_type, started in results.items():
+            status = "started" if started else "FAILED"
+            logger.info(f"  {daemon_type.value}: {status}")
+
+    logger.info(f"Started {success}/{len(results)} daemons ({failed} failed)")
+
+
+async def stop_daemons(
+    manager: DaemonManager,
+    daemons: list[str] | None,
+    args: argparse.Namespace,
+) -> None:
+    """Stop specified or all daemons."""
+    if daemons:
+        for name in daemons:
+            try:
+                daemon_type = DaemonType(name)
+                await manager.stop(daemon_type)
+                logger.info(f"Stopped {name}")
+            except ValueError:
+                logger.warning(f"Unknown daemon: {name}")
+    else:
+        logger.info("Stopping all daemons...")
+        await manager.stop_all()
+        logger.info("All daemons stopped")
+
+
+async def run_foreground(manager: DaemonManager) -> None:
+    """Run in foreground, waiting for shutdown signal."""
+    shutdown_event = asyncio.Event()
+
+    def signal_handler():
+        logger.info("Shutdown signal received")
+        shutdown_event.set()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, signal_handler)
+
+    logger.info("Running in foreground. Press Ctrl+C to stop.")
+    await shutdown_event.wait()
+
+    logger.info("Shutting down...")
+    await manager.shutdown()
+
+
+async def main() -> int:
+    """Main entry point."""
+    args = parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    # Configure manager
+    config = DaemonManagerConfig(
+        health_check_interval=args.health_interval,
+        auto_restart_failed=not args.no_auto_restart,
+    )
+
+    manager = get_daemon_manager(config)
+
+    # Set up signal handlers
+    setup_signal_handlers()
+
+    try:
+        # Handle actions
+        if args.status:
+            if args.watch:
+                await watch_status(manager, args)
+            else:
+                await show_status(manager, args)
+            return 0
+
+        if args.stop_all:
+            await stop_daemons(manager, None, args)
+            return 0
+
+        if args.stop_daemons:
+            await stop_daemons(manager, args.stop_daemons, args)
+            return 0
+
+        # Determine daemons to start
+        daemons = get_daemons_to_start(args)
+
+        if not daemons and not args.status:
+            print("No daemons specified. Use --help for options.")
+            return 1
+
+        # Start daemons
+        await start_daemons(manager, daemons, args)
+
+        # If daemons were started, run in foreground
+        if daemons:
+            await run_foreground(manager)
+
+        return 0
+
+    except KeyboardInterrupt:
+        logger.info("Interrupted")
+        await manager.shutdown()
+        return 130
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

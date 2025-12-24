@@ -546,6 +546,106 @@ def _wire_integrations() -> bool:
         return False
 
 
+def _wire_missing_event_subscriptions() -> dict[str, bool]:
+    """Wire missing event subscriptions identified in coordination audit (December 2025).
+
+    These are events that are emitted but weren't being handled by appropriate
+    orchestrators:
+    1. CLUSTER_SYNC_COMPLETE → DataPipelineOrchestrator (triggers NPZ export)
+    2. MODEL_SYNC_COMPLETE → ModelLifecycleCoordinator (triggers cache update)
+    3. SELFPLAY_COMPLETE → SyncCoordinator (triggers data sync)
+
+    Returns:
+        Dict mapping subscription name to success status
+    """
+    results: dict[str, bool] = {}
+
+    # 1. Wire CLUSTER_SYNC_COMPLETE to DataPipelineOrchestrator
+    try:
+        from app.coordination.data_pipeline_orchestrator import get_pipeline_orchestrator
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        pipeline = get_pipeline_orchestrator()
+        bus = get_event_bus()
+
+        async def on_cluster_sync_complete(event):
+            """Handle CLUSTER_SYNC_COMPLETE - trigger NPZ export."""
+            if not pipeline.auto_trigger:
+                return
+            iteration = event.payload.get("iteration", pipeline._current_iteration)
+            # Emit sync complete to pipeline (will trigger export if auto_trigger)
+            await pipeline._on_sync_complete(event.payload)
+
+        bus.subscribe(DataEventType.SYNC_COMPLETE, on_cluster_sync_complete)
+        results["cluster_sync_to_pipeline"] = True
+        logger.debug("[Bootstrap] Wired CLUSTER_SYNC_COMPLETE -> DataPipelineOrchestrator")
+
+    except Exception as e:
+        results["cluster_sync_to_pipeline"] = False
+        logger.debug(f"[Bootstrap] Failed to wire cluster sync to pipeline: {e}")
+
+    # 2. Wire MODEL_SYNC_COMPLETE to ModelLifecycleCoordinator
+    try:
+        from app.coordination.model_lifecycle_coordinator import get_model_coordinator
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        model_coord = get_model_coordinator()
+        bus = get_event_bus()
+
+        async def on_model_sync_complete(event):
+            """Handle MODEL_SYNC_COMPLETE - trigger cache refresh."""
+            if hasattr(model_coord, "_on_model_sync_complete"):
+                await model_coord._on_model_sync_complete(event)
+            elif hasattr(model_coord, "refresh_model_cache"):
+                model_coord.refresh_model_cache()
+
+        bus.subscribe(DataEventType.MODEL_SYNC_COMPLETE, on_model_sync_complete)
+        results["model_sync_to_lifecycle"] = True
+        logger.debug("[Bootstrap] Wired MODEL_SYNC_COMPLETE -> ModelLifecycleCoordinator")
+
+    except Exception as e:
+        results["model_sync_to_lifecycle"] = False
+        logger.debug(f"[Bootstrap] Failed to wire model sync to lifecycle: {e}")
+
+    # 3. Wire SELFPLAY_COMPLETE to SyncCoordinator (for auto-trigger sync)
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+        from app.coordination.sync_coordinator import get_sync_scheduler
+
+        sync_coord = get_sync_scheduler()
+        bus = get_event_bus()
+
+        async def on_selfplay_complete_for_sync(event):
+            """Handle SELFPLAY_COMPLETE - trigger data sync if configured."""
+            if hasattr(sync_coord, "trigger_sync_on_selfplay_complete"):
+                await sync_coord.trigger_sync_on_selfplay_complete(event)
+            elif hasattr(sync_coord, "schedule_sync"):
+                # Schedule a sync for the board type that finished selfplay
+                board_type = event.payload.get("board_type")
+                num_players = event.payload.get("num_players")
+                if board_type and num_players:
+                    await sync_coord.schedule_sync(
+                        category="games",
+                        board_type=board_type,
+                        num_players=num_players,
+                        priority="normal",
+                    )
+
+        bus.subscribe(DataEventType.SELFPLAY_COMPLETE, on_selfplay_complete_for_sync)
+        results["selfplay_to_sync"] = True
+        logger.debug("[Bootstrap] Wired SELFPLAY_COMPLETE -> SyncCoordinator")
+
+    except Exception as e:
+        results["selfplay_to_sync"] = False
+        logger.debug(f"[Bootstrap] Failed to wire selfplay to sync: {e}")
+
+    wired = sum(1 for v in results.values() if v)
+    total = len(results)
+    logger.info(f"[Bootstrap] Wired {wired}/{total} missing event subscriptions")
+
+    return results
+
+
 # =============================================================================
 # Main Bootstrap Function
 # =============================================================================
@@ -688,6 +788,9 @@ def bootstrap_coordination(
     # Wire integration modules to event router (C2 consolidation)
     if enable_integrations:
         _wire_integrations()
+
+    # Wire missing event subscriptions (December 2025 audit findings)
+    _wire_missing_event_subscriptions()
 
     _state.initialized = True
     _state.completed_at = datetime.now()

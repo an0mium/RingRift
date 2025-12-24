@@ -106,7 +106,7 @@ def train_model(
         save_path=model_path,
         early_stopping_patience=5,
         num_players=num_players,
-        model_version="v2",
+        model_version="v3",  # Match V3 encoder data
     )
 
     return metrics

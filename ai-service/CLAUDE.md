@@ -189,29 +189,40 @@ Unified data structures for all Gumbel MCTS variants:
 - Budget constants: `GUMBEL_BUDGET_THROUGHPUT` (64), `GUMBEL_BUDGET_STANDARD` (150), `GUMBEL_BUDGET_QUALITY` (800), `GUMBEL_BUDGET_ULTIMATE` (1600)
 - `get_budget_for_difficulty(difficulty)` - Map difficulty to budget tier
 
+### Selfplay (`scripts/selfplay.py`)
+
+Unified CLI entry point for all selfplay:
+
+```bash
+# Quick heuristic selfplay (fast bootstrap)
+python scripts/selfplay.py --board square8 --num-players 2 --engine heuristic
+
+# GPU Gumbel MCTS (high quality training data)
+python scripts/selfplay.py --board hex8 --num-players 2 --engine gumbel --num-games 500
+
+# Full options
+python scripts/selfplay.py \
+  --board square8 --num-players 4 \
+  --num-games 1000 --engine nnue-guided \
+  --output-dir data/games/selfplay_sq8_4p
+```
+
+Engine modes: `heuristic`, `gumbel`, `mcts`, `nnue-guided`, `policy-only`, `nn-descent`, `mixed`
+
 ### SelfplayRunner (`app/training/selfplay_runner.py`)
 
-Unified base class for all selfplay implementations:
+Base class for programmatic selfplay:
 
 ```python
-from app.training.selfplay_runner import SelfplayRunner, run_selfplay
+from app.training.selfplay_runner import run_selfplay
 
 # Quick usage
 stats = run_selfplay(board_type="hex8", num_players=2, num_games=100, engine="heuristic")
-
-# Custom runner
-class MyRunner(SelfplayRunner):
-    def run_game(self, game_idx: int) -> GameResult:
-        ...
-
-runner = MyRunner.from_cli()
-runner.run()
 ```
 
 - `SelfplayRunner` - Base class with config, model loading, event emission
 - `HeuristicSelfplayRunner` - Fast heuristic-only selfplay
 - `GumbelMCTSSelfplayRunner` - Quality Gumbel MCTS selfplay
-- `run_selfplay()` - Convenience function for quick selfplay
 
 ## Current Model State (as of Dec 2025)
 

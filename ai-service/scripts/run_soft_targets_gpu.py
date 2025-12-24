@@ -14,8 +14,8 @@ sys.stdout.flush()
 config = GPUMCTSSelfplayConfig(
     board_type="hex8",
     num_players=2,
-    simulation_budget=8,   # Fast: 8 sims per move
-    batch_size=16,         # 16 parallel games
+    simulation_budget=4,   # Minimal: 4 sims per move for speed
+    batch_size=4,          # Small batch for quick iteration
     encoder_version="v3",
     device=device
 )
@@ -24,8 +24,8 @@ runner = GPUMCTSSelfplayRunner(config)
 all_games = []
 start = time.time()
 
-# Run batches until we have ~3000 samples
-target_samples = 3000
+# Run batches until we have ~500 samples (quick test)
+target_samples = 500
 total_samples = 0
 
 batch = 0

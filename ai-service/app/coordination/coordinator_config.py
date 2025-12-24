@@ -71,6 +71,19 @@ class PipelineConfig:
     pause_on_critical_constraints: bool = True
     constraint_stale_seconds: float = 60.0
 
+    # Per-stage auto-trigger controls (December 2025)
+    auto_trigger_sync: bool = True
+    auto_trigger_export: bool = True
+    auto_trigger_training: bool = True
+    auto_trigger_evaluation: bool = True
+    auto_trigger_promotion: bool = True
+
+    # Circuit breaker settings
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_failure_threshold: int = 3
+    circuit_breaker_reset_timeout_seconds: float = 300.0  # 5 minutes
+    circuit_breaker_half_open_max_requests: int = 1
+
 
 @dataclass
 class OptimizationConfig:

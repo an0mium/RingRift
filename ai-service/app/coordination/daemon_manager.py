@@ -79,6 +79,12 @@ class DaemonType(Enum):
     GOSSIP_SYNC = "gossip_sync"
     DATA_SERVER = "data_server"
 
+    # Training enhancement daemons (December 2025)
+    DISTILLATION = "distillation"
+    UNIFIED_PROMOTION = "unified_promotion"
+    EXTERNAL_DRIVE_SYNC = "external_drive_sync"
+    VAST_CPU_PIPELINE = "vast_cpu_pipeline"
+
 
 class DaemonState(Enum):
     """State of a daemon."""

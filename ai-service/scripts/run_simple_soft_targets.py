@@ -40,7 +40,7 @@ print("Starting game generation...")
 all_samples = []
 start = time.time()
 
-NUM_GAMES = 100
+NUM_GAMES = 5  # Quick test
 for game_num in range(NUM_GAMES):
     state = create_initial_state(board_type=BoardType.HEX8, num_players=2)
     game_samples = []
@@ -54,11 +54,15 @@ for game_num in range(NUM_GAMES):
 
         # Get move
         try:
+            if move_count == 0:
+                print(f"  Game {game_num+1}: move 0...", end="", flush=True)
             move = ai.select_move(state)
             if move is None:
                 break
             # Get policy distribution from last search
             policy_moves, policy_probs = ai.get_visit_distribution()
+            if move_count > 0 and move_count % 10 == 0:
+                print(f" {move_count}", end="", flush=True)
         except Exception as e:
             print(f"  Error getting move: {e}")
             break

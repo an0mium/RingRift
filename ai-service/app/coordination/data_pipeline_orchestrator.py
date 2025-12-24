@@ -36,6 +36,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -44,6 +45,149 @@ from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Circuit Breaker for Pipeline Fault Tolerance (December 2025)
+# =============================================================================
+
+
+class CircuitBreakerState(Enum):
+    """Circuit breaker states."""
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, rejecting requests
+    HALF_OPEN = "half_open"  # Testing recovery
+
+
+@dataclass
+class CircuitBreaker:
+    """Circuit breaker for pipeline stage fault tolerance.
+
+    Prevents cascading failures by opening the circuit after repeated failures,
+    allowing the system to recover before resuming operations.
+
+    States:
+    - CLOSED: Normal operation, requests pass through
+    - OPEN: Circuit is tripped, requests are rejected
+    - HALF_OPEN: Testing if service recovered, limited requests allowed
+    """
+
+    failure_threshold: int = 3
+    reset_timeout_seconds: float = 300.0  # 5 minutes
+    half_open_max_requests: int = 1
+
+    # Internal state
+    _state: CircuitBreakerState = field(default=CircuitBreakerState.CLOSED)
+    _failure_count: int = 0
+    _success_count: int = 0
+    _last_failure_time: float = 0.0
+    _half_open_requests: int = 0
+    _failures_by_stage: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def is_open(self) -> bool:
+        """Check if circuit is open (blocking requests)."""
+        if self._state == CircuitBreakerState.OPEN:
+            # Check if reset timeout has passed
+            if time.time() - self._last_failure_time >= self.reset_timeout_seconds:
+                self._transition_to_half_open()
+                return False
+            return True
+        return False
+
+    @property
+    def is_closed(self) -> bool:
+        """Check if circuit is closed (normal operation)."""
+        return self._state == CircuitBreakerState.CLOSED
+
+    @property
+    def state(self) -> CircuitBreakerState:
+        """Get current circuit state."""
+        # Check for automatic transition from OPEN to HALF_OPEN
+        if self._state == CircuitBreakerState.OPEN:
+            if time.time() - self._last_failure_time >= self.reset_timeout_seconds:
+                self._transition_to_half_open()
+        return self._state
+
+    def can_execute(self) -> bool:
+        """Check if a request can be executed."""
+        state = self.state  # This may trigger OPEN -> HALF_OPEN transition
+
+        if state == CircuitBreakerState.CLOSED:
+            return True
+        elif state == CircuitBreakerState.HALF_OPEN:
+            return self._half_open_requests < self.half_open_max_requests
+        else:  # OPEN
+            return False
+
+    def record_success(self, stage: str = "") -> None:
+        """Record a successful execution."""
+        self._success_count += 1
+
+        if self._state == CircuitBreakerState.HALF_OPEN:
+            # Reset to closed on success in half-open state
+            self._transition_to_closed()
+            logger.info(
+                f"[CircuitBreaker] Recovered, transitioning to CLOSED after success in {stage}"
+            )
+
+    def record_failure(self, stage: str, error: str = "") -> None:
+        """Record a failed execution."""
+        self._failure_count += 1
+        self._last_failure_time = time.time()
+        self._failures_by_stage[stage] = self._failures_by_stage.get(stage, 0) + 1
+
+        if self._state == CircuitBreakerState.HALF_OPEN:
+            # Immediately trip back to open on any failure
+            self._transition_to_open()
+            logger.warning(
+                f"[CircuitBreaker] Failed in HALF_OPEN, reopening circuit: {stage} - {error}"
+            )
+        elif self._state == CircuitBreakerState.CLOSED:
+            if self._failure_count >= self.failure_threshold:
+                self._transition_to_open()
+                logger.warning(
+                    f"[CircuitBreaker] Threshold reached ({self._failure_count}), "
+                    f"opening circuit: {stage} - {error}"
+                )
+
+    def _transition_to_open(self) -> None:
+        """Transition to OPEN state."""
+        self._state = CircuitBreakerState.OPEN
+        self._half_open_requests = 0
+
+    def _transition_to_half_open(self) -> None:
+        """Transition to HALF_OPEN state."""
+        self._state = CircuitBreakerState.HALF_OPEN
+        self._half_open_requests = 0
+        logger.info("[CircuitBreaker] Reset timeout passed, transitioning to HALF_OPEN")
+
+    def _transition_to_closed(self) -> None:
+        """Transition to CLOSED state."""
+        self._state = CircuitBreakerState.CLOSED
+        self._failure_count = 0
+        self._half_open_requests = 0
+
+    def reset(self) -> None:
+        """Manually reset the circuit breaker."""
+        self._transition_to_closed()
+        self._failures_by_stage.clear()
+        logger.info("[CircuitBreaker] Manually reset")
+
+    def get_status(self) -> dict[str, Any]:
+        """Get circuit breaker status."""
+        return {
+            "state": self.state.value,
+            "failure_count": self._failure_count,
+            "success_count": self._success_count,
+            "failures_by_stage": dict(self._failures_by_stage),
+            "last_failure_time": self._last_failure_time,
+            "time_until_reset": max(
+                0,
+                self.reset_timeout_seconds - (time.time() - self._last_failure_time)
+            ) if self._state == CircuitBreakerState.OPEN else 0,
+        }
 
 
 class PipelineStage(Enum):
@@ -120,19 +264,53 @@ class DataPipelineOrchestrator:
         self,
         max_history: int = 100,
         auto_trigger: bool = False,  # Automatically trigger downstream stages
+        config: "PipelineConfig | None" = None,  # Use coordinator_config if None
     ):
         """Initialize DataPipelineOrchestrator.
 
         Args:
             max_history: Maximum iteration records to retain
             auto_trigger: If True, automatically trigger downstream stages
+            config: Pipeline configuration (uses global config if None)
         """
+        # Load config from coordinator_config if not provided
+        if config is None:
+            try:
+                from app.coordination.coordinator_config import get_config
+                config = get_config().pipeline
+            except ImportError:
+                config = None
+
         self.max_history = max_history
         self.auto_trigger = auto_trigger
+        self._config = config
+
+        # Per-stage auto-trigger controls (December 2025)
+        self.auto_trigger_sync = getattr(config, "auto_trigger_sync", True) if config else True
+        self.auto_trigger_export = getattr(config, "auto_trigger_export", True) if config else True
+        self.auto_trigger_training = getattr(config, "auto_trigger_training", True) if config else True
+        self.auto_trigger_evaluation = getattr(config, "auto_trigger_evaluation", True) if config else True
+        self.auto_trigger_promotion = getattr(config, "auto_trigger_promotion", True) if config else True
+
+        # Circuit breaker for fault tolerance (December 2025)
+        cb_enabled = getattr(config, "circuit_breaker_enabled", True) if config else True
+        cb_threshold = getattr(config, "circuit_breaker_failure_threshold", 3) if config else 3
+        cb_timeout = getattr(config, "circuit_breaker_reset_timeout_seconds", 300.0) if config else 300.0
+        cb_half_open = getattr(config, "circuit_breaker_half_open_max_requests", 1) if config else 1
+
+        self._circuit_breaker = CircuitBreaker(
+            failure_threshold=cb_threshold,
+            reset_timeout_seconds=cb_timeout,
+            half_open_max_requests=cb_half_open,
+        ) if cb_enabled else None
 
         # Current pipeline state
         self._current_stage = PipelineStage.IDLE
         self._current_iteration = 0
+
+        # Board configuration tracking for auto-trigger
+        self._current_board_type: str | None = None
+        self._current_num_players: int | None = None
 
         # Iteration tracking
         self._iteration_records: dict[int, IterationRecord] = {}
@@ -340,6 +518,10 @@ class DataPipelineOrchestrator:
         iteration = result.iteration
         self._ensure_iteration_record(iteration)
 
+        # Track board configuration for downstream stages
+        self._current_board_type = getattr(result, "board_type", None)
+        self._current_num_players = getattr(result, "num_players", None)
+
         self._iteration_records[iteration].games_generated = result.games_generated
         self._total_games += result.games_generated
 
@@ -349,6 +531,10 @@ class DataPipelineOrchestrator:
                 iteration,
                 metadata={"games_generated": result.games_generated},
             )
+
+            # Auto-trigger data sync if enabled (December 2025)
+            if self.auto_trigger and self.auto_trigger_sync:
+                await self._auto_trigger_sync(iteration)
         else:
             self._transition_to(
                 PipelineStage.IDLE,
@@ -356,6 +542,31 @@ class DataPipelineOrchestrator:
                 success=False,
                 metadata={"error": result.error},
             )
+
+    async def _auto_trigger_sync(self, iteration: int) -> None:
+        """Auto-trigger data synchronization."""
+        if not self._can_auto_trigger():
+            return
+
+        board_type = self._current_board_type
+        num_players = self._current_num_players
+        if not board_type or not num_players:
+            logger.warning("[DataPipelineOrchestrator] Cannot auto-trigger sync: missing board config")
+            return
+
+        try:
+            from app.coordination.pipeline_actions import trigger_data_sync
+
+            logger.info(f"[DataPipelineOrchestrator] Auto-triggering sync for {board_type}_{num_players}p")
+            result = await trigger_data_sync(board_type, num_players, iteration)
+
+            if result.success:
+                self._record_circuit_success("data_sync")
+            else:
+                self._record_circuit_failure("data_sync", result.error or "Unknown error")
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Auto-trigger sync failed: {e}")
+            self._record_circuit_failure("data_sync", str(e))
 
     async def _on_sync_complete(self, result) -> None:
         """Handle data sync completion."""
@@ -367,6 +578,10 @@ class DataPipelineOrchestrator:
                 iteration,
                 metadata=result.metadata,
             )
+
+            # Auto-trigger NPZ export if enabled (December 2025)
+            if self.auto_trigger and self.auto_trigger_export:
+                await self._auto_trigger_export(iteration)
         else:
             self._transition_to(
                 PipelineStage.IDLE,
@@ -374,6 +589,35 @@ class DataPipelineOrchestrator:
                 success=False,
                 metadata={"error": result.error},
             )
+
+    async def _auto_trigger_export(self, iteration: int) -> None:
+        """Auto-trigger NPZ export."""
+        if not self._can_auto_trigger():
+            return
+
+        board_type = self._current_board_type
+        num_players = self._current_num_players
+        if not board_type or not num_players:
+            logger.warning("[DataPipelineOrchestrator] Cannot auto-trigger export: missing board config")
+            return
+
+        try:
+            from app.coordination.pipeline_actions import trigger_npz_export
+
+            logger.info(f"[DataPipelineOrchestrator] Auto-triggering export for {board_type}_{num_players}p")
+            result = await trigger_npz_export(board_type, num_players, iteration)
+
+            if result.success:
+                self._record_circuit_success("npz_export")
+                # Store output path for training stage
+                self._iteration_records[iteration].metadata = {
+                    "npz_path": result.output_path
+                }
+            else:
+                self._record_circuit_failure("npz_export", result.error or "Unknown error")
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Auto-trigger export failed: {e}")
+            self._record_circuit_failure("npz_export", str(e))
 
     async def _on_npz_export_complete(self, result) -> None:
         """Handle NPZ export completion."""
@@ -385,6 +629,12 @@ class DataPipelineOrchestrator:
                 iteration,
                 metadata=result.metadata,
             )
+
+            # Auto-trigger training if enabled (December 2025)
+            if self.auto_trigger and self.auto_trigger_training:
+                npz_path = getattr(result, "output_path", None) or result.metadata.get("output_path")
+                if npz_path:
+                    await self._auto_trigger_training(iteration, npz_path)
         else:
             self._transition_to(
                 PipelineStage.IDLE,
@@ -392,6 +642,34 @@ class DataPipelineOrchestrator:
                 success=False,
                 metadata={"error": result.error},
             )
+
+    async def _auto_trigger_training(self, iteration: int, npz_path: str) -> None:
+        """Auto-trigger neural network training."""
+        if not self._can_auto_trigger():
+            return
+
+        board_type = self._current_board_type
+        num_players = self._current_num_players
+        if not board_type or not num_players:
+            logger.warning("[DataPipelineOrchestrator] Cannot auto-trigger training: missing board config")
+            return
+
+        try:
+            from app.coordination.pipeline_actions import trigger_training
+
+            logger.info(f"[DataPipelineOrchestrator] Auto-triggering training for {board_type}_{num_players}p")
+            result = await trigger_training(board_type, num_players, npz_path, iteration)
+
+            if result.success:
+                self._record_circuit_success("training")
+                # Store model path for evaluation stage
+                if iteration in self._iteration_records:
+                    self._iteration_records[iteration].model_id = result.metadata.get("model_id")
+            else:
+                self._record_circuit_failure("training", result.error or "Unknown error")
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Auto-trigger training failed: {e}")
+            self._record_circuit_failure("training", str(e))
 
     async def _on_training_started(self, result) -> None:
         """Handle training start."""
@@ -417,6 +695,12 @@ class DataPipelineOrchestrator:
                     "val_loss": result.val_loss,
                 },
             )
+
+            # Auto-trigger evaluation if enabled (December 2025)
+            if self.auto_trigger and self.auto_trigger_evaluation:
+                model_path = getattr(result, "model_path", None) or result.metadata.get("model_path")
+                if model_path:
+                    await self._auto_trigger_evaluation(iteration, model_path)
         else:
             self._transition_to(
                 PipelineStage.IDLE,
@@ -424,6 +708,34 @@ class DataPipelineOrchestrator:
                 success=False,
                 metadata={"error": result.error},
             )
+
+    async def _auto_trigger_evaluation(self, iteration: int, model_path: str) -> None:
+        """Auto-trigger gauntlet evaluation."""
+        if not self._can_auto_trigger():
+            return
+
+        board_type = self._current_board_type
+        num_players = self._current_num_players
+        if not board_type or not num_players:
+            logger.warning("[DataPipelineOrchestrator] Cannot auto-trigger evaluation: missing board config")
+            return
+
+        try:
+            from app.coordination.pipeline_actions import trigger_evaluation
+
+            logger.info(f"[DataPipelineOrchestrator] Auto-triggering evaluation for {model_path}")
+            result = await trigger_evaluation(model_path, board_type, num_players, iteration)
+
+            if result.success:
+                self._record_circuit_success("evaluation")
+                # Store evaluation results for promotion stage
+                if iteration in self._iteration_records:
+                    self._iteration_records[iteration].elo_delta = result.metadata.get("elo_delta", 0.0)
+            else:
+                self._record_circuit_failure("evaluation", result.error or "Unknown error")
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Auto-trigger evaluation failed: {e}")
+            self._record_circuit_failure("evaluation", str(e))
 
     async def _on_training_failed(self, result) -> None:
         """Handle training failure."""
@@ -454,6 +766,13 @@ class DataPipelineOrchestrator:
                     "elo_delta": result.elo_delta,
                 },
             )
+
+            # Auto-trigger promotion if enabled (December 2025)
+            if self.auto_trigger and self.auto_trigger_promotion:
+                model_path = getattr(result, "model_path", None) or result.metadata.get("model_path")
+                gauntlet_results = result.metadata if hasattr(result, "metadata") else {}
+                if model_path:
+                    await self._auto_trigger_promotion(iteration, model_path, gauntlet_results)
         else:
             self._transition_to(
                 PipelineStage.IDLE,
@@ -461,6 +780,36 @@ class DataPipelineOrchestrator:
                 success=False,
                 metadata={"error": result.error},
             )
+
+    async def _auto_trigger_promotion(
+        self, iteration: int, model_path: str, gauntlet_results: dict
+    ) -> None:
+        """Auto-trigger model promotion."""
+        if not self._can_auto_trigger():
+            return
+
+        board_type = self._current_board_type
+        num_players = self._current_num_players
+        if not board_type or not num_players:
+            logger.warning("[DataPipelineOrchestrator] Cannot auto-trigger promotion: missing board config")
+            return
+
+        try:
+            from app.coordination.pipeline_actions import trigger_promotion
+
+            logger.info(f"[DataPipelineOrchestrator] Auto-triggering promotion for {model_path}")
+            result = await trigger_promotion(
+                model_path, gauntlet_results, board_type, num_players, iteration
+            )
+
+            if result.success:
+                self._record_circuit_success("promotion")
+            else:
+                # Promotion failure is not a circuit-breaking event
+                logger.info(f"[DataPipelineOrchestrator] Promotion skipped: {result.metadata.get('reason', 'Unknown')}")
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Auto-trigger promotion failed: {e}")
+            # Don't record as circuit failure - promotion is optional
 
     async def _on_promotion_complete(self, result) -> None:
         """Handle promotion completion."""
@@ -498,6 +847,54 @@ class DataPipelineOrchestrator:
             del self._iteration_records[iteration]
 
         self._transition_to(PipelineStage.IDLE, iteration + 1)
+
+    # =========================================================================
+    # Circuit Breaker and Auto-Trigger Helpers (December 2025)
+    # =========================================================================
+
+    def _can_auto_trigger(self) -> bool:
+        """Check if auto-triggering is allowed.
+
+        Returns False if:
+        - Pipeline is paused
+        - Circuit breaker is open
+        - Backpressure is active
+        """
+        if self._paused:
+            logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: pipeline paused")
+            return False
+
+        if self._circuit_breaker and self._circuit_breaker.is_open:
+            logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: circuit breaker open")
+            return False
+
+        if self._backpressure_active:
+            logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: backpressure active")
+            return False
+
+        return True
+
+    def _record_circuit_success(self, stage: str) -> None:
+        """Record a successful stage execution to circuit breaker."""
+        if self._circuit_breaker:
+            self._circuit_breaker.record_success(stage)
+
+    def _record_circuit_failure(self, stage: str, error: str) -> None:
+        """Record a failed stage execution to circuit breaker."""
+        if self._circuit_breaker:
+            self._circuit_breaker.record_failure(stage, error)
+
+    def get_circuit_breaker_status(self) -> dict[str, Any] | None:
+        """Get circuit breaker status."""
+        if self._circuit_breaker:
+            return self._circuit_breaker.get_status()
+        return None
+
+    def reset_circuit_breaker(self) -> None:
+        """Manually reset the circuit breaker."""
+        if self._circuit_breaker:
+            self._circuit_breaker.reset()
+            logger.info("[DataPipelineOrchestrator] Circuit breaker manually reset")
 
     # =========================================================================
     # Quality and Cache Event Handlers (December 2025)
@@ -860,6 +1257,14 @@ class DataPipelineOrchestrator:
             },
             "subscribed": self._subscribed,
             "auto_trigger": self.auto_trigger,
+            # Per-stage auto-trigger controls (December 2025)
+            "auto_trigger_sync": self.auto_trigger_sync,
+            "auto_trigger_export": self.auto_trigger_export,
+            "auto_trigger_training": self.auto_trigger_training,
+            "auto_trigger_evaluation": self.auto_trigger_evaluation,
+            "auto_trigger_promotion": self.auto_trigger_promotion,
+            # Circuit breaker status (December 2025)
+            "circuit_breaker": self.get_circuit_breaker_status(),
             # Quality and cache tracking (December 2025)
             "quality_distribution": dict(self._quality_distribution),
             "pending_cache_refresh": self._pending_cache_refresh,
@@ -945,6 +1350,8 @@ def get_current_pipeline_stage() -> PipelineStage:
 
 
 __all__ = [
+    "CircuitBreaker",
+    "CircuitBreakerState",
     "DataPipelineOrchestrator",
     "IterationRecord",
     "PipelineStage",
