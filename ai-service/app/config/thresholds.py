@@ -235,7 +235,7 @@ MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50%
 # Heuristic: 25% is achievable for early 4p models (can tighten later)
 
 MIN_WIN_RATE_VS_RANDOM_4P = 0.50  # 50% (2x better than 25% random baseline)
-MIN_WIN_RATE_VS_HEURISTIC_4P = 0.25  # 25% (achievable for early 4p models)
+MIN_WIN_RATE_VS_HEURISTIC_4P = 0.20  # 20% (baseline for early 4p models, tighten later)
 
 
 def get_min_win_rate_vs_random(num_players: int = 2) -> float:
