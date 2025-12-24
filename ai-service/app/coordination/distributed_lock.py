@@ -341,13 +341,13 @@ class DistributedLock:
                     # Force remove and retry
                     lock_path.unlink(missing_ok=True)
                     return self._acquire_file()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to take over expired lock {self.name}: {e}")
             try:
                 if 'fd' in locals():
                     os.close(fd)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error closing file descriptor for lock {self.name}: {e}")
             return False
 
     def _release_file(self) -> None:
@@ -384,7 +384,8 @@ class DistributedLock:
             except BlockingIOError:
                 os.close(fd)
                 return True  # Couldn't acquire, so locked
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Error checking lock status for {self.name}: {e}")
             return False
 
     def _is_file_lock_expired(self) -> bool:
@@ -402,8 +403,8 @@ class DistributedLock:
                     if time.time() - lock_time > lock_timeout:
                         logger.info(f"File lock expired: {self.name}")
                         return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error reading lock file for {self.name}: {e}")
         return False
 
 

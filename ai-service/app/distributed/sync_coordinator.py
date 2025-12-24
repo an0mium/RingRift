@@ -169,6 +169,55 @@ class ClusterSyncStats:
     quality_distribution: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class SyncOperationBudget:
+    """Timeout budget for sync operations (December 2025 - reliability fix).
+
+    Tracks cumulative time spent in a sync operation to prevent unbounded
+    retries across fallback chains.
+
+    Usage:
+        budget = SyncOperationBudget(total_seconds=300, per_attempt_seconds=30)
+        for transport in fallback_chain:
+            if budget.exhausted:
+                break
+            timeout = budget.get_attempt_timeout()
+            result = await transport.sync(..., timeout=timeout)
+            budget.record_attempt()
+    """
+    total_seconds: float = 300.0  # 5 minute total budget
+    per_attempt_seconds: float = 30.0  # Per-attempt timeout
+    start_time: float = field(default_factory=time.time)
+    attempts: int = 0
+
+    @property
+    def elapsed(self) -> float:
+        """Time elapsed since budget was created."""
+        return time.time() - self.start_time
+
+    @property
+    def remaining(self) -> float:
+        """Time remaining in budget."""
+        return max(0.0, self.total_seconds - self.elapsed)
+
+    @property
+    def exhausted(self) -> bool:
+        """True if budget is exhausted."""
+        return self.remaining <= 0
+
+    def get_attempt_timeout(self) -> float:
+        """Get timeout for next attempt, capped by remaining budget."""
+        return min(self.per_attempt_seconds, self.remaining)
+
+    def record_attempt(self) -> None:
+        """Record an attempt was made."""
+        self.attempts += 1
+
+    def can_attempt(self) -> bool:
+        """Check if another attempt is possible within budget."""
+        return self.remaining >= 1.0  # At least 1 second remaining
+
+
 class SyncCoordinator:
     """Unified coordinator for all data synchronization operations.
 
@@ -210,6 +259,18 @@ class SyncCoordinator:
         self._elo_lookup: dict[str, float] = {}
         self._quality_lookup_time: float = 0
         self._init_manifest()
+
+        # Background sync watchdog (December 2025 - reliability fix)
+        self._last_successful_sync: float = 0.0
+        self._sync_deadline_seconds: float = 600.0  # 10 minute deadline per sync
+        self._consecutive_failures: int = 0
+        self._max_consecutive_failures: int = 5
+        self._background_sync_task: asyncio.Task | None = None
+
+        # Data server health monitoring (December 2025 - reliability fix)
+        self._data_server_last_health_check: float = 0.0
+        self._data_server_health_check_interval: float = 30.0  # Check every 30s
+        self._data_server_healthy: bool = True
 
         logger.info(
             f"SyncCoordinator initialized: provider={self._provider.provider_type.value}, "
@@ -1344,7 +1405,13 @@ class SyncCoordinator:
         interval_seconds: int | None = None,
         categories: list[SyncCategory] | None = None,
     ) -> None:
-        """Start background sync daemon.
+        """Start background sync daemon with watchdog (December 2025 - reliability fix).
+
+        Features:
+        - Deadline per sync operation (prevents infinite hangs)
+        - Consecutive failure tracking
+        - Last successful sync timestamp for health monitoring
+        - Graceful shutdown support
 
         Args:
             interval_seconds: Sync interval (uses provider default if None)
@@ -1358,6 +1425,7 @@ class SyncCoordinator:
             interval_seconds = self._provider.capabilities.max_sync_interval_seconds
 
         self._running = True
+        self._consecutive_failures = 0
         logger.info(f"Starting background sync with {interval_seconds}s interval")
 
         # Start gossip daemon if enabled
@@ -1366,19 +1434,145 @@ class SyncCoordinator:
             if gossip:
                 await gossip.start()
 
-        # Run sync loop
+        # Run sync loop with watchdog
         while self._running:
+            sync_success = False
             try:
-                await self.full_cluster_sync(categories)
+                # Apply deadline to full_cluster_sync (December 2025 - reliability fix)
+                await asyncio.wait_for(
+                    self.full_cluster_sync(categories),
+                    timeout=self._sync_deadline_seconds
+                )
+                sync_success = True
+                self._last_successful_sync = time.time()
+                self._consecutive_failures = 0
+
+            except asyncio.TimeoutError:
+                self._consecutive_failures += 1
+                logger.error(
+                    f"Background sync timed out after {self._sync_deadline_seconds}s "
+                    f"(consecutive failures: {self._consecutive_failures})"
+                )
+
             except Exception as e:
-                logger.error(f"Background sync failed: {e}")
+                self._consecutive_failures += 1
+                logger.error(
+                    f"Background sync failed: {e} "
+                    f"(consecutive failures: {self._consecutive_failures})"
+                )
+
+            # Check for too many consecutive failures
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                logger.critical(
+                    f"Background sync has failed {self._consecutive_failures} times consecutively. "
+                    f"Consider investigating cluster health."
+                )
+                # Emit event for monitoring (best effort)
+                try:
+                    from app.coordination.event_emitters import emit_sync_failure_critical
+                    await emit_sync_failure_critical(
+                        consecutive_failures=self._consecutive_failures,
+                        last_success=self._last_successful_sync,
+                    )
+                except Exception:
+                    pass
+
+            # Check data server health periodically
+            await self._check_data_server_health()
 
             await asyncio.sleep(interval_seconds)
 
-    def stop_background_sync(self) -> None:
-        """Stop background sync daemon."""
+    async def stop_background_sync(self, timeout: float = 30.0) -> None:
+        """Stop background sync daemon gracefully (December 2025 - reliability fix).
+
+        Waits for current sync to complete or timeout before returning.
+
+        Args:
+            timeout: Maximum seconds to wait for current sync to complete
+        """
         self._running = False
+        logger.info("Stopping background sync...")
+
+        # Wait for background task if running
+        if self._background_sync_task and not self._background_sync_task.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(self._background_sync_task),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Background sync did not stop within {timeout}s, cancelling")
+                self._background_sync_task.cancel()
+                try:
+                    await self._background_sync_task
+                except asyncio.CancelledError:
+                    pass
+
         logger.info("Background sync stopped")
+
+    async def _check_data_server_health(self) -> bool:
+        """Check data server health periodically (December 2025 - reliability fix).
+
+        Returns:
+            True if data server is healthy, False otherwise
+        """
+        now = time.time()
+        if now - self._data_server_last_health_check < self._data_server_health_check_interval:
+            return self._data_server_healthy
+
+        self._data_server_last_health_check = now
+
+        if not self.is_data_server_running():
+            if self._data_server_healthy:
+                logger.warning("Data server is not running, attempting restart")
+                self._data_server_healthy = False
+                # Attempt restart
+                try:
+                    await self.start_data_server()
+                    self._data_server_healthy = True
+                    logger.info("Data server restarted successfully")
+                except Exception as e:
+                    logger.error(f"Failed to restart data server: {e}")
+            return self._data_server_healthy
+
+        # Health check via HTTP if server claims to be running
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://localhost:{self._data_server_port}/health",
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    self._data_server_healthy = resp.status == 200
+        except Exception:
+            # Server running but not responding - might be starting up
+            self._data_server_healthy = self.is_data_server_running()
+
+        return self._data_server_healthy
+
+    def get_sync_health(self) -> dict[str, Any]:
+        """Get background sync health status (December 2025 - reliability fix).
+
+        Returns:
+            Dict with sync health metrics for monitoring
+        """
+        now = time.time()
+        time_since_last_sync = now - self._last_successful_sync if self._last_successful_sync else None
+
+        return {
+            "running": self._running,
+            "last_successful_sync": self._last_successful_sync,
+            "time_since_last_sync_seconds": time_since_last_sync,
+            "consecutive_failures": self._consecutive_failures,
+            "max_consecutive_failures": self._max_consecutive_failures,
+            "sync_deadline_seconds": self._sync_deadline_seconds,
+            "data_server_healthy": self._data_server_healthy,
+            "health_status": (
+                "healthy" if self._consecutive_failures == 0
+                else "degraded" if self._consecutive_failures < self._max_consecutive_failures
+                else "unhealthy"
+            ),
+        }
 
     async def shutdown(self) -> None:
         """Shutdown the coordinator and all transports."""

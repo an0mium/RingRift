@@ -41,6 +41,16 @@ from .square_architectures import (
     RingRiftCNN_v4,
 )
 
+# GNN imports (optional - requires PyTorch Geometric)
+try:
+    from .gnn_policy import GNNPolicyNet, HAS_PYG as HAS_GNN_POLICY
+    from .hybrid_cnn_gnn import HybridPolicyNet, HAS_PYG as HAS_HYBRID
+    HAS_GNN = HAS_GNN_POLICY or HAS_HYBRID
+except ImportError:
+    HAS_GNN = False
+    GNNPolicyNet = None  # type: ignore
+    HybridPolicyNet = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -50,7 +60,7 @@ __all__ = [
 ]
 
 # Valid memory tier options
-VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4")
+VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "gnn", "hybrid")
 
 
 def get_memory_tier() -> str:
@@ -62,9 +72,11 @@ def get_memory_tier() -> str:
     - "v3-high": V3 models with spatial policy heads
     - "v3-low": V3-lite models with spatial policy heads
     - "v4": V4 NAS-optimized models with attention (square boards only)
+    - "gnn": Pure Graph Neural Network (GNNPolicyNet, ~255K params)
+    - "hybrid": CNN-GNN hybrid architecture (HybridPolicyNet, ~15.5M params)
 
     Returns:
-        One of "high", "low", "v3-high", "v3-low", or "v4".
+        One of "high", "low", "v3-high", "v3-low", "v4", "gnn", or "hybrid".
     """
     tier = os.environ.get("RINGRIFT_NN_MEMORY_TIER", "high").lower()
     if tier not in VALID_MEMORY_TIERS:
@@ -112,6 +124,8 @@ def create_model_for_board(
         - "v3-high": V3 models with spatial policy heads
         - "v3-low": V3-lite models with spatial policy heads
         - "v4": V4 NAS-optimized architecture with attention (square boards only)
+        - "gnn": Pure Graph Neural Network (requires PyTorch Geometric)
+        - "hybrid": CNN-GNN hybrid architecture (requires PyTorch Geometric)
         If None, reads from RINGRIFT_NN_MEMORY_TIER environment variable.
     num_players : int
         Number of players (default 4).
@@ -138,6 +152,17 @@ def create_model_for_board(
 
     # Calculate total input channels with history
     total_in_channels = in_channels * (history_length + 1)
+
+    # Check for GNN tiers first (board-agnostic)
+    if tier in ("gnn", "hybrid"):
+        return _create_gnn_model(
+            tier=tier,
+            board_type=board_type,
+            in_channels=total_in_channels,
+            board_size=board_size,
+            policy_size=policy_size,
+            num_players=num_players,
+        )
 
     # Create model based on board type and memory tier
     if board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
@@ -241,6 +266,63 @@ def _create_hex_model(
             policy_size=policy_size,
             num_players=num_players,
         )
+
+
+def _create_gnn_model(
+    tier: str,
+    board_type: BoardType,
+    in_channels: int,
+    board_size: int,
+    policy_size: int,
+    num_players: int,
+) -> nn.Module:
+    """Create a GNN-based model (requires PyTorch Geometric).
+
+    Args:
+        tier: Memory tier ("gnn" or "hybrid")
+        board_type: The board type
+        in_channels: Number of input channels
+        board_size: Spatial size of the board
+        policy_size: Size of the policy output
+        num_players: Number of players
+
+    Raises:
+        ImportError: If PyTorch Geometric is not installed
+        ValueError: For unsupported tier values
+    """
+    if not HAS_GNN:
+        raise ImportError(
+            "GNN models require PyTorch Geometric. Install with: "
+            "pip install torch-geometric torch-scatter torch-sparse"
+        )
+
+    is_hex = board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
+
+    if tier == "gnn":
+        if GNNPolicyNet is None:
+            raise ImportError("GNNPolicyNet not available - PyTorch Geometric required")
+        return GNNPolicyNet(
+            node_feature_dim=32,  # GNN uses node features, not image channels
+            hidden_dim=128,
+            num_layers=6,
+            action_space_size=policy_size,
+            num_players=num_players,
+        )
+    elif tier == "hybrid":
+        if HybridPolicyNet is None:
+            raise ImportError("HybridPolicyNet not available - PyTorch Geometric required")
+        return HybridPolicyNet(
+            in_channels=in_channels,
+            hidden_channels=128,
+            cnn_blocks=6,
+            gnn_layers=3,
+            board_size=board_size,
+            action_space_size=policy_size,
+            num_players=num_players,
+            is_hex=is_hex,
+        )
+    else:
+        raise ValueError(f"Unknown GNN tier: {tier}")
 
 
 def _create_square_model(
@@ -396,6 +478,22 @@ def _get_tier_config(board_type: BoardType, tier: str) -> dict[str, Any]:
             "estimated_params_m": 8.5,
             "recommended_model": "RingRiftCNN_v4",
             "description": "V4 NAS-optimized model with attention (~8.5M params)",
+        },
+        "gnn": {
+            "num_res_blocks": 0,  # Not applicable for GNN
+            "num_filters": 64,  # hidden_channels
+            "estimated_params_m": 0.255,
+            "recommended_model": "GNNPolicyNet",
+            "description": "Pure GNN model (~255K params, requires PyTorch Geometric)",
+            "requires_pyg": True,
+        },
+        "hybrid": {
+            "num_res_blocks": 0,  # Not applicable for hybrid CNN-GNN
+            "num_filters": 64,  # cnn_channels
+            "estimated_params_m": 15.5,
+            "recommended_model": "HybridPolicyNet",
+            "description": "CNN-GNN hybrid model (~15.5M params, requires PyTorch Geometric)",
+            "requires_pyg": True,
         },
     }
 

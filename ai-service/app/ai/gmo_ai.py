@@ -1,5 +1,10 @@
 """Gradient Move Optimization (GMO) AI for RingRift.
 
+.. deprecated:: December 2025
+    GMO is deprecated and will be removed in a future version.
+    Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.
+    GNN-based approaches show better results than GMO.
+
 A novel game-playing algorithm that uses gradient descent/ascent in move embedding
 space to find optimal moves, rather than traditional forward-pass policy sampling
 or tree search.
@@ -27,8 +32,16 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
+
+warnings.warn(
+    "app.ai.gmo_ai is deprecated and will be removed in a future version. "
+    "Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import numpy as np
 import torch

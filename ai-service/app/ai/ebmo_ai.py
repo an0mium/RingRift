@@ -1,5 +1,10 @@
 """Energy-Based Move Optimization (EBMO) AI Agent.
 
+.. deprecated:: December 2025
+    EBMO is deprecated and will be removed in a future version.
+    Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.
+    GNN-based approaches show better results than EBMO.
+
 A novel AI that uses gradient descent on continuous action embeddings
 at inference time to find optimal moves.
 
@@ -27,7 +32,15 @@ from __future__ import annotations
 import logging
 import os
 import random
+import warnings
 from pathlib import Path
+
+warnings.warn(
+    "app.ai.ebmo_ai is deprecated and will be removed in a future version. "
+    "Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 from typing import Any
 
 import numpy as np

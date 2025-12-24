@@ -400,7 +400,8 @@ class P2PBackend:
             session = await self._get_session()
             async with session.get(f"{self.leader_url}/health") as resp:
                 return resp.status == 200
-        except Exception:
+        except Exception as e:
+            logger.debug(f"P2P health check failed: {e}")
             return False
 
 

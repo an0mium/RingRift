@@ -6,7 +6,7 @@ This document describes the high-level architecture of the RingRift AI Service.
 
 The AI service is a distributed system for training and serving game-playing AI at multiple difficulty levels. It supports:
 
-- **Multi-algorithm AI** spanning 11 difficulty levels (Random → Neural Descent)
+- **Multi-algorithm AI** spanning 10 production difficulty levels (D1-D10), plus internal/experimental tiers
 - **Distributed training** across GPU clusters
 - **P2P coordination** for fault-tolerant data sync and job scheduling
 - **Continuous evaluation** with Elo-based model promotion
@@ -52,9 +52,9 @@ AI instances are cached with LRU eviction (512 max) to maintain persistent searc
 
 ### 2. AI Implementations (`app/ai/`)
 
-Multi-algorithm strategy supporting 11 production + 8 experimental difficulty levels:
+Multi-algorithm strategy supporting 10 production + 8 experimental difficulty levels (D11 reserved for internal benchmarks):
 
-**Production Tier (D1-D11)**:
+**Production Tier (D1-D10)**:
 
 | Level | Algorithm | Description                                      |
 | ----- | --------- | ------------------------------------------------ |
@@ -65,7 +65,12 @@ Multi-algorithm strategy supporting 11 production + 8 experimental difficulty le
 | 5     | MCTS      | Monte Carlo Tree Search (heuristic rollouts)     |
 | 6-8   | MCTS      | MCTS with neural value/policy guidance           |
 | 9-10  | Descent   | AlphaZero-style UBFM search with neural guidance |
-| 11    | Ultimate  | Extended Descent with 60s think time             |
+
+**Internal Tier (benchmark-only, not exposed via public API):**
+
+| Level | Algorithm | Description                          |
+| ----- | --------- | ------------------------------------ |
+| 11    | Ultimate  | Extended Descent with 60s think time |
 
 **Experimental Tier (D12-D19)** - Research algorithms for 2000+ Elo:
 

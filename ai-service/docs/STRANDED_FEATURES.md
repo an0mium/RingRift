@@ -56,7 +56,7 @@ Last updated: 2025-12-21
 - **File**: `app/ai/ebmo_ai.py` (~1500 lines)
 - **Description**: Energy-Based Move Optimization using gradient descent
 - **Integration Gap**: No training pipeline, no tournament validation
-- **Next Step**: Run tournament against D9-D11 to validate strength
+- **Next Step**: Run tournament against D9-D10 (D11 internal benchmark if enabled) to validate strength
 
 ### 2.2 GMO AI (D13)
 
@@ -253,7 +253,7 @@ Last updated: 2025-12-21
 
 ## Next Actions
 
-1. **Run experimental AI tournament** to discover if any D12-D19 beats production D9-D11
+1. **Run experimental AI tournament** to discover if any D12-D19 beats production D9-D10 (D11 internal benchmark if enabled)
 2. **Enable multi-player value training** for 3-4P games
 3. **Add reanalysis to automated training** for data quality boost
 4. **Migrate policy/action encoding to canonical move types** (legacy aliases only via adapters)

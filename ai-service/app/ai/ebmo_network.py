@@ -1,5 +1,10 @@
 """Energy-Based Move Optimization (EBMO) Neural Network Architecture.
 
+.. deprecated:: December 2025
+    EBMO is deprecated and will be removed in a future version.
+    Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.
+    GNN-based approaches show better results than EBMO.
+
 A novel game-playing algorithm that uses gradient descent on continuous
 action embeddings at inference time to find optimal moves.
 
@@ -32,8 +37,16 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Any
+
+warnings.warn(
+    "app.ai.ebmo_network is deprecated and will be removed in a future version. "
+    "Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import numpy as np
 import torch

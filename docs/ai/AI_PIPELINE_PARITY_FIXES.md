@@ -25,7 +25,7 @@ The AI training pipeline requires TS↔Python parity for canonical game replay. 
 | Early victory in replay      | ✅ Fixed | TS replay terminates when victory detected  |
 | Move count mismatch handling | ✅ Fixed | Parity checker accepts early termination    |
 
-**Result (as of 2025-12-11):** All canonical parity tests pass (48 contract vectors, 9+ game replays). For current status, see [`docs/runbooks/PARITY_VERIFICATION_RUNBOOK.md`](../runbooks/PARITY_VERIFICATION_RUNBOOK.md).
+**Result (as of 2025-12-11):** All canonical parity tests pass (48 contract vectors, 9+ game replays; current v2 total = 90). For current status, see [`docs/runbooks/PARITY_VERIFICATION_RUNBOOK.md`](../runbooks/PARITY_VERIFICATION_RUNBOOK.md).
 
 ---
 

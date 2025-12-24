@@ -16,16 +16,19 @@ RingRift v0.1.0-beta is the first public release of RingRift, an abstract strate
 - **Formal specification**: RR-CANON-RXXX rules with parameterized behavior
 - **8 canonical aggregates**: Domain-driven design for complex game state
 
-### 10-Level AI Difficulty Ladder
+### 10-Level AI Difficulty Ladder (D1–D10)
 
-- **Level 0-2**: Random, Pure Heuristic, MCTS-100
-- **Level 3-5**: MCTS-500, MCTS-1000, Neural-Guided MCTS
-- **Level 6-8**: AlphaZero-style descent with increasing search depth
-- **Level 9**: Tournament-strength with full neural network evaluation
+- **D1**: Random
+- **D2**: Heuristic
+- **D3-4**: Minimax (D4 uses NNUE)
+- **D5-8**: MCTS (neural guidance from D6+)
+- **D9-10**: Descent/UBFM with neural guidance
+- **Board-aware overrides**: Large boards swap to Descent/Gumbel tiers via `ai-service/app/config/ladder_config.py`
 
 ### Multiple Board Configurations
 
 - **8×8 Square**: Quick games, 18 rings/player
+- **Hex8 (61 cells)**: Small hex board, 18 rings/player
 - **19×19 Square**: Strategic depth, 72 rings/player
 - **Hexagonal (469 cells)**: Maximum complexity, 96 rings/player
 - **2-4 players**: All configurations support multiplayer
@@ -39,7 +42,7 @@ RingRift v0.1.0-beta is the first public release of RingRift, an abstract strate
 
 ## Technical Features
 
-- **10,177 TypeScript tests** across 595 suites
+- **10,249 TypeScript tests** across 597 suites
 - **1,824 Python tests** for AI service
 - **~69% line coverage**
 - **CI/CD pipeline** with parity validation gate

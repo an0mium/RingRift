@@ -90,7 +90,7 @@ This directory contains Grafana dashboard definitions for monitoring the RingRif
 
 2. **Contract Vector Pass Rate** (Stat Panel)
    - Metric: `ringrift_contract_tests_passing / ringrift_contract_tests_total`
-   - Description: Current pass rate of 49 contract vectors
+   - Description: Current pass rate of 90 contract vectors
    - Alert Threshold: <100% (regression detected - red below 1.0, yellow 0.99-1.0)
    - Use Case: Immediate visibility into contract test regressions
 

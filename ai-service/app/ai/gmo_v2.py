@@ -1,5 +1,10 @@
 """GMO v2 - Enhanced Gradient Move Optimization AI.
 
+.. deprecated:: December 2025
+    GMO v2 is deprecated and will be removed in a future version.
+    Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.
+    GNN-based approaches show better results than GMO variants.
+
 An enhanced version of GMO with architectural improvements for stronger play.
 Available as experimental AI at difficulty D18/D19 via the AI factory.
 
@@ -29,8 +34,16 @@ See also:
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
+
+warnings.warn(
+    "app.ai.gmo_v2 is deprecated and will be removed in a future version. "
+    "Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import numpy as np
 import torch

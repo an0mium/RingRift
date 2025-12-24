@@ -435,7 +435,8 @@ class ClusterTransport:
             )
             await asyncio.wait_for(proc.wait(), timeout=self.connect_timeout + 5)
             return proc.returncode == 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"SSH reachability check failed for {node.hostname}: {e}")
             return False
 
     def reset_circuit_breakers(self) -> None:

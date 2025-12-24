@@ -367,5 +367,39 @@ Enhanced `initialize_all_coordinators()` (Dec 24, 2025):
 - Layered coordinator initialization with dependency checking
 - Promotion → Curriculum feedback loop closed
 - Resource-aware training auto-triggering (cluster health checks)
+- Fixed `_current_weights` initialization bug in curriculum_feedback.py
+- Added ClusterMonitor caching with TTL in data_pipeline_orchestrator.py
+- Event emission deduplication (60s cooldown on constraint events)
+- Unit tests for dead_letter_queue.py (20 tests)
+- Comprehensive coordination module README (67 modules documented)
 
 **All Phases Complete** ✅
+
+## Future Optimization Opportunities
+
+### GPU Parallel Games - MPS Performance Fix
+
+**File:** `app/ai/gpu_parallel_games.py`
+
+**Status:** Production-ready with 100% parity on CUDA. MPS (Apple Silicon) unusable.
+
+**Current state:**
+
+- CUDA: Works well, meets performance targets (10-100 games/sec on RTX 3090)
+- MPS: ~100x SLOWER than CPU due to excessive CPU-GPU synchronization
+- Root cause: ~80 `.item()` calls force synchronization on every call
+- Partial optimization done (marked "Optimized 2025-12-14") but MPS still slow
+
+**Opportunity:**
+
+- Eliminate `.item()` calls to enable Apple Silicon development
+- Would make MPS competitive with CPU (currently must use `device="cpu"` on Mac)
+- Requires refactoring single-game helper functions (`_apply_capture_move_single`, etc.)
+- High risk: tight coupling with rules parity
+
+**Approach (when prioritized):**
+
+1. Profile to identify top-N hottest `.item()` call sites
+2. Batch-extract data before per-game loops
+3. Replace scalar conditionals with tensor operations
+4. Validate parity after each change

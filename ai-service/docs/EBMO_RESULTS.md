@@ -18,14 +18,15 @@ EBMO is a novel AI algorithm that uses **gradient descent on action embeddings**
 ### Ladder Position
 
 ```
-D11: Gumbel MCTS (Ultimate)     ← Production ceiling
-D9-10: Gumbel MCTS              ← Production upper tier
-D6-8: MCTS variants             ← Production mid tier
-D4-5: Minimax/BRS               ← Production lower tier
-D3: PolicyOnly (65% vs Random)  ← Current D3 threshold
-D2: Heuristic                   ← EBMO loses here (35%)
+D11: Internal benchmark tier    ← Not exposed via public API
+D9-10: Descent (or Gumbel on large boards) ← Production upper tier
+D6-8: MCTS variants              ← Production mid tier
+D5: MCTS (heuristic rollouts)    ← Production lower-mid
+D4: Minimax + NNUE               ← Production lower tier
+D3: Minimax                      ← Production lower tier
+D2: Heuristic                    ← EBMO loses here (35%)
     ↑ EBMO sits here (70% vs Random, 35% vs Heuristic)
-D1: Random                      ← EBMO beats this (70%)
+D1: Random                       ← EBMO beats this (70%)
 ```
 
 **Key Finding:** EBMO is between D1 and D2 in strength. It needs to beat Heuristic (D2) before it can replace PolicyOnly at D3.

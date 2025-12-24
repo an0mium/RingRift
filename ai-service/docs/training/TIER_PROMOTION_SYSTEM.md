@@ -1,6 +1,6 @@
 # Tier Promotion System
 
-The tier promotion system manages model progression through difficulty tiers (D1-D11) based on evaluation performance. It ensures models meet quality gates before being promoted to serve harder difficulty levels.
+The tier promotion system manages model progression through difficulty tiers (D1-D10). D11 is reserved for internal benchmarks and is not exposed via the public API.
 
 ## Architecture
 
@@ -102,19 +102,19 @@ print(f"Elo threshold: {config.elo_threshold}")
 
 **Default Tier Configurations:**
 
-| Tier | Min Win Rate | Min Games | Elo Threshold |
-| ---- | ------------ | --------- | ------------- |
-| D1   | 55%          | 50        | +10           |
-| D2   | 55%          | 50        | +10           |
-| D3   | 55%          | 75        | +15           |
-| D4   | 55%          | 100       | +20           |
-| D5   | 57%          | 100       | +25           |
-| D6   | 57%          | 150       | +30           |
-| D7   | 58%          | 150       | +35           |
-| D8   | 58%          | 200       | +40           |
-| D9   | 60%          | 200       | +50           |
-| D10  | 60%          | 250       | +55           |
-| D11  | 62%          | 300       | +60           |
+| Tier           | Min Win Rate | Min Games | Elo Threshold |
+| -------------- | ------------ | --------- | ------------- |
+| D1             | 55%          | 50        | +10           |
+| D2             | 55%          | 50        | +10           |
+| D3             | 55%          | 75        | +15           |
+| D4             | 55%          | 100       | +20           |
+| D5             | 57%          | 100       | +25           |
+| D6             | 57%          | 150       | +30           |
+| D7             | 58%          | 150       | +35           |
+| D8             | 58%          | 200       | +40           |
+| D9             | 60%          | 200       | +50           |
+| D10            | 60%          | 250       | +55           |
+| D11 (internal) | 62%          | 300       | +60           |
 
 ### tier_perf_benchmark.py
 
@@ -310,26 +310,26 @@ Models are tested against two baseline opponents using the `game_gauntlet` modul
 
 ### Tier-Specific Thresholds
 
-All 11 difficulty tiers (D1-D11) have promotion configs. Thresholds are monotonically non-decreasing:
+All production tiers (D1-D10) have promotion configs. D11 is internal benchmark-only. Thresholds are monotonically non-decreasing:
 
-| Tier | vs Baseline | Baselines Tested       | vs Previous Tier | Notes               |
-| ---- | ----------- | ---------------------- | ---------------- | ------------------- |
-| D1   | N/A         | None                   | N/A              | Entry tier (random) |
-| D2   | 60%         | Random                 | >50%             | vs D1               |
-| D3   | 65%         | Random                 | >50%             | vs D2               |
-| D4   | 68%         | Random                 | >50%             | vs D3               |
-| D5   | 70%         | Random + Heuristic(D2) | >50%             | vs D4               |
-| D6   | 72%         | Random + Heuristic(D3) | >50%             | vs D5               |
-| D7   | 75%         | Random + Heuristic(D4) | >50%             | vs D6 (MCTS entry)  |
-| D8   | 75%         | Random + Heuristic(D5) | >50%             | vs D7               |
-| D9   | 75%         | Random + Heuristic(D6) | >50%             | vs D8 (Gumbel MCTS) |
-| D10  | 75%         | Random + Heuristic(D7) | >50%             | vs D9               |
-| D11  | 75%         | Random + Heuristic(D8) | >50%             | vs D10 (elite)      |
+| Tier           | vs Baseline | Baselines Tested       | vs Previous Tier | Notes               |
+| -------------- | ----------- | ---------------------- | ---------------- | ------------------- |
+| D1             | N/A         | None                   | N/A              | Entry tier (random) |
+| D2             | 60%         | Random                 | >50%             | vs D1               |
+| D3             | 65%         | Random                 | >50%             | vs D2               |
+| D4             | 68%         | Random                 | >50%             | vs D3               |
+| D5             | 70%         | Random + Heuristic(D2) | >50%             | vs D4               |
+| D6             | 72%         | Random + Heuristic(D3) | >50%             | vs D5               |
+| D7             | 75%         | Random + Heuristic(D4) | >50%             | vs D6 (MCTS entry)  |
+| D8             | 75%         | Random + Heuristic(D5) | >50%             | vs D7               |
+| D9             | 75%         | Random + Heuristic(D6) | >50%             | vs D8 (Gumbel MCTS) |
+| D10            | 75%         | Random + Heuristic(D7) | >50%             | vs D9               |
+| D11 (internal) | 75%         | Random + Heuristic(D8) | >50%             | vs D10 (elite)      |
 
 **Design notes:**
 
 - Thresholds increase from 60% (D2) to 75% (D7+), then plateau
-- D7-D11 capped at 75% based on neural model empirical performance (~70-76% vs random)
+- D7-D10 capped at 75% based on neural model empirical performance (~70-76% vs random). D11 (internal) follows the same cap when enabled.
 - Each tier must achieve >50% win rate vs the previous tier
 - Heuristic baselines added at D5+ for stronger validation
 

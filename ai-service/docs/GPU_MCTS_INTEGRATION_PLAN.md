@@ -93,7 +93,9 @@ Update difficulty profiles for optimal UX:
 | D5-D6      | HeuristicNN             | Depth 2-3        | <200ms         |
 | D7         | **HybridNNValuePlayer** | Top-8 candidates | <500ms         |
 | D8-D9      | GumbelMCTSAI            | Budget 200-400   | <2s            |
-| D10-D11    | GumbelMCTSAI            | Budget 800-1600  | <5s            |
+| D10        | GumbelMCTSAI            | Budget 800-1600  | <5s            |
+
+Note: D11 is reserved for internal benchmarking and is not exposed via the public API.
 
 Key change: Insert HybridNNValuePlayer at D7 for fast, strong play.
 
@@ -250,7 +252,7 @@ PYTHONPATH=. python -m app.gauntlet.runner \
 | Metric              | Current      | Target       | How to Measure     |
 | ------------------- | ------------ | ------------ | ------------------ |
 | Selfplay throughput | 10 games/min | 50 games/min | Cluster dashboard  |
-| D8-D11 latency      | 3-5s         | 1-3s         | Response time logs |
+| D8-D10 latency      | 3-5s         | 1-3s         | Response time logs |
 | D7 latency          | N/A          | <500ms       | Response time logs |
 | Gauntlet speed      | 1 game/min   | 10 games/min | Gauntlet duration  |
 

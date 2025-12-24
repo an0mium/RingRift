@@ -1,5 +1,10 @@
 """Information-Gain GMO (IG-GMO) - Novel extension with MI-based exploration.
 
+.. deprecated:: December 2025
+    IG-GMO is deprecated and will be removed in a future version.
+    Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.
+    GNN-based approaches show better results than GMO variants.
+
 This module implements a research-grade extension of GMO that uses:
 1. True mutual information for exploration (not just sqrt(variance))
 2. Graph Neural Network state encoder for relational structure
@@ -20,8 +25,16 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
+
+warnings.warn(
+    "app.ai.ig_gmo is deprecated and will be removed in a future version. "
+    "Use GNNPolicyNet or HybridPolicyNet from app.ai.neural_net instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import numpy as np
 import torch

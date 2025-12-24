@@ -1,6 +1,6 @@
 # Experimental AI Approaches
 
-This document describes the experimental AI algorithms available in RingRift beyond the production ladder (D1-D11).
+This document describes the experimental AI algorithms available in RingRift beyond the production ladder (D1-D10; D11 is internal benchmark-only).
 
 ## Overview
 

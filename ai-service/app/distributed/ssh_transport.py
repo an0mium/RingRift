@@ -378,6 +378,7 @@ class SSHTransport:
         command_type: str,
         payload: dict[str, Any],
         retries: int = SSH_MAX_RETRIES,
+        total_timeout: float | None = None,
     ) -> tuple[bool, dict[str, Any] | None]:
         """Send a P2P command to a node via SSH.
 
@@ -390,6 +391,8 @@ class SSHTransport:
             command_type: Command type (heartbeat, start_job, etc.)
             payload: Command payload as dict
             retries: Number of retries on failure
+            total_timeout: Maximum total time for all retries (December 2025 - reliability fix).
+                          If None, uses default of (retries + 1) * 60 seconds.
 
         Returns:
             Tuple of (success, response_dict or None)
@@ -409,7 +412,22 @@ class SSHTransport:
             f"--connect-timeout 5 --max-time 20"
         )
 
+        # Total timeout budget (December 2025 - reliability fix)
+        # Prevents unbounded retry chains when commands hang
+        if total_timeout is None:
+            total_timeout = (retries + 1) * 60.0  # Default: 1 minute per attempt
+        start_time = time.time()
+
         for attempt in range(retries + 1):
+            # Check if we've exceeded total timeout budget
+            elapsed = time.time() - start_time
+            if elapsed >= total_timeout:
+                logger.warning(
+                    f"SSH send_command to {node_id} exhausted total timeout budget "
+                    f"({elapsed:.1f}s >= {total_timeout}s) after {attempt} attempts"
+                )
+                return False, None
+
             result = await self.ssh_exec(node_id, curl_cmd)
 
             if result.success and result.stdout:
@@ -422,7 +440,16 @@ class SSHTransport:
                     )
 
             if attempt < retries:
-                await asyncio.sleep(SSH_RETRY_DELAY * (attempt + 1))
+                # Calculate delay with budget awareness
+                delay = SSH_RETRY_DELAY * (attempt + 1)
+                remaining = total_timeout - (time.time() - start_time)
+                if remaining <= delay:
+                    logger.debug(
+                        f"SSH retry to {node_id} skipped: insufficient budget "
+                        f"({remaining:.1f}s < {delay:.1f}s delay)"
+                    )
+                    break
+                await asyncio.sleep(delay)
 
         return False, None
 
@@ -549,8 +576,8 @@ class SSHTransport:
                         stderr=asyncio.subprocess.DEVNULL,
                     )
                     await proc.wait()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Error closing ControlMaster for {node_id}: {e}")
 
 
 # Global instance

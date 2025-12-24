@@ -11,7 +11,7 @@ This document provides a high-level overview of the RingRift AI Service architec
 │                                                                              │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
 │  │   FastAPI    │    │   AI Engine  │    │   Training   │                   │
-│  │   Endpoints  │───▶│   (D1-D11)   │◀───│   Pipeline   │                   │
+│  │   Endpoints  │───▶│   (D1-D10)   │◀───│   Pipeline   │                   │
 │  └──────────────┘    └──────────────┘    └──────────────┘                   │
 │         │                   │                   │                            │
 │         ▼                   ▼                   ▼                            │
@@ -45,18 +45,23 @@ FastAPI endpoints serving AI move requests and game evaluation:
 
 ### 2. AI Engine (`app/ai/`)
 
-11-level difficulty ladder with pluggable AI implementations:
+10-level production ladder (D1-D10) with pluggable AI implementations (D11 is internal benchmark-only):
 
-| Level | AI Type   | Implementation                                      |
-| ----- | --------- | --------------------------------------------------- |
-| D1    | Random    | `random_ai.py`                                      |
-| D2    | Heuristic | `heuristic_ai.py` (45+ CMA-ES optimized weights)    |
-| D3    | Minimax   | `minimax_ai.py` (alpha-beta, heuristic eval)        |
-| D4    | Minimax   | `minimax_ai.py` (alpha-beta + NNUE neural eval)     |
-| D5    | MCTS      | `mcts_ai.py` (heuristic rollouts)                   |
-| D6-8  | MCTS      | `mcts_ai.py` (neural policy/value guidance)         |
-| D9-10 | Descent   | `descent_ai.py` (AlphaZero-style UBFM search)       |
-| D11   | Ultimate  | `descent_ai.py` (60s think time, nearly unbeatable) |
+| Level | AI Type   | Implementation                                   |
+| ----- | --------- | ------------------------------------------------ |
+| D1    | Random    | `random_ai.py`                                   |
+| D2    | Heuristic | `heuristic_ai.py` (45+ CMA-ES optimized weights) |
+| D3    | Minimax   | `minimax_ai.py` (alpha-beta, heuristic eval)     |
+| D4    | Minimax   | `minimax_ai.py` (alpha-beta + NNUE neural eval)  |
+| D5    | MCTS      | `mcts_ai.py` (heuristic rollouts)                |
+| D6-8  | MCTS      | `mcts_ai.py` (neural policy/value guidance)      |
+| D9-10 | Descent   | `descent_ai.py` (AlphaZero-style UBFM search)    |
+
+Internal benchmark-only tier (not exposed via public API):
+
+| Level | AI Type  | Implementation                                      |
+| ----- | -------- | --------------------------------------------------- |
+| D11   | Ultimate | `descent_ai.py` (60s think time, nearly unbeatable) |
 
 Experimental tiers (EBMO, GMO, IG-GMO) live under `app/ai/` and are **not**
 part of the canonical ladder. Use `AIFactory.create(AIType.IG_GMO, ...)` or
@@ -183,7 +188,7 @@ Client Request
       │
       ▼
 ┌─────────────┐
-│ Difficulty  │──▶ Select AI (D1-D11)
+│ Difficulty  │──▶ Select AI (D1-D10)
 │   Ladder    │
 └─────────────┘
       │
