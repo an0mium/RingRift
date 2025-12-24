@@ -283,6 +283,7 @@ def setup_script_logging(
     log_dir: str | Path = "logs",
     level: str = "INFO",
     json_logs: bool = False,
+    log_file: str | Path | None = None,
 ) -> logging.Logger:
     """Set up logging for a script with standard configuration.
 
@@ -291,12 +292,16 @@ def setup_script_logging(
         log_dir: Directory for log files
         level: Log level
         json_logs: Use JSON format
+        log_file: Optional explicit log file path (overrides log_dir/script_name)
 
     Returns:
         Logger for the script
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = Path(log_dir) / f"{script_name}_{timestamp}.log"
+    if log_file:
+        log_file = Path(log_file)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = Path(log_dir) / f"{script_name}_{timestamp}.log"
 
     setup_logging(
         level=level,
