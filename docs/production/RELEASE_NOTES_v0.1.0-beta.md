@@ -12,7 +12,7 @@ RingRift v0.1.0-beta is the first public release of RingRift, an abstract strate
 ### Complete Rules Engine
 
 - **TypeScript + Python parity**: Identical game logic in both languages
-- **81 contract vectors**: Ensuring cross-language correctness
+- **85 contract vectors**: Ensuring cross-language correctness
 - **Formal specification**: RR-CANON-RXXX rules with parameterized behavior
 - **8 canonical aggregates**: Domain-driven design for complex game state
 
@@ -77,7 +77,7 @@ npm run dev
 
 ## Documentation
 
-- [Complete Rules](ringrift_complete_rules.md) - Full rulebook with examples
+- [Complete Rules](../rules/COMPLETE_RULES.md) - Full rulebook with examples
 - [Canonical Specification](RULES_CANONICAL_SPEC.md) - Formal rules spec
 - [Quick Start Guide](QUICKSTART.md) - Detailed setup instructions
 - [AI Service](ai-service/README.md) - Neural network training documentation

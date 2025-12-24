@@ -179,6 +179,40 @@ Quality checking for training data:
 - `DatabaseQualityChecker` - Validate database schema/content
 - `TrainingDataValidator` - Validate NPZ files
 
+### GumbelCommon (`app/ai/gumbel_common.py`)
+
+Unified data structures for all Gumbel MCTS variants:
+
+- `GumbelAction` - Action with policy logit, Gumbel noise, value tracking
+- `GumbelNode` - Node for MCTS tree with visit counts and values
+- `LeafEvalRequest` - Batched leaf evaluation request
+- Budget constants: `GUMBEL_BUDGET_THROUGHPUT` (64), `GUMBEL_BUDGET_STANDARD` (150), `GUMBEL_BUDGET_QUALITY` (800), `GUMBEL_BUDGET_ULTIMATE` (1600)
+- `get_budget_for_difficulty(difficulty)` - Map difficulty to budget tier
+
+### SelfplayRunner (`app/training/selfplay_runner.py`)
+
+Unified base class for all selfplay implementations:
+
+```python
+from app.training.selfplay_runner import SelfplayRunner, run_selfplay
+
+# Quick usage
+stats = run_selfplay(board_type="hex8", num_players=2, num_games=100, engine="heuristic")
+
+# Custom runner
+class MyRunner(SelfplayRunner):
+    def run_game(self, game_idx: int) -> GameResult:
+        ...
+
+runner = MyRunner.from_cli()
+runner.run()
+```
+
+- `SelfplayRunner` - Base class with config, model loading, event emission
+- `HeuristicSelfplayRunner` - Fast heuristic-only selfplay
+- `GumbelMCTSSelfplayRunner` - Quality Gumbel MCTS selfplay
+- `run_selfplay()` - Convenience function for quick selfplay
+
 ## Current Model State (as of Dec 2025)
 
 | Config  | Status     | Best Accuracy | Location                     |
@@ -273,6 +307,17 @@ Recent work covered:
 - **Auto-Promotion Pipeline**: Added gauntlet-based model promotion (scripts/auto_promote.py)
 - **4-Player Gauntlet Fix**: Fixed multiplayer game handling in game_gauntlet.py
 
+### Code Consolidation (Dec 24, 2025)
+
+Major consolidation of duplicated code:
+
+- **`gumbel_common.py`**: Unified 3 copies of GumbelAction/GumbelNode into single source
+- **`selfplay_runner.py`**: Unified SelfplayRunner base class for all selfplay variants
+- **Budget constants**: Consolidated scattered Gumbel budget defaults into named tiers
+- **Export scripts**: Archived `export_replay_dataset_parallel.py` and `export_filtered_training.py` (now flags in main script)
+
+See `archive/deprecated_scripts/README.md` for archived script documentation.
+
 ### Auto-Promotion Workflow
 
 After training, run gauntlet evaluation to promote models:
@@ -290,13 +335,17 @@ PYTHONPATH=. python3 scripts/auto_promote.py --gauntlet \
 - vs RANDOM: 85% win rate required
 - vs HEURISTIC: 60% win rate required
 
-### Active Training Jobs (Dec 23, 2025)
+### Active Training Jobs (Dec 24, 2025)
 
-| Config       | Node           | Status             |
-| ------------ | -------------- | ------------------ |
-| square8_2p   | lambda-gh200-o | Exporting/Training |
-| hex8_3p      | lambda-2xh100  | Exporting/Training |
-| hexagonal_2p | lambda-gh200-c | Exporting/Training |
+| Config       | Node           | Status                    |
+| ------------ | -------------- | ------------------------- |
+| square8_2p   | lambda-gh200-a | Training v2/v3, Exporting |
+| hex8_2p      | lambda-gh200-a | Training v2               |
+| hex8_4p      | lambda-gh200-a | Training v2               |
+| hex8_2p      | lambda-2xh100  | Gumbel selfplay (2 GPUs)  |
+| square19_3p  | lambda-gh200-o | Gumbel selfplay           |
+| hexagonal_2p | lambda-gh200-o | Gumbel selfplay           |
+| square19_4p  | lambda-gh200-o | Gumbel selfplay           |
 
 ### Known Cluster Issues
 

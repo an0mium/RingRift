@@ -382,8 +382,9 @@ def _process_gpu_selfplay_record(
         except (ValueError, KeyError):
             pass  # Keep original if record has invalid board_type
 
-    # Parse moves
+    # Parse moves (keep original dicts for mcts_policy soft targets)
     moves = [parse_move(m) for m in moves_list]
+    move_dicts = moves_list  # Keep original for mcts_policy
     total_moves = len(moves)
 
     # Compute value targets from winner field directly
@@ -397,7 +398,7 @@ def _process_gpu_selfplay_record(
     history_frames: list[np.ndarray] = []
     positions_extracted = 0
 
-    for move_idx, move in enumerate(moves):
+    for move_idx, (move, move_dict) in enumerate(zip(moves, move_dicts)):
         # Get move type (handle string or enum)
         move_type = move.type if isinstance(move.type, MoveType) else _move_type_from_str(str(move.type))
 
@@ -446,14 +447,44 @@ def _process_gpu_selfplay_record(
                 else str(current_state.current_phase)
             )
 
+            # Check for mcts_policy soft targets
+            mcts_policy = move_dict.get("mcts_policy") if isinstance(move_dict, dict) else None
+            if mcts_policy and len(mcts_policy) > 1:
+                # Use soft targets from MCTS visit distribution
+                soft_indices = []
+                soft_values = []
+                for key, prob in mcts_policy.items():
+                    if prob > 0:
+                        try:
+                            soft_move = _parse_mcts_policy_key(key, current_state.board)
+                            if soft_move:
+                                soft_idx = encode_move_for_board(soft_move, current_state.board)
+                                if soft_idx != INVALID_MOVE_INDEX:
+                                    soft_indices.append(soft_idx)
+                                    soft_values.append(float(prob))
+                        except Exception:
+                            pass
+
+                if soft_indices:
+                    policy_idx = np.array(soft_indices, dtype=np.int32)
+                    policy_val = np.array(soft_values, dtype=np.float32)
+                    policy_val = policy_val / policy_val.sum()  # Normalize
+                else:
+                    policy_idx = np.array([action_idx], dtype=np.int32)
+                    policy_val = np.array([1.0], dtype=np.float32)
+            else:
+                # Hard target
+                policy_idx = np.array([action_idx], dtype=np.int32)
+                policy_val = np.array([1.0], dtype=np.float32)
+
             # Store sample with proper policy target
             features_list.append(stacked)
             globals_list.append(globals_vec)
             values_list.append(float(value))
             values_mp_list.append(values_vec.copy())
             num_players_list.append(num_players)
-            policy_indices_list.append(np.array([action_idx], dtype=np.int32))
-            policy_values_list.append(np.array([1.0], dtype=np.float32))
+            policy_indices_list.append(policy_idx)
+            policy_values_list.append(policy_val)
             move_numbers_list.append(move_idx)
             total_game_moves_list.append(total_moves)
             phases_list.append(phase_str)
@@ -533,6 +564,7 @@ def _parse_mcts_policy_key(key: str, board) -> Move | None:
         pos_str = key[len("place_ring_"):]
         x, y = map(int, pos_str.split(","))
         return Move(
+            id="soft",
             type=MoveType.PLACE_RING,
             to=Position(x=x, y=y),
             player=1,  # Player will be ignored for encoding
@@ -544,6 +576,7 @@ def _parse_mcts_policy_key(key: str, board) -> Move | None:
             from_x, from_y = map(int, from_to[0].split(","))
             to_x, to_y = map(int, from_to[1].split(","))
             return Move(
+                id="soft",
                 type=MoveType.MOVE_STACK,
                 from_pos=Position(x=from_x, y=from_y),
                 to=Position(x=to_x, y=to_y),
@@ -553,6 +586,7 @@ def _parse_mcts_policy_key(key: str, board) -> Move | None:
         rest = key[len("line_formation_"):]
         x, y = map(int, rest.split(","))
         return Move(
+            id="soft",
             type=MoveType.LINE_FORMATION,
             to=Position(x=x, y=y),
             player=1,
@@ -561,7 +595,17 @@ def _parse_mcts_policy_key(key: str, board) -> Move | None:
         rest = key[len("territory_claim_"):]
         x, y = map(int, rest.split(","))
         return Move(
+            id="soft",
             type=MoveType.TERRITORY_CLAIM,
+            to=Position(x=x, y=y),
+            player=1,
+        )
+    elif key.startswith("skip_placement_"):
+        pos_str = key[len("skip_placement_"):]
+        x, y = map(int, pos_str.split(","))
+        return Move(
+            id="soft",
+            type=MoveType.SKIP_PLACEMENT,
             to=Position(x=x, y=y),
             player=1,
         )

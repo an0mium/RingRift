@@ -398,11 +398,11 @@ For high-confidence parity validation:
 
 ## Appendix B: Canonical Rules Files
 
-| File                         | Size  | Purpose                |
-| ---------------------------- | ----- | ---------------------- |
-| `RULES_CANONICAL_SPEC.md`    | 110KB | Formal specification   |
-| `ringrift_compact_rules.md`  | 45KB  | Implementation-focused |
-| `ringrift_complete_rules.md` | 185KB | Full narrative rules   |
+| File                                    | Size  | Purpose                |
+| --------------------------------------- | ----- | ---------------------- |
+| `RULES_CANONICAL_SPEC.md`               | 110KB | Formal specification   |
+| `../../../docs/rules/COMPACT_RULES.md`  | 45KB  | Implementation-focused |
+| `../../../docs/rules/COMPLETE_RULES.md` | 185KB | Full narrative rules   |
 
 ---
 

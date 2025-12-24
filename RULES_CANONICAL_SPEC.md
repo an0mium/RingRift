@@ -100,7 +100,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - At all times, the total number of rings of P's colour that are **in play** (on the board in any stack, regardless of which player currently controls those stacks, plus in P's hand) must be ≤ this `ringsPerPlayer` value for the chosen board type.
   - Rings of other colours that P has captured and that are buried in stacks P controls **do not** count against P's `ringsPerPlayer` cap; they continue to belong, by colour, to their original owners for conservation, elimination, and victory accounting.
   - Eliminated rings of P's colour are permanently out of play and do not refresh or expand P's supply beyond `ringsPerPlayer`; they only change how much of that fixed supply is currently eliminated versus still in play.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:18) §1.1, §7.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:340) §§1.2.1, 3.2.1, 16.3–16.4, 16.9.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:18) §1.1, §7.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:340) §§1.2.1, 3.2.1, 16.3–16.4, 16.9.2.
 
 - **[RR-CANON-R021] Stack definition.**
   - A stack is an ordered sequence of one or more rings on a single board cell.
@@ -526,21 +526,21 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - `P.ringsInHand > 0` and P controls **no stacks** on the board; or
     - `P.ringsInHand > 0`, P controls at least one stack, but **no legal movement or capture** is available from any controlled stack.
   - Placement is **optional** (may be skipped) if `P.ringsInHand > 0` and P controls at least one stack with a legal movement or capture.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:100) §2.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:362) §§4.1, 6.1, 15.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:100) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:362) §§4.1, 6.1, 15.2.
 
 - **[RR-CANON-R081] Placement on empty cell.**
   - If placement is allowed:
     - P may choose a non-collapsed, empty cell and place **1–3 rings** there, forming a new stack.
     - P may not exceed `ringsInHand`, and after placement the total number of rings of P's colour that are in play (on the board in any stack, regardless of controlling player, plus in P's hand) must not exceed P's `ringsPerPlayer` own-colour supply cap for the board type (RR-CANON-R020). Captured opponent-colour rings in stacks P controls do **not** affect this check.
     - **No-dead-placement rule:** after hypothetical placement, that new stack must have at least one legal non-capture move or overtaking capture under the standard rules. Otherwise the placement is illegal.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:100) §2.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:366) §§4.1, 6.2, 15.4 Q17.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:100) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:366) §§4.1, 6.2, 15.4 Q17.
 
 - **[RR-CANON-R082] Placement on existing stack.**
   - P may choose a non-collapsed cell containing any stack (friendly or opponent).
   - P may place **exactly one** ring of their color on top of that stack.
   - The stack's controlling player becomes P; capHeight is recomputed.
   - No-dead-placement rule applies: after placement, the updated stack must have at least one legal move or capture; otherwise the placement is illegal.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:100) §2.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:574) §§4.1, 6.3, 7.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:100) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:574) §§4.1, 6.3, 7.2.
 
 ### 5.2 Non-capture movement
 
@@ -548,7 +548,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - After placement (if any), let S be the set of stacks with `controllingPlayer = P`.
   - If S is empty and placement was impossible or forbidden, P has no legal movement and either becomes temporarily inactive or proceeds to forced elimination per RR-CANON-R100 (if they control a stack via some edge case such as future control change).
   - If S is non-empty, any stack in S that satisfies RR-CANON-R091–R092 for at least one direction has at least one legal move.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:166) §§2.2, 3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:385) §§4.2, 8, 16.5.1.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:166) §§2.2, 3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:385) §§4.2, 8, 16.5.1.
 
 - **[RR-CANON-R091] Path and distance for non-capture movement.**
   - Let a controlled stack be at `from` with height `H ≥ 1`.
@@ -844,11 +844,12 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - This choice between Option 1 and Option 2 is always an explicit,
         player-visible decision (typically via `choose_line_option`); engines
         must not silently default to either option for overlength lines.
+    - **No-controlled-stacks waiver:** If P controls zero stacks when an elimination would be required (exact-length lines or Option 1), the elimination cost is waived. The line still collapses, no `eliminate_rings_from_stack` move is recorded, and line processing continues.
   - After each processed line, update all counters and recompute lines.
   - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §5.3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§4.5, 11.2–11.3, 15.4 Q7, Q22.
 
 - **[RR-CANON-R123] Line elimination requires a separate interactive decision (canonical clarification).**
-  - The ring elimination cost for line processing (when required by RR-CANON-R122) is represented as an **explicit, separate** `eliminate_rings_from_stack` move following the `process_line` or `choose_line_option` move.
+  - The ring elimination cost for line processing (when required by RR-CANON-R122 and P controls at least one eligible stack) is represented as an **explicit, separate** `eliminate_rings_from_stack` move following the `process_line` or `choose_line_option` move.
   - **Rationale (human UX and consistency):**
     - Per RR-CANON-R206, "Hosts must expose forced elimination as an **interactive decision** for the acting agent...whenever more than one eligible target exists." The same principle applies to line elimination.
     - When a player has multiple controlled stacks, they should explicitly choose which stack to eliminate from—this is a meaningful strategic decision.
@@ -858,7 +859,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     1. `process_line` or `choose_line_option` - collapses the line markers to territory
     2. `eliminate_rings_from_stack` - eliminates one ring from the player's chosen controlled stack
   - **Pending elimination state:**
-    - After applying `process_line` or `choose_line_option` (for Option 1/collapse-all), engines must set a pending elimination flag (e.g., `pendingLineRewardElimination: true`).
+    - After applying `process_line` or `choose_line_option` (for Option 1/collapse-all), engines must set a pending elimination flag (e.g., `pendingLineRewardElimination: true`) **only if** at least one eligible controlled stack exists.
     - While this flag is set, `eliminate_rings_from_stack` moves are legal in the `line_processing` phase.
     - The `eliminate_rings_from_stack` move for line processing eliminates exactly **one ring** from the top of any controlled stack (not the entire cap, per RR-CANON-R022).
     - After the elimination move, the pending flag is cleared and normal line processing continues.
@@ -965,14 +966,14 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 - **[RR-CANON-R170] Ring-elimination victory.**
   - After completing all phases of a player's turn (including line and Territory processing), if any player P has `P.eliminatedRingsTotal ≥ victoryThreshold`, that player wins immediately by elimination.
   - Multiple players cannot simultaneously satisfy this because total eliminated rings cannot exceed 100% of rings in play.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:409) §7.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1204) §§13.1, 16.9.4.5.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:409) §7.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1204) §§13.1, 16.9.4.5.
 
 - **[RR-CANON-R171] Territory-control victory.**
   - After a full turn, if any player P satisfies BOTH conditions in RR-CANON-R062 (v2), that player wins immediately by Territory:
     1. `territorySpaces[P] >= territoryVictoryMinimum`
     2. `territorySpaces[P] > sum(territorySpaces[Q])` for all opponents Q
   - Multiple players cannot simultaneously satisfy this because condition 2 requires strict dominance over all opponents combined.
-  - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:417) §7.2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1220) §§13.2, 16.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:417) §7.2; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1220) §§13.2, 16.2.
 
 - **[RR-CANON-R172] Last-player-standing victory.**
   - Last-player-standing is a third formal victory condition, alongside ring-elimination (RR-CANON-R170) and Territory-control (RR-CANON-R171).
@@ -996,7 +997,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - they do control stacks but have no legal placements, no legal moves or overtaking captures, and no other legal turn actions at all, so their only possible turn action is forced elimination (RR-CANON-R100).
   - **Empty/temporarily inactive seats still take turns:** All non-permanently-eliminated seats, including those with no stacks and no rings in hand, must still traverse every phase of their turn and record the canonical no-action/FE moves required by RR-CANON-R075. Permanently eliminated players are removed from turn rotation (RR‑CANON‑R201) and do not participate in the full-round count.
   - Temporarily inactive players prevent an LPS victory until they have been continuously in this "no real actions" state on each of their turns throughout all three qualifying rounds above. A temporarily inactive player can return to full activity if they regain a real action, most commonly by gaining control of a multicolour stack whose top ring becomes their colour or by reduction of the height of a stack they control so that it can move again. If any such player regains a real action before all three rounds have been completed, the last-player-standing condition is not met and must be re-established from that point.
-  - References: [`docs/rules/HUMAN_RULES.md`](docs/rules/HUMAN_RULES.md:321) §5.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1376) §13.3.
+  - References: [`docs/rules/HUMAN_RULES.md`](docs/rules/HUMAN_RULES.md:321) §5.3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1376) §13.3.
 
 - **[RR-CANON-R173] Global stalemate and tiebreaks.**
   - If **no** player has any legal placement, movement, capture, or forced elimination available (global stalemate):

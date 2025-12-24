@@ -188,7 +188,7 @@ type RecoverySlideMove = {
 | ------------------------------------ | ------------------ | ------------------------------------ |
 | B has only FE available              | B cannot block LPS | B cannot block LPS (FE ≠ real)       |
 | B has valid recovery slide           | N/A                | B cannot block LPS (recovery ≠ real) |
-| Only A has real actions for 2 rounds | A wins LPS         | A wins LPS (recovery doesn't count)  |
+| Only A has real actions for 3 rounds | A wins LPS         | A wins LPS (recovery doesn't count)  |
 
 **Implication:** LPS evaluation must ignore recovery (and forced elimination) when determining real actions; recovery still matters for global-legal-action / ANM classification and turn rotation.
 
@@ -251,8 +251,8 @@ To bring Recovery into main:
 
 1. Cherry-pick or merge relevant commits from `sandbox-replay-refactor`
 2. Update `RULES_CANONICAL_SPEC.md` with R110–R115
-3. Update `ringrift_complete_rules.md` §4 with Recovery Action section
-4. Update `ringrift_compact_rules.md` §2 with formal specification
+3. Update `../../rules/COMPLETE_RULES.md` §4 with Recovery Action section
+4. Update `../../rules/COMPACT_RULES.md` §2 with formal specification
 5. Add `recovery_slide` to `MoveType` in `src/shared/types/game.ts`
 6. Integrate with turn orchestrator phase machine
 7. Add contract vectors for parity testing
@@ -291,7 +291,7 @@ To bring Recovery into main:
 - **Design conversation:** 2025-12-08 discussion with game designer
 - **Prior implementation:** `sandbox-replay-refactor` branch, commit `c0b66e2e`
 - **Canonical rules:** `RULES_CANONICAL_SPEC.md` (pending R110–R115 addition)
-- **Complete rules:** `ringrift_complete_rules.md` (pending §4.5 addition)
+- **Complete rules:** `../../rules/COMPLETE_RULES.md` (pending §4.5 addition)
 - **LPS analysis:** `docs/supplementary/rules_analysis/rules_analysis_lps_fe.md`
 
 ---
@@ -403,7 +403,7 @@ git cherry-pick c0b66e2e
 5. **Add recovery eligibility check** to turn rotation logic
 6. **Update LPS evaluation** to check for valid recovery moves
 7. **Add canonical rules** (R110–R115) to `RULES_CANONICAL_SPEC.md`
-8. **Add narrative rules** to `ringrift_complete_rules.md` §4.5
+8. **Add narrative rules** to `../../rules/COMPLETE_RULES.md` §4.5
 9. **Run parity tests** to validate TS↔Python alignment
 10. **Add contract vectors** for recovery scenarios
 

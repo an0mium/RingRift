@@ -676,6 +676,7 @@ The extended vectors are organised into four primary **families**:
 - `square8`: simple, visual scenarios and smoke-level coverage.
 - `square19`: high-distance geometry and richer line/territory interactions.
 - `hexagonal`: explicit exercise of cube-coordinate movement, capture, and region detection.
+- `hex8`: engine-supported; contract vectors for hex8 are still pending.
 
 ### 8.3 Schema and assertion conventions
 
@@ -715,7 +716,9 @@ Where:
 - `family` ∈ {`chain_capture`, `forced_elimination`, `territory_line`, `hex_edge_case`} (existing bundles continue to use `placement`, `movement`, `capture`, `territory`, etc.).
 - `scenario` describes the structural pattern (`depth3`, `branch`, `monotone_chain`, `overlong_line`, `corner_region`, etc.).
 - `variant` distinguishes steps or branches (`segment1`, `segment2`, `final`, `step1`, `case1`, `branchA`).
-- `board` ∈ {`square8`, `square19`, `hexagonal`}.
+- `board` ∈ {`square8`, `square19`, `hex8`, `hexagonal`}.
+
+Hex8 tags are reserved for future vectors; v2 coverage does not yet include hex8.
 
 These IDs are intended to be **stable** and referenced directly by both TS and Python when debugging or triaging parity and invariant issues.
 

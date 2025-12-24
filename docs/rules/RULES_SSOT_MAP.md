@@ -2,7 +2,7 @@
 
 > **Scope:** Design-level map of rules and orchestrator single sources of truth (SSOTs) and legacy/diagnostic surfaces.  
 > **Role:** Derived overview for maintainers; does not introduce new rules semantics or APIs.  
-> **Upstream semantics SSoT:** [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md), `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, and the shared TS engine + orchestrator under [`src/shared/engine`](src/shared/engine).  
+> **Upstream semantics SSoT:** [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md), `COMPLETE_RULES.md`, `COMPACT_RULES.md`, and the shared TS engine + orchestrator under [`src/shared/engine`](src/shared/engine).  
 > **Upstream lifecycle/API SSoT:** [`docs/CANONICAL_ENGINE_API.md`](docs/CANONICAL_ENGINE_API.md), shared types in [`src/shared/types/game.ts`](src/shared/types/game.ts), orchestrator types in [`src/shared/engine/orchestration/types.ts`](src/shared/engine/orchestration/types.ts), and WebSocket contracts in [`src/shared/types/websocket.ts`](src/shared/types/websocket.ts) and [`src/shared/validation/websocketSchemas.ts`](src/shared/validation/websocketSchemas.ts).  
 > **Upstream implementation-status SSoT:** [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../archive/historical/CURRENT_STATE_ASSESSMENT.md).  
 > **This doc:** Clarifies what is canonical vs historical/diagnostic for rules execution across TS backend, sandbox, and Python, and records known drift items for follow-up tasks.
@@ -16,7 +16,7 @@ The hierarchy below orders sources by normative authority. Higher bullets win on
 **1. Rules semantics (normative)**
 
 - Rules-level spec: [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) (RR-CANON rules; conflicts resolved in favour of Compact Spec as documented there).
-- Narrative sources (commentary only): [`ringrift_complete_rules.md`](ringrift_complete_rules.md), [`ringrift_compact_rules.md`](ringrift_compact_rules.md).
+- Narrative sources (commentary only): [`COMPLETE_RULES.md`](COMPLETE_RULES.md), [`COMPACT_RULES.md`](COMPACT_RULES.md).
 
 **Non-canonical / diagnostic surfaces (use cautiously)**
 
@@ -32,9 +32,11 @@ The hierarchy below orders sources by normative authority. Higher bullets win on
 - Domain aggregates (single source of truth per domain):
   - Placement: [`PlacementAggregate.ts`](src/shared/engine/aggregates/PlacementAggregate.ts:1)
   - Movement: [`MovementAggregate.ts`](src/shared/engine/aggregates/MovementAggregate.ts:1)
+  - Recovery: [`RecoveryAggregate.ts`](src/shared/engine/aggregates/RecoveryAggregate.ts:1)
   - Capture: [`CaptureAggregate.ts`](src/shared/engine/aggregates/CaptureAggregate.ts:56)
   - Line: [`LineAggregate.ts`](src/shared/engine/aggregates/LineAggregate.ts:1)
   - Territory: [`TerritoryAggregate.ts`](src/shared/engine/aggregates/TerritoryAggregate.ts:1)
+  - Elimination: [`EliminationAggregate.ts`](src/shared/engine/aggregates/EliminationAggregate.ts:1)
   - Victory: [`VictoryAggregate.ts`](src/shared/engine/aggregates/VictoryAggregate.ts:1)
 - Turn orchestrator (canonical execution surface over aggregates): [`turnOrchestrator.ts`](src/shared/engine/orchestration/turnOrchestrator.ts:1) and [`phaseStateMachine.ts`](src/shared/engine/orchestration/phaseStateMachine.ts:1).
 - Cross-language contracts and vectors: [`src/shared/engine/contracts/*.ts`](src/shared/engine/contracts/schemas.ts:1) and v2 vectors under [`tests/fixtures/contract-vectors/v2`](tests/fixtures/contract-vectors/v2).
@@ -275,7 +277,7 @@ enforced across hosts and CI/rollout.
 
 **Canonical invariant definition (S‑invariant and progress)**
 
-- Formal rules: `RR-CANON-R120`–`R125` (progress and S‑invariant) in `RULES_CANONICAL_SPEC.md` and the commentary in `ringrift_compact_rules.md` §9.
+- Formal rules: `RR-CANON-R120`–`R125` (progress and S‑invariant) in `RULES_CANONICAL_SPEC.md` and the commentary in `COMPACT_RULES.md` §9.
 - Executable S‑invariant helper (TS SSOT):
   - `computeProgressSnapshot(state: GameState): ProgressSnapshot` in
     `src/shared/engine/core.ts` with:

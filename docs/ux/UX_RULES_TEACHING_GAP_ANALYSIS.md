@@ -11,7 +11,7 @@
 > - All LPS teaching content in `teachingScenarios.ts`, `teachingTopics.ts`, and `TeachingOverlay.tsx`
 > - LPS descriptions in `UX_RULES_WEIRD_STATES_SPEC.md` (RWS-006)
 > - LPS copy in `rulesUxTelemetry.ts` (ONBOARDING_COPY and TEACHING_TOPICS_COPY)
-> - See `ringrift_complete_rules.md` §13.3, `RULES_CANONICAL_SPEC.md` RR-CANON-R172, and `lpsTracking.ts` for canonical definitions.
+> - See `../rules/COMPLETE_RULES.md` §13.3, `RULES_CANONICAL_SPEC.md` RR-CANON-R172, and `lpsTracking.ts` for canonical definitions.
 
 ## Overview
 
@@ -285,7 +285,7 @@ Coverage was assessed by reviewing:
 - For exact-length lines: cost is 1 buried ring (Option 1).
 - For overlength lines: Option 1 collapses all markers (cost: 1 buried ring), Option 2 collapses minimum length (cost: 0).
 - Recovery is **NOT** a real action for LPS purposes (like forced elimination).
-- See `RULES_CANONICAL_SPEC.md` R110–R115 and `ringrift_complete_rules.md` §4.5.
+- See `RULES_CANONICAL_SPEC.md` R110–R115 and `../rules/COMPLETE_RULES.md` §4.5.
 
 **Gaps:**
 

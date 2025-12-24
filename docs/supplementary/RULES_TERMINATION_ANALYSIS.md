@@ -3,9 +3,9 @@
 **Date:** November 20, 2025
 **Analyst:** Architect Mode
 
-> **Purpose:** Supporting mathematical analysis of the RingRift rules, with a focus on the S‑invariant, termination, and tie‑breaking behaviour. This document explains _why_ the rules in [`ringrift_complete_rules.md`](ringrift_complete_rules.md) and [`ringrift_compact_rules.md`](ringrift_compact_rules.md) guarantee finite games and unique winners, but it is not itself a canonical rules specification.
+> **Purpose:** Supporting mathematical analysis of the RingRift rules, with a focus on the S‑invariant, termination, and tie‑breaking behaviour. This document explains _why_ the rules in [`docs/rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md) and [`docs/rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md) guarantee finite games and unique winners, but it is not itself a canonical rules specification.
 > **Audience:** Engine implementers, AI authors, and rules maintainers who need to reason about progress and termination.
-> **Relationship to other docs:** For authoritative rules semantics, see [`ringrift_complete_rules.md`](ringrift_complete_rules.md) and [`ringrift_compact_rules.md`](ringrift_compact_rules.md). For how specific rules/FAQ examples map into executable Jest suites, see [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md).
+> **Relationship to other docs:** For authoritative rules semantics, see [`docs/rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md) and [`docs/rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md). For how specific rules/FAQ examples map into executable Jest suites, see [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md).
 
 ## 1. Executive Summary
 
@@ -28,45 +28,46 @@ Where:
 - $C$ = Total Collapsed spaces
 - $E$ = Total Eliminated rings (all players)
 
-**Theorem:** Every valid turn that involves a board interaction strictly increases $S$.
+**Theorem:** Every valid turn that involves a board interaction increases $S$, except the narrow case of a recovery line Option 2 (which leaves $S$ unchanged but still consumes markers and increases collapsed spaces).
 
 ### 2.2 Proof by Move Type
 
-| Action Type                   | Impact on $M$ | Impact on $C$ | Impact on $E$ | Net $\Delta S$ | Notes                                                                                    |
-| :---------------------------- | :-----------: | :-----------: | :-----------: | :------------: | :--------------------------------------------------------------------------------------- |
-| **Placement**                 |       0       |       0       |       0       |       0        | _See Section 2.3 below_                                                                  |
-| **Standard Move**             |      +1       |       0       |       0       |     **+1**     | Leaves marker at start.                                                                  |
-| **Move (Land on Own Marker)** |       0       |       0       |      +1       |     **+1**     | Start: +1M. Land: -1M, +1E.                                                              |
-| **Overtaking Capture**        |      +1       |       0       |       0       |     **+1**     | Leaves marker at start. Captured ring stays in play ($E$ unchanged).                     |
-| **Capture (Land on Marker)**  |       0       |       0       |      +1       |     **+1**     | Start: +1M. Land: -1M (marker removed), +1E (attacker cap top ring).                     |
-| **Line Collapse**             |     -$k$      |     +$k$      |      +1       |     **+1**     | Markers convert to Collapsed ($\Delta M + \Delta C = 0$). Ring eliminated ($+1 E$).      |
-| **Territory Disconnection**   |     -$k$      |     +$k$      |   +$r$ + 1    |   **+$r$+1**   | Markers convert ($\Delta M + \Delta C = 0$). Rings inside ($r$) + Self ($1$) eliminated. |
-| **Forced Elimination**        |       0       |       0       |    +$cap$     |   **+$cap$**   | At least 1 ring eliminated.                                                              |
-| **Recovery Slide**            |      +1       |       0       |       0       |     **+1**     | Leaves marker at start cell. Line processing may follow.                                 |
+| Action Type                  | Impact on $M$ | Impact on $C$ | Impact on $E$ | Net $\Delta S$ | Notes                                                                                                            |
+| :--------------------------- | :-----------: | :-----------: | :-----------: | :------------: | :--------------------------------------------------------------------------------------------------------------- |
+| **Placement**                |       0       |       0       |       0       |       0        | _See Section 2.3 below_                                                                                          |
+| **Standard Move**            |      +1       |       0       |       0       |     **+1**     | Leaves marker at start.                                                                                          |
+| **Move (Land on Marker)**    |       0       |       0       |      +1       |     **+1**     | Start: +1M. Land: -1M, +1E.                                                                                      |
+| **Overtaking Capture**       |      +1       |       0       |       0       |     **+1**     | Leaves marker at start. Captured ring stays in play ($E$ unchanged).                                             |
+| **Capture (Land on Marker)** |       0       |       0       |      +1       |     **+1**     | Start: +1M. Land: -1M (marker removed), +1E (attacker cap top ring).                                             |
+| **Line Collapse**            |     -$k$      |     +$k$      |    +1 / 0     |   **+1 / 0**   | Markers convert to Collapsed ($\Delta M + \Delta C = 0$). Elimination is waived if no controlled stacks exist.   |
+| **Territory Disconnection**  |     -$k$      |     +$k$      |   +$r$ + 1    |   **+$r$+1**   | Markers convert ($\Delta M + \Delta C = 0$). Rings inside ($r$) + Self ($1$) eliminated.                         |
+| **Forced Elimination**       |       0       |       0       |    +$cap$     |   **+$cap$**   | At least 1 ring eliminated.                                                                                      |
+| **Recovery (line mode)**     |     -$k$      |     +$k$      |    +1 / 0     |   **+1 / 0**   | No departure marker. Option 1 extracts a buried ring; Option 2 has no extraction but still collapses markers.    |
+| **Recovery (fallback)**      |    0 / -1     |       0       |    +1 / +2    |     **+1**     | Repositioning keeps marker (+1E from extraction). Stack‑strike removes marker and also eliminates a target ring. |
 
 ### 2.2.1 Recovery Action ($\Delta S$ Proof)
 
 The **Recovery Action** (`RR-CANON-R110–R115`) is available when a player has:
 
 - Zero stacks on board
-- Zero rings in hand
 - At least one marker AND at least one buried ring (opponent's stack over their ring)
+- Rings in hand do **not** affect recovery eligibility (players may skip placement to recover)
 
-A recovery slide moves a marker to complete a line. This action:
+A recovery slide moves a marker to an adjacent cell. This action:
 
-- Always leaves a marker at the start cell: $\Delta M = +1$
-- **Must** trigger line collapse (the slide is only legal if it completes a line): $\Delta E \geq +1$
+- **Does not** leave a departure marker; the original cell becomes empty
+- Is legal if it completes a line, or (if no line-forming slide exists anywhere) via fallback repositioning or stack‑strike
 
-Since $\Delta S \geq +2$, recovery actions maintain the termination guarantee with significant progress.
+Recovery actions maintain the termination guarantee: Option 1 line recovery and all fallback recovery increase $E$, and Option 2 line recovery consumes markers (reducing future recovery capacity).
 
 #### 2.2.1.1 Recovery Option 1 vs Option 2 ($\Delta S$ Analysis)
 
 For **overlength lines** (lines longer than the minimum collapse length), the recovering player has a choice:
 
-| Recovery Option                 | Line Collapse       | Ring Cost               |          Net $\Delta M$          | Net $\Delta C$ |         Net $\Delta E$         | Net $\Delta S$ |
-| :------------------------------ | :------------------ | :---------------------- | :------------------------------: | :------------: | :----------------------------: | :------------: |
-| **Option 1** (collapse all)     | Full line           | 1 buried ring extracted |   +1 (start marker) - k (line)   |       +k       | +1 (collapse) + 1 (extraction) |     **+2**     |
-| **Option 2** (collapse minimum) | Minimum length only | Free (no extraction)    | +1 (start marker) - min_k (line) |     +min_k     |       +1 (collapse only)       |     **+1**     |
+| Recovery Option                 | Line Collapse       | Ring Cost               | Net $\Delta M$ | Net $\Delta C$ | Net $\Delta E$ | Net $\Delta S$ |
+| :------------------------------ | :------------------ | :---------------------- | :------------: | :------------: | :------------: | :------------: |
+| **Option 1** (collapse all)     | Full line           | 1 buried ring extracted |       -k       |       +k       |       +1       |     **+1**     |
+| **Option 2** (collapse minimum) | Minimum length only | Free (no extraction)    |     -min_k     |     +min_k     |       0        |     **0**      |
 
 Both options guarantee $\Delta S \geq +1$, preserving termination.
 
@@ -75,10 +76,10 @@ Both options guarantee $\Delta S \geq +1$, preserving termination.
 Recovery actions are **self-limiting** because:
 
 1. **Buried rings are finite:** Each Option 1 recovery extracts one buried ring, depleting the recovery pool.
-2. **Markers are consumed:** Each line collapse converts markers to collapsed spaces, reducing future recovery slide sources.
-3. **Eligibility narrows:** Once all buried rings are extracted (via Option 1 choices or opponent captures), recovery becomes unavailable.
+2. **Markers are consumed:** Each line collapse converts markers to collapsed spaces, and stack‑strike removes the marker entirely.
+3. **Eligibility narrows:** Recovery ends once the player has no buried rings or no markers (rings in hand do not preserve recovery eligibility).
 
-**Theorem:** A player can perform at most $B$ recovery actions using Option 1, where $B$ = initial count of buried rings. After $B$ Option 1 recoveries, Option 2 (free) recoveries may continue until markers are exhausted, but each still increases $S$ by at least +1.
+**Theorem:** A player can perform at most $B$ recovery actions using Option 1, where $B$ = initial count of buried rings. After $B$ Option 1 recoveries, Option 2 (free) recoveries may continue until markers are exhausted; these do not increase $S$, but they strictly reduce the available marker pool.
 
 This guarantees that recovery cannot extend games indefinitely. $\square$
 
@@ -102,7 +103,7 @@ If a player has **no global legal actions** (no legal placement, movement/captur
 
 ### 2.5 Conclusion on Termination
 
-Since $S$ is strictly increasing for all active turns and bounded by $2 \times \text{Spaces} + \text{TotalRings}$, the number of active turns is finite. Since consecutive passes end the game, the game must terminate in finite time.
+Since $S$ is non‑decreasing for all active turns (and strictly increasing for all standard moves and all recovery moves except Option 2 line recovery) and bounded by $2 \times \text{Spaces} + \text{TotalRings}$, the number of active turns is finite. Recovery Option 2 still consumes markers and cannot repeat indefinitely. Since consecutive passes end the game, the game must terminate in finite time.
 
 ---
 
@@ -151,7 +152,7 @@ The tie-breaking order reinforces the game's identity:
 | :-------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------: |
 | **Cyclic Captures**   | Allowed, but bounded by **finite capturable targets**. See Section 4.1 for deep analysis. Each capture consumes one target stack; the chain terminates when no more legal captures exist.                                                                                                                                                                                         |     ✅      |
 | **180° Reversals**    | Allowed, but bounded by the **same three factors as cyclic captures** (see Section 4.1): (1) finite capturable targets, (2) cap depletion → control change via marker landings, and (3) board geometry constraints. Each reversal leaves a departure marker at each endpoint; landing on markers eliminates rings from attacker's cap until control changes or no targets remain. |     ✅      |
-| **"Do Nothing" Turn** | Impossible. If you have stacks, you _must_ Move or Force Eliminate. If you have no stacks but have rings, you _must_ Place (and then Move). Only true "Pass" is when you have NO options, which leads to game end if universal.                                                                                                                                                   |     ✅      |
+| **"Do Nothing" Turn** | Impossible. If you have stacks, you _must_ Move or Force Eliminate. If you have no stacks but have rings, you must either Place (and then Move) or, if recovery‑eligible, skip placement and attempt Recovery. Only true "Pass" is when you have NO options, which leads to game end if universal.                                                                                |     ✅      |
 
 ### 4.1 Deep Analysis: Cyclic Capture and 180° Reversal Termination
 

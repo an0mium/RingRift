@@ -1,9 +1,10 @@
- r> **Doc Status (2025-11-28): Active (supplementary, derived)**  
+r> **Doc Status (2025-11-28): Active (supplementary, derived)**
+
 > **Role:** Deep-dive analysis of rules interactions and edge cases across hosts (backend, sandbox, Python), sitting on top of the canonical rules semantics and implementation mapping.
 >
 > **SSoT alignment:** This report is a derived analytical view over the **Rules/invariants semantics SSoT**:
 >
-> - Canonical rules docs: `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`.
+> - Canonical rules docs: `RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`.
 > - Shared TypeScript rules engine helpers, aggregates, and orchestrator under `src/shared/engine/**` plus v2 contract vectors under `tests/fixtures/contract-vectors/v2/**` and their TS/Python runners.
 > - Derived implementation and architecture docs: `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/MODULE_RESPONSIBILITIES.md`, and `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`.
 > - Historical parity/trace harnesses: selected superseded suites are archived under `archive/tests/**` (TS) and `ai-service/tests/archive/**` (Python) for diagnostic reference only; semantics are always taken from the shared engine, contracts, and the active `*.shared.test.ts` + RulesMatrix/FAQ suites.

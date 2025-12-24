@@ -3,7 +3,7 @@
 > **Doc Status (2025-12-16): Active (code-verified issue tracker)**
 >
 > - Canonical list of current, code-verified issues and gaps.
-> - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
+> - Not a rules or lifecycle SSoT; for rules semantics defer to `docs/rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
 **Last Updated:** December 16, 2025
 **Status:** Code-verified assessment based on actual implementation
@@ -20,7 +20,7 @@ Those statements are now obsolete:
   implemented and used throughout the engine.
 - Movement, overtaking captures, line formation/collapse, territory
   disconnection, forced elimination, and hex boards are all implemented and
-  generally aligned with `ringrift_complete_rules.md`.
+  generally aligned with `docs/rules/COMPLETE_RULES.md`.
 - The PlayerChoice layer (shared types + PlayerInteractionManager +
   WebSocketInteractionHandler + AIInteractionHandler + DelegatingInteractionHandler)
   is wired into GameEngine for all rule-driven decisions (line order,

@@ -133,6 +133,7 @@ Based on analysis of the codebase, the following refactoring opportunities would
 #### 1. Consolidate Elimination Logic (Priority: High)
 
 **Current State:** Elimination logic exists in 5 locations:
+
 - `EliminationAggregate.eliminateFromStack` (canonical source)
 - `TerritoryMutator.mutateEliminateStack`
 - `TerritoryAggregate.mutateEliminateStack`
@@ -146,12 +147,13 @@ Based on analysis of the codebase, the following refactoring opportunities would
 **Current State:** The `eliminationContext` is passed through multiple layers and sometimes needs to be inferred from phase.
 
 **Recommendation:** Consider creating an `EliminationRequest` interface that bundles all elimination parameters:
+
 ```typescript
 interface EliminationRequest {
   position: Position;
   player: number;
   context: EliminationContext;
-  claimedRegion?: Position[];  // For territory context
+  claimedRegion?: Position[]; // For territory context
 }
 ```
 
@@ -166,6 +168,7 @@ interface EliminationRequest {
 **Current State:** Victory threshold formula (RR-CANON-R061) is implemented in `initialState.ts` but some tests had outdated expectations.
 
 **Recommendation:**
+
 - Add a helper function `calculateVictoryThreshold(ringsPerPlayer, numPlayers)` to a shared location
 - Add unit tests specifically for the threshold formula
 - Document the formula change prominently
@@ -175,7 +178,7 @@ interface EliminationRequest {
 ## Related Documentation
 
 - [RULES_CANONICAL_SPEC.md](../../RULES_CANONICAL_SPEC.md) - Authoritative rules
-- [ringrift_complete_rules.md](../../ringrift_complete_rules.md) - Full rulebook
+- [COMPLETE_RULES.md]COMPLETE_RULES.md) - Full rulebook
 - [INVARIANTS_AND_PARITY_FRAMEWORK.md](INVARIANTS_AND_PARITY_FRAMEWORK.md) - Parity invariants
 - [RULES_IMPLEMENTATION_MAPPING.md](RULES_IMPLEMENTATION_MAPPING.md) - Rules to code mapping
 

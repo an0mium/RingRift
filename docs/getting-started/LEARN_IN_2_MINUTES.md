@@ -100,6 +100,6 @@ BEFORE                      AFTER
 
 🎮 **[Play Now at ringrift.ai](https://ringrift.ai)**
 
-📖 **[Full Rules](../ringrift_simple_human_rules.md)** for complete details
+📖 **[Full Rules]../rules/HUMAN_RULES.md)** for complete details
 
 🎯 **Sandbox Mode** to practice without opponents

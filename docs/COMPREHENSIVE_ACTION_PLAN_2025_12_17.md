@@ -17,7 +17,7 @@ This document provides detailed, step-by-step action plans for all identified im
 - **Multiple boards**: 8×8 square (64), 19×19 square (361), hexagonal (469)
 - **Tech stack**: React + Express + WebSockets + PostgreSQL/Redis + Python AI service
 - **AI**: 10-level difficulty ladder (Random → Heuristic → Minimax → MCTS → AlphaZero-style Descent)
-- **Testing**: 10,177 TypeScript tests, 1,824 Python tests, 81 contract vectors (100% parity)
+- **Testing**: 10,177 TypeScript tests, 1,824 Python tests, 85 contract vectors (100% parity)
 
 **Current Status**: Stable Beta — production validation in progress, focus on scaling tests, security hardening, UX polish. Hosted demo live at ringrift.ai, v0.1.0-beta released.
 
@@ -91,10 +91,10 @@ All choice dialogs include strategic guidance:
 
 **CONFIRMED CONTRADICTION** between rules documents on territory processing eligibility:
 
-| Document                                   | What it says about standalone rings (height-1)                                                                            |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `RULES_CANONICAL_SPEC.md` (RR-CANON-R022)  | "**All controlled stacks are eligible cap targets for territory processing**, including... **height-1 standalone rings**" |
-| `ringrift_simple_human_rules.md` (line 89) | "**Standalone rings (height 1) are NOT eligible for territory processing**"                                               |
+| Document                                  | What it says about standalone rings (height-1)                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `RULES_CANONICAL_SPEC.md` (RR-CANON-R022) | "**All controlled stacks are eligible cap targets for territory processing**, including... **height-1 standalone rings**" |
+| `rules/HUMAN_RULES.md` (line 89)          | "**Standalone rings (height 1) are NOT eligible for territory processing**"                                               |
 
 These statements are **mutually exclusive**. One must be wrong.
 
@@ -133,7 +133,7 @@ grep -n "height.*1\|standalone\|eligible" ai-service/app/rules/territory*.py | h
 
 #### Phase 2: Fix the Contradiction (1 hour)
 
-**File:** `ringrift_simple_human_rules.md`
+**File:** `rules/HUMAN_RULES.md`
 
 ```markdown
 # BEFORE (line 88-90):
@@ -153,7 +153,7 @@ grep -n "height.*1\|standalone\|eligible" ai-service/app/rules/territory*.py | h
 
 #### Phase 3: Add Version Stamps & Derivation Notice (30 min)
 
-Add to top of `ringrift_simple_human_rules.md`:
+Add to top of `rules/HUMAN_RULES.md`:
 
 ```markdown
 > **Version:** 2025-12-17 (aligned with RULES_CANONICAL_SPEC.md RR-CANON-R022)
@@ -161,7 +161,7 @@ Add to top of `ringrift_simple_human_rules.md`:
 > **If this document conflicts with the canonical spec, the canonical spec wins.**
 ```
 
-Add to `ringrift_complete_rules.md` and `ringrift_compact_rules.md`:
+Add to `rules/COMPLETE_RULES.md` and `rules/COMPACT_RULES.md`:
 
 ```markdown
 > **Last Verified:** 2025-12-17
@@ -194,7 +194,7 @@ Update `docs/rules/RULES_DOCS_CONSISTENCY_AUDIT_2025_12_12.md`:
 
 ### F) Territory processing stack eligibility ✅ NOW CONSISTENT
 
-**Issue found:** `ringrift_simple_human_rules.md` incorrectly stated standalone
+**Issue found:** `rules/HUMAN_RULES.md` incorrectly stated standalone
 rings are NOT eligible for territory processing, contradicting RR-CANON-R022.
 
 **Fix applied:** Updated simple human rules to match canonical spec.
@@ -208,7 +208,7 @@ territory processing in any rules doc.
 ### Verification Checklist
 
 - [x] Confirmed canonical interpretation (standalone rings ARE eligible) ✅ Verified 2025-12-17
-- [x] `ringrift_simple_human_rules.md` updated ✅ Fixed 2025-12-17
+- [x] `rules/HUMAN_RULES.md` updated ✅ Fixed 2025-12-17
 - [x] Version stamps added to all rules docs ✅ Already present, version bumped
 - [x] No other elimination-related contradictions found ✅ Audited line/forced elimination rules
 - [x] Consistency audit doc updated ✅ Added Section F to RULES_DOCS_CONSISTENCY_AUDIT_2025_12_12.md
@@ -1857,7 +1857,7 @@ determined by player decisions.
 - Non-trivial state space (up to 469 cells, complex stack interactions)
 - Explicit decision points (no hidden auto-execution)
 - Cross-language parity (identical rules in TS and Python)
-- 81 contract vectors for correctness verification
+- 85 contract vectors for correctness verification
 
 **For engineers:** A reference implementation of:
 

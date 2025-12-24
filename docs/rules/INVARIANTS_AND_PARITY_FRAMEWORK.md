@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This document is a **derived** framework over:
 
-- **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, and the shared TS engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
+- **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `COMPLETE_RULES.md`, `COMPACT_RULES.md`, and the shared TS engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
   > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared TS/WebSocket types & schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
   > - **Parity & invariants meta-docs:** `docs/RULES_SSOT_MAP.md` §7, `docs/PYTHON_PARITY_REQUIREMENTS.md`, and `docs/STRICT_INVARIANT_SOAKS.md`.
   > - **Operational SSoTs:** Orchestrator rollout and observability docs (`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`, `docs/operations/ALERTING_THRESHOLDS.md`) and monitoring config under `monitoring/**`.
@@ -441,7 +441,7 @@ Parity expectations ensure that, given identical inputs, different engines and h
 
 **Scope**
 
-- Line + territory pipeline semantics on all board types.
+- Line + territory pipeline semantics on all board types; hex8 parity coverage is pending.
 
 **Enforcement mapping**
 

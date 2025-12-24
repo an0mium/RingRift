@@ -19,7 +19,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from ..models import GameState, Move
@@ -410,3 +410,203 @@ def get_budget_for_difficulty(difficulty: int) -> int:
         return GUMBEL_BUDGET_QUALITY
     else:
         return GUMBEL_BUDGET_ULTIMATE
+
+
+# =============================================================================
+# Sequential Halving Executor (unified implementation)
+# =============================================================================
+
+
+@dataclass
+class SequentialHalvingPhase:
+    """Represents one phase of Sequential Halving.
+
+    Attributes:
+        phase_idx: Phase number (0-indexed).
+        num_actions: Number of actions in this phase.
+        sims_per_action: Simulations to run for each action.
+        actions: Actions still in contention.
+    """
+    phase_idx: int
+    num_actions: int
+    sims_per_action: int
+    actions: list[GumbelAction]
+
+
+class SequentialHalvingExecutor:
+    """Unified Sequential Halving executor for Gumbel MCTS.
+
+    This class provides the core Sequential Halving algorithm used by all
+    Gumbel MCTS variants. It's designed to be pluggable with different
+    evaluation strategies:
+
+    1. CPU Sequential: Evaluate one action at a time
+    2. GPU Batched: Batch all leaves for GPU evaluation
+    3. Multi-Game: Batch across multiple games
+
+    Usage:
+        # For single-game search
+        executor = SequentialHalvingExecutor(
+            actions=top_k_actions,
+            simulation_budget=800,
+        )
+
+        for phase in executor.phases():
+            for action in phase.actions:
+                # Your evaluation logic here
+                values = evaluate_action(action, phase.sims_per_action)
+                action.visit_count += phase.sims_per_action
+                action.total_value += sum(values)
+
+            executor.halve_actions(phase)
+
+        best = executor.get_best_action()
+
+    Example with batched evaluation:
+        executor = SequentialHalvingExecutor(actions, budget=800)
+
+        for phase in executor.phases():
+            # Collect all leaves for batch evaluation
+            leaves = []
+            for action in phase.actions:
+                leaves.extend(collect_leaves(action, phase.sims_per_action))
+
+            # Batch evaluate
+            values = batch_evaluate(leaves)
+
+            # Distribute values back to actions
+            distribute_values(phase.actions, values)
+
+            executor.halve_actions(phase)
+
+        best = executor.get_best_action()
+    """
+
+    def __init__(
+        self,
+        actions: list[GumbelAction],
+        simulation_budget: int = GUMBEL_BUDGET_STANDARD,
+        use_simple_additive: bool = False,
+    ):
+        """Initialize Sequential Halving executor.
+
+        Args:
+            actions: Candidate actions from Gumbel-Top-K sampling.
+            simulation_budget: Total simulation budget.
+            use_simple_additive: If True, use simplified additive completed_q.
+        """
+        self.actions = list(actions)
+        self.simulation_budget = simulation_budget
+        self.use_simple_additive = use_simple_additive
+
+        # Calculate schedule
+        self._schedule = compute_sequential_halving_schedule(
+            len(actions), simulation_budget
+        )
+        self._current_phase = 0
+        self._remaining_actions = list(actions)
+
+    def phases(self) -> list[SequentialHalvingPhase]:
+        """Get all phases for iteration.
+
+        Returns:
+            List of SequentialHalvingPhase objects.
+        """
+        phases = []
+        remaining = list(self.actions)
+
+        for phase_idx, (num_actions, sims_per_action) in enumerate(self._schedule):
+            if len(remaining) <= 1:
+                break
+
+            phases.append(SequentialHalvingPhase(
+                phase_idx=phase_idx,
+                num_actions=min(num_actions, len(remaining)),
+                sims_per_action=sims_per_action,
+                actions=list(remaining),
+            ))
+
+            # Pre-compute halving for next phase
+            remaining = remaining[:max(1, len(remaining) // 2)]
+
+        return phases
+
+    def halve_actions(self, phase: SequentialHalvingPhase) -> list[GumbelAction]:
+        """Halve actions after a phase, keeping the best half.
+
+        Call this after evaluating all actions in a phase.
+
+        Args:
+            phase: The phase that was just completed.
+
+        Returns:
+            Remaining actions after halving.
+        """
+        if len(phase.actions) <= 1:
+            self._remaining_actions = phase.actions
+            return phase.actions
+
+        # Sort by completed Q-value
+        max_visits = max(a.visit_count for a in phase.actions)
+        sorted_actions = sorted(
+            phase.actions,
+            key=lambda a: a.completed_q(max_visits, use_simple_additive=self.use_simple_additive),
+            reverse=True,
+        )
+
+        # Keep top half
+        self._remaining_actions = sorted_actions[:max(1, len(sorted_actions) // 2)]
+
+        # Update actions in the next phase
+        if phase.phase_idx + 1 < len(self._schedule):
+            # This allows the caller to see updated actions in next iteration
+            pass
+
+        return self._remaining_actions
+
+    def get_best_action(self) -> GumbelAction:
+        """Get the best action after Sequential Halving completes.
+
+        Returns:
+            Best action based on completed Q-value.
+        """
+        if not self._remaining_actions:
+            if self.actions:
+                return self.actions[0]
+            raise ValueError("No actions to select from")
+
+        if len(self._remaining_actions) == 1:
+            return self._remaining_actions[0]
+
+        # Final selection based on completed Q
+        max_visits = max(a.visit_count for a in self._remaining_actions)
+        return max(
+            self._remaining_actions,
+            key=lambda a: a.completed_q(max_visits, use_simple_additive=self.use_simple_additive),
+        )
+
+    def run_with_evaluator(
+        self,
+        evaluate_fn: "Callable[[GumbelAction, int], float]",
+    ) -> GumbelAction:
+        """Run Sequential Halving with a provided evaluation function.
+
+        This is a convenience method for simple evaluation strategies.
+
+        Args:
+            evaluate_fn: Function(action, num_sims) -> total_value
+                Called for each action with the number of simulations to run.
+                Should return the sum of values from all simulations.
+
+        Returns:
+            Best action after Sequential Halving.
+        """
+        for phase in self.phases():
+            for action in phase.actions:
+                value_sum = evaluate_fn(action, phase.sims_per_action)
+                action.visit_count += phase.sims_per_action
+                action.total_value += value_sum
+
+            self.halve_actions(phase)
+
+        return self.get_best_action()

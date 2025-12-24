@@ -55,7 +55,7 @@ From `ai-service/`:
 ```bash
 python scripts/run_self_play_soak.py \
   --num-games 100 \
-  --board-type square8|square19|hexagonal \
+  --board-type square8|square19|hex8|hexagonal \
   --engine-mode descent-only|mixed \
   --difficulty-band canonical|light \
   --num-players 2..4 \

@@ -7,7 +7,7 @@
 >
 > - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `LongRunningGames` on `ringrift_game_duration_seconds_bucket`), and scrape configuration in `monitoring/prometheus/prometheus.yml`.
 > - **Game session lifecycle:** `GameSession` and `GameSessionManager` (`src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`), WebSocket server (`src/server/websocket/server.ts`), and game session state machines under `src/shared/stateMachines/gameSession.ts` and `src/shared/stateMachines/connection.ts`.
-> - **Rules semantics:** Shared engine helpers, aggregates, and orchestrator in `src/shared/engine/**`, plus supporting rules docs (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`).
+> - **Rules semantics:** Shared engine helpers, aggregates, and orchestrator in `src/shared/engine/**`, plus supporting rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`).
 > - **Persistence & retention:** `GamePersistenceService` and data lifecycle logic (`src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`, `docs/DATA_LIFECYCLE_AND_PRIVACY.md`).
 > - **Parity & invariants:** Historical incident and parity docs that relate to stalled/degenerate game states, such as `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, `docs/PARITY_SEED_TRIAGE.md`, and `docs/STRICT_INVARIANT_SOAKS.md`.
 >
@@ -276,7 +276,7 @@ Before considering the `LongRunningGames` incident resolved:
 ### 5.3 Tests and documentation
 
 - [ ] Any lifecycle or rules changes are covered by unit/integration tests (e.g. `GameSession.*.test.ts`, relevant rules/territory/victory tests, soak tests, or invariants under `docs/STRICT_INVARIANT_SOAKS.md`).
-- [ ] If stalemate/draw semantics were updated, the rules markdowns (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been refreshed accordingly.
+- [ ] If stalemate/draw semantics were updated, the rules markdowns (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been refreshed accordingly.
 
 ---
 

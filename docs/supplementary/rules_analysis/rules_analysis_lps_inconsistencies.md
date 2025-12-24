@@ -15,9 +15,9 @@ According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R172):
 
 ### 1. Documentation Status
 
-- **Canonical rulebook:** `ringrift_complete_rules.md` §13.3 now explicitly describes the three-round requirement from `RULES_CANONICAL_SPEC.md`.
-- **Implementation spec:** `ringrift_compact_rules.md` §7.3 is explicit about three consecutive full rounds with required real actions each round.
-- **Human-readable rules:** `ringrift_simple_human_rules.md` §5.3 now mirrors the three-round flow.
+- **Canonical rulebook:** `../../rules/COMPLETE_RULES.md` §13.3 now explicitly describes the three-round requirement from `RULES_CANONICAL_SPEC.md`.
+- **Implementation spec:** `../../rules/COMPACT_RULES.md` §7.3 is explicit about three consecutive full rounds with required real actions each round.
+- **Human-readable rules:** `../../rules/HUMAN_RULES.md` §5.3 now mirrors the three-round flow.
 - **UX specs:** `docs/UX_RULES_COPY_SPEC.md` and `docs/UX_RULES_WEIRD_STATES_SPEC.md` now both call out the three-round requirement in tooltips/teaching copy.
 
 ### 2. UX Copy Status (Updated 2025-12-08)
@@ -45,6 +45,6 @@ According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R172):
 
 ✅ **COMPLETE** – All engines, canonical docs, and UX copy now agree on **3 consecutive full rounds**.
 
-- ✅ **Docs aligned:** `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, `ringrift_simple_human_rules.md`, `docs/UX_RULES_COPY_SPEC.md`, and `docs/UX_RULES_WEIRD_STATES_SPEC.md` now all state the three-round requirement.
+- ✅ **Docs aligned:** `../../rules/COMPLETE_RULES.md`, `../../rules/COMPACT_RULES.md`, `../../rules/HUMAN_RULES.md`, `docs/UX_RULES_COPY_SPEC.md`, and `docs/UX_RULES_WEIRD_STATES_SPEC.md` now all state the three-round requirement.
 - ✅ **UX copy updated (2025-12-08):** All LPS teaching tips, tooltips, and victory banners in `TeachingOverlay.tsx`, `gameViewModels.ts`, `teachingTopics.ts`, and `teachingScenarios.ts` now correctly say "THREE consecutive complete rounds".
 - ✅ **Code constants updated (2025-12-10):** Both TS and Python engines now use a 3-round LPS threshold (`LPS_DEFAULT_REQUIRED_ROUNDS = 3`, `lps_rounds_required = 3`).

@@ -15,8 +15,8 @@ This document defines **canonical UX copy** for rules-related client surfaces. I
 Semantics must always match:
 
 - [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1)
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)
-- [`ringrift_compact_rules.md`](ringrift_compact_rules.md:1)
+- [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1)
+- [`../rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md:1)
 - [`docs/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
 - [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1)
 
@@ -363,7 +363,7 @@ These surfaces are **explanatory only** and must not redefine rules semantics; t
 - [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
 - [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1)
 - [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:1)
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)
+- [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1)
 
 ### 10.1 ANM banners (movement / line / territory)
 

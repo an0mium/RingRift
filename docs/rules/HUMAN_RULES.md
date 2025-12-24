@@ -5,7 +5,7 @@
 > This document is a human-oriented summary of the current RingRift rules.
 > When there is any doubt, the **single sources of truth** are:
 >
-> - `ringrift_complete_rules.md` – the full rulebook.
+> - `COMPLETE_RULES.md` – the full rulebook.
 > - `RULES_CANONICAL_SPEC.md` – the formal, parameterised spec (RR‑CANON).
 >
 > This file keeps language informal and explanatory while following those
@@ -17,6 +17,7 @@ Quick canonical reminders:
 
 - On **8×8**, required line length is **4 for 2-player** and **3 for 3–4 player** games.
 - Movement and capture landings may be on empty spaces or markers of **any** colour; if you land on a marker, remove it and eliminate the top ring of the landing stack.
+- In **2-player** games only, after Player 1's first full turn, Player 2 may choose a one-time **swap sides** (pie rule) instead of taking a normal turn.
 - In digital/engine play, forced steps are still explicit recorded moves (no silent “automatic” transitions).
 
 ---
@@ -49,12 +50,18 @@ structured **stalemate** and tiebreakers determine the winner.
 
 ### 2.1 Board types
 
-There are three standard boards:
+There are four standard boards:
 
 - **8×8 square** (simplified version)
   - 64 spaces.
   - Each player has **18 rings**.
   - Territory victory: minimum **33** (2p), **22** (3p), **17** (4p) AND more than opponents combined.
+  - Lines: **4+** markers (2-player) or **3+** markers (3–4 player).
+
+- **Hex8** (small hex, radius 4; 9 cells per side)
+  - 61 spaces.
+  - Each player has **18 rings**.
+  - Territory victory: minimum **31** (2p), **21** (3p), **16** (4p) AND more than opponents combined.
   - Lines: **4+** markers (2-player) or **3+** markers (3–4 player).
 
 - **19×19 square** (full version)

@@ -4,7 +4,7 @@
 
 **Purpose:** This document is a compact, implementation‑oriented specification of the RingRift rules. It is designed for engine/AI authors, not for teaching humans. It encodes the _minimum complete_ rule set needed to implement a correct engine for all supported versions.
 
-- Full, narrative rules: `ringrift_complete_rules.md`
+- Full, narrative rules: `docs/rules/COMPLETE_RULES.md`
 - This file: focuses on **state**, **version parameters**, and **transition rules**.
 - Omitted here (see Complete Rules for these): flavour prose, extended strategy notes, FAQ-style walkthroughs, and long-form examples. When semantics and prose diverge, this file + `RULES_CANONICAL_SPEC.md` win.
 
@@ -23,14 +23,16 @@ For each board type, define a static configuration:
 | square8   | 8    | 64          | 18             | 4 (2p), 3 (3–4p) | Moore (8-dir)     | Moore         | Von Neumann (4-dir) | orthogonal grid |
 | square19  | 19   | 361         | 72             | 4                | Moore             | Moore         | Von Neumann         | orthogonal grid |
 | hex8      | 9    | 61          | 18             | 4 (2p), 3 (3–4p) | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
-| hexagonal | 13   | 469         | 96             | 4                | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
+| hexagonal | 25   | 469         | 96             | 4                | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
 
 - **Ring supply semantics:** For each player P, `ringsPerPlayer` is the maximum number of rings of P's own colour that may ever be in play: all of P's rings currently on the board in any stack (regardless of which player controls those stacks) plus all of P's rings in hand must never exceed this value. Rings of other colours that P has captured and that are buried in stacks P controls do **not** count against P's `ringsPerPlayer` cap; they remain, by colour, part of the original owner's supply for conservation and victory accounting.
   - Quick supply check: `ringsInHand[P] + ringsOfColorOnBoard[P] + eliminatedRings[P] = ringsPerPlayer` and therefore `ringsInHand[P] + ringsOfColorOnBoard[P] ≤ ringsPerPlayer` once eliminations occur.
 
 - **Coordinates**:
   - Square boards: integer `(x, y)` in `[0, size-1] × [0, size-1]`.
-  - Hex board: cube coordinates `(x, y, z)` with `x + y + z = 0` and `max(|x|,|y|,|z|) ≤ radius`, where `radius = size - 1`.
+  - Hex board: cube coordinates `(x, y, z)` with `x + y + z = 0` and `max(|x|,|y|,|z|) ≤ radius`, where `radius = (size - 1) / 2` (so `size = 2 * radius + 1`).
+
+- **2-player pie rule (swap sides):** In 2-player games only, after Player 1 completes their first full turn from the canonical empty starting position, Player 2 may choose a one-time `swap_sides` move instead of taking a normal turn. Seats and colors swap, board geometry is unchanged, and it remains Player 2's turn. This option is available once per game and only at that moment.
 
 ### 1.2 Adjacency relations
 

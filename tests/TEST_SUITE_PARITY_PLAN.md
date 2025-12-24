@@ -4,7 +4,7 @@
 >
 > **Role:** Map the existing TS + Python test suites to the shared rules/lifecycle SSoTs and classify them (rules-level vs trace-level vs integration-level, by host/domain) so that future work can extend or retire tests systematically, and can distinguish authoritative rules suites from derived trace/parity harnesses. This is a **test/meta reference only** – it explains how suites are organised and which ones act as semantic anchors vs smoke tests, but it does **not** define game rules or lifecycle semantics.
 >
-> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the shared TypeScript rules engine and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) together with the written rules and lifecycle docs (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/CANONICAL_ENGINE_API.md`). When this file talks about “authority” or “canonical behaviour” it is always pointing back to those SSoTs and to specific rules-level test suites built on top of them.
+> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the shared TypeScript rules engine and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) together with the written rules and lifecycle docs (`RULES_CANONICAL_SPEC.md`, `../docs/rules/COMPLETE_RULES.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/CANONICAL_ENGINE_API.md`). When this file talks about “authority” or “canonical behaviour” it is always pointing back to those SSoTs and to specific rules-level test suites built on top of them.
 >
 > **Related docs:** `tests/README.md`, `tests/TEST_LAYERS.md`, `docs/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
 >
@@ -25,7 +25,7 @@ All semantic decisions should ultimately be anchored to:
 
 1. **Shared TS rules engine** – `src/shared/engine/`
    - `core.ts`, movement/capture/line/territory/victory helpers, `aggregates/*.ts`, `orchestration/turnOrchestrator.ts`, `orchestration/phaseStateMachine.ts`, and contracts under `src/shared/engine/contracts/*`.
-2. **Written rules** – `ringrift_complete_rules.md` (plus `RULES_SCENARIO_MATRIX.md`).
+2. **Written rules** – `../docs/rules/COMPLETE_RULES.md` (plus `RULES_SCENARIO_MATRIX.md`).
 3. **Contract vectors + parity harnesses** – `tests/fixtures/contract-vectors/v2/*.json`, `tests/contracts/contractVectorRunner.test.ts`, and Python counterparts under `ai-service/tests/contracts/` and `ai-service/tests/parity/`.
 
 Legacy TS engines (`src/server/game/*`, `src/client/sandbox/*`) and the Python rules engine (`ai-service/app/rules/*`, `ai-service/app/game_engine.py`) are **hosts/adapters** that must conform to this shared semantics.

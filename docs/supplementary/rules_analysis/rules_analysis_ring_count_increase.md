@@ -1,6 +1,6 @@
 # Rules Analysis: Increasing Ring Counts for 19x19 and Hexagonal Boards
 
-**Status:** Historical analysis. Canonical ring counts are now **18 / 72 / 96** (square8 / square19 / hex); this document discusses earlier, lower ring-count baselines and is kept for context.
+**Status:** Historical analysis. Canonical ring counts are now **18 / 72 / 96** (square8/hex8 / square19 / hex); this document discusses earlier, lower ring-count baselines and is kept for context.
 
 **Canonical reference (today):**
 
@@ -342,9 +342,9 @@ The territory system appears undertuned in current data, but this may be an arti
 - Territory accumulation is **non-linear** with game length
 - As moves increase, markers and collapsed spaces partition the board
 - Enclosed regions become territory, and this effect compounds
-- Longer games (via the LPS 2-round requirement) may naturally enable territory victories
+- Longer games (via the LPS 3-round requirement) may naturally enable territory victories
 
-**Wait-and-see approach:** Measure territory percentages with the current LPS 2-round requirement. Only consider threshold adjustments if territory remains suppressed:
+**Wait-and-see approach:** Measure territory percentages with the current LPS 3-round requirement. Only consider threshold adjustments if territory remains suppressed:
 
 - Reducing territory threshold to `floor(totalSpaces / 3) + 1`
 - Awarding territory bonuses for controlling connected regions
@@ -354,7 +354,7 @@ The territory system appears undertuned in current data, but this may be an arti
 
 | Intervention                  | Difficulty | Impact  | Recommendation                          |
 | ----------------------------- | ---------- | ------- | --------------------------------------- |
-| LPS 2-round requirement       | Low        | High    | **Already implemented (RR-CANON-R172)** |
+| LPS 3-round requirement       | Low        | High    | **Already implemented (RR-CANON-R172)** |
 | Ring count increase           | Medium     | Medium  | Secondary, if LPS change insufficient   |
 | Territory threshold reduction | Low        | Unknown | Wait—may self-correct with longer games |
 
@@ -364,7 +364,7 @@ The territory system appears undertuned in current data, but this may be an arti
 
 The empirical study confirms severe LPS dominance (99.2%). However, the data suggests **the proposed ring count increase targets the wrong variable**.
 
-The real issue is the LPS 2-round trigger window, which ends games before material-based victories can occur. Critically:
+The real issue is the LPS 3-round trigger window, which ends games before material-based victories can occur. Critically:
 
 - **Elimination grows linearly** with game length (more turns = more captures)
 - **Territory grows non-linearly** with game length (more turns = more board partitioning = exponentially more enclosed regions)
@@ -377,7 +377,7 @@ Both alternative victory paths are suppressed by early LPS termination. The prop
 
 **Recommended path forward:**
 
-1. LPS now requires 2 consecutive rounds (RR-CANON-R172)
+1. LPS now requires 3 consecutive rounds (RR-CANON-R172)
 2. Monitor victory type distribution—territory may self-correct as games lengthen
 3. Consider smaller ring count adjustments only if needed after measuring impact
 4. Defer territory threshold changes pending measurement

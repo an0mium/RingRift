@@ -29,7 +29,7 @@ This pass focuses on four high-impact canonical clarifications and their propaga
 ## Changes Applied (High Level)
 
 - **Canonical spec:** `RULES_CANONICAL_SPEC.md`
-- **Player-facing rules:** `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, `ringrift_simple_human_rules.md`
+- **Player-facing rules:** `COMPLETE_RULES.md`, `COMPACT_RULES.md`, `HUMAN_RULES.md`
 - **TS engine alignment (comments + phase validation):**
   - `src/shared/engine/lpsTracking.ts`
   - `src/shared/engine/playerStateHelpers.ts`

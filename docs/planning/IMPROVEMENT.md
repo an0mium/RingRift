@@ -4,7 +4,7 @@
 **Last Updated:** December 13, 2025 (Documentation Hygiene Pass)
 **Based on:** Full project review including TODO.md, KNOWN_ISSUES.md, STRATEGIC_ROADMAP.md, docs/archive/historical/CURRENT_STATE_ASSESSMENT.md, PROJECT_GOALS.md
 
-> **Dec 13, 2025 Engine Review Summary:** Comprehensive architecture review confirms both TypeScript (A-) and Python (A) engines demonstrate excellent separation of concerns, strong canonical rules adherence, and mature parity testing. 81 contract vectors with 0 mismatches. Orchestrator at 100% rollout. See [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](CURRENT_STATE_ASSESSMENT.md#-engine-architecture--refactoring-status-dec-2025-review) for detailed findings.
+> **Dec 13, 2025 Engine Review Summary:** Comprehensive architecture review confirms both TypeScript (A-) and Python (A) engines demonstrate excellent separation of concerns, strong canonical rules adherence, and mature parity testing. 85 contract vectors with 0 mismatches. Orchestrator at 100% rollout. See [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](CURRENT_STATE_ASSESSMENT.md#-engine-architecture--refactoring-status-dec-2025-review) for detailed findings.
 
 ---
 
@@ -14,7 +14,7 @@ RingRift is a sophisticated turn-based multiplayer strategy game currently in **
 
 - **Orchestrator at 100% rollout** across all environments
 - **2,987 TypeScript tests** and **1,824 Python tests** passing
-- **81 contract vectors** ensuring cross-language parity (0 mismatches)
+- **85 contract vectors** ensuring cross-language parity (0 mismatches)
 - **3 Grafana dashboards** and **k6 load testing framework** implemented
 - Comprehensive documentation ecosystem
 
@@ -43,8 +43,8 @@ The project is approaching production readiness but has key gaps that need addre
 
 | Area          | Status            | Evidence                                                     |
 | ------------- | ----------------- | ------------------------------------------------------------ |
-| Rules Engine  | Excellent (4.7/5) | Shared TS orchestrator, 6 domain aggregates, 100% rollout    |
-| Test Coverage | Good (4.0/5)      | 2,987 TS + 1,824 Python tests, 81 contract vectors           |
+| Rules Engine  | Excellent (4.7/5) | Shared TS orchestrator, 8 domain aggregates, 100% rollout    |
+| Test Coverage | Good (4.0/5)      | 2,987 TS + 1,824 Python tests, 85 contract vectors           |
 | Observability | Good (4.5/5)      | Grafana dashboards, k6 framework, Prometheus metrics         |
 | Architecture  | Excellent         | Clean separation: shared engine → host adapters → transports |
 | Documentation | Good (4.0/5)      | Comprehensive docs, DOCUMENTATION_INDEX.md                   |
@@ -585,7 +585,7 @@ All major board configurations have been optimized via CMA-ES:
 - [x] TypeScript `GameRecord` types in `src/shared/types/gameRecord.ts`
   - Mirrors Python types with TypeScript equivalents
   - RRN functions: `positionToRRN`, `rrnToPosition`, `moveRecordToRRN`, `parseRRNMove`, `gameRecordToRRN`, `rrnToMoves`
-  - `CoordinateUtils` object with utilities for all board types (square8, square19, hexagonal)
+  - `CoordinateUtils` object with utilities for all board types (square8, square19, hex8, hexagonal)
   - Handles `exactOptionalPropertyTypes` via conditional spreading
 - [x] JSONL export format for training data pipelines
   - `gameRecordToJsonlLine()` and `jsonlLineToGameRecord()` functions
@@ -831,7 +831,7 @@ AI heuristics have been optimized for multi-player:
   - `BoardControlsOverlay.tsx` shows Board Navigation, Game Actions, Dialog Navigation, and General shortcuts
   - Game Actions: ? (help), R (resign), M (mute), F (fullscreen), Ctrl+Z/Ctrl+Shift+Z (undo/redo sandbox)
 - [x] Create `useKeyboardNavigation` hook for board interactions
-  - Grid-based focus management for square8, square19, and hexagonal boards
+  - Grid-based focus management for square8, square19, hex8, and hexagonal boards
   - `moveFocus()`, `handleKeyDown()`, `registerCellRef()`, `isFocused()` methods
   - Spectator mode detection (blocks selection when `isSpectator`)
 - [x] Create `useGlobalGameShortcuts` hook for global shortcuts

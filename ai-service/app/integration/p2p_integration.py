@@ -382,16 +382,25 @@ class P2PAPIClient:
 #   - ModelSyncCoordinator (model_lifecycle.py): Model registry sync
 #   - P2P Coordinators (this file): P2P cluster REST API wrappers
 #
-# These P2P coordinators wrap the P2P orchestrator REST API for cluster operations.
-# Use these for P2P cluster communication, not for local training coordination.
+# =============================================================================
+# P2P Bridge Classes
+# =============================================================================
+# These bridge classes wrap the P2P orchestrator REST API for cluster operations.
+# They coordinate across the P2P cluster via REST, NOT local training.
+#
+# Naming convention: P2P*Bridge to distinguish from core coordinators/orchestrators.
+# For local training coordination, use:
+#   - UnifiedTrainingOrchestrator (unified_orchestrator.py)
+#   - TrainingCoordinator (coordination/training_coordinator.py)
+# =============================================================================
 
 
-class SelfplayCoordinator:
-    """Coordinates selfplay across the P2P cluster via REST API.
+class P2PSelfplayBridge:
+    """Bridges selfplay coordination across the P2P cluster via REST API.
 
     .. note::
         This is a P2P REST API wrapper. For local training coordination, use
-        UnifiedTrainingOrchestrator or TrainingOrchestrator instead.
+        UnifiedTrainingOrchestrator or TrainingCoordinator instead.
 
     Handles:
     - Auto-scaling selfplay workers based on target rate
@@ -563,9 +572,12 @@ class SelfplayCoordinator:
         return {n.node_id: n.selfplay_jobs for n in nodes if n.is_alive}
 
 
-class TrainingCoordinator:
-    """
-    Coordinates training across the cluster.
+class P2PTrainingBridge:
+    """Bridges training coordination across the P2P cluster via REST API.
+
+    .. note::
+        This is a P2P REST API wrapper. For local training, use
+        UnifiedTrainingOrchestrator or TrainingCoordinator instead.
 
     Handles:
     - Selecting best node for training
@@ -636,9 +648,11 @@ class TrainingCoordinator:
         return {"sync_operations": sync_results}
 
 
-class EvaluationCoordinator:
-    """
-    Coordinates model evaluation across the cluster.
+class P2PEvaluationBridge:
+    """Bridges model evaluation across the P2P cluster via REST API.
+
+    .. note::
+        This is a P2P REST API wrapper for distributed evaluation.
 
     Handles:
     - Distributed tournament execution
@@ -679,6 +693,26 @@ class EvaluationCoordinator:
         return result.get("leaderboard", [])
 
 
+# =============================================================================
+# Backward Compatibility Aliases (December 2025 consolidation)
+# =============================================================================
+# These aliases maintain backward compatibility with existing code.
+# New code should use the P2P*Bridge names directly.
+
+SelfplayCoordinator = P2PSelfplayBridge
+"""Deprecated: Use P2PSelfplayBridge instead."""
+
+TrainingCoordinator = P2PTrainingBridge
+"""Deprecated: Use P2PTrainingBridge instead.
+
+Note: This is the P2P cluster coordinator. For local training, use
+TrainingCoordinator from app.coordination.training_coordinator instead.
+"""
+
+EvaluationCoordinator = P2PEvaluationBridge
+"""Deprecated: Use P2PEvaluationBridge instead."""
+
+
 # ============================================
 # Main Integration Manager
 # ============================================
@@ -700,9 +734,9 @@ class P2PIntegrationManager:
 
         # Initialize components
         self.client = P2PAPIClient(self.config)
-        self.selfplay = SelfplayCoordinator(self.client, self.config)
-        self.training = TrainingCoordinator(self.client, self.config)
-        self.evaluation = EvaluationCoordinator(self.client, self.config)
+        self.selfplay = P2PSelfplayBridge(self.client, self.config)
+        self.training = P2PTrainingBridge(self.client, self.config)
+        self.evaluation = P2PEvaluationBridge(self.client, self.config)
 
         # State
         self._running = False
@@ -1287,10 +1321,10 @@ def integrate_pipeline_with_p2p(
 
 def integrate_feedback_with_selfplay(
     feedback_router,
-    selfplay_coordinator: SelfplayCoordinator
+    selfplay_coordinator: P2PSelfplayBridge
 ) -> None:
     """
-    Integrate feedback signal router with selfplay coordinator.
+    Integrate feedback signal router with selfplay bridge.
 
     Connects data quality signals to selfplay rate adjustments:
     - QUARANTINE_DATA → reduce selfplay rate (data quality issue)
@@ -1300,7 +1334,7 @@ def integrate_feedback_with_selfplay(
 
     Args:
         feedback_router: FeedbackSignalRouter instance
-        selfplay_coordinator: SelfplayCoordinator instance
+        selfplay_coordinator: P2PSelfplayBridge instance
     """
     # Import FeedbackAction here to avoid circular imports
     try:
@@ -1410,9 +1444,9 @@ def integrate_feedback_with_selfplay(
 def get_integrated_selfplay_coordinator(
     p2p_manager: P2PIntegrationManager,
     feedback_router=None
-) -> SelfplayCoordinator:
+) -> P2PSelfplayBridge:
     """
-    Get a SelfplayCoordinator that's integrated with feedback signals.
+    Get a P2PSelfplayBridge that's integrated with feedback signals.
 
     This is a convenience function for setting up the full integration.
 
@@ -1421,7 +1455,7 @@ def get_integrated_selfplay_coordinator(
         feedback_router: Optional FeedbackSignalRouter for quality signals
 
     Returns:
-        SelfplayCoordinator with feedback integration
+        P2PSelfplayBridge with feedback integration
     """
     coordinator = p2p_manager.selfplay
 
@@ -1436,7 +1470,7 @@ def get_integrated_selfplay_coordinator(
 # ============================================
 
 def integrate_selfplay_with_training(
-    selfplay_coordinator: SelfplayCoordinator,
+    selfplay_coordinator: P2PSelfplayBridge,
     training_triggers=None,
     training_scheduler=None,
     auto_trigger: bool = True,
@@ -1445,13 +1479,13 @@ def integrate_selfplay_with_training(
     Integrate selfplay game completion with training triggers.
 
     This creates an event-driven pipeline where:
-    1. Selfplay coordinator reports game completions
+    1. P2PSelfplayBridge reports game completions
     2. TrainingTriggers updates game counts per config
     3. When threshold is reached, TRAINING_THRESHOLD_REACHED event is emitted
     4. If auto_trigger=True, training is automatically scheduled
 
     Args:
-        selfplay_coordinator: SelfplayCoordinator instance
+        selfplay_coordinator: P2PSelfplayBridge instance
         training_triggers: Optional TrainingTriggers instance (auto-creates if None)
         training_scheduler: Optional training scheduler for auto-trigger
         auto_trigger: Whether to automatically trigger training when threshold met

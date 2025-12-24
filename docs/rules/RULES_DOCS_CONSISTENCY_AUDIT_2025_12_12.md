@@ -14,9 +14,9 @@
 Primary rules docs:
 
 - `RULES_CANONICAL_SPEC.md` (normative canonical SSoT)
-- `ringrift_complete_rules.md` (player-facing rulebook)
-- `ringrift_compact_rules.md` (implementation-oriented spec)
-- `ringrift_simple_human_rules.md` (teaching / simplified)
+- `COMPLETE_RULES.md` (player-facing rulebook)
+- `COMPACT_RULES.md` (implementation-oriented spec)
+- `HUMAN_RULES.md` (teaching / simplified)
 
 Associated docs sampled (high-risk drift areas):
 
@@ -74,7 +74,7 @@ Spot-check confirms the executable configs match the docs:
 
 **Affected locations fixed:**
 
-- `ringrift_simple_human_rules.md` (line 89) - now correctly states all controlled stacks eligible
+- `HUMAN_RULES.md` (line 89) - now correctly states all controlled stacks eligible
 - `TerritoryAggregate.ts` header comments - updated to match canonical spec
 - `EliminationAggregate.ts` - actual implementation already correct (allowing height-1)
 - `territoryProcessing.ts` comments - already correct

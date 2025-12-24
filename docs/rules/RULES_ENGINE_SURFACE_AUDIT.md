@@ -2,7 +2,7 @@
 
 > **SSoT alignment:** This document is an audit/diagnostic view over the rules engine surfaces. It defers to:
 
-- **Rules semantics SSoT:** `RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md` as the single source of truth for RingRift rules and invariants, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → turn orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`) as their primary executable implementation. This combined spec + implementation is the **Rules/invariants semantics SSoT** for RingRift.
+- **Rules semantics SSoT:** `RULES_CANONICAL_SPEC.md` together with `COMPLETE_RULES.md` / `COMPACT_RULES.md` as the single source of truth for RingRift rules and invariants, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → turn orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`) as their primary executable implementation. This combined spec + implementation is the **Rules/invariants semantics SSoT** for RingRift.
   > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) for the executable Move + orchestrator + WebSocket lifecycle.
   > - **Precedence:** Backend (`GameEngine`, `RuleEngine`, `BoardManager`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over those SSoTs. If this audit ever conflicts with the shared TS engine, orchestrator/contracts, WebSocket schemas, or tests, **code + tests win** and this document must be updated to match.
   >
@@ -62,7 +62,7 @@ Before introducing or changing rules behaviour:
 1. **Locate the correct SSoT:**
    - If it is a rules semantic (what moves are legal, how phases advance, how victory is decided), change **only**:
      - Shared validators/aggregates/orchestrator, and
-     - The canonical rules docs (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `CANONICAL_ENGINE_API.md`).
+     - The canonical rules docs (`RULES_CANONICAL_SPEC.md`, `COMPLETE_RULES.md`, `CANONICAL_ENGINE_API.md`).
 2. **Verify hosts are adapters only:**
    - For any change in the shared engine, audit:
      - `src/server/game/GameEngine.ts` / `RuleEngine.ts`
@@ -110,7 +110,7 @@ Before introducing or changing rules behaviour:
 | [`core.ts`](../src/shared/engine/core.ts)                                         | `calculateCapHeight`, `getPathPositions`, `validateCaptureSegmentOnBoard`, `hashGameState`                                                                                                        | Core utilities, geometry, state hashing        |
 | [`turnLogic.ts`](../src/shared/engine/turnLogic.ts)                               | `advanceTurnAndPhase`, `PerTurnState`                                                                                                                                                             | Turn/phase state machine                       |
 | [`orchestration/`](../src/shared/engine/orchestration/)                           | `processTurn` / `processTurnAsync`, `validateMove`, `getValidMoves`, `hasValidMoves`, `ProcessTurnResult`, `PendingDecision`, `VictoryState`                                                      | Canonical turn orchestrator & decision surface |
-| [`aggregates/`](../src/shared/engine/aggregates/)                                 | `PlacementAggregate`, `MovementAggregate`, `CaptureAggregate`, `LineAggregate`, `TerritoryAggregate`, `VictoryAggregate`                                                                          | Domain aggregates composed by orchestrator     |
+| [`aggregates/`](../src/shared/engine/aggregates/)                                 | `PlacementAggregate`, `MovementAggregate`, `RecoveryAggregate`, `CaptureAggregate`, `LineAggregate`, `TerritoryAggregate`, `EliminationAggregate`, `VictoryAggregate`                             | Domain aggregates composed by orchestrator     |
 | [`movementLogic.ts`](../src/shared/engine/movementLogic.ts)                       | `enumerateSimpleMoveTargetsFromStack`                                                                                                                                                             | Movement reachability                          |
 | [`captureLogic.ts`](../src/shared/engine/captureLogic.ts)                         | `enumerateCaptureMoves`, `CaptureBoardAdapters`                                                                                                                                                   | Capture enumeration                            |
 | [`lineDetection.ts`](../src/shared/engine/lineDetection.ts)                       | `findLinesForPlayer`, `findAllLinesShared`                                                                                                                                                        | Line geometry detection                        |

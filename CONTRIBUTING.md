@@ -210,7 +210,7 @@ describe('ComponentName', () => {
     });
 
     it('should match rule X from section Y', () => {
-      // Reference: ringrift_complete_rules.md Section Y
+      // Reference: docs/rules/COMPLETE_RULES.md Section Y
       // Test implementation
     });
   });
@@ -221,7 +221,7 @@ describe('ComponentName', () => {
 
 When implementing game rules:
 
-1. **Read the rule** in `ringrift_complete_rules.md`
+1. **Read the rule** in `docs/rules/COMPLETE_RULES.md`
 2. **Check FAQ** for clarifications (Section 15.4)
 3. **Write tests first** based on rule description
 4. **Implement the logic** to pass tests
@@ -430,7 +430,7 @@ What should happen according to the rules
 What actually happens
 
 **Rule Reference:**
-Section/FAQ from ringrift_complete_rules.md
+Section/FAQ from docs/rules/COMPLETE_RULES.md
 
 **Steps to Reproduce:**
 
@@ -722,7 +722,7 @@ useGlobalGameShortcuts({
 
 ### Questions?
 
-- **Game rules:** Check `ringrift_complete_rules.md` (especially the FAQ section)
+- **Game rules:** Check `docs/rules/COMPLETE_RULES.md` (especially the FAQ section)
 - **Engine architecture:** See `docs/architecture/RULES_ENGINE_ARCHITECTURE.md` and `docs/architecture/CANONICAL_ENGINE_API.md`
 - **AI system:** See `docs/architecture/AI_ARCHITECTURE.md` and `ai-service/README.md`
 - **Roadmap & priorities:** See `TODO.md` and `docs/planning/STRATEGIC_ROADMAP.md`

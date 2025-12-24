@@ -31,7 +31,7 @@ def convert_soft_to_hard(npz_path: str, output_path: str) -> None:
 
     Takes the highest probability action and creates a one-hot target.
     """
-    data = np.load(npz_path)
+    data = np.load(npz_path, allow_pickle=True)
 
     # Get policy data
     policy_indices = data["policy_indices"]
@@ -88,17 +88,16 @@ def train_model(
 ) -> dict:
     """Train a model and return metrics."""
     from app.models import BoardType
-    from app.training.train import TrainConfig, train_model as do_train
+    from app.training.config import TrainConfig
+    from app.training.train import train_model as do_train
 
     board_type_enum = getattr(BoardType, board_type.upper())
 
     config = TrainConfig(
         board_type=board_type_enum,
-        num_players=num_players,
-        epochs=epochs,
         batch_size=batch_size,
         learning_rate=1e-3,
-        model_version="v2",
+        epochs_per_iter=epochs,
     )
 
     metrics = do_train(
@@ -106,6 +105,8 @@ def train_model(
         data_path=data_path,
         save_path=model_path,
         early_stopping_patience=5,
+        num_players=num_players,
+        model_version="v2",
     )
 
     return metrics

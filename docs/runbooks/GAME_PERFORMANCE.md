@@ -299,7 +299,7 @@ Before considering the `HighGameMoveLatency` incident resolved:
 ### 5.3 Tests and documentation
 
 - [ ] Any rules/engine optimisations added to address the issue are covered by appropriate unit, integration, and parity tests on both TS and Python sides where relevant.
-- [ ] If semantics or stalemate/draw behaviour was changed, the rules docs (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been updated accordingly.
+- [ ] If semantics or stalemate/draw behaviour was changed, the rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been updated accordingly.
 
 ---
 

@@ -64,7 +64,7 @@ Goal: Verify that the HUD correctly explains **phase**, **turn vs move**, and **
   - [ ] **Last Player Standing** – concise one‑line description.
 - [ ] For each bullet, hover the associated `?` icon and verify:
   - [ ] Tooltip copy is **multi‑line** and explains _how that victory is actually triggered_.
-  - [ ] Wording matches the mental model from `ringrift_complete_rules.md` / in‑game behaviour (no obvious contradictions).
+  - [ ] Wording matches the mental model from `../rules/COMPLETE_RULES.md` / in‑game behaviour (no obvious contradictions).
   - [ ] Tooltips appear and disappear correctly on hover/focus/blur.
 
 ### 1.4 Turn vs Move / Game Progress
@@ -176,7 +176,7 @@ After running this checklist for a new HUD change:
 
 - [ ] Record any **copy mismatches** between tooltips and the actual rules in:
   - `TODO.md` or
-  - the relevant rules documentation file (e.g. `ringrift_complete_rules.md`) as inline TODO comments.
+  - the relevant rules documentation file (e.g. `../rules/COMPLETE_RULES.md`) as inline TODO comments.
 - [ ] File issues (or add TODOs) for any of the following:
   - [ ] Tooltip content that becomes stale when rules logic changes.
   - [ ] Layout problems (clipping, overlap) at common resolutions.

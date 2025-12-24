@@ -2,13 +2,14 @@
 
 This document details the inconsistencies found in ring counts per player across the codebase, documentation, and test fixtures.
 
-**Status:** Canonical counts are **18 / 72 / 96** (square8 / square19 / hex). All key rulebook sections, code configs, and tests now reflect these values.
+**Status:** Canonical counts are **18 / 72 / 96** (square8/hex8 / square19 / hex). All key rulebook sections, code configs, and tests now reflect these values.
 
 ## Canonical Specification (SSoT)
 
 According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R020):
 
 - **square8**: 18 rings
+- **hex8**: 18 rings
 - **square19**: 72 rings
 - **hexagonal**: 96 rings
 
@@ -19,14 +20,15 @@ According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R020):
 Primary rulebook references reflect **18 / 72 / 96**:
 
 - `RULES_CANONICAL_SPEC.md` (RR-CANON-R020 / R061 examples)
-- `ringrift_compact_rules.md` (board config table + threshold examples)
-- `ringrift_complete_rules.md` (version tables, setup sections, FAQ defaults)
-- `ringrift_simple_human_rules.md` (board overview + threshold list)
+- `../../rules/COMPACT_RULES.md` (board config table + threshold examples)
+- `../../rules/COMPLETE_RULES.md` (version tables, setup sections, FAQ defaults)
+- `../../rules/HUMAN_RULES.md` (board overview + threshold list)
 
 ### 2. Codebase Consistency (TypeScript)
 
 - **`src/shared/types/game.ts`**: `BOARD_CONFIGS` correctly defines:
   - `square8`: 18
+  - `hex8`: 18
   - `square19`: 72
   - `hexagonal`: 96
 - **`src/client/adapters/gameViewModels.ts`**: HUD ring stats read `ringsPerPlayer` from shared `BOARD_CONFIGS` (no local duplication).
@@ -35,6 +37,7 @@ Primary rulebook references reflect **18 / 72 / 96**:
 
 - **`ai-service/app/rules/core.py`** mirrors TS `BOARD_CONFIGS`:
   - square8: 18
+  - hex8: 18
   - square19: 72
   - hexagonal: 96
 - **`ai-service/app/game_engine.py`** reads ring caps from `app.rules.core.BOARD_CONFIGS` for TS-aligned semantics.

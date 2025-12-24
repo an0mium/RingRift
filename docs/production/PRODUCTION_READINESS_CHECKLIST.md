@@ -47,16 +47,16 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 
 ### 1.1 Game Engine
 
-| Item                                                     | Status | Evidence                                                |
-| -------------------------------------------------------- | ------ | ------------------------------------------------------- |
-| All game rules implemented per canonical spec            | ✅     | `ringrift_complete_rules.md`, `RULES_CANONICAL_SPEC.md` |
-| TS/Python parity verified (0 divergences)                | ✅     | 81 contract vectors, 274 parity fixtures, 0 mismatches  |
-| All board types supported (square8, square19, hexagonal) | ✅     | Geometry contracts in `TOPOLOGY_MODES.md`               |
-| Victory conditions implemented and tested                | ✅     | Ring elimination, territory control, LPS                |
-| Game end explanation working                             | ✅     | `gameEndExplanation.ts`, builder tests                  |
-| Phase state machine (8 phases + terminal)                | ✅     | `phaseStateMachine.ts`, turnOrchestrator                |
-| Forced elimination as explicit choice                    | ✅     | `applyForcedEliminationForPlayer` with `targetPosition` |
-| Chain capture enforcement                                | ✅     | Contract vectors, parity suites                         |
+| Item                                                           | Status | Evidence                                                |
+| -------------------------------------------------------------- | ------ | ------------------------------------------------------- |
+| All game rules implemented per canonical spec                  | ✅     | `../rules/COMPLETE_RULES.md`, `RULES_CANONICAL_SPEC.md` |
+| TS/Python parity verified (0 divergences)                      | ✅     | 85 contract vectors, 274 parity fixtures, 0 mismatches  |
+| All board types supported (square8, square19, hex8, hexagonal) | ✅     | Geometry contracts in `TOPOLOGY_MODES.md`               |
+| Victory conditions implemented and tested                      | ✅     | Ring elimination, territory control, LPS                |
+| Game end explanation working                                   | ✅     | `gameEndExplanation.ts`, builder tests                  |
+| Phase state machine (8 phases + terminal)                      | ✅     | `phaseStateMachine.ts`, turnOrchestrator                |
+| Forced elimination as explicit choice                          | ✅     | `applyForcedEliminationForPlayer` with `targetPosition` |
+| Chain capture enforcement                                      | ✅     | Contract vectors, parity suites                         |
 
 ### 1.2 AI System
 
@@ -552,7 +552,7 @@ These items should be resolved by the project owner before or during PV-2–PV-7
 | Square8 2P canonical gate verified | ✅     | `db_health.canonical_square8_2p.json` (canonical_ok=true) |
 | Square19 parity verified           | ✅     | Parity gate passed                                        |
 | Hex parity verified                | ✅     | Radius-12 regenerated and gated                           |
-| Parity CI gate passing             | ✅     | Contract vectors 81/81                                    |
+| Parity CI gate passing             | ✅     | Contract vectors 85/85                                    |
 
 ---
 
@@ -581,7 +581,7 @@ These items should be resolved by the project owner before or during PV-2–PV-7
 
 | Item                       | Status | Evidence                        |
 | -------------------------- | ------ | ------------------------------- |
-| Complete rules documented  | ✅     | `ringrift_complete_rules.md`    |
+| Complete rules documented  | ✅     | `../rules/COMPLETE_RULES.md`    |
 | FAQ scenarios covered      | ✅     | Q1-Q24 in scenario matrix       |
 | Teaching scenarios defined | ✅     | 19 teaching steps               |
 | Weird states documented    | ✅     | `UX_RULES_WEIRD_STATES_SPEC.md` |
@@ -805,7 +805,7 @@ Based on the current checklist status, the recommended action sequence:
 
 11. ~~**Architectural improvements**~~ ✅ Complete (see `ARCHITECTURAL_IMPROVEMENT_PLAN.md`)
 12. ~~**Test coverage**~~ ✅ All aggregates exceed 80% target
-13. ~~**Parity verification**~~ ✅ 81/81 contract vectors, 387 parity tests
+13. ~~**Parity verification**~~ ✅ 85/85 contract vectors, 387 parity tests
 
 ---
 

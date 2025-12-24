@@ -11,7 +11,7 @@
 >
 > **SSoT alignment:** This document is a derived architectural and rollout plan over:
 >
-> - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
+> - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`, and the shared TypeScript rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
 > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared TS/WebSocket types under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 > - **TS↔Python parity & determinism SSoT:** `docs/PYTHON_PARITY_REQUIREMENTS.md` and the TS and Python parity/determinism test suites.
 >
@@ -80,11 +80,13 @@ The following domain aggregates under `src/shared/engine/aggregates/**` are the 
 - [`MovementAggregate`](../src/shared/engine/aggregates/MovementAggregate.ts:1) – non-capturing movement validation, enumeration, and mutation.
 - [`CaptureAggregate`](../src/shared/engine/aggregates/CaptureAggregate.ts:1) – capture and chain-capture validation, enumeration, mutation, and continuation logic.
 - [`PlacementAggregate`](../src/shared/engine/aggregates/PlacementAggregate.ts:1) – placement and no-dead-placement validation, enumeration, and mutation.
+- [`RecoveryAggregate`](../src/shared/engine/aggregates/RecoveryAggregate.ts:1) – recovery eligibility, enumeration, and mutation for temporarily eliminated players.
 - [`LineAggregate`](../src/shared/engine/aggregates/LineAggregate.ts:1) – line detection and decision moves via `enumerateProcessLineMoves` and `applyProcessLineDecision`.
 - [`TerritoryAggregate`](../src/shared/engine/aggregates/TerritoryAggregate.ts:1) – disconnected-region detection, Q23 gating, territory collapse, and elimination decisions.
+- [`EliminationAggregate`](../src/shared/engine/aggregates/EliminationAggregate.ts:1) – ring elimination semantics for line, territory, and forced elimination contexts.
 - [`VictoryAggregate`](../src/shared/engine/aggregates/VictoryAggregate.ts:1) – victory evaluation and tie-breaking, surfaced via `evaluateVictory`.
 
-All hosts and helpers (backend, sandbox, Python mirror, diagnostics scripts) **must** treat these aggregates and their helper modules (`movementLogic.ts`, `captureLogic.ts`, `lineDecisionHelpers.ts`, `territoryDecisionHelpers.ts`, `victoryLogic.ts`, etc.) as the **only authoritative implementation of movement, capture, placement, line, territory, and victory semantics**.
+All hosts and helpers (backend, sandbox, Python mirror, diagnostics scripts) **must** treat these aggregates and their helper modules (`movementLogic.ts`, `captureLogic.ts`, `lineDecisionHelpers.ts`, `territoryDecisionHelpers.ts`, `victoryLogic.ts`, etc.) as the **only authoritative implementation of placement, movement, recovery, capture, line, territory, elimination, and victory semantics**.
 
 ### 2.3 Host adapters and hosts
 
@@ -139,7 +141,7 @@ They are **not** allowed as alternative production turn-processing pipelines onc
 flowchart TD
   subgraph SharedEngine
     Orchestrator[Turn orchestrator processTurnAsync]
-    Aggregates[Domain aggregates movement capture placement line territory victory]
+    Aggregates[Domain aggregates placement movement recovery capture line territory elimination victory]
   end
 
   subgraph BackendHost
@@ -1059,7 +1061,7 @@ Wave 4 is considered complete when:
 Once all phases are complete, **all production and sandbox rules paths will route exclusively through**:
 
 - `processTurnAsync` in the shared orchestrator as the lifecycle SSOT.
-- The six domain aggregates as the rules semantics SSOT for movement, capture, placement, line, territory, and victory.
+- The eight domain aggregates as the rules semantics SSOT for placement, movement, recovery, capture, line, territory, elimination, and victory.
 - `TurnEngineAdapter` and `SandboxOrchestratorAdapter` as the exclusive host integration layers.
 
 Legacy rules pipelines in backend and sandbox hosts will be fully removed or quarantined as diagnostics-only helpers, and documentation will accurately reflect the orchestrator-first architecture.

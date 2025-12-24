@@ -6,7 +6,7 @@
 >
 > **Role:** High-level guide to the RingRift TS+Python test suites: how they are structured, how to run them in different profiles (core/diagnostics/CI), and where to start when adding or debugging tests. This doc is a **test/meta reference only** – it explains how tests are organised and which commands/environments to use; it does **not** define game rules or lifecycle semantics.
 >
-> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the rules specification (`RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its shared TypeScript engine implementation and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), together with the lifecycle docs (`docs/CANONICAL_ENGINE_API.md`). When this guide refers to “canonical semantics” or “authoritative tests”, it is pointing back to those SSoTs and to the rules-level suites that exercise them.
+> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the rules specification (`RULES_CANONICAL_SPEC.md` plus `../docs/rules/COMPLETE_RULES.md` / `../docs/rules/COMPACT_RULES.md`) and its shared TypeScript engine implementation and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), together with the lifecycle docs (`docs/CANONICAL_ENGINE_API.md`). When this guide refers to “canonical semantics” or “authoritative tests”, it is pointing back to those SSoTs and to the rules-level suites that exercise them.
 >
 > **Related docs:** `tests/TEST_LAYERS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, `docs/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `RULES_ENGINE_ARCHITECTURE.md`, `AI_ARCHITECTURE.md`, and `DOCUMENTATION_INDEX.md`.
 
@@ -916,7 +916,7 @@ To keep a rapidly growing suite coherent (TS backend, client sandbox, and Python
 ### 1. Semantic level
 
 - **Rules-level tests**  
-  Directly exercise **canonical rules semantics** as implemented in `src/shared/engine/` and documented in `ringrift_complete_rules.md`.
+  Directly exercise **canonical rules semantics** as implemented in `src/shared/engine/` and documented in `../docs/rules/COMPLETE_RULES.md`.
   - Prefer to go through `src/shared/engine/GameEngine` and its validators/mutators where possible.
   - Examples:
     - `tests/unit/RefactoredEngine.test.ts`
@@ -975,7 +975,7 @@ For cross‑host parity suites:
 
 Recorded traces are **derived artifacts**, not ground truth. The canonical rules SSoT is:
 
-- The written rules in `RULES_CANONICAL_SPEC.md` (together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`).
+- The written rules in `RULES_CANONICAL_SPEC.md` (together with `../docs/rules/COMPLETE_RULES.md` / `../docs/rules/COMPACT_RULES.md`).
 
 The shared TS engine implementation in `src/shared/engine/` (types, validators, mutators, `GameEngine`) is the
 **primary executable derivation** of that spec. When there is a disagreement between the written rules and the
@@ -991,7 +991,7 @@ When a trace-based parity test fails:
 
 3. **Apply the seed‑14 pattern:**
    - Example: historical **seed 14** sandbox trace in the (now archived) `Backend_vs_Sandbox.traceParity.test.ts` harness contained a `process_line` move at step 35.
-   - After fixing line detection and reconciling backend/sandbox detectors with `ringrift_complete_rules.md` Section 11.1, the shared engine and detectors both agree that **no valid lines exist** in that state.
+   - After fixing line detection and reconciling backend/sandbox detectors with `../docs/rules/COMPLETE_RULES.md` Section 11.1, the shared engine and detectors both agree that **no valid lines exist** in that state.
    - `tests/unit/Seed14Move35LineParity.test.ts` codifies this as a rules‑level assertion, and seed 14 was removed from the generic trace parity harness (now only exercising seed 5).
 
 4. **Update tests accordingly:**
@@ -1203,7 +1203,7 @@ orchestrator S-invariant regression suite.
 
 ## Scenario Matrix (Rules/FAQ → Jest suites)
 
-This matrix links key sections of `ringrift_complete_rules.md` and FAQ entries to concrete Jest suites. Existing suites are marked **(existing)**; scenario-focused suites under `tests/scenarios/` are marked **(scenario)**; proposed suites are marked **(planned)**.
+This matrix links key sections of `../docs/rules/COMPLETE_RULES.md` and FAQ entries to concrete Jest suites. Existing suites are marked **(existing)**; scenario-focused suites under `tests/scenarios/` are marked **(scenario)**; proposed suites are marked **(planned)**.
 
 > Naming convention for scenario-style tests:
 >
@@ -1294,13 +1294,13 @@ This matrix links key sections of `ringrift_complete_rules.md` and FAQ entries t
 
 For a rule-centric view of test coverage, see:
 
-- `RULES_SCENARIO_MATRIX.md` – a living matrix mapping sections of `ringrift_complete_rules.md` and the FAQ to concrete Jest suites (backend engine, sandbox engine, WebSocket/choice flows, and AI boundary tests).
+- `RULES_SCENARIO_MATRIX.md` – a living matrix mapping sections of `../docs/rules/COMPLETE_RULES.md` and the FAQ to concrete Jest suites (backend engine, sandbox engine, WebSocket/choice flows, and AI boundary tests).
 
 When you add or modify scenario-style tests, update that matrix so it remains the single source of truth for how rules map to executable tests.
 
 ## FAQ Scenario Tests
 
-Each FAQ question from [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) has dedicated test coverage in scenario-style test files under `tests/scenarios/FAQ_*.test.ts`.
+Each FAQ question from [`../docs/rules/COMPLETE_RULES.md`]../docs/rules/COMPLETE*RULES.md:1) has dedicated test coverage in scenario-style test files under `tests/scenarios/FAQ*\*.test.ts`.
 
 ### Running FAQ Tests
 
@@ -1363,9 +1363,9 @@ rulebook**:
   [`src/shared/engine`](../src/shared/engine/types.ts:1), so behaviour in tests
   matches behaviour in production.
 - When in doubt about an interpretation in
-  [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1), look for a
+  [`../docs/rules/COMPLETE_RULES.md`]../docs/rules/COMPLETE*RULES.md:1), look for a
   matching scenario in `tests/scenarios/RulesMatrix.*.test.ts` or
-  `tests/scenarios/FAQ_*.test.ts` and treat that as the authoritative example.
+  `tests/scenarios/FAQ*\*.test.ts` and treat that as the authoritative example.
 
 For the complete FAQ → test mapping, see [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md:1) Section 9.
 

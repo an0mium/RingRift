@@ -1,10 +1,10 @@
-# Topology Modes: square8, square19, hexagonal
+# Topology Modes: square8, square19, hex8, hexagonal
 
 > **Doc Status (2025-11-28): Active (topology overview, non-semantics)**  
-> **Role:** Describe the supported board topologies (square8, square19, hexagonal), how they are represented in code, and where topology-aware helpers live. This doc is a **derived architecture view** only – it does **not** define rules semantics or victory conditions.
+> **Role:** Describe the supported board topologies (square8, square19, hex8, hexagonal), how they are represented in code, and where topology-aware helpers live. This doc is a **derived architecture view** only – it does **not** define rules semantics or victory conditions.
 >
 > **Upstream SSoTs:**  
-> • **Rules semantics SSoT:** canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) as the single source of truth for rules semantics, with the shared TS engine under `src/shared/engine/**` + contracts/vectors (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) as its primary executable implementation.  
+> • **Rules semantics SSoT:** canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`) as the single source of truth for rules semantics, with the shared TS engine under `src/shared/engine/**` + contracts/vectors (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) as its primary executable implementation.  
 > • **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).  
 > • **Geometry helpers:** `src/shared/engine/core.ts` (movement directions, distance, paths), `src/shared/engine/movementLogic.ts`, `src/shared/engine/captureLogic.ts`, and their Python analogues under `ai-service/app/**`.
 > • **Environment / rollout presets:** For how topology choices are combined with orchestrator rollout flags across environments (CI, staging, production), see the canonical env/phase presets table in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1.
@@ -22,16 +22,17 @@
 
 ## 1. Overview: What “Topology Mode” Means
 
-RingRift currently supports three board topologies:
+RingRift currently supports four board topologies:
 
 - `square8` – 8×8 square board, Chebyshev (king-move) geometry.
 - `square19` – 19×19 square board, same geometry at a larger scale.
-- `hexagonal` – hex board using cube/axial coordinates on a finite-radius hex.
+- `hex8` – small hex board (radius 4, bounding box 9×9) using cube coordinates.
+- `hexagonal` – full hex board (radius 12, bounding box 25×25) using cube coordinates.
 
 At runtime, the topology is selected via:
 
-- `BoardType` enum in TS (`src/shared/types/game.ts`) and Python (`ai-service/app/models.py`).
-- `BOARD_CONFIGS` in TS (`src/shared/engine/index.ts`), which map `BoardType` → size and geometry parameters.
+- `BoardType` enum in TS (`src/shared/types/game.ts`) and Python (`ai-service/app/models/core.py`).
+- `BOARD_CONFIGS` in TS (`src/shared/types/game.ts`, re-exported from `src/shared/engine/index.ts`), which map `BoardType` → size and geometry parameters.
 - Database/config fields such as `Game.boardType` and frontend sandbox configuration.
 
 Topology affects:
@@ -98,18 +99,20 @@ These direction helpers are used by:
 
 ---
 
-## 3. Hexagonal Board (hexagonal)
+## 3. Hex Boards (hex8, hexagonal)
 
 ### 3.1 Coordinate System
 
 - Represented in **cube coordinates** `(x, y, z)` with the invariant `x + y + z = 0`.
-- Board radius `r` is derived from `BOARD_CONFIGS.hexagonal.size`:
-  - Typical pattern: size = `2r + 1`, so radius = `size - 1`.
+- Board radius `r` is derived from `BOARD_CONFIGS.<board>.size`:
+  - Size is the bounding box dimension: `size = 2r + 1`, so `r = (size - 1) / 2`.
+  - `hex8`: size = 9 → radius = 4.
+  - `hexagonal`: size = 25 → radius = 12.
   - Valid positions satisfy `max(|x|, |y|, |z|) ≤ r`.
 - String keys use `positionToString({ x, y, z })` (e.g. `"2,-1,-1"`).
 - TS:
   - Hex positions are defined in `src/shared/types/game.ts`.
-  - `getMovementDirectionsForBoardType('hexagonal')` yields the 6 cube-axis directions.
+  - `getMovementDirectionsForBoardType('hex8' | 'hexagonal')` yields the 6 cube-axis directions.
 - Python:
   - `BoardManager._get_all_directions(BoardType.HEXAGONAL)` returns the same 6 directions.
 
@@ -122,8 +125,8 @@ These direction helpers are used by:
 - Distance:
   - Hex boards use cube distance:
     - `distance(from, to) = (|dx| + |dy| + |dz|) / 2`.
-  - Implemented in TS via `calculateDistance('hexagonal', from, to)` in `core.ts`.
-  - Python analogue: `BoardGeometry.calculate_distance` when `BoardType.HEXAGONAL`.
+  - Implemented in TS via `calculateDistance('hex8' | 'hexagonal', from, to)` in `core.ts`.
+  - Python analogue: `BoardGeometry.calculate_distance` when `BoardType.HEX8` or `BoardType.HEXAGONAL`.
 
 ### 3.3 Paths and Regions
 

@@ -3,7 +3,7 @@
 > **Doc Status (2025-12-13): Active (roadmap & SLOs)**
 >
 > - Canonical phased roadmap and performance/scale SLO reference.
-> - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
+> - Not a rules or lifecycle SSoT; for rules semantics defer to `../rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 > - Relationship to goals: For the canonical statement of RingRift’s product/technical goals, v1.0 success criteria, and scope boundaries, see [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1). This roadmap operationalises those goals into phases, milestones, and SLOs and should be read as the **“how we plan to get there”** companion to [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1).
 
 **Version:** 3.3
@@ -29,8 +29,8 @@
 > Note on rules authority: when there is any question about what the correct
 > behaviour _should_ be (for example, when parity harnesses or engines
 > disagree), the ultimate source of canonical truth is the rules
-> documentation—[`ringrift_complete_rules.md`](ringrift_complete_rules.md)
-> and, where applicable, [`ringrift_compact_rules.md`](ringrift_compact_rules.md).
+> documentation—[`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md)
+> and, where applicable, [`../rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md).
 > Code, tests, and parity fixtures are expected to converge toward those
 > documents rather than redefine the rules.
 
@@ -51,7 +51,7 @@
 **Completed:** November 26, 2025
 
 - [x] **Phase 1:** Created canonical turn orchestrator in `src/shared/engine/orchestration/`
-- [x] **Phase 2:** Wired orchestrator to all 6 domain aggregates (Placement, Movement, Capture, Line, Territory, Victory)
+- [x] **Phase 2:** Wired orchestrator to all 8 domain aggregates (Placement, Movement, Recovery, Capture, Line, Territory, Elimination, Victory)
 - [x] **Phase 3:** Created backend adapter (`TurnEngineAdapter.ts`, 326 lines) and sandbox adapter (`SandboxOrchestratorAdapter.ts`, 476 lines)
 - [x] **Phase 4:** Created Python contract test runner with 100% parity on 12 test vectors
 
@@ -205,7 +205,7 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 - [ ] **Parity for territory decision enumeration and forced-elimination sequences** – Ensure that all territory-related `PlayerChoice` surfaces and generated territory-processing moves (claims, region order, explicit self-elimination, host-level forced elimination) stay in lockstep between TS and Python. Leverage python‑mode parity traces (`RINGRIFT_RULES_MODE=python` in diagnostic runs) and extend parity diagnostics in [`src/server/utils/rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts:1). **Owner modes:** Debug + Code.
 
-- [ ] **Property-based tests for territory invariants and forced elimination** – Introduce property-based tests (for example, with Hypothesis in Python and fast-check in TypeScript) that randomly generate mid/late-game `GameState` snapshots and assert invariants around territory connectivity, collapsed-space ownership, and forced elimination ordering. Ground properties in [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) and the territory helpers listed in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1). An initial TS harness exists under `tests/unit/territoryProcessing.property.test.ts` exercising 2×2 disconnected-region invariants on `square8`; Python/Hypothesis coverage and forced-elimination–specific properties remain future work. **Owner modes:** Debug (property design) + Code (harnesses).
+- [ ] **Property-based tests for territory invariants and forced elimination** – Introduce property-based tests (for example, with Hypothesis in Python and fast-check in TypeScript) that randomly generate mid/late-game `GameState` snapshots and assert invariants around territory connectivity, collapsed-space ownership, and forced elimination ordering. Ground properties in [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1) and the territory helpers listed in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1). An initial TS harness exists under `tests/unit/territoryProcessing.property.test.ts` exercising 2×2 disconnected-region invariants on `square8`; Python/Hypothesis coverage and forced-elimination–specific properties remain future work. **Owner modes:** Debug (property design) + Code (harnesses).
 
 - [x] **Dataset-level validation for territory / combined-margin training data** – Add validation passes for datasets produced by [`ai-service/app/training/generate_territory_dataset.py`](ai-service/app/training/generate_territory_dataset.py:1), checking target ranges, per-player combined margins consistency, and metadata completeness (`engine_mode`, `num_players`, `ai_type_pN`, `ai_difficulty_pN`). Initial validation helpers and tests live in [`ai-service/app/training/territory_dataset_validation.py`](ai-service/app/training/territory_dataset_validation.py:1) and [`ai-service/tests/test_territory_dataset_validation.py`](ai-service/tests/test_territory_dataset_validation.py:1), and are documented in [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1). CI wiring for full training pipelines remains future work. **Owner modes:** Debug + Code (validation helpers implemented).
 

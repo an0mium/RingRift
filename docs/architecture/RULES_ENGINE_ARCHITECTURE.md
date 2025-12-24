@@ -2,7 +2,7 @@
 
 > **SSoT alignment:** This document is a derived architectural view over the following canonical sources:
 >
-> - **Single Source of Truth (SSoT):** The canonical rules defined in `RULES_CANONICAL_SPEC.md` (together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) are the **ultimate authority** for RingRift game semantics. All implementations must derive from and faithfully implement these canonical rules.
+> - **Single Source of Truth (SSoT):** The canonical rules defined in `RULES_CANONICAL_SPEC.md` (together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`) are the **ultimate authority** for RingRift game semantics. All implementations must derive from and faithfully implement these canonical rules.
 > - **Implementation hierarchy:**
 >   - **TS shared engine** (`src/shared/engine/**`) is the _primary executable derivation_ of the canonical rules spec. If the TS engine and the canonical rules document disagree, that is a bug in the TS engine.
 >   - **Python AI service** (`ai-service/app/**`) is a _host adapter_ that must mirror the canonical rules. If Python disagrees with the canonical rules or the validated TS engine behaviour, Python must be updated—never the other way around.
@@ -17,7 +17,7 @@
 
 **Doc Status (2025-11-26): Active (with historical/aspirational content)**
 
-- Canonical rules semantics SSoT is the written spec in `RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`. The **shared TypeScript engine** under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts: `schemas.ts`, `serialization.ts`, `testVectorGenerator.ts` + v2 vectors under `tests/fixtures/contract-vectors/v2/`) is the primary executable derivation of that spec and must be kept in lockstep with the canonical rules.
+- Canonical rules semantics SSoT is the written spec in `RULES_CANONICAL_SPEC.md` together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`. The **shared TypeScript engine** under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts: `schemas.ts`, `serialization.ts`, `testVectorGenerator.ts` + v2 vectors under `tests/fixtures/contract-vectors/v2/`) is the primary executable derivation of that spec and must be kept in lockstep with the canonical rules.
 - Move/decision/WebSocket lifecycle semantics are documented in `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 - Backend (`GameEngine`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this rules SSoT; they must remain parity-validated against the canonical rules spec + shared engine but are not independent sources of rules semantics.
 - Sections describing Python mutator-first refactors and future rollout phases should be read as **aspirational design** layered on top of the canonical rules SSoT (canonical rules spec plus shared TS engine), not as a redefinition of rules semantics.
@@ -41,7 +41,7 @@ RingRift maintains two implementations of the game rules with a new canonical or
 The canonical RingRift rules are implemented in the shared TypeScript engine under
 [`src/shared/engine`](src/shared/engine/types.ts:1) as the primary executable
 derivation of the canonical rules specification (`RULES_CANONICAL_SPEC.md` together
-with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`). These modules are
+with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`). These modules are
 pure, deterministic helpers that operate on shared `GameState` / `BoardState` types
 and are reused by every host (backend, sandbox, tests, Python parity). The most
 important groups are:
@@ -307,7 +307,7 @@ The canonical **multi-phase turn sequence** (ring_placement → movement / captu
       - `["movement", "chain_capture", "line_processing", "territory_processing"]`
     - A set of `phaseTransitions` describing when chain capture becomes available, when a line is completed, and when Territory processing should begin.
   - The `sequence:turn.line_then_territory.*` tags on these vectors
-    (for `square8`, `square19`, and `hexagonal`) are the canonical
+    (for `square8`, `square19`, and `hexagonal`; hex8 tags pending) are the canonical
     identifiers for “line-then-Territory” turns referenced by RR‑CANON‑R208/R209.
 
 - **Snapshot parity tests (TS ↔ Python structure).**
@@ -601,7 +601,7 @@ These exclusivity rules are considered **part of the rules contract** and must b
 **Board geometries:**
 
 - `square8`, `square19`: territory regions use Von Neumann (orthogonal) adjacency, via `BOARD_CONFIGS[boardType].territoryAdjacency`.
-- `hexagonal`: territory regions use hex adjacency on cube coordinates, also driven by `BOARD_CONFIGS[boardType].territoryAdjacency`.
+- `hex8`, `hexagonal`: territory regions use hex adjacency on cube coordinates, also driven by `BOARD_CONFIGS[boardType].territoryAdjacency`.
 
 **Region definition and disconnection (canonical):**
 

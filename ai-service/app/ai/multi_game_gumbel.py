@@ -363,8 +363,8 @@ class MultiGameGumbelRunner:
 
             actions.append(GumbelAction.from_gumbel_score(move, score))
 
-        # Sort by Gumbel score and take top-K
-        actions.sort(key=lambda a: a.gumbel_score, reverse=True)
+        # Sort by Gumbel score (perturbed_value) and take top-K
+        actions.sort(key=lambda a: a.perturbed_value, reverse=True)
         game.actions = actions[:k]
         game.remaining_actions = list(game.actions)
 
@@ -444,7 +444,7 @@ class MultiGameGumbelRunner:
             max_visits = max(a.visit_count for a in game.remaining_actions)
             best = max(
                 game.remaining_actions,
-                key=lambda a: a.completed_q(max_visits)
+                key=lambda a: a.completed_q(max_visits, use_simple_additive=True)
             )
 
         # Apply move
@@ -466,7 +466,7 @@ class MultiGameGumbelRunner:
                 move_key(a.move): {
                     "visits": a.visit_count,
                     "value": a.mean_value,
-                    "gumbel": a.gumbel_score,
+                    "gumbel": a.perturbed_value,  # Combined logit + noise
                     "move": a.move.model_dump(mode="json"),  # Full move data
                 }
                 for a in game.actions

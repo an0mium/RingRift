@@ -23,12 +23,12 @@ This index provides navigation and status tracking for all project documentation
 
 ### Canonical Sources (SSoT)
 
-| Document                         | Purpose                                    | Status   |
-| -------------------------------- | ------------------------------------------ | -------- |
-| `RULES_CANONICAL_SPEC.md`        | Formal rules specification (RR-CANON-RXXX) | **SSoT** |
-| `ringrift_complete_rules.md`     | Full rulebook with examples                | Active   |
-| `ringrift_compact_rules.md`      | Quick reference rules                      | Active   |
-| `ringrift_simple_human_rules.md` | Simplified human-readable rules            | Active   |
+| Document                  | Purpose                                    | Status   |
+| ------------------------- | ------------------------------------------ | -------- |
+| `RULES_CANONICAL_SPEC.md` | Formal rules specification (RR-CANON-RXXX) | **SSoT** |
+| `rules/COMPLETE_RULES.md` | Full rulebook with examples                | Active   |
+| `rules/COMPACT_RULES.md`  | Quick reference rules                      | Active   |
+| `rules/HUMAN_RULES.md`    | Simplified human-readable rules            | Active   |
 
 ### Rules Analysis & Audits
 

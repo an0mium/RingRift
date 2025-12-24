@@ -11,14 +11,14 @@
 > - Rules concepts in [`docs/UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:1).
 > - Weird-state reasons in [`docs/UX_RULES_WEIRD_STATES_SPEC.md`](docs/UX_RULES_WEIRD_STATES_SPEC.md:71) and [`src/shared/engine/weirdStateReasons.ts`](src/shared/engine/weirdStateReasons.ts:1).
 > - Teaching flows in [`docs/UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:33) and [`src/shared/teaching/teachingScenarios.ts`](src/shared/teaching/teachingScenarios.ts:1).
-> - Rules canon in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:193) and [`ringrift_complete_rules.md`](ringrift_complete_rules.md:260).
+> - Rules canon in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:193) and [`rules/COMPLETE_RULES.md`](rules/COMPLETE_RULES.md:260).
 > - Telemetry taxonomy in [`docs/UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:145) and [`rulesUxEvents.ts`](src/shared/telemetry/rulesUxEvents.ts:1).
 
 ---
 
 ## 1. Introduction & goals
 
-This spec addresses the weakest-UX problem identified in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md:92): players often do not understand *why* the game ended, especially in Active‑No‑Moves / Forced Elimination (ANM/FE), structural stalemate, Last Player Standing (LPS), and territory mini‑region scenarios.
+This spec addresses the weakest-UX problem identified in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md:92): players often do not understand _why_ the game ended, especially in Active‑No‑Moves / Forced Elimination (ANM/FE), structural stalemate, Last Player Standing (LPS), and territory mini‑region scenarios.
 Instead of each surface re-deriving a bespoke explanation, the engine or adapter layer produces a **single structured `GameEndExplanation` payload** that all end-of-game UX consumers share.
 
 Goals:
@@ -26,7 +26,7 @@ Goals:
 - Deliver **consistent explanations** across HUD, VictoryModal, sandbox, replay, and teaching overlays.
 - Bridge **raw engine outcomes** with **weird-state reasons**, **rules references**, **concept ids**, and **teaching flows**.
 - Keep the model **extensible and backwards-compatible** so that new reasons, rules references, or teaching flows can be added without breaking existing consumers.
-- Stay **semantics-first**: explain *why* the game ended and what rules applied, not how UI chooses to present it.
+- Stay **semantics-first**: explain _why_ the game ended and what rules applied, not how UI chooses to present it.
 
 ## 2. Scope and non-goals
 
@@ -125,11 +125,7 @@ type GameEndScoreBreakdown = {
   totalScore: number;
 };
 
-type GameEndTiebreakCriterion =
-  | 'territory'
-  | 'eliminated_rings'
-  | 'markers'
-  | 'last_real_action';
+type GameEndTiebreakCriterion = 'territory' | 'eliminated_rings' | 'markers' | 'last_real_action';
 
 type GameEndTiebreakStep = {
   index: number; // 1-based step in the ladder
@@ -205,7 +201,7 @@ type GameEndExplanation = {
   // Top-level game metadata
   gameId: string;
   rulesetId: string; // e.g. 'square8_2p_core'
-  boardType: 'square8' | 'square19' | 'hexagonal' | string;
+  boardType: 'square8' | 'square19' | 'hex8' | 'hexagonal' | string;
   numPlayers: number;
 
   // Outcome basics
@@ -256,8 +252,8 @@ Top-level fields (`gameId`, `rulesetId`, `boardType`, `numPlayers`) allow:
 
 ### 3.3 Victory detail
 
-- `outcomeType` and `victoryReasonCode` summarise *how* the game ended at a high level (ring majority, territory, LPS, stalemate, resignation, timeout).
-- `scoreBreakdown` provides per-player scores in a standardised shape that matches elimination + territory semantics in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:170) and [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1334).
+- `outcomeType` and `victoryReasonCode` summarise _how_ the game ended at a high level (ring majority, territory, LPS, stalemate, resignation, timeout).
+- `scoreBreakdown` provides per-player scores in a standardised shape that matches elimination + territory semantics in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:170) and [`rules/COMPLETE_RULES.md`](rules/COMPLETE_RULES.md:1334).
 - `tiebreakSteps` encodes the **stalemate ladder** from [`RR‑CANON‑R173`](RULES_CANONICAL_SPEC.md:619):
   - Step 1: compare territory spaces.
   - Step 2: compare eliminated rings (including rings in hand).
@@ -347,7 +343,7 @@ Populates:
 
 ### 4.3 Rules docs and concepts index
 
-Source: canonical rules and concept indexing in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:193), [`ringrift_complete_rules.md`](ringrift_complete_rules.md:260), and [`docs/UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:1).
+Source: canonical rules and concept indexing in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:193), [`rules/COMPLETE_RULES.md`](rules/COMPLETE_RULES.md:260), and [`docs/UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:1).
 
 Populates:
 

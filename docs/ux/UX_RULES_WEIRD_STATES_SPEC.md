@@ -200,21 +200,21 @@ Typically used as a **sub‑section** within a longer VictoryModal explanation w
 - **Title:** `"Forced Elimination on your turns"`
 - **Body:**  
   `"Several of your turns reached a state where you controlled stacks but had no legal placements, movements, or captures. In those moments the forced-elimination rule removed caps from your stacks, permanently eliminating rings until a real move became available or your stacks ran out. These eliminations counted toward Ring Elimination and may have contributed to the final result."`
-- **Doc anchor:** [`ringrift_complete_rules.md`](ringrift_complete_rules.md:499) §4.4 _Forced Elimination When Blocked_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:443) R100.
+- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4 _Forced Elimination When Blocked_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:443) R100.
 
 #### RWS‑005 STRUCTURAL_STALEMATE_TIEBREAK (Terminal reason)
 
 - **Title:** `"Structural stalemate – final score from territory and rings"`
 - **Body:**  
   `"The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder."`
-- **Doc anchor:** [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1381) §13.4 _End of Game "Stalemate" Resolution_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173.
+- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4 _End of Game "Stalemate" Resolution_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173.
 
 #### RWS‑006 LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS (Terminal reason)
 
 - **Title:** `"Last Player Standing – only one player had real moves for three rounds"`
 - **Body:**
   `"The game ended by Last Player Standing. For THREE consecutive complete rounds, only one player had any real actions available at the start of their turns – real actions meaning placements, non-capture movements, or overtaking captures. In the first round, this player had and took at least one real action while all others had none. In the second and third rounds, the same condition persisted. After the third round completed, the remaining active player won by Last Player Standing."`
-- **Doc anchor:** [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1360) §13.3 _Last Player Standing_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:603) R172.
+- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1360) §13.3 _Last Player Standing_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:603) R172.
 
 ---
 
@@ -300,9 +300,9 @@ All keys above MUST use copy drawn from §3.1, possibly via [`UX_RULES_COPY_SPEC
 
 | Reason code                                   | VictoryModal explanation key           | Rules doc anchor                                                                                                                     |
 | :-------------------------------------------- | :------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
-| `ANM_MOVEMENT_FE_BLOCKED`                     | `victory.explain.fe_sequence`          | [`ringrift_complete_rules.md`](ringrift_complete_rules.md:499) §4.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:443) R100   |
-| `STRUCTURAL_STALEMATE_TIEBREAK`               | `victory.explain.structural_stalemate` | [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173 |
-| `LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS` | `victory.explain.last_player_standing` | [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1360) §13.3; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:603) R172 |
+| `ANM_MOVEMENT_FE_BLOCKED`                     | `victory.explain.fe_sequence`          | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:443) R100   |
+| `STRUCTURAL_STALEMATE_TIEBREAK`               | `victory.explain.structural_stalemate` | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173 |
+| `LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS` | `victory.explain.last_player_standing` | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1360) §13.3; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:603) R172 |
 
 For `ANM_LINE_NO_ACTIONS` and `ANM_TERRITORY_NO_ACTIONS`, VictoryModal typically uses standard line / territory text; no extra reason‑specific key is required beyond possible debug / dev tooling.
 

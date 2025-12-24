@@ -229,5 +229,5 @@ Result: Marker at A, marker at D removed, RED LOSES TOP RING
 
 ## See Also
 
-- [ringrift_simple_human_rules.md](../../ringrift_simple_human_rules.md) - Full human rules
+- [../rules/HUMAN_RULES.md]../rules/HUMAN_RULES.md) - Full human rules
 - [RULES_CANONICAL_SPEC.md](../../RULES_CANONICAL_SPEC.md) - Formal specification

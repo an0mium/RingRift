@@ -1,10 +1,32 @@
-"""Training Orchestrator - Unified wrapper for all training managers (December 2025).
+"""Training Orchestrator - Manager lifecycle coordination.
 
-This module provides a single entry point for coordinating all training-related
-managers and services. Instead of creating and managing 11+ separate managers,
-use TrainingOrchestrator for a unified lifecycle.
+.. deprecated:: December 2025
+    This module is deprecated. Use ``UnifiedTrainingOrchestrator`` from
+    ``unified_orchestrator.py`` instead, which now includes all manager
+    coordination features.
 
-Managers wrapped:
+    See ``app/training/ORCHESTRATOR_GUIDE.md`` for migration instructions.
+
+Migration:
+    # Old
+    from app.training.orchestrated_training import TrainingOrchestrator
+    orchestrator = TrainingOrchestrator(config)
+    await orchestrator.initialize()
+
+    # New
+    from app.training.unified_orchestrator import (
+        UnifiedTrainingOrchestrator,
+        OrchestratorConfig,
+    )
+    orchestrator = UnifiedTrainingOrchestrator(model, config)
+    with orchestrator:
+        for batch in orchestrator.get_dataloader():
+            loss = orchestrator.train_step(batch)
+
+This module provided a single entry point for coordinating all training-related
+managers and services. These features are now built into UnifiedTrainingOrchestrator.
+
+Managers that were wrapped (now in UnifiedTrainingOrchestrator):
 - UnifiedCheckpointManager: Checkpoint saving/loading
 - IntegratedTrainingManager: Training enhancements
 - RollbackManager: Model rollback on regression
@@ -13,31 +35,6 @@ Managers wrapped:
 - DataCoordinator: Training data management
 - EloService: Elo rating updates
 - CurriculumFeedback: Curriculum weight adjustments
-
-Related Modules:
-    - unified_orchestrator.py: Low-level training execution (GPU training,
-      data loading, distributed). Use for actual training runs.
-    - This module (orchestrated_training.py): High-level manager coordination
-      (rollback, promotion, curriculum). Use for service orchestration.
-
-Usage:
-    from app.training.orchestrated_training import (
-        TrainingOrchestrator,
-        get_training_orchestrator,
-    )
-
-    # Get orchestrator
-    orchestrator = get_training_orchestrator()
-
-    # Initialize all managers
-    await orchestrator.initialize()
-
-    # Run a training step
-    async with orchestrator.training_context():
-        result = await orchestrator.train_step(batch)
-
-    # Cleanup
-    await orchestrator.shutdown()
 """
 
 from __future__ import annotations

@@ -25,10 +25,10 @@ python scripts/run_tournament.py --board hexagonal --num-players 2 --games 100
 
 RingRift supports multiple hexagonal board sizes:
 
-| Board Type | Size | Total Spaces | Line Length | Rings/Player (2p) |
-| ---------- | ---- | ------------ | ----------- | ----------------- |
-| hexagonal  | 11   | 469          | 4           | 96                |
-| hex8       | 8    | 217          | 4           | 44                |
+| Board Type | Size (bounding box) | Total Spaces | Line Length      | Rings/Player (2p) |
+| ---------- | ------------------- | ------------ | ---------------- | ----------------- |
+| hexagonal  | 25                  | 469          | 4                | 96                |
+| hex8       | 9                   | 61           | 4 (2p), 3 (3-4p) | 18                |
 
 ## Training Pipeline Overview
 

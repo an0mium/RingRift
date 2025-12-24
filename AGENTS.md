@@ -39,8 +39,8 @@ When in doubt about _what something is supposed to do_, prefer reading specs und
 The rules semantics SSoT is:
 
 - `RULES_CANONICAL_SPEC.md`
-- `ringrift_complete_rules.md`
-- `ringrift_compact_rules.md`
+- `docs/rules/COMPLETE_RULES.md`
+- `docs/rules/COMPACT_RULES.md`
 - Supporting UX/rules documents:
   - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
   - `docs/UX_RULES_TEACHING_SCENARIOS.md`
@@ -403,8 +403,8 @@ RingRift/
 │
 ├── docs/                          # Comprehensive documentation
 ├── RULES_CANONICAL_SPEC.md        # Canonical rules SSoT (RR-CANON-RXXX rules)
-├── ringrift_complete_rules.md     # Authoritative rulebook (narrative)
-├── ringrift_compact_rules.md      # Compact implementation-oriented spec
+├── docs/rules/COMPLETE_RULES.md     # Authoritative rulebook (narrative)
+├── docs/rules/COMPACT_RULES.md      # Compact implementation-oriented spec
 ├── PROJECT_GOALS.md               # Product/technical goals, scope
 └── TODO.md                        # Task tracking
 ```
@@ -472,7 +472,7 @@ Formula: `round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))`
 
 | Need to...                  | File(s)                                                                       |
 | --------------------------- | ----------------------------------------------------------------------------- |
-| Understand game rules       | `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`                       |
+| Understand game rules       | `RULES_CANONICAL_SPEC.md`, `docs/rules/COMPLETE_RULES.md`                     |
 | Implement a rule            | `src/shared/engine/aggregates/*.ts` + test                                    |
 | Add AI difficulty           | `src/server/game/ai/AIEngine.ts`, `ai-service/app/main.py`                    |
 | Fix a WebSocket issue       | `src/server/websocket/server.ts`, `src/client/hooks/useGameConnection.ts`     |

@@ -4,7 +4,7 @@
 >
 > **Purpose:** Detailed analysis of how recovery action interacts with other game systems and its impact on game balance.
 >
-> **Canonical Source:** `RULES_CANONICAL_SPEC.md` R110–R115, `ringrift_complete_rules.md` §4.5
+> **Canonical Source:** `RULES_CANONICAL_SPEC.md` R110–R115, `../../rules/COMPLETE_RULES.md` §4.5
 >
 > **Note:** This document includes some historical balance projections from early recovery work. Treat the numerical projections as non-normative; the rules semantics must match `RULES_CANONICAL_SPEC.md`.
 
@@ -67,7 +67,7 @@ This creates strategic tension: recovery can keep a player "alive" in turn rotat
 | Player A dominates, Player B has only FE            | B cannot block LPS | B cannot block LPS (FE ≠ real action)                                                                                                                     |
 | Player A dominates, Player B has recovery available | N/A                | B **cannot** block LPS with recovery (not real)                                                                                                           |
 | Player B has recovery + rings in hand               | N/A                | B can block LPS if they have a legal placement/movement/capture available at the start of their turn (rings in hand often implies placement is available) |
-| Only A has real actions for 2 rounds                | A wins LPS         | A wins LPS (recovery doesn't count)                                                                                                                       |
+| Only A has real actions for 3 rounds                | A wins LPS         | A wins LPS (recovery doesn't count)                                                                                                                       |
 
 **Strategic Implications:**
 
@@ -387,6 +387,6 @@ def get_legal_moves(state: GameState, player: int) -> List[Move]:
 - `RECOVERY_ACTION_IMPLEMENTATION_PLAN.md` - Implementation tasks
 - `TODO.md` §3.1.1 - Recovery action task list
 - `RULES_CANONICAL_SPEC.md` R110–R115 - Canonical rule definitions
-- `ringrift_complete_rules.md` §4.5 - Player-facing rules
+- `../../rules/COMPLETE_RULES.md` §4.5 - Player-facing rules
 - `docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md` ANM-SCEN-09 - ANM scenario
 - `docs/UX_RULES_CONCEPTS_INDEX.md` - `recovery_action` concept entry

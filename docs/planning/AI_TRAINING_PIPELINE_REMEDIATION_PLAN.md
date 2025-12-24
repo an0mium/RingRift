@@ -33,7 +33,7 @@
 
 ### Goal
 
-Establish a fully gated, cross-language training data pipeline that produces canonical datasets for all board types (square8, square19, hexagonal) and supports neural network training at scale.
+Establish a fully gated, cross-language training data pipeline that produces canonical datasets for all board types (square8, square19, hex8, hexagonal) and supports neural network training at scale.
 
 ### Current State
 
@@ -52,7 +52,7 @@ Cannot train production-quality neural models until canonical datasets reach vol
 
 ### Success Definition
 
-1. All canonical DBs (square8, square19, hexagonal) pass parity + canonical history gates (now true at low volume)
+1. All canonical DBs (square8, square19, hex8, hexagonal) pass parity + canonical history gates (now true at low volume)
 2. 500+ canonical games per board type in the training pool
 3. Neural network achieves ≥85% win rate vs random after extended training
 4. Minimax/MCTS wired into production difficulty ladder
@@ -564,7 +564,7 @@ From [`AI_TRAINING_ASSESSMENT_FINAL.md`](../ai/AI_TRAINING_ASSESSMENT_FINAL.md):
 
 The AI Training Pipeline Remediation is complete when:
 
-1. ✅ All canonical DBs (square8, square19, hexagonal) pass canonical gates
+1. ✅ All canonical DBs (square8, square19, hex8, hexagonal) pass canonical gates
 2. ⏳ ≥500 canonical games exist per board type
 3. ⏳ Neural network achieves ≥85% win rate vs random
 4. ⏳ Production difficulty ladder includes search-based AI (Minimax/MCTS)

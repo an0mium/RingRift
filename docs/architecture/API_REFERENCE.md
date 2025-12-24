@@ -595,7 +595,7 @@ These events are transport-only and do not mutate game state. They are primarily
 ## 🔗 Related Documentation
 
 - [WebSocket Types](../src/shared/types/websocket.ts) - TypeScript type definitions
-- [Game Rules](../../ringrift_complete_rules.md) - Complete game rulebook
+- [Game Rules]../rules/COMPLETE_RULES.md) - Complete game rulebook
 - [Environment Variables](../operations/ENVIRONMENT_VARIABLES.md) - Server configuration
 - [OpenAPI Spec](../src/server/openapi/config.ts) - OpenAPI schema definitions
 

@@ -359,20 +359,20 @@ During consolidation, these unique features MUST be preserved:
 
 ### Immediate (1-2 weeks)
 
-- [ ] Fix `MultiGameGumbelAction` duplication
-- [ ] Rename collision `TrainingCoordinator` classes
+- [x] Fix `MultiGameGumbelAction` duplication (Dec 2025)
+- [x] Rename collision `TrainingCoordinator` classes (Dec 2025)
 - [ ] Document current architecture in diagrams
 
 ### Short-term (2-4 weeks)
 
-- [ ] Unify Sequential Halving implementations
-- [ ] Create unified `GumbelSearchEngine`
-- [ ] Merge training orchestrators
+- [x] Unify Sequential Halving implementations (Dec 2025)
+- [x] Create unified `GumbelSearchEngine` (Dec 2025)
+- [x] Document training orchestrator consolidation (Dec 2025) - Created ORCHESTRATOR_GUIDE.md - Added deprecation notices to orchestrated_training.py, integrated_enhancements.py - Target: 5 orchestrators → 3 (keeping UnifiedTrainingOrchestrator, TrainingCoordinator, TrainingLifecycleManager)
 
 ### Medium-term (1-2 months)
 
-- [ ] Consolidate export pipeline
-- [ ] Simplify CoordinatorBase hierarchy
+- [x] Document export pipeline consolidation (Dec 2025) - Created EXPORT_GUIDE.md with module roles and usage - Primary CLI: scripts/export_replay_dataset.py - Core utilities: app/training/export_core.py
+- [x] Document CoordinatorBase hierarchy (Dec 2025) - Created COORDINATOR_GUIDE.md with class categorization - Identified 125 classes, categorized into Core/Deprecated/Specialized - Defined naming conventions: Orchestrator vs Coordinator vs Manager
 - [ ] Unify configuration system
 
 ### Long-term (ongoing)

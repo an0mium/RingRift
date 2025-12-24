@@ -3,7 +3,7 @@
 > **Doc Status (2025-11-26): Active (training infrastructure checklist)**
 >
 > - Canonical pre-flight checklist for AI weight initialization, training infrastructure, and operational safeguards for the Python AI service under `ai-service/`.
-> - Assumes the **rules SSoT** is the canonical rules spec (`RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) together with its shared TypeScript engine implementation (helpers → aggregates → orchestrator → contracts) under `src/shared/engine/`, with v2 contract vectors under `tests/fixtures/contract-vectors/v2/`.
+> - Assumes the **rules SSoT** is the canonical rules spec (`RULES_CANONICAL_SPEC.md` plus `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`) together with its shared TypeScript engine implementation (helpers → aggregates → orchestrator → contracts) under `src/shared/engine/`, with v2 contract vectors under `tests/fixtures/contract-vectors/v2/`.
 > - For Move/decision/WebSocket lifecycle semantics and canonical types, defer to [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md); for TS↔Python rules parity specifics, defer to [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../rules/PYTHON_PARITY_REQUIREMENTS.md) and [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md).
 >
 > **SSoT alignment:** This guide is a derived pre-flight and training-infrastructure checklist over:
@@ -1778,7 +1778,7 @@ Before training AI, verify understanding of:
 - [ ] **Territory encirclement**: Marker elimination
 - [ ] **Victory conditions**: Elimination or points at move limit
 
-**Reference**: [`ringrift_complete_rules.md`](../../ringrift_complete_rules.md)
+**Reference**: [`../rules/COMPLETE_RULES.md`]../rules/COMPLETE_RULES.md)
 
 ### 11.2 Board Representation Invariants
 

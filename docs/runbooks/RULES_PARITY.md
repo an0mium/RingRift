@@ -72,7 +72,7 @@
      - TS `.shared` and rules‑level suites for the affected domain (movement, capture, lines, territory, victory).
      - TS contract vector runner: `tests/contracts/contractVectorRunner.test.ts`.
      - Python contract tests: `ai-service/tests/contracts/test_contract_vectors.py`.
-   - If these are green and agree with the written rules (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`), treat their behaviour as authoritative.
+   - If these are green and agree with the written rules (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`), treat their behaviour as authoritative.
 2. **Identify which parity harnesses are firing**
    - Use `tests/TEST_SUITE_PARITY_PLAN.md` and `tests/README.md` to see whether the failing harness is:
      - A **canonical** fixture‑driven parity check (contracts / structured fixtures), or
@@ -221,7 +221,7 @@ Use these principles:
 
 - The **shared TS engine + orchestrator** is the _default_ semantic SSoT.
 - However, if diagnosis shows that TS behaviour itself violates:
-  - The canonical rules spec (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`), or
+  - The canonical rules spec (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`), or
   - Previously agreed behaviour captured by contract vectors and tests,
 
   then the TS engine may need to be updated and the **contract vectors and docs** refreshed accordingly.
@@ -365,7 +365,7 @@ Before considering a rules-parity incident resolved:
 
 - **Rules semantics & architecture:**
   - `RULES_CANONICAL_SPEC.md`
-  - `ringrift_complete_rules.md`, `ringrift_compact_rules.md`
+  - `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`
   - `RULES_ENGINE_ARCHITECTURE.md`
   - `RULES_IMPLEMENTATION_MAPPING.md`
   - `RULES_ENGINE_SURFACE_AUDIT.md`

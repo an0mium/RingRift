@@ -1,5 +1,34 @@
 """Integrated Training Enhancements for RingRift AI.
 
+.. deprecated:: December 2025
+    The ``IntegratedTrainingManager`` class is deprecated. Its features are now
+    integrated into ``UnifiedTrainingOrchestrator`` in ``unified_orchestrator.py``.
+
+    The individual enhancement modules (auxiliary tasks, gradient surgery, etc.)
+    are still available for direct use. Only the manager wrapper is deprecated.
+
+    See ``app/training/ORCHESTRATOR_GUIDE.md`` for migration instructions.
+
+Migration:
+    # Old
+    from app.training.integrated_enhancements import IntegratedTrainingManager
+    manager = IntegratedTrainingManager(config, model)
+    manager.initialize_all()
+    loss = manager.apply_step_enhancements(batch_loss, step)
+
+    # New
+    from app.training.unified_orchestrator import (
+        UnifiedTrainingOrchestrator,
+        OrchestratorConfig,
+    )
+    config = OrchestratorConfig(
+        enable_auxiliary_tasks=True,
+        enable_gradient_surgery=True,
+    )
+    orchestrator = UnifiedTrainingOrchestrator(model, config)
+    # Enhancements applied automatically in train_step()
+    loss = orchestrator.train_step(batch)
+
 Unified module that consolidates and integrates all advanced training features:
 - Auxiliary Tasks (game length, piece count, outcome prediction)
 - Gradient Surgery (PCGrad for multi-task learning)

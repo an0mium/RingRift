@@ -1591,7 +1591,7 @@ src/shared/engine/
 | Metric                            | Before             | After (target)                           |
 | --------------------------------- | ------------------ | ---------------------------------------- |
 | Files in `engine/`                | 36                 | ~35 (aggregates consolidated internally) |
-| Domain aggregates                 | 0 (implicit)       | 6 (explicit)                             |
+| Domain aggregates                 | 0 (implicit)       | 8 (explicit)                             |
 | Public API surface                | Scattered          | Unified via `index.ts` + orchestrator    |
 | Cross-file dependencies           | High               | Lower (explicit imports)                 |
 | Test coverage maintained (target) | Not explicitly set | 100%                                     |

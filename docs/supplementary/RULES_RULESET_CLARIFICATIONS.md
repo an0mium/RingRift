@@ -64,15 +64,15 @@ RR-CANON-R090 defines movement availability in terms of stacks that "satisfy RR-
 - **Type:** Cross-document contradiction / design decision
 - **Status:** Resolved (binding semantics chosen)
 - **Priority:** High
-- **Resolution:** Resolved as a binding Last-Player-Standing victory with a **two-full-round** exclusive real-action condition, as encoded in RR-CANON-R172 and mirrored in the Complete and Simple rules. Player P wins by LPS if: (1) for one complete round P has at least one real action and takes at least one, while all other players have no real actions; (2) after the first round completes, P remains the only player with real actions through a second complete round and takes at least one real action; (3) after the second round completes (and all required no-action/FE moves are logged), P is declared the winner.
+- **Resolution:** Resolved as a binding Last-Player-Standing victory with a **three-full-round** exclusive real-action condition, as encoded in RR-CANON-R172 and mirrored in the Complete and Simple rules. Player P wins by LPS if exactly one player has real actions for three consecutive full rounds, taking at least one real action in each round; the game ends immediately after the third round completes.
 
 **Sources**
 
 - [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:700) – RR-CANON-R172 Last-player-standing victory: defines an explicit early victory condition when exactly one player has real actions for three consecutive full rounds and all others with material have none.
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1376) §13.3 Last Player Standing – narrative description and examples of last-player-standing as a primary victory path alongside elimination and territory.
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1867) §16.6 and [`ringrift_complete_rules.md`](ringrift_complete_rules.md:2156) §16.9.4.5 – summaries that restate last-player-standing as a distinct victory path.
+- [`docs/rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1376) §13.3 Last Player Standing – narrative description and examples of last-player-standing as a primary victory path alongside elimination and territory.
+- [`docs/rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1867) §16.6 and [`docs/rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:2156) §16.9.4.5 – summaries that restate last-player-standing as a distinct victory path.
 - [`RULES_IMPLEMENTATION_MAPPING.md`](../../RULES_IMPLEMENTATION_MAPPING.md:381) §3.8 – notes that victory logic encodes elimination, territory, last-player-standing, and stalemate via the shared `VictoryAggregate` and LPS helpers.
-- [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:170) ANM-SCEN-07 – documents how early LPS interacts with ANM and forced elimination.
+- [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:170) ANM-SCEN-07 – documents how early LPS interacts with ANM and forced elimination.
 
 **Problem description**
 
@@ -107,8 +107,8 @@ This resolves the earlier ambiguity where engines played to completion and relie
 **Sources**
 
 - [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:61) – RR-CANON-R020 rings per player; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:218) RR-CANON-R081 and [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:225) RR-CANON-R082 reference a per-player `ringsPerPlayer` maximum when placing.
-- [`ringrift_compact_rules.md`](ringrift_compact_rules.md:18) §1.1 version table – defines `ringsPerPlayer` = 18 (square8), 72 (square19), or 96 (hexagonal radius 12).
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:443) §3.2.1 – states the fixed personal ring supply: 72 (19×19), 96 (hexagonal), 18 (8×8).
+- [`../rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md:18) §1.1 version table – defines `ringsPerPlayer` = 18 (square8/hex8), 72 (square19), or 96 (hexagonal radius 12).
+- [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:443) §3.2.1 – states the fixed personal ring supply: 72 (19×19), 96 (hexagonal), 18 (8×8/hex8).
 - [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:755) §2.3.3 – describes the current implementation approximation: per-player ring cap counts **all rings in stacks controlled by a player**, including captured rings of other colours, when deciding whether further placements are allowed (CCE-002).
 - [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:365) CCE-002 – classifies this as an "implementation compromise" and recommends either canonising or tightening it.
 
@@ -162,6 +162,6 @@ The current implementation adopts a conservative approximation: it treats the su
 
 ## 3. Status Summary
 
-- CLAR-001, CLAR-002, and CLAR-003 are now **Resolved**, and their chosen interpretations have been integrated into [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1), [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1), and [`ringrift_compact_rules.md`](ringrift_compact_rules.md:1).
+- CLAR-001, CLAR-002, and CLAR-003 are now **Resolved**, and their chosen interpretations have been integrated into [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1), and [`../rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md:1).
 - There are currently **no** open CLAR items that block implementation or documentation work on Last-Player-Standing victory or per-player ring caps.
 - Future clarification items, if any, should be added as new `CLAR-00X` entries below, with their own status and resolution notes.

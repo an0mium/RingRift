@@ -3,7 +3,7 @@
 > **Doc Status (2025-12-13): Active (project direction SSoT)**
 >
 > - Single authoritative source for product/technical goals and non-goals.
-> - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
+> - Not a rules or lifecycle SSoT; for rules semantics defer to `docs/rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 >
 > **Version:** 1.1  
 > **Created:** 2025-11-26  
@@ -63,7 +63,7 @@ Together, these goals define **how the game should feel**: simple to describe at
 
 ### 3.0 Core objectives summary
 
-1. Deliver a rules-complete online implementation of RingRift across the three supported board types (8×8, 19×19, hexagonal) with correct resolution of all victory conditions for 2–4 player games.
+1. Deliver a rules-complete online implementation of RingRift across the four supported board types (8×8 square, 19×19 square, hex8, hexagonal) with correct resolution of all victory conditions for 2–4 player games.
 2. Provide a stable, responsive multiplayer experience over WebSocket and HTTP with real-time game state synchronisation and spectator support suitable for public beta and production use.
 3. Maintain a single shared TypeScript rules engine reused by backend and client sandbox hosts, with the Python AI service kept in deterministic parity via contracts, tests, and observability.
 4. Offer AI opponents across a 1–10 difficulty ladder integrated through the Python AI service and resilient local fallbacks so that AI-controlled seats never stall games.
@@ -81,7 +81,7 @@ These objectives naturally cluster into four areas that later documents use for 
 | Objective                          | Description                                                                                                                                                                                                            | Rationale                                                      |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | **Complete rules implementation**  | Faithfully implement all game mechanics from [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1) including movement, captures, chains, lines, territory disconnection, and all victory conditions         | Core game value depends on correct rules                       |
-| **Multiple board types**           | Support 8×8 square (64 spaces), 19×19 square (361 spaces), and hexagonal (469 spaces) boards                                                                                                                           | Provides accessibility gradient and geometric variety          |
+| **Multiple board types**           | Support 8×8 square (64 spaces), 19×19 square (361 spaces), hex8 (61 spaces), and hexagonal (469 spaces) boards                                                                                                         | Provides accessibility gradient and geometric variety          |
 | **Flexible player configurations** | Support 2–4 players with any combination of human and AI participants                                                                                                                                                  | Enables solo practice, competitive play, and social gaming     |
 | **AI opponents**                   | Provide AI opponents at multiple difficulty levels (1–10) with responsive move selection                                                                                                                               | Allows single-player experience and fills seats in multiplayer |
 | **Real-time multiplayer**          | WebSocket-based live gameplay with synchronized state and spectator support                                                                                                                                            | Core online multiplayer experience                             |
@@ -192,7 +192,7 @@ To avoid duplicating live metrics, this section describes the **shape** of the t
 These are **release gate criteria**, not a live progress checklist. For current status, see [`docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1).
 
 - [ ] All 24 FAQ scenarios from the rules document have corresponding tests
-- [ ] All three board types (8×8, 19×19, hex) fully playable end-to-end
+- [ ] All four board types (8×8, 19×19, hex8, hexagonal) fully playable end-to-end
 - [ ] All victory conditions (Ring Elimination, Territory Control, Last Player Standing) correctly implemented and surfaced via game-end explanations
 - [ ] AI difficulty ladder (1–10) functional with fallback handling
 - [ ] Backend-driven games playable end-to-end via the web client
@@ -220,13 +220,13 @@ This section captures goal-level risks and assumptions that shape scope and succ
 
 These goals assume the following technical and operational dependencies, which are defined in more detail in the referenced architecture and operations documents:
 
-- **Canonical rules specification as rules SSoT.** All gameplay semantics are defined, first and foremost, by the written canonical rules (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`). The shared TypeScript engine under `src/shared/engine/**` (helpers → aggregates → orchestrator) is the primary executable derivation of that spec, validated by its contract tests and parity suites. Backend hosts, the client sandbox, and the Python rules engine are adapters over this shared surface; changes to rules must converge on the canonical rules spec and then be reflected in the shared engine. See [`docs/architecture/MODULE_RESPONSIBILITIES.md`](docs/architecture/MODULE_RESPONSIBILITIES.md:1), [`docs/architecture/DOMAIN_AGGREGATE_DESIGN.md`](docs/architecture/DOMAIN_AGGREGATE_DESIGN.md:1), and [`docs/architecture/CANONICAL_ENGINE_API.md`](docs/architecture/CANONICAL_ENGINE_API.md:1) for the canonical module catalog, aggregate design, and Move/orchestrator/WebSocket lifecycle that implement these goals.
+- **Canonical rules specification as rules SSoT.** All gameplay semantics are defined, first and foremost, by the written canonical rules (`RULES_CANONICAL_SPEC.md` together with `docs/rules/COMPLETE_RULES.md` / `docs/rules/COMPACT_RULES.md`). The shared TypeScript engine under `src/shared/engine/**` (helpers → aggregates → orchestrator) is the primary executable derivation of that spec, validated by its contract tests and parity suites. Backend hosts, the client sandbox, and the Python rules engine are adapters over this shared surface; changes to rules must converge on the canonical rules spec and then be reflected in the shared engine. See [`docs/architecture/MODULE_RESPONSIBILITIES.md`](docs/architecture/MODULE_RESPONSIBILITIES.md:1), [`docs/architecture/DOMAIN_AGGREGATE_DESIGN.md`](docs/architecture/DOMAIN_AGGREGATE_DESIGN.md:1), and [`docs/architecture/CANONICAL_ENGINE_API.md`](docs/architecture/CANONICAL_ENGINE_API.md:1) for the canonical module catalog, aggregate design, and Move/orchestrator/WebSocket lifecycle that implement these goals.
 - **Python AI service as the primary tactical engine.** Higher AI difficulties (3–10) depend on the Python `ai-service` for Minimax, MCTS, and Descent-style search as described in [`AI_ARCHITECTURE.md`](docs/architecture/AI_ARCHITECTURE.md:1) and AI docs under `docs/ai/` and `ai-service/docs/`. The TypeScript fallback AI exists for resilience and low-difficulty play, not as the sole long-term AI.
 - **Canonical AI training data and pipelines.** Neural and heuristic training must use canonical replay databases and parity-gated datasets as described in [`docs/ai/AI_TRAINING_AND_DATASETS.md`](docs/ai/AI_TRAINING_AND_DATASETS.md:1) and `ai-service/TRAINING_DATA_REGISTRY.md`. Legacy or non-canonical data may be used for ablation but must never be treated as production-default.
 - **Single-region, single-app-instance topology for v1.0.** The production topology assumes a single Node.js app instance per environment (`RINGRIFT_APP_TOPOLOGY=single`) backed by PostgreSQL and Redis, as described in [`docs/planning/DEPLOYMENT_REQUIREMENTS.md`](docs/planning/DEPLOYMENT_REQUIREMENTS.md:1) and [`docs/architecture/TOPOLOGY_MODES.md`](docs/architecture/TOPOLOGY_MODES.md:1). Horizontal scaling beyond this and multi-region deployments are explicitly post‑v1.0 concerns.
 - **PostgreSQL, Redis, and WebSocket infrastructure.** Game lifecycle, session management, and real-time multiplayer depend on PostgreSQL, Redis, and a WebSocket server as described in [`README.md`](README.md:1) and [`docs/operations/OPERATIONS_DB.md`](docs/operations/OPERATIONS_DB.md:1).
 - **Observability stack and load-testing tooling.** Meeting the SLOs in §4 and validating production readiness requires the Prometheus/Grafana/Alertmanager stack and the k6 load scenarios defined in [`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md:1), [`docs/planning/DEPLOYMENT_REQUIREMENTS.md`](docs/planning/DEPLOYMENT_REQUIREMENTS.md:1), and [`STRATEGIC_ROADMAP.md`](docs/planning/STRATEGIC_ROADMAP.md:1).
-- **Canonical board topologies.** Only the three documented board types (square8, square19, hexagonal) are in scope for v1.0; rules semantics, tests, and AI training pipelines assume the geometry contracts in [`docs/architecture/TOPOLOGY_MODES.md`](docs/architecture/TOPOLOGY_MODES.md:1).
+- **Canonical board topologies.** Only the four documented board types (square8, square19, hex8, hexagonal) are in scope for v1.0; rules semantics, tests, and AI training pipelines assume the geometry contracts in [`docs/architecture/TOPOLOGY_MODES.md`](docs/architecture/TOPOLOGY_MODES.md:1).
 
 If any of these assumptions change materially (for example, a different deployment topology or AI service design), this goals document should be updated **first** and downstream roadmaps and assessments should be adjusted to match.
 
@@ -332,7 +332,7 @@ Sections 6–8 collectively define what is in scope for the current v1.0 phase (
 - **Single app instance topology** is the supported production configuration
 - **Browser-only client** (no desktop/mobile native apps planned)
 - **English-only** for initial release
-- **Three board types only** (8×8, 19×19, hex) – no custom board sizes
+- **Four board types only** (8×8, 19×19, hex8, hexagonal) – no custom board sizes
 - **Four players maximum** per game
 
 ---
@@ -425,7 +425,7 @@ RingRift's design is guided by these core principles:
 3. **Emergent complexity** – Simple rules create complex interactions. Stack building, marker flipping, line formation, and territory disconnection interweave to produce deep strategic possibilities.
 4. **Multi-player dynamics** – Designed for 3 players (extensible to 2–4), creating natural alliance formation and leader-balancing behavior that pure 2-player games lack.
 5. **Dual victory paths** – Ring elimination (tactical) and territory control (strategic) provide multiple routes to victory, rewarding different play styles.
-6. **Incremental learning** – The 8×8 simplified version provides an accessible entry point; 19×19 and hexagonal versions offer increased depth for experienced players.
+6. **Incremental learning** – The 8×8 square and hex8 boards provide accessible entry points; 19×19 and full hexagonal versions offer increased depth for experienced players.
 
 ---
 
@@ -433,7 +433,7 @@ RingRift's design is guided by these core principles:
 
 | Version | Date       | Changes                                                                                                                                                                                   |
 | ------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1.0     | 2025-11-26 | Initial creation consolidating goals from `README.md`, `STRATEGIC_ROADMAP.md`, `docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`, `TODO.md`, and `ringrift_complete_rules.md`         |
+| 1.0     | 2025-11-26 | Initial creation consolidating goals from `README.md`, `STRATEGIC_ROADMAP.md`, `docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`, `TODO.md`, and `docs/rules/COMPLETE_RULES.md`       |
 | 1.1     | 2025-12-10 | Promoted to repo root as the canonical goals SSoT; clarified clustering of objectives; added explicit rules‑UX telemetry and AI training pipeline objectives; fixed several broken links. |
 
 ---

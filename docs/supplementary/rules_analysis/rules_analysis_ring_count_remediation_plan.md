@@ -2,21 +2,22 @@
 
 This plan outlines the steps to fix the ring count inconsistencies identified in `rules_analysis_ring_count_inconsistencies.md`.
 
-**Status:** ✅ **COMPLETE** - Canonical docs and code now use **18 / 72 / 96** ring counts across all configs, tests, and documentation.
+**Status:** ✅ **COMPLETE** - Canonical docs and code now use **18 / 72 / 96** ring counts across all configs, tests, and documentation (square8/hex8 / square19 / hex).
 
 ## Objective
 
 Ensure all parts of the codebase and documentation align with the canonical specification (RR-CANON-R020):
 
 - **square8**: 18 rings
+- **hex8**: 18 rings
 - **square19**: 72 rings
 - **hexagonal**: 96 rings
 
 ## Steps
 
-### 1. Update Documentation (`ringrift_complete_rules.md`, `ringrift_compact_rules.md`, `RULES_CANONICAL_SPEC.md`)
+### 1. Update Documentation (`../../rules/COMPLETE_RULES.md`, `../../rules/COMPACT_RULES.md`, `RULES_CANONICAL_SPEC.md`)
 
-- ✅ All board-config and threshold references match **18 / 72 / 96** (square8 / square19 / hex).
+- ✅ All board-config and threshold references match **18 / 72 / 96** (square8/hex8 / square19 / hex).
 
 ### 2. Update TS + Python Board Configs
 

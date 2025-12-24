@@ -288,7 +288,7 @@ Because this document is being written after substantial W1–W5 work has alread
   - ANM/FE teaching flows (`fe_loop_intro`) were specified in [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:141) and integrated into TeachingOverlay and sandbox presets in W2/W3.
 
 - **Structural stalemate (`structural_stalemate`):**
-  - Canonical stalemate semantics and tiebreak ladder were clarified in [`ringrift_complete_rules.md` §13.4](ringrift_complete_rules.md:1410) and [`RULES_CANONICAL_SPEC.md` R173](RULES_CANONICAL_SPEC.md:619).
+  - Canonical stalemate semantics and tiebreak ladder were clarified in [`../../rules/COMPLETE_RULES.md` §13.4](../../rules/COMPLETE_RULES.md:1410) and [`RULES_CANONICAL_SPEC.md` R173](RULES_CANONICAL_SPEC.md:619).
   - UX copy and weird‑state reason codes for structural stalemate (`STRUCTURAL_STALEMATE_TIEBREAK`) were defined in [`UX_RULES_WEIRD_STATES_SPEC.md` §3.1–3.2](docs/UX_RULES_WEIRD_STATES_SPEC.md:185) and wired into HUD/Victory surfaces in W2/W4.
   - Teaching flows for stalemate (`structural_stalemate_intro`) were added to [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:423), with TeachingOverlay routing updated in W3/W4.
 

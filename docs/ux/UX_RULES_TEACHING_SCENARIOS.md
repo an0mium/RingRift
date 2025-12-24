@@ -6,7 +6,7 @@
 >
 > **Inputs:**
 >
-> - Rules canon and examples in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:193), [`ringrift_complete_rules.md`](ringrift_complete_rules.md:260).
+> - Rules canon and examples in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:193), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:260).
 > - Edge‑cases and consistency analysis in [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:361).
 > - ANM/FE behaviour catalogue in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
 > - Territory mini‑region scenarios in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
@@ -110,12 +110,12 @@ type TeachingScenarioMetadata = {
   stepKind: TeachingStepKind; // Guided explanation or interactive exercise.
 
   // UX & telemetry linkage
-  rulesDocAnchor?: string; // e.g. 'ringrift_complete_rules.md#134-end-of-game-stalemate-resolution'.
+  rulesDocAnchor?: string; // e.g. '../rules/COMPLETE_RULES.md#134-end-of-game-stalemate-resolution'.
   uxWeirdStateReasonCode?: string; // Optional reason code from UX_RULES_WEIRD_STATES_SPEC (e.g. 'ANM_MOVEMENT_FE_BLOCKED').
   telemetryRulesContext?: string; // Optional override for rules_context in telemetry.
 
   // Display / recommended usage
-  recommendedBoardType: 'square8' | 'square19' | 'hexagonal';
+  recommendedBoardType: 'square8' | 'square19' | 'hex8' | 'hexagonal';
   recommendedNumPlayers: 2 | 3 | 4;
   showInTeachingOverlay: boolean;
   showInSandboxPresets: boolean;
@@ -178,7 +178,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
      - Why no placements/moves exist.
      - That FE will remove the cap as per R100.
    - **Metadata:**
-     - `rulesDocAnchor` → [`ringrift_complete_rules.md`](ringrift_complete_rules.md:499) §4.4.
+     - `rulesDocAnchor` → [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4.
      - `uxWeirdStateReasonCode` → `ANM_MOVEMENT_FE_BLOCKED`.
 
 2. **Step id:** `teaching.fe_loop.step_2`
@@ -240,7 +240,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
      - Colour representation criterion.
      - Which player is allowed to process the region.
    - **Metadata:**
-     - `rulesDocAnchor` → [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1815) FAQ Q23; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:549) R141–R143.
+     - `rulesDocAnchor` → [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1815) FAQ Q23; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:549) R141–R143.
 
 2. **Step id:** `teaching.mini_region.q23.step_2`
    - **Index:** 2
@@ -468,7 +468,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
    - **Board description:**  
      Same or simplified board; overlay points out each count and shows who wins.
    - **Rules anchor:**  
-     [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173.
+     [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173.
 
 ---
 

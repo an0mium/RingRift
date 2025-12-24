@@ -143,11 +143,11 @@ Non-critical TODOs identified:
    - Canonical rules specification properly referenced
 
 2. **Domain-Driven Design**
-   - 6 domain aggregates properly scoped
+   - 8 domain aggregates properly scoped
    - Clear module responsibilities documented
 
 3. **Cross-Language Parity**
-   - 81 contract vectors at 100% parity
+   - 85 contract vectors at 100% parity
    - Comprehensive parity test suites
 
 4. **Observability**

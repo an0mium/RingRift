@@ -29,7 +29,7 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 | ------------------------------------ | ------------------------------------------------------ |
 | TypeScript tests (CI-gated)          | 10,249 passing (597 test suites)                       |
 | Python tests                         | 1,824 passing                                          |
-| Contract vectors                     | 81 across 18 files (v2 format)                         |
+| Contract vectors                     | 85 across 18 files (v2 format)                         |
 | DB replay parity (TS↔Python replays) | In progress; CanonicalReplayEngine powering TS harness |
 | Line coverage                        | ~69%                                                   |
 | Canonical phases                     | 8                                                      |
@@ -38,8 +38,8 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 
 - **Orchestrator rollout:** 100% complete (Phase 4 hard-ON)
 - **Legacy code removal:** ~1,176 lines removed in consolidation
-- **Engine architecture:** Canonical turn orchestrator with 6 domain aggregates
-- **Cross-language parity:** Contract testing framework with 81 vectors across 18 files, 0 mismatches
+- **Engine architecture:** Canonical turn orchestrator with 8 domain aggregates
+- **Cross-language parity:** Contract testing framework with 85 vectors across 18 files, 0 mismatches
 - **FSM validation:** Production-ready with shadow/active modes (validated: 10 games, 774 moves, 0 divergences)
 - **Sandbox replay:** Phase 1 complete – `CanonicalReplayEngine` powers TS DB replays (`scripts/selfplay-db-ts-replay.ts`). Client sandbox coercions remain for interactive play only and are slated for removal per `docs/archive/plans/SANDBOX_REPLAY_REFACTOR_PLAN.md`.
 
@@ -47,10 +47,10 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 
 | Engine                  | LOC   | Purpose                                    | Coercions  |
 | ----------------------- | ----- | ------------------------------------------ | ---------- |
-| `CanonicalReplayEngine` | 426   | Clean parity testing, FSM validation       | None       |
-| `ClientSandboxEngine`   | 4,351 | Interactive play + legacy recording replay | ~250 lines |
+| `CanonicalReplayEngine` | 505   | Clean parity testing, FSM validation       | None       |
+| `ClientSandboxEngine`   | 4,611 | Interactive play + legacy recording replay | ~250 lines |
 
-Migration path: 20 parity test files use `ClientSandboxEngine` with `traceMode: true`. These should migrate to `CanonicalReplayEngine` before coercion code removal. See `TODO.md` § Sandbox Replay Refactor.
+Migration path: 29 test files use `ClientSandboxEngine` with `traceMode: true`. These should migrate to `CanonicalReplayEngine` before coercion code removal. See `TODO.md` § Sandbox Replay Refactor.
 
 ---
 
@@ -86,7 +86,7 @@ These phases are defined in:
 ├─────────────────────────────────────────────────────────────┤
 │ ORCHESTRATOR (turnOrchestrator.ts, phaseStateMachine.ts)    │
 ├─────────────────────────────────────────────────────────────┤
-│ DOMAIN AGGREGATES (6 primary aggregates)                    │
+│ DOMAIN AGGREGATES (8 primary aggregates)                    │
 ├─────────────────────────────────────────────────────────────┤
 │ SHARED HELPERS (63 files, ~22K LOC, pure functions)         │
 ├─────────────────────────────────────────────────────────────┤
@@ -96,14 +96,16 @@ These phases are defined in:
 
 ### 1.3 Domain Aggregates
 
-| Aggregate          | LOC   | Responsibility                                |
-| ------------------ | ----- | --------------------------------------------- |
-| PlacementAggregate | 769   | Ring placement, validation, no-dead-placement |
-| MovementAggregate  | 739   | Non-capturing movement, reachability          |
-| CaptureAggregate   | 918   | Overtaking captures, chain continuation       |
-| LineAggregate      | 1,199 | Line detection, collapse decisions            |
-| TerritoryAggregate | 1,194 | Region detection, processing, elimination     |
-| VictoryAggregate   | 734   | Victory evaluation, scoring, tiebreakers      |
+| Aggregate            | LOC   | Responsibility                                      |
+| -------------------- | ----- | --------------------------------------------------- |
+| PlacementAggregate   | 789   | Ring placement, validation, no-dead-placement       |
+| MovementAggregate    | 739   | Non-capturing movement, reachability                |
+| RecoveryAggregate    | 1,423 | Recovery eligibility, enumeration, and mutation     |
+| CaptureAggregate     | 917   | Overtaking captures, chain continuation             |
+| LineAggregate        | 1,401 | Line detection, collapse decisions                  |
+| TerritoryAggregate   | 1,360 | Region detection, processing, elimination           |
+| EliminationAggregate | 411   | Ring elimination semantics across line/territory/FE |
+| VictoryAggregate     | 889   | Victory evaluation, scoring, tiebreakers            |
 
 ### 1.4 Python Engine
 
@@ -123,7 +125,7 @@ Python is explicitly a **host adapter** over canonical TS semantics—all rules 
 
 | Component                     | Status      | Location                |
 | ----------------------------- | ----------- | ----------------------- |
-| Board types (8×8, 19×19, hex) | ✅ Complete | `BoardManager.ts`       |
+| Board types (square8, square19, hex8, hexagonal) | ✅ Complete | `BoardManager.ts`       |
 | Ring placement                | ✅ Complete | `PlacementAggregate.ts` |
 | Movement                      | ✅ Complete | `MovementAggregate.ts`  |
 | Captures & chains             | ✅ Complete | `CaptureAggregate.ts`   |
@@ -177,7 +179,7 @@ Python is explicitly a **host adapter** over canonical TS semantics—all rules 
 
 The contract testing framework ensures TypeScript and Python engines produce identical results:
 
-- **81 test vectors** across 18 files (v2 format, 100% parity)
+- **85 test vectors** across 18 files (v2 format, 100% parity)
 - **DB replay parity:** active investigation; CanonicalReplayEngine surfaces recorded divergences in self-play DBs
 - Categories covered:
   - Placement, movement, capture, chain_capture
@@ -238,7 +240,7 @@ Games were reaching `gameStatus=active` with no valid candidate moves per the `i
 | TypeScript CI-gated   | 2,987 | ✅ Passing                                                       |
 | TypeScript diagnostic | ~170  | Skipped (intentional)                                            |
 | Python                | 1,824 | ✅ Passing                                                       |
-| Contract vectors      | 81    | ✅ All vectors green; DB replay parity still under investigation |
+| Contract vectors      | 85    | ✅ All vectors green; DB replay parity still under investigation |
 
 ### 4.2 Test Categories
 

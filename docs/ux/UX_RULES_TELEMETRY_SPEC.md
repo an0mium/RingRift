@@ -4,7 +4,7 @@
 >
 > **Role:** Defines a minimal but expressive telemetry schema for observing rules‑related confusion, help usage, and weird‑state UX outcomes across the RingRift client surfaces (HUD, VictoryModal, TeachingOverlay, Sandbox, FAQ / docs).
 >
-> **Inputs:** Canonical rules semantics and edge‑case analysis from [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:181), [`ringrift_complete_rules.md`](ringrift_complete_rules.md:591), [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1), and [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:184) plus UX findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:23).
+> **Inputs:** Canonical rules semantics and edge‑case analysis from [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:181), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:591), [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1), and [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:184) plus UX findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:23).
 >
 > **Downstream:** Implementation tasks in Code mode should treat this file and [`UX_RULES_WEIRD_STATES_SPEC.md`](docs/ux/UX_RULES_WEIRD_STATES_SPEC.md:1), [`UX_RULES_TEACHING_SCENARIOS.md`](docs/ux/UX_RULES_TEACHING_SCENARIOS.md:1), and [`UX_RULES_IMPROVEMENT_LOOP.md`](docs/ux/UX_RULES_IMPROVEMENT_LOOP.md:1) as the contract for wiring telemetry and metrics.
 
@@ -43,7 +43,7 @@ type RulesUxEvent = {
 
   // Game / rules state context (when applicable)
   game_id?: string; // short id; may be omitted for pure sandbox / docs views
-  board_type?: 'square8' | 'square19' | 'hexagonal';
+  board_type?: 'square8' | 'square19' | 'hex8' | 'hexagonal';
   num_players?: 2 | 3 | 4;
   difficulty?: 'tutorial' | 'casual' | 'ranked_low' | 'ranked_mid' | 'ranked_high';
   ai_profile?: string; // e.g. 'descent_v3', 'heuristic_easy'; low-cardinality config key
@@ -112,7 +112,7 @@ type RulesUxEvent = {
 - `sandbox` – curated sandbox / scenario browser.
 - `faq_panel` – in‑client FAQ / rules browser.
 - `system_toast` – transient notification / toast.
-- `external_docs` – browser navigations directly into [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) or allied docs opened from the client.
+- `external_docs` – browser navigations directly into [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1) or allied docs opened from the client.
 
 Implementations MAY introduce additional `RulesContext` values over time, but SHOULD keep `RulesUxSource` and `RulesUxEventType` restricted to the sets above unless this document is updated.
 
@@ -344,7 +344,7 @@ ringrift_rules_ux_events_total{
   event_type,    // RulesUxEventType: help_open / help_topic_view / help_reopen / weird_state_* / sandbox_scenario_* / teaching_step_* / doc_link_clicked / legacy rules_* where still emitted
   rules_context, // semantic rules context (anm_forced_elimination, structural_stalemate, etc.) or "none"
   source,        // emitting surface: hud / victory_modal / teaching_overlay / sandbox / faq_panel / system_toast / external_docs / unknown
-  board_type,    // square8 / square19 / hexagonal / "unknown"
+  board_type,    // square8 / square19 / hex8 / hexagonal / "unknown"
   num_players,   // 1 / 2 / 3 / 4 / "unknown"
   difficulty,    // primary difficulty bucket or AI level: tutorial / casual / ranked_low / 1–10 / "unknown"
   is_ranked,     // "true" / "false" / "unknown"

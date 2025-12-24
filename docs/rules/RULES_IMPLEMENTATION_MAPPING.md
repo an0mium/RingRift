@@ -2,7 +2,7 @@
 
 > **SSoT alignment:** This document is a derived mapping between canonical rules and implementation. It defers to:
 >
-> - **Rules/invariants semantics SSoT:** `../../RULES_CANONICAL_SPEC.md` (RR‑CANON rules), `../../ringrift_complete_rules.md` / `../../ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`).
+> - **Rules/invariants semantics SSoT:** `../../RULES_CANONICAL_SPEC.md` (RR‑CANON rules), COMPLETE_RULES.md` / COMPACT_RULES.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`).
 > - **Lifecycle/API SSoT:** `../architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) for the executable Move + decision + WebSocket lifecycle.
 > - **Precedence:** Backend (`GameEngine` + `TurnEngineAdapter` over the shared orchestrator, with `BoardManager`), client sandbox (`ClientSandboxEngine` + `SandboxOrchestratorAdapter`), and Python rules/AI engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over those SSoTs. Legacy backend helpers in `RuleEngine.ts` are treated as **diagnostics-only** orchestration wrappers and must not be considered canonical execution paths. If this document ever contradicts the rules spec, shared TS engine, orchestrator/contracts, WebSocket schemas, or tests, **code + tests win** and this mapping must be updated to match.
 >
@@ -18,7 +18,7 @@
 
 This document maps the canonical RingRift rules in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) to the current implementation and tests, and provides the inverse view from implementation components back to canonical rules.
 
-Canonical rule IDs of the form `RR-CANON-RXXX` always refer to entries in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md). The original narrative rules in [`ringrift_complete_rules.md`](../../ringrift_complete_rules.md) and the compact spec in [`ringrift_compact_rules.md`](../../ringrift_compact_rules.md) are treated as commentary and traceability sources only.
+Canonical rule IDs of the form `RR-CANON-RXXX` always refer to entries in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md). The original narrative rules in [`COMPLETE_RULES.md`]COMPLETE_RULES.md) and the compact spec in [`COMPACT_RULES.md`]COMPACT_RULES.md) are treated as commentary and traceability sources only.
 
 ### Quick map (top surfaces)
 

@@ -6,7 +6,7 @@
 > - It intentionally focuses on **which tests cover which rules/FAQ scenarios**; it does **not** redefine rules semantics or engine APIs.
 > - For rules semantics SSoT, see:
 >   - [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) (RR-CANON-RXXX invariants and formal rules).
->   - [`ringrift_complete_rules.md`](ringrift_complete_rules.md) and [`ringrift_compact_rules.md`](ringrift_compact_rules.md) for narrative and compact prose.
+>   - [`COMPLETE_RULES.md`](COMPLETE_RULES.md) and [`COMPACT_RULES.md`](COMPACT_RULES.md) for narrative and compact prose.
 > - For Move/decision/WebSocket lifecycle SSoT, see:
 >   - [`docs/CANONICAL_ENGINE_API.md` §§3.9–3.10, 6](docs/CANONICAL_ENGINE_API.md).
 >   - `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, and `src/shared/types/websocket.ts`.
@@ -16,6 +16,8 @@
 > **Purpose:** This file is the canonical map from the **rules documents** to the **Jest test suites**.
 >
 > **Coverage legend:** ✅ = covered, ⚠ = partial/fragile, ⏳ = pending/unimplemented. Use this to spot gaps quickly when adding scenarios.
+>
+> **Board coverage note:** Scenario rows currently focus on `square8`, `square19`, and `hexagonal`. Hex8 support exists in the engine/UI, but hex8-specific scenario coverage is still pending.
 
 ---
 
@@ -76,8 +78,8 @@ It answers:
 
 It is meant to evolve alongside:
 
-- `ringrift_complete_rules.md`
-- `ringrift_compact_rules.md`
+- `COMPLETE_RULES.md`
+- `COMPACT_RULES.md`
 - `archive/RULES_ANALYSIS_PHASE2.md`
 - `tests/README.md`
 - [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) / `KNOWN_ISSUES.md`
@@ -233,7 +235,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §4.x (Turn Structure)
+- `COMPLETE_RULES.md` §4.x (Turn Structure)
 - Compact rules §2.2–2.3 (movement phase & forced elimination)
 - FAQ 15.2 (flowchart of a turn), FAQ 24 (forced elimination when blocked)
 
@@ -254,7 +256,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §8.2–8.3
+- `COMPLETE_RULES.md` §8.2–8.3
 - Compact rules §3.1–3.2
 - FAQ 2–3 (basic movement & markers)
 
@@ -275,7 +277,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §9–10 (Overtaking Capture, Chain Overtaking)
+- `COMPLETE_RULES.md` §9–10 (Overtaking Capture, Chain Overtaking)
 - Compact rules §4.1–4.3
 - FAQ 5–6, 9, 12, 14, 15.3.1–15.3.2 (180° reversal, cyclic captures)
 
@@ -301,7 +303,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §11 (Lines & Graduated Rewards)
+- `COMPLETE_RULES.md` §11 (Lines & Graduated Rewards)
 - Compact rules §5.1–5.3
 - FAQ 7, 22
 
@@ -324,7 +326,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §12 (Area Disconnection & Collapse)
+- `COMPLETE_RULES.md` §12 (Area Disconnection & Collapse)
 - Compact rules §6.1–6.4
 - FAQ 10, 15, 20, 23
 
@@ -348,7 +350,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §13 (Victory Conditions), §7.4 (Stalemate Resolution)
+- `COMPLETE_RULES.md` §13 (Victory Conditions), §7.4 (Stalemate Resolution)
 - Compact rules §7.1–7.4, §9 (progress invariant)
 - FAQ 11, 18, 21, 24
 
@@ -369,7 +371,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- `ringrift_complete_rules.md` §4.5, §10.3, §11–12 (places where choices are surfaced)
+- `COMPLETE_RULES.md` §4.5, §10.3, §11–12 (places where choices are surfaced)
 - PlayerChoice types: `LineOrderChoice`, `LineRewardChoice`, `RingEliminationChoice`, `RegionOrderChoice`, `CaptureDirectionChoice`
 - FAQ 7 (line choice), 15 (region choice), 22–23 (line/territory details)
 
@@ -395,7 +397,7 @@ The following sections break these down in more detail.
 
 **Rules/FAQ:**
 
-- Compact rules §9 (S invariant), progress commentary in `ringrift_compact_rules.md` §9
+- Compact rules §9 (S invariant), progress commentary in `COMPACT_RULES.md` §9
 - `archive/RULES_ANALYSIS_PHASE2.md` §4 (Progress & Termination)
 
 | Coverage | Scenario / intent | Jest file(s) | Engines | Notes |
@@ -550,7 +552,7 @@ npm test -- FAQ_Q15 --verbose
 
 **Validation Level**:
 
-- Each FAQ example from [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) has at least one test
+- Each FAQ example from [`COMPLETE_RULES.md`](COMPLETE_RULES.md:1) has at least one test
 - Complex scenarios (Q15, Q22-Q23) have multiple test cases
 - Cross-FAQ integration tests validate rule interactions
 

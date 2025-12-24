@@ -48,10 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Documentation**
 
-- Complete rulebook (`ringrift_complete_rules.md`)
+- Complete rulebook (`docs/rules/COMPLETE_RULES.md`)
 - Canonical specification (`RULES_CANONICAL_SPEC.md`, v1.0)
-- Compact implementation spec (`ringrift_compact_rules.md`)
-- Human-friendly rules summary (`ringrift_simple_human_rules.md`)
+- Compact implementation spec (`docs/rules/COMPACT_RULES.md`)
+- Human-friendly rules summary (`docs/rules/HUMAN_RULES.md`)
 - API documentation with Swagger
 - Contributing guidelines
 

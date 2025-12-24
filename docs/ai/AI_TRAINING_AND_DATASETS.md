@@ -110,7 +110,7 @@ If you omit flags, the CLI uses these defaults:
 
 - `--num-games` (`int`, default `100`): number of self-play games to generate.
 - `--output` (`str`, default `logs/training_data.npz`): output NPZ path (directories are created if needed).
-- `--board-type` (`square8` | `square19` | `hexagonal`, default `square8`): board geometry for self-play games; converted to [`BoardType`](../ai-service/app/models/core.py) via [`_board_type_from_str()`](../ai-service/app/training/generate_data.py).
+- `--board-type` (`square8` | `square19` | `hex8` | `hexagonal`, default `square8`): board geometry for self-play games; converted to [`BoardType`](../ai-service/app/models/core.py) via [`_board_type_from_str()`](../ai-service/app/training/generate_data.py).
 - `--seed` (`int`, default `42`): base RNG seed for reproducible runs. When provided, per-game seeds are derived as `seed + game_idx`.
 - `--max-moves` (`int`, default `200`): maximum number of moves per game before the environment forces termination.
 - `--batch-size` (`int`, optional): reserved for future streaming/flush behaviour; currently accepted but not used.
@@ -213,7 +213,7 @@ python -m app.training.generate_territory_dataset \
 
 - `--num-games` (`int`, default `10`): number of self-play games to generate.
 - `--output` (`str`, required): path to the output `.jsonl` file. Parent directories are created if needed.
-- `--board-type` (`square8` | `square19` | `hexagonal`, default `square8`): board geometry for self-play games, mapped to [`BoardType`](../ai-service/app/models/core.py) via [`_board_type_from_str()`](../ai-service/app/training/generate_territory_dataset.py).
+- `--board-type` (`square8` | `square19` | `hex8` | `hexagonal`, default `square8`): board geometry for self-play games, mapped to [`BoardType`](../ai-service/app/models/core.py) via [`_board_type_from_str()`](../ai-service/app/training/generate_territory_dataset.py).
 - `--max-moves` (`int`, default `200`): maximum number of moves per game before forcibly terminating the trajectory.
 - `--seed` (`int`, optional): base RNG seed for deterministic runs. When provided, per-game seeds are derived as `seed + game_idx` so that each game sees a distinct but reproducible RNG stream.
 - `--engine-mode` (`descent-only` | `mixed`, default `descent-only`):

@@ -27,12 +27,12 @@ From the high‑risk concepts index in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RU
 
 - **`territory_mini_regions`**
   - Mini‑regions / Q23‑style disconnected regions with mandatory outside self‑elimination.
-  - Canonical semantics: FAQ Q23 in [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1931) and territory rules [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:549) R141–R145.
+  - Canonical semantics: FAQ Q23 in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1931) and territory rules [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:549) R141–R145.
   - Concordance entry in [`RULES_DOCS_UX_AUDIT.md` §4](docs/supplementary/RULES_DOCS_UX_AUDIT.md:142).
 
 - **`capture_chains` / `capture_chain_mandatory`**
   - Capture chains with optional start but mandatory continuation while any capture exists, including 180° reversals and cyclic patterns.
-  - Canonical captures and chain rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:480) R101–R103 and FAQ capture patterns in [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1626).
+  - Canonical captures and chain rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:480) R101–R103 and FAQ capture patterns in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1626).
   - Concept row in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:26).
 
 ### 1.2 Hypotheses
@@ -106,7 +106,7 @@ For `capture_chain_mandatory` no synthetic dataset is wired into the analyzer te
 Key qualitative inputs for this iteration:
 
 - **Mini‑regions (Q23) confusion:**
-  - FAQ Q23 in [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1931) and its discussion of mandatory self‑elimination for disconnected regions.
+  - FAQ Q23 in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1931) and its discussion of mandatory self‑elimination for disconnected regions.
   - Edge‑case and numeric‑invariant analysis in [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:361) and [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:435) (SCEN‑TERRITORY‑002 and related).
   - Territory helpers and scenario tests:
     - [`RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19)
@@ -114,7 +114,7 @@ Key qualitative inputs for this iteration:
 
 - **Capture chain confusion (mandatory vs optional):**
   - HUD and copy issues DOCUX‑P1/P3 in [`RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:33) – legacy text suggesting players can “end your turn” mid‑chain and that all lines offer the same reward choices.
-  - Chain‑capture patterns and edge cases in [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:184) and capture pattern examples in [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1629).
+  - Chain‑capture patterns and edge cases in [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:184) and capture pattern examples in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1629).
   - Planned teaching flows for capture chains in [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:342).
 
 ---
