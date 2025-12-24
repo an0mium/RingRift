@@ -556,8 +556,8 @@ Examples:
     parser.add_argument(
         "--mcts-sims",
         type=int,
-        default=100,
-        help="MCTS simulations per move (default: 100)",
+        default=800,
+        help="MCTS simulations per move (default: 800)",
     )
     parser.add_argument(
         "--parallel",

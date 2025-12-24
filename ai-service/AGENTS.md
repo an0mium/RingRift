@@ -12,7 +12,7 @@ constraints.
 
 - Hosts the **Python mirror** of the shared TS engine:
   - Pydantic models mirroring `src/shared/types/game.ts` in `app/models/**`.
-  - `app/game_engine.py` implementing GameEngine semantics for replay/parity.
+  - `app/game_engine/` (package with `__init__.py` and `phase_requirements.py`) implementing GameEngine semantics for replay/parity.
   - `app/rules/**` exposing a stable `RulesEngine` interface and history checks.
 - Owns the **replay database** and **training data pipeline**:
   - `app/db/**` – `GameReplayDB`, GameWriter/Recorder, parity DB helpers.

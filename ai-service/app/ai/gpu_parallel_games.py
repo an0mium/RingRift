@@ -424,6 +424,59 @@ class ParallelGameRunner:
             logger.warning(f"Failed to load policy model: {e}")
             return False
 
+    def reload_policy_model(self, model_path: str | None = None) -> bool:
+        """Hot-reload policy model without restarting the runner.
+
+        This enables model hot-swap during selfplay for faster iteration.
+        New models can be deployed immediately without restarting games.
+
+        Args:
+            model_path: Path to new model checkpoint. If None, uses default path.
+
+        Returns:
+            True if model reloaded successfully, False otherwise.
+        """
+        if self.policy_model is None:
+            # No model loaded yet, use full load
+            return self.load_policy_model(model_path)
+
+        try:
+            from app.utils.torch_utils import safe_load_checkpoint
+
+            if model_path is None:
+                board_type_str = self.board_type or "square8"
+                model_path = os.path.join(
+                    os.path.dirname(__file__), "..", "..",
+                    "models", "nnue", f"nnue_policy_{board_type_str}_{self.num_players}p.pt"
+                )
+                model_path = os.path.normpath(model_path)
+
+            if not os.path.exists(model_path):
+                logger.debug(f"Policy model not found at {model_path}")
+                return False
+
+            # Load new state dict
+            checkpoint = safe_load_checkpoint(model_path, map_location=self.device, warn_on_unsafe=False)
+            new_state_dict = checkpoint["model_state_dict"]
+
+            # Hot-swap weights (in-place update)
+            self.policy_model.load_state_dict(new_state_dict)
+            self.policy_model.eval()
+
+            # Re-enable FP16 if on CUDA
+            if self.device.type == "cuda" and torch.cuda.is_available():
+                try:
+                    self.policy_model = self.policy_model.half()
+                except Exception:
+                    pass
+
+            logger.info(f"ParallelGameRunner: Hot-reloaded policy model from {model_path}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to hot-reload policy model: {e}")
+            return False
+
     def _select_moves(
         self,
         moves: BatchMoves,
@@ -3439,7 +3492,7 @@ class ParallelGameRunner:
 
     # Predefined matchup configurations for systematic training
     TRAINING_MATCHUPS: dict[str, list[str]] = {
-        # Standard matchups (for 2-player games)
+        # ===== 2-PLAYER MATCHUPS =====
         "aggressive_vs_defensive": ["aggressive", "defensive"],
         "territorial_vs_aggressive": ["territorial", "aggressive"],
         "balanced_vs_aggressive": ["balanced", "aggressive"],
@@ -3451,6 +3504,22 @@ class ParallelGameRunner:
         "defensive_mirror": ["defensive", "defensive"],
         "balanced_mirror": ["balanced", "balanced"],
         "territorial_mirror": ["territorial", "territorial"],
+        # ===== 3-PLAYER MATCHUPS =====
+        "3p_balanced": ["balanced", "balanced", "balanced"],
+        "3p_mixed": ["aggressive", "defensive", "territorial"],
+        "3p_aggressive": ["aggressive", "aggressive", "aggressive"],
+        "3p_defensive": ["defensive", "defensive", "defensive"],
+        "3p_territorial": ["territorial", "territorial", "territorial"],
+        "3p_agg_def_bal": ["aggressive", "defensive", "balanced"],
+        "3p_ter_agg_bal": ["territorial", "aggressive", "balanced"],
+        # ===== 4-PLAYER MATCHUPS =====
+        "4p_balanced": ["balanced", "balanced", "balanced", "balanced"],
+        "4p_mixed": ["aggressive", "defensive", "territorial", "balanced"],
+        "4p_aggressive": ["aggressive", "aggressive", "aggressive", "aggressive"],
+        "4p_defensive": ["defensive", "defensive", "defensive", "defensive"],
+        "4p_territorial": ["territorial", "territorial", "territorial", "territorial"],
+        "4p_agg_vs_def": ["aggressive", "aggressive", "defensive", "defensive"],
+        "4p_ter_vs_bal": ["territorial", "territorial", "balanced", "balanced"],
     }
 
     @classmethod

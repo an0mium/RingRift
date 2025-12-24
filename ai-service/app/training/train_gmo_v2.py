@@ -75,7 +75,11 @@ class GMOv2ValueNet(nn.Module):
 # =============================================================================
 
 class GMOv2Dataset(Dataset):
-    """Dataset for GMO v2 training using AttentionStateEncoder features."""
+    """Dataset for GMO v2 training using AttentionStateEncoder features.
+
+    Supports caching preprocessed data to .pt files for fast loading.
+    First run preprocesses and saves; subsequent runs load instantly.
+    """
 
     def __init__(
         self,
@@ -83,14 +87,54 @@ class GMOv2Dataset(Dataset):
         state_encoder: AttentionStateEncoder,
         move_encoder: MoveEncoderV2,
         max_samples: int | None = None,
+        cache_dir: Path | None = None,
     ):
         self.data_path = data_path
         self.state_encoder = state_encoder
         self.move_encoder = move_encoder
         self.samples: list[tuple[torch.Tensor, torch.Tensor, float]] = []
 
-        self._load_data(max_samples)
+        # Try to load from cache first
+        cache_path = self._get_cache_path(cache_dir)
+        if cache_path and cache_path.exists():
+            self._load_from_cache(cache_path)
+        else:
+            self._load_data(max_samples)
+            if cache_path:
+                self._save_to_cache(cache_path)
+
         logger.info(f"Loaded {len(self.samples)} samples from {data_path}")
+
+    def _get_cache_path(self, cache_dir: Path | None) -> Path | None:
+        """Get cache file path based on data file name."""
+        if cache_dir is None:
+            # Default: same directory as data file, with .pt extension
+            cache_dir = self.data_path.parent
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / f"{self.data_path.stem}_cached.pt"
+
+    def _load_from_cache(self, cache_path: Path) -> None:
+        """Load preprocessed samples from cache."""
+        logger.info(f"Loading from cache: {cache_path}")
+        data = torch.load(cache_path, weights_only=False)
+        self.samples = [
+            (data['state_features'][i], data['move_embeds'][i], data['outcomes'][i].item())
+            for i in range(len(data['outcomes']))
+        ]
+        logger.info(f"Loaded {len(self.samples)} samples from cache")
+
+    def _save_to_cache(self, cache_path: Path) -> None:
+        """Save preprocessed samples to cache for fast loading."""
+        logger.info(f"Saving to cache: {cache_path}")
+        state_features = torch.stack([s[0] for s in self.samples])
+        move_embeds = torch.stack([s[1] for s in self.samples])
+        outcomes = torch.tensor([s[2] for s in self.samples], dtype=torch.float32)
+        torch.save({
+            'state_features': state_features,
+            'move_embeds': move_embeds,
+            'outcomes': outcomes,
+        }, cache_path)
+        logger.info(f"Cached {len(self.samples)} samples to {cache_path}")
 
     def _load_data(self, max_samples: int | None) -> None:
         """Load game data from JSONL file."""

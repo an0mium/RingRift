@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -146,6 +147,89 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+# Cache for resolved npx path
+_NPX_PATH_CACHE: str | None = None
+
+
+def _find_npx() -> str | None:
+    """Find the npx executable with fallbacks for various environments.
+
+    Search order:
+    1. RINGRIFT_NPX_PATH environment variable (explicit override)
+    2. PATH via shutil.which
+    3. Common installation locations:
+       - ~/.nvm/versions/node/*/bin/npx (nvm)
+       - /opt/homebrew/bin/npx (macOS Homebrew)
+       - /usr/local/bin/npx (system install)
+       - ~/.local/bin/npx (user local)
+       - /usr/bin/npx (Linux system)
+
+    Returns:
+        Path to npx executable, or None if not found.
+    """
+    global _NPX_PATH_CACHE
+
+    # Return cached result
+    if _NPX_PATH_CACHE is not None:
+        return _NPX_PATH_CACHE if _NPX_PATH_CACHE != "" else None
+
+    # 1. Check explicit override
+    explicit = os.environ.get("RINGRIFT_NPX_PATH")
+    if explicit and Path(explicit).exists():
+        _NPX_PATH_CACHE = explicit
+        return explicit
+
+    # 2. Check PATH
+    which_npx = shutil.which("npx")
+    if which_npx:
+        _NPX_PATH_CACHE = which_npx
+        return which_npx
+
+    # 3. Check common locations
+    home = Path.home()
+    common_paths = [
+        "/opt/homebrew/bin/npx",        # macOS Homebrew
+        "/usr/local/bin/npx",           # Common system install
+        str(home / ".local/bin/npx"),   # User local
+        "/usr/bin/npx",                 # Linux system
+    ]
+
+    # Check nvm installations (find latest version)
+    nvm_dir = home / ".nvm/versions/node"
+    if nvm_dir.exists():
+        node_versions = sorted(nvm_dir.iterdir(), reverse=True)
+        for ver_dir in node_versions:
+            npx_path = ver_dir / "bin/npx"
+            if npx_path.exists():
+                _NPX_PATH_CACHE = str(npx_path)
+                return str(npx_path)
+
+    for path in common_paths:
+        if Path(path).exists():
+            _NPX_PATH_CACHE = path
+            return path
+
+    # Not found
+    _NPX_PATH_CACHE = ""  # Cache negative result
+    logger.warning(
+        "npx executable not found. Set RINGRIFT_NPX_PATH env var or install Node.js. "
+        "Parity validation against TypeScript will be skipped."
+    )
+    return None
+
+
+def _is_ts_replay_available() -> bool:
+    """Check if the TypeScript replay harness is available."""
+    npx = _find_npx()
+    if not npx:
+        return False
+
+    # Check that the TS script exists
+    root = _repo_root()
+    ts_script = root / "scripts/selfplay-db-ts-replay.ts"
+    return ts_script.exists()
+
+
 def _parse_board_type(board_type_str: str) -> BoardType:
     """Parse a board type string into a BoardType enum value."""
     mapping = {
@@ -230,10 +314,20 @@ def _run_ts_replay(db_path: Path, game_id: str) -> tuple[int, dict[int, StateSum
 
     Returns:
         (total_moves_reported_by_ts, mapping from k -> summary)
+
+    Raises:
+        RuntimeError: If npx is not available or the replay fails.
     """
+    npx = _find_npx()
+    if not npx:
+        raise RuntimeError(
+            "npx executable not found. Install Node.js or set RINGRIFT_NPX_PATH. "
+            "Skipping TS parity validation."
+        )
+
     root = _repo_root()
     cmd = [
-        "npx",
+        npx,
         "ts-node",
         "-T",
         "scripts/selfplay-db-ts-replay.ts",
@@ -365,57 +459,64 @@ def dump_divergence_bundle(
 
     # Collect TS states by invoking replay with dump
     ts_states: dict[int, dict[str, Any]] = {}
-    try:
-        root = _repo_root()
-        env = os.environ.copy()
-        env.setdefault("TS_NODE_PROJECT", "tsconfig.server.json")
-
-        # Use both env var AND CLI arg for robustness
-        dump_arg = ",".join(str(k) for k in sorted(set(ks)))
-        env["RINGRIFT_TS_REPLAY_DUMP_DIR"] = str(output_dir)
-        env["RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K"] = dump_arg
-
-        cmd = [
-            "npx", "ts-node", "-T",
-            "scripts/selfplay-db-ts-replay.ts",
-            "--db", str(db_path),
-            "--game", divergence.game_id,
-            "--dump-state-at", dump_arg,
-        ]
-
-        result = subprocess.run(
-            cmd, cwd=str(root), env=env,
-            capture_output=True, text=True, timeout=120
+    npx = _find_npx()
+    if not npx:
+        logger.warning(
+            "npx not found - skipping TS state dump for divergence bundle. "
+            "Set RINGRIFT_NPX_PATH or install Node.js."
         )
+    else:
+        try:
+            root = _repo_root()
+            env = os.environ.copy()
+            env.setdefault("TS_NODE_PROJECT", "tsconfig.server.json")
 
-        if result.returncode != 0:
-            logger.warning(
-                f"TS replay for state dump failed with code {result.returncode}:\n"
-                f"STDERR: {result.stderr[:500] if result.stderr else 'N/A'}"
+            # Use both env var AND CLI arg for robustness
+            dump_arg = ",".join(str(k) for k in sorted(set(ks)))
+            env["RINGRIFT_TS_REPLAY_DUMP_DIR"] = str(output_dir)
+            env["RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K"] = dump_arg
+
+            cmd = [
+                npx, "ts-node", "-T",
+                "scripts/selfplay-db-ts-replay.ts",
+                "--db", str(db_path),
+                "--game", divergence.game_id,
+                "--dump-state-at", dump_arg,
+            ]
+
+            result = subprocess.run(
+                cmd, cwd=str(root), env=env,
+                capture_output=True, text=True, timeout=120
             )
 
-        # Log the TS replay output for debugging
-        if result.stdout:
-            for line in result.stdout.splitlines()[:5]:
-                logger.debug(f"TS replay output: {line}")
+            if result.returncode != 0:
+                logger.warning(
+                    f"TS replay for state dump failed with code {result.returncode}:\n"
+                    f"STDERR: {result.stderr[:500] if result.stderr else 'N/A'}"
+                )
 
-        # Read the dumped TS state files
-        for ts_k in ks:
-            file_name = f"{db_path.name}__{divergence.game_id}__k{ts_k}.ts_state.json"
-            ts_path = output_dir / file_name
-            if ts_path.exists():
-                try:
-                    with ts_path.open("r") as f:
-                        ts_states[ts_k] = json.load(f)
-                    logger.debug(f"Loaded TS state from {ts_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to parse TS state file {ts_path}: {e}")
-            else:
-                logger.warning(f"TS state file not found: {ts_path}")
-    except subprocess.TimeoutExpired:
-        logger.warning(f"TS replay timed out for game {divergence.game_id}")
-    except Exception as e:
-        logger.warning(f"Failed to dump TS states: {e}", exc_info=True)
+            # Log the TS replay output for debugging
+            if result.stdout:
+                for line in result.stdout.splitlines()[:5]:
+                    logger.debug(f"TS replay output: {line}")
+
+            # Read the dumped TS state files
+            for ts_k in ks:
+                file_name = f"{db_path.name}__{divergence.game_id}__k{ts_k}.ts_state.json"
+                ts_path = output_dir / file_name
+                if ts_path.exists():
+                    try:
+                        with ts_path.open("r") as f:
+                            ts_states[ts_k] = json.load(f)
+                        logger.debug(f"Loaded TS state from {ts_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse TS state file {ts_path}: {e}")
+                else:
+                    logger.warning(f"TS state file not found: {ts_path}")
+        except subprocess.TimeoutExpired:
+            logger.warning(f"TS replay timed out for game {divergence.game_id}")
+        except Exception as e:
+            logger.warning(f"Failed to dump TS states: {e}", exc_info=True)
 
     # Get move metadata around divergence
     moves_window: list[dict[str, Any]] = []

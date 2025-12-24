@@ -308,6 +308,38 @@ def update_elo(
     return new_a, new_b
 
 
+def _tier_to_participant_id(tier: str, board_type: str, num_players: int) -> str:
+    """Convert tier name to a descriptive participant ID.
+
+    This ensures tier-based participants have meaningful IDs that include
+    context about what AI type they represent (random, heuristic, mcts).
+
+    Args:
+        tier: Tier name like "D1", "D2", etc.
+        board_type: Board type for config context
+        num_players: Number of players for config context
+
+    Returns:
+        Descriptive participant ID like "tier_D1_random_sq8_2p"
+    """
+    tier_upper = tier.upper().strip()
+    difficulty = int(tier_upper[1:]) if tier_upper.startswith("D") else 1
+
+    # Map difficulty to AI type description
+    if difficulty == 1:
+        ai_desc = "random"
+    elif difficulty <= 6:
+        ai_desc = f"heuristic_d{difficulty}"
+    elif difficulty <= 8:
+        ai_desc = f"mcts_d{difficulty}"
+    else:
+        ai_desc = f"gumbel_d{difficulty}"
+
+    # Create descriptive ID
+    config = f"{board_type}_{num_players}p"
+    return f"tier_{tier_upper}_{ai_desc}_{config}"
+
+
 def persist_match_to_unified_elo(
     tier_a: str,
     tier_b: str,
@@ -319,13 +351,17 @@ def persist_match_to_unified_elo(
     duration_sec: float = 0.0,
 ) -> None:
     """Persist match result to unified Elo database."""
+    # Convert tier names to descriptive participant IDs
+    participant_a = _tier_to_participant_id(tier_a, board_type, num_players)
+    participant_b = _tier_to_participant_id(tier_b, board_type, num_players)
+    winner_id = participant_a if winner == 1 else participant_b if winner == 2 else None
+
     if ELO_SERVICE_AVAILABLE:
         try:
             svc = get_elo_service()
-            winner_id = tier_a if winner == 1 else tier_b if winner == 2 else None
             svc.record_match(
-                tier_a,
-                tier_b,
+                participant_a,
+                participant_b,
                 winner=winner_id,
                 board_type=board_type,
                 num_players=num_players,
@@ -345,14 +381,14 @@ def persist_match_to_unified_elo(
 
         # Determine rankings based on winner
         if winner == 1:
-            rankings = [0, 1]  # tier_a won
+            rankings = [0, 1]  # participant_a won
         elif winner == 2:
-            rankings = [1, 0]  # tier_b won
+            rankings = [1, 0]  # participant_b won
         else:
             rankings = [0, 0]  # draw
 
         db.record_match_and_update(
-            participant_ids=[tier_a, tier_b],
+            participant_ids=[participant_a, participant_b],
             rankings=rankings,
             board_type=board_type,
             num_players=num_players,

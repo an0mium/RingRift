@@ -24,7 +24,7 @@
 
 ## 1. Overview
 
-This document specifies the **domain aggregate structure** for the shared RingRift rules engine. The design consolidates the original 36-engine-file layout into **6 primary domain aggregates** plus a **shared core module**, reducing fragmentation while maintaining backward compatibility.
+This document specifies the **domain aggregate structure** for the shared RingRift rules engine. The design consolidates the original 36-engine-file layout into **8 primary domain aggregates** plus a **shared core module**, reducing fragmentation while maintaining backward compatibility.
 
 Today, the implementation sits in the following shape:
 
@@ -44,18 +44,20 @@ The tables and interfaces in sections 2–8 describe the **target internal decom
 
 ### 1.1 Summary (Target Aggregate View)
 
-| Group              | Files Consolidated (conceptual) | Concern Types                              |
-| ------------------ | ------------------------------- | ------------------------------------------ |
-| PlacementAggregate | 3                               | Validation, Mutation, Query                |
-| MovementAggregate  | 4                               | Validation, Mutation, Query, Helper        |
-| CaptureAggregate   | 4                               | Validation, Mutation, Query, Orchestration |
-| LineAggregate      | 4                               | Validation, Mutation, Detection, Query     |
-| TerritoryAggregate | 6                               | Validation, Mutation, Detection, Query     |
-| VictoryAggregate   | 1                               | Query                                      |
-| SharedCore         | 6                               | Helper, Types                              |
-| Turn/Orchestration | 6                               | Orchestration, Mutation                    |
-| AI/Evaluation      | 2                               | Query                                      |
-| **Total**          | **36**                          |                                            |
+| Group                | Files Consolidated (conceptual) | Concern Types                              |
+| -------------------- | ------------------------------- | ------------------------------------------ |
+| PlacementAggregate   | 3                               | Validation, Mutation, Query                |
+| MovementAggregate    | 4                               | Validation, Mutation, Query, Helper        |
+| CaptureAggregate     | 4                               | Validation, Mutation, Query, Orchestration |
+| LineAggregate        | 4                               | Validation, Mutation, Detection, Query     |
+| TerritoryAggregate   | 6                               | Validation, Mutation, Detection, Query     |
+| VictoryAggregate     | 1                               | Query                                      |
+| EliminationAggregate | 1                               | Validation, Mutation, Query                |
+| RecoveryAggregate    | 1                               | Validation, Mutation, Query                |
+| SharedCore           | 6                               | Helper, Types                              |
+| Turn/Orchestration   | 6                               | Orchestration, Mutation                    |
+| AI/Evaluation        | 2                               | Query                                      |
+| **Total**            | **38**                          |                                            |
 
 ---
 
@@ -954,6 +956,267 @@ VictoryAggregate/
 
 ---
 
+### 3.7 EliminationAggregate
+
+#### Purpose
+
+Owns all elimination semantics for RingRift, providing a single source of truth for stack elimination across all contexts (line processing, territory processing, forced elimination, and recovery).
+
+#### Source Modules (conceptual consolidation)
+
+| File                                                                                            | Status in design |
+| ----------------------------------------------------------------------------------------------- | ---------------- |
+| [`aggregates/EliminationAggregate.ts`](../src/shared/engine/aggregates/EliminationAggregate.ts) | Canonical SSoT   |
+
+#### Public Interface (design sketch)
+
+```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Context in which elimination occurs. Determines cost and eligibility.
+ * - 'line': Line processing reward (RR-CANON-R122) - 1 ring, any stack
+ * - 'territory': Territory self-elimination (RR-CANON-R145) - entire cap
+ * - 'forced': Forced elimination when no moves (RR-CANON-R100) - entire cap
+ * - 'recovery': Recovery buried ring extraction (RR-CANON-R113) - 1 buried ring
+ */
+export type EliminationContext = 'line' | 'territory' | 'forced' | 'recovery';
+
+export interface EliminationParams {
+  context: EliminationContext;
+  player: number;
+  stackPosition: Position;
+  board: BoardState;
+  reason?: EliminationReason;
+  buriedRingIndex?: number;
+}
+
+export interface EliminationResult {
+  success: boolean;
+  ringsEliminated: number;
+  updatedBoard: BoardState;
+  updatedStack: RingStack | null;
+  error?: string;
+  auditEvent?: EliminationAuditEvent;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Core Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calculate cap height - consecutive rings from top belonging to controlling player.
+ */
+export function calculateCapHeight(rings: number[]): number;
+
+/**
+ * Check if a stack is eligible for elimination in a given context.
+ */
+export function isStackEligibleForElimination(
+  stack: RingStack,
+  context: EliminationContext,
+  player: number
+): StackEligibility;
+
+/**
+ * Calculate how many rings to eliminate based on context.
+ */
+export function getRingsToEliminate(stack: RingStack, context: EliminationContext): number;
+
+/**
+ * Perform elimination from a stack (canonical function).
+ */
+export function eliminateFromStack(params: EliminationParams): EliminationResult;
+
+/**
+ * Enumerate all eligible stacks for elimination in a given context.
+ */
+export function enumerateEligibleStacks(
+  board: BoardState,
+  player: number,
+  context: EliminationContext,
+  excludePositions?: Set<string>
+): RingStack[];
+
+/**
+ * Check if player has any eligible elimination targets.
+ */
+export function hasEligibleEliminationTarget(
+  board: BoardState,
+  player: number,
+  context: EliminationContext,
+  excludePositions?: Set<string>
+): boolean;
+```
+
+#### Internal Structure (target)
+
+```text
+EliminationAggregate.ts (single-file aggregate)
+├── Types: EliminationContext, EliminationParams, EliminationResult
+├── Core: calculateCapHeight, isStackEligibleForElimination, getRingsToEliminate
+├── Mutation: eliminateFromStack
+├── Query: enumerateEligibleStacks, hasEligibleEliminationTarget
+└── Audit: emitEliminationAuditEvent
+```
+
+#### Dependencies
+
+- **`../types/game`**: `BoardState`, `Position`, `RingStack`, `positionToString`.
+
+#### Rule References
+
+- RR-CANON-R100: Forced elimination mechanics
+- RR-CANON-R122: Line processing elimination (1 ring from top)
+- RR-CANON-R145: Territory processing elimination (entire cap)
+- RR-CANON-R113: Recovery buried ring extraction
+
+---
+
+### 3.8 RecoveryAggregate
+
+#### Purpose
+
+Owns all recovery action validation, enumeration, and mutation for temporarily eliminated players who can slide a marker to complete a line.
+
+#### Source Modules (conceptual consolidation)
+
+| File                                                                                      | Status in design     |
+| ----------------------------------------------------------------------------------------- | -------------------- |
+| [`aggregates/RecoveryAggregate.ts`](../src/shared/engine/aggregates/RecoveryAggregate.ts) | Canonical SSoT       |
+| [`playerStateHelpers.ts`](../src/shared/engine/playerStateHelpers.ts)                     | Helper (eligibility) |
+
+#### Public Interface (design sketch)
+
+```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type RecoveryOption = 1 | 2;
+export type RecoveryMode = 'line' | 'fallback' | 'stack_strike';
+
+export interface RecoverySlideMove extends Move {
+  type: 'recovery_slide';
+  player: number;
+  from: Position;
+  to: Position;
+  recoveryMode?: RecoveryMode;
+  option?: RecoveryOption;
+  collapsePositions?: Position[];
+  extractionStacks: string[];
+}
+
+export interface RecoverySlideTarget {
+  from: Position;
+  to: Position;
+  formedLineLength: number;
+  isOverlength: boolean;
+  option1Cost: 1;
+  option2Available: boolean;
+  option2Cost: 0;
+  linePositions: Position[];
+}
+
+export interface RecoveryApplicationOutcome {
+  nextState: GameState;
+  formedLine: LineInfo | undefined;
+  collapsedPositions: Position[];
+  optionUsed: RecoveryOption | undefined;
+  extractionCount: number;
+  territoryGained: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Enumeration Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Enumerate all valid recovery slide targets for a player.
+ */
+export function enumerateRecoverySlideTargets(
+  state: GameState,
+  playerNumber: number
+): RecoverySlideTarget[];
+
+/**
+ * Enumerate recovery slide targets using expanded fallback rule (RR-CANON-R112).
+ */
+export function enumerateExpandedRecoverySlideTargets(
+  state: GameState,
+  playerNumber: number
+): ExpandedRecoverySlideTarget[];
+
+/**
+ * Check if a player has any valid recovery moves.
+ */
+export function hasAnyRecoveryMove(state: GameState, playerNumber: number): boolean;
+
+/**
+ * Enumerate all stacks from which a player can extract a buried ring.
+ */
+export function enumerateEligibleExtractionStacks(
+  board: BoardState,
+  playerNumber: number
+): EligibleExtractionStack[];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Validation Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Validate a recovery slide move.
+ */
+export function validateRecoverySlide(
+  state: GameState,
+  move: RecoverySlideMove
+): RecoveryValidationResult;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Application Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Apply a recovery slide move to the game state.
+ */
+export function applyRecoverySlide(
+  state: GameState,
+  move: RecoverySlideMove
+): RecoveryApplicationOutcome;
+```
+
+#### Internal Structure (target)
+
+```text
+RecoveryAggregate.ts (single-file aggregate)
+├── Types: RecoveryOption, RecoveryMode, RecoverySlideMove, RecoverySlideTarget
+├── Enumeration: enumerateRecoverySlideTargets, enumerateExpandedRecoverySlideTargets
+├── Validation: validateRecoverySlide, validateCollapsePositions
+├── Mutation: applyRecoverySlide
+├── Query: hasAnyRecoveryMove, enumerateEligibleExtractionStacks
+└── Helpers: getAdjacencyDirections, isAdjacent, getFormedLineInfo, detectFormedLine
+```
+
+#### Dependencies
+
+- **`playerStateHelpers.ts`**: `isEligibleForRecovery`, `countBuriedRings`.
+- **`rulesConfig.ts`**: `getEffectiveLineLengthThreshold`.
+- **`core.ts`**: `calculateCapHeight`.
+- **`../types/game`**: `GameState`, `BoardState`, `Position`, `Move`, `LineInfo`.
+
+#### Rule References
+
+- RR-CANON-R110: Recovery eligibility (no stacks, has markers, has buried rings)
+- RR-CANON-R111: Marker slide adjacency (Moore for square, hex-adjacency for hex)
+- RR-CANON-R112: Line requirement with fallback repositioning
+- RR-CANON-R113: Buried ring extraction cost
+- RR-CANON-R114: Cascade processing (territory regions after line collapse)
+- RR-CANON-R115: Recording semantics (recovery_slide move type)
+
+---
+
 ## 4. Shared Core Module (Design Role)
 
 ### Purpose
@@ -1335,7 +1598,7 @@ src/shared/engine/
 
 ### Key Design Decisions
 
-1. **6 Primary Aggregates**: Placement, Movement, Capture, Line, Territory, Victory.
+1. **8 Primary Aggregates**: Placement, Movement, Capture, Line, Territory, Victory, Elimination, Recovery.
 2. **SharedCore for Cross-cutting**: Geometry, stack calculations, marker effects, board views.
 3. **Turn/Orchestration Separate**: `turnOrchestrator.ts` and friends remain the public rules entry point.
 4. **Incremental Migration**: Each aggregate can be evolved independently as long as orchestrator contracts and tests remain stable.

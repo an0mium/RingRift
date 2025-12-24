@@ -209,12 +209,27 @@ def create_neural_ai(
         ai_rng_seed = (game_seed * 104729 + player * 7919) & 0xFFFFFFFF
 
     if model_path is not None:
+        # Normalize model path: nn_model_id expects just the model name
+        # without directory prefix or extension, OR an absolute path
+        model_id = str(model_path)
+        from pathlib import Path
+        path_obj = Path(model_id)
+
+        # If it's a relative path like "models/foo.pth", extract just the stem
+        # But if it's absolute, keep it as-is for explicit checkpoint loading
+        if not path_obj.is_absolute():
+            # Strip common prefixes and .pth extension
+            if model_id.startswith("models/"):
+                model_id = model_id[7:]  # Remove "models/" prefix
+            if model_id.endswith(".pth"):
+                model_id = model_id[:-4]  # Remove ".pth" suffix
+
         config = AIConfig(
             ai_type=AIType.POLICY_ONLY,
             board_type=board_type,
             difficulty=8,
             use_neural_net=True,
-            nn_model_id=str(model_path),
+            nn_model_id=model_id,
             policy_temperature=temperature,
             rngSeed=ai_rng_seed,
         )
@@ -266,17 +281,20 @@ def play_single_game(
     candidate_player: int = 1,
     max_moves: int = 500,
     seed: int | None = None,
+    opponent_ais: dict[int, Any] | None = None,
 ) -> GameResult:
-    """Play a single game between candidate and opponent.
+    """Play a single game between candidate and opponent(s).
 
     Args:
         candidate_ai: The AI being evaluated
-        opponent_ai: The baseline/opponent AI
+        opponent_ai: The baseline/opponent AI (for 2-player games or fallback)
         board_type: Board type for the game
         num_players: Number of players
         candidate_player: Which player number is the candidate
         max_moves: Maximum moves before draw
         seed: Optional random seed
+        opponent_ais: Dict mapping player numbers to AI instances for multiplayer.
+                      If not provided, all non-candidate players use opponent_ai.
 
     Returns:
         GameResult with game outcome
@@ -286,17 +304,35 @@ def play_single_game(
     engine = DefaultRulesEngine()
     state = create_initial_state(board_type, num_players)
 
+    # Build player->AI mapping for multiplayer support
+    player_ais: dict[int, Any] = {candidate_player: candidate_ai}
+    if opponent_ais is not None:
+        # Use provided AIs for each opponent player
+        player_ais.update(opponent_ais)
+    else:
+        # For 2-player games, use the single opponent_ai for the other player
+        for p in range(1, num_players + 1):
+            if p != candidate_player:
+                player_ais[p] = opponent_ai
+
     move_count = 0
     while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
         current_player = state.current_player
 
-        if current_player == candidate_player:
-            move = candidate_ai.select_move(state)
-        else:
-            move = opponent_ai.select_move(state)
+        # Get the AI for the current player
+        ai = player_ais.get(current_player)
+        if ai is None:
+            logger.error(f"No AI assigned for player {current_player}")
+            break
+
+        move = ai.select_move(state)
 
         if move:
             state = engine.apply_move(state, move)
+        else:
+            # No valid move available - this shouldn't happen in normal games
+            logger.warning(f"Player {current_player} returned no move at turn {move_count}")
+            break
         move_count += 1
 
     # Determine outcome
@@ -368,9 +404,8 @@ def run_baseline_gauntlet(
         opponent_stats = {"wins": 0, "games": 0, "win_rate": 0.0}
 
         for game_num in range(games_per_opponent):
-            # Alternate who plays first
-            candidate_player = 1 if game_num % 2 == 0 else 2
-            opponent_player = 2 if game_num % 2 == 0 else 1
+            # Rotate which player the candidate plays as
+            candidate_player = (game_num % num_players) + 1
 
             # Derive unique seed per game for varied behavior
             game_seed = random.randint(0, 0xFFFFFFFF)
@@ -382,10 +417,19 @@ def run_baseline_gauntlet(
                     model_getter=model_getter,
                     game_seed=game_seed,
                 )
-                opponent_ai = create_baseline_ai(
-                    baseline, opponent_player, board_type,
-                    game_seed=game_seed,
-                )
+
+                # Create baseline AIs for all other players
+                opponent_ais: dict[int, Any] = {}
+                for p in range(1, num_players + 1):
+                    if p != candidate_player:
+                        opponent_ais[p] = create_baseline_ai(
+                            baseline, p, board_type,
+                            game_seed=game_seed,
+                        )
+
+                # For backwards compatibility, also pass opponent_ai (player after candidate)
+                first_opponent = (candidate_player % num_players) + 1
+                opponent_ai = opponent_ais.get(first_opponent, list(opponent_ais.values())[0])
 
                 game_result = play_single_game(
                     candidate_ai=candidate_ai,
@@ -393,6 +437,7 @@ def run_baseline_gauntlet(
                     board_type=board_type,
                     num_players=num_players,
                     candidate_player=candidate_player,
+                    opponent_ais=opponent_ais,
                 )
 
                 result.total_games += 1

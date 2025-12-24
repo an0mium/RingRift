@@ -15,7 +15,7 @@ This document catalogs the responsibilities of each module in the **canonical sh
 
 > - The **implemented, canonical rules surface** is:
 >   - Shared helpers under `src/shared/engine/*.ts` (geometry, reachability, detection, decision helpers, victory, AI heuristics).
->   - Domain aggregates under `src/shared/engine/aggregates/*.ts` (Placement, Movement, Capture, Line, Territory, Victory).
+>   - Domain aggregates under `src/shared/engine/aggregates/*.ts` (Placement, Movement, Capture, Line, Territory, Victory, Elimination, Recovery).
 >   - The canonical turn orchestrator and phase state machine under `src/shared/engine/orchestration/*`.
 >   - Cross-language contracts under `src/shared/engine/contracts/*` plus JSON fixtures under `tests/fixtures/contract-vectors/v2/`.
 > - Older design language in terms of a **monolithic shared `GameEngine.ts` orchestrating `validators/*` + `mutators/*`** is now **historical**. Those modules still exist as transitional plumbing and compatibility shims, but new work should target **helpers + aggregates + orchestrator + contracts**.
@@ -47,6 +47,17 @@ The `src/shared/engine/` directory contains the following **active module groups
   - `placementHelpers.ts` – placement helpers used by placement aggregate and hosts.
   - `notation.ts`, `moveActionAdapter.ts` – debugging/notation and Move↔GameAction adapters.
   - `types.ts` – engine-internal types and interfaces.
+  - `lpsTracking.ts` – Last Player Standing (LPS) tracking and detection helpers.
+  - `chainCaptureTracking.ts` – chain capture state tracking and continuation logic.
+  - `gameEndExplanation.ts` – structured game-end explanation generation for UX.
+  - `phaseValidation.ts` – phase-specific validation helpers and guards.
+  - `playerStateHelpers.ts` – player state queries (eligibility, buried rings, stacks).
+  - `replayHelpers.ts` – replay state reconstruction and move history helpers.
+  - `sharedDecisionHelpers.ts` – shared decision enumeration/application across domains.
+  - `swapSidesHelpers.ts` – swap-sides rule implementation helpers.
+  - `weirdStateReasons.ts` – weird state detection and explanation for teaching UX.
+  - `boardMutationHelpers.ts` – low-level board mutation utilities.
+  - `historyHelpers.ts` – move history tracking and analysis utilities.
 
 - **Domain aggregates (façades over helpers)**
   - `aggregates/PlacementAggregate.ts`
@@ -55,8 +66,10 @@ The `src/shared/engine/` directory contains the following **active module groups
   - `aggregates/LineAggregate.ts`
   - `aggregates/TerritoryAggregate.ts`
   - `aggregates/VictoryAggregate.ts`
+  - `aggregates/EliminationAggregate.ts` – canonical elimination logic for all contexts (line, territory, forced, recovery) per RR-CANON-R100.
+  - `aggregates/RecoveryAggregate.ts` – recovery action validation, enumeration, and mutation per RR-CANON-R110–R115.
 
-  These files provide domain-focused façades that coordinate the underlying helpers for each vertical (Placement, Movement, Capture, Line, Territory, Victory). They are what the **turn orchestrator** calls.
+  These files provide domain-focused façades that coordinate the underlying helpers for each vertical (Placement, Movement, Capture, Line, Territory, Victory, Elimination, Recovery). They are what the **turn orchestrator** calls.
 
 - **Turn orchestration (canonical entry point)**
   - `orchestration/turnOrchestrator.ts` – `processTurn` / `processTurnAsync` and phase-level processing.
@@ -317,7 +330,62 @@ This section focuses on **helpers + aggregates + orchestrator + contracts**. Leg
 
 ---
 
-### 2.7 Turn Orchestration (Canonical)
+### 2.7 Elimination Domain
+
+#### [`aggregates/EliminationAggregate.ts`](../src/shared/engine/aggregates/EliminationAggregate.ts)
+
+- **Primary Responsibility:** Canonical elimination logic for all contexts (line, territory, forced, recovery).
+- **Key Concerns:**
+  - Stack eligibility determination based on elimination context.
+  - Cap height calculation and ring removal.
+  - Buried ring extraction for recovery actions.
+  - Elimination audit event generation for debugging.
+- **Key Exports:**
+  - `eliminateFromStack()` - Main elimination function.
+  - `isStackEligibleForElimination()` - Eligibility check.
+  - `calculateCapHeight()` - Cap height utility.
+  - `enumerateEligibleStacks()` - Query eligible stacks.
+  - `EliminationContext`, `EliminationResult` - Types.
+- **Rule References:** RR-CANON-R100 (Forced Elimination), RR-CANON-R122 (Line), RR-CANON-R145 (Territory), RR-CANON-R113 (Recovery).
+- **Concern Type:** `AGGREGATE` (validation + query + mutation for elimination).
+
+---
+
+### 2.8 Recovery Domain
+
+#### [`playerStateHelpers.ts`](../src/shared/engine/playerStateHelpers.ts)
+
+- **Primary Responsibility:** Player state queries including recovery eligibility and buried ring counting.
+- **Key Exports:**
+  - `isEligibleForRecovery()` - Check if player can perform recovery action.
+  - `countBuriedRings()` - Count player's buried rings across all stacks.
+  - `getControlledStacks()` - Get stacks controlled by a player.
+- **Concern Type:** `QUERY`.
+
+#### [`aggregates/RecoveryAggregate.ts`](../src/shared/engine/aggregates/RecoveryAggregate.ts)
+
+- **Primary Responsibility:** Recovery action domain for temporarily eliminated players.
+- **Key Concerns:**
+  - Recovery eligibility per RR-CANON-R110 (no stacks, has markers, has buried rings).
+  - Marker slide adjacency (Moore for square, hex-adjacency for hex) per RR-CANON-R111.
+  - Line requirement with Option 1/2 mechanics per RR-CANON-R112.
+  - Buried ring extraction cost model per RR-CANON-R113.
+  - Fallback repositioning when no line-forming slide exists.
+  - Stack-strike experimental variant.
+- **Key Exports:**
+  - `enumerateRecoverySlideTargets()` - Enumerate line-forming recoveries.
+  - `enumerateExpandedRecoverySlideTargets()` - Include fallback slides.
+  - `hasAnyRecoveryMove()` - Quick eligibility check.
+  - `validateRecoverySlide()` - Move validation.
+  - `applyRecoverySlide()` - Move application.
+  - `enumerateEligibleExtractionStacks()` - Find stacks with buried rings.
+  - `RecoverySlideMove`, `RecoveryOption`, `RecoveryMode` - Types.
+- **Rule References:** RR-CANON-R110–R115.
+- **Concern Type:** `AGGREGATE` (validation + query + mutation for recovery).
+
+---
+
+### 2.9 Turn Orchestration (Canonical)
 
 #### [`turnLogic.ts`](../src/shared/engine/turnLogic.ts)
 
@@ -350,7 +418,7 @@ This section focuses on **helpers + aggregates + orchestrator + contracts**. Leg
 - **Primary Responsibility:** **Single canonical entry point** for rules application.
 - **Key Responsibilities:**
   - `processTurn` / `processTurnAsync` – drive a full turn, including all decision phases.
-  - Invoke domain aggregates in deterministic order: Placement → Movement → Capture → Line → Territory → Victory.
+  - Invoke domain aggregates in deterministic order: Placement → Movement → Capture → Line → Territory → Elimination → Recovery → Victory.
   - Emit `PendingDecision` values (with Move options) that host adapters convert to `PlayerChoice` structures.
 - **Dependents:** `TurnEngineAdapter` (backend), `SandboxOrchestratorAdapter` (sandbox), contract test vector generation, trace parity tests.
 - **Concern Type:** `ORCHESTRATION`.
@@ -439,7 +507,7 @@ These adapters connect the shared orchestrator to the backend and sandbox host e
 | **DETECTION**     | `lineDetection.ts`, `territoryDetection.ts`                                                                                                                                                                                |
 | **QUERY**         | `movementLogic.ts`, `captureLogic.ts`, `globalActions.ts`, `territoryDecisionHelpers.ts` (enumeration side), `lineDecisionHelpers.ts` (enumeration side), `heuristicEvaluation.ts`, `localAIMoveSelection.ts`              |
 | **MUTATION**      | `movementApplication.ts`, `territoryProcessing.ts` (apply side), `territoryDecisionHelpers.ts` (apply side), `lineDecisionHelpers.ts` (apply side), `placementHelpers.ts`, `initialState.ts`                               |
-| **AGGREGATE**     | `PlacementAggregate.ts`, `MovementAggregate.ts`, `CaptureAggregate.ts`, `LineAggregate.ts`, `TerritoryAggregate.ts`, `VictoryAggregate.ts`                                                                                 |
+| **AGGREGATE**     | `PlacementAggregate.ts`, `MovementAggregate.ts`, `CaptureAggregate.ts`, `LineAggregate.ts`, `TerritoryAggregate.ts`, `VictoryAggregate.ts`, `EliminationAggregate.ts`, `RecoveryAggregate.ts`                              |
 | **ORCHESTRATION** | `turnLogic.ts`, `turnDelegateHelpers.ts`, `turnLifecycle.ts`, `orchestration/phaseStateMachine.ts`, `orchestration/turnOrchestrator.ts`, `TurnEngineAdapter.ts`, `SandboxOrchestratorAdapter.ts`, `index.ts` (API surface) |
 
 Legacy validators/mutators (`validators/*`, `mutators/*`, `mutators/TurnMutator.ts`) and the shared `GameEngine.ts` sit beneath this layer and are treated as **implementation plumbing** or compatibility shims.

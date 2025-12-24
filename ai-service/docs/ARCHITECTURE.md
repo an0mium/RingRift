@@ -91,7 +91,7 @@ Key modules:
 - `gmo_ai.py`, `gmo_v2.py` - Gradient Move Optimization variants
 - `gmo_mcts_hybrid.py` - GMO + MCTS hybrid for exploration
 
-### 3. Game Engine (`app/rules/`, `app/game_engine.py`)
+### 3. Game Engine (`app/rules/`, `app/game_engine/`)
 
 **Single Source of Truth Policy**: TypeScript shared engine (`src/shared/engine/`) is the canonical implementation. Python mirrors this behavior.
 

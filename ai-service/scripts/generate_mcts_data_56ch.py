@@ -160,7 +160,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate 56-channel MCTS training data")
     parser.add_argument("--output", type=str, default="data/training/ebmo_mcts_56ch.npz")
     parser.add_argument("--num-games", type=int, default=200)
-    parser.add_argument("--mcts-simulations", type=int, default=100)
+    parser.add_argument("--mcts-simulations", type=int, default=800)
     args = parser.parse_args()
 
     logger.info(f"Generating {args.num_games} games with MCTS labels (56 channels)...")

@@ -57,14 +57,24 @@ cd ai-service && pytest           # Python tests
 
 ## Cluster Infrastructure
 
-Training runs on GPU nodes managed via SSH. See `ai-service/config/distributed_hosts.yaml` for the full list. Key nodes:
+Training runs on a P2P mesh network of GPU nodes. See `ai-service/config/distributed_hosts.yaml` for configuration.
 
-- `lambda-gh200-a` through `lambda-gh200-p`: GH200 GPUs (96GB each)
-- `lambda-h100`, `lambda-2xh100`: H100 GPUs
-- `mac-studio`: Coordinator node
+### Active Nodes (Dec 2025)
+
+| Type         | Nodes                               | GPU Memory   |
+| ------------ | ----------------------------------- | ------------ |
+| Lambda GH200 | b-new, d, g, h, i, o, p, q, r, s, t | 96GB each    |
+| Lambda H100  | lambda-h100, lambda-2xh100          | 80GB / 160GB |
+| Vast.ai      | vast-5090, vast-4x5090              | Various      |
+| Hetzner      | cpu1, cpu2, cpu3                    | CPU only     |
+
+Note: GH200 nodes a, e, f are retired. Node names in config may differ from actual hostnames.
 
 ```bash
-# Check cluster status
+# Check cluster status via P2P
+curl -s http://localhost:8770/status | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"Leader: {d.get(\"leader_id\")}"); print(f"Alive: {d.get(\"alive_peers\")}")'
+
+# Or use the monitor
 cd ai-service && python -m app.distributed.cluster_monitor
 ```
 
@@ -111,18 +121,34 @@ python scripts/check_ts_python_replay_parity.py --db data/games/canonical_hex8.d
 
 All support 2, 3, or 4 players.
 
-## Current State (Dec 2024)
+## Current State (Dec 2025)
 
 ### Trained Models
 
-- `hex8_2p`: v2 model, 76.2% policy accuracy
-- `square8_4p`: Training in progress on cluster
+| Model                   | Size  | Status                             |
+| ----------------------- | ----- | ---------------------------------- |
+| `canonical_hex8_2p.pth` | 125MB | Production (76.2% policy accuracy) |
+| `canonical_sq8_2p.pth`  | 96MB  | Production                         |
+| `canonical_sq8_3p.pth`  | 96MB  | Production                         |
+| `canonical_sq19_2p.pth` | 107MB | Production                         |
 
-### Recent Additions
+### GPU Selfplay
 
-- `app/utils/game_discovery.py`: Unified database discovery
-- `app/distributed/cluster_monitor.py`: Cluster status dashboard
-- `app/training/data_quality.py`: Data validation tools
+The GPU selfplay pipeline (`ai-service/app/ai/gpu_parallel_games.py`) is production-ready:
+
+- **Parity**: 100% verified against TypeScript (10K seeds tested)
+- **Performance**: ~6.5x speedup on CUDA (partial vectorization)
+- **Status**: ~80 `.item()` calls remain; full vectorization would yield 10-20x speedup
+
+### Cluster Status
+
+~21 active nodes running 400+ selfplay jobs:
+
+- Lambda GH200 (b-new, d, g, h, i, o, p, q, r, s): Primary training
+- Lambda H100/2xH100: Secondary training
+- Vast.ai: vast-5090, vast-4x5090
+- Hetzner CPU: cpu1, cpu2, cpu3
+- P2P orchestrator on port 8770 with leader election
 
 ### Active Training
 

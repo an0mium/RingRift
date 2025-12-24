@@ -168,6 +168,8 @@ class LocalSelfplayGenerator:
         self._training_scheduler = training_scheduler
         # Reference to signal computer for evaluation feedback loop
         self._signal_computer = None
+        # Curriculum weights from training loop (Phase 3.1)
+        self._curriculum_weights: dict[str, float] = {}
 
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +188,18 @@ class LocalSelfplayGenerator:
         giving more attention to configs that are underperforming.
         """
         self._signal_computer = signal_computer
+
+    def update_curriculum_weights(self, weights: dict[str, float]) -> None:
+        """Update curriculum weights from the training loop.
+
+        Phase 3.1: These weights influence which configs get more selfplay.
+        Higher weights = more resources allocated to that config.
+
+        Args:
+            weights: Dict mapping config_key (e.g., "square8_2p") to weight (0.7-1.5)
+        """
+        self._curriculum_weights = weights.copy()
+        logger.info(f"[Selfplay] Updated curriculum weights: {len(weights)} configs")
 
     def get_pfsp_opponent(self, config_key: str, current_elo: float = INITIAL_ELO_RATING) -> str | None:
         """Get PFSP-selected opponent for selfplay.
@@ -862,9 +876,22 @@ class LocalSelfplayGenerator:
                 use_heuristic_selection=resolved_personas is not None,
             )
 
-            # Load policy model if provided
+            # Load policy model if provided, or auto-detect NNUE model
             if nn_model_path:
-                runner.load_policy_model(nn_model_path)
+                if runner.load_policy_model(nn_model_path):
+                    logger.info(f"[GPUSelfplay] Loaded policy model: {nn_model_path}")
+            else:
+                # Auto-detect NNUE model for this config
+                nnue_candidates = [
+                    AI_SERVICE_ROOT / "models" / "nnue" / f"nnue_{board_type}_{num_players}p.pt",
+                    AI_SERVICE_ROOT / "models" / "nnue" / f"{board_type}_{num_players}p_best.pt",
+                    AI_SERVICE_ROOT / "models" / f"nnue_{board_type}_{num_players}p.pt",
+                ]
+                for candidate in nnue_candidates:
+                    if candidate.exists():
+                        if runner.load_policy_model(str(candidate)):
+                            logger.info(f"[GPUSelfplay] Auto-loaded NNUE model: {candidate}")
+                            break
 
             # Run games
             games_completed = 0

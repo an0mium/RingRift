@@ -338,8 +338,8 @@ def main():
         help="Evaluation mode: 'mcts' uses Gumbel MCTS (better), 'heuristic' uses static eval"
     )
     parser.add_argument(
-        "--mcts-simulations", type=int, default=100,
-        help="Number of MCTS simulations per move (for mcts mode)"
+        "--mcts-simulations", type=int, default=800,
+        help="Number of MCTS simulations per move (for mcts mode, default: 800)"
     )
 
     args = parser.parse_args()

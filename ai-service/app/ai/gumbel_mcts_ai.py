@@ -334,6 +334,48 @@ class GumbelMCTSAI(BaseAI):
             return self.player_number - 1  # Convert to 0-indexed
         return None
 
+    def _get_adaptive_budget(self, game_state: GameState) -> int:
+        """Get adaptive simulation budget based on game phase.
+
+        Early game positions are simpler and need fewer simulations.
+        Mid/late game positions with more complex tactics get full budget.
+
+        Minimum budget is 800 simulations to ensure quality search.
+
+        Args:
+            game_state: Current game state.
+
+        Returns:
+            Adaptive simulation budget (minimum 800).
+        """
+        base_budget = max(self.simulation_budget, 800)  # Minimum 800 sims
+
+        # Estimate move number from game state or AI's own move count
+        move_number = getattr(game_state, 'move_count', None) or self.move_count
+
+        # Also factor in board occupancy for better phase estimation
+        board_size = 64  # default
+        if hasattr(game_state, 'board') and game_state.board:
+            if hasattr(game_state.board, 'width') and hasattr(game_state.board, 'height'):
+                board_size = game_state.board.width * game_state.board.height
+            elif hasattr(game_state.board, 'cells'):
+                board_size = len(game_state.board.cells)
+
+        # Early game: fewer sims needed (positions are simpler)
+        # Scale thresholds by board size (larger boards = longer games)
+        early_threshold = max(5, board_size // 10)  # ~6 for 64 cells, ~36 for 361
+        mid_threshold = max(15, board_size // 4)    # ~16 for 64 cells, ~90 for 361
+
+        if move_number < early_threshold:
+            # Very early game: 50% budget (minimum 800)
+            return max(800, base_budget // 2)
+        elif move_number < mid_threshold:
+            # Early-mid game: 75% budget (minimum 800)
+            return max(800, (base_budget * 3) // 4)
+        else:
+            # Mid-late game: full budget for complex tactics
+            return base_budget
+
     def _ensure_heuristic_evaluator(self) -> HeuristicAI | None:
         """Lazily initialize heuristic evaluator if needed.
 
@@ -1042,9 +1084,10 @@ class GumbelMCTSAI(BaseAI):
                 )
                 # Fall through to sequential version
 
-        # Sequential (CPU) version
+        # Sequential (CPU) version - use adaptive budget based on game phase
+        adaptive_budget = self._get_adaptive_budget(game_state)
         num_phases = int(np.ceil(np.log2(m)))
-        budget_per_phase = self.simulation_budget // max(num_phases, 1)
+        budget_per_phase = adaptive_budget // max(num_phases, 1)
 
         remaining = list(actions)
 
@@ -1091,8 +1134,10 @@ class GumbelMCTSAI(BaseAI):
         if m == 1:
             return actions[0]
 
+        # Use adaptive budget based on game phase
+        adaptive_budget = self._get_adaptive_budget(game_state)
         num_phases = int(np.ceil(np.log2(m)))
-        budget_per_phase = self.simulation_budget // max(num_phases, 1)
+        budget_per_phase = adaptive_budget // max(num_phases, 1)
         remaining = list(actions)
         value_head = self._get_value_head(game_state)
 

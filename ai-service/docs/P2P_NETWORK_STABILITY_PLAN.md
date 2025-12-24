@@ -343,42 +343,43 @@ print(f'Alive peers: {d.get(\"alive_peers\")}')
 
 ## Verification Checklist
 
-After deployment, verify:
+**Verified 2025-12-24:**
 
-- [ ] Leader elected (not None)
-- [ ] At least 6/10 voters alive
-- [ ] 20+ alive peers
-- [ ] All Lambda GH200 nodes visible
-- [ ] Vast nodes visible (vast-5090, vast-4x5090)
-- [ ] Hetzner CPU nodes visible
-- [ ] AWS nodes visible
-- [ ] Mac nodes visible
-- [ ] No "P2P connection lost" in node_resilience logs
-- [ ] No SIGKILL in P2P service journal
-
----
-
-## Files to Modify
-
-| File                                       | Change                     |
-| ------------------------------------------ | -------------------------- |
-| `ai-service/config/distributed_hosts.yaml` | Update p2p_voter flags     |
-| `ai-service/scripts/node_resilience.py`    | Fix health check logic     |
-| `/etc/ringrift/node.conf` (each node)      | Update RINGRIFT_P2P_VOTERS |
-| `ai-service/requirements.txt`              | Ensure aiohttp listed      |
+- [x] Leader elected (not None) - lambda-h100
+- [x] At least 6/10 voters alive - **9/10 voters alive**
+- [x] 20+ alive peers - **46 alive peers**
+- [x] All Lambda GH200 nodes visible - **20 Lambda nodes connected (including a,e,f)**
+- [x] Vast nodes visible - **13 Vast nodes connected**
+- [x] Hetzner CPU nodes visible - **3 Hetzner nodes connected**
+- [x] AWS nodes visible - **2 AWS nodes connected**
+- [x] Mac nodes visible - **4 Mac nodes connected**
+- [x] node_resilience.py updated with retry logic and 5-min grace period
+- [x] Fixed setup_script_logging() bug that was crashing node_resilience
+- [x] lambda-gh200-a, e, f recovered and running (were NOT retired - had code bug)
 
 ---
 
-## Estimated Timeline
+## Implementation Status
 
-| Phase   | Tasks               | Priority    |
-| ------- | ------------------- | ----------- |
-| Phase 1 | Update voter config | Immediate   |
-| Phase 2 | Fix node_resilience | High        |
-| Phase 3 | Install aiohttp     | High        |
-| Phase 4 | Vast SSH tunnels    | Medium      |
-| Phase 5 | Tailscale fallbacks | Low         |
-| Phase 6 | Deploy & verify     | After above |
+| Phase   | Tasks               | Status                      |
+| ------- | ------------------- | --------------------------- |
+| Phase 1 | Update voter config | ✅ DONE                     |
+| Phase 2 | Fix node_resilience | ✅ DONE                     |
+| Phase 3 | Install aiohttp     | ✅ DONE                     |
+| Phase 4 | Vast SSH tunnels    | ✅ DONE (Tailscale working) |
+| Phase 5 | Tailscale fallbacks | ⏭️ SKIPPED (cluster stable) |
+| Phase 6 | Deploy & verify     | ✅ DONE                     |
+
+---
+
+## Files Modified
+
+| File                                    | Change                     | Status |
+| --------------------------------------- | -------------------------- | ------ |
+| `ai-service/config/p2p_hosts.yaml`      | Update leader_priority     | ✅     |
+| `ai-service/scripts/node_resilience.py` | Fix health check logic     | ✅     |
+| `/etc/ringrift/node.conf` (each node)   | Update RINGRIFT_P2P_VOTERS | ✅     |
+| `ai-service/requirements.txt`           | Ensure aiohttp listed      | ✅     |
 
 ---
 

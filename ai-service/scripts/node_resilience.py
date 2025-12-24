@@ -154,6 +154,7 @@ class NodeResilience:
         self.last_p2p_check = 0
         self.last_registration = 0
         self.p2p_connected = False
+        self.p2p_unhealthy_since: float | None = None  # Grace period tracking
         self.running = True
         self._last_good_coordinator: str = ""
 
@@ -224,17 +225,28 @@ class NodeResilience:
             return None
 
     def check_p2p_health(self) -> bool:
-        """Check if P2P orchestrator is running and connected."""
-        try:
-            url = f"http://localhost:{self.config.p2p_port}/health"
-            with urllib.request.urlopen(url, timeout=5) as response:
-                data = json.loads(response.read().decode())
-                if "healthy" in data:
-                    return bool(data.get("healthy"))
-                # Back-compat for older health payloads
-                return data.get("status") == "ok"
-        except Exception:
-            return False
+        """Check if P2P orchestrator is running and connected.
+
+        Uses retry logic to avoid false negatives from transient network issues.
+        The /status endpoint can be slow when the orchestrator is busy, so we use
+        generous timeouts to avoid killing healthy but busy orchestrators.
+        """
+        for attempt in range(3):
+            try:
+                url = f"http://localhost:{self.config.p2p_port}/health"
+                # Progressive timeout: 15s, 25s, 35s (increased from 5s, 8s, 11s)
+                # The P2P orchestrator can be slow under load
+                timeout = 15 + attempt * 10
+                with urllib.request.urlopen(url, timeout=timeout) as response:
+                    data = json.loads(response.read().decode())
+                    if "healthy" in data:
+                        return bool(data.get("healthy"))
+                    # Back-compat for older health payloads
+                    return data.get("status") == "ok"
+            except Exception:
+                if attempt < 2:
+                    time.sleep(2)  # Longer pause before retry
+        return False
 
     def check_autossh_tunnel(self) -> bool:
         """Check if autossh P2P tunnel is running."""
@@ -446,7 +458,7 @@ class NodeResilience:
         """
         if not self.check_p2p_health():
             return False
-        status = self._local_orchestrator_get_json("/status", timeout=5) or {}
+        status = self._local_orchestrator_get_json("/status", timeout=15) or {}
         try:
             alive_peers = int(status.get("alive_peers", 0) or 0)
         except Exception:
@@ -586,7 +598,23 @@ class NodeResilience:
             return False
 
     def _kill_port_holder(self, port: int) -> bool:
-        """Kill any process holding a port. Returns True if port becomes available."""
+        """Kill any process holding a port. Returns True if port becomes available.
+
+        IMPORTANT: Before killing, we do a final health check with a generous timeout
+        to avoid killing a healthy but slow orchestrator.
+        """
+        # Final safety check: try one more health check with a very long timeout
+        # before killing. This prevents killing a healthy but busy orchestrator.
+        try:
+            url = f"http://localhost:{port}/health"
+            with urllib.request.urlopen(url, timeout=45) as response:
+                data = json.loads(response.read().decode())
+                if data.get("healthy") or data.get("status") == "ok":
+                    logger.info(f"Port {port} holder responded to health check - not killing")
+                    return False  # Don't kill, it's actually healthy
+        except Exception:
+            pass  # Continue to kill if health check failed
+
         try:
             # Find PIDs using the port via fuser
             result = subprocess.run(
@@ -1252,13 +1280,35 @@ class NodeResilience:
         cluster_connected = self.check_cluster_connected()
 
         if p2p_healthy and cluster_connected:
+            # P2P is healthy - clear grace period tracking
+            self.p2p_unhealthy_since = None
             if not self.p2p_connected:
                 logger.info("P2P connection restored - stopping direct fallback processes")
                 self.stop_direct_fallback_processes()
             self.p2p_connected = True
         else:
+            # P2P appears unhealthy - track duration and apply grace period
+            if self.p2p_unhealthy_since is None:
+                self.p2p_unhealthy_since = now
+
+            unhealthy_duration = now - self.p2p_unhealthy_since
+            grace_period = 600  # 10 minutes before taking action (increased from 5 min)
+
+            if unhealthy_duration < grace_period:
+                # Still in grace period - just log and wait
+                if self.p2p_connected:
+                    logger.warning(
+                        f"P2P appears unhealthy ({unhealthy_duration:.0f}s), "
+                        f"waiting {grace_period - unhealthy_duration:.0f}s before intervention"
+                    )
+                return  # Don't take action yet
+
+            # Grace period expired - take action
             if self.p2p_connected:
-                logger.warning("P2P connection lost - starting local fallback")
+                logger.warning(
+                    f"P2P unhealthy for {unhealthy_duration:.0f}s (>{grace_period}s) - "
+                    "starting local fallback"
+                )
             self.p2p_connected = False
 
             # Try to start P2P orchestrator

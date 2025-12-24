@@ -28,12 +28,12 @@ The Python `ai-service` mirrors the TS engine for training data generation and m
 ### Primary Training Nodes (SSH via Tailscale)
 
 ```bash
-# GH200 nodes (96GB GPU memory each) - Primary training
-ssh -i ~/.ssh/id_cluster ubuntu@100.123.183.70  # lambda-gh200-a
-
-# H100 nodes
+# H100 nodes (primary access points)
 ssh -i ~/.ssh/id_cluster ubuntu@100.78.101.123  # lambda-h100 (80GB)
 ssh -i ~/.ssh/id_cluster ubuntu@100.97.104.89   # lambda-2xh100 (160GB)
+
+# GH200 nodes (96GB each) - use P2P status to find active ones
+# Note: GH200 nodes a, e, f are retired. Active: b-new, d, g, h, i, o, p, q, r, s, t
 
 # A10 node (23GB)
 ssh -i ~/.ssh/id_cluster ubuntu@100.91.25.13    # lambda-a10
@@ -42,14 +42,19 @@ ssh -i ~/.ssh/id_cluster ubuntu@100.91.25.13    # lambda-a10
 ### Cluster Monitoring
 
 ```bash
-# Quick cluster status
+# Quick P2P cluster status (preferred)
+curl -s http://localhost:8770/status | python3 -c '
+import sys,json
+d = json.load(sys.stdin)
+print(f"Leader: {d.get(\"leader_id\")}")
+print(f"Alive: {d.get(\"alive_peers\")} nodes")
+'
+
+# Or use the Python monitor
 python -m app.distributed.cluster_monitor
 
 # Watch mode (live updates)
 python -m app.distributed.cluster_monitor --watch --interval 10
-
-# Check specific nodes
-python -m app.distributed.cluster_monitor --hosts lambda-gh200-a lambda-h100
 ```
 
 ## Common Commands
@@ -151,13 +156,23 @@ Quality checking for training data:
 - `DatabaseQualityChecker` - Validate database schema/content
 - `TrainingDataValidator` - Validate NPZ files
 
-## Current Model State (as of Dec 2024)
+## Current Model State (as of Dec 2025)
 
-| Config     | Status         | Best Accuracy | Location        |
-| ---------- | -------------- | ------------- | --------------- |
-| hex8_2p    | Trained (v2)   | 76.2% policy  | models/hex8_2p/ |
-| square8_4p | Training       | In progress   | lambda-gh200-a  |
-| square8_2p | Needs training | -             | -               |
+| Config  | Status     | Best Accuracy | Location                     |
+| ------- | ---------- | ------------- | ---------------------------- |
+| hex8_2p | Production | 76.2% policy  | models/canonical_hex8_2p.pth |
+| sq8_2p  | Production | -             | models/canonical_sq8_2p.pth  |
+| sq8_3p  | Production | -             | models/canonical_sq8_3p.pth  |
+| sq19_2p | Production | -             | models/canonical_sq19_2p.pth |
+
+### GPU Selfplay Status
+
+The GPU parallel games engine is production-ready with 100% parity:
+
+- Location: `app/ai/gpu_parallel_games.py`
+- Current speedup: ~6.5x on CUDA
+- Optimization status: Partial (~80 `.item()` calls remain)
+- Full vectorization would yield 10-20x speedup
 
 ## Architecture Notes
 
@@ -223,13 +238,46 @@ ai-service/
 └── tests/               # Test suite
 ```
 
-## Recent Session Context
+## Recent Session Context (Dec 2025)
 
-This session covered:
+Recent work covered:
 
-- Created unified `GameDiscovery` for finding databases across all paths
-- Built `ClusterMonitor` for real-time cluster status
-- Added `DataQuality` tools for database and NPZ validation
-- Trained hex8_2p model (completed, 76.2% accuracy)
-- Started square8_4p training on lambda-gh200-a
-- Integrated GameDiscovery into export_replay_dataset.py
+- **P2P Cluster**: 21 active nodes with leader election, ~400+ selfplay jobs
+- **GPU Parity**: 100% verified (10K seeds tested) - production ready
+- **Models**: 4 canonical models in production (hex8_2p, sq8_2p, sq8_3p, sq19_2p)
+- **Infrastructure**: Updated voter configuration, fixed node_resilience issues
+- **Tests**: 11,274 passing (98.5% pass rate)
+- **Auto-Promotion Pipeline**: Added gauntlet-based model promotion (scripts/auto_promote.py)
+- **4-Player Gauntlet Fix**: Fixed multiplayer game handling in game_gauntlet.py
+
+### Auto-Promotion Workflow
+
+After training, run gauntlet evaluation to promote models:
+
+```bash
+# On cluster node with model
+PYTHONPATH=. python3 scripts/auto_promote.py --gauntlet \
+  --model models/my_model.pth \
+  --board-type hex8 --num-players 4 \
+  --games 50 --sync-to-cluster
+```
+
+**Promotion thresholds:**
+
+- vs RANDOM: 85% win rate required
+- vs HEURISTIC: 60% win rate required
+
+### Active Training Jobs (Dec 23, 2025)
+
+| Config       | Node           | Status             |
+| ------------ | -------------- | ------------------ |
+| square8_2p   | lambda-gh200-o | Exporting/Training |
+| hex8_3p      | lambda-2xh100  | Exporting/Training |
+| hexagonal_2p | lambda-gh200-c | Exporting/Training |
+
+### Known Cluster Issues
+
+- `node_resilience.py` can kill P2P if `/status` times out - disabled on some nodes
+- Tailscale connectivity intermittent - prefer public IPs when available
+- GH200 nodes a, e, f retired - removed from voter list
+- Export scripts require `PYTHONPATH=.` when running on cluster

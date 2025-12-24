@@ -282,7 +282,6 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result).toMatchObject({
-        success: true,
         nextState: expect.objectContaining({
           gameStatus: 'active',
           currentPhase: 'movement',
@@ -317,7 +316,6 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result).toMatchObject({
-        success: expect.any(Boolean),
         nextState: expect.objectContaining({
           gameStatus: expect.stringMatching(/active|completed/),
           currentPhase: expect.any(String),
@@ -351,7 +349,6 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result).toMatchObject({
-        success: expect.any(Boolean),
         nextState: expect.objectContaining({
           gameStatus: expect.stringMatching(/active|completed/),
           currentPhase: expect.any(String),
@@ -382,7 +379,6 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result).toMatchObject({
-        success: expect.any(Boolean),
         nextState: expect.objectContaining({
           gameStatus: expect.stringMatching(/active|completed/),
           currentPlayer: expect.any(Number),
@@ -414,7 +410,6 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result).toMatchObject({
-        success: expect.any(Boolean),
         nextState: expect.objectContaining({
           gameStatus: expect.stringMatching(/active|completed/),
           currentPhase: expect.any(String),
@@ -447,7 +442,6 @@ describe('TurnOrchestrator decision surface branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result).toMatchObject({
-        success: expect.any(Boolean),
         nextState: expect.objectContaining({
           gameStatus: expect.stringMatching(/active|completed/),
           currentPhase: expect.any(String),

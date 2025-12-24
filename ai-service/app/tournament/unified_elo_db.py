@@ -614,6 +614,7 @@ class EloDatabase:
         "none:random:d1": 400.0,   # Explicit composite format for D1 random
         "random": 400.0,           # Simple random prefix
         "tier1_random": 400.0,     # Tier 1 difficulty = random, pinned at 400
+        "d1": 400.0,               # D1 tier = random baseline, pinned at 400
     }
 
     def _is_pinned_baseline(self, participant_id: str) -> float | None:
