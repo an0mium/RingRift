@@ -1,7 +1,7 @@
 {
   "version": "v2",
   "generated": "2025-11-26T03:25:00.000Z",
-  "count": 3,
+  "count": 4,
   "categories": ["placement"],
   "description": "Test vectors for ring placement moves",
   "vectors": [
@@ -22,7 +22,10 @@
             "stacks": {},
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -52,7 +55,10 @@
           "id": "move-001",
           "type": "place_ring",
           "player": 1,
-          "to": { "x": 3, "y": 3 },
+          "to": {
+            "x": 3,
+            "y": 3
+          },
           "placedOnStack": false,
           "placementCount": 1,
           "timestamp": "2025-11-26T03:25:00.000Z",
@@ -91,7 +97,10 @@
             "size": 8,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -100,7 +109,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -130,7 +142,10 @@
           "id": "move-002",
           "type": "skip_placement",
           "player": 1,
-          "to": { "x": 0, "y": 0 },
+          "to": {
+            "x": 0,
+            "y": 0
+          },
           "timestamp": "2025-11-26T03:25:00.000Z",
           "thinkTime": 0,
           "moveNumber": 2
@@ -167,7 +182,10 @@
             "size": 8,
             "stacks": {
               "3,3": {
-                "position": { "x": 3, "y": 3 },
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
                 "rings": [1],
                 "stackHeight": 1,
                 "capHeight": 1,
@@ -176,7 +194,10 @@
             },
             "markers": {},
             "collapsedSpaces": {},
-            "eliminatedRings": { "1": 0, "2": 0 }
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
           },
           "players": [
             {
@@ -206,7 +227,10 @@
           "id": "move-003",
           "type": "place_ring",
           "player": 1,
-          "to": { "x": 3, "y": 3 },
+          "to": {
+            "x": 3,
+            "y": 3
+          },
           "placedOnStack": true,
           "placementCount": 1,
           "timestamp": "2025-11-26T03:25:00.000Z",
@@ -224,6 +248,83 @@
           "markerCount": 0,
           "collapsedCount": 0,
           "player1RingsInHand": 16,
+          "player1EliminatedRings": 0,
+          "sInvariantDelta": 0
+        }
+      }
+    },
+    {
+      "id": "placement.initial.center.hex8",
+      "version": "v2",
+      "category": "placement",
+      "description": "Initial placement at center (0,0,0) on empty hex8 board",
+      "tags": ["smoke", "placement", "initial", "hex8"],
+      "source": "manual",
+      "createdAt": "2025-12-21T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "test-placement-hex8-001",
+          "board": {
+            "type": "hex8",
+            "size": 9,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            }
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "ring_placement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 18,
+          "territoryVictoryThreshold": 31
+        },
+        "move": {
+          "id": "move-hex8-001",
+          "type": "place_ring",
+          "player": 1,
+          "to": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "placedOnStack": false,
+          "placementCount": 1,
+          "timestamp": "2025-12-21T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "gameStatus": "active",
+          "stackCount": 1,
+          "markerCount": 0,
+          "collapsedCount": 0,
+          "player1RingsInHand": 17,
           "player1EliminatedRings": 0,
           "sInvariantDelta": 0
         }

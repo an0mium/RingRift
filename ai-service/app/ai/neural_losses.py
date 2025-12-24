@@ -197,7 +197,7 @@ def ranks_from_game_result(
     """
     Compute rank indices from game result using canonical ranking rules.
 
-    Follows Section 8 of ringrift_compact_rules.md:
+    Follows Section 8 of docs/rules/COMPACT_RULES.md:
     1. Winner gets rank 0 (1st place)
     2. Remaining players ranked by: territory -> eliminated rings -> markers -> elimination order
 

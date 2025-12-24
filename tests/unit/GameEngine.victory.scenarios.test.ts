@@ -15,7 +15,7 @@ import {
  * victory checks in a small, explicit way.
  *
  * Rules/FAQ references:
- * - ringrift_complete_rules.md §13.1–13.2 (ring-elimination, territory-control)
+ * - docs/rules/COMPLETE_RULES.md §13.1–13.2 (ring-elimination, territory-control)
  * - Compact rules §7.1–7.2
  * - FAQ Q11, Q18, Q21 (high-level victory examples)
  */

@@ -1,0 +1,76 @@
+{
+  "id": "hex8-mjk8qhtj",
+  "boardType": "hex8",
+  "numPlayers": 2,
+  "isRated": false,
+  "players": [
+    {
+      "playerNumber": 1,
+      "username": "Player 1",
+      "playerType": "ai",
+      "aiType": "random",
+      "aiDifficulty": 1
+    },
+    {
+      "playerNumber": 2,
+      "username": "Player 2",
+      "playerType": "ai",
+      "aiType": "random",
+      "aiDifficulty": 1
+    }
+  ],
+  "outcome": "ring_elimination",
+  "finalScore": {
+    "ringsEliminated": {
+      "1": 0,
+      "2": 0
+    },
+    "territorySpaces": {
+      "1": 0,
+      "2": 0
+    },
+    "ringsRemaining": {
+      "1": 17,
+      "2": 18
+    }
+  },
+  "startedAt": "2025-12-24T16:41:11.095Z",
+  "endedAt": "2025-12-24T16:41:11.101Z",
+  "totalMoves": 2,
+  "totalDurationMs": 6,
+  "moves": [
+    {
+      "moveNumber": 1,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": -4,
+        "y": 0,
+        "z": 4
+      }
+    },
+    {
+      "moveNumber": 2,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": -4,
+        "y": 0,
+        "z": 4
+      },
+      "to": {
+        "x": -3,
+        "y": 0,
+        "z": 3
+      }
+    }
+  ],
+  "metadata": {
+    "recordVersion": "1.0.0",
+    "createdAt": "2025-12-24T16:41:11.101Z",
+    "source": "self_play",
+    "tags": ["golden", "fsm-canonical", "generated", "hex8"]
+  }
+}

@@ -14,7 +14,7 @@ import {
  *
  * Rules/reference:
  * - Compact rules §9 (progress invariant S = markers + collapsed + eliminated)
- * - `ringrift_compact_rules.md` §9 commentary
+ * - `docs/rules/COMPACT_RULES.md` §9 commentary
  *
  * These backend-focused tests complement the heavier, diagnostic
  * sandbox AI simulations by asserting that:
@@ -56,7 +56,13 @@ describe('ProgressSnapshot (S-invariant) – backend GameEngine (Rules §9)', ()
   }
 
   it('Rules_9_SInvariant_basic_counts_backend', () => {
-    const engine = new GameEngine('s-invariant-basic', boardType, createPlayers(), timeControl, false) as any;
+    const engine = new GameEngine(
+      's-invariant-basic',
+      boardType,
+      createPlayers(),
+      timeControl,
+      false
+    ) as any;
     const state: GameState = engine.gameState as GameState;
 
     // Start from a clean board and construct a simple configuration:
@@ -91,7 +97,13 @@ describe('ProgressSnapshot (S-invariant) – backend GameEngine (Rules §9)', ()
   });
 
   it('Rules_9_SInvariant_marker_collapse_increases_S_backend', () => {
-    const engine = new GameEngine('s-invariant-collapse', boardType, createPlayers(), timeControl, false) as any;
+    const engine = new GameEngine(
+      's-invariant-collapse',
+      boardType,
+      createPlayers(),
+      timeControl,
+      false
+    ) as any;
     const state: GameState = engine.gameState as GameState;
 
     // Construct a tiny board position where:

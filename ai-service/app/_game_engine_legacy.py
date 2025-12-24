@@ -21,7 +21,7 @@
 **SSoT (Single Source of Truth) Policy:**
 
 The canonical rules defined in ``RULES_CANONICAL_SPEC.md`` (together with
-``ringrift_complete_rules.md`` / ``ringrift_compact_rules.md``) are the
+``docs/rules/COMPLETE_RULES.md`` / ``docs/rules/COMPACT_RULES.md``) are the
 **ultimate authority** for RingRift game semantics. All implementations
 must derive from and faithfully implement these canonical rules.
 

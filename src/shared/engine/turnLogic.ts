@@ -25,7 +25,7 @@ import { flagEnabled, debugLog } from '../utils/envFlags';
  * - The shared reference engine used in parity tests.
  *
  * The semantics are derived from the backend TurnEngine and the rules
- * documented in ringrift_complete_rules.md §4 and §15.2, and
+ * documented in docs/rules/COMPLETE_RULES.md §4 and §15.2, and
  * RULES_ENGINE_ARCHITECTURE.md (turn/phase orchestration).
  */
 export interface PerTurnState {

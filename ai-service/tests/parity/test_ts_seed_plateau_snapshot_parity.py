@@ -62,6 +62,11 @@ def _build_board_from_snapshot(snapshot: dict[str, Any]) -> BoardState:
         size = 8
     elif board_type == BoardType.SQUARE19:
         size = 19
+    elif board_type == BoardType.HEX8:
+        # Mirror TS BOARD_CONFIGS for hex8 boards (size = 9).
+        # The underlying axial coordinates use a radius of 4; BoardState.size
+        # reflects the backing array dimensions rather than radius.
+        size = 9
     elif board_type == BoardType.HEXAGONAL:
         # Mirror TS BOARD_CONFIGS for hexagonal boards (size = 13).
         # The underlying axial coordinates use a radius of 12; BoardState.size

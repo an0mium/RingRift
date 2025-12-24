@@ -340,7 +340,7 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         // Cannot process the interior region because Blue has no stack outside it.
         // NOTE: Other regions (such as the large "outer" region) may still be
         // processable if they satisfy the self-elimination prerequisite; see
-        // §12.2 / FAQ Q23 in ringrift_complete_rules.md and the compact
+        // §12.2 / FAQ Q23 in docs/rules/COMPLETE_RULES.md and the compact
         // mini-region scenario Rules_12_2_Q23_mini_region_square8_numeric_invariant.
         expect(interiorRegionMoves.length).toBe(0);
 

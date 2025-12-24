@@ -444,7 +444,7 @@ export const TEACHING_TOPICS_COPY: Record<string, TeachingTopicCopy> = {
   ring_placement: {
     topicId: 'ring_placement',
     heading: 'Ring Placement',
-    // Derived from ring placement rules in ringrift_complete_rules.md; keep
+    // Derived from ring placement rules in docs/rules/COMPLETE_RULES.md; keep
     // this aligned with the canonical rules docs.
     body: 'Players take turns placing rings from their hand onto empty board spaces or on top of existing stacks. Placement sets up future movement, captures, and territory – but you must keep at least one real move available for your next turn.',
   },

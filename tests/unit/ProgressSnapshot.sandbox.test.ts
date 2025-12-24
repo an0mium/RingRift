@@ -19,7 +19,7 @@ import {
  *
  * Rules/reference:
  * - Compact rules §9 (progress invariant S = markers + collapsed + eliminated)
- * - `ringrift_compact_rules.md` §9 commentary
+ * - `docs/rules/COMPACT_RULES.md` §9 commentary
  *
  * These sandbox-focused tests complement the heavier, diagnostic
  * AI simulations by asserting that:
@@ -41,7 +41,7 @@ describe('ProgressSnapshot (S-invariant) – ClientSandboxEngine (Rules §9)', (
 
     const handler: SandboxInteractionHandler = {
       async requestChoice<TChoice extends PlayerChoice>(
-        choice: TChoice,
+        choice: TChoice
       ): Promise<PlayerChoiceResponseFor<TChoice>> {
         const anyChoice = choice as any;
 

@@ -1300,7 +1300,7 @@ When you add or modify scenario-style tests, update that matrix so it remains th
 
 ## FAQ Scenario Tests
 
-Each FAQ question from [`../docs/rules/COMPLETE_RULES.md`]../docs/rules/COMPLETE*RULES.md:1) has dedicated test coverage in scenario-style test files under `tests/scenarios/FAQ*\*.test.ts`.
+Each FAQ question from [`../docs/rules/COMPLETE_RULES.md`](../docs/rules/COMPLETE*RULES.md:1) has dedicated test coverage in scenario-style test files under `tests/scenarios/FAQ*\*.test.ts`.
 
 ### Running FAQ Tests
 
@@ -1363,7 +1363,7 @@ rulebook**:
   [`src/shared/engine`](../src/shared/engine/types.ts:1), so behaviour in tests
   matches behaviour in production.
 - When in doubt about an interpretation in
-  [`../docs/rules/COMPLETE_RULES.md`]../docs/rules/COMPLETE*RULES.md:1), look for a
+  [`../docs/rules/COMPLETE_RULES.md`](../docs/rules/COMPLETE*RULES.md:1), look for a
   matching scenario in `tests/scenarios/RulesMatrix.*.test.ts` or
   `tests/scenarios/FAQ*\*.test.ts` and treat that as the authoritative example.
 

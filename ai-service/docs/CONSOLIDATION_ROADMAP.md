@@ -373,11 +373,11 @@ During consolidation, these unique features MUST be preserved:
 
 - [x] Document export pipeline consolidation (Dec 2025) - Created EXPORT_GUIDE.md with module roles and usage - Primary CLI: scripts/export_replay_dataset.py - Core utilities: app/training/export_core.py
 - [x] Document CoordinatorBase hierarchy (Dec 2025) - Created COORDINATOR_GUIDE.md with class categorization - Identified 125 classes, categorized into Core/Deprecated/Specialized - Defined naming conventions: Orchestrator vs Coordinator vs Manager
-- [ ] Unify configuration system
+- [x] Document configuration system (Dec 2025) - Created CONFIG_GUIDE.md with usage patterns and migration - UnifiedConfig (unified_config.py) is single source of truth - 28 sub-configuration dataclasses consolidated - Identified 7 legacy config files for deprecation
 
 ### Long-term (ongoing)
 
-- [ ] Event system consolidation
+- [x] Event system consolidation (Dec 2025) - Created EVENT_GUIDE.md documenting three-tier architecture - EventBus (core), StageEventBus (pipeline), CrossProcessEventQueue (IPC) - Centralized mappings in event_mappings.py - UnifiedEventCoordinator bridges all buses
 - [ ] Remove deprecated code
 - [ ] Documentation updates
 
@@ -385,13 +385,13 @@ During consolidation, these unique features MUST be preserved:
 
 ## Metrics for Success
 
-| Metric                      | Current | Target |
-| --------------------------- | ------- | ------ |
-| Gumbel implementation files | 7       | 4      |
-| Lines in Gumbel modules     | ~5,935  | ~4,000 |
-| Coordinator/Manager classes | 75+     | 40-50  |
-| Config dataclasses          | 7+      | 3-4    |
-| Export modules              | 9+      | 4-5    |
+| Metric                      | Current | Target      | Status                     |
+| --------------------------- | ------- | ----------- | -------------------------- |
+| Gumbel implementation files | 7       | 4           | GumbelSearchEngine created |
+| Lines in Gumbel modules     | ~5,935  | ~4,000      | ~200 lines saved           |
+| Coordinator/Manager classes | 125+    | 40-50       | Documented, 3 deprecated   |
+| Config dataclasses          | 28      | 1 (unified) | DONE - UnifiedConfig SSoT  |
+| Export modules              | 9+      | 4-5         | Documented, unified CLI    |
 
 ---
 

@@ -1,14 +1,8 @@
 import { BoardManager } from '../../src/server/game/BoardManager';
-import {
-  createTestBoard,
-  addStack,
-  addMarker,
-  addCollapsedSpace,
-  pos
-} from '../utils/fixtures';
+import { createTestBoard, addStack, addMarker, addCollapsedSpace, pos } from '../utils/fixtures';
 
 /**
- * Territory disconnection scenarios derived from ringrift_complete_rules.md
+ * Territory disconnection scenarios derived from docs/rules/COMPLETE_RULES.md
  *
  * These tests exercise the BoardManager.findDisconnectedRegions logic against
  * concrete patterns described in Section 12 (Area Disconnection & Collapse)
@@ -64,14 +58,14 @@ describe('BoardManager territory disconnection (square19, Von Neumann)', () => {
     // We expect at least one disconnected region whose spaces are exactly
     // the interior 3×3 block.
     const interiorKeys = new Set(
-      Array.from({ length: 3 }, (_, dx) => 5 + dx).flatMap(x =>
-        Array.from({ length: 3 }, (_, dy) => 5 + dy).map(y => `${x},${y}`)
+      Array.from({ length: 3 }, (_, dx) => 5 + dx).flatMap((x) =>
+        Array.from({ length: 3 }, (_, dy) => 5 + dy).map((y) => `${x},${y}`)
       )
     );
 
-    const disconnectedInterior = regions.find(region => {
+    const disconnectedInterior = regions.find((region) => {
       if (!region.isDisconnected) return false;
-      const keys = new Set(region.spaces.map(p => `${p.x},${p.y}`));
+      const keys = new Set(region.spaces.map((p) => `${p.x},${p.y}`));
       if (keys.size !== interiorKeys.size) return false;
       for (const k of interiorKeys) {
         if (!keys.has(k)) return false;
@@ -115,14 +109,14 @@ describe('BoardManager territory disconnection (square19, Von Neumann)', () => {
     const regions = boardManager.findDisconnectedRegions(board, /*movingPlayer*/ 1);
 
     const interiorKeys = new Set(
-      Array.from({ length: 3 }, (_, dx) => 5 + dx).flatMap(x =>
-        Array.from({ length: 3 }, (_, dy) => 5 + dy).map(y => `${x},${y}`)
+      Array.from({ length: 3 }, (_, dx) => 5 + dx).flatMap((x) =>
+        Array.from({ length: 3 }, (_, dy) => 5 + dy).map((y) => `${x},${y}`)
       )
     );
 
-    const disconnectedInterior = regions.find(region => {
+    const disconnectedInterior = regions.find((region) => {
       if (!region.isDisconnected) return false;
-      const keys = new Set(region.spaces.map(p => `${p.x},${p.y}`));
+      const keys = new Set(region.spaces.map((p) => `${p.x},${p.y}`));
       if (keys.size !== interiorKeys.size) return false;
       for (const k of interiorKeys) {
         if (!keys.has(k)) return false;
@@ -164,14 +158,14 @@ describe('BoardManager territory disconnection (square19, Von Neumann)', () => {
     const regions = boardManager.findDisconnectedRegions(board, /*movingPlayer*/ 1);
 
     const interiorKeys = new Set(
-      Array.from({ length: 3 }, (_, dx) => 5 + dx).flatMap(x =>
-        Array.from({ length: 3 }, (_, dy) => 5 + dy).map(y => `${x},${y}`)
+      Array.from({ length: 3 }, (_, dx) => 5 + dx).flatMap((x) =>
+        Array.from({ length: 3 }, (_, dy) => 5 + dy).map((y) => `${x},${y}`)
       )
     );
 
-    const anyMatchingInterior = regions.some(region => {
+    const anyMatchingInterior = regions.some((region) => {
       if (!region.isDisconnected) return false;
-      const keys = new Set(region.spaces.map(p => `${p.x},${p.y}`));
+      const keys = new Set(region.spaces.map((p) => `${p.x},${p.y}`));
       if (keys.size !== interiorKeys.size) return false;
       for (const k of interiorKeys) {
         if (!keys.has(k)) return false;
@@ -232,9 +226,9 @@ describe('BoardManager territory disconnection (square19, Von Neumann)', () => {
     const keys2 = blockKeys(block2);
 
     const matchRegion = (keys: Set<string>) =>
-      regions.find(region => {
+      regions.find((region) => {
         if (!region.isDisconnected) return false;
-        const rkeys = new Set(region.spaces.map(p => `${p.x},${p.y}`));
+        const rkeys = new Set(region.spaces.map((p) => `${p.x},${p.y}`));
         if (rkeys.size !== keys.size) return false;
         for (const k of keys) {
           if (!rkeys.has(k)) return false;
@@ -296,14 +290,14 @@ describe('BoardManager territory disconnection (square19, Von Neumann)', () => {
     const regions = boardManager.findDisconnectedRegions(board, /*movingPlayer*/ 1);
 
     const interiorKeys = new Set(
-      Array.from({ length: 3 }, (_, dx) => 2 + dx).flatMap(x =>
-        Array.from({ length: 3 }, (_, dy) => 2 + dy).map(y => `${x},${y}`)
+      Array.from({ length: 3 }, (_, dx) => 2 + dx).flatMap((x) =>
+        Array.from({ length: 3 }, (_, dy) => 2 + dy).map((y) => `${x},${y}`)
       )
     );
 
-    const disconnectedInterior = regions.find(region => {
+    const disconnectedInterior = regions.find((region) => {
       if (!region.isDisconnected) return false;
-      const keys = new Set(region.spaces.map(p => `${p.x},${p.y}`));
+      const keys = new Set(region.spaces.map((p) => `${p.x},${p.y}`));
       if (keys.size !== interiorKeys.size) return false;
       for (const k of interiorKeys) {
         if (!keys.has(k)) return false;

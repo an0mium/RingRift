@@ -113,6 +113,20 @@ except ImportError:
     wire_plateau_to_curriculum = None
     wire_tournament_to_curriculum = None
 
+# Rollback manager for automatic rollback on regression (December 2025)
+try:
+    from app.training.rollback_manager import (
+        AutoRollbackHandler,
+        RollbackManager,
+        wire_regression_to_rollback,
+    )
+    _HAS_ROLLBACK_MANAGER = True
+except ImportError:
+    _HAS_ROLLBACK_MANAGER = False
+    AutoRollbackHandler = None
+    RollbackManager = None
+    wire_regression_to_rollback = None
+
 # Quality bridge for quality-weighted sampling (December 2025)
 try:
     from app.training.quality_bridge import (
@@ -234,6 +248,11 @@ class OrchestratorConfig:
     curriculum_wire_elo_events: bool = True  # Wire ELO_UPDATED → curriculum
     curriculum_wire_plateau_events: bool = True  # Wire PLATEAU_DETECTED → curriculum
     curriculum_wire_tournament_events: bool = True  # Wire EVALUATION_COMPLETED → curriculum
+
+    # Rollback manager (automatic rollback on regression)
+    enable_rollback: bool = True  # Enable rollback manager integration
+    auto_rollback: bool = True  # Auto-rollback on CRITICAL regressions
+    require_approval_for_severe: bool = True  # Require approval for SEVERE regressions
 
     # Online learning (continuous in-game learning)
     enable_online_learning: bool = False  # Off by default; use for EBMO online AI
@@ -826,6 +845,9 @@ class UnifiedTrainingOrchestrator:
         self._elo_watcher = None
         self._plateau_watcher = None
 
+        # Rollback handler (wires regression detection to automatic rollback)
+        self._rollback_handler: AutoRollbackHandler | None = None
+
         logger.info(f"[Orchestrator] Created for {self.config.board_type}_{self.config.num_players}p")
 
     def initialize(self):
@@ -951,6 +973,38 @@ class UnifiedTrainingOrchestrator:
                     "error": str(e),
                 }
                 logger.warning(f"[Orchestrator] CurriculumFeedback initialization failed: {e}")
+
+        # Initialize rollback manager with regression→rollback wiring (December 2025)
+        if self.config.enable_rollback and _HAS_ROLLBACK_MANAGER:
+            try:
+                from app.training.model_registry import get_model_registry
+
+                # Get registry and wire regression detection to automatic rollback
+                registry = get_model_registry()
+                self._rollback_handler = wire_regression_to_rollback(
+                    registry=registry,
+                    auto_rollback_enabled=self.config.auto_rollback,
+                    require_approval_for_severe=self.config.require_approval_for_severe,
+                    subscribe_to_events=True,
+                )
+
+                component_health["RollbackManager"] = {
+                    "status": "ok",
+                    "init_time_ms": 0.1,
+                    "error": None,
+                }
+                logger.info(
+                    f"[Orchestrator] RollbackManager wired "
+                    f"(auto={self.config.auto_rollback}, "
+                    f"require_approval={self.config.require_approval_for_severe})"
+                )
+            except Exception as e:
+                component_health["RollbackManager"] = {
+                    "status": "failed",
+                    "init_time_ms": 0,
+                    "error": str(e),
+                }
+                logger.warning(f"[Orchestrator] RollbackManager initialization failed: {e}")
 
         # Wrap model if distributed
         if self._distributed.available:
@@ -1737,6 +1791,34 @@ class UnifiedTrainingOrchestrator:
     def online_learning_available(self) -> bool:
         """Check if online learning is available."""
         return self._online_learning.available
+
+    @property
+    def rollback_available(self) -> bool:
+        """Check if rollback manager is available."""
+        return self._rollback_handler is not None
+
+    def get_pending_rollbacks(self) -> dict[str, Any]:
+        """Get pending rollbacks awaiting approval.
+
+        Returns:
+            Dict mapping model_id to pending rollback info
+        """
+        if self._rollback_handler is None:
+            return {}
+        return self._rollback_handler.get_pending_rollbacks()
+
+    def approve_rollback(self, model_id: str) -> dict[str, Any]:
+        """Approve a pending rollback.
+
+        Args:
+            model_id: Model to rollback
+
+        Returns:
+            Result dict with success/failure info
+        """
+        if self._rollback_handler is None:
+            return {"success": False, "error": "Rollback manager not available"}
+        return self._rollback_handler.approve_rollback(model_id)
 
     def __enter__(self):
         """Context manager entry."""

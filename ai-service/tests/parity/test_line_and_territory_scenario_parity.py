@@ -38,6 +38,7 @@ PARITY_DIR = BASE_DIR
 LINE_TERRITORY_SNAPSHOT_BY_BOARD = {
     BoardType.SQUARE8: PARITY_DIR / "line_territory_scenario_square8.snapshot.json",
     BoardType.SQUARE19: PARITY_DIR / "line_territory_scenario_square19.snapshot.json",
+    BoardType.HEX8: PARITY_DIR / "line_territory_scenario_hex8.snapshot.json",
     BoardType.HEXAGONAL: PARITY_DIR / "line_territory_scenario_hexagonal.snapshot.json",
 }
 
@@ -49,6 +50,7 @@ REQUIRED_LENGTH_BY_BOARD = {
     # Tests use maxPlayers=2, so line length is 4.
     BoardType.SQUARE8: 4,
     BoardType.SQUARE19: 4,
+    BoardType.HEX8: 4,
     BoardType.HEXAGONAL: 4,
 }
 
@@ -58,6 +60,9 @@ def create_base_state(board_type: BoardType) -> GameState:
         size = 8
     elif board_type == BoardType.SQUARE19:
         size = 19
+    elif board_type == BoardType.HEX8:
+        # Mirror TS BOARD_CONFIGS for hex8 boards (size = 9, radius 4)
+        size = 9
     else:
         # Mirror TS BOARD_CONFIGS for hexagonal boards (size = 13, radius 12)
         size = 13
@@ -113,6 +118,7 @@ def create_base_state(board_type: BoardType) -> GameState:
 @pytest.mark.parametrize("board_type", [
     BoardType.SQUARE8,
     BoardType.SQUARE19,
+    BoardType.HEX8,
     BoardType.HEXAGONAL,
 ])
 def test_line_and_territory_scenario_parity(board_type: BoardType, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -269,6 +275,7 @@ def test_line_and_territory_scenario_parity(board_type: BoardType, monkeypatch: 
 @pytest.mark.parametrize("board_type", [
     BoardType.SQUARE8,
     BoardType.SQUARE19,
+    BoardType.HEX8,
     BoardType.HEXAGONAL,
 ])
 def test_get_valid_moves_line_processing_surfaces_only_line_decisions(
@@ -620,7 +627,7 @@ def test_turn_line_then_territory_sequence_metadata() -> None:
 
 @pytest.mark.parametrize(
     "board_type",
-    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL],
+    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEX8, BoardType.HEXAGONAL],
 )
 def test_line_and_territory_ts_snapshot_parity(board_type: BoardType) -> None:
     """
@@ -682,7 +689,7 @@ def test_line_and_territory_multi_region_ts_snapshot_parity() -> None:
 
 @pytest.mark.parametrize(
     "board_type",
-    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL],
+    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEX8, BoardType.HEXAGONAL],
 )
 def test_overlength_line_option2_segments_exhaustive(
     board_type: BoardType, monkeypatch: pytest.MonkeyPatch
@@ -790,7 +797,7 @@ def test_overlength_line_option2_segments_exhaustive(
 
 @pytest.mark.parametrize(
     "board_type",
-    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL],
+    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEX8, BoardType.HEXAGONAL],
 )
 def test_exact_length_line_option1_only(
     board_type: BoardType, monkeypatch: pytest.MonkeyPatch

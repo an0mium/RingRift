@@ -456,12 +456,20 @@ def _process_gpu_selfplay_record(
                 for key, prob in mcts_policy.items():
                     if prob > 0:
                         try:
-                            soft_move = _parse_mcts_policy_key(key, current_state.board)
-                            if soft_move:
-                                soft_idx = encode_move_for_board(soft_move, current_state.board)
-                                if soft_idx != INVALID_MOVE_INDEX:
+                            # Check if key is already a numeric policy index
+                            if key.isdigit() or (key.startswith('-') and key[1:].isdigit()):
+                                soft_idx = int(key)
+                                if soft_idx >= 0:  # Valid policy index
                                     soft_indices.append(soft_idx)
                                     soft_values.append(float(prob))
+                            else:
+                                # Try to parse as move key (e.g., "place_ring_2,-4")
+                                soft_move = _parse_mcts_policy_key(key, current_state.board)
+                                if soft_move:
+                                    soft_idx = encode_move_for_board(soft_move, current_state.board)
+                                    if soft_idx != INVALID_MOVE_INDEX:
+                                        soft_indices.append(soft_idx)
+                                        soft_values.append(float(prob))
                         except Exception:
                             pass
 
@@ -1408,14 +1416,21 @@ def process_jsonl_file(
                         soft_values = []
                         for key, prob in mcts_policy.items():
                             if prob > 0:
-                                # Parse key to get move, encode to action index
                                 try:
-                                    soft_move = _parse_mcts_policy_key(key, current_state.board)
-                                    if soft_move:
-                                        soft_idx = encode_move_for_board(soft_move, current_state.board)
-                                        if soft_idx != INVALID_MOVE_INDEX:
+                                    # Check if key is already a numeric policy index
+                                    if key.isdigit() or (key.startswith('-') and key[1:].isdigit()):
+                                        soft_idx = int(key)
+                                        if soft_idx >= 0:  # Valid policy index
                                             soft_indices.append(soft_idx)
                                             soft_values.append(float(prob))
+                                    else:
+                                        # Parse key to get move, encode to action index
+                                        soft_move = _parse_mcts_policy_key(key, current_state.board)
+                                        if soft_move:
+                                            soft_idx = encode_move_for_board(soft_move, current_state.board)
+                                            if soft_idx != INVALID_MOVE_INDEX:
+                                                soft_indices.append(soft_idx)
+                                                soft_values.append(float(prob))
                                 except Exception:
                                     pass
 

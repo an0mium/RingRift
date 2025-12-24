@@ -22,8 +22,8 @@ import {
  * client-local sandbox engine and its `handleHumanCellClick` API.
  *
  * Rules/FAQ references:
- * - `ringrift_complete_rules.md` §10.3 (Chain Overtaking)
- * - `ringrift_complete_rules.md` §15.3.1 (180° Reversal Pattern)
+ * - `docs/rules/COMPLETE_RULES.md` §10.3 (Chain Overtaking)
+ * - `docs/rules/COMPLETE_RULES.md` §15.3.1 (180° Reversal Pattern)
  *
  * Note: Some tests in this suite manipulate internal gameState fields
  * (currentPhase, board stacks) directly, which is incompatible with the

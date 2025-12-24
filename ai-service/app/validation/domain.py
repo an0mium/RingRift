@@ -25,9 +25,9 @@ __all__ = [
 
 # Valid board types
 VALID_BOARD_TYPES = {
-    "square8", "square19", "square8_forced",
-    "hex8", "hex19",
-    "square", "hex",  # Generic
+    "square8", "square19",
+    "hex8", "hexagonal",
+    "square", "hex",  # Generic aliases
 }
 
 # Config key pattern: {board_type}_{num_players}p
@@ -38,7 +38,7 @@ def is_valid_config_key(value: Any) -> ValidationResult:
     """Validate that value is a valid config key.
 
     Config keys have format: {board_type}_{num_players}p
-    Examples: square8_2p, hex19_4p
+    Examples: square8_2p, hex8_4p
 
     Args:
         value: Value to validate
@@ -87,9 +87,8 @@ def is_valid_board_type(value: Any) -> ValidationResult:
     normalized = value.lower()
 
     # Check for base type
-    for valid in VALID_BOARD_TYPES:
-        if normalized == valid or normalized.startswith(valid):
-            return ValidationResult.ok(value)
+    if normalized in VALID_BOARD_TYPES:
+        return ValidationResult.ok(value)
 
     return ValidationResult.fail(
         f"Invalid board type: '{value}'. "

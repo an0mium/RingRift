@@ -12,7 +12,7 @@ import { createTestBoard, createTestGameState } from '../utils/fixtures';
  * the same winner and reason for the final game result.
  *
  * Rules references:
- * - ringrift_complete_rules.md §13.1–13.4, 16.9.4.5 (victory & stalemate ladder)
+ * - docs/rules/COMPLETE_RULES.md §13.1–13.4, 16.9.4.5 (victory & stalemate ladder)
  * - FAQ 11, 18, 21, 24 (stalemate, thresholds, player-count examples)
  */
 

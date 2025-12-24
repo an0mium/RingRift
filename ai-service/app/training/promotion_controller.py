@@ -84,6 +84,18 @@ except ImportError:
     _HAS_DISTRIBUTED_LOCKS = False
     TrainingLocks = None
 
+# Improvement optimizer for positive feedback acceleration (December 2025)
+try:
+    from app.training.improvement_optimizer import (
+        get_improvement_optimizer,
+        ImprovementOptimizer,
+    )
+    _HAS_IMPROVEMENT_OPTIMIZER = True
+except ImportError:
+    _HAS_IMPROVEMENT_OPTIMIZER = False
+    get_improvement_optimizer = None
+    ImprovementOptimizer = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -722,7 +734,57 @@ class PromotionController:
         if success:
             self._notify_promotion(decision)
 
+        # Record promotion result with ImprovementOptimizer for feedback loop (December 2025)
+        self._record_promotion_feedback(decision, success)
+
         return success
+
+    def _record_promotion_feedback(
+        self,
+        decision: PromotionDecision,
+        success: bool,
+    ) -> None:
+        """Record promotion result with ImprovementOptimizer.
+
+        This closes the feedback loop between promotion decisions and
+        training threshold adjustments. Successful promotions accelerate
+        training; failed promotions trigger more careful evaluation.
+
+        Args:
+            decision: The promotion decision
+            success: Whether promotion succeeded
+        """
+        if not _HAS_IMPROVEMENT_OPTIMIZER or get_improvement_optimizer is None:
+            return
+
+        try:
+            optimizer = get_improvement_optimizer()
+            config_key = self._extract_config_key(decision.model_id)
+            elo_gain = decision.elo_improvement or 0.0
+
+            if success:
+                # Record successful promotion for positive feedback
+                optimizer.record_promotion_success(
+                    config_key=config_key,
+                    elo_gain=elo_gain,
+                    model_id=decision.model_id,
+                )
+                logger.debug(
+                    f"[PromotionController] Recorded promotion success: "
+                    f"{config_key} +{elo_gain:.1f} Elo"
+                )
+            else:
+                # Record failed promotion for feedback adjustment
+                optimizer.record_promotion_failure(
+                    config_key=config_key,
+                    reason=decision.reason or "Unknown failure",
+                )
+                logger.debug(
+                    f"[PromotionController] Recorded promotion failure: "
+                    f"{config_key} - {decision.reason}"
+                )
+        except Exception as e:
+            logger.debug(f"[PromotionController] ImprovementOptimizer feedback failed: {e}")
 
     def _notify_promotion(self, decision: PromotionDecision) -> None:
         """Notify multiple systems about a successful promotion.

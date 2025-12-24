@@ -1778,7 +1778,7 @@ Before training AI, verify understanding of:
 - [ ] **Territory encirclement**: Marker elimination
 - [ ] **Victory conditions**: Elimination or points at move limit
 
-**Reference**: [`../rules/COMPLETE_RULES.md`]../rules/COMPLETE_RULES.md)
+**Reference**: [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md)
 
 ### 11.2 Board Representation Invariants
 

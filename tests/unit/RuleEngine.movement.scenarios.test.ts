@@ -8,7 +8,7 @@ import { createTestGameState, pos } from '../utils/fixtures';
  *
  * These tests encode small, FAQ‑style examples for non‑capture movement
  * and blocking, keyed to the compact rules §3.1–3.2 and
- * `ringrift_complete_rules.md` §8.2–8.3 (FAQ Q2–Q3).
+ * `docs/rules/COMPLETE_RULES.md` §8.2–8.3 (FAQ Q2–Q3).
  */
 
 describe('RuleEngine movement scenarios (Section 8.2–8.3; FAQ 2–3)', () => {

@@ -15,7 +15,7 @@ import { BoardType, Position } from '../../src/shared/types/game';
 export interface RuleReference {
   /** Stable identifier tying this scenario to rules/FAQ docs. */
   id: string;
-  /** Sections from ringrift_complete_rules.md or compact rules that this encodes. */
+  /** Sections from docs/rules/COMPLETE_RULES.md or compact rules that this encodes. */
   rulesSections: string[];
   /** Optional FAQ questions this scenario is directly based on. */
   faqRefs?: string[];

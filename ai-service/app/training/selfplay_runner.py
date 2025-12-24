@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from .selfplay_config import SelfplayConfig, EngineMode, parse_selfplay_args
+from .selfplay_config import SelfplayConfig, EngineMode, ENGINE_MODE_ALIASES, parse_selfplay_args
 
 if TYPE_CHECKING:
     from ..models import BoardType, GameState, Move
@@ -195,9 +195,12 @@ class SelfplayRunner(ABC):
 
     def get_temperature(self, move_number: int) -> float:
         """Get temperature for move selection based on scheduling."""
-        if move_number < self.config.temperature_threshold:
-            return self.config.opening_temperature
-        return self.config.base_temperature
+        threshold = getattr(self.config, 'temperature_threshold', 30)
+        opening_temp = getattr(self.config, 'opening_temperature', 1.0)
+        base_temp = getattr(self.config, 'base_temperature', 0.1)
+        if move_number < threshold:
+            return opening_temp
+        return base_temp
 
     def run(self) -> RunStats:
         """Main run loop. Executes setup, games, teardown."""
@@ -212,7 +215,8 @@ class SelfplayRunner(ABC):
                     self._emit_game_complete(result)
 
                     # Progress logging
-                    if (game_idx + 1) % self.config.log_interval == 0:
+                    log_interval = getattr(self.config, 'log_interval', 10)
+                    if (game_idx + 1) % log_interval == 0:
                         logger.info(
                             f"  Progress: {game_idx + 1}/{self.config.num_games} games, "
                             f"{self.stats.games_per_second:.2f} g/s"
@@ -245,7 +249,7 @@ class HeuristicSelfplayRunner(SelfplayRunner):
         super().setup()
         from ..game_engine import GameEngine
         from ..ai.factory import AIFactory
-        from ..models import AIType, BoardType
+        from ..models import AIConfig, AIType, BoardType
 
         self._engine = GameEngine
         board_type = BoardType(self.config.board_type)
@@ -253,17 +257,21 @@ class HeuristicSelfplayRunner(SelfplayRunner):
         # Create AI for each player
         self._ais = {}
         for p in range(1, self.config.num_players + 1):
+            ai_config = AIConfig(
+                board_type=board_type,
+                num_players=self.config.num_players,
+                difficulty=8,  # Default mid-level difficulty for selfplay
+            )
             self._ais[p] = AIFactory.create(
                 AIType.HEURISTIC,
                 player_number=p,
-                board_type=board_type,
-                num_players=self.config.num_players,
+                config=ai_config,
             )
 
     def run_game(self, game_idx: int) -> GameResult:
         import uuid
         from ..training.initial_state import create_initial_state
-        from ..models import BoardType
+        from ..models import BoardType, GameStatus
 
         start_time = time.time()
         game_id = str(uuid.uuid4())
@@ -272,16 +280,14 @@ class HeuristicSelfplayRunner(SelfplayRunner):
         state = create_initial_state(board_type, self.config.num_players)
         moves = []
 
-        while not state.game_over and len(moves) < self.config.max_moves:
+        max_moves = getattr(self.config, 'max_moves', 500)  # Default max moves
+        while state.game_status != GameStatus.COMPLETED and len(moves) < max_moves:
             current_player = state.current_player
             ai = self._ais[current_player]
 
-            valid_moves = self._engine.get_valid_moves(state)
-            if not valid_moves:
+            move = ai.select_move(state)
+            if not move:
                 break
-
-            temperature = self.get_temperature(len(moves))
-            move = ai.select_move(state, valid_moves, temperature=temperature)
 
             state = self._engine.apply_move(state, move)
             moves.append({"player": current_player, "move": str(move)})
@@ -393,19 +399,22 @@ def run_selfplay(
     Returns:
         RunStats with game results
     """
+    # Resolve engine alias to canonical enum value
+    engine_value = ENGINE_MODE_ALIASES.get(engine, engine)
+
     config = SelfplayConfig(
         board_type=board_type,
         num_players=num_players,
         num_games=num_games,
-        engine_mode=EngineMode(engine),
+        engine_mode=EngineMode(engine_value),
         **kwargs,
     )
 
-    if engine == "heuristic":
+    if engine in ("heuristic", "heuristic-only", "heuristic_only"):
         runner = HeuristicSelfplayRunner(config)
-    elif engine == "gumbel_mcts":
+    elif engine in ("gumbel_mcts", "gumbel-mcts", "gumbel"):
         runner = GumbelMCTSSelfplayRunner(config)
     else:
-        raise ValueError(f"Unknown engine: {engine}")
+        raise ValueError(f"Unknown engine: {engine}. Use 'heuristic' or 'gumbel_mcts'")
 
     return runner.run()
