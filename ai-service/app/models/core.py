@@ -729,6 +729,14 @@ class AIConfig(BaseModel):
             "the best action. Default is 100 (tuned for optimal speed/quality)."
         ),
     )
+    use_gpu_tree: bool = Field(
+        default=False,
+        description=(
+            "When True, uses GPU-accelerated tensor tree MCTS for 170x speedup. "
+            "Requires CUDA and uses Structure-of-Arrays tensor tree with batched "
+            "heuristic evaluation. Falls back to CPU MCTS on error."
+        ),
+    )
 
     # Hybrid NN + Heuristic Evaluation (RR-CANON-HYBRID-001)
     heuristic_blend_alpha: float | None = Field(

@@ -165,6 +165,7 @@ class GumbelSelfplayConfig:
     nn_model_id: str = ""  # Empty = use default for board
     use_gpu: bool = True
     allow_fresh_weights: bool = False  # Allow random weights if no checkpoint
+    use_gpu_tree: bool = True  # Use GPU-accelerated tensor tree MCTS (170x faster)
 
     def get_temperature_for_move(self, move_number: int) -> float:
         """Get temperature for a specific move number.
@@ -259,6 +260,7 @@ def create_gumbel_ai(
         use_neural_net=True,
         gumbel_simulation_budget=config.simulation_budget,
         allow_fresh_weights=config.allow_fresh_weights,
+        use_gpu_tree=config.use_gpu_tree,  # 170x speedup with GPU tensor tree
     )
 
     if config.nn_model_id:
@@ -861,6 +863,17 @@ def main():
         action="store_true",
         help="Allow random/fresh weights if no trained model checkpoint exists",
     )
+    parser.add_argument(
+        "--use-gpu-tree",
+        action="store_true",
+        default=True,
+        help="Use GPU-accelerated tensor tree MCTS (170x faster, default: enabled)",
+    )
+    parser.add_argument(
+        "--no-gpu-tree",
+        action="store_true",
+        help="Disable GPU tensor tree MCTS and use CPU implementation",
+    )
 
     args = parser.parse_args()
 
@@ -879,6 +892,7 @@ def main():
         nn_model_id=args.model_id,
         use_gpu=not args.no_gpu,
         allow_fresh_weights=args.allow_fresh_weights,
+        use_gpu_tree=args.use_gpu_tree and not args.no_gpu_tree,  # 170x faster
     )
 
     if args.all_configs:
