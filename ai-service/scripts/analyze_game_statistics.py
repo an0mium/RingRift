@@ -77,6 +77,7 @@ try:  # pragma: no cover
     _BOARD_TYPE_TO_ENUM = {
         "square8": _BoardType.SQUARE8,
         "square19": _BoardType.SQUARE19,
+        "hex8": _BoardType.HEX8,
         "hexagonal": _BoardType.HEXAGONAL,
     }
     CANONICAL_RULES_AVAILABLE = True
@@ -100,6 +101,7 @@ except Exception:  # pragma: no cover
 # Mapping from board_size to board_type
 BOARD_SIZE_TO_TYPE = {
     8: "square8",
+    9: "hex8",
     19: "square19",
     # Legacy hex embedding size used by early GPU/selfplay outputs.
     25: "hexagonal",

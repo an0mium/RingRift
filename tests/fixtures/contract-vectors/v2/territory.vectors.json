@@ -2546,17 +2546,6 @@
                 "stackHeight": 1,
                 "capHeight": 1,
                 "controllingPlayer": 1
-              },
-              "2,-1,-1": {
-                "position": {
-                  "x": 2,
-                  "y": -1,
-                  "z": -1
-                },
-                "rings": [2],
-                "stackHeight": 1,
-                "capHeight": 1,
-                "controllingPlayer": 2
               }
             },
             "markers": {},
@@ -2576,7 +2565,7 @@
             },
             {
               "playerNumber": 2,
-              "ringsInHand": 17,
+              "ringsInHand": 18,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
@@ -2615,7 +2604,7 @@
           "currentPlayer": 2,
           "currentPhase": "ring_placement",
           "gameStatus": "active",
-          "stackCount": 2,
+          "stackCount": 1,
           "markerCount": 1,
           "collapsedCount": 0,
           "sInvariantDelta": 1

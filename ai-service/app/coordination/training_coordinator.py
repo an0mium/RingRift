@@ -316,12 +316,84 @@ class TrainingCoordinator:
         ''')
         conn.commit()
 
+    def _subscribe_to_cluster_events(self) -> None:
+        """Subscribe to cluster health events for training decisions.
+
+        December 2025: Closes the cluster→training feedback loop.
+        Training decisions now react to cluster health events.
+        """
+        if not HAS_CLUSTER_EVENTS or get_event_bus is None:
+            logger.debug("[TrainingCoordinator] Cluster events unavailable, skipping subscriptions")
+            return
+
+        try:
+            bus = get_event_bus()
+            if bus is None:
+                return
+
+            # Subscribe to cluster health events
+            bus.subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy)
+            bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_cluster_unhealthy)
+            bus.subscribe(DataEventType.CLUSTER_CAPACITY_CHANGED, self._on_capacity_changed)
+            bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
+            bus.subscribe(DataEventType.NODE_UNHEALTHY, self._on_node_unhealthy)
+
+            logger.info("[TrainingCoordinator] Subscribed to cluster health events")
+        except Exception as e:
+            logger.warning(f"[TrainingCoordinator] Failed to subscribe to cluster events: {e}")
+
+    def _on_cluster_healthy(self, event: Any) -> None:
+        """Handle cluster healthy event - resume accepting training requests."""
+        self._cluster_healthy = True
+        logger.info("[TrainingCoordinator] Cluster is healthy - training enabled")
+
+    def _on_cluster_unhealthy(self, event: Any) -> None:
+        """Handle cluster unhealthy event - pause new training requests."""
+        self._cluster_healthy = False
+        logger.warning("[TrainingCoordinator] Cluster is unhealthy - pausing new training")
+
+    def _on_capacity_changed(self, event: Any) -> None:
+        """Handle capacity change event - adjust training intensity."""
+        if hasattr(event, 'payload') and event.payload:
+            new_capacity = event.payload.get('capacity', 1.0)
+            old_capacity = self._cluster_capacity
+            self._cluster_capacity = max(0.0, min(1.0, new_capacity))
+            logger.info(
+                f"[TrainingCoordinator] Cluster capacity changed: "
+                f"{old_capacity:.1%} → {self._cluster_capacity:.1%}"
+            )
+
+    def _on_node_recovered(self, event: Any) -> None:
+        """Handle node recovery - may allow more training."""
+        logger.info("[TrainingCoordinator] Node recovered - checking training capacity")
+        # Could trigger pending training requests here
+
+    def _on_node_unhealthy(self, event: Any) -> None:
+        """Handle node unhealthy - reduce training capacity."""
+        logger.warning("[TrainingCoordinator] Node unhealthy - may affect training")
+        # Reduce effective capacity when nodes drop
+
+    @property
+    def cluster_healthy(self) -> bool:
+        """Check if cluster is healthy for training."""
+        return self._cluster_healthy
+
+    @property
+    def cluster_capacity(self) -> float:
+        """Get current cluster capacity (0.0-1.0)."""
+        return self._cluster_capacity
+
     def can_start_training(self, board_type: str, num_players: int) -> bool:
         """Check if training can be started for this config.
 
         Returns:
             True if no active training for this config and slots available
         """
+        # Check cluster health first (December 2025 - feedback loop)
+        if not self._cluster_healthy:
+            logger.info("Training blocked: cluster is unhealthy")
+            return False
+
         conn = self._get_connection()
         self._cleanup_stale_jobs()
 

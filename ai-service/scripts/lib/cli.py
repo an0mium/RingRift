@@ -1,21 +1,46 @@
 """CLI argument utilities for scripts.
 
 Provides common argument patterns and helpers for command-line scripts.
+Consolidates 500+ lines of duplicated argument parsing across 30+ scripts.
 
 Usage:
     from scripts.lib.cli import (
+        # Common args
         add_common_args,
         add_verbose_arg,
         add_dry_run_arg,
         add_config_arg,
+        add_output_arg,
+        add_limit_arg,
+        add_parallel_arg,
+        add_timeout_arg,
+        # Board configuration
         add_board_args,
+        parse_board_type,
+        get_config_key,
+        parse_config_key,
+        # Database args (Dec 2025)
+        add_db_args,
+        add_elo_db_arg,
+        add_game_db_arg,
+        # Model args (Dec 2025)
+        add_model_args,
+        add_model_version_arg,
+        # Training args (Dec 2025)
+        add_training_args,
+        add_selfplay_args,
+        # Utilities
         add_node_arg,
         setup_cli_logging,
+        validate_path_arg,
+        confirm_action,
     )
 
     parser = argparse.ArgumentParser()
-    add_common_args(parser)  # Adds --verbose and --dry-run
-    add_board_args(parser)   # Adds --board and --num-players
+    add_common_args(parser)       # Adds --verbose and --dry-run
+    add_board_args(parser)        # Adds --board and --num-players
+    add_db_args(parser, use_discovery=True)  # Adds --db and --use-discovery
+    add_model_args(parser)        # Adds --model
     args = parser.parse_args()
 
     # Setup logging based on --verbose flag
@@ -551,3 +576,296 @@ def create_subparser_with_common_args(
     parser = subparsers.add_parser(name, help=help_text)
     add_common_args(parser, verbose=verbose, dry_run=dry_run)
     return parser
+
+
+# =============================================================================
+# Database Arguments (December 2025 - Consolidation)
+# =============================================================================
+
+
+def add_db_args(
+    parser: argparse.ArgumentParser,
+    db_arg: str = "--db",
+    db_dir_arg: str | None = None,
+    db_pattern_arg: str | None = None,
+    default_db: str | None = None,
+    required: bool = False,
+    use_discovery: bool = False,
+    help_text: str = "Database path",
+) -> None:
+    """Add database-related arguments to parser.
+
+    Supports single DB, directory-based discovery, and glob patterns.
+    This consolidates the 25+ different database argument patterns across scripts.
+
+    Args:
+        parser: ArgumentParser to add arguments to
+        db_arg: Database path argument name (default: --db)
+        db_dir_arg: Database directory argument name (optional, e.g., --db-dir)
+        db_pattern_arg: Glob pattern argument name (optional, e.g., --db-pattern)
+        default_db: Default database path
+        required: Whether --db is required (ignored if use_discovery=True)
+        use_discovery: Add --use-discovery flag for GameDiscovery
+        help_text: Help text for --db argument
+
+    Example:
+        add_db_args(parser, use_discovery=True)
+        # Adds: --db, --use-discovery
+
+        add_db_args(parser, db_dir_arg="--db-dir", db_pattern_arg="--db-pattern")
+        # Adds: --db, --db-dir, --db-pattern
+    """
+    # Main database path argument
+    parser.add_argument(
+        db_arg,
+        type=Path,
+        default=Path(default_db) if default_db else None,
+        required=required and not use_discovery,
+        help=help_text,
+    )
+
+    # Optional directory argument
+    if db_dir_arg:
+        parser.add_argument(
+            db_dir_arg,
+            type=Path,
+            default=None,
+            help="Directory to search for databases",
+        )
+
+    # Optional glob pattern argument
+    if db_pattern_arg:
+        parser.add_argument(
+            db_pattern_arg,
+            type=str,
+            default=None,
+            help="Glob pattern for database files (e.g., 'data/games/*.db')",
+        )
+
+    # GameDiscovery integration
+    if use_discovery:
+        parser.add_argument(
+            "--use-discovery",
+            action="store_true",
+            help="Use GameDiscovery to find all matching databases automatically",
+        )
+
+
+def add_elo_db_arg(
+    parser: argparse.ArgumentParser,
+    default: str = "data/unified_elo.db",
+    help_text: str = "Path to ELO database",
+) -> None:
+    """Add ELO database argument with standard default.
+
+    Args:
+        parser: ArgumentParser to add argument to
+        default: Default ELO database path
+        help_text: Help text for the argument
+    """
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=Path(default),
+        help=help_text,
+    )
+
+
+def add_game_db_arg(
+    parser: argparse.ArgumentParser,
+    required: bool = True,
+    default: str | None = None,
+    help_text: str = "Path to game database (.db file)",
+) -> None:
+    """Add game database argument for selfplay/replay databases.
+
+    Args:
+        parser: ArgumentParser to add argument to
+        required: Whether argument is required
+        default: Default path
+        help_text: Help text for the argument
+    """
+    parser.add_argument(
+        "--db",
+        type=Path,
+        required=required,
+        default=Path(default) if default else None,
+        help=help_text,
+    )
+
+
+# =============================================================================
+# Model Arguments (December 2025 - Consolidation)
+# =============================================================================
+
+
+def add_model_args(
+    parser: argparse.ArgumentParser,
+    model_arg: str = "--model",
+    models_dir_arg: str | None = None,
+    weights_arg: str | None = None,
+    default_model: str | None = None,
+    default_models_dir: str = "models",
+    required: bool = False,
+    help_text: str = "Path to model weights (.pth file)",
+) -> None:
+    """Add model-related arguments to parser.
+
+    Consolidates model path, models directory, and weights arguments.
+
+    Args:
+        parser: ArgumentParser to add arguments to
+        model_arg: Model path argument name (default: --model)
+        models_dir_arg: Models directory argument name (optional, e.g., --models-dir)
+        weights_arg: Initial weights argument name (optional, e.g., --init-weights)
+        default_model: Default model path
+        default_models_dir: Default models directory
+        required: Whether --model is required
+        help_text: Help text for --model argument
+
+    Example:
+        add_model_args(parser, models_dir_arg="--models-dir", weights_arg="--init-weights")
+        # Adds: --model, --models-dir, --init-weights
+    """
+    parser.add_argument(
+        model_arg,
+        type=Path,
+        default=Path(default_model) if default_model else None,
+        required=required,
+        help=help_text,
+    )
+
+    if models_dir_arg:
+        parser.add_argument(
+            models_dir_arg,
+            type=Path,
+            default=Path(default_models_dir),
+            help=f"Directory containing model files (default: {default_models_dir})",
+        )
+
+    if weights_arg:
+        parser.add_argument(
+            weights_arg,
+            type=Path,
+            default=None,
+            help="Initial weights to load for transfer learning",
+        )
+
+
+def add_model_version_arg(
+    parser: argparse.ArgumentParser,
+    default: str = "v2",
+    choices: list[str] | None = None,
+) -> None:
+    """Add model version argument.
+
+    Args:
+        parser: ArgumentParser to add argument to
+        default: Default model version
+        choices: Valid model version choices
+    """
+    parser.add_argument(
+        "--model-version",
+        type=str,
+        default=default,
+        choices=choices or ["v1", "v2", "v3", "v4", "nnue"],
+        help=f"Model architecture version (default: {default})",
+    )
+
+
+# =============================================================================
+# Training Arguments (December 2025 - Consolidation)
+# =============================================================================
+
+
+def add_training_args(
+    parser: argparse.ArgumentParser,
+    include_batch_size: bool = True,
+    include_epochs: bool = True,
+    include_lr: bool = True,
+    include_device: bool = True,
+    default_batch_size: int = 512,
+    default_epochs: int = 20,
+    default_lr: float = 0.001,
+) -> None:
+    """Add common training arguments.
+
+    Args:
+        parser: ArgumentParser to add arguments to
+        include_batch_size: Add --batch-size argument
+        include_epochs: Add --epochs argument
+        include_lr: Add --learning-rate argument
+        include_device: Add --device argument
+        default_batch_size: Default batch size
+        default_epochs: Default number of epochs
+        default_lr: Default learning rate
+    """
+    if include_batch_size:
+        parser.add_argument(
+            "--batch-size",
+            type=int,
+            default=default_batch_size,
+            help=f"Training batch size (default: {default_batch_size})",
+        )
+
+    if include_epochs:
+        parser.add_argument(
+            "--epochs",
+            type=int,
+            default=default_epochs,
+            help=f"Number of training epochs (default: {default_epochs})",
+        )
+
+    if include_lr:
+        parser.add_argument(
+            "--learning-rate", "--lr",
+            type=float,
+            default=default_lr,
+            help=f"Learning rate (default: {default_lr})",
+        )
+
+    if include_device:
+        parser.add_argument(
+            "--device",
+            type=str,
+            default=None,
+            choices=["cpu", "cuda", "mps"],
+            help="Device for training (default: auto-detect)",
+        )
+
+
+def add_selfplay_args(
+    parser: argparse.ArgumentParser,
+    include_num_games: bool = True,
+    include_engine: bool = True,
+    default_num_games: int = 100,
+    default_engine: str = "heuristic",
+) -> None:
+    """Add common selfplay arguments.
+
+    Args:
+        parser: ArgumentParser to add arguments to
+        include_num_games: Add --num-games argument
+        include_engine: Add --engine argument
+        default_num_games: Default number of games
+        default_engine: Default engine mode
+    """
+    if include_num_games:
+        parser.add_argument(
+            "--num-games", "-n",
+            type=int,
+            default=default_num_games,
+            help=f"Number of games to generate (default: {default_num_games})",
+        )
+
+    if include_engine:
+        parser.add_argument(
+            "--engine",
+            type=str,
+            default=default_engine,
+            choices=[
+                "heuristic", "gumbel", "mcts", "nnue-guided",
+                "policy-only", "nn-descent", "mixed",
+            ],
+            help=f"Selfplay engine mode (default: {default_engine})",
+        )

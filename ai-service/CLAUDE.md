@@ -224,6 +224,64 @@ stats = run_selfplay(board_type="hex8", num_players=2, num_games=100, engine="he
 - `HeuristicSelfplayRunner` - Fast heuristic-only selfplay
 - `GumbelMCTSSelfplayRunner` - Quality Gumbel MCTS selfplay
 
+### Coordination Infrastructure (`app/coordination/`)
+
+Unified training pipeline orchestration:
+
+- **`event_router.py`**: Unified event bus bridging in-memory, stage, and cross-process events
+- **`pipeline_actions.py`**: Stage invokers with circuit breaker protection
+- **`data_pipeline_orchestrator.py`**: Tracks and triggers pipeline stages
+- **`daemon_manager.py`**: Lifecycle management for all daemons
+- **`daemon_adapters.py`**: Wrappers for existing daemons (sync, promotion, distillation)
+- **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
+
+```bash
+# Launch all daemons under unified management
+python scripts/launch_daemons.py --all
+
+# Check daemon status
+python scripts/launch_daemons.py --status
+
+# Launch specific daemons
+python scripts/launch_daemons.py --sync-only
+```
+
+### Temperature Scheduling (`app/training/temperature_scheduling.py`)
+
+Exploration/exploitation control during selfplay:
+
+```python
+from app.training.temperature_scheduling import create_scheduler
+
+# Presets: default, alphazero, aggressive_exploration, conservative, adaptive, curriculum, cosine
+scheduler = create_scheduler("adaptive")
+temp = scheduler.get_temperature(move_number=15, game_state=state)
+```
+
+- 7 schedule types including adaptive (based on position complexity) and curriculum (based on training progress)
+- `AlphaZeroTemperature` for τ=1 → τ=0 at move N
+- `DirichletNoiseTemperature` for root exploration noise
+
+### Online Learning (`app/training/online_learning.py`)
+
+Continuous learning during gameplay:
+
+```python
+from app.training.online_learning import create_online_learner, get_online_learning_config
+
+config = get_online_learning_config("tournament")  # Profiles: default, conservative, aggressive, tournament
+learner = create_online_learner(model, learner_type="ebmo", config=config)
+
+# During game
+learner.record_transition(state, move, player, next_state)
+# After game
+learner.update_from_game(winner)
+```
+
+- TD-Energy updates: E(s,a) predicts min E(s', a') over next state
+- Outcome-weighted contrastive loss
+- Rolling buffer for stability
+
 ## Current Model State (as of Dec 2025)
 
 | Config  | Status     | Best Accuracy | Location                     |
@@ -290,11 +348,22 @@ Self-play (Python/TS) → GameReplayDB (.db)
 ai-service/
 ├── app/
 │   ├── ai/              # AI implementations (neural net, MCTS, heuristics)
+│   ├── coordination/    # Training pipeline orchestration (NEW Dec 2025)
+│   │   ├── event_router.py           # Unified event system
+│   │   ├── pipeline_actions.py       # Stage action invokers
+│   │   ├── daemon_manager.py         # Daemon lifecycle management
+│   │   └── sync_bandwidth.py         # Bandwidth-coordinated transfers
 │   ├── db/              # Database utilities (GameReplayDB)
 │   ├── distributed/     # Cluster tools (cluster_monitor, data_catalog)
+│   ├── monitoring/      # Unified cluster monitoring
 │   ├── rules/           # Python rules engine (mirrors TS)
 │   ├── training/        # Training pipeline
+│   │   ├── temperature_scheduling.py # Selfplay temperature schedules
+│   │   └── online_learning.py        # EBMO online learning
 │   └── utils/           # Utilities (game_discovery)
+├── archive/             # Deprecated code with migration docs
+│   ├── deprecated_scripts/
+│   └── deprecated_coordination/
 ├── config/
 │   └── distributed_hosts.yaml  # Cluster node configuration
 ├── data/
@@ -327,7 +396,21 @@ Major consolidation of duplicated code:
 - **Budget constants**: Consolidated scattered Gumbel budget defaults into named tiers
 - **Export scripts**: Archived `export_replay_dataset_parallel.py` and `export_filtered_training.py` (now flags in main script)
 
-See `archive/deprecated_scripts/README.md` for archived script documentation.
+**Coordination Infrastructure** (Dec 24, 2025):
+
+- **`event_router.py`**: Unified event system (supersedes `unified_event_coordinator.py`)
+- **`pipeline_actions.py`**: Training pipeline stage invokers (export, train, evaluate, promote)
+- **`daemon_adapters.py`**: Daemon wrappers for unified DaemonManager lifecycle
+- **`sync_bandwidth.py`**: Bandwidth-coordinated rsync for cluster transfers
+- **`launch_daemons.py`**: Master daemon launcher script
+- **`auto_promote.py`**: Refactored to use PromotionController
+
+**Already Existing Training Utilities**:
+
+- **`temperature_scheduling.py`**: 7 schedule types (linear, cosine, adaptive, curriculum, etc.)
+- **`online_learning.py`**: EBMO online learning with TD-Energy updates
+
+See `archive/deprecated_scripts/README.md` and `archive/deprecated_coordination/README.md` for archived module documentation.
 
 ### Auto-Promotion Workflow
 

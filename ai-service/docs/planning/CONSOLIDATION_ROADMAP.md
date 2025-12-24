@@ -282,16 +282,52 @@ Remaining specialized scripts kept for unique functionality:
 - `run_distributed_selfplay.py` - Cluster-wide coordination
 - `run_canonical_selfplay_parity_gate.py` - Parity testing
 
+### Phase 2.3: CLI Argument Consolidation ✅
+
+Extended `scripts/lib/cli.py` with new helpers (Dec 24, 2025):
+
+- `add_db_args()` - Database path arguments with discovery support
+- `add_elo_db_arg()` - ELO database with standard default
+- `add_game_db_arg()` - Game database arguments
+- `add_model_args()` - Model path and directory arguments
+- `add_model_version_arg()` - Model architecture version
+- `add_training_args()` - Batch size, epochs, learning rate, device
+- `add_selfplay_args()` - Number of games, engine mode
+
+This consolidates 500+ lines of duplicated argument parsing across 30+ scripts.
+
+### Phase 3.1: Pipeline Event Triggers ✅
+
+Implemented event-driven pipeline triggers (Dec 24, 2025):
+
+- **`selfplay_runner.py`**: Added `_emit_orchestrator_event()` to emit
+  `SELFPLAY_COMPLETE` when selfplay finishes
+- **`export_replay_dataset.py`**: Added event emission for `NPZ_EXPORT_COMPLETE`
+- **`event_emitters.py`**: Added `emit_npz_export_complete()` function
+- **`data_pipeline_orchestrator.py`**: Verified handlers exist and auto-trigger
+  downstream stages when `auto_trigger=True`
+
+Pipeline now flows automatically:
+
+```
+SELFPLAY_COMPLETE → auto-trigger SYNC
+SYNC_COMPLETE → auto-trigger EXPORT
+NPZ_EXPORT_COMPLETE → auto-trigger TRAINING
+```
+
 ## Timeline
 
 - **Phase 1:** Complete ✅ (38 scripts archived)
-- **Phase 2:** Analyzed ✅
+- **Phase 2:** Complete ✅
   - 2.1 DB Pooling: ✅ Infrastructure exists, gradual adoption
   - 2.2 Selfplay CLI: ✅ Created `scripts/selfplay.py`
-  - 2.3 Model Factories: Deferred (complementary purposes)
-  - 2.4 Export Caching: Deferred (already integrated in optimized_pipeline)
-- **Phase 3:** 5-7 days (pipeline integration)
-- **Phase 4:** 5-10 days (event system hardening)
+  - 2.3 CLI Args: ✅ Extended `scripts/lib/cli.py` with consolidated helpers
+  - 2.4 Model Factories: Deferred (complementary purposes)
+  - 2.5 Export Caching: Deferred (already integrated in optimized_pipeline)
+- **Phase 3:** In Progress
+  - 3.1 Pipeline Events: ✅ Event triggers for selfplay → export → training
+  - 3.2 Event Hardening: Pending (dead letter queue, init ordering)
+- **Phase 4:** Pending (feedback loop completion)
 
 **Total:** 2-3 weeks for full consolidation
 
@@ -301,3 +337,5 @@ Remaining specialized scripts kept for unique functionality:
 - 38 deprecated scripts archived
 - Clear documentation of infrastructure state
 - Identified existing solutions (db_utils.py, optimized_pipeline.py)
+- Consolidated CLI argument helpers (add_db_args, add_model_args, etc.)
+- Event-driven pipeline triggers (selfplay → export → training)

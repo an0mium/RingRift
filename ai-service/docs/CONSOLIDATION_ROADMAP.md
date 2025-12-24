@@ -380,6 +380,7 @@ During consolidation, these unique features MUST be preserved:
 - [x] Event system consolidation (Dec 2025) - Created EVENT_GUIDE.md documenting three-tier architecture - EventBus (core), StageEventBus (pipeline), CrossProcessEventQueue (IPC) - Centralized mappings in event_mappings.py - UnifiedEventCoordinator bridges all buses
 - [x] Quality scoring consolidation (Dec 2025) - UnifiedQualityScorer (app/quality/unified_quality.py) is SSoT - Added compute_freshness_score() for backwards compatibility - Deprecated: DataQualityScorer (training_enhancements.py), GameQualityScorer (scripts/lib/data_quality.py)
 - [x] Event system hardening (Dec 2025) - Fixed fire-and-forget asyncio.create_task in event_router.py with error callbacks - Fixed silent print() statements in cross_process_events.py with proper logger.error() - Added dispatch failure tracking metrics
+- [x] Feedback loop completion (Dec 2025) - Eval→curriculum: game_gauntlet.py now emits EVALUATION_COMPLETED events consumed by TournamentToCurriculumWatcher - Cluster→training: training_coordinator.py subscribes to P2P_CLUSTER_HEALTHY/UNHEALTHY, NODE_RECOVERED events - Training blocked when cluster unhealthy
 - [ ] Remove deprecated code
 - [ ] Documentation updates
 

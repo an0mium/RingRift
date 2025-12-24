@@ -255,39 +255,36 @@ python -m pytest tests/golden/ -m "not slow"
 
 The test suite tracks coverage across:
 
-| Category      | Target | Current Status | Description                                                              |
-| ------------- | ------ | -------------- | ------------------------------------------------------------------------ |
-| Board Types   | All    | ⚠️ Partial     | `square8` ✅, `square19` ✅, `hex8` ✅ (smoke), `hexagonal` ✅           |
-| Player Counts | All    | ✅ Complete    | 2-player ✅, 3-player ✅, 4-player ✅                                    |
-| Victory Types | All    | ⚠️ Partial     | `ring_elimination` ✅, `territory_control` ⚠️, `last_player_standing` ⚠️ |
-| Edge Cases    | 80%+   | ⚠️ Unknown     | chain captures, territory splits, forced eliminations (need analysis)    |
+| Category      | Target | Current Status | Description                                                                            |
+| ------------- | ------ | -------------- | -------------------------------------------------------------------------------------- |
+| Board Types   | All    | ⚠️ Partial     | `square8` ✅, `hex8` ✅ (smoke + full game), `hexagonal` ✅ (full game), `square19` ⬜ |
+| Player Counts | All    | ⚠️ Partial     | 2-player ✅, 3-player ⬜, 4-player ⬜                                                  |
+| Victory Types | All    | ⚠️ Partial     | `ring_elimination` ✅, `territory_control` ⚠️, `last_player_standing` ⚠️               |
+| Edge Cases    | 80%+   | ⚠️ Unknown     | chain captures, territory splits, forced eliminations (need analysis)                  |
 
 ### Current Golden Fixture Status (Dec 2025)
 
-**Available candidates (from `find_golden_candidates.py`):** 29 total candidates
-
-| Board Type | Players | Source DB             | Games | Finished Games        |
-| ---------- | ------- | --------------------- | ----- | --------------------- |
-| square19   | 2       | canonical_square19.db | 2     | 2 (with winners)      |
-| square8    | 2       | selfplay.db           | 1     | 0                     |
-| hexagonal  | 2       | golden_hexagonal.db   | 10    | 0 (max moves reached) |
-| square8    | 3       | golden_3player.db     | 8     | 2 (with winners)      |
-| square8    | 4       | golden_4player.db     | 8     | 0 (max moves reached) |
+| Board Type | Players | Fixtures (JSON)                                                 | Source DB (if exported)                                |
+| ---------- | ------- | --------------------------------------------------------------- | ------------------------------------------------------ |
+| square8    | 2       | `captures_square8_2p_*.json` (3 fixtures)                       | N/A (recorded fixtures)                                |
+| hex8       | 2       | `smoke_hex8_2p_mjk8qhtj.json`, `fullgame_hex8_2p_f6bb4e8e.json` | `canonical_hex8_2p_node1.db`                           |
+| hexagonal  | 2       | `fullgame_hexagonal_2p_cf3e0ba3.json`                           | `backup_canonical/vast-5090/canonical_hexagonal_2p.db` |
 
 **Coverage status:**
 
-- ✅ Hexagonal board games (10 games generated via minimal selfplay)
-- ✅ Hex8 board games (smoke fixture in `tests/fixtures/golden-games/`)
-- ✅ 3-player games (8 games, 2 with winners)
-- ✅ 4-player games (8 games)
+- ✅ Hexagonal board games (fullgame fixture)
+- ✅ Hex8 board games (smoke + fullgame fixtures)
+- ⚠️ Square19 board games (missing)
+- ⚠️ 3-player games (missing)
+- ⚠️ 4-player games (missing)
 - ⚠️ Territory control victories (not yet verified)
 - ⚠️ Last player standing victories (not yet verified)
 - ❌ Pie rule / swap sides games
 
 **Next steps:**
 
-1. Export selected candidates to golden fixture format using `extract_golden_games.py`
-2. Run games with higher max_moves or heuristic AI to get more decisive endings
+1. Add square19 golden fixtures (export from canonical DBs)
+2. Add 3-player and 4-player golden fixtures (square8 + hex8)
 3. Verify victory type coverage in promoted fixtures
 
 ## Troubleshooting

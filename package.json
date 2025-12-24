@@ -123,6 +123,7 @@
     "validate:deployment": "npx ts-node scripts/validate-deployment-config.ts",
     "validate:monitoring": "scripts/validate-monitoring-configs.sh",
     "ssot-check": "npx ts-node scripts/ssot/ssot-check.ts",
+    "check:parity-metrics": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/check-parity-metrics.ts",
     "orchestrator:gating": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/run-orchestrator-gating.ts",
     "dev:doctor": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/dev_doctor.ts"
   },
