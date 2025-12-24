@@ -349,7 +349,9 @@ Enhanced `initialize_all_coordinators()` (Dec 24, 2025):
   - 3.1 Pipeline Events: ✅ Event triggers for selfplay → export → training
   - 3.2 Dead Letter Queue: ✅ SQLite-backed with retry daemon
   - 3.3 Init Ordering: ✅ Layered dependency graph with checking
-- **Phase 4:** Pending (feedback loop completion)
+- **Phase 4:** Complete ✅
+  - 4.1 Evaluation → Curriculum: ✅ `record_promotion()` feeds back to weights
+  - 4.2 Cluster → Training: ✅ Resource-aware auto-triggering
 
 **Total:** 2-3 weeks for full consolidation
 
@@ -363,3 +365,7 @@ Enhanced `initialize_all_coordinators()` (Dec 24, 2025):
 - Event-driven pipeline triggers (selfplay → export → training)
 - Dead letter queue for failed event recovery
 - Layered coordinator initialization with dependency checking
+- Promotion → Curriculum feedback loop closed
+- Resource-aware training auto-triggering (cluster health checks)
+
+**All Phases Complete** ✅

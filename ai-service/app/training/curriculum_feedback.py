@@ -158,6 +158,99 @@ class CurriculumFeedback:
         metrics.last_training_time = time.time()
         self._last_update_time = time.time()
 
+    def record_promotion(
+        self,
+        config_key: str,
+        promoted: bool,
+        new_elo: float | None = None,
+        promotion_reason: str = "",
+    ) -> None:
+        """Record a model promotion result and adjust curriculum weights.
+
+        When a model is promoted (or fails promotion), this adjusts the
+        curriculum weights to reallocate training resources:
+        - Successful promotion: Reduce weight (model is strong enough)
+        - Failed promotion: Increase weight (needs more training)
+
+        Args:
+            config_key: Config identifier (e.g., "square8_2p")
+            promoted: Whether the model was promoted
+            new_elo: New Elo rating after promotion
+            promotion_reason: Reason for promotion decision
+
+        December 2025: Added to close the feedback loop from evaluation
+        to curriculum weights.
+        """
+        metrics = self._get_or_create_metrics(config_key)
+        metrics.model_count += 1 if promoted else 0
+
+        if new_elo is not None:
+            # Update Elo tracking
+            old_elo = metrics.avg_elo
+            metrics.avg_elo = new_elo
+            metrics.elo_trend = new_elo - old_elo
+
+        # Adjust weight based on promotion result
+        current_weight = self._current_weights.get(config_key, 1.0)
+
+        if promoted:
+            # Successful promotion: Model is performing well
+            # Reduce weight slightly to reallocate resources to weaker configs
+            adjustment = -0.1
+            logger.info(
+                f"CurriculumFeedback: {config_key} promoted, reducing weight "
+                f"({current_weight:.2f} -> {max(self.weight_min, current_weight + adjustment):.2f})"
+            )
+        else:
+            # Failed promotion: Model needs more training
+            # Increase weight to allocate more resources
+            adjustment = 0.15
+            logger.info(
+                f"CurriculumFeedback: {config_key} failed promotion, increasing weight "
+                f"({current_weight:.2f} -> {min(self.weight_max, current_weight + adjustment):.2f})"
+            )
+
+        new_weight = max(self.weight_min, min(self.weight_max, current_weight + adjustment))
+        self._current_weights[config_key] = new_weight
+        self._last_update_time = time.time()
+
+        # Emit curriculum update event (December 2025)
+        self._emit_curriculum_updated(config_key, new_weight, "promotion")
+
+    def _emit_curriculum_updated(
+        self,
+        config_key: str,
+        new_weight: float,
+        trigger: str,
+    ) -> None:
+        """Emit CURRICULUM_REBALANCED event for downstream listeners."""
+        try:
+            from app.coordination.event_router import DataEvent, DataEventType, get_event_bus
+
+            event = DataEvent(
+                event_type=DataEventType.CURRICULUM_REBALANCED,
+                payload={
+                    "config_key": config_key,
+                    "new_weight": new_weight,
+                    "trigger": trigger,
+                    "timestamp": time.time(),
+                    "all_weights": dict(self._current_weights),
+                },
+                source="curriculum_feedback",
+            )
+
+            import asyncio
+            bus = get_event_bus()
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(bus.publish(event))
+            except RuntimeError:
+                asyncio.run(bus.publish(event))
+
+            logger.debug(f"CurriculumFeedback: Emitted CURRICULUM_REBALANCED for {config_key}")
+        except Exception as e:
+            logger.warning(f"CurriculumFeedback: Failed to emit event: {e}")
+
     def update_model_count(self, config_key: str, count: int) -> None:
         """Update the model count for a config."""
         metrics = self._get_or_create_metrics(config_key)

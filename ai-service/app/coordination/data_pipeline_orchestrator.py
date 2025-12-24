@@ -829,6 +829,51 @@ class DataPipelineOrchestrator:
             },
         )
 
+        # Feed back to curriculum (December 2025)
+        await self._update_curriculum_on_promotion(result)
+
+    async def _update_curriculum_on_promotion(self, result) -> None:
+        """Update curriculum weights based on promotion result.
+
+        This closes the feedback loop: promotion results affect future
+        training resource allocation via curriculum weights.
+
+        December 2025: Added to complete the self-improvement loop.
+        """
+        try:
+            from app.training.curriculum_feedback import get_curriculum_feedback
+
+            # Get config key from result or tracked state
+            config_key = None
+            if hasattr(result, "board_type") and hasattr(result, "num_players"):
+                config_key = f"{result.board_type}_{result.num_players}p"
+            elif self._current_board_type and self._current_num_players:
+                config_key = f"{self._current_board_type}_{self._current_num_players}p"
+            elif hasattr(result, "metadata") and result.metadata:
+                config_key = result.metadata.get("config_key")
+
+            if not config_key:
+                logger.debug("[DataPipelineOrchestrator] No config_key for curriculum update")
+                return
+
+            feedback = get_curriculum_feedback()
+            feedback.record_promotion(
+                config_key=config_key,
+                promoted=result.promoted,
+                new_elo=getattr(result, "new_elo", None) or result.metadata.get("new_elo"),
+                promotion_reason=getattr(result, "promotion_reason", "") or result.metadata.get("reason", ""),
+            )
+
+            logger.info(
+                f"[DataPipelineOrchestrator] Curriculum updated for {config_key}: "
+                f"promoted={result.promoted}"
+            )
+
+        except ImportError:
+            logger.debug("[DataPipelineOrchestrator] curriculum_feedback not available")
+        except Exception as e:
+            logger.warning(f"[DataPipelineOrchestrator] Curriculum update failed: {e}")
+
     async def _on_iteration_complete(self, result) -> None:
         """Handle iteration completion."""
         iteration = result.iteration
@@ -859,6 +904,7 @@ class DataPipelineOrchestrator:
         - Pipeline is paused
         - Circuit breaker is open
         - Backpressure is active
+        - Cluster resources are constrained (December 2025)
         """
         if self._paused:
             logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: pipeline paused")
@@ -872,7 +918,102 @@ class DataPipelineOrchestrator:
             logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: backpressure active")
             return False
 
+        # Check cluster resources (December 2025)
+        if not self._check_cluster_resources():
+            logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: cluster resources constrained")
+            return False
+
         return True
+
+    def _check_cluster_resources(
+        self,
+        disk_threshold: float = 85.0,
+        min_free_disk_gb: float = 50.0,
+    ) -> bool:
+        """Check if cluster has sufficient resources for training.
+
+        Returns True if resources are adequate, False if constrained.
+
+        Args:
+            disk_threshold: Max disk usage percentage before blocking
+            min_free_disk_gb: Minimum free disk space required
+
+        December 2025: Added to integrate cluster status with training decisions.
+        """
+        try:
+            from app.distributed.cluster_monitor import ClusterMonitor
+
+            monitor = ClusterMonitor()
+            status = monitor.get_cluster_status(
+                include_game_counts=False,
+                include_training_status=True,
+                include_disk_usage=True,
+            )
+
+            # Check disk usage
+            if status.avg_disk_usage > disk_threshold:
+                logger.warning(
+                    f"[DataPipelineOrchestrator] Cluster disk usage high: "
+                    f"{status.avg_disk_usage:.1f}% (threshold: {disk_threshold}%)"
+                )
+                self._emit_resource_constraint("disk_usage_high", status.avg_disk_usage)
+                return False
+
+            # Check free disk space
+            if status.total_disk_free_gb < min_free_disk_gb:
+                logger.warning(
+                    f"[DataPipelineOrchestrator] Cluster disk space low: "
+                    f"{status.total_disk_free_gb:.1f}GB free (min: {min_free_disk_gb}GB)"
+                )
+                self._emit_resource_constraint("disk_space_low", status.total_disk_free_gb)
+                return False
+
+            # Check if too many nodes are already training
+            training_ratio = status.nodes_training / max(status.active_nodes, 1)
+            if training_ratio > 0.8:
+                logger.info(
+                    f"[DataPipelineOrchestrator] Most nodes busy training: "
+                    f"{status.nodes_training}/{status.active_nodes} ({training_ratio:.0%})"
+                )
+                # This is informational, not blocking - training can queue
+                pass
+
+            return True
+
+        except ImportError:
+            # ClusterMonitor not available - allow auto-trigger
+            return True
+        except Exception as e:
+            logger.debug(f"[DataPipelineOrchestrator] Resource check failed: {e}")
+            # On error, allow auto-trigger (fail open)
+            return True
+
+    def _emit_resource_constraint(self, constraint_type: str, value: float) -> None:
+        """Emit RESOURCE_CONSTRAINT_DETECTED event."""
+        try:
+            from app.coordination.event_router import DataEvent, DataEventType, get_event_bus
+
+            event = DataEvent(
+                event_type=DataEventType.RESOURCE_CONSTRAINT_DETECTED,
+                payload={
+                    "constraint_type": constraint_type,
+                    "value": value,
+                    "timestamp": time.time(),
+                    "source": "data_pipeline_orchestrator",
+                },
+                source="data_pipeline_orchestrator",
+            )
+
+            import asyncio
+            bus = get_event_bus()
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(bus.publish(event))
+            except RuntimeError:
+                asyncio.run(bus.publish(event))
+
+        except Exception:
+            pass  # Best effort
 
     def _record_circuit_success(self, stage: str) -> None:
         """Record a successful stage execution to circuit breaker."""
