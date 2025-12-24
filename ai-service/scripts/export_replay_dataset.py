@@ -817,6 +817,31 @@ def export_replay_dataset_multi(
     if write_mp:
         save_kwargs.update({"values_mp": values_mp_arr, "num_players": num_players_arr})
 
+    # Validate spatial dimensions match expected board type
+    actual_spatial = features_arr.shape[-1]
+    expected_spatial_sizes = {
+        BoardType.SQUARE8: 8,
+        BoardType.SQUARE19: 19,
+        BoardType.HEX8: 9,
+        BoardType.HEXAGONAL: 25,
+    }
+    expected_spatial = expected_spatial_sizes.get(board_type)
+    if expected_spatial is not None and actual_spatial != expected_spatial:
+        raise ValueError(
+            f"========================================\n"
+            f"SPATIAL DIMENSION MISMATCH IN EXPORT\n"
+            f"========================================\n"
+            f"Board type: {board_type.name}\n"
+            f"Feature spatial size: {actual_spatial}×{actual_spatial}\n"
+            f"Expected spatial size: {expected_spatial}×{expected_spatial}\n\n"
+            f"This indicates encoder misconfiguration.\n"
+            f"Check that the encoder is using correct board_size.\n"
+            f"========================================"
+        )
+
+    # Add spatial_size to metadata for training validation
+    save_kwargs["spatial_size"] = np.asarray(int(actual_spatial))
+
     np.savez_compressed(output_path, **save_kwargs)
 
     # Log engine mode distribution for sample weighting visibility

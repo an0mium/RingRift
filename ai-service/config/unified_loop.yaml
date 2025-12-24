@@ -566,7 +566,18 @@ selfplay:
     descent: 0.04 # 4% - Gradient search
     heuristic: 0.03 # 3% - Baseline comparison
     nnue_guided: 0.02 # 2% - NNUE evaluation
-    random: 0.01 # 1% - Weak baseline (minimal)
+
+  # GPU MCTS selfplay settings (app/training/gpu_mcts_selfplay.py)
+  # Produces high-quality soft policy targets from visit distributions
+  gpu_mcts:
+    enabled: true # Use GPU MCTS for selfplay on CUDA nodes
+    simulation_budget: 64 # MCTS simulations per move
+    num_sampled_actions: 16 # Gumbel top-K actions
+    batch_size: 32 # Games per batch
+    max_moves_per_game: 300 # Safety limit
+    encoder_version: 'v3' # Feature encoder version
+    export_format: 'npz' # Direct NPZ export for training
+    output_dir: 'data/training/gpu_mcts' # Output directory
 
 # Tournament settings (shared across all tournament scripts)
 tournament:

@@ -276,6 +276,7 @@ def serialize_move(
     value: float | None = None,
     phase: str | None = None,
     move_number: int | None = None,
+    search_stats: dict | None = None,
 ) -> dict[str, Any]:
     """Serialize a Move to JSON-compatible dict with optional MCTS info."""
     move_data = move.model_dump(by_alias=True, exclude_none=True, mode="json")
@@ -293,6 +294,10 @@ def serialize_move(
     # Add value estimate for training
     if value is not None:
         move_data["value"] = value
+
+    # Add rich search statistics for auxiliary training (Q-values, uncertainty, etc.)
+    if search_stats:
+        move_data["search_stats"] = search_stats
 
     return move_data
 
@@ -408,6 +413,11 @@ def generate_game(
             if hasattr(ai, '_last_root_value'):
                 value = ai._last_root_value
 
+            # Extract rich search statistics (Q-values, uncertainty, etc.)
+            search_stats = None
+            if hasattr(ai, 'get_search_stats'):
+                search_stats = ai.get_search_stats()
+
         # Serialize move with MCTS info
         phase = (
             state.current_phase.value
@@ -416,7 +426,8 @@ def generate_game(
         )
         # move_count is 0-indexed during loop, but moveNumber should be 1-indexed for consistency
         move_data = serialize_move(
-            selected_move, mcts_policy, value, phase=phase, move_number=move_count + 1
+            selected_move, mcts_policy, value, phase=phase, move_number=move_count + 1,
+            search_stats=search_stats
         )
         moves_data.append(move_data)
 
@@ -616,32 +627,36 @@ def save_game_to_db(result: GameResult, db: Any) -> None:
         "engine_mode": "gumbel-mcts",
     }
 
-    # Use incremental recording to properly store move_probs
+    # Use incremental recording to properly store move_probs and search_stats
     with GameRecorder(db, result.initial_state, result.game_id) as recorder:
         state = result.initial_state
         for idx, move_data in enumerate(result.moves):
             # Extract move_probs (MCTS policy) from the move data
             move_probs = move_data.get("mcts_policy")
-            
+
+            # Extract rich search statistics for auxiliary training
+            search_stats = move_data.get("search_stats")
+
             # Create Move object from the serialized data (excluding extra fields)
             move_dict = {k: v for k, v in move_data.items()
-                         if k not in ("mcts_policy", "value", "moveNumber")}
+                         if k not in ("mcts_policy", "value", "moveNumber", "search_stats")}
             move_dict.setdefault("id", f"{result.game_id}:{idx}")
             move = MoveModel.model_validate(move_dict)
-            
+
             # Apply move to get state_after
             state_after = GameEngine.apply_move(state, move, trace_mode=True)
-            
-            # Record the move with soft policy targets
+
+            # Record the move with soft policy targets and search stats
             recorder.add_move(
                 move,
                 state_after=state_after,
                 state_before=state,
                 move_probs=move_probs,
+                search_stats=search_stats,
             )
-            
+
             state = state_after
-        
+
         # Finalize with the final state and metadata
         recorder.finalize(result.final_state, metadata)
 

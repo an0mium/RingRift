@@ -1770,6 +1770,30 @@ class GumbelMCTSAI(BaseAI):
 
         return moves, probs
 
+    def get_search_stats(self) -> dict | None:
+        """Get rich search statistics from the last GPU tree search.
+
+        Returns Q-values, visit counts, uncertainty, prior policy, and other
+        statistics useful for auxiliary training targets.
+
+        Returns:
+            Dict with search statistics, or None if no GPU tree search
+            was performed (CPU sequential halving doesn't produce stats).
+
+        Example return value:
+            {
+                "q_values": {"0,1->2,3": 0.45, "1,2->3,4": 0.52, ...},
+                "visit_counts": {"0,1->2,3": 15, "1,2->3,4": 22, ...},
+                "search_depth": 4,
+                "uncertainty": 0.12,
+                "prior_policy": {"0,1->2,3": 0.25, ...},
+                "root_value": 0.35,
+                "nodes_explored": 128,
+                "total_simulations": 150
+            }
+        """
+        return self._last_search_stats
+
     def __repr__(self) -> str:
         """String representation."""
         gpu_status = "enabled" if self._gpu_batch_enabled else "disabled"

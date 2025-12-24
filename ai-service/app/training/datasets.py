@@ -184,6 +184,28 @@ class RingRiftDataset(Dataset):
                                     f"========================================"
                                 )
 
+                        # Cross-validate spatial_size with board_type metadata
+                        if self._spatial_size_meta is not None and board_type is not None:
+                            expected_sizes = {
+                                "SQUARE8": 8, "SQUARE19": 19, "HEX8": 9, "HEXAGONAL": 25,
+                                "square8": 8, "square19": 19, "hex8": 9, "hexagonal": 25,
+                            }
+                            board_type_str = board_type.name if hasattr(board_type, 'name') else str(board_type)
+                            expected_for_board = expected_sizes.get(board_type_str)
+                            if expected_for_board is not None and self._spatial_size_meta != expected_for_board:
+                                raise ValueError(
+                                    f"========================================\n"
+                                    f"METADATA INCONSISTENCY IN NPZ DATA\n"
+                                    f"========================================\n"
+                                    f"File: {data_path}\n"
+                                    f"board_type metadata: {board_type_str}\n"
+                                    f"spatial_size metadata: {self._spatial_size_meta}\n"
+                                    f"Expected spatial_size for {board_type_str}: {expected_for_board}\n\n"
+                                    f"This data was likely exported with incorrect encoder.\n"
+                                    f"Re-export with the correct board-type-aware encoder.\n"
+                                    f"========================================"
+                                )
+
                         # Log validation success
                         logger.debug(
                             f"NPZ validation passed: {actual_channels}ch, "

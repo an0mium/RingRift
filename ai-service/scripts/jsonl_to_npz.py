@@ -1534,6 +1534,22 @@ def convert_jsonl_to_npz(
         total_game_moves_arr = np.array(all_total_game_moves, dtype=np.int32)
         phases_arr = np.array(all_phases, dtype=object)
 
+        # Validate spatial dimensions match encoder metadata
+        actual_spatial = features_arr.shape[2]
+        expected_spatial = encoder_metadata.get("spatial_size", actual_spatial)
+        if actual_spatial != expected_spatial:
+            raise ValueError(
+                f"========================================\n"
+                f"SPATIAL DIMENSION MISMATCH AT EXPORT\n"
+                f"========================================\n"
+                f"Feature tensor spatial size: {actual_spatial}×{actual_spatial}\n"
+                f"Encoder metadata spatial_size: {expected_spatial}\n"
+                f"Board type: {encoder_metadata.get('board_type', 'unknown')}\n\n"
+                f"This indicates the encoder was not configured correctly.\n"
+                f"HEX8 should produce 9×9, HEXAGONAL should produce 25×25.\n"
+                f"========================================"
+            )
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
         logger.info(f"Saving to {output_path}...")
 
