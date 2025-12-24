@@ -226,6 +226,31 @@ MIN_WIN_RATE_VS_RANDOM = 0.70  # 70%
 # Lowered from 60% to 50% - break-even with heuristic is acceptable start
 MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50%
 
+# -----------------------------------------------------------------------------
+# 4-Player Adjusted Thresholds
+# -----------------------------------------------------------------------------
+# For 4-player games, random baseline is 25% (1/4 chance), not 50%.
+# Thresholds are adjusted to match equivalent relative improvement.
+# 70% for 2p (1.4x over 50%) -> 50% for 4p (2x over 25%)
+# 50% for 2p (1.0x heuristic) -> 35% for 4p (reasonable starting point)
+
+MIN_WIN_RATE_VS_RANDOM_4P = 0.50  # 50% (2x better than 25% random baseline)
+MIN_WIN_RATE_VS_HEURISTIC_4P = 0.35  # 35% (reasonable for multiplayer dynamics)
+
+
+def get_min_win_rate_vs_random(num_players: int = 2) -> float:
+    """Get minimum win rate vs random based on player count."""
+    if num_players >= 4:
+        return MIN_WIN_RATE_VS_RANDOM_4P
+    return MIN_WIN_RATE_VS_RANDOM
+
+
+def get_min_win_rate_vs_heuristic(num_players: int = 2) -> float:
+    """Get minimum win rate vs heuristic based on player count."""
+    if num_players >= 4:
+        return MIN_WIN_RATE_VS_HEURISTIC_4P
+    return MIN_WIN_RATE_VS_HEURISTIC
+
 # Baseline Elo estimates for Elo calculation from win rates
 BASELINE_ELO_RANDOM = 400
 BASELINE_ELO_HEURISTIC = 1200

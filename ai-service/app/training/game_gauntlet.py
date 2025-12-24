@@ -86,6 +86,8 @@ try:
         BASELINE_ELO_RANDOM,
         MIN_WIN_RATE_VS_HEURISTIC,
         MIN_WIN_RATE_VS_RANDOM,
+        get_min_win_rate_vs_heuristic,
+        get_min_win_rate_vs_random,
     )
 except ImportError:
     BASELINE_ELO_RANDOM = 400
@@ -93,11 +95,18 @@ except ImportError:
     MIN_WIN_RATE_VS_RANDOM = 0.85
     MIN_WIN_RATE_VS_HEURISTIC = 0.60
 
+    def get_min_win_rate_vs_random(num_players: int = 2) -> float:
+        return 0.50 if num_players >= 4 else MIN_WIN_RATE_VS_RANDOM
+
+    def get_min_win_rate_vs_heuristic(num_players: int = 2) -> float:
+        return 0.35 if num_players >= 4 else MIN_WIN_RATE_VS_HEURISTIC
+
 BASELINE_ELOS = {
     BaselineOpponent.RANDOM: BASELINE_ELO_RANDOM,
     BaselineOpponent.HEURISTIC: BASELINE_ELO_HEURISTIC,
 }
 
+# Static fallback (use get_min_win_rate_* functions for player-aware thresholds)
 MIN_WIN_RATES = {
     BaselineOpponent.RANDOM: MIN_WIN_RATE_VS_RANDOM,
     BaselineOpponent.HEURISTIC: MIN_WIN_RATE_VS_HEURISTIC,
@@ -499,15 +508,22 @@ def run_baseline_gauntlet(
 
         result.opponent_results[baseline_name] = opponent_stats
 
-        # Check baseline gating
+        # Check baseline gating (use player-aware thresholds)
         if check_baseline_gating:
-            min_required = MIN_WIN_RATES.get(baseline, 0.0)
+            if baseline == BaselineOpponent.RANDOM:
+                min_required = get_min_win_rate_vs_random(num_players)
+            elif baseline == BaselineOpponent.HEURISTIC:
+                min_required = get_min_win_rate_vs_heuristic(num_players)
+            else:
+                min_required = MIN_WIN_RATES.get(baseline, 0.0)
+
             if opponent_stats["win_rate"] < min_required:
                 result.passes_baseline_gating = False
                 result.failed_baselines.append(baseline_name)
                 logger.warning(
                     f"[gauntlet] Failed baseline gating vs {baseline_name}: "
                     f"{opponent_stats['win_rate']:.1%} < {min_required:.0%} required"
+                    f" ({num_players}p thresholds)"
                 )
 
     # Calculate overall win rate
