@@ -27381,7 +27381,9 @@ print(json.dumps({{
                     "--db", str(output_dir / "games.db"),
                     "--seed", str(int(time.time() * 1000) % 2**31),
                     "--allow-fresh-weights",  # Allow running even without trained model
-                    "--use-gpu-tree",  # 170x speedup with GPU tensor tree MCTS
+                    # TODO: Re-enable when GPU tree phase bugs are fixed (RR-GPU-TREE-001)
+                    # GPU tree has phase/move invariant violations during MCTS simulation
+                    # "--use-gpu-tree",  # 170x speedup with GPU tensor tree MCTS
                 ]
 
                 # Start process with GPU environment
