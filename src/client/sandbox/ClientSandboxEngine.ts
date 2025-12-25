@@ -46,7 +46,6 @@ import {
   positionToString,
   stringToPosition,
   positionsEqual,
-  createHistoryEntry,
   hashGameState,
   isValidPosition,
   playerHasMaterial,
@@ -91,9 +90,17 @@ import { normalizeLegacyMoveType } from '../../shared/engine/legacy/legacyMoveTy
 import type { LpsTrackingState } from '../../shared/engine';
 import {
   deserializeGameState,
-  serializeGameState,
   type SerializedGameState,
 } from '../../shared/engine/contracts/serialization';
+// Phase 1 decomposition: History and State managers
+import {
+  type HistoryManagerHooks,
+  appendHistoryEntry as appendHistoryEntryFromManager,
+  recordHistorySnapshotsOnly as recordHistorySnapshotsOnlyFromManager,
+  getStateAtMoveIndex as getStateAtMoveIndexFromManager,
+  rebuildSnapshotsFromMoveHistory as rebuildSnapshotsFromMoveHistoryFromManager,
+} from './sandboxHistoryManager';
+import { getSerializedState } from './sandboxStateManager';
 // Shared action-availability predicates (canonical implementations)
 import {
   hasAnyPlacementForPlayer,
@@ -406,35 +413,8 @@ export class ClientSandboxEngine {
     action: Move,
     opts?: { skipMoveHistory?: boolean }
   ): void {
-    const after = this.getGameState();
-
-    // Use the shared helper to create a consistent history entry.
-    // normalizeMoveNumber ensures sandbox history uses a contiguous 1..N
-    // sequence regardless of how callers populated Move.moveNumber.
-    const entry = createHistoryEntry(before, after, action, {
-      normalizeMoveNumber: true,
-    });
-
-    // Capture state snapshots for history playback.
-    // For the first move, also capture the initial state (before any moves).
-    if (this.gameState.history.length === 0) {
-      this._initialStateSnapshot = this.cloneGameState(before);
-    }
-    // Capture the "after" state for this move.
-    this._stateSnapshots.push(this.cloneGameState(after));
-
-    this.gameState = {
-      ...this.gameState,
-      // Keep moveHistory in sync with canonical actions so board
-      // animation hooks (useAutoMoveAnimation) can observe new moves
-      // in both backend and sandbox hosts.
-      // When skipMoveHistory is true, the orchestrator adapter has already
-      // added the move to moveHistory, so we don't add it again.
-      moveHistory: opts?.skipMoveHistory
-        ? this.gameState.moveHistory
-        : [...this.gameState.moveHistory, action],
-      history: [...this.gameState.history, entry],
-    };
+    // Delegate to the extracted history manager
+    appendHistoryEntryFromManager(this.getHistoryManagerHooks(), before, action, opts);
   }
 
   /**
@@ -446,13 +426,8 @@ export class ClientSandboxEngine {
    * while still keeping `_stateSnapshots` aligned for HistoryPlayback UX.
    */
   private recordHistorySnapshotsOnly(before: GameState): void {
-    const afterSnapshot = this.cloneGameState(this.gameState);
-
-    if (this._stateSnapshots.length === 0) {
-      this._initialStateSnapshot = this.cloneGameState(before);
-    }
-
-    this._stateSnapshots.push(afterSnapshot);
+    // Delegate to the extracted history manager
+    recordHistorySnapshotsOnlyFromManager(this.getHistoryManagerHooks(), before);
   }
 
   constructor(opts: ClientSandboxEngineOptions) {
@@ -534,6 +509,27 @@ export class ClientSandboxEngine {
 
     // Initialize orchestrator adapter lazily when first needed
     this.orchestratorAdapter = null;
+  }
+
+  /**
+   * Create a HistoryManagerHooks interface for interacting with the history manager.
+   * This provides the hooks pattern interface for state access without circular dependencies.
+   */
+  private getHistoryManagerHooks(): HistoryManagerHooks {
+    return {
+      getGameState: () => this.getGameState(),
+      updateGameState: (state: GameState) => {
+        this.gameState = state;
+      },
+      getStateSnapshots: () => this._stateSnapshots,
+      setStateSnapshots: (snapshots: GameState[]) => {
+        this._stateSnapshots = snapshots;
+      },
+      getInitialStateSnapshot: () => this._initialStateSnapshot,
+      setInitialStateSnapshot: (snapshot: GameState | null) => {
+        this._initialStateSnapshot = snapshot;
+      },
+    };
   }
 
   /**
@@ -874,7 +870,7 @@ export class ClientSandboxEngine {
    * Used for saving custom scenarios.
    */
   public getSerializedState(): SerializedGameState {
-    return serializeGameState(this.getGameState());
+    return getSerializedState(this.getGameState());
   }
 
   /**
@@ -892,66 +888,8 @@ export class ClientSandboxEngine {
    * if the history entries contain the snapshots.
    */
   public getStateAtMoveIndex(moveIndex: number): GameState | null {
-    const history = this.gameState.history;
-    const totalMoves = history.length;
-
-    // If at or beyond total moves, return current state
-    if (moveIndex >= totalMoves) {
-      return this.getGameState();
-    }
-
-    // If negative, invalid
-    if (moveIndex < 0) {
-      return null;
-    }
-
-    // For index 0 (initial state), return the initial state snapshot
-    if (moveIndex === 0) {
-      if (this._initialStateSnapshot) {
-        return this.cloneGameState(this._initialStateSnapshot);
-      }
-      // No initial snapshot - can't determine initial state for pre-loaded fixtures
-      return null;
-    }
-
-    // For index N (1..totalMoves-1), return snapshot N-1's state
-    // _stateSnapshots[0] = state after move 1
-    // _stateSnapshots[N-1] = state after move N
-    // So for moveIndex = N, we need _stateSnapshots[N-1]
-    const snapshotIndex = moveIndex - 1;
-    if (snapshotIndex >= 0 && snapshotIndex < this._stateSnapshots.length) {
-      return this.cloneGameState(this._stateSnapshots[snapshotIndex]);
-    }
-
-    // Snapshot not available (e.g., for pre-loaded fixtures without snapshots)
-    return null;
-  }
-
-  /**
-   * Deep-clone a GameState for safe history viewing.
-   * Similar to getGameState() but operates on any state object.
-   */
-  private cloneGameState(state: GameState): GameState {
-    const board = state.board;
-
-    const clonedBoard: BoardState = {
-      ...board,
-      stacks: new Map(board.stacks),
-      markers: new Map(board.markers),
-      collapsedSpaces: new Map(board.collapsedSpaces),
-      territories: new Map(board.territories),
-      formedLines: [...board.formedLines],
-      eliminatedRings: { ...board.eliminatedRings },
-    };
-
-    return {
-      ...state,
-      board: clonedBoard,
-      moveHistory: [...state.moveHistory],
-      history: [...state.history],
-      players: state.players.map((p) => ({ ...p })),
-      spectators: [...state.spectators],
-    };
+    // Delegate to the extracted history manager
+    return getStateAtMoveIndexFromManager(this.getHistoryManagerHooks(), moveIndex);
   }
 
   /**
@@ -964,81 +902,8 @@ export class ClientSandboxEngine {
    * @param finalState - The final game state (after all moves)
    */
   private rebuildSnapshotsFromMoveHistory(finalState: GameState): void {
-    const moveHistory = finalState.moveHistory;
-
-    // No moves to replay - nothing to do
-    if (!moveHistory || moveHistory.length === 0) {
-      return;
-    }
-
-    try {
-      // Create a fresh initial state matching the fixture's configuration.
-      // We use the final state's metadata (boardType, players, timeControl, etc.)
-      // but with an empty board and no moves.
-      const initialState = createInitialGameState(
-        finalState.id,
-        finalState.boardType,
-        // Reset player state to initial values
-        finalState.players.map((p) => ({
-          ...p,
-          ringsInHand: BOARD_CONFIGS[finalState.boardType].ringsPerPlayer,
-          eliminatedRings: 0,
-          territorySpaces: 0,
-        })),
-        finalState.timeControl,
-        finalState.isRated,
-        finalState.rngSeed,
-        finalState.rulesOptions
-      );
-
-      // Mark the game as active (createInitialGameState sets it to 'waiting')
-      let currentState: GameState = {
-        ...initialState,
-        gameStatus: 'active',
-      };
-
-      // Store the initial state snapshot (state before any moves)
-      this._initialStateSnapshot = this.cloneGameState(currentState);
-
-      // Replay each move and capture snapshots
-      for (const move of moveHistory) {
-        try {
-          const result = applyMoveForReplay(currentState, move);
-          currentState = result.nextState;
-
-          // Add the move to the replayed state's history
-          currentState = {
-            ...currentState,
-            moveHistory: [...currentState.moveHistory, move],
-          };
-
-          // Capture snapshot after this move
-          this._stateSnapshots.push(this.cloneGameState(currentState));
-        } catch (err) {
-          // If a move fails to apply, stop reconstruction but keep what we have
-          if (process.env.NODE_ENV === 'development') {
-            console.warn(
-              '[ClientSandboxEngine] Failed to apply move during snapshot reconstruction:',
-              move,
-              err
-            );
-          }
-          break;
-        }
-      }
-
-      if (process.env.NODE_ENV === 'development') {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[ClientSandboxEngine] Rebuilt ${this._stateSnapshots.length} snapshots from ${moveHistory.length} moves`
-        );
-      }
-    } catch (err) {
-      // If initial state creation fails, leave snapshots empty
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[ClientSandboxEngine] Failed to rebuild snapshots from move history:', err);
-      }
-    }
+    // Delegate to the extracted history manager
+    rebuildSnapshotsFromMoveHistoryFromManager(this.getHistoryManagerHooks(), finalState);
   }
 
   /**
