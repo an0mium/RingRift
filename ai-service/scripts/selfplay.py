@@ -176,6 +176,38 @@ def main():
         description="Unified Selfplay CLI - Generate training data via self-play"
     )
 
+    # Query ImprovementOptimizer for priority boost (December 2025)
+    # When on a promotion streak, boost search budget for higher quality games
+    priority_boost = 0.0
+    try:
+        from app.training.improvement_optimizer import get_selfplay_priority_boost
+
+        config_key = f"{config.board_type}_{config.num_players}p"
+        priority_boost = get_selfplay_priority_boost(config_key)
+
+        if priority_boost > 0.05:
+            # On a promotion streak - boost search budget for higher quality data
+            original_sims = config.mcts_simulations
+            boost_factor = 1.0 + priority_boost * 2  # +0.15 boost → 1.3x simulations
+            config.mcts_simulations = min(3200, int(original_sims * boost_factor))
+            logger.info(
+                f"[ImprovementOptimizer] Priority boost: +{priority_boost:.2f} → "
+                f"mcts_simulations {original_sims} → {config.mcts_simulations}"
+            )
+        elif priority_boost < -0.05:
+            # Config underperforming - reduce search budget to save compute
+            original_sims = config.mcts_simulations
+            reduction = 1.0 + priority_boost  # -0.10 boost → 0.9x simulations
+            config.mcts_simulations = max(200, int(original_sims * reduction))
+            logger.info(
+                f"[ImprovementOptimizer] Priority reduction: {priority_boost:.2f} → "
+                f"mcts_simulations {original_sims} → {config.mcts_simulations}"
+            )
+    except ImportError:
+        pass  # ImprovementOptimizer not available
+    except Exception as e:
+        logger.debug(f"[ImprovementOptimizer] Could not get priority boost: {e}")
+
     # Log configuration summary
     logger.info("=" * 60)
     logger.info("Unified Selfplay")
@@ -184,6 +216,9 @@ def main():
     logger.info(f"Players: {config.num_players}")
     logger.info(f"Games: {config.num_games}")
     logger.info(f"Engine: {config.engine_mode.value}")
+    logger.info(f"MCTS sims: {config.mcts_simulations}")
+    if priority_boost != 0.0:
+        logger.info(f"Priority boost: {priority_boost:+.2f}")
     if config.output_dir:
         logger.info(f"Output: {config.output_dir}")
     if config.record_db:

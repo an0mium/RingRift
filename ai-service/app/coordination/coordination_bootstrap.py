@@ -564,6 +564,7 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     1. CLUSTER_SYNC_COMPLETE → DataPipelineOrchestrator (triggers NPZ export)
     2. MODEL_SYNC_COMPLETE → ModelLifecycleCoordinator (triggers cache update)
     3. SELFPLAY_COMPLETE → SyncCoordinator (triggers data sync)
+    4. MODEL_PROMOTED → SelfplayModelSelector (hot-reload model cache)
 
     Returns:
         Dict mapping subscription name to success status
@@ -648,6 +649,19 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     except Exception as e:
         results["selfplay_to_sync"] = False
         logger.debug(f"[Bootstrap] Failed to wire selfplay to sync: {e}")
+
+    # 4. Initialize model selector events for hot-reload on MODEL_PROMOTED
+    # December 2025: Critical fix - handler existed but was never initialized!
+    try:
+        from app.training.selfplay_model_selector import init_model_selector_events
+
+        init_model_selector_events()
+        results["model_selector_events"] = True
+        logger.debug("[Bootstrap] Initialized SelfplayModelSelector MODEL_PROMOTED subscription")
+
+    except Exception as e:
+        results["model_selector_events"] = False
+        logger.debug(f"[Bootstrap] Failed to init model selector events: {e}")
 
     wired = sum(1 for v in results.values() if v)
     total = len(results)
