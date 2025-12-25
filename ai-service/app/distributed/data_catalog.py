@@ -806,6 +806,201 @@ class DataCatalog:
             warnings=warnings,
         )
 
+    # =========================================================================
+    # NPZ File Discovery (Phase 7: NPZ Tracking - December 2025)
+    # =========================================================================
+
+    def discover_npz_files(
+        self,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        min_samples: int = 0,
+        max_age_hours: float | None = None,
+    ) -> list[NPZDataSource]:
+        """Discover NPZ training files across all storage locations.
+
+        Args:
+            board_type: Filter by board type (e.g., 'hex8', 'square8')
+            num_players: Filter by player count (e.g., 2, 3, 4)
+            min_samples: Minimum sample count threshold
+            max_age_hours: Maximum age in hours (None for no limit)
+
+        Returns:
+            List of NPZDataSource objects for matching NPZ files
+        """
+        npz_sources: list[NPZDataSource] = []
+
+        # Search directories
+        search_dirs = [
+            DATA_DIR / "training",
+            DATA_DIR / "exports",
+            GAMES_DIR.parent / "training",
+        ]
+
+        # Add NFS path if available
+        if self._provider and self._provider.has_shared_storage:
+            nfs_training = Path("/lambda/nfs/RingRift/ai-service/data/training")
+            if nfs_training.exists():
+                search_dirs.append(nfs_training)
+
+        for search_dir in search_dirs:
+            if not search_dir.exists():
+                continue
+
+            for npz_path in search_dir.glob("**/*.npz"):
+                try:
+                    source = self._analyze_npz_file(npz_path)
+                    if source is None:
+                        continue
+
+                    # Apply filters
+                    if board_type and source.board_type != board_type:
+                        continue
+                    if num_players and source.num_players != num_players:
+                        continue
+                    if source.sample_count < min_samples:
+                        continue
+                    if max_age_hours and source.age_hours > max_age_hours:
+                        continue
+
+                    npz_sources.append(source)
+
+                except Exception as e:
+                    logger.debug(f"Failed to analyze NPZ {npz_path}: {e}")
+
+        # Sort by recency (newest first)
+        npz_sources.sort(key=lambda s: s.created_at, reverse=True)
+
+        logger.debug(f"Discovered {len(npz_sources)} NPZ files")
+        return npz_sources
+
+    def _analyze_npz_file(self, npz_path: Path) -> NPZDataSource | None:
+        """Analyze an NPZ file and return source info.
+
+        Args:
+            npz_path: Path to the NPZ file
+
+        Returns:
+            NPZDataSource object or None if analysis fails
+        """
+        import numpy as np
+
+        try:
+            stat = npz_path.stat()
+
+            # Parse board type and num_players from filename
+            # Common patterns: hex8_2p.npz, square8_3p_training.npz
+            name = npz_path.stem.lower()
+            board_type = None
+            num_players = None
+
+            # Extract board type
+            for bt in ["hex8", "hexagonal", "square8", "square19"]:
+                if bt in name:
+                    board_type = bt
+                    break
+
+            # Extract player count
+            for players in [2, 3, 4]:
+                if f"{players}p" in name:
+                    num_players = players
+                    break
+
+            # Estimate sample count from file size
+            # Typical: ~200 bytes per sample for compressed NPZ
+            estimated_samples = stat.st_size // 200
+
+            # Try to get actual sample count if file is small enough
+            sample_count = estimated_samples
+            if stat.st_size < 100 * 1024 * 1024:  # < 100MB
+                try:
+                    with np.load(npz_path, allow_pickle=False) as data:
+                        if "policy" in data:
+                            sample_count = len(data["policy"])
+                        elif "states" in data:
+                            sample_count = len(data["states"])
+                except Exception:
+                    pass  # Use estimate
+
+            return NPZDataSource(
+                path=npz_path,
+                board_type=board_type,
+                num_players=num_players,
+                sample_count=sample_count,
+                total_size_bytes=stat.st_size,
+                created_at=stat.st_mtime,
+                host_origin=self.node_id,
+                is_available=True,
+            )
+
+        except Exception as e:
+            logger.debug(f"Error analyzing NPZ {npz_path}: {e}")
+            return None
+
+    def get_best_npz_for_training(
+        self,
+        board_type: str,
+        num_players: int,
+        prefer_recent: bool = True,
+    ) -> NPZDataSource | None:
+        """Get the best NPZ file for a training configuration.
+
+        Args:
+            board_type: Board type to match
+            num_players: Number of players to match
+            prefer_recent: Prefer more recent files
+
+        Returns:
+            Best matching NPZDataSource or None
+        """
+        sources = self.discover_npz_files(
+            board_type=board_type,
+            num_players=num_players,
+        )
+
+        if not sources:
+            return None
+
+        if prefer_recent:
+            # Already sorted by recency in discover_npz_files
+            return sources[0]
+
+        # Otherwise prefer largest (most samples)
+        return max(sources, key=lambda s: s.sample_count)
+
+    def get_npz_stats(self) -> dict[str, Any]:
+        """Get statistics about available NPZ files.
+
+        Returns:
+            Dictionary with NPZ statistics
+        """
+        all_npz = self.discover_npz_files()
+
+        stats: dict[str, Any] = {
+            "total_files": len(all_npz),
+            "total_samples": sum(s.sample_count for s in all_npz),
+            "total_size_bytes": sum(s.total_size_bytes for s in all_npz),
+            "by_config": {},
+        }
+
+        for source in all_npz:
+            config_key = source.config_key or "unknown"
+            if config_key not in stats["by_config"]:
+                stats["by_config"][config_key] = {
+                    "files": 0,
+                    "samples": 0,
+                    "newest_hours_ago": float("inf"),
+                }
+            entry = stats["by_config"][config_key]
+            entry["files"] += 1
+            entry["samples"] += source.sample_count
+            entry["newest_hours_ago"] = min(
+                entry["newest_hours_ago"],
+                source.age_hours,
+            )
+
+        return stats
+
 
 # Singleton instance
 _catalog_instance: DataCatalog | None = None

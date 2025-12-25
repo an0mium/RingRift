@@ -403,8 +403,6 @@ scripts/tunnel_metrics.sh
 
 # Python scripts with hardcoded cluster node IPs
 ai-service/scripts/deploy_gmo_training.py
-ai-service/scripts/sync_monitor.py
-ai-service/scripts/training_monitor.py
 ai-service/scripts/vast_lifecycle.py
 ai-service/scripts/vast_p2p_sync.py
 
