@@ -3031,8 +3031,8 @@ def run_gpu_self_play_soak(
         max_moves_defaults = {
             "square8": 600,
             "square19": 2000,
-            "hex8": 400,
-            "hexagonal": 1500,
+            "hex8": 600,
+            "hexagonal": 2800,  # Full hex needs more moves
         }
         max_moves = max_moves_defaults.get(board_type, 600)
 
