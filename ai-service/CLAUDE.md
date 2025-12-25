@@ -28,15 +28,20 @@ The Python `ai-service` mirrors the TS engine for training data generation and m
 ### Primary Training Nodes (SSH via Tailscale)
 
 ```bash
-# H100 nodes (primary access points)
-ssh -i ~/.ssh/id_cluster ubuntu@100.78.101.123  # lambda-h100 (80GB)
-ssh -i ~/.ssh/id_cluster ubuntu@100.97.104.89   # lambda-2xh100 (160GB)
+# GH200 nodes (96GB each) - 19 nodes: a, b, c, d, e, f, g, h, i, k, l, m, n, o, p, q, r, s, t
+ssh -i ~/.ssh/id_cluster ubuntu@192.222.51.29    # lambda-gh200-a
+ssh -i ~/.ssh/id_cluster ubuntu@192.222.51.161   # lambda-gh200-b
 
-# GH200 nodes (96GB each) - use P2P status to find active ones
-# Note: GH200 nodes a, e, f are retired. Active: b-new, d, g, h, i, o, p, q, r, s, t
+# H100 nodes
+ssh -i ~/.ssh/id_cluster ubuntu@209.20.157.81    # lambda-h100 (80GB)
+ssh -i ~/.ssh/id_cluster ubuntu@192.222.53.22    # lambda-2xh100 (160GB)
 
-# A10 node (23GB)
-ssh -i ~/.ssh/id_cluster ubuntu@100.91.25.13    # lambda-a10
+# A10 nodes (23GB each)
+ssh -i ~/.ssh/id_cluster ubuntu@150.136.65.197   # lambda-a10
+ssh -i ~/.ssh/id_cluster ubuntu@129.153.159.191  # lambda-a10-b
+ssh -i ~/.ssh/id_cluster ubuntu@150.136.56.240   # lambda-a10-c
+
+# See config/distributed_hosts.yaml for full inventory (~43 nodes)
 ```
 
 ### Cluster Monitoring
@@ -225,6 +230,22 @@ Quality checking for training data:
 - `DatabaseQualityChecker` - Validate database schema/content
 - `TrainingDataValidator` - Validate NPZ files
 
+### Safe Checkpoint Loading (`app/utils/torch_utils.py`)
+
+Secure model checkpoint loading to mitigate pickle deserialization attacks:
+
+```python
+from app.utils.torch_utils import safe_load_checkpoint
+
+# Safe by default - tries weights_only=True first
+checkpoint = safe_load_checkpoint("models/my_model.pth")
+
+# For untrusted external models - enforce safe mode
+checkpoint = safe_load_checkpoint(external_path, allow_unsafe=False)
+```
+
+See `SECURITY.md` for full migration status and security considerations.
+
 ### GumbelCommon (`app/ai/gumbel_common.py`)
 
 Unified data structures for all Gumbel MCTS variants:
@@ -234,6 +255,25 @@ Unified data structures for all Gumbel MCTS variants:
 - `LeafEvalRequest` - Batched leaf evaluation request
 - Budget constants: `GUMBEL_BUDGET_THROUGHPUT` (64), `GUMBEL_BUDGET_STANDARD` (150), `GUMBEL_BUDGET_QUALITY` (800), `GUMBEL_BUDGET_ULTIMATE` (1600)
 - `get_budget_for_difficulty(difficulty)` - Map difficulty to budget tier
+
+### GumbelSearchEngine (`app/ai/gumbel_search_engine.py`)
+
+Unified entry point for all Gumbel MCTS search variants:
+
+```python
+from app.ai.gumbel_search_engine import GumbelSearchEngine, SearchMode
+
+# For single game play
+engine = GumbelSearchEngine(neural_net=my_nn, mode=SearchMode.SINGLE_GAME)
+move = engine.search(game_state)
+
+# For selfplay (high throughput)
+engine = GumbelSearchEngine(neural_net=my_nn, mode=SearchMode.MULTI_GAME_PARALLEL, num_games=64)
+results = engine.search_batch(initial_states)
+```
+
+- Modes: `SINGLE_GAME`, `SINGLE_GAME_FAST`, `MULTI_GAME_BATCH`, `MULTI_GAME_PARALLEL`, `AUTO`
+- Consolidates: `gumbel_mcts_ai.py`, `tensor_gumbel_tree.py`, `batched_gumbel_mcts.py`, `multi_game_gumbel.py`
 
 ### Selfplay (`scripts/selfplay.py`)
 
@@ -280,6 +320,17 @@ Unified training pipeline orchestration:
 - **`daemon_manager.py`**: Lifecycle management for all daemons
 - **`daemon_adapters.py`**: Wrappers for existing daemons (sync, promotion, distillation)
 - **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
+- **`auto_sync_daemon.py`**: Automated P2P data sync with push-from-generator + gossip replication
+
+```python
+# AutoSyncDaemon - automated cluster data synchronization
+from app.coordination.auto_sync_daemon import AutoSyncDaemon
+
+daemon = AutoSyncDaemon()
+await daemon.start()  # Syncs game data across cluster
+```
+
+Features: excludes coordinator nodes, skips NFS sync, prioritizes ephemeral nodes
 
 ```bash
 # Launch all daemons under unified management
@@ -330,12 +381,16 @@ learner.update_from_game(winner)
 
 ## Current Model State (as of Dec 2025)
 
-| Config  | Status     | Best Accuracy | Location                     |
-| ------- | ---------- | ------------- | ---------------------------- |
-| hex8_2p | Production | 76.2% policy  | models/canonical_hex8_2p.pth |
-| sq8_2p  | Production | -             | models/canonical_sq8_2p.pth  |
-| sq8_3p  | Production | -             | models/canonical_sq8_3p.pth  |
-| sq19_2p | Production | -             | models/canonical_sq19_2p.pth |
+All 12 canonical configurations have trained models:
+
+| Board     | 2-Player | 3-Player | 4-Player |
+| --------- | -------- | -------- | -------- |
+| hex8      | ✓ 38MB   | ✓ 38MB   | ✓ 38MB   |
+| square8   | ✓ 32MB   | ✓ 15MB   | ✓ 366MB  |
+| square19  | ✓ 102MB  | ✓ 103MB  | ✓ 103MB  |
+| hexagonal | ✓ 166MB  | ✓ 166MB  | ✓ 166MB  |
+
+Models stored as `models/canonical_<board>_<n>p.pth` (e.g., `canonical_hex8_2p.pth`).
 
 ### GPU Selfplay Status
 
@@ -343,8 +398,8 @@ The GPU parallel games engine is production-ready with 100% parity:
 
 - Location: `app/ai/gpu_parallel_games.py`
 - Current speedup: ~6.5x on CUDA
-- Optimization status: Partial (~80 `.item()` calls remain)
-- Full vectorization would yield 10-20x speedup
+- Optimization status: Partial (~31 `.item()` calls remain, down from 80 after Dec 2025 optimizations)
+- Full vectorization would yield 10-15x speedup
 
 ## Architecture Notes
 
@@ -425,11 +480,11 @@ ai-service/
 
 Recent work covered:
 
-- **P2P Cluster**: 21 active nodes with leader election, ~400+ selfplay jobs
+- **P2P Cluster**: ~43 active nodes with leader election, ~400+ selfplay jobs
 - **GPU Parity**: 100% verified (10K seeds tested) - production ready
-- **Models**: 4 canonical models in production (hex8_2p, sq8_2p, sq8_3p, sq19_2p)
+- **Models**: All 12 canonical models complete and synced to cluster
 - **Infrastructure**: Updated voter configuration, fixed node_resilience issues
-- **Tests**: 11,274 passing (98.5% pass rate)
+- **Tests**: 11,793 passing (98.5% pass rate)
 - **Auto-Promotion Pipeline**: Added gauntlet-based model promotion (scripts/auto_promote.py)
 - **4-Player Gauntlet Fix**: Fixed multiplayer game handling in game_gauntlet.py
 
@@ -488,21 +543,21 @@ PYTHONPATH=. python3 scripts/auto_promote.py --gauntlet \
 - vs RANDOM: 85% win rate required
 - vs HEURISTIC: 60% win rate required
 
-### Active Training Jobs (Dec 24, 2025)
+### Model Training Status (Dec 25, 2025)
 
-| Config       | Node           | Status                    |
-| ------------ | -------------- | ------------------------- |
-| square8_2p   | lambda-gh200-a | Training v2/v3, Exporting |
-| hex8_2p      | lambda-gh200-a | Training v2               |
-| hex8_4p      | lambda-gh200-a | Training v2               |
-| hex8_2p      | lambda-2xh100  | Gumbel selfplay (2 GPUs)  |
-| square19_3p  | lambda-gh200-o | Gumbel selfplay           |
-| hexagonal_2p | lambda-gh200-o | Gumbel selfplay           |
-| square19_4p  | lambda-gh200-o | Gumbel selfplay           |
+All 12 canonical configurations trained and deployed:
+
+| Board     | 2-Player         | 3-Player         | 4-Player          |
+| --------- | ---------------- | ---------------- | ----------------- |
+| hex8      | ✅ Complete      | ✅ Complete      | ✅ Complete       |
+| square8   | ✅ Complete      | ✅ Complete (v2) | ✅ Complete       |
+| square19  | ✅ Complete      | ✅ Complete      | ✅ Complete       |
+| hexagonal | ✅ Complete      | ✅ Complete      | ✅ Complete       |
+
+Gauntlet validation in progress on cluster node 100.88.35.19.
 
 ### Known Cluster Issues
 
 - `node_resilience.py` can kill P2P if `/status` times out - disabled on some nodes
 - Tailscale connectivity intermittent - prefer public IPs when available
-- GH200 nodes a, e, f retired - removed from voter list
 - Export scripts require `PYTHONPATH=.` when running on cluster

@@ -5,7 +5,7 @@
 > - Canonical list of current, code-verified issues and gaps.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `docs/rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** December 16, 2025
+**Last Updated:** December 25, 2025
 **Status:** Code-verified assessment based on actual implementation
 **Related Documents:** [TODO.md](./TODO.md) · [STRATEGIC_ROADMAP.md](docs/planning/STRATEGIC_ROADMAP.md) · [docs/rules/PARITY_SEED_TRIAGE.md](docs/rules/PARITY_SEED_TRIAGE.md)
 
@@ -1069,6 +1069,36 @@ convention fix was applied. Python allowed the move; TS rejected it.
 - Post-fix 4P soak testing shows **9/9 games completed successfully** with
   no "Destination has a marker" errors
 - Victory types: LPS (6), Territory (2), Elimination (1)
+
+### INV-002 / HEX-PARITY-02 – Hexagonal Board ANM State Divergence (Dec 2025)
+
+**Component(s):** Python `game_engine.py`, TS `turnOrchestrator.ts`, ANM detection logic
+**Severity:** P2 (downgraded from P1)
+**Status:** ✅ RESOLVED (Dec 25, 2025) – Hexagonal models trained and deployed
+
+**Description:**
+Historical ANM state divergence between TypeScript and Python engines during
+`line_processing` and `territory_processing` phases on hexagonal boards.
+
+**Resolution (Dec 25, 2025):**
+All 12 canonical model configurations are now trained and deployed, including:
+
+- `hex8_2p.pth` (38MB) - ELO 989
+- `hex8_3p.pth` (38MB) - ELO 822
+- `hex8_4p.pth` (38MB) - ELO 611
+- `hexagonal_2p.pth` (166MB)
+- `hexagonal_3p.pth` (166MB)
+- `hexagonal_4p.pth` (166MB)
+
+The parity issues were addressed through:
+
+1. Contract vector expansion to 90 vectors with 100% parity
+2. FSM validation fixes (commits f86c809f2, 60abb4f20)
+3. GPU selfplay pipeline improvements for proper phase handling
+
+**Detailed Documentation:**
+
+- [`ai-service/docs/runbooks/HEXAGONAL_PARITY_BUG.md`](ai-service/docs/runbooks/HEXAGONAL_PARITY_BUG.md) – Historical runbook (now resolved)
 
 ---
 
