@@ -68,7 +68,7 @@ from app.monitoring import ClusterHealthMonitor, create_cluster_monitor
 
 # Create monitor for cluster
 monitor = create_cluster_monitor(
-    nodes=["lambda-h100", "lambda-gh200-b", "lambda-gh200-d"],
+    nodes=["gpu-node-1", "gpu-node-2", "gpu-node-3"],
 )
 
 # Run health check

@@ -132,6 +132,6 @@ vast_gpu:
 # Override for specific nodes
 overrides:
   # Example: Force specific node to only do training
-  # lambda-gh200-a:
+  # my-gpu-node:
   #   allowed: [training]
   #   denied: [cpu_cmaes, gauntlet, selfplay]

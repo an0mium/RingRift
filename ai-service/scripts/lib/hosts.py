@@ -12,7 +12,7 @@ Usage:
     hosts = get_hosts()
 
     # Get specific host
-    host = get_host("lambda-gh200-a")
+    host = get_host("gpu-node-1")
     print(host.ssh_host)
     print(host.tailscale_ip)
 

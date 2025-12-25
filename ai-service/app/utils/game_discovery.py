@@ -481,7 +481,7 @@ class RemoteGameDiscovery:
         remote = RemoteGameDiscovery()
         counts = remote.get_cluster_game_counts()
         print(counts)
-        # {'lambda-gh200-a': {'hex8_2p': 35000, ...}, ...}
+        # {'gpu-node-1': {'hex8_2p': 35000, ...}, ...}
     """
 
     # Class-level cache for remote results

@@ -182,7 +182,7 @@ def report_cluster_node(
     """Report metrics for a cluster node.
 
     Args:
-        node: Node identifier (e.g., '192.222.53.22' or 'lambda-gh200-1')
+        node: Node identifier (e.g., 'gpu-node-1' or '100.x.x.x')
         gpu_type: GPU type (e.g., 'GH200', 'A100', 'H100')
         is_up: Whether the node is currently active
         gpu_utilization: GPU utilization fraction (0-1)

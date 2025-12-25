@@ -451,7 +451,7 @@ cluster = get_cluster()
 results = cluster.run_on_all("nvidia-smi -q -d MEMORY")
 
 # Check specific node
-node = cluster.get_node("lambda-gh200-e")
+node = cluster.get_node("gpu-node-1")
 health = node.check_health()
 print(f"GPUs: {len(health.gpus)}, Status: {health.status}")
 ```

@@ -136,7 +136,7 @@ from app.metrics import record_job_completion
 
 record_job_completion(
     job_type="selfplay",
-    node_id="lambda-gh200-b",
+    node_id="gpu-node-1",
     success=True,
     duration_seconds=120.5,
 )

@@ -207,10 +207,10 @@ SLURM_MANAGED_PATTERNS = [
     "lambda-a10",
 ]
 
-# Slurm controller configuration
-SLURM_CONTROLLER_HOST = os.getenv("SLURM_CONTROLLER_HOST", "100.78.101.123")
+# Slurm controller configuration (loaded from environment - no hardcoded defaults)
+SLURM_CONTROLLER_HOST = os.getenv("SLURM_CONTROLLER_HOST", "")  # Must be set in environment
 SLURM_CONTROLLER_USER = os.getenv("SLURM_CONTROLLER_USER", "ubuntu")
-SLURM_NFS_BASE = os.getenv("SLURM_NFS_BASE", "/home/ubuntu/ringrift/ai-service")  # Use local storage
+SLURM_NFS_BASE = os.getenv("SLURM_NFS_BASE", "/home/ubuntu/ringrift/ai-service")
 
 
 class SlurmBackend:

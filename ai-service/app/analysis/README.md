@@ -122,7 +122,7 @@ python scripts/analyze_cluster_games.py --board-type hex8 --num-players 2
 python scripts/analyze_cluster_games.py --ai-type gumbel --board-type hex8
 
 # Specific nodes
-python scripts/analyze_cluster_games.py --nodes lambda-gh200-b lambda-gh200-d
+python scripts/analyze_cluster_games.py --nodes gpu-node-1 gpu-node-2
 ```
 
 ### analyze_recovery_across_games.py

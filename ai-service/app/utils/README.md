@@ -146,7 +146,7 @@ from app.utils.game_discovery import RemoteGameDiscovery
 # Discover databases across cluster
 remote = RemoteGameDiscovery()
 cluster_dbs = remote.find_all_databases(
-    hosts=["lambda-gh200-a", "lambda-gh200-b"],
+    hosts=["gpu-node-1", "gpu-node-2"],
     ssh_key="~/.ssh/id_cluster",
 )
 ```

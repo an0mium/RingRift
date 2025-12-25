@@ -15,7 +15,7 @@ Usage:
         print(f"{node.node_id}: {node.ssh_host} ({node.gpu_type})")
 
     # Get specific node
-    node = config.get_node("lambda-gh200-e")
+    node = config.get_node("gpu-node-1")
     if node:
         print(f"SSH: {node.ssh_user}@{node.ssh_host}")
 """

@@ -348,6 +348,10 @@ ai-service/scripts/debug_specific_move.py
 # Cluster-specific monitoring configs (contain node IPs)
 ai-service/monitoring/prometheus/prometheus.yml
 ai-service/config/unified_loop.yaml
+ai-service/scripts/monitoring/cluster_health_check.sh
+ai-service/scripts/monitoring/README.md
+ai-service/config/slurm/slurm.conf.lambda.example
+ai-service/config/slurm/gres.conf.lambda.example
 
 # Cluster-specific documentation (contain node names/IPs)
 docs/operations/CLUSTER_OPERATIONS.md

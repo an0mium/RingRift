@@ -731,10 +731,8 @@ class VastNodeManager:
 class ClusterAutomation:
     """Automated cluster management across multiple providers."""
 
-    DEFAULT_PEERS = [
-        "http://100.78.101.123:8770",  # lambda-h100
-        "http://100.123.183.70:8770",  # lambda-gh200-a
-    ]
+    # Load from environment or config; no hardcoded defaults
+    DEFAULT_PEERS: list[str] = []
 
     def __init__(self):
         self.cluster = ClusterManager()

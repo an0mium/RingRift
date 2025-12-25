@@ -65,9 +65,9 @@ Configuration is loaded from `config/distributed_hosts.yaml`:
 
 ```yaml
 hosts:
-  mac-studio:
-    tailscale_ip: '100.100.100.1'
-    ssh_host: 'mac-studio.local'
+  coordinator-node:
+    tailscale_ip: '100.x.x.x'
+    ssh_host: 'coordinator.local'
     ssh_user: ubuntu
     ssh_port: 22
     ringrift_path: '~/ringrift/ai-service'
@@ -78,19 +78,19 @@ hosts:
     gpu: ''
     data_server_port: 8766
 
-  lambda-gh200-a:
-    tailscale_ip: '100.123.183.70'
-    ssh_host: 'ubuntu@100.123.183.70'
+  gpu-node-1:
+    tailscale_ip: '100.x.x.x'
+    ssh_host: 'ubuntu@100.x.x.x'
     ssh_key: '~/.ssh/id_cluster'
     status: active
     role: worker
     memory_gb: 96
     cpus: 72
-    gpu: 'GH200'
+    gpu: 'H100' # or GH200, A100, etc.
     data_server_port: 8766
 
 elo_sync:
-  coordinator: mac-studio
+  coordinator: coordinator-node
   sync_port: 8766
   sync_interval: 300
   divergence_threshold: 50

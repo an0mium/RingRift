@@ -502,8 +502,8 @@ results = await executor.run_parallel(
 ```yaml
 # config/distributed_hosts.yaml
 hosts:
-  - name: lambda-gh200-a
-    ip: 100.123.183.70
+  - name: gpu-node-1
+    ip: 100.x.x.x
     user: ubuntu
     key_path: ~/.ssh/id_cluster
     gpu_type: GH200
@@ -512,8 +512,8 @@ hosts:
       - selfplay
       - training
 
-  - name: lambda-h100
-    ip: 100.78.101.123
+  - name: gpu-node-2
+    ip: 100.x.x.x
     user: ubuntu
     key_path: ~/.ssh/id_cluster
     gpu_type: H100

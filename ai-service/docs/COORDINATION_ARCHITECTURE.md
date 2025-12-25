@@ -224,8 +224,8 @@ from app.coordination.sync_bandwidth import (
 rsync = BandwidthCoordinatedRsync()
 result = await rsync.sync(
     source="/data/games/",
-    dest="ubuntu@lambda-gh200:/data/games/",
-    host="lambda-gh200",
+    dest="ubuntu@gpu-node-1:/data/games/",
+    host="gpu-node-1",
     priority=TransferPriority.HIGH,
 )
 
