@@ -5757,19 +5757,40 @@ class UnifiedAILoop:
 
         try:
             with open(hosts_path) as f:
-                hosts_data = yaml.safe_load(f)
+                hosts_data = yaml.safe_load(f) or {}
 
-            # Load standard hosts
-            if "standard_hosts" in hosts_data:
-                for name, data in hosts_data["standard_hosts"].items():
-                    self.state.hosts[name] = HostState(
-                        name=name,
-                        ssh_host=data.get("ssh_host", ""),
-                        ssh_user=data.get("ssh_user", "ubuntu"),
-                        ssh_port=data.get("ssh_port", 22),
-                    )
+            def looks_like_host(cfg: dict[str, Any]) -> bool:
+                return any(k in cfg for k in ("ssh_host", "host", "ssh_user", "user"))
 
-            print(f"[UnifiedLoop] Loaded {len(self.state.hosts)} hosts")
+            def iter_host_entries(config: dict[str, Any]):
+                hosts_block = config.get("hosts")
+                if isinstance(hosts_block, dict):
+                    yield from hosts_block.items()
+                    return
+
+                for key, group in config.items():
+                    if not isinstance(group, dict):
+                        continue
+                    if looks_like_host(group):
+                        yield key, group
+                        continue
+                    for name, data in group.items():
+                        if isinstance(data, dict) and looks_like_host(data):
+                            yield name, data
+
+            for name, data in iter_host_entries(hosts_data):
+                ssh_host = data.get("tailscale_ip") or data.get("ssh_host") or data.get("host")
+                if not ssh_host:
+                    continue
+                ssh_port = data.get("ssh_port", data.get("port", 22))
+                self.state.hosts[name] = HostState(
+                    name=name,
+                    ssh_host=ssh_host,
+                    ssh_user=data.get("ssh_user", data.get("user", "ubuntu")),
+                    ssh_port=int(ssh_port),
+                )
+
+            print(f"[UnifiedLoop] Loaded {len(self.state.hosts)} hosts from {hosts_path}")
 
         except Exception as e:
             print(f"[UnifiedLoop] Error loading hosts: {e}")

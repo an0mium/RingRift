@@ -41,7 +41,9 @@ logger = logging.getLogger(__name__)
 # Nodes that should NEVER receive synced data (dev machines, low storage)
 EXCLUDED_NODES: frozenset[str] = frozenset({
     "mbp-16gb",        # Low storage laptop
-    "mbp-64gb",        # Dev machine laptop (current local machine)
+    "mbp-64gb",        # Dev machine laptop
+    "mbp-128gb",       # M4 Max MacBook Pro - don't fill disk
+    "macbook-pro-2",   # Same machine, alternate node-id
     "aws-proxy",       # Relay-only node
 })
 # Note: mac-studio IS eligible - has OWC external drive for storage

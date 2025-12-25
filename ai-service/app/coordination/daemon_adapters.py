@@ -366,6 +366,55 @@ class ClusterDataSyncAdapter(DaemonAdapter):
         return True
 
 
+class AutoSyncDaemonAdapter(DaemonAdapter):
+    """Adapter for automated P2P data sync daemon (December 2025).
+
+    Orchestrates data synchronization across the cluster using:
+    - Layer 1: Push-from-generator (immediate push to neighbors)
+    - Layer 2: P2P gossip replication (eventual consistency)
+
+    Excludes coordinator nodes (MacBooks) from receiving synced data.
+    """
+
+    @property
+    def daemon_type(self) -> DaemonType:
+        return DaemonType.AUTO_SYNC
+
+    @property
+    def role(self) -> OrchestratorRole | None:
+        # No exclusive role - runs on all nodes
+        return None
+
+    async def _create_daemon(self) -> Any:
+        try:
+            from app.coordination.auto_sync_daemon import AutoSyncDaemon
+
+            return AutoSyncDaemon()
+        except ImportError:
+            logger.warning("[AutoSyncDaemonAdapter] AutoSyncDaemon not available")
+            return None
+
+    async def _run_daemon(self, daemon: Any) -> None:
+        if hasattr(daemon, "start"):
+            await daemon.start()
+            # Wait while daemon is running
+            while hasattr(daemon, "is_running") and daemon.is_running():
+                await asyncio.sleep(self.config.poll_interval_seconds)
+        elif hasattr(daemon, "run"):
+            await daemon.run()
+        else:
+            while self._running:
+                await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _health_check(self) -> bool:
+        """Check if auto sync daemon is healthy."""
+        if not self._daemon_instance:
+            return False
+        if hasattr(self._daemon_instance, "is_running"):
+            return self._daemon_instance.is_running()
+        return True
+
+
 # =============================================================================
 # Adapter Registry
 # =============================================================================
@@ -376,6 +425,7 @@ _ADAPTER_CLASSES: dict[DaemonType, type[DaemonAdapter]] = {
     DaemonType.EXTERNAL_DRIVE_SYNC: ExternalDriveSyncAdapter,
     DaemonType.VAST_CPU_PIPELINE: VastCpuPipelineAdapter,
     DaemonType.CLUSTER_DATA_SYNC: ClusterDataSyncAdapter,
+    DaemonType.AUTO_SYNC: AutoSyncDaemonAdapter,
 }
 
 
@@ -448,6 +498,7 @@ def register_all_adapters_with_manager() -> dict[DaemonType, bool]:
 
 
 __all__ = [
+    "AutoSyncDaemonAdapter",
     "DaemonAdapter",
     "DaemonAdapterConfig",
     "DistillationDaemonAdapter",
