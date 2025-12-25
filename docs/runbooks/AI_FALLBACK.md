@@ -19,7 +19,7 @@
 - The **shared TypeScript rules engine + orchestrator** (`src/shared/engine/**`, contract vectors, and orchestrator adapters) is the single source of truth for rules semantics; backend, sandbox, and Python AI-service are adapters over this SSoT.
 - Key runtime flags for rules selection are: `ORCHESTRATOR_ADAPTER_ENABLED` (hardcoded to `true`) and `RINGRIFT_RULES_MODE` (`ts` default, `python` diagnostic/authoritative). Legacy rollout/shadow flags were removed; adapters are always 100%. For AI fallback incidents, keep `RINGRIFT_RULES_MODE=ts` unless debugging a confirmed rules regression.
 - **Fallbacks may reduce AI strength, but they must not change game rules.** All fallback paths (local heuristics, simplified evaluation, or “no‑AI” modes) must continue to produce moves that are legal under the shared TS rules engine + contracts.
-- If symptoms look like **rules-engine issues** rather than “remote AI is unavailable/slow/erroring”, escalate via `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (Safe rollback checklist) instead of altering fallback logic to accommodate legacy rules behaviour.
+- If symptoms look like **rules-engine issues** rather than “remote AI is unavailable/slow/erroring”, escalate via `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` (Safe rollback checklist) instead of altering fallback logic to accommodate legacy rules behaviour.
 
 ---
 
@@ -295,7 +295,7 @@ When you rely on fallback, keep these constraints in mind:
   - If behaviour appears to require “bending the rules” to keep AI working, stop and treat this as a rules‑engine/host integration issue, not a fallback tweak.
 - **Never change rules as an AI mitigation**
   - Do not flip `RINGRIFT_RULES_MODE` or disable orchestrator adapters purely to hide AI bugs or performance problems.
-  - If you have evidence that the orchestrator or shared engine is itself misbehaving, follow `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for any rules‑engine rollback, and keep that decision separate from AI fallback tuning.
+  - If you have evidence that the orchestrator or shared engine is itself misbehaving, follow `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` for any rules‑engine rollback, and keep that decision separate from AI fallback tuning.
 
 ---
 
@@ -358,4 +358,4 @@ You are done when:
   - `docs/ENVIRONMENT_VARIABLES.md`
   - `docs/OPERATIONS_DB.md`
 - **Orchestrator rollout:**
-  - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.
+  - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.

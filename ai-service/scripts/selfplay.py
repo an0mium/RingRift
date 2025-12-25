@@ -208,6 +208,27 @@ def main():
     except Exception as e:
         logger.debug(f"[ImprovementOptimizer] Could not get priority boost: {e}")
 
+    # Query FeedbackAccelerator for games multiplier based on Elo momentum (December 2025)
+    # When on an improvement streak, generate more games to capitalize on positive momentum
+    games_multiplier = 1.0
+    try:
+        from app.training.feedback_accelerator import get_selfplay_multiplier
+
+        config_key = f"{config.board_type}_{config.num_players}p"
+        games_multiplier = get_selfplay_multiplier(config_key)
+
+        if abs(games_multiplier - 1.0) > 0.05:
+            original_games = config.num_games
+            config.num_games = max(10, int(original_games * games_multiplier))
+            logger.info(
+                f"[FeedbackAccelerator] Elo momentum multiplier: {games_multiplier:.2f}x → "
+                f"num_games {original_games} → {config.num_games}"
+            )
+    except ImportError:
+        pass  # FeedbackAccelerator not available
+    except Exception as e:
+        logger.debug(f"[FeedbackAccelerator] Could not get games multiplier: {e}")
+
     # Log configuration summary
     logger.info("=" * 60)
     logger.info("Unified Selfplay")
@@ -219,6 +240,8 @@ def main():
     logger.info(f"MCTS sims: {config.mcts_simulations}")
     if priority_boost != 0.0:
         logger.info(f"Priority boost: {priority_boost:+.2f}")
+    if games_multiplier != 1.0:
+        logger.info(f"Games multiplier: {games_multiplier:.2f}x (Elo momentum)")
     if config.output_dir:
         logger.info(f"Output: {config.output_dir}")
     if config.record_db:

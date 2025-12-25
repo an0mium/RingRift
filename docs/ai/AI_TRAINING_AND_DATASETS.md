@@ -6,7 +6,7 @@
 >
 > **Not a semantics SSoT:** This document does not define core game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`. The Python engine and training stack are **hosts** that must match the TS SSoT via the parity backbone.
 >
-> **Related docs:** `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`, `ai-service/README.md`, `docs/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/STRICT_INVARIANT_SOAKS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`, `ai-service/README.md`, `docs/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
 >
 > **As of Dec 2025:** End‑to‑end GameRecord flows are implemented for both Python self-play (`generate_data.py --game-records-jsonl`) and online games (Postgres + `GameRecordRepository` + `scripts/export-game-records-jsonl.ts`), and self-play/CMA‑ES harnesses record games by default to `GameReplayDB` SQLite databases that can be mined via `export_state_pool.py`.
 

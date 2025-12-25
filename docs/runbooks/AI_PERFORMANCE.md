@@ -23,7 +23,7 @@
 - If symptoms look like **rules-engine or orchestrator issues** (illegal moves accepted, incorrect scoring/turn sequencing) rather than “AI is slow”, treat this as a **rules/orchestrator incident** and:
   - Switch to `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md` for rollout/flag levers and environment phases.
   - Use `docs/runbooks/RULES_PARITY.md` and contract vectors for TS↔Python parity checks.
-  - Refer back to `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (Safe rollback checklist) instead of continuing with AI-only tuning in this runbook.
+  - Refer back to `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` (Safe rollback checklist) instead of continuing with AI-only tuning in this runbook.
 
 ---
 
@@ -441,4 +441,4 @@ When adjusting these profiles, keep them:
   - `docs/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/ENVIRONMENT_VARIABLES.md`
 - **Orchestrator rollout:**
-  - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.
+  - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.

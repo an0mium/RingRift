@@ -94,9 +94,9 @@ important groups are:
 
 > **Rollout & runbooks:** The canonical description of environment phases, feature flags, SLOs, and rollback levers for orchestrator rollout now lives in:
 >
-> - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – environment phases 0–4, CI/SLO gates, and flag matrices.
-> - `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md` – operator runbook for enabling/disabling orchestrator in staging/production.
-> - `docs/STRICT_INVARIANT_SOAKS.md` – invariant soak posture (TS orchestrator + Python strict no‑move) used as rollout SLO inputs.
+> - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – current posture summary and CI/SLO gates; historical phase tables live in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`.
+> - `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md` – operator runbook for circuit breaker and parity diagnostics; historical phase playbook lives in `docs/archive/ORCHESTRATOR_ROLLOUT_RUNBOOK_PHASES.md`.
+> - `docs/testing/STRICT_INVARIANT_SOAKS.md` – invariant soak posture (TS orchestrator + Python strict no‑move) used as rollout SLO inputs.
 
 - **Contract Testing (NEW)**
   - Contract schemas: [`src/shared/engine/contracts/schemas.ts`](../../src/shared/engine/contracts/schemas.ts:1)

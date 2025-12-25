@@ -589,12 +589,12 @@ When adding a new test file, determine its category:
 
 ## What "All Tests Passing" Means
 
-| Context           | Command                                                                             | Meaning                                                                                                                                                                            |
-| ----------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PR Gate           | `npm run test:ci`                                                                   | CI‑gated Jest suites (core + rules/parity lanes) pass                                                                                                                              |
-| Full Jest (local) | `npm test` or `npm run test:all:quiet:log`                                          | Extended Jest profile (CI + diagnostic suites); see `jest-results.json` + `docs/PASS20_ASSESSMENT.md` for current status                                                           |
-| Release Gate      | `npm run test:ci && npm run test:e2e:smoke` (plus targeted parity/soak scripts)     | Core + key E2E/soak gates pass (see [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md), `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`) |
-| Diagnostics       | `npm run test:diagnostics`, `npm run test:ts-parity`, `npm run test:ts-integration` | Heavy/parity suites pass (may have expected failures; see `KNOWN_ISSUES.md`)                                                                                                       |
+| Context           | Command                                                                             | Meaning                                                                                                                                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR Gate           | `npm run test:ci`                                                                   | CI‑gated Jest suites (core + rules/parity lanes) pass                                                                                                                                           |
+| Full Jest (local) | `npm test` or `npm run test:all:quiet:log`                                          | Extended Jest profile (CI + diagnostic suites); see `jest-results.json` + `docs/PASS20_ASSESSMENT.md` for current status                                                                        |
+| Release Gate      | `npm run test:ci && npm run test:e2e:smoke` (plus targeted parity/soak scripts)     | Core + key E2E/soak gates pass (see [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md), `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`) |
+| Diagnostics       | `npm run test:diagnostics`, `npm run test:ts-parity`, `npm run test:ts-integration` | Heavy/parity suites pass (may have expected failures; see `KNOWN_ISSUES.md`)                                                                                                                    |
 
 ---
 

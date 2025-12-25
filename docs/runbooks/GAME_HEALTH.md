@@ -9,7 +9,7 @@
 > - **Game session lifecycle:** `GameSession` and `GameSessionManager` (`src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`), WebSocket server (`src/server/websocket/server.ts`), and game session state machines under `src/shared/stateMachines/gameSession.ts` and `src/shared/stateMachines/connection.ts`.
 > - **Rules semantics:** Shared engine helpers, aggregates, and orchestrator in `src/shared/engine/**`, plus supporting rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`).
 > - **Persistence & retention:** `GamePersistenceService` and data lifecycle logic (`src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`, `docs/DATA_LIFECYCLE_AND_PRIVACY.md`).
-> - **Parity & invariants:** Historical incident and parity docs that relate to stalled/degenerate game states, such as `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, `docs/PARITY_SEED_TRIAGE.md`, and `docs/STRICT_INVARIANT_SOAKS.md`.
+> - **Parity & invariants:** Historical incident and parity docs that relate to stalled/degenerate game states, such as `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, `docs/PARITY_SEED_TRIAGE.md`, and `docs/testing/STRICT_INVARIANT_SOAKS.md`.
 >
 > **Precedence:** Alert definitions, metrics, rules code, and lifecycle code are authoritative. This runbook explains **how to investigate and remediate**; if it conflicts with code/config/tests or the rules specs, **code + specs + tests win** and this document should be updated.
 >
@@ -26,7 +26,7 @@
 - Key metrics to consult alongside `LongRunningGames`:
   - Game latency and progress:
     - `game_move_latency_ms` (backend move latency)
-    - S‑invariant / progress metrics from invariant soaks (see `docs/STRICT_INVARIANT_SOAKS.md`)
+    - S‑invariant / progress metrics from invariant soaks (see `docs/testing/STRICT_INVARIANT_SOAKS.md`)
   - Orchestrator health:
     - `ringrift_orchestrator_error_rate`
     - `ringrift_orchestrator_circuit_breaker_state`
@@ -39,7 +39,7 @@ When triaging a `LongRunningGames` incident:
 
 - If games are **legally progressing but semantically wrong** (e.g. illegal moves accepted, victory/territory/LPS behaviour clearly incorrect, or invariant violations surfaced), treat this as a **rules/orchestrator incident** and:
   - Switch to `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md` for rollout/flag levers and environment phases.
-  - Use `docs/runbooks/RULES_PARITY.md`, contract vectors, and `docs/STRICT_INVARIANT_SOAKS.md` to investigate parity/invariant issues.
+  - Use `docs/runbooks/RULES_PARITY.md`, contract vectors, and `docs/testing/STRICT_INVARIANT_SOAKS.md` to investigate parity/invariant issues.
 - If games are simply **slow due to move latency or AI slowness**, keep orchestrator flags unchanged and:
   - Follow `GAME_PERFORMANCE.md` and `HIGH_LATENCY.md` for backend/HTTP latency.
   - Follow `AI_PERFORMANCE.md` / `AI_ERRORS.md` when AI latency or errors dominate the signal.
@@ -178,7 +178,7 @@ Use your usual database access or internal tooling (see `docs/OPERATIONS_DB.md`)
 Compare findings with known incidents/edge-cases:
 
 - Territory/forced-elimination issues – see `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, territory parity tests, and invariant soak docs.
-- Long LPS/capture chains – see `docs/PARITY_SEED_TRIAGE.md`, `docs/STRICT_INVARIANT_SOAKS.md`, and associated tests under `tests/unit/**LPS**` and `ai-service/tests/parity/**`.
+- Long LPS/capture chains – see `docs/PARITY_SEED_TRIAGE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and associated tests under `tests/unit/**LPS**` and `ai-service/tests/parity/**`.
 
 ### 3.3 Check lifecycle and timeout behaviour
 
@@ -275,7 +275,7 @@ Before considering the `LongRunningGames` incident resolved:
 
 ### 5.3 Tests and documentation
 
-- [ ] Any lifecycle or rules changes are covered by unit/integration tests (e.g. `GameSession.*.test.ts`, relevant rules/territory/victory tests, soak tests, or invariants under `docs/STRICT_INVARIANT_SOAKS.md`).
+- [ ] Any lifecycle or rules changes are covered by unit/integration tests (e.g. `GameSession.*.test.ts`, relevant rules/territory/victory tests, soak tests, or invariants under `docs/testing/STRICT_INVARIANT_SOAKS.md`).
 - [ ] If stalemate/draw semantics were updated, the rules markdowns (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been refreshed accordingly.
 
 ---

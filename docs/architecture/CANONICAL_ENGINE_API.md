@@ -1075,9 +1075,9 @@ the canonical orchestrator behaviour**, not as alternative sources of truth
 for rules semantics. Changes to their meaning or emission points must remain
 aligned with:
 
-- `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §6.6 (metrics and SLOs),
+- `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §6.6 (metrics and SLOs),
 - `docs/operations/ALERTING_THRESHOLDS.md` (alert expressions and thresholds), and
-- the invariant‑soak profiles in `docs/STRICT_INVARIANT_SOAKS.md`.
+- the invariant‑soak profiles in `docs/testing/STRICT_INVARIANT_SOAKS.md`.
 
 #### 3.9.2 Worked example: `PendingDecision → PlayerChoice → WebSocket → Move`
 

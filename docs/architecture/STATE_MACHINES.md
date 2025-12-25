@@ -14,7 +14,7 @@
 - `DOCUMENTATION_INDEX.md` (narrative index – this doc lives under "Architecture & topology" / "Lifecycle")
 - `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md` (overall architecture and remediation tracks)
 - `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_SCENARIO_MATRIX.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`
-- `docs/STRICT_INVARIANT_SOAKS.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`
+- `docs/testing/STRICT_INVARIANT_SOAKS.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`
 - Test meta-docs: `tests/README.md`, `tests/TEST_LAYERS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`
 
 ---

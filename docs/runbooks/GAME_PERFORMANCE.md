@@ -22,7 +22,7 @@
   - `ORCHESTRATOR_ADAPTER_ENABLED` (hardcoded to `true`)
   - `RINGRIFT_RULES_MODE` (`ts` default, `python` diagnostic/authoritative)
   - Legacy rollout/shadow flags were removed; adapter is always 100%.
-- As of PASS20/Phase 4, production/staging environments run with the orchestrator adapter **fully enabled**. For game‑performance issues (slow moves, spikes in move latency), keep `RINGRIFT_RULES_MODE=ts` by default and use circuit breaker / infra levers first; only switch to `python` mode for explicit parity diagnostics per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
+- As of PASS20/Phase 4, production/staging environments run with the orchestrator adapter **fully enabled**. For game‑performance issues (slow moves, spikes in move latency), keep `RINGRIFT_RULES_MODE=ts` by default and use circuit breaker / infra levers first; only switch to `python` mode for explicit parity diagnostics per `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`.
 - Key metrics to consult alongside `HighGameMoveLatency`:
   - Game and move latency:
     - `ringrift_game_move_latency_seconds_bucket` / derived `game_move_latency_ms` (move latency)

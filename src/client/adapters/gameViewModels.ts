@@ -1,3 +1,4 @@
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  * Game View Model Adapters
@@ -33,18 +34,12 @@ import type {
   PlayerChoice,
   PlayerChoiceType,
 } from '../../shared/types/game';
-import type { FSMOrchestrationResult } from '../../shared/engine/fsm';
-import { positionToString, positionsEqual, BOARD_CONFIGS } from '../../shared/types/game';
+import { positionToString, positionsEqual } from '../../shared/types/game';
 import type { ConnectionStatus } from '../domain/GameAPI';
 import { getChoiceViewModel, getChoiceViewModelForType } from './choiceViewModels';
 import type { ChoiceKind } from './choiceViewModels';
 import { getWeirdStateBanner, type WeirdStateBanner } from '../utils/gameStateWeirdness';
-import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
-import { DEFAULT_PLAYER_THEME, getPlayerTheme, type ColorVisionMode } from '../utils/playerTheme';
-import {
-  isLegacyMoveType,
-  normalizeLegacyMoveType,
-} from '../../shared/engine/legacy/legacyMoveTypes';
+import type { GameEndExplanation } from '../..//shared/engine/gameEndExplanation';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HUD View Model
@@ -211,33 +206,6 @@ export interface HUDViewModel {
    * a prominent explanation panel above the phase indicator.
    */
   weirdState?: HUDWeirdStateViewModel | undefined;
-  /**
-   * LPS (Last-Player-Standing) tracking state for UI display.
-   * Shows round counter and progress toward LPS victory.
-   * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
-   */
-  lpsTracking?:
-    | {
-        roundIndex: number;
-        consecutiveExclusiveRounds: number;
-        consecutiveExclusivePlayer: number | null;
-      }
-    | undefined;
-  /**
-   * Victory progress tracking for ring-elimination and territory-control.
-   * Per RR-CANON-R061: victoryThreshold = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
-   * Per RR-CANON-R062: territoryThreshold = floor(totalSpaces/2)+1
-   */
-  victoryProgress?: {
-    ringElimination: {
-      threshold: number;
-      leader: { playerNumber: number; eliminated: number; percentage: number } | null;
-    };
-    territory: {
-      threshold: number;
-      leader: { playerNumber: number; spaces: number; percentage: number } | null;
-    };
-  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -433,88 +401,115 @@ export interface VictoryViewModel {
  * Player color palette for consistent theming
  */
 export const PLAYER_COLORS = {
-  1: getPlayerTheme(1, 'normal'),
-  2: getPlayerTheme(2, 'normal'),
-  3: getPlayerTheme(3, 'normal'),
-  4: getPlayerTheme(4, 'normal'),
+  1: {
+    ring: 'bg-emerald-400',
+    ringBorder: 'border-emerald-200',
+    marker: 'border-emerald-400',
+    territory: 'bg-emerald-700/85',
+    card: 'bg-emerald-500',
+    hex: '#10b981',
+  },
+  2: {
+    ring: 'bg-sky-600',
+    ringBorder: 'border-sky-300',
+    marker: 'border-sky-500',
+    territory: 'bg-sky-700/85',
+    card: 'bg-sky-500',
+    hex: '#3b82f6',
+  },
+  3: {
+    ring: 'bg-amber-400',
+    ringBorder: 'border-amber-200',
+    marker: 'border-amber-400',
+    territory: 'bg-amber-600/85',
+    card: 'bg-amber-500',
+    hex: '#f59e0b',
+  },
+  4: {
+    ring: 'bg-fuchsia-400',
+    ringBorder: 'border-fuchsia-200',
+    marker: 'border-fuchsia-400',
+    territory: 'bg-fuchsia-700/85',
+    card: 'bg-fuchsia-500',
+    hex: '#d946ef',
+  },
 } as const;
 
-export function getPlayerColors(
-  playerNumber?: number,
-  colorVisionMode: ColorVisionMode = 'normal'
-) {
-  if (!playerNumber) return DEFAULT_PLAYER_THEME;
-  return getPlayerTheme(playerNumber, colorVisionMode);
+const DEFAULT_PLAYER_COLORS = {
+  ring: 'bg-slate-300',
+  ringBorder: 'border-slate-100',
+  marker: 'border-slate-300',
+  territory: 'bg-slate-800/70',
+  card: 'bg-slate-500',
+  hex: '#64748b',
+};
+
+export function getPlayerColors(playerNumber?: number) {
+  if (!playerNumber) return DEFAULT_PLAYER_COLORS;
+  return PLAYER_COLORS[playerNumber as keyof typeof PLAYER_COLORS] || DEFAULT_PLAYER_COLORS;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-export const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
+const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
   ring_placement: {
-    label: 'Place Rings',
-    description: 'Add rings to the board to build your stacks',
+    label: 'Ring Placement',
+    description: 'Place your rings on the board to build stacks',
     colorClass: 'bg-blue-500',
     icon: '🎯',
-    actionHint: 'Tap an empty space or one of your stacks to place a ring',
-    spectatorHint: 'Placing rings',
+    actionHint: 'Click an empty cell or your own stack to place rings',
+    spectatorHint: 'Player is placing rings on the board',
   },
   movement: {
-    label: 'Your Move',
-    description: 'Move one of your stacks or jump to capture',
+    label: 'Movement Phase',
+    description: 'Move a stack or initiate a capture',
     colorClass: 'bg-green-500',
     icon: '⚡',
-    actionHint: 'Tap your stack, then tap where to move it',
-    spectatorHint: 'Choosing a move',
+    actionHint: 'Select your stack, then click a destination to move',
+    spectatorHint: 'Player is choosing a move',
   },
   capture: {
-    label: 'Capture!',
-    description: 'Jump over an opponent to capture their rings',
+    label: 'Capture Phase',
+    description: 'Jump over opponent stacks to capture rings',
     colorClass: 'bg-orange-500',
     icon: '⚔️',
-    actionHint: 'Tap your stack, then tap beyond an opponent to jump over them',
-    spectatorHint: 'Capturing',
+    actionHint: 'Select your stack, then jump over an opponent to capture',
+    spectatorHint: 'Player is executing a capture',
   },
   chain_capture: {
-    label: 'Keep Capturing!',
-    description: 'You can make another capture—keep jumping!',
+    label: 'Chain Capture',
+    description: 'Continue capturing with the same stack',
     colorClass: 'bg-orange-500',
     icon: '🔗',
-    actionHint: 'Tap the next opponent to jump over, or skip if none available',
-    spectatorHint: 'Chain capturing',
+    actionHint: 'Click the next target to continue capturing, or end chain',
+    spectatorHint: 'Player is continuing a chain capture',
   },
   line_processing: {
-    label: 'Line Scored!',
-    description: 'You made a line of 5+ markers—choose your reward',
+    label: 'Line Processing',
+    description: 'A line of 5+ rings was formed – choose your reward',
     colorClass: 'bg-purple-500',
     icon: '📏',
-    actionHint: 'Pick your line reward option',
-    spectatorHint: 'Choosing line reward',
+    actionHint: 'Choose which line to process and your reward',
+    spectatorHint: 'Player is choosing a line reward',
   },
   territory_processing: {
-    label: 'Territory!',
-    description: 'You isolated a region—claim it as your territory',
+    label: 'Territory Processing',
+    description: 'Disconnected regions detected – resolve ownership',
     colorClass: 'bg-pink-500',
     icon: '🏰',
-    actionHint: 'Choose which region to claim',
-    spectatorHint: 'Claiming territory',
+    actionHint: 'Choose which region to process first',
+    spectatorHint: 'Player is resolving territory',
   },
   forced_elimination: {
-    label: 'Blocked!',
-    description: 'No moves available—you must remove a ring from one of your stacks',
+    label: 'Forced Elimination',
+    description:
+      'Player has stacks but no legal placements, movements, or captures and must eliminate from a stack.',
     colorClass: 'bg-red-600',
     icon: '💥',
-    actionHint: 'Choose which stack to remove a ring from',
-    spectatorHint: 'Forced elimination',
-  },
-  game_over: {
-    label: 'Game Over',
-    description: 'The game has ended',
-    colorClass: 'bg-slate-600',
-    icon: '🏁',
-    actionHint: '',
-    spectatorHint: 'Game finished',
+    actionHint: 'Choose which stack to sacrifice when prompted',
+    spectatorHint: 'Player is paying a forced elimination cost',
   },
 };
 
@@ -594,8 +589,15 @@ function toAIInfoViewModel(player: Player): AIInfoViewModel {
 // Ring Statistics
 // ═══════════════════════════════════════════════════════════════════════════
 
+const BOARD_CONFIGS_LOCAL = {
+  square8: { ringsPerPlayer: 18 },
+  square19: { ringsPerPlayer: 36 },
+  hexagonal: { ringsPerPlayer: 36 },
+} as const;
+
 function calculateRingStats(player: Player, gameState: GameState): PlayerRingStatsViewModel {
-  const total = BOARD_CONFIGS[gameState.boardType]?.ringsPerPlayer ?? 18;
+  const boardConfig = BOARD_CONFIGS_LOCAL[gameState.boardType];
+  const total = boardConfig?.ringsPerPlayer ?? 18;
 
   let onBoard = 0;
   for (const stack of gameState.board.stacks.values()) {
@@ -617,10 +619,9 @@ function calculateRingStats(player: Player, gameState: GameState): PlayerRingSta
 function toPlayerViewModel(
   player: Player,
   gameState: GameState,
-  currentUserId?: string,
-  colorVisionMode: ColorVisionMode = 'normal'
+  currentUserId?: string
 ): PlayerViewModel {
-  const colors = getPlayerColors(player.playerNumber, colorVisionMode);
+  const colors = getPlayerColors(player.playerNumber);
   return {
     id: player.id,
     playerNumber: player.playerNumber,
@@ -645,7 +646,6 @@ export interface ToHUDViewModelOptions {
   lastHeartbeatAt: number | null;
   isSpectator: boolean;
   currentUserId?: string | undefined;
-  colorVisionMode?: ColorVisionMode | undefined;
   /** Optional pending choice used to derive decision-phase HUD messaging. */
   pendingChoice?: PlayerChoice | null | undefined;
   /** Optional absolute deadline timestamp in ms for the pending choice. */
@@ -675,17 +675,6 @@ export interface ToHUDViewModelOptions {
    * the HUD when the game has ended.
    */
   gameEndExplanation?: GameEndExplanation | null | undefined;
-  /**
-   * Optional LPS tracking state from sandbox engine. Per RR-CANON-R172, LPS
-   * requires 3 consecutive rounds where only 1 player has real actions.
-   */
-  lpsTracking?:
-    | {
-        roundIndex: number;
-        consecutiveExclusiveRounds: number;
-        consecutiveExclusivePlayer: number | null;
-      }
-    | undefined;
 }
 
 /**
@@ -698,14 +687,12 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     lastHeartbeatAt,
     isSpectator,
     currentUserId,
-    colorVisionMode = 'normal',
     pendingChoice,
     choiceDeadline,
     choiceTimeRemainingMs,
     decisionIsServerCapped,
     victoryState,
     gameEndExplanation,
-    lpsTracking,
   } = options;
 
   const HEARTBEAT_STALE_THRESHOLD_MS = 8000;
@@ -716,9 +703,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     connectionStatus === 'connected';
 
   let phase = toPhaseViewModel(gameState.currentPhase);
-  const players = gameState.players.map((p) =>
-    toPlayerViewModel(p, gameState, currentUserId, colorVisionMode)
-  );
+  const players = gameState.players.map((p) => toPlayerViewModel(p, gameState, currentUserId));
 
   // Precompute choice view model (if any) so we can reuse it for both HUD phase
   // styling and decision-phase metadata without duplicating mapping logic.
@@ -847,9 +832,9 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       // skip_territory_processing Move is selected via moveId.
       canSkip:
         vm.kind === 'territory_region_order' &&
-        pendingChoice.type === 'region_order' &&
-        pendingChoice.options.some(
-          (opt) =>
+        Array.isArray((pendingChoice as any).options) &&
+        (pendingChoice as any).options.some(
+          (opt: { regionId?: string; size?: number } | null | undefined) =>
             !!opt && (opt.regionId === 'skip' || (typeof opt.size === 'number' && opt.size <= 0))
         ),
     };
@@ -877,28 +862,24 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     };
   };
 
-  // Prefer canonical GameEndExplanation when provided so HUD copy stays aligned
-  // across backend/sandbox hosts and VictoryModal.
-  if (gameEndExplanation) {
-    if (gameEndExplanation.outcomeType === 'structural_stalemate') {
+  // If we have a canonical GameEndExplanation, use it to drive the weird-state
+  // banner for game-end scenarios (structural stalemate, etc.) preferentially.
+  if (gameEndExplanation?.uxCopy?.shortSummaryKey) {
+    const key = gameEndExplanation.uxCopy.shortSummaryKey;
+    if (key.startsWith('game_end.structural_stalemate')) {
       weirdState = {
         type: 'structural-stalemate',
-        title: 'Game Ended: Stalemate',
-        body: 'Nobody can make any more moves. The winner is decided by who has more territory and eliminated rings.',
+        title: 'Structural stalemate',
+        body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends here and the final score is computed from territory and eliminated rings.',
         tone: 'critical',
       };
-    } else if (gameEndExplanation.outcomeType === 'last_player_standing') {
-      const winnerVm = players.find((p) => p.id === gameEndExplanation.winnerPlayerId);
-      const winnerLabel = winnerVm
-        ? winnerVm.isUserPlayer
-          ? 'You'
-          : winnerVm.username
-        : 'A player';
-      const subject = winnerLabel === 'You' ? 'You were' : `${winnerLabel} was`;
+    } else if (key.startsWith('game_end.lps.with_anm_fe')) {
+      // For LPS involving ANM/FE, surface a banner explaining why the game ended
+      // even if it looks like players still have material.
       weirdState = {
-        type: 'last-player-standing',
-        title: 'Last Player Standing Wins!',
-        body: `${subject} the only player able to move for three rounds in a row. When one player dominates the board this completely, they win!`,
+        type: 'forced-elimination', // Reuse FE styling for LPS-FE endings
+        title: 'Last Player Standing (via Forced Elimination)',
+        body: 'The game ended because only one player could make real moves for a full round. Other players were blocked or forced to eliminate rings.',
         tone: 'warning',
       };
     }
@@ -911,10 +892,10 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser ? 'No Moves Available!' : `${label} is blocked`,
+          title: isUser ? 'You have no legal moves this turn' : `${label} has no legal moves`,
           body: isUser
-            ? 'You have stacks on the board but nowhere to move them. Rings will be removed from your stacks until you can move again.'
-            : `${label} has stacks but nowhere to move. Rings will be removed until they can move.`,
+            ? 'You control stacks but have no legal real moves this turn (no placements, movements, or captures). Because of that, the forced-elimination rule will remove caps from your stacks until a real move becomes available or your stacks run out.'
+            : `${label} controls stacks but has no legal real moves this turn (no placements, movements, or captures). Because of that, the forced-elimination rule will remove caps from their stacks until a real move becomes available or their stacks run out.`,
           tone: 'warning',
         };
         break;
@@ -923,8 +904,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser ? 'Line phase skipped' : `${label}'s line phase skipped`,
-          body: 'No line actions needed right now. Moving to the next phase automatically.',
+          title: isUser ? 'No legal line actions available' : `${label} has no line actions`,
+          body: 'There are no valid line actions to take. The game will auto-resolve this phase and move on according to the line-processing rules.',
           tone: 'info',
         };
         break;
@@ -933,8 +914,10 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser ? 'Territory phase skipped' : `${label}'s territory phase skipped`,
-          body: 'No territory actions needed right now. Moving to the next phase automatically.',
+          title: isUser
+            ? 'No legal territory actions available'
+            : `${label} has no territory actions`,
+          body: 'There are no valid territory or self-elimination actions to take. The game will auto-resolve this phase and move on according to the territory rules.',
           tone: 'info',
         };
         break;
@@ -943,23 +926,12 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser ? 'Your stacks are being reduced' : `${label}'s stacks are shrinking`,
+          title: isUser
+            ? 'Forced elimination is shrinking your stacks'
+            : 'Forced elimination is shrinking their stacks',
           body: isUser
-            ? 'You have stacks but no moves. Rings are being removed—each one counts toward Ring Elimination victory!'
-            : `${label} has stacks but no moves. Rings are being removed—each counts toward Ring Elimination.`,
-          tone: 'warning',
-        };
-        break;
-      }
-      case 'last-player-standing': {
-        const winnerNumber = weird.winner;
-        const winnerLabel =
-          typeof winnerNumber === 'number' ? resolvePlayerLabel(winnerNumber).label : 'A player';
-        const subject = winnerLabel === 'You' ? 'You were' : `${winnerLabel} was`;
-        weirdState = {
-          type: weird.type,
-          title: 'Last Player Standing Wins!',
-          body: `${subject} the only player able to move for three rounds in a row. When one player dominates the board this completely, they win!`,
+            ? 'Because you control stacks but have no legal real moves on some of your turns (no placements, movements, or captures), forced elimination repeatedly removes caps from your stacks. Each removal permanently eliminates rings and counts toward Ring Elimination.'
+            : `Because ${label} controls stacks but has no legal real moves on some of their turns (no placements, movements, or captures), forced elimination repeatedly removes caps from their stacks. Each removal permanently eliminates rings and counts toward Ring Elimination.`,
           tone: 'warning',
         };
         break;
@@ -967,8 +939,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       case 'structural-stalemate': {
         weirdState = {
           type: weird.type,
-          title: 'Game Ended: Stalemate',
-          body: 'Nobody can make any more moves. The winner is decided by who has more territory and eliminated rings.',
+          title: 'Structural stalemate',
+          body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends here and the final score is computed from territory and eliminated rings.',
           tone: 'critical',
         };
         break;
@@ -977,70 +949,6 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         break;
     }
   }
-
-  // Compute victory progress per RR-CANON-R061 (ring elimination) and RR-CANON-R062-v2 (territory)
-  const ringThreshold = gameState.victoryThreshold;
-
-  // Territory victory: dual-condition rule (RR-CANON-R062-v2)
-  // Use new field if available, fall back to computation
-  const boardConfig = BOARD_CONFIGS[gameState.boardType];
-  const totalSpaces = boardConfig?.totalSpaces ?? 64;
-  const territoryMinimum =
-    gameState.territoryVictoryMinimum ?? Math.floor(totalSpaces / gameState.players.length) + 1;
-
-  // Find leading player for ring elimination
-  const ringLeader = [...gameState.players]
-    .filter((p) => p.eliminatedRings > 0)
-    .sort((a, b) => b.eliminatedRings - a.eliminatedRings)[0];
-
-  // Find leading player for territory
-  const territoryLeader = [...gameState.players]
-    .filter((p) => p.territorySpaces > 0)
-    .sort((a, b) => b.territorySpaces - a.territorySpaces)[0];
-
-  // Calculate opponent territory for dominance check
-  const opponentTerritorySum = territoryLeader
-    ? gameState.players
-        .filter((p) => p.playerNumber !== territoryLeader.playerNumber)
-        .reduce((sum, p) => sum + p.territorySpaces, 0)
-    : 0;
-
-  // Territory progress: worst of the two conditions determines overall progress
-  const territoryProgressInfo = territoryLeader
-    ? (() => {
-        const minimumProgress = (territoryLeader.territorySpaces / territoryMinimum) * 100;
-        // For dominance: need > opponents, so target is (opponentSum + 1)
-        const dominanceTarget = opponentTerritorySum + 1;
-        const dominanceProgress =
-          dominanceTarget > 0 ? (territoryLeader.territorySpaces / dominanceTarget) * 100 : 100;
-        // Overall progress is the worse of the two conditions
-        const overallPercentage = Math.round(Math.min(minimumProgress, dominanceProgress));
-        return {
-          playerNumber: territoryLeader.playerNumber,
-          spaces: territoryLeader.territorySpaces,
-          percentage: Math.min(overallPercentage, 100),
-          meetsMinimum: territoryLeader.territorySpaces >= territoryMinimum,
-          dominatesOpponents: territoryLeader.territorySpaces > opponentTerritorySum,
-        };
-      })()
-    : null;
-
-  const victoryProgress = {
-    ringElimination: {
-      threshold: ringThreshold,
-      leader: ringLeader
-        ? {
-            playerNumber: ringLeader.playerNumber,
-            eliminated: ringLeader.eliminatedRings,
-            percentage: Math.round((ringLeader.eliminatedRings / ringThreshold) * 100),
-          }
-        : null,
-    },
-    territory: {
-      threshold: territoryMinimum, // Use new minimum, not legacy threshold
-      leader: territoryProgressInfo,
-    },
-  };
 
   return {
     phase,
@@ -1056,8 +964,6 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     subPhaseDetail,
     decisionPhase,
     weirdState,
-    lpsTracking,
-    victoryProgress,
   };
 }
 
@@ -1229,13 +1135,12 @@ function formatPosition(pos?: Position): string {
 }
 
 function mapMoveTypeToChoiceType(actionType: Move['type']): PlayerChoiceType | undefined {
-  const canonicalType = normalizeLegacyMoveType(actionType);
-  switch (canonicalType) {
+  switch (actionType) {
     case 'process_line':
       return 'line_order';
-    case 'choose_line_option':
+    case 'choose_line_reward':
       return 'line_reward_option';
-    case 'choose_territory_option':
+    case 'process_territory_region':
     case 'skip_territory_processing':
       return 'region_order';
     case 'eliminate_rings_from_stack':
@@ -1257,52 +1162,43 @@ function describeHistoryEntry(entry: GameHistoryEntry): string {
   const { action } = entry;
   const moveLabel = `#${entry.moveNumber}`;
   const playerLabel = `P${action.player}`;
-  const legacySuffix = isLegacyMoveType(action.type) ? ' (legacy)' : '';
 
-  if (action.type === 'line_formation') {
-    return `${moveLabel} — ${playerLabel} formed a line${legacySuffix}`;
-  }
-  if (action.type === 'territory_claim') {
-    return `${moveLabel} — ${playerLabel} claimed territory${legacySuffix}`;
-  }
-
-  const canonicalType = normalizeLegacyMoveType(action.type);
-
-  switch (canonicalType) {
+  switch (action.type) {
     case 'swap_sides': {
       const otherSeat = action.player === 1 ? 2 : 1;
-      return `${moveLabel} — ${playerLabel} invoked the pie rule and swapped colours with P${otherSeat}${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} invoked the pie rule and swapped colours with P${otherSeat}`;
     }
     case 'place_ring': {
       const count = action.placementCount ?? 1;
-      return `${moveLabel} — ${playerLabel} placed ${count} ring${count === 1 ? '' : 's'} at ${formatPosition(action.to)}${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} placed ${count} ring${count === 1 ? '' : 's'} at ${formatPosition(action.to)}`;
     }
+    case 'move_ring':
     case 'move_stack': {
-      const buildAmount = action.buildAmount ?? 0;
-      const buildSuffix = buildAmount > 0 ? ` (Δ=${buildAmount})` : '';
-      return `${moveLabel} — ${playerLabel} moved from ${formatPosition(action.from)} to ${formatPosition(action.to)}${buildSuffix}${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} moved from ${formatPosition(action.from)} to ${formatPosition(action.to)}`;
+    }
+    case 'build_stack': {
+      return `${moveLabel} — ${playerLabel} built stack at ${formatPosition(action.to)} (Δ=${action.buildAmount ?? 1})`;
     }
     case 'overtaking_capture': {
       const capturedCount = action.overtakenRings?.length ?? 0;
       const captureSuffix = capturedCount > 0 ? ` x${capturedCount}` : '';
-      return `${moveLabel} — ${playerLabel} capture from ${formatPosition(action.from)} over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} capture from ${formatPosition(action.from)} over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}`;
     }
     case 'continue_capture_segment': {
       const capturedCount = action.overtakenRings?.length ?? 0;
       const captureSuffix = capturedCount > 0 ? ` x${capturedCount}` : '';
-      return `${moveLabel} — ${playerLabel} continued capture over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} continued capture over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}`;
     }
     case 'process_line':
-    case 'choose_line_option':
-    case 'no_line_action': {
+    case 'choose_line_reward': {
       const decisionTag = getDecisionTagForMove(action) ?? '';
       const lineCount = action.formedLines?.length ?? 0;
       if (lineCount > 0) {
-        return `${moveLabel} — ${playerLabel} ${decisionTag}processed ${lineCount} line${lineCount === 1 ? '' : 's'}${legacySuffix}`;
+        return `${moveLabel} — ${playerLabel} ${decisionTag}processed ${lineCount} line${lineCount === 1 ? '' : 's'}`;
       }
-      return `${moveLabel} — ${decisionTag}Line processing by ${playerLabel}${legacySuffix}`;
+      return `${moveLabel} — ${decisionTag}Line processing by ${playerLabel}`;
     }
-    case 'choose_territory_option':
+    case 'process_territory_region':
     case 'eliminate_rings_from_stack': {
       const decisionTag = getDecisionTagForMove(action) ?? '';
       const regionCount =
@@ -1319,17 +1215,17 @@ function describeHistoryEntry(entry: GameHistoryEntry): string {
         parts.push(`${eliminatedTotal} ring${eliminatedTotal === 1 ? '' : 's'} eliminated`);
       }
       const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-      return `${moveLabel} — ${decisionTag}Territory / elimination processing by ${playerLabel}${detail}${legacySuffix}`;
+      return `${moveLabel} — ${decisionTag}Territory / elimination processing by ${playerLabel}${detail}`;
     }
     case 'skip_placement': {
-      return `${moveLabel} — ${playerLabel} skipped placement${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} skipped placement`;
     }
     case 'skip_territory_processing': {
       const decisionTag = getDecisionTagForMove(action) ?? '';
-      return `${moveLabel} — ${decisionTag}${playerLabel} skipped further territory processing this turn${legacySuffix}`;
+      return `${moveLabel} — ${decisionTag}${playerLabel} skipped further territory processing this turn`;
     }
     default: {
-      return `${moveLabel} — ${playerLabel} performed ${canonicalType}${legacySuffix}`;
+      return `${moveLabel} — ${playerLabel} performed ${action.type}`;
     }
   }
 }
@@ -1438,7 +1334,6 @@ export function toEventLogViewModel(
 export interface ToBoardViewModelOptions {
   selectedPosition?: Position | undefined;
   validTargets?: Position[] | undefined;
-  colorVisionMode?: ColorVisionMode | undefined;
   /** Optional decision-phase highlights derived from a pending PlayerChoice. */
   decisionHighlights?: BoardDecisionHighlightsViewModel | undefined;
 }
@@ -1450,7 +1345,7 @@ export function toBoardViewModel(
   board: BoardState,
   options: ToBoardViewModelOptions = {}
 ): BoardViewModel {
-  const { selectedPosition, validTargets = [], colorVisionMode = 'normal' } = options;
+  const { selectedPosition, validTargets = [] } = options;
 
   const cells: CellViewModel[] = [];
 
@@ -1460,17 +1355,11 @@ export function toBoardViewModel(
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const pos: Position = { x, y };
-        const cell = createCellViewModel(
-          pos,
-          board,
-          selectedPosition,
-          validTargets,
-          colorVisionMode
-        );
+        const cell = createCellViewModel(pos, board, selectedPosition, validTargets);
         cells.push(cell);
       }
     }
-  } else if (board.type === 'hexagonal' || board.type === 'hex8') {
+  } else if (board.type === 'hexagonal') {
     // Hex board: iterate over all positions in stacks, markers, collapsedSpaces
     const allKeys = new Set<string>();
     for (const key of board.stacks.keys()) allKeys.add(key);
@@ -1483,7 +1372,7 @@ export function toBoardViewModel(
         parts.length === 3
           ? { x: parts[0], y: parts[1], z: parts[2] }
           : { x: parts[0], y: parts[1] };
-      const cell = createCellViewModel(pos, board, selectedPosition, validTargets, colorVisionMode);
+      const cell = createCellViewModel(pos, board, selectedPosition, validTargets);
       cells.push(cell);
     }
   }
@@ -1516,8 +1405,7 @@ function createCellViewModel(
   pos: Position,
   board: BoardState,
   selectedPosition?: Position,
-  validTargets: Position[] = [],
-  colorVisionMode: ColorVisionMode = 'normal'
+  validTargets: Position[] = []
 ): CellViewModel {
   const key = positionToString(pos);
   const stack = board.stacks.get(key);
@@ -1538,12 +1426,12 @@ function createCellViewModel(
 
   let stackViewModel: StackViewModel | undefined;
   if (stack) {
-    stackViewModel = toStackViewModel(stack, pos, colorVisionMode);
+    stackViewModel = toStackViewModel(stack, pos);
   }
 
   let markerViewModel: MarkerViewModel | undefined;
   if (!stack && marker && marker.type === 'regular') {
-    const colors = getPlayerColors(marker.player, colorVisionMode);
+    const colors = getPlayerColors(marker.player);
     markerViewModel = {
       position: pos,
       positionKey: key,
@@ -1554,7 +1442,7 @@ function createCellViewModel(
 
   let collapsedSpaceViewModel: CollapsedSpaceViewModel | undefined;
   if (collapsedOwner !== undefined) {
-    const colors = getPlayerColors(collapsedOwner, colorVisionMode);
+    const colors = getPlayerColors(collapsedOwner);
     collapsedSpaceViewModel = {
       position: pos,
       positionKey: key,
@@ -1576,11 +1464,7 @@ function createCellViewModel(
   };
 }
 
-function toStackViewModel(
-  stack: RingStack,
-  pos: Position,
-  colorVisionMode: ColorVisionMode = 'normal'
-): StackViewModel {
+function toStackViewModel(stack: RingStack, pos: Position): StackViewModel {
   const key = positionToString(pos);
   const rings: RingViewModel[] = [];
 
@@ -1589,7 +1473,7 @@ function toStackViewModel(
 
   for (let i = 0; i < stack.rings.length; i++) {
     const playerNumber = stack.rings[i];
-    const colors = getPlayerColors(playerNumber, colorVisionMode);
+    const colors = getPlayerColors(playerNumber);
     rings.push({
       playerNumber,
       colorClass: colors.ring,
@@ -1631,7 +1515,6 @@ function countPlayerMoves(playerNumber: number, gameState: GameState): number {
 export interface ToVictoryViewModelOptions {
   currentUserId?: string | undefined;
   isDismissed?: boolean | undefined;
-  colorVisionMode?: ColorVisionMode | undefined;
   /**
    * Optional canonical GameEndExplanation used to refine the title/description
    * copy. When provided, the adapter may select more specific wording based on
@@ -1651,12 +1534,7 @@ export function toVictoryViewModel(
   gameState: GameState | undefined,
   options: ToVictoryViewModelOptions = {}
 ): VictoryViewModel | null {
-  const {
-    currentUserId,
-    isDismissed = false,
-    gameEndExplanation,
-    colorVisionMode = 'normal',
-  } = options;
+  const { currentUserId, isDismissed = false, gameEndExplanation } = options;
 
   if (!gameResult || isDismissed) {
     return null;
@@ -1668,9 +1546,7 @@ export function toVictoryViewModel(
       : undefined;
 
   const winnerViewModel =
-    winner && gameState
-      ? toPlayerViewModel(winner, gameState, currentUserId, colorVisionMode)
-      : undefined;
+    winner && gameState ? toPlayerViewModel(winner, gameState, currentUserId) : undefined;
 
   const userWon = !!(currentUserId && winner && winner.id === currentUserId);
   const userLost = !!(
@@ -1694,14 +1570,14 @@ export function toVictoryViewModel(
   // Build final stats
   const finalStats: PlayerFinalStatsViewModel[] = players.map((player) => {
     const playerVM = gameState
-      ? toPlayerViewModel(player, gameState, currentUserId, colorVisionMode)
+      ? toPlayerViewModel(player, gameState, currentUserId)
       : {
           id: player.id,
           playerNumber: player.playerNumber,
           username: player.username || `Player ${player.playerNumber}`,
           isCurrentPlayer: false,
           isUserPlayer: player.id === currentUserId,
-          colorClass: getPlayerColors(player.playerNumber, colorVisionMode).card,
+          colorClass: getPlayerColors(player.playerNumber).card,
           ringStats: { inHand: 0, onBoard: 0, eliminated: 0, total: 0 },
           territorySpaces: 0,
           aiInfo: toAIInfoViewModel(player),
@@ -1771,44 +1647,35 @@ function getVictoryMessage(
 
   const winnerName = winner?.username || `Player ${winner?.playerNumber || '?'}`;
 
-  const victoryReasonCode = explanation?.victoryReasonCode;
-  const outcomeType = explanation?.outcomeType;
+  const key = explanation?.uxCopy?.detailedSummaryKey ?? explanation?.uxCopy?.shortSummaryKey ?? '';
 
-  // Prefer explanation-driven copy when a canonical GameEndExplanation is present.
-  if (
-    victoryReasonCode === 'victory_last_player_standing' ||
-    outcomeType === 'last_player_standing'
-  ) {
+  // Prefer more specific copy variants based on uxCopy keys when available.
+  // These keys follow patterns documented in UX_RULES_EXPLANATION_MODEL_SPEC
+  // (e.g., game_end.lps.with_anm_fe.detailed, game_end.structural_stalemate.tiebreak.detailed).
+  if (key.startsWith('game_end.lps.')) {
     const subject = userWon ? 'You' : winnerName;
     const verb = userWon ? 'were' : 'was';
     return {
       title: '👑 Last Player Standing',
-      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for three consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. The other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
       titleColorClass,
     };
   }
 
-  if (
-    victoryReasonCode === 'victory_structural_stalemate_tiebreak' ||
-    outcomeType === 'structural_stalemate'
-  ) {
+  if (key.startsWith('game_end.structural_stalemate.')) {
     return {
       title: '🧱 Structural Stalemate',
       description:
-        'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. The winner was chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action.',
+        'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder of territory and eliminated rings.',
       titleColorClass,
     };
   }
 
-  const key = explanation?.uxCopy?.detailedSummaryKey ?? explanation?.uxCopy?.shortSummaryKey ?? '';
-  if (
-    key.startsWith('game_end.territory_mini_region') ||
-    explanation?.primaryConceptId === 'territory_mini_region'
-  ) {
+  if (key.startsWith('game_end.territory_mini_region')) {
     return {
       title: `🏰 ${winnerName} Wins!`,
       description:
-        'Victory by Territory Control after resolving the final disconnected mini-region. Processing that region eliminated all interior rings, converted its spaces into the winner’s Territory, and pushed them over the Territory victory threshold.',
+        'Victory by territory after resolving the final disconnected mini-region. Once no further placements, movements, captures, or territory actions were possible, the rules compared Territory spaces, eliminated rings (including rings in hand), and markers to break the tie.',
       titleColorClass,
     };
   }
@@ -1818,7 +1685,7 @@ function getVictoryMessage(
     case 'ring_elimination':
       return {
         title: `🏆 ${winnerName} Wins!`,
-        description: 'Victory by Ring Elimination: eliminated rings reached the victory threshold.',
+        description: 'Victory by eliminating more than half of all rings in play.',
         titleColorClass,
       };
     case 'territory_control':
@@ -1832,7 +1699,7 @@ function getVictoryMessage(
       const verb = userWon ? 'were' : 'was';
       return {
         title: '👑 Last Player Standing',
-        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for three consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. The other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
         titleColorClass,
       };
     }
@@ -1840,7 +1707,7 @@ function getVictoryMessage(
       return {
         title: '🧱 Structural Stalemate',
         description:
-          'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. The winner was chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action.',
+          'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder of territory and eliminated rings.',
         titleColorClass,
       };
     case 'timeout':
@@ -1868,184 +1735,4 @@ function getVictoryMessage(
         titleColorClass,
       };
   }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// FSM Decision Surface View Model (Phase 5: UI/Telemetry Integration)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * View model for FSM decision surface data.
- *
- * This interface bridges the FSMDecisionSurface (from the FSM module) with
- * UI components and telemetry, providing a presentation-ready summary of
- * pending decisions.
- */
-export interface FSMDecisionSurfaceViewModel {
-  /** Whether a decision surface is currently active */
-  isActive: boolean;
-
-  /** FSM phase that generated this decision surface */
-  phase: GamePhase;
-
-  /** Type of pending decision */
-  decisionType?: FSMOrchestrationResult['pendingDecisionType'];
-
-  /** Number of pending lines (line_processing phase) */
-  pendingLineCount: number;
-
-  /** Number of pending regions (territory_processing phase) */
-  pendingRegionCount: number;
-
-  /** Number of chain capture continuations available */
-  chainContinuationCount: number;
-
-  /** Number of forced eliminations required */
-  forcedEliminationCount: number;
-
-  /**
-   * Human-readable summary of the decision surface.
-   * E.g., "2 lines to process", "Choose continuation target", "3 regions pending"
-   */
-  summary: string;
-
-  /**
-   * Action hint for the current decision type.
-   * Used by UI components to guide the player.
-   */
-  actionHint: string;
-}
-
-/**
- * Extract FSM decision surface view model from game state and optional
- * FSM orchestration result.
- *
- * This adapter transforms FSM-internal decision surface data into a
- * UI-friendly format for display in GameHUD, telemetry emission, and
- * teaching overlays.
- *
- * @param gameState Current game state
- * @param fsmResult Optional FSM orchestration result containing decision surface
- * @returns FSMDecisionSurfaceViewModel for UI consumption
- */
-export function toFSMDecisionSurfaceViewModel(
-  gameState: GameState,
-  fsmResult?: FSMOrchestrationResult | null
-): FSMDecisionSurfaceViewModel {
-  const phase = gameState.currentPhase;
-  const decisionSurface = fsmResult?.decisionSurface;
-  const decisionType = fsmResult?.pendingDecisionType;
-
-  const pendingLineCount = decisionSurface?.pendingLines?.length ?? 0;
-  const pendingRegionCount = decisionSurface?.pendingRegions?.length ?? 0;
-  const chainContinuationCount = decisionSurface?.chainContinuations?.length ?? 0;
-  const forcedEliminationCount = decisionSurface?.forcedEliminationCount ?? 0;
-
-  const isActive = !!(
-    decisionType ||
-    pendingLineCount > 0 ||
-    pendingRegionCount > 0 ||
-    chainContinuationCount > 0 ||
-    forcedEliminationCount > 0
-  );
-
-  // Generate human-readable summary based on decision type
-  let summary = '';
-  let actionHint = '';
-
-  switch (decisionType) {
-    case 'line_order_required':
-      summary =
-        pendingLineCount === 1 ? '1 line to process' : `${pendingLineCount} lines to process`;
-      actionHint = 'Choose which line to process first, then select your reward';
-      break;
-    case 'no_line_action_required':
-      summary = 'No lines to process';
-      actionHint = 'Phase will advance automatically';
-      break;
-    case 'region_order_required':
-      summary =
-        pendingRegionCount === 1
-          ? '1 region to resolve'
-          : `${pendingRegionCount} regions to resolve`;
-      actionHint = 'Choose which disconnected region to process first';
-      break;
-    case 'no_territory_action_required':
-      summary = 'No territory regions to process';
-      actionHint = 'Phase will advance automatically';
-      break;
-    case 'chain_capture':
-      summary =
-        chainContinuationCount === 1
-          ? '1 capture continuation available'
-          : `${chainContinuationCount} capture continuations available`;
-      actionHint = 'Choose your next capture target to continue the chain';
-      break;
-    case 'forced_elimination':
-      summary =
-        forcedEliminationCount === 1
-          ? '1 ring must be eliminated'
-          : `${forcedEliminationCount} rings must be eliminated`;
-      actionHint = 'Select a stack to eliminate rings from';
-      break;
-    default:
-      if (phase === 'line_processing' && pendingLineCount > 0) {
-        summary = `${pendingLineCount} line${pendingLineCount !== 1 ? 's' : ''} detected`;
-        actionHint = 'Process detected lines for rewards';
-      } else if (phase === 'territory_processing' && pendingRegionCount > 0) {
-        summary = `${pendingRegionCount} region${pendingRegionCount !== 1 ? 's' : ''} detected`;
-        actionHint = 'Resolve disconnected territory regions';
-      } else if (phase === 'chain_capture' && chainContinuationCount > 0) {
-        summary = 'Chain capture in progress';
-        actionHint = 'Continue capturing or end chain if no targets';
-      } else if (phase === 'forced_elimination') {
-        summary = 'Forced elimination required';
-        actionHint = 'You have stacks but no legal moves - must eliminate';
-      } else {
-        summary = '';
-        actionHint = '';
-      }
-      break;
-  }
-
-  return {
-    isActive,
-    phase,
-    decisionType,
-    pendingLineCount,
-    pendingRegionCount,
-    chainContinuationCount,
-    forcedEliminationCount,
-    summary,
-    actionHint,
-  };
-}
-
-/**
- * Extract telemetry-ready FSM decision surface metrics from a view model.
- *
- * This helper extracts the low-cardinality counts and types suitable for
- * inclusion in RulesUxEventPayload.
- *
- * @param vm FSM decision surface view model
- * @returns Object with FSM telemetry fields
- */
-export function extractFSMTelemetryFields(vm: FSMDecisionSurfaceViewModel): {
-  fsmPhase: string;
-  fsmDecisionType?: FSMOrchestrationResult['pendingDecisionType'];
-  fsmPendingLineCount?: number;
-  fsmPendingRegionCount?: number;
-  fsmChainContinuationCount?: number;
-  fsmForcedEliminationCount?: number;
-} {
-  return {
-    fsmPhase: vm.phase,
-    fsmDecisionType: vm.decisionType,
-    fsmPendingLineCount: vm.pendingLineCount > 0 ? vm.pendingLineCount : undefined,
-    fsmPendingRegionCount: vm.pendingRegionCount > 0 ? vm.pendingRegionCount : undefined,
-    fsmChainContinuationCount:
-      vm.chainContinuationCount > 0 ? vm.chainContinuationCount : undefined,
-    fsmForcedEliminationCount:
-      vm.forcedEliminationCount > 0 ? vm.forcedEliminationCount : undefined,
-  };
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+ chaimport React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BoardView } from '../../../src/client/components/BoardView';
@@ -171,8 +171,8 @@ describe('BoardView', () => {
         <BoardView boardType="square8" board={board} validTargets={validTargets} />
       );
 
-      // Check that valid targets have outline styling (square boards use emerald-400/95)
-      const highlightedCells = container.querySelectorAll('.outline-emerald-400\\/95');
+      // Check that valid targets have outline styling
+      const highlightedCells = container.querySelectorAll('.outline-emerald-300\\/90');
       expect(highlightedCells.length).toBeGreaterThanOrEqual(2);
     });
   });
@@ -1117,12 +1117,12 @@ describe('BoardView', () => {
       const { container } = render(<BoardView boardType="square8" board={board} />);
 
       const boardView = screen.getByTestId('board-view');
-      // Board container uses region role with descriptive aria-label for navigation instructions
-      expect(boardView).toHaveAttribute('role', 'region');
+      expect(boardView).toHaveAttribute('role', 'grid');
       expect(boardView).toHaveAttribute('aria-label');
 
-      // Check that cells have proper labels (button elements have implicit role="button")
+      // Check that cells have proper roles and labels
       const cell = container.querySelector('button[data-x="0"][data-y="0"]');
+      expect(cell).toHaveAttribute('role', 'gridcell');
       expect(cell).toHaveAttribute('aria-label');
     });
 

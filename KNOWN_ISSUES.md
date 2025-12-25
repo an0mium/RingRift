@@ -1102,32 +1102,93 @@ The parity issues were addressed through:
 
 ### INV-003 / SQUARE19-PARITY-01 – Square19 2P TS↔Python Parity Issues (Dec 2025)
 
-**Component(s):** Python `game_engine.py`, TS `turnOrchestrator.ts`, forced elimination phase handling, ANM state tracking
+**Component(s):** Python `game_engine.py`, TS `turnOrchestrator.ts`, `globalActions.ts`, forced elimination phase handling, ANM state tracking, `toVictoryState()`
 **Severity:** P1 (blocks square19 canonical training data at scale)
-**Status:** NOT RESOLVED – Partially Blocked (70% pass rate)
+**Status:** NOT RESOLVED – Root Cause Identified (Dec 25, 2025)
 
 **Description:**
-Square19 2-player games exhibit TS↔Python parity issues with a 70% pass rate (7/10 games pass, 3 games have semantic divergences). This blocks generation of large-scale canonical training data for the square19 board type.
+Square19 2-player games exhibit TS↔Python parity issues with a ~70% pass rate. This blocks generation of large-scale canonical training data for the square19 board type.
+
+**Root Cause Analysis (Dec 25, 2025 Investigation):**
+
+Detailed parity check on `canonical_square19.db` with state bundle generation revealed a critical divergence pattern:
+
+**Divergence Example (Game 915ab7de-ef80-47cd-820d-e9798dd85fdc):**
+
+- Divergence occurs at move index k=695
+- **Python at k=695:** `forced_elimination` phase, player 1, `active` status, 696 total moves
+- **TypeScript at k=695:** `game_over` phase, player 2, `completed` status, 695 total moves
+- **Critical observation:** TS terminates one move earlier than Python expects
+
+**Transition Sequence Analysis:**
+At k=694 (before divergence):
+
+- Both engines: `territory_processing` phase, player 1, `active` status
+- Board state: 8 stacks remaining (4 each), player 1 eliminated 54 rings, player 2 eliminated 63 rings
+
+What happens next:
+
+- **Python:** Records `skip_territory_processing` → advances to `forced_elimination` → expects FE move at k=695
+- **TypeScript:** Calls `toVictoryState()` → detects game_over → terminates at k=695 without FE move
+
+**Identified Code Divergence in `hasPhaseLocalInteractiveMove`:**
+
+**TypeScript** (`src/shared/engine/globalActions.ts` lines 275-279):
+
+```typescript
+case 'territory_processing': {
+  const regionMoves = enumerateProcessTerritoryRegionMoves(state, player);
+  const elimMoves = enumerateTerritoryEliminationMoves(state, player);
+  return regionMoves.length > 0 || elimMoves.length > 0;
+}
+```
+
+**Python** (`ai-service/app/rules/global_actions.py` lines 174-210):
+
+```python
+if phase == GamePhase.TERRITORY_PROCESSING:
+    # Check for pending territory self-elimination (RR-CANON-R145)
+    last_move = state.move_history[-1] if state.move_history else None
+    if last_move is not None and last_move.player == player:
+        if last_move.type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION):
+            # Check if the move has region data (required for pending elimination)
+            regions = getattr(last_move, "disconnected_regions", None)
+            if regions:
+                # Pending self-elimination logic...
+                return has_eligible_elimination_target(...)
+    # No pending elimination: check for region processing moves
+    moves = GameEngine._get_territory_processing_moves(state, player)
+    return len(moves) > 0
+```
+
+**Key Difference:** Python has special handling for pending territory self-elimination after `choose_territory_option` moves (RR-CANON-R145). This affects ANM calculation which in turn affects the game_over vs forced_elimination decision.
+
+**Chain of Impact:**
+
+1. `hasPhaseLocalInteractiveMove` returns different results for `territory_processing`
+2. This affects `isANMState()` calculation
+3. Different ANM states trigger different phase transitions in `resolveANMForCurrentPlayer()`
+4. TS calls `toVictoryState()` and ends game when it detects no valid moves
+5. Python continues to `forced_elimination` phase expecting one more move
 
 **Divergence Types Found:**
 
-1. **Forced Elimination Phase Mismatch:**
-   - Python shows `forced_elimination` phase, TS shows `ring_placement` phase
-   - Indicates disagreement on when a player enters the FE phase vs continuing normal turn flow
-   - Root cause likely in phase transition logic after territory processing or when player has no legal moves
+1. **Premature Game Termination (Primary Issue):**
+   - TS ends with `game_over` phase when Python expects `forced_elimination`
+   - Move count differs by 1 (TS: 695, Python: 696)
+   - Caused by `resolveANMForCurrentPlayer` calling `toVictoryState()` before forced elimination
 
-2. **ANM State Mismatch:**
+2. **ANM State Mismatch (Secondary):**
    - Same state hash but `is_anm` differs (Python: `true`, TS: `false`)
-   - Occurs in `territory_processing` phase
-   - State hashes match, indicating board state is identical, but ANM detection logic differs
-   - Similar pattern to the hex8 ANM parity issues that were previously fixed (INV-002)
+   - Occurs in `territory_processing` phase due to different `hasPhaseLocalInteractiveMove` logic
+   - State hashes match, indicating board state is identical
 
 **Discovery Context:**
 
 - Found during PASS26-P1.1 square19 parity assessment
-- Test configuration: square19 2P selfplay, 10 games
-- 7 games passed with 0 semantic divergences
-- 3 games had semantic divergences in late-game phases
+- Reproduced: Dec 25, 2025 with `check_ts_python_replay_parity.py --db data/canonical_square19.db --limit 5`
+- Test result: 1/4 games had semantic divergence (25% failure rate in this sample)
+- State bundles generated at `ai-service/parity_failures/square19_bundles/`
 
 **Impact:**
 
@@ -1138,16 +1199,21 @@ Square19 2-player games exhibit TS↔Python parity issues with a 70% pass rate (
 **Workaround:**
 Use square8 2P for canonical training data generation, which has 100% parity pass rate.
 
-**Investigation Path:**
+**Fix Path (Recommended):**
 
-1. Analyze forced_elimination phase transition logic in both engines for square19-specific edge cases
-2. Compare ANM detection in `territory_processing` for large board scenarios
-3. Consider if larger board geometry (19×19 = 361 cells vs 8×8 = 64 cells) exposes edge cases not seen on smaller boards
-4. Review whether the fix applied for hex8 ANM parity (INV-002) needs to be extended for square19
+1. **Option A (Align TS to Python):** Update `hasPhaseLocalInteractiveMove` in `globalActions.ts` to include Python's pending territory self-elimination check for `territory_processing` phase
+2. **Option B (Align timing of game_over):** Modify `resolveANMForCurrentPlayer` in `turnOrchestrator.ts` to not call `toVictoryState()` prematurely when forced elimination is still available
+
+3. **Verification:** After fix, regenerate `canonical_square19.db` and run parity check expecting 100% pass rate
+
+**Files to Modify:**
+
+- `src/shared/engine/globalActions.ts` (lines 275-279) - Add pending territory self-elimination check
+- `src/shared/engine/orchestration/turnOrchestrator.ts` (lines 334-399) - Review `resolveANMForCurrentPlayer` victory detection timing
 
 **Related Issues:**
 
-- INV-002 / HEX-PARITY-02 – Similar ANM divergence pattern on hex boards (RESOLVED)
+- INV-002 / HEX-PARITY-02 – Similar ANM divergence pattern on hex boards (RESOLVED via FSMAdapter hex phase coercion)
 - P0.1 – Forced Elimination Choice Divergence (historical, mostly resolved)
 
 ---

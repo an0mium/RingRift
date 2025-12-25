@@ -364,7 +364,7 @@ Each entry below lists RR‑CANON references, code touchpoints, observed vs inte
 ### CCE‑001 – Backend board “repair” deletes overlapping markers
 
 - **RR‑CANON rules:** `R021`, `R030–R031`, `R050–R052`, `R191` ([`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:69)).
-- **Code / tests:** [`TypeScript.BoardManager.assertBoardInvariants()`](../../src/server/game/BoardManager.ts:94), [`TypeScript.BoardManager.setMarker`](../../src/server/game/BoardManager.ts:325), [`TypeScript.BoardManager.setStack`](../../src/server/game/BoardManager.ts:446), sandbox invariant checks in `ClientSandboxEngine.assertBoardInvariants` and invariant soaks documented in [`docs/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:1).
+- **Code / tests:** [`TypeScript.BoardManager.assertBoardInvariants()`](../../src/server/game/BoardManager.ts:94), [`TypeScript.BoardManager.setMarker`](../../src/server/game/BoardManager.ts:325), [`TypeScript.BoardManager.setStack`](../../src/server/game/BoardManager.ts:446), sandbox invariant checks in `ClientSandboxEngine.assertBoardInvariants` and invariant soaks documented in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:1).
 - **Interaction / edge case:** Buggy or external writes create cells that simultaneously contain a stack plus marker or marker plus collapsed space.
 - **Intended behaviour (RR‑CANON):** Such states are unreachable; if they occur, semantics are undefined and should be treated as hard errors, not silently corrected.
 - **Observed behaviour:** Backend logs a diagnostic and **repairs** the state by deleting markers while keeping stacks / collapsed spaces, even in non‑test environments, then enforces invariants on the repaired board.

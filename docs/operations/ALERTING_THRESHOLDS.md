@@ -634,7 +634,7 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 
 **Response**:
 
-1. Inspect invariant violation logs and orchestrator soak summaries (see `docs/STRICT_INVARIANT_SOAKS.md` and `results/orchestrator_soak_summary.json` artifacts).
+1. Inspect invariant violation logs and orchestrator soak summaries (see `docs/testing/STRICT_INVARIANT_SOAKS.md` and `results/orchestrator_soak_summary.json` artifacts).
 2. Promote the failing seed/geometry into a dedicated Jest regression under `tests/unit/OrchestratorSInvariant.regression.test.ts` where applicable.
 3. Block promotion to production until the violation is fixed or explicitly waived with documented rationale.
 
@@ -1096,7 +1096,7 @@ Every environment that is on, or preparing for, orchestrator‑first rollout sho
   - Rules parity metrics and `RulesParity*` alert state, backed by `ringrift_rules_parity_mismatches_total{mismatch_type, suite}` where suites map onto
     parity contexts (for example `runtime_ts`, `runtime_python_mode`, or future `PARITY-*` contract suites).
 
-For Phase‑based expectations and thresholds, see §§6.2–6.4 and §8 of `ORCHESTRATOR_ROLLOUT_PLAN.md`.
+For Phase‑based expectations and thresholds, see §§6.2–6.4 in `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` and the historical phase presets in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` (§8).
 
 ### AI Service Dashboard
 
@@ -1132,7 +1132,7 @@ During incident reviews, verify that these three dashboards together make it eas
 
 1. Is the problem **rules/orchestrator**, **AI**, or **infra**?
 2. Are current alert thresholds still appropriate for observed load and variability?
-3. Does the current orchestrator rollout phase (from `ORCHESTRATOR_ROLLOUT_PLAN.md`) match the live flag and metric posture?
+3. Does the current orchestrator posture match the live flag/metric posture and, if you need the historical phase mapping, `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`?
 
 ---
 

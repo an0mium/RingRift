@@ -43,7 +43,7 @@
   adapters, metrics, invariant and parity counters, Python AI healthchecks), but
   the remaining work is:
   - Driving environments through the rollout phases in
-    `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (§8) with real staging/production stacks.
+    `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` (§8) with real staging/production stacks.
   - Enforcing SLO‑driven gates on promotion and on `RINGRIFT_RULES_MODE` /
     `ORCHESTRATOR_*` phase changes.
   - Decommissioning or quarantining legacy backend/sandbox turn paths once

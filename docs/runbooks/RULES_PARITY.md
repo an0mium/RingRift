@@ -9,7 +9,7 @@
 > - **Canonical rules semantics:** Shared TypeScript engine helpers, aggregates, and orchestrator under `src/shared/engine/**`, plus contracts and v2 contract vectors in `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/**`.
 > - **Parity metrics & logging:** `rulesParityMetrics` and `logRulesMismatch` in `src/server/utils/rulesParityMetrics.ts`, and the `RulesBackendFacade` / `PythonRulesClient` parity harness in `src/server/game/RulesBackendFacade.ts` and `src/server/services/PythonRulesClient.ts`.
 > - **Python rules implementation:** Canonical Python rules engine in `ai-service/app/game_engine/__init__.py` and the derived/parity-focused modules under `ai-service/app/rules/**` (`default_engine.py`, `validators/*.py`, `mutators/*.py`).
-> - **Parity specs & plans:** `docs/PYTHON_PARITY_REQUIREMENTS.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_ENGINE_SURFACE_AUDIT.md`, `docs/PARITY_SEED_TRIAGE.md`, `docs/STRICT_INVARIANT_SOAKS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md`.
+> - **Parity specs & plans:** `docs/PYTHON_PARITY_REQUIREMENTS.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_ENGINE_SURFACE_AUDIT.md`, `docs/PARITY_SEED_TRIAGE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md`.
 >
 > **Precedence:**
 >
@@ -126,7 +126,7 @@ Quickly review whether any of the following changed in the relevant environment 
 - Shared TS rules engine (`src/shared/engine/**`).
 - Game engine / orchestrator integration (`src/server/game/GameEngine.ts`, `RuleEngine.ts`, `RulesBackendFacade.ts`, `turnOrchestrator.ts`, state machines in `src/shared/stateMachines/**`).
 - Python rules engine (`ai-service/app/game_engine/__init__.py`, `ai-service/app/rules/**`).
-- Orchestrator and rules flags (`ORCHESTRATOR_ADAPTER_ENABLED`, `RINGRIFT_RULES_MODE`) per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
+- Orchestrator and rules flags (`ORCHESTRATOR_ADAPTER_ENABLED`, `RINGRIFT_RULES_MODE`) per `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`.
 
 If there were no changes in any of these areas, triage should include **environment drift** (older image deployed in some clusters, partial rollouts, stale parity fixtures) as a possible cause.
 
@@ -211,7 +211,7 @@ Whenever possible, reproduce the mismatch via:
    - For complex long-sequence divergences (especially involving LPS, capture chains, or territory), follow the workflows in:
      - `docs/PARITY_SEED_TRIAGE.md`
      - `tests/TEST_SUITE_PARITY_PLAN.md`
-     - `docs/STRICT_INVARIANT_SOAKS.md` (invariant soak tests).
+     - `docs/testing/STRICT_INVARIANT_SOAKS.md` (invariant soak tests).
 
 Reproduction in a deterministic harness is a prerequisite before attempting any code changes.
 
@@ -349,7 +349,7 @@ Before considering a rules-parity incident resolved:
 - [ ] For at least one representative example per fixed divergence, you have:
   - Verified that TS and Python now agree on validation, resulting hash, and game status.
   - Captured the scenario in a durable fixture (v2 contract vector or parity fixture) with a regression test.
-- [ ] If orchestrator rollout was adjusted, it has been **safely** returned to the intended level per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
+- [ ] If python-authoritative diagnostics were enabled, `RINGRIFT_RULES_MODE` has been returned to `ts` and parity counters have stabilized per `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`.
 
 ### 5.4 Documentation
 
@@ -374,11 +374,11 @@ Before considering a rules-parity incident resolved:
 - **Parity & invariants:**
   - `docs/PYTHON_PARITY_REQUIREMENTS.md`
   - `docs/PARITY_SEED_TRIAGE.md`
-  - `docs/STRICT_INVARIANT_SOAKS.md`
+  - `docs/testing/STRICT_INVARIANT_SOAKS.md`
   - `tests/TEST_SUITE_PARITY_PLAN.md`
 
 - **Orchestrator rollout & modes:**
-  - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`
+  - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`
   - `docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`
 
 - **Monitoring SSoT & ops:**

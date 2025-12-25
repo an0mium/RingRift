@@ -7,8 +7,8 @@
 
 - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `COMPLETE_RULES.md`, `COMPACT_RULES.md`, and the shared TS engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
   > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared TS/WebSocket types & schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
-  > - **Parity & invariants meta-docs:** `docs/RULES_SSOT_MAP.md` §7, `docs/PYTHON_PARITY_REQUIREMENTS.md`, and `docs/STRICT_INVARIANT_SOAKS.md`.
-  > - **Operational SSoTs:** Orchestrator rollout and observability docs (`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`, `docs/operations/ALERTING_THRESHOLDS.md`) and monitoring config under `monitoring/**`.
+  > - **Parity & invariants meta-docs:** `docs/RULES_SSOT_MAP.md` §7, `docs/PYTHON_PARITY_REQUIREMENTS.md`, and `docs/testing/STRICT_INVARIANT_SOAKS.md`.
+  > - **Operational SSoTs:** Orchestrator rollout and observability docs (`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`, `docs/operations/ALERTING_THRESHOLDS.md`) and monitoring config under `monitoring/**`.
   >
   > **Precedence:** If this document ever conflicts with the shared TS engine, contract vectors, Python mirror, or their tests (including orchestrator soaks and strict-invariant soaks), **code + tests win** and this document must be updated.
 
@@ -44,7 +44,7 @@ The goals of this framework are:
 **Relationship to other docs**
 
 - [`docs/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262) already contains a short "Invariants & Soaks Overview"; this framework expands that section into a structured catalogue with IDs and mappings.
-- [`docs/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:12) is the operational recipe for strict no‑move and S‑invariant soaks; this doc treats those soaks as **implementations** of the invariant IDs below.
+- [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:12) is the operational recipe for strict no‑move and S‑invariant soaks; this doc treats those soaks as **implementations** of the invariant IDs below.
 - [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) defines function/type-level parity between TS and Python; this doc focuses on **behavioural** and **host-level** parity.
 
 ## 2. Invariant Catalogue
@@ -659,7 +659,7 @@ This section lists concrete, tagged follow‑ups for subsequent tasks. Each bull
   - Maintain and extend the TS snapshots for the line+territory scenarios referenced in [`test_line_and_territory_scenario_parity.py`](../../ai-service/tests/parity/test_line_and_territory_scenario_parity.py:1), and consider wiring snapshot generation (`ExportLineAndTerritorySnapshot`) into a small CI lane so that `test_line_and_territory_ts_snapshot_parity` runs against up‑to‑date fixtures.
 
 - **B3‑3 – Active-no-moves invariant config profile** (`INV-ACTIVE-NO-MOVES`, `PARITY-TS-PY-ACTIVE-NO-MOVES`)
-  - Define a standard Python strict‑invariant profile (board types, player counts, difficulty band) mirroring the TS short soak, and document it in [`docs/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:92).
+  - Define a standard Python strict‑invariant profile (board types, player counts, difficulty band) mirroring the TS short soak, and document it in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:92).
 
 ### 6.3 P17.B4-CODE – Unified Metrics & Alerting
 
@@ -677,7 +677,7 @@ This section lists concrete, tagged follow‑ups for subsequent tasks. Each bull
 ### 6.4 P17.B5-ASK – Docs Narrative Unification
 
 - **B5‑1 – Link existing docs to this framework** (all IDs)
-  - Update [`docs/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:262), [`docs/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262), and [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) to reference this file by name and reuse invariant/parity IDs where they discuss the same concepts.
+  - Update [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:262), [`docs/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262), and [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) to reference this file by name and reuse invariant/parity IDs where they discuss the same concepts.
 
 - **B5‑2 – Clarify canonical invariant naming** (`INV-S-MONOTONIC`, `INV-ACTIVE-NO-MOVES`)
   - Replace ad‑hoc labels like "strict no‑move invariant" and "S invariant" in scattered docs with explicit references to the IDs defined here, improving searchability and SSoT alignment.

@@ -47,7 +47,7 @@ an explicit SLO around orchestrator-driven contract vectors:
       (Python runner over the v2 contract vectors).
 - Any failure in `ai-service/tests/contracts/test_contract_vectors.py` under this
   job is considered a direct breach of `SLO-CI-ORCH-PARITY` in
-  [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#62-ci-slos)
+  [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#62-ci-slos)
   and must block rollout until resolved (either by fixing a bug or updating
   vectors/fixtures in line with the canonical TS engine).
 

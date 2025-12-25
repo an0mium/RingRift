@@ -6,9 +6,8 @@ import { getMetricsService } from '../services/MetricsService';
  * Prometheus counters for TS <-> Python rules-engine parity.
  *
  * These are incremented by the RulesBackendFacade whenever it observes
- * a discrepancy between the authoritative backend engine and the Python
- * rules service running in shadow mode (or vice versa when Python is
- * authoritative).
+ * a discrepancy between the TS GameEngine and the Python rules service
+ * during python-authoritative diagnostics or explicit parity jobs.
  *
  * The concrete counters are now provided by MetricsService so that:
  * - Metric names are RingRift-prefixed (`ringrift_rules_parity_*`) and
@@ -84,10 +83,10 @@ export function logRulesMismatch(
  * - 'game_status' – gameStatus / victory mismatch
  *
  * Typical suite values:
- * - 'runtime_shadow'        – backend TS-authoritative with Python in shadow
- * - 'runtime_python_mode'   – python-authoritative runtime evaluation
+ * - 'runtime_python_mode'   – python-authoritative runtime diagnostics
  * - 'runtime_ts'            – TS-authoritative sanity checks
  * - 'contract_vectors_v2'   – contract-vector based parity jobs (future use)
+ * - 'runtime_shadow'        – legacy label kept for historical fixtures only
  */
 export function recordRulesParityMismatch(params: {
   mismatchType: 'validation' | 'hash' | 's_invariant' | 'game_status';

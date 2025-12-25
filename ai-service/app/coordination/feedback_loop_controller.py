@@ -400,53 +400,57 @@ class FeedbackLoopController:
         3. Update training intensity based on outcome
         4. Signal curriculum adjustments
         """
-        payload = event.payload if hasattr(event, "payload") else {}
-        metadata = payload.get("metadata", payload)
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            metadata = payload.get("metadata", payload)
 
-        config_key = metadata.get("config") or metadata.get("config_key", "")
-        promoted = metadata.get("promoted", False)
-        new_elo = metadata.get("new_elo") or metadata.get("elo")
+            config_key = metadata.get("config") or metadata.get("config_key", "")
+            promoted = metadata.get("promoted", False)
+            new_elo = metadata.get("new_elo") or metadata.get("elo")
 
-        if not config_key:
-            return
+            if not config_key:
+                return
 
-        state = self._get_or_create_state(config_key)
-        state.last_promotion_time = time.time()
-        state.last_promotion_success = promoted
+            state = self._get_or_create_state(config_key)
+            state.last_promotion_time = time.time()
+            state.last_promotion_success = promoted
 
-        if promoted:
-            state.consecutive_successes += 1
-            state.consecutive_failures = 0
-            logger.info(
-                f"[FeedbackLoopController] Promotion SUCCESS for {config_key} "
-                f"(streak: {state.consecutive_successes})"
-            )
+            if promoted:
+                state.consecutive_successes += 1
+                state.consecutive_failures = 0
+                logger.info(
+                    f"[FeedbackLoopController] Promotion SUCCESS for {config_key} "
+                    f"(streak: {state.consecutive_successes})"
+                )
 
-            # Reduce intensity on success (model is performing well)
-            state.current_training_intensity = "normal"
-            state.current_exploration_boost = max(1.0, state.current_exploration_boost - 0.1)
+                # Reduce intensity on success (model is performing well)
+                state.current_training_intensity = "normal"
+                state.current_exploration_boost = max(1.0, state.current_exploration_boost - 0.1)
 
-        else:
-            state.consecutive_failures += 1
-            state.consecutive_successes = 0
-            logger.info(
-                f"[FeedbackLoopController] Promotion FAILED for {config_key} "
-                f"(streak: {state.consecutive_failures})"
-            )
-
-            # Boost exploration and intensity on failure
-            state.current_exploration_boost = min(2.0, state.current_exploration_boost + 0.2)
-
-            if state.consecutive_failures >= 3:
-                state.current_training_intensity = "hot_path"
             else:
-                state.current_training_intensity = "accelerated"
+                state.consecutive_failures += 1
+                state.consecutive_successes = 0
+                logger.info(
+                    f"[FeedbackLoopController] Promotion FAILED for {config_key} "
+                    f"(streak: {state.consecutive_failures})"
+                )
 
-            # Signal urgent training needed
-            self._signal_urgent_training(config_key, state.consecutive_failures)
+                # Boost exploration and intensity on failure
+                state.current_exploration_boost = min(2.0, state.current_exploration_boost + 0.2)
 
-        # Apply feedback to FeedbackAccelerator
-        self._apply_intensity_feedback(config_key, state)
+                if state.consecutive_failures >= 3:
+                    state.current_training_intensity = "hot_path"
+                else:
+                    state.current_training_intensity = "accelerated"
+
+                # Signal urgent training needed
+                self._signal_urgent_training(config_key, state.consecutive_failures)
+
+            # Apply feedback to FeedbackAccelerator
+            self._apply_intensity_feedback(config_key, state)
+
+        except Exception as e:
+            logger.error(f"[FeedbackLoopController] Error handling promotion complete: {e}")
 
     # =========================================================================
     # Internal Actions

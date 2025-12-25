@@ -393,7 +393,7 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
   - `docs/CANONICAL_ENGINE_API.md` – ensure turn lifecycle sections describe `processTurnAsync` as the only host entrypoint and update placement helper language to reflect that helpers and `PlacementAggregate` are now canonical and production-backed.
   - `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md` – mark backend and sandbox consolidation phases as complete; update duplicate-line estimates; point to this plan for legacy shutdown status.
   - `docs/PASS16_ASSESSMENT_REPORT.md` – in Section 8 (Remediation Roadmap), reference this plan as the authoritative blueprint for P16.6.\*, P16.7, P16.8.
-  - `docs/INDEX.md` – add a link to `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` under the Canonical Orchestrator or architecture sections.
+  - `docs/INDEX.md` – add a link to `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` under the Canonical Orchestrator or architecture sections.
 
 - Tighten SSOT checks and runbooks:
   - Extend `scripts/ssot/rules-ssot-check.ts` and related checks to cover:
@@ -455,7 +455,7 @@ and a rough error budget.
 
 > **Historical only:** The production preview phase described a limited-scope incremental rollout (<=10% traffic). Rollout percentage is no longer configurable; this section is retained for context.
 
-Phase 2 – Production Preview (P18.4-4) mapped to **environment Phase 3 – Incremental production rollout** (§8.5) and intentionally capped traffic until preview SLOs were met.
+Phase 2 – Production Preview (P18.4-4) mapped to **environment Phase 3 – Incremental production rollout** (see `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` §8.5) and intentionally capped traffic until preview SLOs were met.
 
 A Production Preview window is considered successful when all of the following hold over the observation period (typically 1–3 hours per step and ≥24h overall at the final preview percentage):
 
@@ -520,7 +520,7 @@ These conditions defined "Success" for Phase 2 in the context of P18.4-4; rollou
   understood and fixed or explicitly waived.
 
 These CI SLOs correspond to **Phase 0 – Pre‑requisites** in the historical
-environment rollout plan (see §8).
+environment rollout plan (see `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` §8).
 
 **Auxiliary CI signal – Python AI self‑play invariants**
 
@@ -534,7 +534,7 @@ Although not a hard gate for orchestrator promotion, Python strict‑invariant h
   - `AI Self-Play Healthcheck (Nightly)` workflow in [`.github/workflows/ai-healthcheck-nightly.yml`](../../.github/workflows/ai-healthcheck-nightly.yml:1) – deeper variant with increased `RINGRIFT_AI_HEALTHCHECK_GAMES` and a higher `--max-moves` cap.
 - **Rollout posture:**
   - For any release candidate going to staging or production, Python AI healthchecks **should be green** and `PythonInvariantViolations` should be quiet over the recent window, or any violations must be understood and explicitly triaged as AI‑only or training‑only issues.
-  - When Python invariant alerts indicate potential cross‑stack rules regressions (for example `INV-ACTIVE-NO-MOVES` or `INV-S-MONOTONIC` anomalies), treat them as inputs to the same investigation loop as orchestrator invariant and rules‑parity signals before advancing phases in §8.
+  - When Python invariant alerts indicate potential cross‑stack rules regressions (for example `INV-ACTIVE-NO-MOVES` or `INV-S-MONOTONIC` anomalies), treat them as inputs to the same investigation loop as orchestrator invariant and rules‑parity signals before advancing phases in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` §8.
 
 ### 6.3 Staging SLOs (orchestrator‑only staging)
 
@@ -745,7 +745,7 @@ Rollbacks should rely on:
     [`docs/runbooks/DEPLOYMENT_ROUTINE.md`](../runbooks/DEPLOYMENT_ROUTINE.md:1)
     and [`docs/runbooks/DEPLOYMENT_ROLLBACK.md`](../runbooks/DEPLOYMENT_ROLLBACK.md:1).
 
-These practices inform the historical environment phases (§8); there is no
+These practices inform the historical environment phases (`docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` §8); there is no
 runtime rollback lever in current production configurations.
 
 ### 6.8 Test / CI profiles (orchestrator vs python diagnostics)
@@ -975,7 +975,7 @@ sub‑waves:
 - **4‑B – Invariant soaks & CI gates**
   - Short orchestrator invariant soak (`npm run soak:orchestrator:short` and the
     `orchestrator-short-soak` CI job) backing `SLO-CI-ORCH-SHORT-SOAK` (§6.2 and
-    `docs/STRICT_INVARIANT_SOAKS.md`), with `soak:orchestrator:smoke` available
+    `docs/testing/STRICT_INVARIANT_SOAKS.md`), with `soak:orchestrator:smoke` available
     as a fast single-game smoke profile.
   - Longer/staged soaks against `main` and staging images using
     `scripts/run-orchestrator-soak.ts` with `--failOnViolation` (for example

@@ -469,7 +469,7 @@ Before any production deployment:
 - [ ] Backup strategy is in place
 - [ ] Monitoring is configured
 - [ ] Rollback plan is documented
-- [ ] Orchestrator invariant smoke soak (`npm run soak:orchestrator:smoke`) has been run against the target image and investigated if any violations are reported (see `docs/STRICT_INVARIANT_SOAKS.md`)
+- [ ] Orchestrator invariant smoke soak (`npm run soak:orchestrator:smoke`) has been run against the target image and investigated if any violations are reported (see `docs/testing/STRICT_INVARIANT_SOAKS.md`)
 
 ---
 

@@ -39,6 +39,8 @@ export interface DrillCheck {
   details?: unknown;
 }
 
+type Phase = 'baseline' | 'degraded' | 'recovery';
+
 export interface AiDegradationDrillReport {
   drillType: 'ai_service_degradation';
   environment: string;
@@ -57,8 +59,6 @@ export interface AiDegradationDrillOptions {
   baseUrl?: string; // backend URL for HTTP health checks
   aiServiceUrl?: string; // optional explicit AI service URL, fallback to config/ENV
 }
-
-type Phase = 'baseline' | 'degraded' | 'recovery';
 
 interface ParsedCliArgs {
   env: string;
@@ -281,22 +281,7 @@ export function parseArgs(argv: string[]): ParsedCliArgs {
   const aiServiceUrl =
     (args.aiServiceUrl as string | undefined) ?? (args['ai-service-url'] as string | undefined);
 
-  const result: ParsedCliArgs = { env, phase };
-
-  if (operator !== undefined) {
-    result.operator = operator;
-  }
-  if (output !== undefined) {
-    result.output = output;
-  }
-  if (baseUrl !== undefined) {
-    result.baseUrl = baseUrl;
-  }
-  if (aiServiceUrl !== undefined) {
-    result.aiServiceUrl = aiServiceUrl;
-  }
-
-  return result;
+  return { env, operator, phase, output, baseUrl, aiServiceUrl };
 }
 
 /**
@@ -311,18 +296,13 @@ export async function runAiDegradationDrill(
   const checks: DrillCheck[] = [];
 
   // Check 1: Backend HTTP /health
-  const baseUrl =
-    options.baseUrl ??
-    // Align with runbook examples which use APP_BASE for the app URL.
-    process.env.APP_BASE ??
-    process.env.BASE_URL ??
-    'http://localhost:3000';
+  const baseUrl = options.baseUrl ?? process.env.BASE_URL ?? 'http://localhost:3000';
   const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
   const healthUrl = `${normalizedBaseUrl}/health`;
 
   // Allow tests (and potential callers) to inject a custom health check implementation.
-  const httpHealthCheckFn =
-    (options as any).httpHealthCheck ?? performHttpHealthCheck.bind(null as never);
+  const httpHealthCheckFn: (url: string) => Promise<{ statusCode: number | null }> =
+    (options as any).httpHealthCheck ?? performHttpHealthCheck;
 
   const { statusCode } = await httpHealthCheckFn(healthUrl);
   checks.push({
@@ -335,9 +315,10 @@ export async function runAiDegradationDrill(
   });
 
   // Check 2: AI service health via HealthCheckService readiness.
-  const aiHealthCheckFn =
-    (options as any).aiHealthCheck ??
-    (async (opts: AiDegradationDrillOptions) => checkAiServiceHealth(opts));
+  const aiHealthCheckFn: (
+    opts: AiDegradationDrillOptions
+  ) => Promise<{ ok: boolean; details: unknown }> =
+    (options as any).aiHealthCheck ?? checkAiServiceHealth;
 
   const aiHealthResult = await aiHealthCheckFn(options);
   const aiOk = aiHealthResult.ok;
@@ -354,8 +335,9 @@ export async function runAiDegradationDrill(
   });
 
   // Check 3: Optional AI fallback behaviour placeholder.
-  const aiFallbackCheckFn =
-    (options as any).aiFallbackCheck ?? ((p: Phase) => checkAiFallbackBehaviour(p));
+  const aiFallbackCheckFn: (p: Phase) => Promise<{ ok: boolean; details: unknown }> =
+    (options as any).aiFallbackCheck ?? checkAiFallbackBehaviour;
+
   const fallbackResult = await aiFallbackCheckFn(phase);
   checks.push({
     name: 'ai_fallback_behaviour',
@@ -370,11 +352,11 @@ export async function runAiDegradationDrill(
   const report: AiDegradationDrillReport = {
     drillType: 'ai_service_degradation',
     environment: env,
+    operator,
     runTimestamp,
     phase,
     checks,
     overallPass,
-    ...(operator !== undefined ? { operator } : {}),
   };
 
   const defaultOutputPath = path.join(
@@ -398,25 +380,14 @@ async function main(): Promise<void> {
   try {
     const { env, operator, phase, output, baseUrl, aiServiceUrl } = parseArgs(process.argv);
 
-    const options: AiDegradationDrillOptions = {
+    const { report, outputPath } = await runAiDegradationDrill({
       env,
+      operator,
       phase,
-    };
-
-    if (operator !== undefined) {
-      options.operator = operator;
-    }
-    if (output !== undefined) {
-      options.outputPath = output;
-    }
-    if (baseUrl !== undefined) {
-      options.baseUrl = baseUrl;
-    }
-    if (aiServiceUrl !== undefined) {
-      options.aiServiceUrl = aiServiceUrl;
-    }
-
-    const { report, outputPath } = await runAiDegradationDrill(options);
+      outputPath: output,
+      baseUrl,
+      aiServiceUrl,
+    });
 
     console.log(
       `AI degradation drill (env=${report.environment}, phase=${report.phase}): ${
@@ -435,5 +406,6 @@ async function main(): Promise<void> {
 }
 
 if (require.main === module) {
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
   main();
 }

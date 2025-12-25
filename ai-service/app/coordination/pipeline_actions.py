@@ -397,10 +397,13 @@ async def trigger_training(
     epochs: int = 50,
     early_stopping: bool = True,
     init_weights: str | None = None,
+    max_retries: int = 2,
+    retry_delay: float = 30.0,
 ) -> StageCompletionResult:
-    """Trigger neural network training.
+    """Trigger neural network training with retry logic.
 
     Trains a new model checkpoint using exported NPZ data.
+    On failure, retries with reduced batch size to handle OOM issues.
 
     Args:
         board_type: Board type (e.g., "hex8", "square8")
@@ -412,6 +415,8 @@ async def trigger_training(
         epochs: Maximum epochs
         early_stopping: Enable early stopping
         init_weights: Path to initial weights (for transfer learning)
+        max_retries: Maximum retry attempts (default: 2)
+        retry_delay: Delay between retries in seconds (default: 30)
 
     Returns:
         StageCompletionResult with training results
@@ -419,106 +424,135 @@ async def trigger_training(
     config = config or ActionConfig()
     root = _get_ai_service_root()
     start_time = time.time()
+    last_error = None
 
     # Output model path
     model_filename = f"{board_type}_{num_players}p_iter{iteration}.pth"
     model_path = root / config.models_dir / model_filename
 
-    try:
-        cmd = [
-            config.python_executable,
-            "-m", config.train_module,
-            "--board-type", board_type,
-            "--num-players", str(num_players),
-            "--data-path", npz_path,
-            "--save-path", str(model_path),
-            "--batch-size", str(batch_size),
-            "--epochs", str(epochs),
-        ]
+    for attempt in range(max_retries):
+        # Reduce batch size on retry to handle OOM issues
+        retry_batch_size = batch_size // (2 ** attempt)
+        retry_batch_size = max(64, retry_batch_size)  # Minimum batch size
 
-        if early_stopping:
-            cmd.append("--early-stopping")
-        if init_weights:
-            cmd.extend(["--init-weights", init_weights])
-
-        exit_code, stdout, stderr = await _run_subprocess(
-            cmd,
-            timeout=config.training_timeout,
-            cwd=root,
-            env={"PYTHONPATH": str(root)},
-        )
-
-        duration = time.time() - start_time
-        success = exit_code == 0 and model_path.exists()
-
-        # Parse training metrics from output
-        train_loss = 0.0
-        val_loss = 0.0
-        policy_accuracy = 0.0
-        for line in stdout.split("\n"):
-            line_lower = line.lower()
-            if "train_loss" in line_lower:
-                try:
-                    train_loss = float(line.split(":")[-1].strip())
-                except ValueError:
-                    pass
-            elif "val_loss" in line_lower:
-                try:
-                    val_loss = float(line.split(":")[-1].strip())
-                except ValueError:
-                    pass
-            elif "policy_accuracy" in line_lower or "policy acc" in line_lower:
-                try:
-                    policy_accuracy = float(line.split(":")[-1].strip().replace("%", ""))
-                except ValueError:
-                    pass
-
-        result = StageCompletionResult(
-            success=success,
-            stage="training",
-            iteration=iteration,
-            duration_seconds=duration,
-            output_path=str(model_path) if success else None,
-            error=stderr if not success else None,
-            exit_code=exit_code,
-            stdout=stdout,
-            stderr=stderr,
-            metadata={
-                "board_type": board_type,
-                "num_players": num_players,
-                "model_id": model_filename,
-                "train_loss": train_loss,
-                "val_loss": val_loss,
-                "policy_accuracy": policy_accuracy,
-                "epochs": epochs,
-                "batch_size": batch_size,
-            },
-        )
-
-        if success:
+        if attempt > 0:
             logger.info(
-                f"[PipelineActions] Training completed in {duration:.1f}s: "
-                f"val_loss={val_loss:.4f}, policy_acc={policy_accuracy:.1f}%"
+                f"[PipelineActions] Training retry {attempt}/{max_retries - 1} "
+                f"with batch_size={retry_batch_size}"
             )
-            await _emit_training_complete(result)
-        else:
-            logger.error(f"[PipelineActions] Training failed: {stderr[:500]}")
-            await _emit_training_failed(result)
+            await asyncio.sleep(retry_delay)
 
-        return result
+        try:
+            cmd = [
+                config.python_executable,
+                "-m", config.train_module,
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--data-path", npz_path,
+                "--save-path", str(model_path),
+                "--batch-size", str(retry_batch_size),
+                "--epochs", str(epochs),
+            ]
 
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.exception(f"[PipelineActions] Training error: {e}")
-        result = StageCompletionResult(
-            success=False,
-            stage="training",
-            iteration=iteration,
-            duration_seconds=duration,
-            error=str(e),
-        )
-        await _emit_training_failed(result)
-        return result
+            if early_stopping:
+                cmd.append("--early-stopping")
+            if init_weights:
+                cmd.extend(["--init-weights", init_weights])
+
+            exit_code, stdout, stderr = await _run_subprocess(
+                cmd,
+                timeout=config.training_timeout,
+                cwd=root,
+                env={"PYTHONPATH": str(root)},
+            )
+
+            attempt_duration = time.time() - start_time
+            success = exit_code == 0 and model_path.exists()
+
+            # Parse training metrics from output
+            train_loss = 0.0
+            val_loss = 0.0
+            policy_accuracy = 0.0
+            for line in stdout.split("\n"):
+                line_lower = line.lower()
+                if "train_loss" in line_lower:
+                    try:
+                        train_loss = float(line.split(":")[-1].strip())
+                    except ValueError:
+                        pass
+                elif "val_loss" in line_lower:
+                    try:
+                        val_loss = float(line.split(":")[-1].strip())
+                    except ValueError:
+                        pass
+                elif "policy_accuracy" in line_lower or "policy acc" in line_lower:
+                    try:
+                        policy_accuracy = float(line.split(":")[-1].strip().replace("%", ""))
+                    except ValueError:
+                        pass
+
+            result = StageCompletionResult(
+                success=success,
+                stage="training",
+                iteration=iteration,
+                duration_seconds=attempt_duration,
+                output_path=str(model_path) if success else None,
+                error=stderr if not success else None,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                metadata={
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "model_id": model_filename,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "policy_accuracy": policy_accuracy,
+                    "epochs": epochs,
+                    "batch_size": retry_batch_size,
+                    "attempt": attempt + 1,
+                },
+            )
+
+            if success:
+                logger.info(
+                    f"[PipelineActions] Training completed in {attempt_duration:.1f}s: "
+                    f"val_loss={val_loss:.4f}, policy_acc={policy_accuracy:.1f}%"
+                )
+                await _emit_training_complete(result)
+                return result
+            else:
+                last_error = stderr[:500]
+                logger.warning(
+                    f"[PipelineActions] Training attempt {attempt + 1} failed: {last_error}"
+                )
+                # Continue to next retry if not last attempt
+                if attempt < max_retries - 1:
+                    continue
+                # Last attempt - emit failure and return
+                logger.error(f"[PipelineActions] All {max_retries} training attempts failed")
+                await _emit_training_failed(result)
+                return result
+
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"[PipelineActions] Training attempt {attempt + 1} error: {e}")
+            # Continue to next retry if not last attempt
+            if attempt < max_retries - 1:
+                continue
+
+    # All retries exhausted with exceptions
+    duration = time.time() - start_time
+    logger.error(f"[PipelineActions] All {max_retries} training attempts failed with errors")
+    result = StageCompletionResult(
+        success=False,
+        stage="training",
+        iteration=iteration,
+        duration_seconds=duration,
+        error=last_error or "All retries failed",
+    )
+    await _emit_training_failed(result)
+    return result
 
 
 async def trigger_evaluation(

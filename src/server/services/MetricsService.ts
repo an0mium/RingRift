@@ -232,8 +232,9 @@ export class MetricsService {
    *
    * Labels:
    * - mismatch_type: 'validation' | 'hash' | 's_invariant' | 'game_status' | ...
-   * - suite: high-level parity bucket / PARITY-* ID (e.g. 'runtime_shadow',
-   *   'runtime_python_mode', 'contract_vectors_v2').
+   * - suite: high-level parity bucket / PARITY-* ID (e.g. 'runtime_python_mode',
+   *   'runtime_ts', 'contract_vectors_v2'). Legacy labels like 'runtime_shadow'
+   *   may appear in historical fixtures but are not emitted at runtime.
    */
   public readonly rulesParityMismatchesTotal: Counter<'mismatch_type' | 'suite'>;
 
@@ -1044,7 +1045,8 @@ export class MetricsService {
    * @param mismatchType - High-level mismatch category (e.g. 'validation',
    *   'hash', 's_invariant', 'game_status').
    * @param suite - Parity bucket / PARITY-* ID or runtime context
-   *   (e.g. 'runtime_shadow', 'runtime_python_mode', 'contract_vectors_v2').
+   *   (e.g. 'runtime_python_mode', 'runtime_ts', 'contract_vectors_v2';
+   *   legacy labels like 'runtime_shadow' may appear in historical fixtures).
    */
   public recordRulesParityMismatch(mismatchType: string, suite: string): void {
     this.rulesParityMismatchesTotal.labels(mismatchType, suite).inc();

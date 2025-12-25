@@ -55,7 +55,7 @@ These gates ensure the orchestrator, shared rules engine, and cross‑language p
     - Links to the latest green CI runs for orchestrator gating / soaks.
     - Optional local soak JSON summary under `results/` for the candidate image.
   - **References**
-    - Orchestrator rollout posture and invariants: [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1), [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1).
+    - Orchestrator posture and invariants: [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1), historical phase tables in [`docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`](../archive/ORCHESTRATOR_ROLLOUT_PHASES.md:1), and [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1).
     - Environment posture expectations: [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md).
 
 - [ ] **TS↔Python contract and parity tests are green**
