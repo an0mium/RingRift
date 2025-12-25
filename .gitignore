@@ -387,3 +387,15 @@ parity_failures_v2/
 # Automation scripts with cluster-specific configs
 ai-service/scripts/automation/
 nginx.production.conf
+
+# Shell scripts with hardcoded node IPs
+ai-service/scripts/collect_cluster_data.sh
+ai-service/scripts/collect_gumbel_data.sh
+ai-service/scripts/cron_vast_maintenance.sh
+ai-service/scripts/deploy_gmo_training.sh
+ai-service/scripts/mac_keepalive.sh
+ai-service/scripts/monitor_cluster.sh
+ai-service/scripts/monitor_gumbel_cluster.sh
+ai-service/scripts/run_experimental_ai_tournament.sh
+ai-service/scripts/train_hex8_models.sh
+scripts/tunnel_metrics.sh

@@ -58,7 +58,8 @@ logger = logging.getLogger(__name__)
 # Constants
 CHECK_INTERVAL = 30  # seconds between health checks
 P2P_PORT = int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
-LAMBDA_IPS = ["100.97.104.89", "100.91.25.13"]  # Primary Lambda nodes for connectivity check
+# Load from environment or leave empty; configure via RINGRIFT_LAMBDA_IPS
+LAMBDA_IPS = os.environ.get("RINGRIFT_LAMBDA_IPS", "").split(",") if os.environ.get("RINGRIFT_LAMBDA_IPS") else []
 
 # Notification settings
 SLACK_WEBHOOK_URL = os.environ.get("RINGRIFT_SLACK_WEBHOOK", "")

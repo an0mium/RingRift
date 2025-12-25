@@ -13,7 +13,7 @@ Uses ramdisk (/dev/shm) for temporary storage to maximize throughput.
 Usage:
     PYTHONPATH=. python3 scripts/vast_cpu_pipeline_daemon.py \
         --role export \
-        --lambda-nodes 100.123.183.70,100.104.34.73 \
+        --lambda-nodes <node-ip-1>,<node-ip-2> \
         --use-ramdisk
 """
 
