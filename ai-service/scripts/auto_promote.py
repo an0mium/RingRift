@@ -489,6 +489,42 @@ def promote_after_gauntlet(
     Returns:
         True if promotion successful
     """
+    # Pre-promotion validation (added Dec 2025)
+    # Validates that checkpoint metadata matches the target configuration
+    try:
+        from app.models import BoardType
+        from app.training.model_config_contract import (
+            ModelConfigContract,
+            validate_checkpoint_for_promotion,
+        )
+        from app.training.model_versioning import load_versioned_checkpoint
+
+        # Load checkpoint metadata
+        _, metadata = load_versioned_checkpoint(str(model_path))
+        metadata_dict = metadata.to_dict()
+
+        # Validate against target configuration
+        board_type_enum = BoardType[board_type.upper()]
+        is_valid, violations = validate_checkpoint_for_promotion(
+            metadata_dict, board_type_enum, num_players
+        )
+
+        if not is_valid:
+            print(f"\n✗ Cannot promote - configuration violations:")
+            for v in violations:
+                print(f"  - {v}")
+            print(f"\nModel configuration does not match target {board_type}_{num_players}p")
+            print("Please retrain with correct configuration.")
+            return False
+
+        print(f"✓ Model config validated for {board_type}_{num_players}p")
+
+    except Exception as e:
+        # If validation fails due to missing metadata, warn but allow promotion
+        # (for backwards compatibility with legacy checkpoints)
+        print(f"⚠ Warning: Could not validate checkpoint metadata: {e}")
+        print("  Proceeding with promotion (legacy checkpoint assumed)")
+
     config = f"{board_type}_{num_players}p"
     dest_dir = PRODUCTION_DIR / config
 

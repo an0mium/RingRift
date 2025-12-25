@@ -3883,7 +3883,7 @@ def train_model(
                                 scheduler=epoch_scheduler,
                                 early_stopping=early_stopper,
                             )
-                        # Save best model with versioning
+                        # Save best model with versioning and config validation
                         save_model_checkpoint(
                             model_to_save,
                             save_path,
@@ -3892,6 +3892,8 @@ def train_model(
                                 'loss': float(early_stopper.best_loss),
                                 'early_stopped': True,
                             },
+                            board_type=config.board_type,
+                            num_players=num_players,
                         )
                         logger.info("Best model saved to %s", save_path)
                     break
@@ -3933,7 +3935,7 @@ def train_model(
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 if not distributed or is_main_process():
-                    # Save with versioning metadata
+                    # Save with versioning metadata and config validation
                     save_model_checkpoint(
                         model_to_save,
                         save_path,
@@ -3943,6 +3945,8 @@ def train_model(
                             'val_loss': float(avg_val_loss),
                             'train_loss': float(avg_train_loss),
                         },
+                        board_type=config.board_type,
+                        num_players=num_players,
                     )
                     logger.info(
                         "  New best model saved (Val Loss: %.4f)",
@@ -3966,6 +3970,8 @@ def train_model(
                             'train_loss': float(avg_train_loss),
                             'timestamp': timestamp,
                         },
+                        board_type=config.board_type,
+                        num_players=num_players,
                     )
                     logger.info(
                         "  Versioned checkpoint saved: %s",

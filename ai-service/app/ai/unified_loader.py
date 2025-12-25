@@ -452,20 +452,29 @@ class UnifiedModelLoader:
         expected_policy_size = POLICY_SIZE_MAP.get(config.board_type, 7000)
         if config.policy_size > expected_policy_size * 2:
             # Policy size is way too large - likely legacy_max_n encoding
-            logger.warning(
+            mismatch_msg = (
                 f"CHECKPOINT POLICY SIZE MISMATCH!\n"
                 f"  Checkpoint: {path}\n"
                 f"  Inferred policy_size: {config.policy_size}\n"
                 f"  Expected for {config.board_type.value}: {expected_policy_size}\n\n"
                 f"This model was likely trained with legacy_max_n encoding.\n"
-                f"It will produce incorrect predictions. Retrain with board-aware data."
+                f"It will produce incorrect predictions. Retrain with board-aware data.\n\n"
+                f"To fix: Re-export training data with board-aware encoding and retrain:\n"
+                f"  python scripts/export_replay_dataset.py --board-type {config.board_type.value} ...\n"
+                f"  python -m app.training.train --board-type {config.board_type.value} ..."
             )
-            # For strict mode, fail immediately
+            logger.warning(mismatch_msg)
+            # For strict mode, fail immediately with ModelConfigError
             if strict:
-                raise ValueError(
+                from app.training.model_config_contract import ModelConfigError
+                raise ModelConfigError(
                     f"Policy size mismatch: {config.policy_size} > {expected_policy_size} "
                     f"for {config.board_type.value}. Model was trained with deprecated "
-                    f"legacy_max_n encoding and will not work correctly."
+                    f"legacy_max_n encoding and cannot be used for inference or training.",
+                    violations=[
+                        f"policy_size: expected {expected_policy_size}, got {config.policy_size} "
+                        f"(legacy_max_n encoding detected)"
+                    ]
                 )
 
         # Instantiate model

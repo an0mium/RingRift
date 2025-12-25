@@ -1158,9 +1158,13 @@ def save_model_checkpoint(
     epoch: int | None = None,
     loss: float | None = None,
     parent_checkpoint: str | None = None,
+    # Model configuration validation (added Dec 2025)
+    board_type: Any | None = None,  # BoardType enum, but Any to avoid circular import
+    num_players: int | None = None,
+    validate_config: bool = True,
 ) -> ModelMetadata:
     """
-    Save model checkpoint with automatic metadata creation.
+    Save model checkpoint with automatic metadata creation and optional validation.
 
     This is a convenience function that creates metadata from the
     model and saves a versioned checkpoint.
@@ -1174,10 +1178,27 @@ def save_model_checkpoint(
         epoch: Optional epoch number.
         loss: Optional loss value.
         parent_checkpoint: Optional path to parent checkpoint.
+        board_type: Board type for validation (BoardType enum).
+        num_players: Number of players for validation (2, 3, or 4).
+        validate_config: If True and board_type/num_players provided,
+            validates model configuration before saving. Raises
+            ModelConfigError on mismatch.
 
     Returns:
         Created ModelMetadata.
+
+    Raises:
+        ModelConfigError: If validate_config=True and model config
+            doesn't match the specified board_type/num_players.
     """
+    # Pre-save validation if board_type and num_players provided
+    if validate_config and board_type is not None and num_players is not None:
+        from app.training.model_config_contract import validate_model_for_save
+        validate_model_for_save(model, board_type, num_players, strict=True)
+        logger.info(
+            f"Model config validated for {board_type.value}_{num_players}p before save"
+        )
+
     manager = ModelVersionManager()
 
     metadata = manager.create_metadata(

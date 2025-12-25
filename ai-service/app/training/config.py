@@ -377,6 +377,9 @@ class TrainConfig:
     RINGRIFT_AUTO_BATCH_SCALE=1 (default) or explicitly set via CLI.
     """
     board_type: BoardType = BoardType.SQUARE8
+    # Number of players (2, 3, or 4). Must match the value head output dimension.
+    # This is validated in __post_init__ and used for model config validation.
+    num_players: int = 2
     episodes_per_iter: int = 4
     epochs_per_iter: int = 4
     # Number of self-play + training + evaluation cycles to run in the
@@ -469,6 +472,13 @@ class TrainConfig:
     def __post_init__(self):
         import os
         from pathlib import Path
+
+        # Validate num_players (must be 2, 3, or 4)
+        if self.num_players not in (2, 3, 4):
+            raise ValueError(
+                f"num_players must be 2, 3, or 4, got {self.num_players}. "
+                f"This determines the value head output dimension."
+            )
 
         # Resolve the ai-service repository root as the directory containing
         # this file's "app" parent (i.e., <repo_root>/ai-service).
