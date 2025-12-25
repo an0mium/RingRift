@@ -1291,10 +1291,25 @@ export function validateMoveWithFSM(
   // current player. Replay compatibility trusts recorded moves (RR-CANON-R075),
   // including legacy turn-transition mismatches handled below.
   const isPlayerMismatchFromDifferentPlayer = move.player !== gameState.currentPlayer;
+
+  // IMPORTANT: For phase validation, we must distinguish between:
+  // 1. Normal validation: check against the ORIGINAL gameState.currentPhase
+  // 2. Replay compatibility: check against fsmState.phase (which may be overridden)
+  //
+  // The deriveStateFromGame function overrides the phase for replay compatibility
+  // (e.g., place_ring forces ring_placement phase). In normal mode, we should
+  // reject moves that don't match the actual game state phase.
+  const originalPhaseForCheck =
+    gameState.currentPhase !== 'game_over' ? (gameState.currentPhase as GamePhase) : null;
   const phaseForMoveCheck =
     fsmState.phase !== 'turn_end' && fsmState.phase !== 'game_over'
       ? (fsmState.phase as GamePhase)
       : null;
+
+  // In normal (non-replay) mode, validate against the original game state phase
+  const isCanonicalMoveForOriginalPhase = originalPhaseForCheck
+    ? isMoveValidInPhase(moveForValidation.type as MoveType, originalPhaseForCheck)
+    : false;
   const isCanonicalMoveForPhase = phaseForMoveCheck
     ? isMoveValidInPhase(moveForValidation.type as MoveType, phaseForMoveCheck)
     : false;
@@ -1334,6 +1349,19 @@ export function validateMoveWithFSM(
       currentPhase: fsmState.phase,
       errorCode: 'WRONG_PLAYER',
       reason: `Not your turn (expected player ${gameState.currentPlayer}, got ${move.player})`,
+    });
+  }
+
+  // In non-replay mode, reject moves that are invalid for the ORIGINAL game state phase.
+  // This prevents the phase override logic (intended for replay compatibility) from
+  // allowing moves that shouldn't be valid in the current phase.
+  if (!replayCompatibility && originalPhaseForCheck && !isCanonicalMoveForOriginalPhase) {
+    return makeResult({
+      valid: false,
+      currentPhase: fsmState.phase,
+      errorCode: 'INVALID_EVENT',
+      reason: `Move type '${move.type}' is not valid for phase '${originalPhaseForCheck}'`,
+      validEventTypes: getExpectedEventTypes(fsmState),
     });
   }
 
