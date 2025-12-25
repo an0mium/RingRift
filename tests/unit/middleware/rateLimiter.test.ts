@@ -42,6 +42,43 @@ jest.mock('../../../src/server/services/MetricsService', () => ({
   }),
 }));
 
+// Store and clear rate limit env vars to ensure tests use defaults
+const RATE_LIMIT_ENV_KEYS = [
+  'RATE_LIMIT_API_POINTS',
+  'RATE_LIMIT_API_DURATION',
+  'RATE_LIMIT_API_AUTH_POINTS',
+  'RATE_LIMIT_API_AUTH_DURATION',
+  'RATE_LIMIT_AUTH_POINTS',
+  'RATE_LIMIT_AUTH_DURATION',
+  'RATE_LIMIT_AUTH_LOGIN_POINTS',
+  'RATE_LIMIT_AUTH_LOGIN_DURATION',
+  'RATE_LIMIT_AUTH_REGISTER_POINTS',
+  'RATE_LIMIT_GAME_POINTS',
+  'RATE_LIMIT_GAME_MOVES_POINTS',
+  'RATE_LIMIT_WS_POINTS',
+  'RATE_LIMIT_GAME_CREATE_USER_POINTS',
+  'RATE_LIMIT_GAME_CREATE_IP_POINTS',
+];
+
+const savedEnv: Record<string, string | undefined> = {};
+
+beforeAll(() => {
+  // Save and clear rate limit env vars so tests use defaults
+  RATE_LIMIT_ENV_KEYS.forEach((key) => {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  });
+});
+
+afterAll(() => {
+  // Restore original env vars
+  RATE_LIMIT_ENV_KEYS.forEach((key) => {
+    if (savedEnv[key] !== undefined) {
+      process.env[key] = savedEnv[key];
+    }
+  });
+});
+
 describe('Rate Limiter Configuration', () => {
   describe('getRateLimitConfigs', () => {
     it('should return all rate limit configurations', () => {

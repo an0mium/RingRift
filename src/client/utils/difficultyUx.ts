@@ -122,7 +122,8 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
       'Backed by the canonical D9 Gumbel MCTS profile (neural guidance with a large budget). Plays with deep tactical awareness and strong conversion; even expert players should find sustaining a high win rate difficult.',
     recommendedAudience:
       'Expert players who want to test themselves against the strongest public ladder tiers.',
-    notes: 'Canonical ladder tier: Gumbel MCTS (neural).',
+    notes:
+      'Experimental tier; unrated against human benchmarks. Canonical ladder tier: Gumbel MCTS (neural).',
   },
   {
     id: 10,
@@ -131,7 +132,8 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
     detailedDescription:
       'Backed by the canonical D10 Gumbel MCTS profile (largest search budget). Intended to be exceptionally challenging and suitable for stress-testing high-level play.',
     recommendedAudience: 'Elite players and AI testers who want the strongest possible challenge.',
-    notes: 'Canonical ladder tier: Gumbel MCTS (neural).',
+    notes:
+      'Unrated tier outside the calibration guide. Canonical ladder tier: Gumbel MCTS (neural).',
   },
 ];
 
