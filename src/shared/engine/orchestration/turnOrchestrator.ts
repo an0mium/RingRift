@@ -2312,7 +2312,11 @@ function applyMoveWithChainInfo(
     case 'eliminate_rings_from_stack': {
       const outcome = applyEliminateRingsFromStackDecision(state, move);
       // RR-CANON-R123: Clear pendingLineRewardElimination when line elimination is applied
-      const elimContext = (move as any).eliminationContext;
+      // TypeScript doesn't narrow the Move type to include eliminationContext after type check,
+      // so we access it via type assertion on the object with eliminationContext property.
+      const elimContext = (
+        move as { eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery' }
+      ).eliminationContext;
       if (elimContext === 'line' && state.pendingLineRewardElimination) {
         return {
           nextState: {

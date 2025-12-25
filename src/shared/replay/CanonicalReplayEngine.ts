@@ -375,7 +375,12 @@ export class CanonicalReplayEngine {
       });
     }
 
-    return createInitialGameState(gameId, boardType, players, timeControl, false);
+    const state = createInitialGameState(gameId, boardType, players, timeControl, false);
+    // Override gameStatus to 'active' for parity with Python's training initial state.
+    // createInitialGameState uses 'waiting' for interactive server games, but Python's
+    // create_initial_state uses 'active' for selfplay. For parity replay, we align to 'active'.
+    state.gameStatus = 'active';
+    return state;
   }
 
   /**
