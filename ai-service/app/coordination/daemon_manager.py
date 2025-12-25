@@ -191,6 +191,7 @@ class DaemonManager:
         self._factories: dict[DaemonType, Callable[[], Coroutine[Any, Any, None]]] = {}
         self._running = False
         self._health_task: asyncio.Task | None = None
+        self._start_time: float = time.time()
         self._shutdown_event = asyncio.Event()
         self._lock = asyncio.Lock()
 
@@ -694,6 +695,121 @@ class DaemonManager:
         """Check if a daemon is running."""
         info = self._daemons.get(daemon_type)
         return info is not None and info.state == DaemonState.RUNNING
+
+    # =========================================================================
+    # Liveness and Readiness Probes (December 2025)
+    # =========================================================================
+
+    def liveness_probe(self) -> dict[str, Any]:
+        """Liveness probe for health check endpoints.
+
+        Returns True if the daemon manager is alive and responsive.
+        This is a lightweight check suitable for frequent polling.
+
+        Returns:
+            Dict with 'alive' bool and optional 'details'
+        """
+        return {
+            "alive": True,
+            "timestamp": time.time(),
+            "uptime_seconds": time.time() - self._start_time if hasattr(self, "_start_time") else 0,
+        }
+
+    def readiness_probe(
+        self,
+        required_daemons: list[DaemonType] | None = None,
+    ) -> dict[str, Any]:
+        """Readiness probe for health check endpoints.
+
+        Returns True if the system is ready to handle requests.
+        Checks that critical daemons are running.
+
+        Args:
+            required_daemons: List of daemon types that must be running.
+                             If None, checks that at least one daemon is running.
+
+        Returns:
+            Dict with 'ready' bool, 'reason' if not ready, and 'details'
+        """
+        if not self._running:
+            return {
+                "ready": False,
+                "reason": "DaemonManager not started",
+                "timestamp": time.time(),
+            }
+
+        running_daemons = [
+            dt for dt, info in self._daemons.items()
+            if info.state == DaemonState.RUNNING
+        ]
+        failed_daemons = [
+            dt for dt, info in self._daemons.items()
+            if info.state == DaemonState.FAILED
+        ]
+
+        if required_daemons:
+            missing = [dt for dt in required_daemons if dt not in running_daemons]
+            if missing:
+                return {
+                    "ready": False,
+                    "reason": f"Required daemons not running: {[d.value for d in missing]}",
+                    "running": [d.value for d in running_daemons],
+                    "failed": [d.value for d in failed_daemons],
+                    "timestamp": time.time(),
+                }
+        elif not running_daemons:
+            return {
+                "ready": False,
+                "reason": "No daemons running",
+                "failed": [d.value for d in failed_daemons],
+                "timestamp": time.time(),
+            }
+
+        return {
+            "ready": True,
+            "running_count": len(running_daemons),
+            "failed_count": len(failed_daemons),
+            "running": [d.value for d in running_daemons],
+            "timestamp": time.time(),
+        }
+
+    def health_summary(self) -> dict[str, Any]:
+        """Get comprehensive health summary for monitoring dashboards.
+
+        Returns:
+            Dict with detailed health information
+        """
+        status = self.get_status()
+
+        # Calculate health score (0.0 - 1.0)
+        total = status["summary"]["total"]
+        running = status["summary"]["running"]
+        failed = status["summary"]["failed"]
+
+        if total == 0:
+            health_score = 1.0
+        else:
+            health_score = running / total
+
+        # Determine overall health status
+        if health_score >= 0.9:
+            health_status = "healthy"
+        elif health_score >= 0.5:
+            health_status = "degraded"
+        else:
+            health_status = "unhealthy"
+
+        return {
+            "status": health_status,
+            "score": health_score,
+            "running": running,
+            "failed": failed,
+            "total": total,
+            "daemons": status["daemons"],
+            "liveness": self.liveness_probe(),
+            "readiness": self.readiness_probe(),
+            "timestamp": time.time(),
+        }
 
     # =========================================================================
     # Default Daemon Factories
