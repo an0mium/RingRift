@@ -64,10 +64,15 @@ class SelfplayConfig:
 
 @dataclass
 class PipelineConfig:
-    """Configuration for DataPipelineOrchestrator."""
+    """Configuration for DataPipelineOrchestrator.
+
+    Note: auto_trigger defaults to True as of Dec 2025 to enable the full
+    training pipeline automation. Set COORDINATOR_AUTO_TRIGGER_PIPELINE=false
+    to disable if needed.
+    """
 
     max_history: int = 100
-    auto_trigger: bool = False
+    auto_trigger: bool = True  # Changed from False (Dec 2025)
     pause_on_critical_constraints: bool = True
     constraint_stale_seconds: float = 60.0
 

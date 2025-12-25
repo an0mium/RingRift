@@ -68,6 +68,11 @@ class NodeStatus:
     memory_usage_percent: float = 0.0
     cpu_percent: float = 0.0
 
+    # GPU metrics
+    gpu_utilization_percent: float = 0.0
+    gpu_memory_used_gb: float = 0.0
+    gpu_memory_total_gb: float = 0.0
+
     # Data sync status
     last_sync_time: datetime | None = None
     sync_lag_seconds: float = 0.0
@@ -308,6 +313,7 @@ class ClusterMonitor:
         include_game_counts: bool = True,
         include_training_status: bool = True,
         include_disk_usage: bool = True,
+        include_gpu_metrics: bool = True,
         include_sync_status: bool = False,
     ) -> NodeStatus:
         """Get detailed status for a single node.
@@ -317,6 +323,7 @@ class ClusterMonitor:
             include_game_counts: Query game database counts
             include_training_status: Check for active training processes
             include_disk_usage: Query disk usage
+            include_gpu_metrics: Query GPU utilization and memory
             include_sync_status: Check data sync status
 
         Returns:
@@ -372,6 +379,16 @@ class ClusterMonitor:
                 node_status.disk_total_gb = disk_info["total_gb"]
             except Exception as e:
                 logger.debug(f"Error checking disk usage for {host_name}: {e}")
+
+        # GPU metrics
+        if include_gpu_metrics and node_status.gpu:
+            try:
+                gpu_info = self._check_gpu_metrics(host_name)
+                node_status.gpu_utilization_percent = gpu_info["utilization_percent"]
+                node_status.gpu_memory_used_gb = gpu_info["memory_used_gb"]
+                node_status.gpu_memory_total_gb = gpu_info["memory_total_gb"]
+            except Exception as e:
+                logger.debug(f"Error checking GPU metrics for {host_name}: {e}")
 
         # Sync status
         if include_sync_status:
@@ -533,13 +550,75 @@ class ClusterMonitor:
             logger.debug(f"Error checking disk usage: {e}")
             return {"percent": 0.0, "free_gb": 0.0, "total_gb": 0.0}
 
+    def _check_gpu_metrics(self, host_name: str) -> dict[str, float]:
+        """Check GPU utilization and memory on a node.
+
+        Uses nvidia-smi to query:
+        - GPU utilization percentage
+        - GPU memory used/total
+
+        Returns:
+            Dict with utilization_percent, memory_used_gb, memory_total_gb
+        """
+        host_info = self._hosts.get(host_name, {})
+        ssh_host = host_info.get("tailscale_ip") or host_info.get("ssh_host")
+        ssh_user = host_info.get("ssh_user", "ubuntu")
+        ssh_key = host_info.get("ssh_key", "~/.ssh/id_cluster")
+        ssh_port = host_info.get("ssh_port", 22)
+
+        # Query nvidia-smi for GPU metrics
+        # Format: utilization.gpu [%], memory.used [MiB], memory.total [MiB]
+        cmd = [
+            "ssh",
+            "-i", os.path.expanduser(ssh_key),
+            "-p", str(ssh_port),
+            "-o", f"ConnectTimeout={self.ssh_timeout}",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "BatchMode=yes",
+            "-o", "LogLevel=ERROR",
+            f"{ssh_user}@{ssh_host}",
+            "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total "
+            "--format=csv,noheader,nounits 2>/dev/null | head -1",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.ssh_timeout,
+            )
+
+            if result.returncode != 0 or not result.stdout.strip():
+                return {"utilization_percent": 0.0, "memory_used_gb": 0.0, "memory_total_gb": 0.0}
+
+            # Parse: "45, 8192, 81920" (util%, mem_used_mib, mem_total_mib)
+            parts = [p.strip() for p in result.stdout.strip().split(",")]
+            if len(parts) >= 3:
+                try:
+                    util_percent = float(parts[0])
+                    mem_used_mib = float(parts[1])
+                    mem_total_mib = float(parts[2])
+                    return {
+                        "utilization_percent": util_percent,
+                        "memory_used_gb": mem_used_mib / 1024,
+                        "memory_total_gb": mem_total_mib / 1024,
+                    }
+                except ValueError:
+                    pass
+
+            return {"utilization_percent": 0.0, "memory_used_gb": 0.0, "memory_total_gb": 0.0}
+        except Exception as e:
+            logger.debug(f"Error checking GPU metrics for {host_name}: {e}")
+            return {"utilization_percent": 0.0, "memory_used_gb": 0.0, "memory_total_gb": 0.0}
+
     def _check_sync_status(self, host_name: str) -> dict[str, Any]:
         """Check data sync status on a node.
 
         This checks for:
-        - Last sync timestamp (from sync logs or file mtimes)
+        - Last sync timestamp (from selfplay.db mtime)
         - Pending files in sync queue
-        - Sync lag compared to coordinator
+        - Sync lag compared to coordinator (based on db mtime difference)
         """
         host_info = self._hosts.get(host_name, {})
         ssh_host = host_info.get("tailscale_ip") or host_info.get("ssh_host")
@@ -548,7 +627,13 @@ class ClusterMonitor:
         ssh_port = host_info.get("ssh_port", 22)
         ringrift_path = host_info.get("ringrift_path", "~/ringrift/ai-service")
 
-        # Check for sync status files or logs
+        # Get local coordinator's selfplay.db mtime for lag calculation
+        local_db_mtime = self._get_local_db_mtime()
+
+        # Query remote node for:
+        # 1. Pending sync files count
+        # 2. selfplay.db mtime (for lag calculation)
+        # 3. Last sync timestamp from sync state file (if exists)
         cmd = [
             "ssh",
             "-i", os.path.expanduser(ssh_key),
@@ -559,7 +644,9 @@ class ClusterMonitor:
             "-o", "LogLevel=ERROR",
             f"{ssh_user}@{ssh_host}",
             f"cd {ringrift_path} && "
-            f"find data/sync -name '*.pending' 2>/dev/null | wc -l",
+            f"echo PENDING:$(find data/sync -name '*.pending' 2>/dev/null | wc -l) && "
+            f"echo DBMTIME:$(stat -c %Y data/games/selfplay.db 2>/dev/null || echo 0) && "
+            f"echo SYNCSTATE:$(cat data/sync/.last_sync_time 2>/dev/null || echo 0)",
         ]
 
         try:
@@ -571,16 +658,45 @@ class ClusterMonitor:
             )
 
             pending_files = 0
+            remote_db_mtime = 0.0
+            last_sync_time = None
+            lag_seconds = 0.0
+
             if result.returncode == 0:
-                try:
-                    pending_files = int(result.stdout.strip())
-                except ValueError:
-                    pass
+                for line in result.stdout.strip().split("\n"):
+                    if line.startswith("PENDING:"):
+                        try:
+                            pending_files = int(line.split(":")[1].strip())
+                        except (ValueError, IndexError):
+                            pass
+                    elif line.startswith("DBMTIME:"):
+                        try:
+                            remote_db_mtime = float(line.split(":")[1].strip())
+                        except (ValueError, IndexError):
+                            pass
+                    elif line.startswith("SYNCSTATE:"):
+                        try:
+                            sync_ts = float(line.split(":")[1].strip())
+                            if sync_ts > 0:
+                                last_sync_time = datetime.fromtimestamp(sync_ts)
+                        except (ValueError, IndexError):
+                            pass
+
+                # Calculate lag: difference between local and remote db mtimes
+                # Positive lag means remote is behind local
+                if local_db_mtime > 0 and remote_db_mtime > 0:
+                    lag_seconds = local_db_mtime - remote_db_mtime
+                    # Cap at 0 if remote is somehow ahead (clock skew)
+                    lag_seconds = max(0.0, lag_seconds)
+
+                # If no sync state file, use db mtime as last sync time
+                if last_sync_time is None and remote_db_mtime > 0:
+                    last_sync_time = datetime.fromtimestamp(remote_db_mtime)
 
             return {
                 "pending_files": pending_files,
-                "lag_seconds": 0.0,  # Would need coordinator timestamp comparison
-                "last_sync_time": None,  # Would need to parse sync logs
+                "lag_seconds": lag_seconds,
+                "last_sync_time": last_sync_time,
             }
         except Exception as e:
             logger.debug(f"Error checking sync status: {e}")
@@ -589,6 +705,20 @@ class ClusterMonitor:
                 "lag_seconds": 0.0,
                 "last_sync_time": None,
             }
+
+    def _get_local_db_mtime(self) -> float:
+        """Get the mtime of the local coordinator's selfplay.db.
+
+        Used as reference point for calculating sync lag on remote nodes.
+        """
+        try:
+            from app.utils.paths import AI_SERVICE_ROOT
+            local_db = AI_SERVICE_ROOT / "data" / "games" / "selfplay.db"
+            if local_db.exists():
+                return local_db.stat().st_mtime
+        except Exception:
+            pass
+        return 0.0
 
     def print_dashboard(self, status: ClusterStatus | None = None):
         """Print formatted dashboard output.
