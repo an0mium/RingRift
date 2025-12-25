@@ -1,48 +1,49 @@
 # Tier Promotion System
 
-The tier promotion system manages model progression through difficulty tiers (D1-D10). D11 is reserved for internal benchmarks and is not exposed via the public API.
+The tier promotion system manages model progression through difficulty tiers D1–D10.
+D11 is reserved for internal benchmarks and is not exposed via the public API.
 
 > Source of truth: `docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md` for the end-to-end workflow.  
-> This document is a concise module/API reference and should stay aligned with that pipeline.
+> This document is a concise module/API reference aligned with the current scripts.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    TIER PROMOTION FLOW                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Training → Candidate → Evaluation → Gate → Promotion/Reject │
-│     │          │            │          │          │          │
-│     ▼          ▼            ▼          ▼          ▼          │
-│  Model     Registry     Tournament   Criteria   Ladder      │
-│  Output    Tracking     Results      Check      Update      │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+Training -> Tier Gate + Perf -> Promotion Plan -> Registry -> Ladder Update
 ```
 
-## Core Modules
+## Core Modules & Files
 
-### tier_promotion_registry.py
+### `app/training/tier_promotion_registry.py`
 
 Tracks tier promotion candidates and their status.
+
+Key helpers:
+
+- `load_square8_two_player_registry()`
+- `save_square8_two_player_registry()`
+- `record_promotion_plan(...)`
+- `update_square8_two_player_registry_for_run(...)`
+- `get_current_ladder_model_for_tier(...)`
+
+Example:
 
 ```python
 from app.training.tier_promotion_registry import (
     load_square8_two_player_registry,
-    save_square8_two_player_registry,
     get_current_ladder_model_for_tier,
 )
 
-# Load current registry
 registry = load_square8_two_player_registry()
-
-# Check tier assignment
 current = get_current_ladder_model_for_tier("D4")
 print(f"D4 model: {current['model_id']}")
 ```
 
-**Registry Structure:**
+Default registry path:
+
+- `ai-service/config/tier_candidate_registry.square8_2p.json`
+
+Registry shape (example):
 
 ```json
 {
@@ -50,345 +51,145 @@ print(f"D4 model: {current['model_id']}")
   "num_players": 2,
   "tiers": {
     "D4": {
+      "current": {
+        "tier": "D4",
+        "difficulty": 4,
+        "board": "square8",
+        "board_type": "square8",
+        "num_players": 2,
+        "model_id": "nnue_square8_2p",
+        "heuristic_profile_id": "heuristic_v1_sq8_2p",
+        "ai_type": "minimax",
+        "ladder_source": "app.config.ladder_config._build_default_square8_two_player_configs"
+      },
       "candidates": [
         {
-          "model_id": "model_v3_20241215",
-          "status": "pending",
-          "submitted_at": "2024-12-15T10:00:00Z",
-          "eval_results": null
+          "candidate_id": "d4_square8_2p_20251225_abcd1234",
+          "candidate_model_id": "d4_square8_2p_20251225_abcd1234",
+          "tier": "D4",
+          "board": "square8",
+          "num_players": 2,
+          "source_run_dir": "runs/tier_training/D4_square8_2p_20251225_123000",
+          "training_report": "training_report.json",
+          "gate_report": "gate_report.json",
+          "promotion_plan": "promotion_plan.json",
+          "model_id": "d4_square8_2p_20251225_abcd1234",
+          "status": "gated_promote"
         }
-      ],
-      "current_model": "model_v3_20241210"
+      ]
     }
   }
 }
 ```
 
-### tier_eval_runner.py
+### `app/training/tier_eval_config.py`
 
-Orchestrates tier evaluation tournaments.
+Defines per-tier evaluation thresholds and opponent mixes.
 
-```python
-from app.training.tier_eval_runner import TierEvalRunner
+Key helpers:
 
-runner = TierEvalRunner(
-    board_type="square8",
-    num_players=2,
-    tier="D4",
-)
+- `TierEvaluationConfig`
+- `TIER_EVAL_CONFIGS`
+- `get_tier_config("D4")`
 
-# Run evaluation tournament
-results = await runner.evaluate_candidate(
-    candidate_model="model_v3_20241215",
-    baseline_model="model_v3_20241210",
-    games=100,
-)
+### `app/training/tier_eval_runner.py`
 
-print(f"Win rate: {results.win_rate:.1%}")
-print(f"Elo difference: {results.elo_diff:+.0f}")
-```
+Runs tier evaluation games and returns a `TierEvaluationResult`.
 
-### tier_eval_config.py
+Entry point:
 
-Configuration for tier evaluation criteria.
+- `run_tier_evaluation(...)`
 
-```python
-from app.training.tier_eval_config import TierEvalConfig, get_tier_config
+### `app/config/ladder_config.py`
 
-# Get config for specific tier
-config = get_tier_config("D4")
+Production ladder assignments plus runtime overrides.
 
-print(f"Min win rate: {config.min_win_rate:.1%}")
-print(f"Min games: {config.min_games}")
-print(f"Elo threshold: {config.elo_threshold}")
-```
+Key helpers:
 
-**Default Tier Configurations:**
+- `get_ladder_tier_config(...)` (base ladder)
+- `get_effective_ladder_config(...)` (applies runtime overrides)
+- Runtime overrides file: `ai-service/data/ladder_runtime_overrides.json`
 
-| Tier           | Min Win Rate | Min Games | Elo Threshold |
-| -------------- | ------------ | --------- | ------------- |
-| D1             | 55%          | 50        | +10           |
-| D2             | 55%          | 50        | +10           |
-| D3             | 55%          | 75        | +15           |
-| D4             | 55%          | 100       | +20           |
-| D5             | 57%          | 100       | +25           |
-| D6             | 57%          | 150       | +30           |
-| D7             | 58%          | 150       | +35           |
-| D8             | 58%          | 200       | +40           |
-| D9             | 60%          | 200       | +50           |
-| D10            | 60%          | 250       | +55           |
-| D11 (internal) | 62%          | 300       | +60           |
+### `app/config/perf_budgets.py` + `app/training/tier_perf_benchmark.py`
 
-### tier_perf_benchmark.py
+Perf budgets for D3–D8 and the benchmark runner.
 
-Benchmarks tier performance for monitoring.
+## Promotion Workflow (Scripted)
 
-```python
-from app.training.tier_perf_benchmark import (
-    benchmark_tier_performance,
-    TierBenchmarkResult,
-)
+### 1) Train a candidate
 
-# Run benchmark
-result = benchmark_tier_performance(
-    tier="D4",
-    games=50,
-    timeout=300,
-)
-
-print(f"Games/second: {result.games_per_second:.2f}")
-print(f"Average game length: {result.avg_game_length:.1f} moves")
-```
-
-## Promotion Workflow
-
-### 1. Candidate Submission
-
-After training completes, models are submitted as promotion candidates:
-
-```python
-from app.training.tier_promotion_registry import submit_candidate
-
-submit_candidate(
-    tier="D4",
-    model_id="model_v3_20241215",
-    model_path="/path/to/model.pt",
-    training_metrics={
-        "final_loss": 0.45,
-        "epochs": 50,
-        "training_games": 50000,
-    },
-)
-```
-
-### 2. Evaluation Tournament
-
-The evaluation runner schedules tournaments against the current tier model:
+Use the tier training pipeline (D2–D10):
 
 ```bash
-# Manual evaluation
-python scripts/run_tier_evaluation.py \
-    --tier D4 \
-    --candidate model_v3_20241215 \
-    --games 100
+cd ai-service
+PYTHONPATH=. python scripts/run_tier_training_pipeline.py \
+  --tier D4 \
+  --board square8 \
+  --num-players 2 \
+  --output-dir runs/tier_training
 ```
 
-### 3. Gate Decision
+This creates a timestamped run directory containing `training_report.json`.
 
-Based on evaluation results, promotion is gated:
+### 2) Gate the candidate
 
-```python
-from app.training.tier_eval_config import check_promotion_gate
-
-decision = check_promotion_gate(
-    tier="D4",
-    win_rate=0.58,
-    elo_diff=25,
-    games_played=100,
-)
-
-if decision.approved:
-    print(f"Promotion approved: {decision.reason}")
-else:
-    print(f"Promotion rejected: {decision.reason}")
-```
-
-### 4. Ladder Update
-
-On approval, the ladder configuration is updated:
-
-```python
-from app.training.tier_promotion_registry import promote_candidate
-
-promote_candidate(
-    tier="D4",
-    model_id="model_v3_20241215",
-)
-# Updates config/ladder_config.py and registry
-```
-
-## Integration with Training Pipeline
-
-The tier system integrates with the unified training loop:
-
-```python
-# In unified_ai_loop.py
-from app.training.tier_promotion_registry import get_pending_candidates
-
-# Check for candidates needing evaluation
-pending = get_pending_candidates()
-for candidate in pending:
-    # Schedule evaluation
-    await scheduler.schedule_tier_eval(candidate)
-```
-
-## Monitoring
-
-### Registry Status
+Use the combined gate + perf wrapper:
 
 ```bash
-# View current tier assignments
+RUN_DIR="runs/tier_training/D4_square8_2p_20251225_123000"
+CANDIDATE_ID=$(jq -r '.candidate_id' "$RUN_DIR/training_report.json")
+
+PYTHONPATH=. python scripts/run_full_tier_gating.py \
+  --tier D4 \
+  --candidate-id "$CANDIDATE_ID" \
+  --run-dir "$RUN_DIR"
+```
+
+Outputs in `RUN_DIR`:
+
+- `tier_eval_result.json`
+- `promotion_plan.json`
+- `tier_perf_report.json` (when a budget exists)
+- `gate_report.json`
+
+### 3) Update the candidate registry
+
+```bash
+python scripts/apply_tier_promotion_plan.py \
+  --plan-path "$RUN_DIR/promotion_plan.json"
+```
+
+This updates `config/tier_candidate_registry.square8_2p.json` and emits:
+
+- `promotion_summary.json`
+- `promotion_patch_guide.txt`
+
+### 4) Promote the ladder
+
+Choose one of:
+
+- **Runtime override:** update `data/ladder_runtime_overrides.json` (fast).
+- **Permanent change:** update `app/config/ladder_config.py` and commit.
+
+## Monitoring & Debugging
+
+### Registry inspection
+
+```bash
 python -c "
 from app.training.tier_promotion_registry import load_square8_two_player_registry
 import json
-reg = load_square8_two_player_registry()
-print(json.dumps(reg, indent=2))
+print(json.dumps(load_square8_two_player_registry(), indent=2))
 "
 ```
 
-### Evaluation Logs
-
-Evaluation results are logged to:
-
-- `data/tier_eval/results_{tier}_{timestamp}.json`
-- `logs/tier_eval.log`
-
-### Prometheus Metrics
-
-```
-# Tier promotion metrics
-ringrift_tier_evaluations_total{tier="D4", result="promoted"} 5
-ringrift_tier_evaluations_total{tier="D4", result="rejected"} 3
-ringrift_tier_candidate_queue_size{tier="D4"} 2
-ringrift_tier_current_elo{tier="D4"} 1650
-```
-
-## Configuration
-
-### Environment Variables
-
-| Variable            | Default | Description                  |
-| ------------------- | ------- | ---------------------------- |
-| `TIER_EVAL_GAMES`   | 100     | Default games per evaluation |
-| `TIER_EVAL_TIMEOUT` | 3600    | Evaluation timeout (seconds) |
-| `TIER_AUTO_PROMOTE` | false   | Auto-promote on gate pass    |
-
-### Config Files
-
-- `config/tier_candidate_registry.square8_2p.json` - Candidate tracking
-- `config/ladder_config.py` - Live tier assignments
-- `config/tier_eval_thresholds.yaml` - Custom gate thresholds
-
-## Troubleshooting
-
-### Evaluation Stuck
+### Runtime override inspection
 
 ```bash
-# Check active evaluations
-python scripts/check_tier_eval_status.py
-
-# Force timeout stale evaluations
-python scripts/cleanup_tier_evals.py --timeout 7200
+cat data/ladder_runtime_overrides.json
 ```
 
-### Candidate Not Promoted
+## Notes
 
-1. Check evaluation results in registry
-2. Verify gate criteria in tier_eval_config.py
-3. Review evaluation logs for errors
-
-### Registry Corruption
-
-```bash
-# Backup and reset registry
-cp config/tier_candidate_registry.square8_2p.json config/tier_registry_backup.json
-python -c "
-from app.training.tier_promotion_registry import save_square8_two_player_registry
-save_square8_two_player_registry({'board': 'square8', 'num_players': 2, 'tiers': {}})
-"
-```
-
-## Baseline Gating
-
-In addition to tier-vs-tier evaluation, models must pass baseline gating requirements to ensure minimum competence. This prevents regression to random/weak play.
-
-### Baseline Opponents
-
-Models are tested against two baseline opponents using the `game_gauntlet` module:
-
-| Baseline  | Elo Rating | Description                           |
-| --------- | ---------- | ------------------------------------- |
-| Random    | 400        | Uniformly random legal moves          |
-| Heuristic | 1200       | Rule-based greedy evaluation function |
-
-### Tier-Specific Thresholds
-
-All production tiers (D1-D10) have promotion configs. D11 is internal benchmark-only. Thresholds are monotonically non-decreasing:
-
-| Tier           | vs Baseline | Baselines Tested       | vs Previous Tier | Notes               |
-| -------------- | ----------- | ---------------------- | ---------------- | ------------------- |
-| D1             | N/A         | None                   | N/A              | Entry tier (random) |
-| D2             | 60%         | Random                 | >50%             | vs D1               |
-| D3             | 65%         | Random                 | >50%             | vs D2               |
-| D4             | 68%         | Random                 | >50%             | vs D3               |
-| D5             | 70%         | Random + Heuristic(D2) | >50%             | vs D4               |
-| D6             | 72%         | Random + Heuristic(D3) | >50%             | vs D5               |
-| D7             | 75%         | Random + Heuristic(D4) | >50%             | vs D6 (MCTS entry)  |
-| D8             | 75%         | Random + Heuristic(D5) | >50%             | vs D7               |
-| D9             | 75%         | Random + Heuristic(D6) | >50%             | vs D8 (Gumbel MCTS) |
-| D10            | 75%         | Random + Heuristic(D7) | >50%             | vs D9               |
-| D11 (internal) | 75%         | Random + Heuristic(D8) | >50%             | vs D10 (elite)      |
-
-**Design notes:**
-
-- Thresholds increase from 60% (D2) to 75% (D7+), then plateau
-- D7-D10 capped at 75% based on neural model empirical performance (~70-76% vs random). D11 (internal) follows the same cap when enabled.
-- Each tier must achieve >50% win rate vs the previous tier
-- Heuristic baselines added at D5+ for stronger validation
-
-### Configuration
-
-Baseline gating is configured in `app/training/tier_eval_config.py`:
-
-```python
-from app.training.tier_eval_config import get_tier_config
-
-config = get_tier_config("D9")
-print(f"Min win rate vs random: {config.min_win_rate_vs_baseline:.0%}")
-print(f"Baseline opponents: {config.baseline_opponents}")
-```
-
-### Using game_gauntlet
-
-The `game_gauntlet` module provides unified baseline testing:
-
-```python
-from app.training.game_gauntlet import (
-    run_baseline_gauntlet,
-    BaselineOpponent,
-    BASELINE_ELOS,
-)
-
-# Run gauntlet against baselines
-result = run_baseline_gauntlet(
-    model_path="models/candidate.pth",
-    board_type="square8",
-    games_per_baseline=20,
-)
-
-print(f"Win rate: {result.win_rate:.0%}")
-print(f"Passes gating: {result.passes_baseline_gating}")
-print(f"Failed baselines: {result.failed_baselines}")
-```
-
-### Troubleshooting
-
-**Model fails baseline gating:**
-
-1. Check training data quality (was it generated from a strong model?)
-2. Verify data conversion preserved move legality
-3. Run smaller training to validate pipeline before full training
-
-**Calibration notes:**
-
-- Production neural models typically achieve 65-75% vs random (not 90%+)
-- D9/D10 baseline thresholds were reduced to 75% based on empirical data
-- The S-invariant guarantees no position repetition (draw-by-repetition disabled)
-- All tiers (except D2) require >50% win rate vs the previous tier
-- The `min_win_rate_vs_previous_tier` field (default 0.50) enforces this gate
-
-## Related Documentation
-
-- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Training workflow
-- [UNIFIED_AI_LOOP.md](UNIFIED_AI_LOOP.md) - Automated promotion in unified loop
-- [AI_LADDER_PRODUCTION_RUNBOOK.md](../../../docs/ai/AI_LADDER_PRODUCTION_RUNBOOK.md) - Difficulty ladder operations
+- D1 is a random baseline and is not trained.
+- D11 is internal-only; treat it as a stress tier, not a public ladder tier.

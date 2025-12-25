@@ -52,6 +52,7 @@ from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from app.coordination.queue_populator import QueuePopulator
+    from app.coordination.p2p_auto_deployer import P2PAutoDeployer
 
 # Work queue for centralized work distribution (lazy import to avoid circular deps)
 _work_queue = None
@@ -1058,6 +1059,10 @@ class P2POrchestrator:
                 logger.error(f"Failed to initialize MonitoringManager: {e}")
         self._monitoring_was_leader = False  # Track leadership changes
         self.improvement_cycle_check_interval: float = 600.0  # Check every 10 minutes
+
+        # P2P Auto-Deployer (leader-only): ensures P2P runs on all cluster nodes
+        self.p2p_auto_deployer: P2PAutoDeployer | None = None
+        self._auto_deployer_task: asyncio.Task | None = None
 
         # Webhook notifications for alerts
         self.notifier = WebhookNotifier()
@@ -21297,6 +21302,12 @@ print(json.dumps({{
                 if self.role == NodeRole.LEADER:
                     await self._start_monitoring_if_leader()
 
+                # P2P auto-deployer: start/stop based on leadership
+                if self.role != NodeRole.LEADER and self._auto_deployer_task:
+                    await self._stop_p2p_auto_deployer()
+                elif self.role == NodeRole.LEADER and not self._auto_deployer_task:
+                    await self._start_p2p_auto_deployer()
+
                 # Report node resources to resource_optimizer for cluster-wide utilization tracking
                 # This enables cooperative 60-80% utilization targeting across orchestrators
                 if HAS_NEW_COORDINATION and get_resource_optimizer is not None:
@@ -22211,6 +22222,9 @@ print(json.dumps({{
 
         # Start monitoring services when becoming leader
         await self._start_monitoring_if_leader()
+
+        # Start P2P auto-deployer when becoming leader
+        await self._start_p2p_auto_deployer()
 
     async def _check_emergency_coordinator_fallback(self):
         """DECENTRALIZED: When voter quorum is unreachable for >5 min, any GPU node can coordinate.
@@ -24623,6 +24637,49 @@ print(json.dumps({{
                 self._monitoring_was_leader = False
             except Exception as e:
                 logger.error(f"stopping monitoring services: {e}")
+
+    async def _start_p2p_auto_deployer(self):
+        """Start P2P auto-deployer when we become leader.
+
+        The auto-deployer ensures P2P orchestrator is running on all cluster nodes.
+        This solves the fundamental gap where P2P deployment was manual-only.
+        """
+        if self.role != NodeRole.LEADER:
+            return
+        if self._auto_deployer_task is not None:
+            return  # Already running
+
+        try:
+            from app.coordination.p2p_auto_deployer import P2PAutoDeployer, P2PDeploymentConfig
+
+            config = P2PDeploymentConfig(
+                check_interval_seconds=300.0,  # Check every 5 minutes
+                min_coverage_percent=90.0,
+            )
+            self.p2p_auto_deployer = P2PAutoDeployer(config=config)
+
+            # Run as background task
+            self._auto_deployer_task = asyncio.create_task(
+                self.p2p_auto_deployer.run_daemon(),
+                name="p2p_auto_deployer"
+            )
+            logger.info("P2P Auto-Deployer started (leader responsibility)")
+        except Exception as e:
+            logger.error(f"Failed to start P2P auto-deployer: {e}")
+
+    async def _stop_p2p_auto_deployer(self):
+        """Stop P2P auto-deployer when we step down from leadership."""
+        if self.p2p_auto_deployer:
+            self.p2p_auto_deployer.stop()
+        if self._auto_deployer_task:
+            self._auto_deployer_task.cancel()
+            try:
+                await self._auto_deployer_task
+            except asyncio.CancelledError:
+                pass
+            self._auto_deployer_task = None
+        self.p2p_auto_deployer = None
+        logger.info("P2P Auto-Deployer stopped")
 
     async def _update_monitoring_peers(self):
         """Update Prometheus config with current peer list."""

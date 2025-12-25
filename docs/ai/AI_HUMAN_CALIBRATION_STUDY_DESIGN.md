@@ -37,7 +37,7 @@ This study design provides a **repeatable, structured protocol** for gathering a
 
 - **Board type**: Square-8 (8×8 compact ruleset)
 - **Player configuration**: 2-player (head-to-head)
-- **Tiers under study**: D2, D4, D6, D8 (primary), with D0 as optional anchor
+- **Tiers under study**: D2, D4, D6, D8 (primary anchor tiers; public ladder is D1–D10), with D0 as optional anchor
 - **Game mode**: Standard rules, swap rule enabled
 
 ---

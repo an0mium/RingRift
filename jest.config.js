@@ -16,14 +16,13 @@
 //   - Run nightly or manually, not on every PR
 //
 // HEAVY SUITES (excluded from core, included in diagnostics):
-//   - GameEngine.decisionPhases.MoveDriven.test.ts
-//       Enumerates/simulates large state spaces for decision phase coverage.
-//       Causes: Node heap OOM (Allocation failed - JavaScript heap out of memory)
+//   - ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts
+//       Enumerates/simulates large decision-phase state spaces for territory coverage.
+//       Can trigger heap pressure and longer runtimes.
 //
-//   - RuleEngine.movementCapture.test.ts
-//       Uses FakeBoardManager stub with direct RuleEngine instantiation.
-//       Causes: Infinite hang during Jest module loading (possibly import graph issue)
-//       Note: The underlying capture logic is fully covered by other passing tests.
+//   - MovementCaptureParity.RuleEngine_vs_Sandbox.test.ts
+//       Parity sweep across backend vs sandbox movement/capture enumeration.
+//       Slow on larger boards; keep as on-demand diagnostics.
 //
 // REFACTORED (now CI-safe, included in core):
 //   - captureSequenceEnumeration.test.ts

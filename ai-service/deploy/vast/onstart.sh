@@ -130,6 +130,49 @@ KEEPALIVE_EOF
 # ============================================
 # 4. Start P2P orchestrator
 # ============================================
+install_p2p_systemd() {
+    echo "[$(date)] Installing P2P systemd service..."
+
+    # Check if systemd is available
+    if ! command -v systemctl &> /dev/null; then
+        echo "[$(date)] systemd not available, skipping systemd install"
+        return 1
+    fi
+
+    # Create systemd service file
+    cat > /tmp/ringrift-p2p.service << EOF
+[Unit]
+Description=RingRift P2P Orchestrator
+After=network.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$HOME/ringrift/ai-service
+ExecStart=/usr/bin/python3 scripts/p2p_orchestrator.py --node-id $NODE_ID --port 8770
+Restart=always
+RestartSec=10
+StandardOutput=append:$HOME/ringrift/ai-service/logs/p2p_orchestrator.log
+StandardError=append:$HOME/ringrift/ai-service/logs/p2p_orchestrator.log
+Environment=PYTHONPATH=$HOME/ringrift/ai-service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Install service (requires sudo)
+    if sudo cp /tmp/ringrift-p2p.service /etc/systemd/system/ringrift-p2p.service 2>/dev/null; then
+        sudo systemctl daemon-reload
+        sudo systemctl enable ringrift-p2p
+        echo "[$(date)] P2P systemd service installed and enabled"
+        return 0
+    else
+        echo "[$(date)] Failed to install systemd service (no sudo access)"
+        return 1
+    fi
+}
+
 start_p2p() {
     echo "[$(date)] Starting P2P orchestrator..."
 
@@ -153,13 +196,20 @@ start_p2p() {
     pkill -f p2p_orchestrator || true
     sleep 2
 
-    # Start P2P orchestrator
-    nohup python3 scripts/p2p_orchestrator.py \
-        --node-id "$NODE_ID" \
-        --port 8770 \
-        >> logs/p2p_orchestrator.log 2>&1 &
-
-    echo "[$(date)] P2P orchestrator started (PID: $!)"
+    # Try systemd first for persistence, fall back to nohup
+    if install_p2p_systemd; then
+        echo "[$(date)] Starting P2P via systemd..."
+        sudo systemctl start ringrift-p2p
+        echo "[$(date)] P2P orchestrator started via systemd (persistent)"
+    else
+        # Fallback to nohup
+        echo "[$(date)] Starting P2P via nohup (non-persistent)..."
+        nohup python3 scripts/p2p_orchestrator.py \
+            --node-id "$NODE_ID" \
+            --port 8770 \
+            >> logs/p2p_orchestrator.log 2>&1 &
+        echo "[$(date)] P2P orchestrator started (PID: $!)"
+    fi
 }
 
 # ============================================

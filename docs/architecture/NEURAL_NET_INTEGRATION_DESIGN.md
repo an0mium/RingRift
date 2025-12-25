@@ -8,18 +8,18 @@ This document outlines a research-backed approach to integrating neural network 
 
 The difficulty ladder is structured to give each AI type exactly 2 slots (1 non-neural, 1 neural), with ordering: Heuristic < Minimax < MCTS < Descent.
 
-| Difficulty | AI Type    | Neural | Implementation                                  |
-|------------|------------|--------|------------------------------------------------|
-| 1          | Random     | No     | Pure random move selection                      |
-| 2          | Heuristic  | No     | Simple heuristic evaluation                     |
-| 3          | Minimax    | No     | Alpha-beta + PVS + hand-crafted heuristic       |
-| 4          | Minimax    | Yes    | **NNUE-style neural evaluation**                |
-| 5          | MCTS       | No     | PUCT + heuristic rollouts                       |
-| 6          | MCTS       | Yes    | **Neural value/policy guidance**                |
-| 7          | MCTS       | Yes    | Neural + higher search budget                   |
-| 8          | MCTS       | Yes    | Neural + large search budget                    |
-| 9          | Descent    | Yes    | UBFM/AlphaZero-style + neural policy/value      |
-| 10         | Descent    | Yes    | Strongest Descent configuration                 |
+| Difficulty | AI Type   | Neural | Implementation                             |
+| ---------- | --------- | ------ | ------------------------------------------ |
+| 1          | Random    | No     | Pure random move selection                 |
+| 2          | Heuristic | No     | Simple heuristic evaluation                |
+| 3          | Minimax   | No     | Alpha-beta + PVS + hand-crafted heuristic  |
+| 4          | Minimax   | Yes    | **NNUE-style neural evaluation**           |
+| 5          | MCTS      | No     | PUCT + heuristic rollouts                  |
+| 6          | MCTS      | Yes    | **Neural value/policy guidance**           |
+| 7          | MCTS      | Yes    | Neural + higher search budget              |
+| 8          | MCTS      | Yes    | Neural + large search budget               |
+| 9          | Descent   | Yes    | UBFM/AlphaZero-style + neural policy/value |
+| 10         | Descent   | Yes    | Strongest Descent configuration            |
 
 ### Key Design Decisions
 
@@ -166,6 +166,7 @@ class MinimaxAI(HeuristicAI):
 The existing MCTS infrastructure already has `NeuralNetAI` integration points. The enhancement focuses on:
 
 1. **Difficulty-Gated Neural Usage**:
+
    ```python
    # In MCTSAI.__init__
    self.use_neural_evaluation = (
@@ -175,6 +176,7 @@ The existing MCTS infrastructure already has `NeuralNetAI` integration points. T
    ```
 
 2. **PUCT with Neural Policy Prior**:
+
    ```python
    def puct_value(child: MCTSNode) -> float:
        # Q-value from MCTS statistics
@@ -194,6 +196,7 @@ The existing MCTS infrastructure already has `NeuralNetAI` integration points. T
    ```
 
 3. **Neural Leaf Evaluation**:
+
    ```python
    def _evaluate_leaf(self, state: GameState) -> float:
        """Evaluate leaf node using neural value network."""
@@ -269,11 +272,13 @@ class RingRiftNet(nn.Module):
 ### Phase 1: NNUE for Minimax (D4)
 
 **Files to Modify**:
+
 - `ai-service/app/ai/minimax_ai.py` - Add NNUE evaluation path
 - `ai-service/app/ai/nnue.py` (new) - NNUE model and feature extraction
 - `ai-service/app/config/ladder_config.py` - D4 tier to use neural minimax (already configured)
 
 **Implementation Steps**:
+
 1. Create `nnue.py` with model architecture and feature extraction
 2. Add `_evaluate_nnue()` method to MinimaxAI
 3. Gate neural usage on `config.difficulty >= 4 and config.use_neural_net`
@@ -284,10 +289,12 @@ class RingRiftNet(nn.Module):
 ### Phase 2: Neural MCTS (D6+)
 
 **Files to Modify**:
+
 - `ai-service/app/ai/mcts_ai.py` - Add neural leaf evaluation
 - `ai-service/app/config/ladder_config.py` - D6+ tiers already have neural config
 
 **Implementation Steps**:
+
 1. Add `use_neural_evaluation` flag gated on difficulty >= 6
 2. Modify `_evaluate_leaf()` to use neural value when available
 3. Modify PUCT calculation to use neural policy priors
@@ -297,11 +304,13 @@ class RingRiftNet(nn.Module):
 ### Phase 3: Training Pipeline
 
 **New Files**:
+
 - `ai-service/scripts/train_nnue.py` - NNUE training from self-play
 - `ai-service/scripts/train_mcts_policy.py` - Policy/value training
 - `ai-service/app/training/nnue_dataset.py` - NNUE training dataset
 
 **Training Data Sources**:
+
 1. Existing self-play databases (SQLite)
 2. Game outcomes for value targets
 3. MCTS visit distributions for policy targets
@@ -312,6 +321,7 @@ class RingRiftNet(nn.Module):
 ## Part 4: Research References
 
 ### NNUE (Minimax Enhancement)
+
 1. **Stockfish NNUE** (2020): Efficiently Updatable Neural Networks
    - Paper: "NNUE-Derived Evaluation in Shogi" (Nasu, 2018)
    - Key insight: Incremental accumulator updates enable neural eval in alpha-beta
@@ -320,6 +330,7 @@ class RingRiftNet(nn.Module):
    - Uses full network evaluation but with efficient batching
 
 ### AlphaZero-style MCTS
+
 3. **AlphaZero** (Silver et al., 2018): Mastering Chess and Shogi
    - PUCT formula: `Q + c_puct * P * sqrt(N) / (1 + n)`
    - Policy network guides exploration
@@ -334,6 +345,7 @@ class RingRiftNet(nn.Module):
    - Ownership estimation heads
 
 ### Simple AlphaZero Variants
+
 6. **"A Simple Alpha(Go) Zero Tutorial"** (arXiv:2008.01188):
    - Simplified implementation reference
    - Descent AI already uses this approach
@@ -362,7 +374,7 @@ class AIConfig:
     # NEW: Fine-grained neural control
     nnue_model_path: Optional[str] = Field(
         None,
-        description="Path to NNUE model checkpoint for Minimax D6+"
+        description="Path to NNUE model checkpoint for Minimax D4+"
     )
 
     neural_blend_ratio: Optional[float] = Field(
@@ -375,32 +387,32 @@ class AIConfig:
 ### LadderTierConfig Updates
 
 ```python
-# D6 – high minimax with NNUE on square8, 2-player.
-(6, BoardType.SQUARE8, 2): LadderTierConfig(
-    difficulty=6,
+# D4 – mid minimax with NNUE on square8, 2-player.
+(4, BoardType.SQUARE8, 2): LadderTierConfig(
+    difficulty=4,
     board_type=BoardType.SQUARE8,
     num_players=2,
     ai_type=AIType.MINIMAX,
-    model_id="nnue-v1-square8-2p",
-    heuristic_profile_id="heuristic_v1_2p",
-    randomness=0.02,
-    think_time_ms=4800,
+    model_id="nnue_square8_2p",
+    heuristic_profile_id="heuristic_v1_sq8_2p",
+    randomness=0.08,
+    think_time_ms=2800,
     use_neural_net=True,  # NEW
-    notes="High square8 2p tier with NNUE neural evaluation.",
+    notes="Mid square8 2p tier with NNUE neural evaluation.",
 ),
 
-# D8 – strong MCTS with neural leaf evaluation on square8, 2-player.
+# D8 – strong MCTS with neural guidance on square8, 2-player.
 (8, BoardType.SQUARE8, 2): LadderTierConfig(
     difficulty=8,
     board_type=BoardType.SQUARE8,
     num_players=2,
     ai_type=AIType.MCTS,
-    model_id="mcts-neural-v1-square8-2p",
-    heuristic_profile_id="heuristic_v1_2p",
+    model_id="ringrift_best_sq8_2p",
+    heuristic_profile_id="heuristic_v1_sq8_2p",
     randomness=0.0,
     think_time_ms=9600,
     use_neural_net=True,  # NEW
-    notes="Strong square8 2p tier with neural value/policy MCTS.",
+    notes="Strong square8 2p tier with neural guidance.",
 ),
 ```
 
@@ -408,15 +420,17 @@ class AIConfig:
 
 ## Summary
 
-| Component | Difficulty | Approach | Key Benefit |
-|-----------|------------|----------|-------------|
-| Minimax | D3 (non-neural) | Pure heuristic evaluation | Fast, predictable baseline |
-| Minimax | D4 (neural) | NNUE-style neural eval | Fast CPU inference, incremental updates |
-| MCTS | D5 (non-neural) | Heuristic rollouts | Tree search without neural dependency |
-| MCTS | D6-8 (neural) | Neural value + policy priors | Better search guidance, no rollouts needed |
-| Descent | D9-10 | Full AlphaZero (existing) | Strongest play, policy + value |
+| Component   | Difficulty      | Approach                     | Key Benefit                                |
+| ----------- | --------------- | ---------------------------- | ------------------------------------------ |
+| Minimax     | D3 (non-neural) | Pure heuristic evaluation    | Fast, predictable baseline                 |
+| Minimax     | D4 (neural)     | NNUE-style neural eval       | Fast CPU inference, incremental updates    |
+| Descent     | D5-6 (neural)   | Neural guidance              | Strong search with moderate compute        |
+| MCTS        | D7 (heuristic)  | Heuristic rollouts           | Tree search without neural dependency      |
+| MCTS        | D8 (neural)     | Neural value + policy priors | Better search guidance, no rollouts needed |
+| Gumbel MCTS | D9-10           | Neural + Gumbel selection    | Strongest search, highest compute          |
 
-This design structures the difficulty ladder to give each AI type exactly 2 slots (1 non-neural, 1 neural), ensuring:
-- Clear progression: Heuristic < Minimax < MCTS < Descent
+This design targets a clear progression from heuristic search to neural-guided search.
+Refer to `ai-service/app/config/ladder_config.py` for the current ladder mapping.
+
 - Graceful degradation when neural nets are unavailable
 - Smooth difficulty curve with neural capabilities at appropriate tiers

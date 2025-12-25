@@ -238,8 +238,11 @@ GPU-accelerated parallel game execution for selfplay and CMA-ES.
 
 **Optimization Status (Dec 2025):**
 
-- 31 `.item()` calls remain (down from 80 after Dec 2025 optimizations)
-- Further vectorization could yield 10-15x speedup
+- ~14 `.item()` calls remain in critical paths (down from 80+ after Dec 2025 optimizations)
+  - `gpu_parallel_games.py`: 1 call (statistics only)
+  - `gpu_move_generation.py`: 1 call
+  - `gpu_move_application.py`: ~12 calls (attack moves, max_dist)
+- Most hot paths fully vectorized; limited further speedup potential
 - See `gpu_parallel_games.py` for optimization comments
 
 **Key Classes:**
@@ -758,8 +761,8 @@ Production Model (models/canonical_*)
 **MPS (Apple Silicon) Note:**
 
 - Currently 100x slower than CPU for game simulation
-- ~80 `.item()` calls cause excessive synchronization
-- Use `device="cpu"` on Apple Silicon until optimized
+- Remaining `.item()` calls and MPS synchronization overhead still cause slowdowns
+- Use `device="cpu"` on Apple Silicon for game simulation
 - Neural network inference on MPS is still beneficial
 
 ### Memory Management

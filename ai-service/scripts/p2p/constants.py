@@ -306,6 +306,7 @@ STALE_PROCESS_CHECK_INTERVAL = int(os.environ.get("RINGRIFT_STALE_CHECK_INTERVAL
 
 # Patterns to identify stale processes that should be cleaned up
 STALE_PROCESS_PATTERNS = [
+    "auto_promote.py",  # Added Dec 2025: gauntlet runner
     "run_model_elo_tournament.py",
     "run_gauntlet.py",
     "run_self_play_soak.py",
@@ -313,6 +314,24 @@ STALE_PROCESS_PATTERNS = [
     "run_hybrid_selfplay.py",
     "run_diverse_selfplay.py",
 ]
+
+# ============================================
+# Gauntlet Resource Limits (Dec 2025)
+# ============================================
+# Added to prevent resource exhaustion from concurrent gauntlet evaluations.
+# Running 12+ gauntlets simultaneously can spawn 600+ processes and crash nodes.
+
+# Maximum concurrent gauntlet evaluations per node
+MAX_CONCURRENT_GAUNTLETS = int(os.environ.get("RINGRIFT_MAX_CONCURRENT_GAUNTLETS", "3"))
+
+# Maximum total gauntlet-related processes (across all gauntlets)
+MAX_GAUNTLET_PROCESSES = int(os.environ.get("RINGRIFT_MAX_GAUNTLET_PROCESSES", "64"))
+
+# Minimum available memory (GB) required to start a new gauntlet
+MIN_MEMORY_GB_FOR_GAUNTLET = int(os.environ.get("RINGRIFT_MIN_MEMORY_GB_FOR_GAUNTLET", "16"))
+
+# Maximum CPU load ratio (load_avg / cpu_count) before blocking new gauntlets
+MAX_CPU_LOAD_RATIO_FOR_GAUNTLET = float(os.environ.get("RINGRIFT_MAX_CPU_LOAD_FOR_GAUNTLET", "0.8"))
 
 # ============================================
 # State Directory

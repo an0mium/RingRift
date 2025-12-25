@@ -43,15 +43,8 @@ import {
 } from '../../shared/engine/gameEndExplanation';
 import { getWeirdStateReasonForGameResult } from '../../shared/engine/weirdStateReasons';
 import { useGameState } from '../hooks/useGameState';
-import { getWeirdStateBanner } from '../utils/gameStateWeirdness';
 import { useGameConnection } from '../hooks/useGameConnection';
-import {
-  useGameActions,
-  usePendingChoice,
-  useChatMessages,
-  type PendingChoiceView,
-  type PartialMove,
-} from '../hooks/useGameActions';
+import { useGameActions, useChatMessages, type PartialMove } from '../hooks/useGameActions';
 import { useDecisionCountdown } from '../hooks/useDecisionCountdown';
 import { useAutoMoveAnimation } from '../hooks/useMoveAnimation';
 import { useInvalidMoveFeedback } from '../hooks/useInvalidMoveFeedback';
@@ -60,11 +53,7 @@ import { useGameSoundEffects } from '../hooks/useGameSoundEffects';
 import { useGlobalGameShortcuts } from '../hooks/useKeyboardNavigation';
 import { useSoundOptional } from '../contexts/SoundContext';
 import type { PlayerChoice } from '../../shared/types/game';
-import type {
-  DecisionAutoResolvedMeta,
-  DecisionPhaseTimeoutWarningPayload,
-} from '../../shared/types/websocket';
-import type { ConnectionStatus } from '../contexts/GameContext';
+import type { DecisionAutoResolvedMeta } from '../../shared/types/websocket';
 
 // Import extracted hooks
 import { useBackendBoardSelection } from '../hooks/useBackendBoardSelection';
@@ -72,6 +61,12 @@ import { useBackendBoardHandlers } from '../hooks/useBackendBoardHandlers';
 import { useBackendGameStatus } from '../hooks/useBackendGameStatus';
 import { useBackendChat } from '../hooks/useBackendChat';
 import { useBackendTelemetry } from '../hooks/useBackendTelemetry';
+import { useBackendConnectionShell } from '../hooks/useBackendConnectionShell';
+import {
+  useBackendDiagnosticsLog,
+  describeDecisionAutoResolved,
+} from '../hooks/useBackendDiagnosticsLog';
+import { useBackendDecisionUI } from '../hooks/useBackendDecisionUI';
 
 /**
  * Get friendly display name for AI difficulty level with description.
@@ -82,32 +77,6 @@ function getAIDifficultyLabel(difficulty: number): { label: string; color: strin
   if (difficulty <= 5) return { label: 'Intermediate', color: 'text-blue-400' };
   if (difficulty <= 8) return { label: 'Advanced', color: 'text-purple-400' };
   return { label: 'Expert', color: 'text-red-400' };
-}
-
-function describeDecisionAutoResolved(meta: DecisionAutoResolvedMeta): string {
-  const playerLabel = `P${meta.actingPlayerNumber}`;
-  const reasonLabel = meta.reason === 'timeout' ? 'timeout' : meta.reason.replace(/_/g, ' ');
-
-  const choiceKindLabel = (() => {
-    switch (meta.choiceKind) {
-      case 'line_order':
-        return 'line order';
-      case 'line_reward':
-        return 'line reward';
-      case 'ring_elimination':
-        return 'ring elimination';
-      case 'territory_region_order':
-        return 'territory region order';
-      case 'capture_direction':
-        return 'capture direction';
-      default:
-        return meta.choiceKind.replace(/_/g, ' ');
-    }
-  })();
-
-  const movePart = meta.resolvedMoveId ? ` (moveId: ${meta.resolvedMoveId})` : '';
-
-  return `Decision auto-resolved for ${playerLabel}: ${choiceKindLabel} (reason: ${reasonLabel})${movePart}`;
 }
 
 function renderGameHeader(gameState: GameState) {
@@ -137,319 +106,6 @@ function renderGameHeader(gameState: GameState) {
       </p>
     </>
   );
-}
-
-/**
- * Backend ConnectionShell: wraps useGameConnection and owns connect/disconnect
- * lifecycle for a specific :gameId route.
- */
-interface BackendConnectionShellState {
-  routeGameId: string;
-  gameId: string | null;
-  connectionStatus: ConnectionStatus;
-  isConnecting: boolean;
-  error: string | null;
-  lastHeartbeatAt: number | null;
-  reconnect: () => void;
-}
-
-function useBackendConnectionShell(routeGameId: string): BackendConnectionShellState {
-  const { gameId, status, isConnecting, error, lastHeartbeatAt, connectToGame, disconnect } =
-    useGameConnection();
-
-  useEffect(() => {
-    if (!routeGameId) {
-      disconnect();
-      return;
-    }
-
-    void connectToGame(routeGameId);
-
-    return () => {
-      disconnect();
-    };
-  }, [routeGameId, connectToGame, disconnect]);
-
-  return {
-    routeGameId,
-    gameId,
-    connectionStatus: status,
-    isConnecting,
-    error,
-    lastHeartbeatAt,
-    reconnect: () => {
-      if (!routeGameId) {
-        return;
-      }
-      void connectToGame(routeGameId);
-    },
-  };
-}
-
-/**
- * Backend DiagnosticsPanel hook: produces a rolling log of phase/player/choice
- * and connection-status events suitable for GameEventLog.
- */
-interface BackendDiagnosticsState {
-  eventLog: string[];
-  showSystemEventsInLog: boolean;
-  setShowSystemEventsInLog: React.Dispatch<React.SetStateAction<boolean>>;
-}
-
-function useBackendDiagnosticsLog(
-  gameState: GameState | null,
-  pendingChoice: PlayerChoice | null,
-  connectionStatus: ConnectionStatus,
-  decisionAutoResolved: DecisionAutoResolvedMeta | null,
-  decisionPhaseTimeoutWarning: DecisionPhaseTimeoutWarningPayload | null,
-  victoryState: GameResult | null
-): BackendDiagnosticsState {
-  const [eventLog, setEventLog] = React.useState<string[]>([]);
-  const [showSystemEventsInLog, setShowSystemEventsInLog] = React.useState(true);
-
-  const lastPhaseRef = React.useRef<string | null>(null);
-  const lastCurrentPlayerRef = React.useRef<number | null>(null);
-  const lastChoiceIdRef = React.useRef<string | null>(null);
-  const lastAutoResolvedKeyRef = React.useRef<string | null>(null);
-  const lastConnectionStatusRef = React.useRef<ConnectionStatus | null>(null);
-  const lastTimeoutWarningKeyRef = React.useRef<string | null>(null);
-  const lastWeirdStateTypeRef = React.useRef<string | null>(null);
-  const forcedElimContextRef = React.useRef<{
-    active: boolean;
-    startTotal: number;
-    playerNumber: number | null;
-  } | null>(null);
-
-  // Phase / current player / choice transitions
-  useEffect(() => {
-    if (!gameState) {
-      lastPhaseRef.current = null;
-      lastCurrentPlayerRef.current = null;
-      return;
-    }
-
-    const events: string[] = [];
-
-    if (gameState.currentPhase !== lastPhaseRef.current) {
-      if (lastPhaseRef.current !== null) {
-        events.push(`Phase changed: ${lastPhaseRef.current} → ${gameState.currentPhase}`);
-      } else {
-        events.push(`Phase: ${gameState.currentPhase}`);
-      }
-      lastPhaseRef.current = gameState.currentPhase;
-    }
-
-    if (gameState.currentPlayer !== lastCurrentPlayerRef.current) {
-      events.push(`Current player: P${gameState.currentPlayer}`);
-      lastCurrentPlayerRef.current = gameState.currentPlayer;
-    }
-
-    if (pendingChoice && pendingChoice.id !== lastChoiceIdRef.current) {
-      events.push(`Choice requested: ${pendingChoice.type} for P${pendingChoice.playerNumber}`);
-      lastChoiceIdRef.current = pendingChoice.id;
-    } else if (!pendingChoice && lastChoiceIdRef.current) {
-      events.push('Choice resolved');
-      lastChoiceIdRef.current = null;
-    }
-
-    if (events.length > 0) {
-      setEventLog((prev) => {
-        const next = [...events, ...prev];
-        return next.slice(0, 50);
-      });
-    }
-  }, [gameState, pendingChoice]);
-
-  // Auto-resolved decision events
-  useEffect(() => {
-    if (!decisionAutoResolved) {
-      return;
-    }
-
-    const { actingPlayerNumber, choiceKind, reason, resolvedMoveId } = decisionAutoResolved;
-    const key = resolvedMoveId ?? `${actingPlayerNumber}:${choiceKind}:${reason}`;
-
-    if (lastAutoResolvedKeyRef.current === key) {
-      return;
-    }
-
-    lastAutoResolvedKeyRef.current = key;
-
-    const label = describeDecisionAutoResolved(decisionAutoResolved);
-
-    setEventLog((prev) => [label, ...prev].slice(0, 50));
-  }, [decisionAutoResolved]);
-
-  // Decision-phase timeout warning events
-  useEffect(() => {
-    if (!decisionPhaseTimeoutWarning) {
-      return;
-    }
-
-    const { gameId, playerNumber, phase, remainingMs, choiceId } = decisionPhaseTimeoutWarning.data;
-
-    const key = `${gameId}:${playerNumber}:${phase}:${choiceId ?? ''}:${remainingMs}`;
-    if (lastTimeoutWarningKeyRef.current === key) {
-      return;
-    }
-    lastTimeoutWarningKeyRef.current = key;
-
-    const seconds = Math.max(1, Math.round(remainingMs / 1000));
-    const label = `Decision timeout warning: P${playerNumber} in ${phase} (~${seconds}s remaining)`;
-
-    setEventLog((prev) => [label, ...prev].slice(0, 50));
-  }, [decisionPhaseTimeoutWarning]);
-
-  // Connection status changes
-  useEffect(() => {
-    if (!connectionStatus || lastConnectionStatusRef.current === connectionStatus) {
-      lastConnectionStatusRef.current = connectionStatus;
-      return;
-    }
-
-    const label =
-      connectionStatus === 'connected'
-        ? 'Connection restored'
-        : connectionStatus === 'reconnecting'
-          ? 'Connection interrupted – reconnecting'
-          : connectionStatus === 'connecting'
-            ? 'Connecting to server…'
-            : 'Disconnected from server';
-
-    setEventLog((prev) => [label, ...prev].slice(0, 50));
-    lastConnectionStatusRef.current = connectionStatus;
-  }, [connectionStatus]);
-
-  // Weird-state (ANM / forced elimination / structural stalemate / LPS) diagnostics.
-  useEffect(() => {
-    if (!gameState) {
-      lastWeirdStateTypeRef.current = null;
-      forcedElimContextRef.current = null;
-      return;
-    }
-
-    const weird = getWeirdStateBanner(gameState, { victoryState });
-    const prevType = lastWeirdStateTypeRef.current;
-    const nextType = weird.type;
-
-    const events: string[] = [];
-
-    // Detect entry into ANM states (movement / line / territory).
-    if (
-      nextType === 'active-no-moves-movement' ||
-      nextType === 'active-no-moves-line' ||
-      nextType === 'active-no-moves-territory'
-    ) {
-      if (prevType !== nextType) {
-        const phaseLabel =
-          nextType === 'active-no-moves-movement'
-            ? 'movement'
-            : nextType === 'active-no-moves-line'
-              ? 'line processing'
-              : 'territory processing';
-        const playerNumber = (weird as Extract<typeof weird, { playerNumber: number }>)
-          .playerNumber;
-        events.push(
-          `Active–No–Moves detected for P${playerNumber} during ${phaseLabel}; the engine will apply forced resolution according to the rulebook.`
-        );
-      }
-    }
-
-    // Detect start and completion of forced elimination sequences.
-    if (nextType === 'forced-elimination') {
-      if (prevType !== 'forced-elimination') {
-        const playerNumber = (weird as Extract<typeof weird, { playerNumber: number }>)
-          .playerNumber;
-        const startTotal =
-          (gameState as GameState & { totalRingsEliminated?: number }).totalRingsEliminated ?? 0;
-        forcedElimContextRef.current = {
-          active: true,
-          startTotal,
-          playerNumber,
-        };
-        events.push(`Forced elimination sequence started for P${playerNumber}.`);
-      }
-    } else if (prevType === 'forced-elimination') {
-      const ctx = forcedElimContextRef.current;
-      const endTotal =
-        (gameState as GameState & { totalRingsEliminated?: number }).totalRingsEliminated ?? 0;
-      if (ctx) {
-        const delta = Math.max(0, endTotal - ctx.startTotal);
-        const playerLabel = ctx.playerNumber ? `P${ctx.playerNumber}` : 'the active player';
-        const detail =
-          delta > 0
-            ? `${delta} ring${delta === 1 ? '' : 's'} were eliminated during the forced elimination sequence.`
-            : 'No additional rings were eliminated during the forced elimination sequence.';
-        events.push(`Forced elimination sequence completed for ${playerLabel}. ${detail}`);
-      } else {
-        events.push('Forced elimination sequence completed.');
-      }
-      forcedElimContextRef.current = null;
-    }
-
-    // Detect structural stalemate / plateau end conditions.
-    if (nextType === 'structural-stalemate' && prevType !== 'structural-stalemate') {
-      events.push(
-        'Structural stalemate: no legal placements, movements, captures, or forced eliminations remain. The game ended by plateau auto-resolution.'
-      );
-    }
-
-    // Detect last-player-standing terminal condition.
-    if (nextType === 'last-player-standing' && prevType !== 'last-player-standing') {
-      const winner = (weird as Extract<typeof weird, { winner?: number }>).winner;
-      const label = typeof winner === 'number' ? `P${winner}` : 'A player';
-      events.push(
-        `Last Player Standing: ${label} won after three complete rounds where only they had real moves available.`
-      );
-    }
-
-    if (events.length > 0) {
-      setEventLog((prev) => {
-        const merged = [...events, ...prev];
-        return merged.slice(0, 50);
-      });
-    }
-
-    lastWeirdStateTypeRef.current = nextType;
-  }, [gameState, victoryState]);
-
-  return {
-    eventLog,
-    showSystemEventsInLog,
-    setShowSystemEventsInLog,
-  };
-}
-
-/**
- * Backend DecisionUI hook: encapsulates pending choice state and countdown
- * timer wiring for the ChoiceDialog component.
- */
-interface BackendDecisionUIState {
-  pendingChoice: PlayerChoice | null;
-  choiceDeadline: number | null;
-  choiceTimeRemainingMs: number | null;
-  respondToChoice: <T>(choice: PlayerChoice, selectedOption: T) => void;
-  /**
-   * Rich decision-phase view derived from choiceViewModels, used to provide
-   * consistent copy/timeout semantics to both HUD and ChoiceDialog.
-   */
-  pendingChoiceView: PendingChoiceView | null;
-}
-
-function useBackendDecisionUI(): BackendDecisionUIState {
-  const { choice, deadline, respond, timeRemaining, view } = usePendingChoice();
-
-  return {
-    pendingChoice: choice,
-    choiceDeadline: deadline,
-    choiceTimeRemainingMs: timeRemaining,
-    // The underlying hook already knows which choice is pending; we ignore the
-    // explicit choice argument and delegate to respond() for safety.
-    respondToChoice: (_choice, selectedOption) => {
-      respond(selectedOption as PlayerChoice['options'][number]);
-    },
-    pendingChoiceView: view,
-  };
 }
 
 export interface BackendGameHostProps {

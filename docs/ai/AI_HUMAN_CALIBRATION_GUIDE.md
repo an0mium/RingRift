@@ -33,30 +33,30 @@ environment.
 - **Game mode:** Standard rules, swap rule enabled for 2‑player games.
 - **AI engine:** As configured in the ladder via `LadderTierConfig`.
 
-For square8 2‑player, the ladder defines these anchor tiers:
+For square8 2‑player, the ladder defines these anchor tiers (D3/D5/D7 are now real ladder tiers, but are not the primary calibration anchors unless explicitly included):
 
-| Tier | Ladder difficulty | Engine family | Notes                                         |
-| ---- | ----------------- | ------------- | --------------------------------------------- |
-| D2   | 2                 | Heuristic     | Easy baseline; first non‑random tier.         |
-| D4   | 4                 | Minimax       | Intermediate search depth and think time.     |
-| D6   | 6                 | Minimax       | High search budget; punishes clear mistakes.  |
-| D8   | 8                 | MCTS          | Strong search; intended "near‑expert" anchor. |
+| Tier | Ladder difficulty | Engine family  | Notes                                         |
+| ---- | ----------------- | -------------- | --------------------------------------------- |
+| D2   | 2                 | Heuristic      | Easy baseline; first non‑random tier.         |
+| D4   | 4                 | Minimax (NNUE) | Intermediate search depth + NNUE evaluation.  |
+| D6   | 6                 | Descent (NN)   | High search budget with neural guidance.      |
+| D8   | 8                 | MCTS (NN)      | Strong search + neural guidance; near‑expert. |
 
 ### 1.1 Mapping to client difficulty labels and ladder configs
 
 To keep human calibration, UX copy, and ladder configs aligned, use the
 following mapping as the single mental model for Square‑8 2‑player:
 
-| Ladder tier | Ladder config (ai‑service)                                                                              | Client difficulty label (`difficultyUx.ts`)    | Intended strength band                         |
-| ----------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
-| D2          | `difficulty=2`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=HEURISTIC`, `model_id="heuristic_v1_2p"` | **Learner (D2 – Casual / Learning)** (`id: 2`) | Casual / learning; brand‑new RingRift players. |
-| D4          | `difficulty=4`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MINIMAX`, `model_id="v1-minimax-4"`      | **Challenging (D4 – Intermediate)** (`id: 4`)  | Intermediate players / strong casuals.         |
-| D6          | `difficulty=6`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MINIMAX`, `model_id="v1-minimax-6"`      | **Advanced (D6 – Strong club)** (`id: 6`)      | Strong club‑level / advanced RingRift players. |
-| D8          | `difficulty=8`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MCTS`, `model_id="v1-mcts-8"`            | **Strong Expert (D8 – Near‑expert)** (`id: 8`) | Very strong / near‑expert players.             |
+| Ladder tier | Ladder config (ai‑service)                                                                                  | Client difficulty label (`difficultyUx.ts`)    | Intended strength band                         |
+| ----------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| D2          | `difficulty=2`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=HEURISTIC`, `model_id="heuristic_v1_sq8_2p"` | **Learner (D2 – Casual / Learning)** (`id: 2`) | Casual / learning; brand‑new RingRift players. |
+| D4          | `difficulty=4`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MINIMAX`, `model_id="nnue_square8_2p"`       | **Challenging (D4 – Intermediate)** (`id: 4`)  | Intermediate players / strong casuals.         |
+| D6          | `difficulty=6`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=DESCENT`, `model_id="ringrift_best_sq8_2p"`  | **Advanced (D6 – Strong club)** (`id: 6`)      | Strong club‑level / advanced RingRift players. |
+| D8          | `difficulty=8`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MCTS`, `model_id="ringrift_best_sq8_2p"`     | **Strong Expert (D8 – Near‑expert)** (`id: 8`) | Very strong / near‑expert players.             |
 
-Interpolated client tiers (D3, D5, D7) are UX‑level “bridges” between these
-anchors and do not introduce new ladder configs; they should be interpreted
-as sitting strictly between the neighbouring anchor tiers above.
+D3/D5/D7 are now real ladder tiers with their own configs. UX labels may still
+position them between anchor tiers, but calibration can include them when a
+specific tier needs validation.
 
 Unless otherwise stated, calibration sessions should:
 
@@ -248,7 +248,7 @@ base) are intended to mirror the setups in this guide:
 
 - When a player opts into **calibration mode** in the UI, the game
   should be created using the same board, player count, and tier
-  presets described above (Square‑8, 2‑player, D2/D4/D6/D8).
+  presets described above (Square‑8, 2‑player, anchor tiers D2/D4/D6/D8).
 - Telemetry should record only coarse configuration and outcomes:
   board type, number of players, difficulty, result, moves played, and
   optional perceived difficulty ratings.
@@ -265,4 +265,4 @@ As these telemetry pipelines mature, their aggregate data should be:
 Operationally:
 
 - **This guide** defines _how to run and log human calibration sessions_ and what outcomes (“too easy”, “about right”, “too hard”) mean at a qualitative level.
-- **`AI_DIFFICULTY_CALIBRATION_ANALYSIS`** defines _how aggregated calibration telemetry and playtest results feed back into concrete ladder tuning decisions_ for the Square‑8 2‑player D2/D4/D6/D8 tiers.
+- **`AI_DIFFICULTY_CALIBRATION_ANALYSIS`** defines _how aggregated calibration telemetry and playtest results feed back into concrete ladder tuning decisions_ for the Square‑8 2‑player anchor tiers D2/D4/D6/D8.

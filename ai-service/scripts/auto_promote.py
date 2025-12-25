@@ -49,6 +49,21 @@ from app.config.thresholds import (
     get_min_win_rate_vs_heuristic,
 )
 
+# Import gauntlet resource limits (Dec 2025)
+try:
+    from scripts.p2p.constants import (
+        MAX_CONCURRENT_GAUNTLETS,
+        MAX_GAUNTLET_PROCESSES,
+        MIN_MEMORY_GB_FOR_GAUNTLET,
+        MAX_CPU_LOAD_RATIO_FOR_GAUNTLET,
+    )
+except ImportError:
+    # Fallback defaults if constants not available
+    MAX_CONCURRENT_GAUNTLETS = 3
+    MAX_GAUNTLET_PROCESSES = 64
+    MIN_MEMORY_GB_FOR_GAUNTLET = 16
+    MAX_CPU_LOAD_RATIO_FOR_GAUNTLET = 0.8
+
 # Import PromotionController for unified promotion logic (December 2025)
 try:
     from app.training.promotion_controller import (
@@ -624,6 +639,89 @@ def sync_model_to_cluster(
     return success_count
 
 
+# ============================================
+# Resource Check Functions (Dec 2025)
+# ============================================
+# Prevent resource exhaustion from concurrent gauntlet evaluations.
+# These checks run before starting a gauntlet to ensure the node has capacity.
+
+
+def count_gauntlet_processes() -> int:
+    """Count running gauntlet-related processes.
+
+    Looks for auto_promote.py, game_gauntlet, and related patterns
+    to determine how many gauntlet evaluations are currently running.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return 0
+
+    patterns = ["auto_promote", "game_gauntlet", "run_gauntlet"]
+    count = 0
+
+    try:
+        for proc in psutil.process_iter(['pid', 'cmdline']):
+            try:
+                cmdline = " ".join(proc.info.get('cmdline') or [])
+                if any(p in cmdline for p in patterns):
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
+
+    return count
+
+
+def check_gauntlet_resources(skip_check: bool = False) -> tuple[bool, str]:
+    """Check if system has resources for gauntlet execution.
+
+    Args:
+        skip_check: If True, skip all checks and return OK
+
+    Returns:
+        Tuple of (ok, message) where ok is True if resources are available
+    """
+    if skip_check:
+        return True, "Resource check skipped"
+
+    try:
+        import psutil
+    except ImportError:
+        # psutil not available, allow gauntlet to run
+        return True, "psutil not available, skipping resource check"
+
+    # Check available memory
+    try:
+        mem = psutil.virtual_memory()
+        available_gb = mem.available / (1024**3)
+        if available_gb < MIN_MEMORY_GB_FOR_GAUNTLET:
+            return False, f"Insufficient memory: {available_gb:.1f}GB < {MIN_MEMORY_GB_FOR_GAUNTLET}GB required"
+    except Exception as e:
+        print(f"Warning: Could not check memory: {e}")
+
+    # Check CPU load
+    try:
+        load_avg = os.getloadavg()[0]
+        cpu_count = os.cpu_count() or 1
+        load_ratio = load_avg / cpu_count
+        if load_ratio > MAX_CPU_LOAD_RATIO_FOR_GAUNTLET:
+            return False, f"High CPU load: {load_ratio:.2f} > {MAX_CPU_LOAD_RATIO_FOR_GAUNTLET} (load={load_avg:.1f}, cpus={cpu_count})"
+    except Exception as e:
+        print(f"Warning: Could not check CPU load: {e}")
+
+    # Check concurrent gauntlets
+    try:
+        gauntlet_count = count_gauntlet_processes()
+        if gauntlet_count >= MAX_CONCURRENT_GAUNTLETS:
+            return False, f"Too many concurrent gauntlets: {gauntlet_count} >= {MAX_CONCURRENT_GAUNTLETS}"
+    except Exception as e:
+        print(f"Warning: Could not count gauntlet processes: {e}")
+
+    return True, "OK"
+
+
 def run_gauntlet_promotion(
     model_path: Path,
     board_type: str,
@@ -632,6 +730,7 @@ def run_gauntlet_promotion(
     sync_to_cluster: bool = False,
     dry_run: bool = False,
     model_type: str | None = None,
+    skip_resource_check: bool = False,
 ) -> bool:
     """Full gauntlet-based promotion workflow.
 
@@ -643,6 +742,7 @@ def run_gauntlet_promotion(
         sync_to_cluster: Whether to sync to cluster after promotion
         dry_run: If True, only preview without making changes
         model_type: Model type ("cnn", "gnn", "hybrid") or None to auto-detect
+        skip_resource_check: If True, skip pre-execution resource checks
 
     Returns:
         True if promotion successful, False otherwise
@@ -650,6 +750,17 @@ def run_gauntlet_promotion(
     print("=" * 60)
     print("GAUNTLET-BASED MODEL PROMOTION")
     print("=" * 60)
+
+    # Pre-execution resource check (Dec 2025)
+    # Prevents resource exhaustion from concurrent gauntlet evaluations
+    ok, msg = check_gauntlet_resources(skip_check=skip_resource_check)
+    if not ok:
+        print(f"\n⚠ RESOURCE CHECK FAILED: {msg}")
+        print("  Use --skip-resource-check to bypass this check")
+        print("  Or wait for other gauntlets to complete")
+        return False
+    elif not skip_resource_check:
+        print(f"  Resource check: {msg}")
 
     if not model_path.exists():
         print(f"Error: Model file not found: {model_path}")
@@ -763,6 +874,8 @@ Examples:
                         help="Model type (auto-detected if not specified)")
     parser.add_argument("--sync-to-cluster", action="store_true",
                         help="Sync promoted model to cluster nodes")
+    parser.add_argument("--skip-resource-check", action="store_true",
+                        help="Skip pre-execution resource checks (memory, CPU, concurrent gauntlets)")
 
     args = parser.parse_args()
 
@@ -786,6 +899,7 @@ Examples:
             sync_to_cluster=args.sync_to_cluster,
             dry_run=args.dry_run,
             model_type=getattr(args, 'model_type', None),
+            skip_resource_check=args.skip_resource_check,
         )
         sys.exit(0 if success else 1)
 

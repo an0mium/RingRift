@@ -1,7 +1,7 @@
 # AI Difficulty Calibration Analysis and Ladder Tuning (Square-8 2-Player)
 
 > **Doc status (2025-12-05): New – H-AI-13 design.**  
-> **Role:** Define a repeatable, data-driven analysis process that joins **calibration telemetry**, **automated tier evaluation**, and the **tier candidate registry** to produce concrete tuning recommendations for the Square-8 2-player ladder tiers D2 / D4 / D6 / D8.
+> **Role:** Define a repeatable, data-driven analysis process that joins **calibration telemetry**, **automated tier evaluation**, and the **tier candidate registry** to produce concrete tuning recommendations for the Square-8 2-player **anchor tiers** D2 / D4 / D6 / D8 (public ladder is D1–D10).
 
 This document complements:
 
@@ -22,7 +22,7 @@ It is **analysis/process-level only**. No ladder configs, models, or UI are chan
 
 - Board: `square8` (8×8 compact ruleset)
 - Players: 2
-- Ladder difficulties: **D2, D4, D6, D8** (logical difficulties 2, 4, 6, 8)
+- Ladder difficulties: **D2, D4, D6, D8** (calibration anchors; public ladder is D1–D10)
 - AI families and current intended strength ordering are as in [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md:39)
 
 ### 1.2 Objectives
@@ -136,7 +136,7 @@ A standard Square-8 2p tier training + gating cycle uses:
 
 **Calibration analysis needs from these artefacts**
 
-Per tier T ∈ {D2, D4, D6, D8}, for the **current ladder model**:
+Per tier T ∈ {D2, D4, D6, D8} (anchor tiers), for the **current ladder model**:
 
 - From `tier_eval_result.json`:
   - `overall_pass`
@@ -191,8 +191,8 @@ Registry helpers: [`python.tier_promotion_registry`](../../ai-service/app/traini
         "board": "square8",
         "board_type": "square8",
         "num_players": 2,
-        "model_id": "v1-minimax-4",
-        "heuristic_profile_id": "heuristic_v1_2p",
+        "model_id": "nnue_square8_2p",
+        "heuristic_profile_id": "heuristic_v1_sq8_2p",
         "ai_type": "MINIMAX",
         "ladder_source": "app.config.ladder_config._build_default_square8_two_player_configs"
       },
@@ -208,7 +208,7 @@ Registry helpers: [`python.tier_promotion_registry`](../../ai-service/app/traini
           "gate_report": "gate_report.json",
           "promotion_plan": "promotion_plan.json",
           "model_id": "sq8_2p_d4_cand_20251205_141500",
-          "heuristic_profile_id": "heuristic_v1_2p",
+          "heuristic_profile_id": "heuristic_v1_sq8_2p",
           "status": "gated_promote"
         }
       ]
@@ -378,8 +378,8 @@ For each tier T, construct an internal table row like:
 tier: "D4"
 ladder:
   ai_type: "MINIMAX"
-  model_id: "v1-minimax-4"
-  heuristic_profile_id: "heuristic_v1_2p"
+  model_id: "nnue_square8_2p"
+  heuristic_profile_id: "heuristic_v1_sq8_2p"
 gating:
   overall_pass: true
   win_rate_vs_baseline: 0.78
@@ -465,7 +465,7 @@ For each Square-8 2p tier T:
 3. **Ladder remapping between tiers**
    - Map a model calibrated at nominal difficulty Dn to a different **surfaced** tier in the client, e.g.:
      - Promote a strong D4-calibrated model to serve D5 or D6, using interpolation tiers as UX bridges.
-   - This is primarily a **UX mapping** decision; the underlying ladder config for D2/D4/D6/D8 remains the canonical ordering.
+   - This is primarily a **UX mapping** decision; the underlying ladder config for anchor tiers D2/D4/D6/D8 remains the canonical ordering.
 
 4. **Difficulty descriptor updates (documentation / UX only)**
    - Adjust the textual difficulty descriptions and recommendations in docs and UX specs, not in code here, based on sustained human feedback.
@@ -540,7 +540,7 @@ Similar tables should be maintained for D2, D6, and D8 within the calibration re
 
 Suggested cadence:
 
-- **Per major training cycle** (whenever a new candidate for D2/D4/D6/D8 passes gating)
+- **Per major training cycle** (whenever a new candidate for anchor tiers D2/D4/D6/D8 passes gating)
 - **At least once per quarter** if calibration telemetry volume is high
 - **On demand** after:
   - A major AI bugfix or behaviour change that could affect perceived difficulty

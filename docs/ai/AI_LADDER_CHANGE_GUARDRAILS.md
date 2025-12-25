@@ -200,9 +200,9 @@ Before proceeding with a Category D change:
   - Estimated number of players impacted?
   - Risk of player churn if change fails?
 - [ ] **Exceptional approval obtained**:
-  - Approver name: ****\_\_\_\_****
-  - Approval date: ****\_\_\_\_****
-  - PR/Issue link: ****\_\_\_\_****
+  - Approver name: \***\*\_\_\_\_\*\***
+  - Approval date: \***\*\_\_\_\_\*\***
+  - PR/Issue link: \***\*\_\_\_\_\*\***
 - [ ] **Staged rollout plan defined**:
   - Phase 1 target percentage: **\_**%
   - Escalation criteria for each phase
@@ -529,7 +529,7 @@ Compare against pre-change snapshot during monitoring period.
 7. **Create PR with**
    - Updated [`ladder_config.py`](../../ai-service/app/config/ladder_config.py:1)
    - Gate output logs attached or linked
-   - Rollback plan: "Revert to model_id='v1-minimax-4'"
+   - Rollback plan: "Revert to model_id='nnue_square8_2p'"
    - Checklist completed
 
 8. **Merge after CI passes**
@@ -603,7 +603,7 @@ Compare against pre-change snapshot during monitoring period.
 
 **Original change**: [Link to PR]
 **Rollback time**: [YYYY-MM-DD HH:MM UTC]
-**Impacted tier(s)**: [D2/D4/D6/D8]
+**Impacted tier(s)**: [D1–D10 (public), D11 internal if applicable]
 
 ### Reason for rollback
 
@@ -629,7 +629,7 @@ Compare against pre-change snapshot during monitoring period.
 - [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1) – Step-by-step calibration cycle procedure
 - [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:1) – Ongoing health monitoring and drift detection
 - [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md:1) – Training and promotion loop for tier candidates
-- [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1) – Latency budgets for D4/D6/D8 tiers
+- [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1) – Latency budgets for D3–D8 tiers
 - [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1) – Human calibration experiment templates
 
 ---

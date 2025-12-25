@@ -19,7 +19,8 @@ This specification establishes the framework for **ongoing health monitoring** o
 
 ### Scope
 
-- **Primary focus:** Square-8 2-player ladder tiers D2, D4, D6, D8
+- **Primary focus:** Square-8 2-player anchor tiers D2, D4, D6, D8
+- **Public ladder context:** D1–D10 (D11 internal); extend monitoring when new tiers are promoted
 - **Extension notes:** Hexagonal, Square-19, and 3/4-player configurations
 - **Integration:** Builds upon infrastructure from:
   - [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1) – calibration procedure
@@ -42,7 +43,7 @@ The [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1) defines **point-i
 
 ### Per-Tier Metrics
 
-For each tier (D2, D4, D6, D8) on Square-8 2-player:
+For each monitored tier (default: D2, D4, D6, D8) on Square-8 2-player:
 
 #### Win Rate vs Target
 
@@ -92,17 +93,9 @@ For each tier (D2, D4, D6, D8) on Square-8 2-player:
 
 **Metric:** `ladder_decision_time_ms{tier, board_type, num_players, quantile}`
 
-From [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:14):
-
-| Tier | think_time_ms | max_avg_move_ms | max_p95_move_ms |
-| ---- | ------------- | --------------- | --------------- |
-| D2   | 200           | 220             | 250             |
-| D4   | 2100          | 2310            | 2625            |
-| D6   | 4800          | 5280            | 6000            |
-| D8   | 9600          | 10560           | 12000           |
-
-- Based on `think_time_ms * 1.10` (avg) and `think_time_ms * 1.25` (p95)
-- Regression beyond these values triggers performance alerts
+Decision-time thresholds are derived from `TIER_PERF_BUDGETS` (D3–D8) and
+the ladder `think_time_ms` values. Use [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1)
+as the canonical source of current numbers.
 
 ### Cross-Tier Metrics
 
@@ -336,7 +329,7 @@ Response time: **Next business day** review, **weekly** summary
   "num_players": 2,
   "tiers": {
     "D2": {
-      "model_id": "heuristic_v1_2p",
+      "model_id": "heuristic_v1_sq8_2p",
       "elo": 1000,
       "elo_baseline": 1000,
       "elo_drift": 0,
@@ -352,7 +345,7 @@ Response time: **Next business day** review, **weekly** summary
       "last_perf_benchmark": "2025-12-01T14:30:00Z",
       "status": "healthy"
     }
-    // ... D4, D6, D8
+    // ... D3, D4, D5, D6, D7, D8 (anchor tiers plus adjacent tiers)
   },
   "cross_tier": {
     "monotonicity_violations": [],
@@ -848,7 +841,7 @@ This specification focuses on Square-8 2-player but can be extended to:
 
 - Adjust expected game lengths (longer games)
 - Adjust latency budgets (larger search space)
-- Same tier structure (D2/D4/D6/D8) where available
+- Same anchor tier structure (D2/D4/D6/D8) where available
 
 #### Hexagonal 2-Player
 

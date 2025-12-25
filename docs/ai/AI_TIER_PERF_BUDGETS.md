@@ -5,7 +5,7 @@ work and how to run the small benchmark harness used to enforce them.
 
 ## Scope
 
-- Currently budgeted tiers: Square‑8 2‑player D4 / D6 / D8.
+- Currently budgeted tiers: Square‑8 2‑player D3 / D4 / D5 / D6 / D7 / D8.
 - Budgets are **guard rails**, not UX promises; they are tuned to detect
   large regressions relative to the existing ladder configuration.
 - Budgets are expressed in **per‑move wall‑clock milliseconds** and derived
@@ -21,7 +21,7 @@ Single source of truth:
 Key fields on `TierPerfBudget`:
 
 - `tier_name`: canonical tier identifier, e.g. `"D6_SQ8_2P"`.
-- `difficulty`: ladder difficulty (4, 6, 8).
+- `difficulty`: ladder difficulty (3–8).
 - `board_type`, `num_players`: board geometry and player count.
 - `max_avg_move_ms`: soft upper bound for **average** per‑move latency
   over a small benchmark sample.
@@ -59,7 +59,7 @@ moves_per_game: int = 16, seed: int = 1) -> TierPerfResult`
 Behaviour overview:
 
 - Resolves a `TierPerfBudget` for the requested tier.
-- Resolves the matching `TierEvaluationConfig` (D4 / D6 / D8, Square‑8 2p).
+- Resolves the matching `TierEvaluationConfig` (D3–D8, Square‑8 2p).
 - Creates a `RingRiftEnv` with the correct board type and player count.
 - Instantiates ladder AIs for both seats at the tier’s candidate difficulty.
 - For each move sampled it measures wall‑clock time around:
@@ -88,7 +88,7 @@ python scripts/run_tier_perf_benchmark.py --tier D6 --num-games 4 \
 
 Flags:
 
-- `--tier`: required; accepts `D4`, `D6`, `D8` or full names like
+- `--tier`: required; accepts `D3`–`D8` or full names like
   `D6_SQ8_2P`.
 - `--num-games`: number of self‑play games to run (default 4).
 - `--moves-per-game`: max moves sampled per game (default 16).
@@ -112,7 +112,8 @@ They cover:
   `think_time_ms`.
 - Smoke perf tests: for D4/D6/D8 Square‑8 2p, a tiny benchmark run (1 game,
   4 moves) must have `average_ms` and `p95_ms` below the configured
-  `max_avg_move_ms` / `max_p95_move_ms` for that tier.
+  `max_avg_move_ms` / `max_p95_move_ms` for that tier. D3/D5/D7 budgets are
+  configured but not currently exercised in CI smoke.
 - Budget evaluation semantics: `_eval_budget` (used by the CLI and any
   future automation) sets `within_avg`, `within_p95`, and `overall_pass`
   consistently based on the observed metrics and per‑tier budgets.

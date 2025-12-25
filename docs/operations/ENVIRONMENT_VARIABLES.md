@@ -1329,6 +1329,70 @@ Historical behaviour:
 - Implementation: `ai-service/app/training/generate_data.py::create_initial_state`
 - Tests: `ai-service/tests/test_env_interface.py`
 
+### `RINGRIFT_TRAINED_HEURISTIC_PROFILES`
+
+| Property | Value           |
+| -------- | --------------- |
+| Type     | `string` (path) |
+| Default  | None            |
+| Required | No              |
+
+Path to a JSON bundle of trained heuristic weights (for example `data/trained_heuristic_profiles.json`).
+When set, the AI service loads the file at startup and merges profiles into
+`HEURISTIC_WEIGHT_PROFILES` so ladder tiers can point at updated weights without code changes.
+
+Notes:
+
+- `ai-service/run.sh` auto-sets this to `data/trained_heuristic_profiles.json` if the file exists.
+- Produced by CMA-ES / heuristic training flows (see `ai-service/scripts/run_iterative_cmaes.py`).
+
+### `RINGRIFT_DISABLE_NEURAL_NET`
+
+| Property | Value                                       |
+| -------- | ------------------------------------------- |
+| Type     | `boolean` (string flag)                     |
+| Values   | `1`, `true`, `yes`, `on` (case-insensitive) |
+| Default  | `false`                                     |
+| Required | No                                          |
+
+Globally disable neural network usage in the Python AI service (Minimax/MCTS/Descent).
+When enabled, tiers that would normally use NN fall back to heuristic evaluation.
+
+### `RINGRIFT_FORCE_CPU`
+
+| Property | Value                                       |
+| -------- | ------------------------------------------- |
+| Type     | `boolean` (string flag)                     |
+| Values   | `1`, `true`, `yes`, `on` (case-insensitive) |
+| Default  | `false`                                     |
+| Required | No                                          |
+
+Force neural-net inference/training to use CPU even when CUDA is available.
+Used by some training utilities and debugging flows.
+
+### `RINGRIFT_MINIMAX_ZERO_SUM_EVAL`
+
+| Property | Value                                       |
+| -------- | ------------------------------------------- |
+| Type     | `boolean` (string flag)                     |
+| Values   | `1`, `true`, `yes`, `on` (case-insensitive) |
+| Default  | `true`                                      |
+| Required | No                                          |
+
+Controls whether Minimax uses zero-sum evaluation (`my_eval - opp_eval`) when
+computing scores. Disable only for debugging.
+
+### `RINGRIFT_CMAES_WORKERS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | None     |
+| Required | No       |
+
+Number of CMA-ES workers for distributed heuristic training. Used by
+`scripts/run_tier_training_pipeline.py` when selecting CMA-ES modes.
+
 ## Debug Flags
 
 These flags are for development and debugging only. **Do not enable in production.**
@@ -1368,6 +1432,40 @@ Optional label for the current shared rules engine / ruleset version.
 - Intended usage:
   - Tag recordings by rules rollout (e.g. `"2025-12-chain-capture-fix"`).
   - Slice replay/parity analyses by engine version.
+
+### `RINGRIFT_PARITY_VALIDATION`
+
+| Property | Value                   |
+| -------- | ----------------------- |
+| Type     | `enum`                  |
+| Values   | `off`, `warn`, `strict` |
+| Default  | `off`                   |
+| Required | No                      |
+
+Controls parity validation mode when recording games in the Python service.
+`strict` raises on mismatches, `warn` logs discrepancies, `off` disables parity checks.
+
+### `RINGRIFT_PARITY_DUMP_DIR`
+
+| Property | Value             |
+| -------- | ----------------- |
+| Type     | `string`          |
+| Default  | `parity_failures` |
+| Required | No                |
+
+Directory where parity tooling writes failure bundles and dumps.
+
+### `RINGRIFT_SKIP_SHADOW_CONTRACTS`
+
+| Property | Value                                       |
+| -------- | ------------------------------------------- |
+| Type     | `boolean` (string flag)                     |
+| Values   | `1`, `true`, `yes`, `on` (case-insensitive) |
+| Default  | `true`                                      |
+| Required | No                                          |
+
+Skip mutator shadow validation in the Python rules engine. Used for faster self-play;
+set to `false` for debugging or when validating rule changes.
 
 ### `RINGRIFT_TS_ENGINE_VERSION`
 

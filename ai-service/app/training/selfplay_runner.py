@@ -527,16 +527,16 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
             move = self._mcts.select_move(state)
 
             # Extract MCTS distribution data after move selection
-            # These methods return the data from the last search
+            # get_visit_distribution() returns (moves, probs) from last search
+            # get_search_stats() returns rich stats from GPU tree search (may be None for CPU)
             try:
-                policy_dist = self._mcts.get_policy_distribution()
-                if policy_dist:
+                moves_list, probs_list = self._mcts.get_visit_distribution()
+                if moves_list and probs_list:
                     # Convert to dict format: {move_key: probability}
-                    move_keys, probs = policy_dist
-                    move_probs = {str(m): float(p) for m, p in zip(move_keys, probs)}
+                    move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
                 else:
                     move_probs = None
-            except (AttributeError, TypeError):
+            except (AttributeError, TypeError, ValueError):
                 move_probs = None
 
             try:

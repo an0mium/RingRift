@@ -458,7 +458,7 @@ This runbook assumes lightweight role responsibilities; H‑AI‑16 will define 
 Use this as a compact checklist when running calibration:
 
 1. **Plan**
-   - [ ] Pick calibration window (e.g. last 28 days) and confirm D2/D4/D6/D8 in scope.
+   - [ ] Pick calibration window (e.g. last 28 days) and confirm anchor tiers D2/D4/D6/D8 in scope (expand if calibrating other tiers).
    - [ ] Create `docs/ai/calibration_runs/YYYY_MM_square8_2p_windowNN/`.
    - [ ] Copy [`TEMPLATE.md`](calibration_runs/TEMPLATE.md:1) → `notes.md`.
 

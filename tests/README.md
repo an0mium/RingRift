@@ -314,7 +314,7 @@ For each category, `docs/TEST_CATEGORIES.md` documents:
 
 **Legacy RuleEngine/GameEngine diagnostics examples:**
 
-- `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/GameEngine.lineRewardChoiceWebSocketIntegration.test.ts`  
+- `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/GameEngine.chainCapture.test.ts`  
   → **Legacy RuleEngine / GameEngine Diagnostics** (see “Diagnostic Tests → Legacy RuleEngine / GameEngine Diagnostics” in `docs/TEST_CATEGORIES.md`). These suites exist for historical coverage and migration safety and are not CI‑gated; new rules work should target orchestrator/shared‑engine suites instead.
 
 #### Python‑mode TS↔Python parity profile (`RINGRIFT_RULES_MODE=python`)

@@ -108,6 +108,9 @@ class DaemonType(Enum):
     # P2P auto-deployment (December 2025) - ensure P2P runs on all nodes
     P2P_AUTO_DEPLOY = "p2p_auto_deploy"
 
+    # Replication monitor (December 2025) - monitor data replication health
+    REPLICATION_MONITOR = "replication_monitor"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -240,6 +243,9 @@ class DaemonManager:
 
         # Ephemeral sync for Vast.ai (Phase 4, December 2025)
         self.register_factory(DaemonType.EPHEMERAL_SYNC, self._create_ephemeral_sync)
+
+        # Replication monitor (December 2025)
+        self.register_factory(DaemonType.REPLICATION_MONITOR, self._create_replication_monitor)
 
     def register_factory(
         self,
@@ -878,6 +884,26 @@ class DaemonManager:
 
         except ImportError as e:
             logger.error(f"EphemeralSyncDaemon not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
+
+    async def _create_replication_monitor(self) -> None:
+        """Create and run replication monitor daemon (December 2025).
+
+        Monitors data replication health across the cluster and triggers
+        emergency sync when data safety is at risk.
+        """
+        try:
+            from app.coordination.replication_monitor import get_replication_monitor
+
+            daemon = get_replication_monitor()
+            await daemon.start()
+
+            # Wait for daemon to complete (or be stopped)
+            while daemon.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"ReplicationMonitorDaemon not available: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
 
 

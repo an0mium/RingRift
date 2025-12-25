@@ -101,20 +101,21 @@ Added defensive recovery in `RingRiftEnv.legal_moves()` (`ai-service/app/trainin
 - Board topology, adjacency, distance, and basic territory disconnection are
   covered by unit tests (including both square and hex boards).
 - Movement and capture validation (distance ≥ stack height, path blocking,
-  landing rules) have focused tests in `tests/unit/RuleEngine.movementCapture.test.ts`.
+  landing rules) have focused tests in `tests/unit/RuleEngine.movement.scenarios.test.ts`,
+  `tests/unit/MovementAggregate.shared.test.ts`, and `tests/unit/CaptureValidator.shared.test.ts`.
 - Chain capture enforcement and capture-direction choices are exercised by
   `GameEngine.chainCapture.test.ts`,
   `GameEngine.chainCaptureChoiceIntegration.test.ts`, and
-  `GameEngine.captureDirectionChoiceWebSocketIntegration.test.ts`.
+  `GameEngine.captureDirectionChoice.test.ts`.
 - Territory disconnection and self-elimination flows are validated by
   `BoardManager.territoryDisconnection*.test.ts` and
-  `GameEngine.territoryDisconnection*.test.ts`.
+  `tests/unit/territoryProcessing.shared.test.ts`.
 - PlayerInteractionManager, WebSocketInteractionHandler, AIInteractionHandler,
   AIEngine/AIServiceClient and various choice flows
   (`line_reward_option`, `ring_elimination`, `region_order`) have unit and
   integration tests (`AIEngine.serviceClient.test.ts`,
-  `AIInteractionHandler.test.ts`, `GameEngine.lineRewardChoiceAIService.integration.test.ts`,
-  `GameEngine.lineRewardChoiceWebSocketIntegration.test.ts`,
+  `AIInteractionHandler.test.ts`, `GameEngine.lines.scenarios.test.ts`,
+  `WebSocketServer.sessionTermination.test.ts`,
   `GameEngine.regionOrderChoiceIntegration.test.ts`, etc.).
 
 **What’s still missing:**
@@ -366,9 +367,8 @@ available.
     and `region_order` choices to `globalAIEngine` when configured, with
     robust fallbacks to local heuristics on error.
   - Integration tests (e.g.
-    `GameEngine.lineRewardChoiceAIService.integration.test.ts`,
     `AIEngine.serviceClient.test.ts`, `AIInteractionHandler.test.ts`,
-    `GameEngine.regionOrderChoiceIntegration.test.ts`) exercise these paths,
+    `AIServiceClient.metrics.test.ts`, `GameEngine.regionOrderChoiceIntegration.test.ts`) exercise these paths,
     including failure modes for `line_reward_option`.
 
 **Still limited:**
@@ -648,12 +648,12 @@ These issues have been addressed but are kept here for context:
   same-player restriction was removed from `validateCaptureSegmentOnBoard` in
   `src/shared/engine/core.ts` and capture enumeration in
   `src/server/game/RuleEngine.ts`. Test coverage added in
-  `tests/unit/RuleEngine.movementCapture.test.ts`.
+  `tests/unit/RuleEngine.movement.scenarios.test.ts`.
 - **Rule Fix (Nov 15, 2025): Placement validation enforces legal moves** –
   Ring placement now validates that the resulting position has at least one
   legal move or capture available. Implemented via
   `hasAnyLegalMoveOrCaptureFrom` helper in `src/server/game/RuleEngine.ts`
-  with test coverage in `tests/unit/RuleEngine.movementCapture.test.ts`.
+  with test coverage in `tests/unit/RuleEngine.movement.scenarios.test.ts`.
 - **Sandbox Fix (Nov 19, 2025): Mixed AI/Human turn semantics in `/sandbox`** –
   Local sandbox games now use a unified "place then move" turn model for
   both human and AI seats. Ring placement no longer advances directly to the

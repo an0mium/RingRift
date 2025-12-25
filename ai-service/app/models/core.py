@@ -3,6 +3,8 @@ Pydantic Models for RingRift Game State
 Mirrors TypeScript types from src/shared/types/game.ts
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 

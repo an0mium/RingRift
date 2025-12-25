@@ -155,11 +155,11 @@ Verify that hosts (backend, sandbox, Python) behave identically and that externa
 
 #### Backend vs Sandbox Parity
 
-| File                                     | Purpose               | Recommendation                      |
-| ---------------------------------------- | --------------------- | ----------------------------------- |
-| `Backend_vs_Sandbox.traceParity.test.ts` | Trace-level parity    | ⚠️ Consolidate with contract tests  |
-| `Backend_vs_Sandbox.seed*.test.ts`       | Seed-specific parity  | ⚠️ Move to historical failures only |
-| `*Parity*.test.ts` (10+ files)           | Various parity checks | ⚠️ Promote to contract vectors      |
+| File                                                        | Purpose                       | Recommendation                      |
+| ----------------------------------------------------------- | ----------------------------- | ----------------------------------- |
+| `archive/tests/unit/Backend_vs_Sandbox.traceParity.test.ts` | Trace-level parity (archived) | ⚠️ Consolidate with contract tests  |
+| `tests/parity/Backend_vs_Sandbox.seed5.*.test.ts`           | Seed-specific parity          | ⚠️ Move to historical failures only |
+| `*Parity*.test.ts` (10+ files)                              | Various parity checks         | ⚠️ Promote to contract vectors      |
 
 #### Python vs TS Parity
 
@@ -266,25 +266,25 @@ ai-service/tests/invariants/          # Invariant tests
 
 Many parity and snapshot parity tests can be converted to or backed by contract vectors:
 
-| Parity Test Suite                                 | Contract Vector / Anchor                                                                                           |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `Backend_vs_Sandbox.traceParity.test.ts`          | Backed by `movement.vectors.json`, `capture.vectors.json`, `line_detection.vectors.json`, `territory.vectors.json` |
-| `Backend_vs_Sandbox.eliminationTrace.test.ts`     | Backed by elimination/territory vectors and victory semantics (add dedicated victory vectors over time)            |
-| `Backend_vs_Sandbox.seed*.snapshotParity.test.ts` | Should be derivable from and consistent with vector-backed traces                                                  |
-| `TerritoryParity.GameEngine_vs_Sandbox.test.ts`   | → `territory.vectors.json`                                                                                         |
-| `TerritoryCore.GameEngine_vs_Sandbox.test.ts`     | → `territory.vectors.json`                                                                                         |
-| `TraceFixtures.sharedEngineParity.test.ts`        | → `movement.vectors.json`, `capture.vectors.json`, `line_detection.vectors.json`, `territory.vectors.json`         |
+| Parity Test Suite                                                      | Contract Vector / Anchor                                                                                           |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `archive/tests/unit/Backend_vs_Sandbox.traceParity.test.ts`            | Backed by `movement.vectors.json`, `capture.vectors.json`, `line_detection.vectors.json`, `territory.vectors.json` |
+| `tests/parity/Backend_vs_Sandbox.eliminationTrace.test.ts`             | Backed by elimination/territory vectors and victory semantics (add dedicated victory vectors over time)            |
+| `archive/tests/parity/Backend_vs_Sandbox.seed*.snapshotParity.test.ts` | Should be derivable from and consistent with vector-backed traces                                                  |
+| `TerritoryParity.GameEngine_vs_Sandbox.test.ts`                        | → `territory.vectors.json`                                                                                         |
+| `TerritoryCore.GameEngine_vs_Sandbox.test.ts`                          | → `territory.vectors.json`                                                                                         |
+| `TraceFixtures.sharedEngineParity.test.ts`                             | → `movement.vectors.json`, `capture.vectors.json`, `line_detection.vectors.json`, `territory.vectors.json`         |
 
 #### Seed-Specific Tests → Historical Failures
 
 Keep seed-specific tests only for documented historical failures:
 
-| File                                  | Status    | Action                       |
-| ------------------------------------- | --------- | ---------------------------- |
-| `Seed14Move35LineParity.test.ts`      | ✅ Keep   | Documents seed-14 resolution |
-| `Backend_vs_Sandbox.seed5.*.test.ts`  | ⚠️ Review | Consolidate or document      |
-| `Backend_vs_Sandbox.seed17.*.test.ts` | ⚠️ Review | Consolidate or document      |
-| `Backend_vs_Sandbox.seed18.*.test.ts` | ⚠️ Review | Consolidate or document      |
+| File                                                                    | Status    | Action                       |
+| ----------------------------------------------------------------------- | --------- | ---------------------------- |
+| `Seed14Move35LineParity.test.ts`                                        | ✅ Keep   | Documents seed-14 resolution |
+| `tests/parity/Backend_vs_Sandbox.seed5.*.test.ts`                       | ⚠️ Review | Consolidate or document      |
+| `archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts`  | ⚠️ Review | Historical only              |
+| `archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts` | ⚠️ Review | Historical only              |
 
 ### Medium Priority
 
@@ -292,11 +292,11 @@ Keep seed-specific tests only for documented historical failures:
 
 Some tests duplicate behavior across engines:
 
-| GameEngine Test                             | Sandbox / Cross-Host Test                                                                                                               | Recommendation                                                                                                                                                                    |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GameEngine.lines.scenarios.test.ts`        | `ClientSandboxEngine.lines.test.ts`                                                                                                     | Promote shared cases to contracts                                                                                                                                                 |
-| `GameEngine.territoryDisconnection.test.ts` | `ClientSandboxEngine.territoryDisconnection.test.ts`                                                                                    | Same                                                                                                                                                                              |
-| `GameEngine.victory.*.test.ts`              | `GameEngine.victory.LPS.scenarios.test.ts`, `ClientSandboxEngine.victory.LPS.crossInteraction.test.ts`, `RulesMatrix.Victory.*.test.ts` | Same high-level semantics; prefer shared `victory.shared.test.ts` + RulesMatrix victory suites as the semantic anchor, and treat engine-/sandbox-specific suites as adapter views |
+| GameEngine Test                                 | Sandbox / Cross-Host Test                                                                                                 | Recommendation                                                                                                                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GameEngine.lines.scenarios.test.ts`            | `ClientSandboxEngine.lines.test.ts`                                                                                       | Promote shared cases to contracts                                                                                                                                                 |
+| `BoardManager.territoryDisconnection.*.test.ts` | `ClientSandboxEngine.territoryDisconnection*.test.ts`                                                                     | Same                                                                                                                                                                              |
+| `GameEngine.victory.*.test.ts`                  | `GameEngine.victory.LPS.crossInteraction.test.ts`, `ClientSandboxEngine.victory.test.ts`, `RulesMatrix.Victory.*.test.ts` | Same high-level semantics; prefer shared `victory.shared.test.ts` + RulesMatrix victory suites as the semantic anchor, and treat engine-/sandbox-specific suites as adapter views |
 
 ---
 
