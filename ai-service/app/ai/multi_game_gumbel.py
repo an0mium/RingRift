@@ -1,5 +1,14 @@
 """Multi-Game Parallel Gumbel MCTS for high-throughput selfplay.
 
+.. note::
+    Consider using `GumbelSearchEngine` from `app.ai.gumbel_search_engine`
+    for new code. It provides a unified interface to all Gumbel variants.
+
+    Example:
+        from app.ai.gumbel_search_engine import create_selfplay_engine
+        engine = create_selfplay_engine(neural_net, board_type, num_players)
+        results = engine.run_selfplay(num_games=64)
+
 Runs Gumbel MCTS across multiple games simultaneously, batching NN evaluations
 across ALL games' simulations for 10-20x speedup over sequential execution.
 

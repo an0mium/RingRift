@@ -1,5 +1,14 @@
 """Gumbel MCTS AI implementation for RingRift.
 
+.. note::
+    Consider using `GumbelSearchEngine` from `app.ai.gumbel_search_engine`
+    for new code. It provides a unified interface to all Gumbel variants.
+
+    Example:
+        from app.ai.gumbel_search_engine import GumbelSearchEngine
+        engine = GumbelSearchEngine.for_play(neural_net)
+        move = engine.search(game_state)
+
 This module implements Gumbel AlphaZero-style MCTS with Sequential Halving
 for more sample-efficient search compared to standard MCTS.
 
