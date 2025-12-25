@@ -13,7 +13,7 @@ class TournamentRecordingOptions:
 
     enabled: bool = True
     source: str = RecordSource.TOURNAMENT
-    engine_mode: str = "tournament"
+    engine_mode: str | None = None  # None = derive from actual engine config
     db_prefix: str = "tournament"
     db_dir: str = "data/games"
     fsm_validation: bool = True
@@ -30,13 +30,25 @@ class TournamentRecordingOptions:
         *,
         model_id: str | None = None,
         difficulty: int | None = None,
+        actual_engine_mode: str | None = None,
     ) -> RecordingConfig:
-        """Build a RecordingConfig for the given match settings."""
+        """Build a RecordingConfig for the given match settings.
+
+        Args:
+            board_type: Board configuration (e.g., "hex8", "square8")
+            num_players: Number of players (2, 3, or 4)
+            model_id: Optional model identifier
+            difficulty: Optional difficulty level
+            actual_engine_mode: The actual engine mode used (e.g., "gumbel-mcts").
+                               If provided, overrides the default engine_mode.
+        """
+        # Use actual engine mode if provided, otherwise fall back to configured default
+        effective_engine_mode = actual_engine_mode or self.engine_mode or "tournament"
         return RecordingConfig(
             board_type=board_type,
             num_players=num_players,
             source=self.source,
-            engine_mode=self.engine_mode,
+            engine_mode=effective_engine_mode,
             model_id=model_id,
             difficulty=difficulty,
             tags=list(self.tags),

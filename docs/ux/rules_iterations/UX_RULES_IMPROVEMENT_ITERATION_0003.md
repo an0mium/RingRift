@@ -7,15 +7,15 @@
 - **Player counts:** 2–3 players (territory mini‑regions most visible in 2–3p games)
 - **Environments:** Local dev, CI, internal playtests, sandbox
 - **Data sources:**
-  - Synthetic `RulesUxAggregatesRoot`‑style aggregates as exercised in [`analyze_rules_ux_telemetry.test.ts`](tests/unit/analyze_rules_ux_telemetry.test.ts:27)
+  - Synthetic `RulesUxAggregatesRoot`‑style aggregates as exercised in [`analyze_rules_ux_telemetry.test.ts`](../../../tests/unit/analyze_rules_ux_telemetry.test.ts:27)
   - Qualitative audits and scenario tests (Q23 mini‑regions, capture‑chain patterns) from:
-    - [`RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:47)
-    - [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:435)
-    - [`RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19)
-    - [`territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts:76)
-    - [`ScenarioConceptsUxRegression.test.ts`](tests/unit/ScenarioConceptsUxRegression.test.ts:1)
+    - [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:47)
+    - [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md:435)
+    - [`RulesMatrix.Territory.MiniRegion.test.ts`](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19)
+    - [`territoryDecisionHelpers.shared.test.ts`](../../../tests/unit/territoryDecisionHelpers.shared.test.ts:76)
+    - [`ScenarioConceptsUxRegression.test.ts`](../../../tests/unit/ScenarioConceptsUxRegression.test.ts:1)
 
-This iteration is documented **after** the underlying changes were implemented (W1–W5). It serves as a concrete example of how to record a rules‑UX iteration using the improvement loop defined in [`UX_RULES_IMPROVEMENT_LOOP.md`](docs/UX_RULES_IMPROVEMENT_LOOP.md:24), and as a template for future telemetry‑driven runs.
+This iteration is documented **after** the underlying changes were implemented (W1–W5). It serves as a concrete example of how to record a rules‑UX iteration using the improvement loop defined in [`UX_RULES_IMPROVEMENT_LOOP.md`](../UX_RULES_IMPROVEMENT_LOOP.md:24), and as a template for future telemetry‑driven runs.
 
 ---
 
@@ -23,17 +23,17 @@ This iteration is documented **after** the underlying changes were implemented (
 
 ### 1.1 Targeted concepts
 
-From the high‑risk concepts index in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:21):
+From the high‑risk concepts index in [`UX_RULES_CONCEPTS_INDEX.md`](../UX_RULES_CONCEPTS_INDEX.md:21):
 
 - **`territory_mini_regions`**
   - Mini‑regions / Q23‑style disconnected regions with mandatory outside self‑elimination.
-  - Canonical semantics: FAQ Q23 in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1931) and territory rules [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:549) R141–R145.
-  - Concordance entry in [`RULES_DOCS_UX_AUDIT.md` §4](docs/supplementary/RULES_DOCS_UX_AUDIT.md:142).
+  - Canonical semantics: FAQ Q23 in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1931) and territory rules [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md:549) R141–R145.
+  - Concordance entry in [`RULES_DOCS_UX_AUDIT.md` §4](../../supplementary/RULES_DOCS_UX_AUDIT.md:142).
 
 - **`capture_chains` / `capture_chain_mandatory`**
   - Capture chains with optional start but mandatory continuation while any capture exists, including 180° reversals and cyclic patterns.
-  - Canonical captures and chain rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:480) R101–R103 and FAQ capture patterns in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1626).
-  - Concept row in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:26).
+  - Canonical captures and chain rules in [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md:480) R101–R103 and FAQ capture patterns in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1626).
+  - Concept row in [`UX_RULES_CONCEPTS_INDEX.md`](../UX_RULES_CONCEPTS_INDEX.md:26).
 
 ### 1.2 Hypotheses
 
@@ -55,7 +55,7 @@ From the high‑risk concepts index in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RU
 
 ## 2. Starting conditions (example snapshot – synthetic)
 
-Because Architect mode cannot run the telemetry stack, this section uses **illustrative** numbers derived from the hotspot analyzer test [`analyze_rules_ux_telemetry.test.ts`](tests/unit/analyze_rules_ux_telemetry.test.ts:27). They demonstrate the intended metrics shape, not real production data.
+Because Architect mode cannot run the telemetry stack, this section uses **illustrative** numbers derived from the hotspot analyzer test [`analyze_rules_ux_telemetry.test.ts`](../../../tests/unit/analyze_rules_ux_telemetry.test.ts:27). They demonstrate the intended metrics shape, not real production data.
 
 ### 2.1 Synthetic telemetry slice
 
@@ -93,7 +93,7 @@ For `rulesContext = 'territory_mini_region'` this implies, **purely as an exampl
 - `weird_state_banner_impression = 10`
 - `resign_after_weird_state = 0` → `resignAfterWeirdRate = 0 / 10 = 0`
 
-These values are **not** live telemetry; they simply mirror the kind of per‑context metrics the analyzer [`scripts/analyze_rules_ux_telemetry.ts`](scripts/analyze_rules_ux_telemetry.ts:33) computes:
+These values are **not** live telemetry; they simply mirror the kind of per‑context metrics the analyzer [`scripts/analyze_rules_ux_telemetry.ts`](../../../scripts/analyze_rules_ux_telemetry.ts:33) computes:
 
 - `helpOpensPer100Games`
 - `helpReopenRate`
@@ -107,15 +107,15 @@ Key qualitative inputs for this iteration:
 
 - **Mini‑regions (Q23) confusion:**
   - FAQ Q23 in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1931) and its discussion of mandatory self‑elimination for disconnected regions.
-  - Edge‑case and numeric‑invariant analysis in [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:361) and [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:435) (SCEN‑TERRITORY‑002 and related).
+  - Edge‑case and numeric‑invariant analysis in [`RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:361) and [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md:435) (SCEN‑TERRITORY‑002 and related).
   - Territory helpers and scenario tests:
-    - [`RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19)
-    - [`territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts:76)
+    - [`RulesMatrix.Territory.MiniRegion.test.ts`](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19)
+    - [`territoryDecisionHelpers.shared.test.ts`](../../../tests/unit/territoryDecisionHelpers.shared.test.ts:76)
 
 - **Capture chain confusion (mandatory vs optional):**
-  - HUD and copy issues DOCUX‑P1/P3 in [`RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:33) – legacy text suggesting players can “end your turn” mid‑chain and that all lines offer the same reward choices.
-  - Chain‑capture patterns and edge cases in [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:184) and capture pattern examples in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1629).
-  - Planned teaching flows for capture chains in [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:342).
+  - HUD and copy issues DOCUX‑P1/P3 in [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:33) – legacy text suggesting players can “end your turn” mid‑chain and that all lines offer the same reward choices.
+  - Chain‑capture patterns and edge cases in [`RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:184) and capture pattern examples in [`../../rules/COMPLETE_RULES.md`](../../rules/COMPLETE_RULES.md:1629).
+  - Planned teaching flows for capture chains in [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:342).
 
 ---
 
@@ -123,9 +123,9 @@ Key qualitative inputs for this iteration:
 
 ### 3.1 `territory_mini_regions`
 
-- **Concept id:** `territory_mini_regions` (index row in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:25)).
-- **Canonical `rulesContext`:** `territory_mini_region` (see [`UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:98)).
-- **Weird‑state linkage:** When territory decisions auto‑exhaust, `ANM_TERRITORY_NO_ACTIONS` from [`UX_RULES_WEIRD_STATES_SPEC.md`](docs/UX_RULES_WEIRD_STATES_SPEC.md:100) is the canonical reason code.
+- **Concept id:** `territory_mini_regions` (index row in [`UX_RULES_CONCEPTS_INDEX.md`](../UX_RULES_CONCEPTS_INDEX.md:25)).
+- **Canonical `rulesContext`:** `territory_mini_region` (see [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:98)).
+- **Weird‑state linkage:** When territory decisions auto‑exhaust, `ANM_TERRITORY_NO_ACTIONS` from [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:100) is the canonical reason code.
 
 This concept covers all Q23‑style “mini‑region + outside self‑elimination” situations where the acting player:
 
@@ -135,8 +135,8 @@ This concept covers all Q23‑style “mini‑region + outside self‑eliminatio
 
 ### 3.2 `capture_chains` / `capture_chain_mandatory`
 
-- **Concept id:** `capture_chains` (index row in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:26)).
-- **Canonical `rulesContext`:** `capture_chain_mandatory` (see [`UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:102)).
+- **Concept id:** `capture_chains` (index row in [`UX_RULES_CONCEPTS_INDEX.md`](../UX_RULES_CONCEPTS_INDEX.md:26)).
+- **Canonical `rulesContext`:** `capture_chain_mandatory` (see [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:102)).
 
 This concept captures mandatory‑continuation capture behaviour:
 
@@ -155,28 +155,28 @@ This section summarises what Iteration 0003 was **intended** to do and what has 
 **Planned interventions:**
 
 1. **Dedicated teaching flow for Q23 mini‑regions**
-   - Flow `mini_region_intro` defined in [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:204) with guided and interactive steps:
+   - Flow `mini_region_intro` defined in [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:204) with guided and interactive steps:
      - Shape of a disconnected mini‑region and eligibility for processing.
      - How interior rings and border markers are handled.
      - How and why the outside self‑elimination cost is applied.
 
 2. **Telemetry and rules‑context wiring**
-   - `rulesContext = 'territory_mini_region'` defined in [`UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:98) for help and teaching events.
-   - `ANM_TERRITORY_NO_ACTIONS` reason code in [`UX_RULES_WEIRD_STATES_SPEC.md`](docs/UX_RULES_WEIRD_STATES_SPEC.md:100) used when territory decisions auto‑exhaust with no remaining actions.
+   - `rulesContext = 'territory_mini_region'` defined in [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:98) for help and teaching events.
+   - `ANM_TERRITORY_NO_ACTIONS` reason code in [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:100) used when territory decisions auto‑exhaust with no remaining actions.
 
 3. **Concordance and copy alignment**
-   - Concordance row for `territory_mini_region` in [`RULES_DOCS_UX_AUDIT.md` §4](docs/supplementary/RULES_DOCS_UX_AUDIT.md:142) mapping:
+   - Concordance row for `territory_mini_region` in [`RULES_DOCS_UX_AUDIT.md` §4](../../supplementary/RULES_DOCS_UX_AUDIT.md:142) mapping:
      - Canonical rules (FAQ Q23, RR‑CANON R141–R145).
      - In‑app copy (TeachingOverlay territory topic, sandbox territory tooltips).
      - Out‑of‑app docs and scenario matrix entries.
 
 **Shipped outcomes (W2 + W5):**
 
-- `mini_region_intro` flow now exists in shared teaching metadata (`teachingScenarios` in [`src/shared/teaching/scenarioTelemetry.ts`](src/shared/teaching/scenarioTelemetry.ts:1) and related teaching fixtures) and is referenced from TeachingOverlay and sandbox presets.
-- Territory teaching copy in [`UX_RULES_COPY_SPEC.md` §7](docs/UX_RULES_COPY_SPEC.md:207) explicitly emphasises:
+- `mini_region_intro` flow now exists in shared teaching metadata (`teachingScenarios` in [`src/shared/teaching/scenarioTelemetry.ts`](../../../src/shared/teaching/scenarioTelemetry.ts:1) and related teaching fixtures) and is referenced from TeachingOverlay and sandbox presets.
+- Territory teaching copy in [`UX_RULES_COPY_SPEC.md` §7](../UX_RULES_COPY_SPEC.md:207) explicitly emphasises:
   - that disconnected regions eliminate interior rings, and
   - that an additional self‑elimination cost is often required from an outside stack.
-- The concordance table row for `territory_mini_region` in [`RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:142) now provides a single “where is this explained” map for Q23 across rulebook, HUD, TeachingOverlay, sandbox scenarios, and docs.
+- The concordance table row for `territory_mini_region` in [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:142) now provides a single “where is this explained” map for Q23 across rulebook, HUD, TeachingOverlay, sandbox scenarios, and docs.
 
 ### 4.2 Capture chains – `capture_chains` / `capture_chain_mandatory`
 
@@ -187,22 +187,22 @@ This section summarises what Iteration 0003 was **intended** to do and what has 
      - Optional **start**;
      - Mandatory **continuation** while legal captures exist;
      - Player **choice of direction/path**.
-   - Copy baselines in [`UX_RULES_COPY_SPEC.md` §5](docs/UX_RULES_COPY_SPEC.md:145) (capture and chain‑capture semantics) and chain‑capture teaching text referenced from [`TeachingOverlay.tsx`](src/client/components/TeachingOverlay.tsx:60).
+   - Copy baselines in [`UX_RULES_COPY_SPEC.md` §5](../UX_RULES_COPY_SPEC.md:145) (capture and chain‑capture semantics) and chain‑capture teaching text referenced from [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx:60).
 
 2. **Scenario‑driven teaching for capture chains**
-   - Flow `capture_chain_mandatory` in [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:342) describing:
+   - Flow `capture_chain_mandatory` in [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:342) describing:
      - Optional vs mandatory portions of the chain.
      - Multiple‑direction choices.
      - Ending chains early by deliberate path choice.
 
 3. **Telemetry linkage**
-   - `rulesContext = 'capture_chain_mandatory'` in [`UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:102) so that help opens and teaching flow events for chain‑capture scenarios can be isolated.
+   - `rulesContext = 'capture_chain_mandatory'` in [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:102) so that help opens and teaching flow events for chain‑capture scenarios can be isolated.
 
 **Shipped outcomes (W1 + W2 + W5):**
 
-- HUD and sandbox phase copy for capture and chain capture now follow the canonical wording in [`UX_RULES_COPY_SPEC.md` §5](docs/UX_RULES_COPY_SPEC.md:145), removing the mis‑leading “end your turn” phrasing flagged as DOCUX‑P1 in [`RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:33).
-- TeachingOverlay exposes dedicated chain‑capture explanations and tips, with `capture_chain_mandatory` as the underlying rules concept; capture flows are exercised in `ScenarioConceptsUxRegression` tests in [`tests/unit/ScenarioConceptsUxRegression.test.ts`](tests/unit/ScenarioConceptsUxRegression.test.ts:1).
-- Capture‑chain scenarios in curated sandbox configuration (`curated.json` under `learn.capture.chain`) are aligned with the semantics in [`UX_RULES_COPY_SPEC.md`](docs/UX_RULES_COPY_SPEC.md:202).
+- HUD and sandbox phase copy for capture and chain capture now follow the canonical wording in [`UX_RULES_COPY_SPEC.md` §5](../UX_RULES_COPY_SPEC.md:145), removing the mis‑leading “end your turn” phrasing flagged as DOCUX‑P1 in [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:33).
+- TeachingOverlay exposes dedicated chain‑capture explanations and tips, with `capture_chain_mandatory` as the underlying rules concept; capture flows are exercised in `ScenarioConceptsUxRegression` tests in [`tests/unit/ScenarioConceptsUxRegression.test.ts`](../../../tests/unit/ScenarioConceptsUxRegression.test.ts:1).
+- Capture‑chain scenarios in curated sandbox configuration (`curated.json` under `learn.capture.chain`) are aligned with the semantics in [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md:202).
 
 ---
 
@@ -212,7 +212,7 @@ Although this backfilled record does **not** include real telemetry, future oper
 
 ### 5.1 Quantitative checks
 
-Using the rules‑UX hotspot analyzer [`scripts/analyze_rules_ux_telemetry.ts`](scripts/analyze_rules_ux_telemetry.ts:33) over a well‑defined window (e.g. 28 days, Square‑8 2p):
+Using the rules‑UX hotspot analyzer [`scripts/analyze_rules_ux_telemetry.ts`](../../../scripts/analyze_rules_ux_telemetry.ts:33) over a well‑defined window (e.g. 28 days, Square‑8 2p):
 
 1. **Territory mini‑regions (`rulesContext = 'territory_mini_region'`):**
    - Compute:
@@ -242,12 +242,12 @@ For both concepts:
 
 ## 6. Outcome summary (backfilled for W1–W5)
 
-From the perspective of the improvement loop in [`UX_RULES_IMPROVEMENT_LOOP.md`](docs/UX_RULES_IMPROVEMENT_LOOP.md:75), Iteration 0003 documents a **completed** round of work whose implementation was spread across W1–W5:
+From the perspective of the improvement loop in [`UX_RULES_IMPROVEMENT_LOOP.md`](../UX_RULES_IMPROVEMENT_LOOP.md:75), Iteration 0003 documents a **completed** round of work whose implementation was spread across W1–W5:
 
 - **Territory mini‑regions (Q23):**
   - Rules semantics were clarified and centralised in rulebook, canonical spec, and edge‑case docs.
   - A dedicated `mini_region_intro` teaching flow and curated scenarios now exist for Q23‑style positions.
-  - Player‑facing copy (HUD, TeachingOverlay, sandbox) is aligned with the self‑elimination prerequisite, and the concordance table row in [`RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:142) ensures future copy work stays in sync.
+  - Player‑facing copy (HUD, TeachingOverlay, sandbox) is aligned with the self‑elimination prerequisite, and the concordance table row in [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:142) ensures future copy work stays in sync.
 
 - **Capture chains:**
   - Legacy HUD copy suggesting you can “end your turn” during capture chains has been replaced with canonical wording emphasising mandatory continuation and choice of path.

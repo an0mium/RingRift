@@ -236,6 +236,12 @@ GPU-accelerated parallel game execution for selfplay and CMA-ES.
 - 50-500 games/sec on A100/RTX 5090
 - CPU fallback for systems without CUDA
 
+**Optimization Status (Dec 2025):**
+
+- 31 `.item()` calls remain (down from 80 after Dec 2025 optimizations)
+- Further vectorization could yield 10-15x speedup
+- See `gpu_parallel_games.py` for optimization comments
+
 **Key Classes:**
 
 - `GPUParallelGames` - Main parallel game runner

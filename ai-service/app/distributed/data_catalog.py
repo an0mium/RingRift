@@ -103,6 +103,39 @@ class DataSource:
 
 
 @dataclass
+class NPZDataSource:
+    """A source of NPZ training files (Phase 7: NPZ tracking).
+
+    NPZ files contain pre-processed training data exported from game databases.
+    Tracking them helps training nodes find available training data.
+    """
+    path: Path
+    board_type: str | None = None
+    num_players: int | None = None
+    sample_count: int = 0
+    total_size_bytes: int = 0
+    created_at: float = 0.0
+    source_databases: list[str] = field(default_factory=list)
+    quality_score: float = 0.0
+    host_origin: str = ""
+    is_available: bool = True
+
+    @property
+    def config_key(self) -> str | None:
+        """Get config key (e.g., 'hex8_2p')."""
+        if self.board_type and self.num_players:
+            return f"{self.board_type}_{self.num_players}p"
+        return None
+
+    @property
+    def age_hours(self) -> float:
+        """Get age of the NPZ file in hours."""
+        if self.created_at <= 0:
+            return float("inf")
+        return (time.time() - self.created_at) / 3600
+
+
+@dataclass
 class CatalogStats:
     """Statistics for the data catalog."""
     total_sources: int = 0

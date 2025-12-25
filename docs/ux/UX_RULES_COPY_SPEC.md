@@ -14,11 +14,11 @@ This document defines **canonical UX copy** for rules-related client surfaces. I
 
 Semantics must always match:
 
-- [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1)
+- [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:1)
 - [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1)
 - [`../rules/COMPACT_RULES.md`](../rules/COMPACT_RULES.md:1)
-- [`docs/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
-- [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1)
+- [`docs/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
+- [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1)
 
 ## 2. Terminology & invariants
 
@@ -73,9 +73,9 @@ There are three distinct elimination contexts with different costs and eligible 
 
 This section defines the canonical labels and one‑liners used by:
 
-- [`VictoryConditionsPanel`](src/client/components/GameHUD.tsx:843)
-- HUD summary rows in [`GameHUD.GameHUDFromViewModel()`](src/client/components/GameHUD.tsx:984)
-- Victory messaging in [`VictoryModal`](src/client/components/VictoryModal.tsx:365) and [`toVictoryViewModel()`](src/client/adapters/gameViewModels.ts:1311)
+- [`VictoryConditionsPanel`](../../src/client/components/GameHUD.tsx:843)
+- HUD summary rows in [`GameHUD.GameHUDFromViewModel()`](../../src/client/components/GameHUD.tsx:984)
+- Victory messaging in [`VictoryModal`](../../src/client/components/VictoryModal.tsx:365) and [`toVictoryViewModel()`](../../src/client/adapters/gameViewModels.ts:1311)
 
 ### 3.1 Ring Elimination
 
@@ -95,7 +95,7 @@ This section defines the canonical labels and one‑liners used by:
 - Line 4: `"Eliminations can come from movement onto markers, line rewards, territory processing, or forced elimination."`
 
 **TeachingOverlay victory topic – elimination**
-Short description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_elimination`](src/client/components/TeachingOverlay.tsx:96)):
+Short description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_elimination`](../../src/client/components/TeachingOverlay.tsx:96)):
 
 - `"Win by reaching the Ring Elimination victory threshold. In 2-player games it equals your starting ring supply; in 3–4 player games it is higher (two thirds of your starting rings plus one third of your opponents’ combined starting rings). Eliminated rings are permanently removed; captured rings you carry in stacks do not count toward this threshold."`
 
@@ -116,7 +116,7 @@ Short description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_eliminatio
 - Line 3: `"Claiming a region usually requires eliminating rings from a stack you control outside that region (mandatory self‑elimination cost)."`
 
 **TeachingOverlay victory topic – territory**
-Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_territory`](src/client/components/TeachingOverlay.tsx:107)):
+Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_territory`](../../src/client/components/TeachingOverlay.tsx:107)):
 
 - `"Win by dominating Territory. You need to control at least your fair share of the board (1/N spaces in N-player) AND more territory than all opponents combined. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can't be captured back."`
 
@@ -137,7 +137,7 @@ Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_territory`](src/
 - Line 3: `"If any other player regains a real move before all three rounds complete, the LPS condition resets and victory is not declared."`
 
 **TeachingOverlay victory topic – stalemate / LPS**
-Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:118)):
+Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](../../src/client/components/TeachingOverlay.tsx:118)):
 
 - `"Last Player Standing happens when, for THREE consecutive complete rounds, you are the only player who can still make real moves (placements, movements, or captures). In the first round you must have and take at least one real action while all others have none; in the second and third rounds the condition must persist. Forced eliminations and automatic territory processing do not count as real actions for LPS."`
 
@@ -152,12 +152,12 @@ Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](src/
 - If you land on a marker, the top ring of your moving stack is eliminated and credited to you.
 
 **TeachingOverlay – Stack Movement description**
-Used in [`TeachingOverlay.TEACHING_CONTENT.stack_movement`](src/client/components/TeachingOverlay.tsx:36):
+Used in [`TeachingOverlay.TEACHING_CONTENT.stack_movement`](../../src/client/components/TeachingOverlay.tsx:36):
 
 - `"Move a stack you control (your ring on top) in a straight line at least as many spaces as the stack’s height. You can keep going farther as long as the path has no stacks or territory spaces blocking you; markers are allowed and may eliminate your top ring when you land on them."`
 
 **Sandbox phase copy – Movement**
-Used in [`SandboxGameHost.PHASE_COPY.movement.summary`](src/client/pages/SandboxGameHost.tsx:238):
+Used in [`SandboxGameHost.PHASE_COPY.movement.summary`](../../src/client/pages/SandboxGameHost.tsx:238):
 
 - `"Pick a stack and move it in a straight line at least as far as its height, and farther if the path stays clear (stacks and territory block; markers do not)."`
 
@@ -179,17 +179,17 @@ Used in [`SandboxGameHost.PHASE_COPY.movement.summary`](src/client/pages/Sandbox
 - The chain ends only when no legal capture segments remain.
 
 **TeachingOverlay – Capturing description**
-Used in [`TeachingOverlay.TEACHING_CONTENT.capturing`](src/client/components/TeachingOverlay.tsx:48):
+Used in [`TeachingOverlay.TEACHING_CONTENT.capturing`](../../src/client/components/TeachingOverlay.tsx:48):
 
 - `"To capture, jump over an adjacent opponent stack in a straight line and land on the empty or marker space just beyond it. You take the top ring from the jumped stack and add it to the bottom of your own stack. Captured rings stay in play – only later *eliminations* move rings out of the game."`
 
 **TeachingOverlay – Chain Capture description**
-Used in [`TeachingOverlay.TEACHING_CONTENT.chain_capture`](src/client/components/TeachingOverlay.tsx:60):
+Used in [`TeachingOverlay.TEACHING_CONTENT.chain_capture`](../../src/client/components/TeachingOverlay.tsx:60):
 
 - `"If your capturing stack can jump again after a capture, you are in a chain capture. Starting the first capture is optional, but once the chain begins you must keep capturing as long as any capture is available. When several jumps exist, you choose which target to take next."`
 
 **Sandbox phase copy – Capture / Chain Capture**
-Used in [`SandboxGameHost.PHASE_COPY.capture`](src/client/pages/SandboxGameHost.tsx:244) and [`SandboxGameHost.PHASE_COPY.chain_capture`](src/client/pages/SandboxGameHost.tsx:249):
+Used in [`SandboxGameHost.PHASE_COPY.capture`](../../src/client/pages/SandboxGameHost.tsx:244) and [`SandboxGameHost.PHASE_COPY.chain_capture`](../../src/client/pages/SandboxGameHost.tsx:249):
 
 - Capture phase label: `"Capture"`
 - Capture summary: `"Start an overtaking capture by jumping over an adjacent stack and landing on an empty or marker space beyond it."`
@@ -209,7 +209,7 @@ Used in [`SandboxGameHost.PHASE_COPY.capture`](src/client/pages/SandboxGameHost.
   - (B) Collapse only a contiguous segment of length `lineLength` into territory and **skip elimination**.
 
 **TeachingOverlay – Lines description**
-Used in [`TeachingOverlay.TEACHING_CONTENT.line_bonus`](src/client/components/TeachingOverlay.tsx:72):
+Used in [`TeachingOverlay.TEACHING_CONTENT.line_bonus`](../../src/client/components/TeachingOverlay.tsx:72):
 
 - `"Lines are built from your markers. When a straight line of your markers reaches the minimum length for this board, it becomes a scoring line: you collapse markers in that line into permanent Territory and, on many boards, must pay a ring elimination cost from a stack you control."`
 
@@ -220,7 +220,7 @@ Replace any legacy “ring to hand” text with:
 - `"Overlength lines can trade safety for value: you may collapse a shorter scoring segment with no elimination, or collapse the full line and pay the ring cost."`
 
 **Curated scenarios – line‑focused rulesSnippet template**
-For scenarios like `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`](src/client/public/scenarios/curated.json:175):
+For scenarios like `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`](../../src/client/public/scenarios/curated.json:175):
 
 - `"When a contiguous line of your markers reaches the minimum scoring length, it immediately becomes a line to resolve. You choose how to reward each completed line: collapse markers into permanent Territory, and on many boards pay a small ring‑elimination cost from one of your stacks. Rings are never returned to hand as a line reward."`
 
@@ -237,18 +237,18 @@ For scenarios like `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`]
 - Territory victory is checked whenever territory processing completes and your territory spaces exceed the threshold.
 
 **TeachingOverlay – Territory description**
-Used in [`TeachingOverlay.TEACHING_CONTENT.territory`](src/client/components/TeachingOverlay.tsx:84):
+Used in [`TeachingOverlay.TEACHING_CONTENT.territory`](../../src/client/components/TeachingOverlay.tsx:84):
 
 - `"Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, at the cost of eliminating the entire cap from one of your other stacks (recovery actions pay with a buried ring instead). You win by Territory when you control at least your fair share (1/N of the board) AND more than all opponents combined."`
 
 **Sandbox phase copy – Territory Processing**
-Used in [`SandboxGameHost.PHASE_COPY.territory_processing.summary`](src/client/pages/SandboxGameHost.tsx:258):
+Used in [`SandboxGameHost.PHASE_COPY.territory_processing.summary`](../../src/client/pages/SandboxGameHost.tsx:258):
 
 - `"Resolve disconnected regions into permanent Territory, eliminating rings in that region and paying any required self‑elimination cost from your other stacks."`
 
 ## 8. Sandbox phase‑copy summary (movement, capture, chains, lines, territory)
 
-The canonical short summaries used in [`SandboxGameHost.PHASE_COPY`](src/client/pages/SandboxGameHost.tsx:227):
+The canonical short summaries used in [`SandboxGameHost.PHASE_COPY`](../../src/client/pages/SandboxGameHost.tsx:227):
 
 - **Ring Placement – label**: `"Ring Placement"`
   - summary: `"Place new rings or add to existing stacks while keeping at least one real move available for your next turn."`
@@ -269,57 +269,57 @@ This section ties each text block in this spec to its implementation surface.
 
 ### 9.1 HUD & victory surfaces
 
-- `hud.victory.ring_elimination.label` → [`VictoryConditionsPanel`](src/client/components/GameHUD.tsx:843) elimination row label.
-- `hud.victory.ring_elimination.tooltip` → [`VictoryConditionsPanel`](src/client/components/GameHUD.tsx:843) elimination tooltip.
+- `hud.victory.ring_elimination.label` → [`VictoryConditionsPanel`](../../src/client/components/GameHUD.tsx:843) elimination row label.
+- `hud.victory.ring_elimination.tooltip` → [`VictoryConditionsPanel`](../../src/client/components/GameHUD.tsx:843) elimination tooltip.
 - `hud.victory.territory.label` and `.tooltip` → same component, territory row.
 - `hud.victory.lps.label` and `.tooltip` → same component, Last Player Standing row.
 - `hud.stats.rings_eliminated.label` →
-  - [`RingStats`](src/client/components/GameHUD.tsx:405) elimination label.
-  - [`RingStatsFromVM`](src/client/components/GameHUD.tsx:552) elimination label.
-  - [`CompactScoreSummary`](src/client/components/GameHUD.tsx:933) "Rings Eliminated" label.
-- `victory_modal.ring_elimination.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1408) branch for `ring_elimination`.
-- `victory_modal.territory.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) branch for `territory_control`.
-- `victory_modal.lps.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) branch for `last_player_standing`.
-- `victory_modal.structural_stalemate.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) branch for `game_completed`.
-- `victory_modal.table.rings_eliminated.header` → [`FinalStatsTable`](src/client/components/VictoryModal.tsx:108) elimination column header.
-- `hud.game_over.structural_stalemate.banner` → [`getGameOverBannerText()`](src/client/utils/gameCopy.ts:3) branch for `game_completed`.
+  - [`RingStats`](../../src/client/components/GameHUD.tsx:405) elimination label.
+  - [`RingStatsFromVM`](../../src/client/components/GameHUD.tsx:552) elimination label.
+  - [`CompactScoreSummary`](../../src/client/components/GameHUD.tsx:933) "Rings Eliminated" label.
+- `victory_modal.ring_elimination.description` → [`getVictoryMessage()`](../../src/client/adapters/gameViewModels.ts:1408) branch for `ring_elimination`.
+- `victory_modal.territory.description` → [`getVictoryMessage()`](../../src/client/adapters/gameViewModels.ts:1524) branch for `territory_control`.
+- `victory_modal.lps.description` → [`getVictoryMessage()`](../../src/client/adapters/gameViewModels.ts:1524) branch for `last_player_standing`.
+- `victory_modal.structural_stalemate.description` → [`getVictoryMessage()`](../../src/client/adapters/gameViewModels.ts:1524) branch for `game_completed`.
+- `victory_modal.table.rings_eliminated.header` → [`FinalStatsTable`](../../src/client/components/VictoryModal.tsx:108) elimination column header.
+- `hud.game_over.structural_stalemate.banner` → [`getGameOverBannerText()`](../../src/client/utils/gameCopy.ts:3) branch for `game_completed`.
 
 ### 9.2 Teaching & onboarding surfaces
 
-- `teaching.ring_placement` → [`TEACHING_CONTENT.ring_placement`](src/client/components/TeachingOverlay.tsx:23).
-- `teaching.stack_movement` → [`TEACHING_CONTENT.stack_movement`](src/client/components/TeachingOverlay.tsx:36).
-- `teaching.capturing` → [`TEACHING_CONTENT.capturing`](src/client/components/TeachingOverlay.tsx:48).
-- `teaching.chain_capture` → [`TEACHING_CONTENT.chain_capture`](src/client/components/TeachingOverlay.tsx:60).
-- `teaching.lines` → [`TEACHING_CONTENT.line_bonus`](src/client/components/TeachingOverlay.tsx:72).
-- `teaching.territory` → [`TEACHING_CONTENT.territory`](src/client/components/TeachingOverlay.tsx:84).
-- `teaching.active_no_moves` → [`TEACHING_CONTENT.active_no_moves`](src/client/components/TeachingOverlay.tsx:98).
-- `teaching.forced_elimination` → [`TEACHING_CONTENT.forced_elimination`](src/client/components/TeachingOverlay.tsx:110).
-- `teaching.victory_elimination` → [`TEACHING_CONTENT.victory_elimination`](src/client/components/TeachingOverlay.tsx:96).
-- `teaching.victory_territory` → [`TEACHING_CONTENT.victory_territory`](src/client/components/TeachingOverlay.tsx:107).
-- `teaching.victory_stalemate` → [`TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:144).
-- `onboarding.victory.elimination` → Ring Elimination card in [`OnboardingModal.VictoryStep`](src/client/components/OnboardingModal.tsx:76).
+- `teaching.ring_placement` → [`TEACHING_CONTENT.ring_placement`](../../src/client/components/TeachingOverlay.tsx:23).
+- `teaching.stack_movement` → [`TEACHING_CONTENT.stack_movement`](../../src/client/components/TeachingOverlay.tsx:36).
+- `teaching.capturing` → [`TEACHING_CONTENT.capturing`](../../src/client/components/TeachingOverlay.tsx:48).
+- `teaching.chain_capture` → [`TEACHING_CONTENT.chain_capture`](../../src/client/components/TeachingOverlay.tsx:60).
+- `teaching.lines` → [`TEACHING_CONTENT.line_bonus`](../../src/client/components/TeachingOverlay.tsx:72).
+- `teaching.territory` → [`TEACHING_CONTENT.territory`](../../src/client/components/TeachingOverlay.tsx:84).
+- `teaching.active_no_moves` → [`TEACHING_CONTENT.active_no_moves`](../../src/client/components/TeachingOverlay.tsx:98).
+- `teaching.forced_elimination` → [`TEACHING_CONTENT.forced_elimination`](../../src/client/components/TeachingOverlay.tsx:110).
+- `teaching.victory_elimination` → [`TEACHING_CONTENT.victory_elimination`](../../src/client/components/TeachingOverlay.tsx:96).
+- `teaching.victory_territory` → [`TEACHING_CONTENT.victory_territory`](../../src/client/components/TeachingOverlay.tsx:107).
+- `teaching.victory_stalemate` → [`TEACHING_CONTENT.victory_stalemate`](../../src/client/components/TeachingOverlay.tsx:144).
+- `onboarding.victory.elimination` → Ring Elimination card in [`OnboardingModal.VictoryStep`](../../src/client/components/OnboardingModal.tsx:76).
 
 ### 9.3 Sandbox & curated scenarios
 
-- `sandbox.phase.movement.summary` → [`PHASE_COPY.movement.summary`](src/client/pages/SandboxGameHost.tsx:238).
-- `sandbox.phase.capture.summary` → [`PHASE_COPY.capture.summary`](src/client/pages/SandboxGameHost.tsx:244).
-- `sandbox.phase.chain_capture.summary` → [`PHASE_COPY.chain_capture.summary`](src/client/pages/SandboxGameHost.tsx:249).
-- `sandbox.phase.line_processing.summary` → [`PHASE_COPY.line_processing.summary`](src/client/pages/SandboxGameHost.tsx:254).
-- `sandbox.phase.territory_processing.summary` → [`PHASE_COPY.territory_processing.summary`](src/client/pages/SandboxGameHost.tsx:258).
-- `scenario.learn.movement.basics.rulesSnippet` → `learn.movement.basics` in [`curated.json`](src/client/public/scenarios/curated.json:59).
-- `scenario.learn.capture.chain.rulesSnippet` → `learn.capture.chain` in [`curated.json`](src/client/public/scenarios/curated.json:117).
-- `scenario.learn.lines.formation.rulesSnippet` → `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`](src/client/public/scenarios/curated.json:175).
+- `sandbox.phase.movement.summary` → [`PHASE_COPY.movement.summary`](../../src/client/pages/SandboxGameHost.tsx:238).
+- `sandbox.phase.capture.summary` → [`PHASE_COPY.capture.summary`](../../src/client/pages/SandboxGameHost.tsx:244).
+- `sandbox.phase.chain_capture.summary` → [`PHASE_COPY.chain_capture.summary`](../../src/client/pages/SandboxGameHost.tsx:249).
+- `sandbox.phase.line_processing.summary` → [`PHASE_COPY.line_processing.summary`](../../src/client/pages/SandboxGameHost.tsx:254).
+- `sandbox.phase.territory_processing.summary` → [`PHASE_COPY.territory_processing.summary`](../../src/client/pages/SandboxGameHost.tsx:258).
+- `scenario.learn.movement.basics.rulesSnippet` → `learn.movement.basics` in [`curated.json`](../../src/client/public/scenarios/curated.json:59).
+- `scenario.learn.capture.chain.rulesSnippet` → `learn.capture.chain` in [`curated.json`](../../src/client/public/scenarios/curated.json:117).
+- `scenario.learn.lines.formation.rulesSnippet` → `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`](../../src/client/public/scenarios/curated.json:175).
 
 **Curated sandbox rules‑concept mapping (runtime `public/scenarios/curated.json`)**
 
-Each curated sandbox scenario loaded by [`loadCuratedScenarios()`](src/client/sandbox/scenarioLoader.ts:112) declares a `rulesConcept` and optional `uxSpecAnchor`:
+Each curated sandbox scenario loaded by [`loadCuratedScenarios()`](../../src/client/sandbox/scenarioLoader.ts:112) declares a `rulesConcept` and optional `uxSpecAnchor`:
 
 - `learning.empty.square8` → `rulesConcept: 'board_intro_square8'`
   - Intro to 8×8 board, basic placement and movement.
   - Anchors: §2 Terminology & invariants; §4 Movement semantics.
 - `learning.empty.hexagonal` and `learning.fourplayer.start` → `rulesConcept: 'board_intro_hex'`
   - Hex board geometry and 6‑direction adjacency.
-  - Anchors: [`RULES_CANONICAL_SPEC.md` board types](RULES_CANONICAL_SPEC.md:46); §4 Movement semantics.
+  - Anchors: [`RULES_CANONICAL_SPEC.md` board types](../../RULES_CANONICAL_SPEC.md:46); §4 Movement semantics.
 - `learning.capture.setup` → `rulesConcept: 'capture_basic'`, `uxSpecAnchor: "capture.basic"`
   - Single‑segment overtaking capture; captured rings stay in play.
   - Anchors: §5 Capture and chain capture semantics.
@@ -360,16 +360,16 @@ This section defines the canonical UX copy for the “weird state” banners and
 
 These surfaces are **explanatory only** and must not redefine rules semantics; they mirror behaviour specified in:
 
-- [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
-- [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1)
-- [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:1)
+- [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
+- [`RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:1)
+- [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1)
 - [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1)
 
 ### 10.1 ANM banners (movement / line / territory)
 
 #### Movement‑phase ANM (no real moves, stacks remain)
 
-HUD banner text (used by [`HUDWeirdStateViewModel`](src/client/adapters/gameViewModels.ts:115) in [`GameHUD`](src/client/components/GameHUD.tsx:943) and [`MobileGameHUD`](src/client/components/MobileGameHUD.tsx:266)):
+HUD banner text (used by [`HUDWeirdStateViewModel`](../../src/client/adapters/gameViewModels.ts:115) in [`GameHUD`](../../src/client/components/GameHUD.tsx:943) and [`MobileGameHUD`](../../src/client/components/MobileGameHUD.tsx:266)):
 
 - **Title (local player)**
   `"You have no legal moves this turn"`
@@ -380,7 +380,7 @@ HUD banner text (used by [`HUDWeirdStateViewModel`](src/client/adapters/gameView
 
 Semantics reference:
 
-- This is an ANM state from [`isANMState()`](src/shared/engine/globalActions.ts:1) in the **movement family** of phases (including capture/chain, when applicable).
+- This is an ANM state from [`isANMState()`](../../src/shared/engine/globalActions.ts:1) in the **movement family** of phases (including capture/chain, when applicable).
 - “Real moves” are placements, movements, and captures; forced elimination and automatic processing are _not_ real moves for LPS (see §2 “Real moves vs forced elimination”).
 
 #### Line‑processing ANM
@@ -448,12 +448,12 @@ HUD banner (when the game ends by plateau / structural stalemate):
 Game‑over banner (host‑level banner after dismissing VictoryModal):
 
 - **Game over banner copy**
-  - [`getGameOverBannerText()`](src/client/utils/gameCopy.ts:3) for `reason: 'game_completed'`:
+  - [`getGameOverBannerText()`](../../src/client/utils/gameCopy.ts:3) for `reason: 'game_completed'`:
   - `"Game over – structural stalemate. Winner decided by tiebreak ladder: territory spaces, eliminated rings (including rings in hand), markers, then last real action."`
 
 VictoryModal description:
 
-- [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) when `reason === 'game_completed'`:
+- [`getVictoryMessage()`](../../src/client/adapters/gameViewModels.ts:1524) when `reason === 'game_completed'`:
   - Title: `"🧱 Structural Stalemate"`
   - Description:
     `"No players had any legal placements, movements, captures, or forced eliminations left. The board reached a structural stalemate and the winner was chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action."`
@@ -462,7 +462,7 @@ VictoryModal description:
 
 Two dedicated topics explain weird states:
 
-- `teaching.active_no_moves` → [`TEACHING_CONTENT.active_no_moves`](src/client/components/TeachingOverlay.tsx:98)
+- `teaching.active_no_moves` → [`TEACHING_CONTENT.active_no_moves`](../../src/client/components/TeachingOverlay.tsx:98)
   - **Title**: `"When you have no legal moves"`
   - **Icon**: `⛔`
   - **Description** (canonical):
@@ -472,7 +472,7 @@ Two dedicated topics explain weird states:
     - If you still control stacks but have no placements or movements, FE will remove caps until a real move exists or you run out of stacks.
     - When no players have real moves _or_ FE available, the game reaches a structural plateau and ends by structural stalemate.
 
-- `teaching.forced_elimination` → [`TEACHING_CONTENT.forced_elimination`](src/client/components/TeachingOverlay.tsx:110)
+- `teaching.forced_elimination` → [`TEACHING_CONTENT.forced_elimination`](../../src/client/components/TeachingOverlay.tsx:110)
   - **Title**: `"Forced Elimination (FE)"`
   - **Icon**: `💥`
   - **Description** (canonical):
@@ -484,7 +484,7 @@ Two dedicated topics explain weird states:
 
 HUD surfaces route weird-state banner help buttons to these topics:
 
-- Desktop HUD: [`GameHUD.WeirdStateBanner` + help](src/client/components/GameHUD.tsx:320) mapped in [`GameHUDFromViewModel`](src/client/components/GameHUD.tsx:1114).
-- Mobile HUD: [`MobileWeirdStateBanner` + help](src/client/components/MobileGameHUD.tsx:45) mapped in [`MobileGameHUD`](src/client/components/MobileGameHUD.tsx:266).
+- Desktop HUD: [`GameHUD.WeirdStateBanner` + help](../../src/client/components/GameHUD.tsx:320) mapped in [`GameHUDFromViewModel`](../../src/client/components/GameHUD.tsx:1114).
+- Mobile HUD: [`MobileWeirdStateBanner` + help](../../src/client/components/MobileGameHUD.tsx:45) mapped in [`MobileGameHUD`](../../src/client/components/MobileGameHUD.tsx:266).
 
 These mappings must remain stable when copy is updated so that context‑sensitive “?” help consistently opens the correct explanation for ANM, FE, or structural stalemate.

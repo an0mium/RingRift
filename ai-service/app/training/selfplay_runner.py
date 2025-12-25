@@ -51,6 +51,10 @@ class GameResult:
     moves: list[dict] = field(default_factory=list)
     samples: list[dict] = field(default_factory=list)  # Training samples
     metadata: dict = field(default_factory=dict)
+    # For database storage - these are optional for backwards compatibility
+    initial_state: Any = None  # GameState at start
+    final_state: Any = None    # GameState at end
+    move_objects: list = field(default_factory=list)  # Actual Move objects
 
     @property
     def games_per_second(self) -> float:
@@ -111,6 +115,7 @@ class SelfplayRunner(ABC):
         self._model = None
         self._callbacks: list[Callable[[GameResult], None]] = []
         self._signal_received = False
+        self._db = None  # Database connection for record_db
 
         # Setup signal handlers - only respond to first signal
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -150,9 +155,11 @@ class SelfplayRunner(ABC):
         logger.info(f"  Engine: {self.config.engine_mode.value}")
         logger.info(f"  Target games: {self.config.num_games}")
         self._load_model()
+        self._open_database()
 
     def teardown(self) -> None:
         """Called after run loop. Override for custom cleanup."""
+        self._close_database()
         logger.info(f"SelfplayRunner finished: {self.stats.games_completed} games")
         logger.info(f"  Duration: {self.stats.elapsed_seconds:.1f}s")
         logger.info(f"  Throughput: {self.stats.games_per_second:.2f} games/sec")
@@ -174,6 +181,62 @@ class SelfplayRunner(ABC):
                 self._model = model_path
         except Exception as e:
             logger.warning(f"Model loading failed: {e}")
+
+    def _open_database(self) -> None:
+        """Open database for game recording if record_db is configured."""
+        if not self.config.record_db:
+            return
+
+        try:
+            from ..db.game_replay import GameReplayDB
+            # Ensure parent directory exists
+            db_path = Path(self.config.record_db)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._db = GameReplayDB(str(db_path))
+            logger.info(f"  Database: {self.config.record_db}")
+        except Exception as e:
+            logger.warning(f"Failed to open database {self.config.record_db}: {e}")
+            self._db = None
+
+    def _close_database(self) -> None:
+        """Close database connection."""
+        if self._db is not None:
+            try:
+                # GameReplayDB doesn't have explicit close, but we clear the reference
+                self._db = None
+            except Exception as e:
+                logger.warning(f"Error closing database: {e}")
+
+    def _save_game_to_db(self, result: GameResult) -> None:
+        """Save a completed game to the database.
+
+        Args:
+            result: Game result with initial_state, final_state, and move_objects
+        """
+        if self._db is None:
+            return
+
+        if result.initial_state is None or result.final_state is None:
+            logger.debug(f"Skipping DB write for {result.game_id}: missing state data")
+            return
+
+        if not result.move_objects:
+            logger.debug(f"Skipping DB write for {result.game_id}: no move objects")
+            return
+
+        try:
+            self._db.store_game(
+                game_id=result.game_id,
+                initial_state=result.initial_state,
+                final_state=result.final_state,
+                moves=result.move_objects,
+                metadata=result.metadata,
+                store_history_entries=self.config.store_history_entries,
+                snapshot_interval=getattr(self.config, 'snapshot_interval', 20),
+            )
+            logger.debug(f"Saved game {result.game_id} to database")
+        except Exception as e:
+            logger.warning(f"Failed to save game {result.game_id} to database: {e}")
 
     def on_game_complete(self, callback: Callable[[GameResult], None]) -> None:
         """Register callback for game completion events."""
@@ -247,6 +310,7 @@ class SelfplayRunner(ABC):
                 try:
                     result = self.run_game(game_idx)
                     self.stats.record_game(result)
+                    self._save_game_to_db(result)
                     self._emit_game_complete(result)
 
                     # Progress logging
@@ -312,8 +376,10 @@ class HeuristicSelfplayRunner(SelfplayRunner):
         game_id = str(uuid.uuid4())
 
         board_type = BoardType(self.config.board_type)
-        state = create_initial_state(board_type, self.config.num_players)
+        initial_state = create_initial_state(board_type, self.config.num_players)
+        state = initial_state
         moves = []
+        move_objects = []  # Actual Move objects for DB storage
 
         max_moves = getattr(self.config, 'max_moves', 500)  # Default max moves
         while state.game_status != GameStatus.COMPLETED and len(moves) < max_moves:
@@ -326,6 +392,7 @@ class HeuristicSelfplayRunner(SelfplayRunner):
 
             state = self._engine.apply_move(state, move)
             moves.append({"player": current_player, "move": str(move)})
+            move_objects.append(move)
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -335,7 +402,17 @@ class HeuristicSelfplayRunner(SelfplayRunner):
             num_moves=len(moves),
             duration_ms=duration_ms,
             moves=moves,
-            metadata={"engine": "heuristic"},
+            metadata={
+                "engine": "heuristic",
+                "engine_mode": self.config.engine_mode.value,
+                "board_type": self.config.board_type,
+                "num_players": self.config.num_players,
+                "difficulty": self.config.difficulty,
+                "source": self.config.source,
+            },
+            initial_state=initial_state,
+            final_state=state,
+            move_objects=move_objects,
         )
 
 
@@ -380,8 +457,10 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         game_id = str(uuid.uuid4())
 
         board_type = BoardType(self.config.board_type)
-        state = create_initial_state(board_type, self.config.num_players)
+        initial_state = create_initial_state(board_type, self.config.num_players)
+        state = initial_state
         moves = []
+        move_objects = []  # Actual Move objects for DB storage
         samples = []
 
         from ..rules.core import GameStatus
@@ -401,8 +480,10 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                     "player": state.current_player,
                 })
 
+            current_player = state.current_player
             state = GameEngine.apply_move(state, move)
-            moves.append({"player": state.current_player, "move": str(move)})
+            moves.append({"player": current_player, "move": str(move)})
+            move_objects.append(move)
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -413,7 +494,18 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
             duration_ms=duration_ms,
             moves=moves,
             samples=samples,
-            metadata={"engine": "gumbel_mcts"},
+            metadata={
+                "engine": "gumbel_mcts",
+                "engine_mode": self.config.engine_mode.value,
+                "board_type": self.config.board_type,
+                "num_players": self.config.num_players,
+                "difficulty": self.config.difficulty,
+                "source": self.config.source,
+                "simulation_budget": self.config.simulation_budget,
+            },
+            initial_state=initial_state,
+            final_state=state,
+            move_objects=move_objects,
         )
 
 
@@ -437,11 +529,12 @@ class GNNSelfplayRunner(SelfplayRunner):
         self._temperature = 1.0
 
     def setup(self) -> None:
-        # Don't call super().setup() which tries to use use_neural_net attribute
-        # Instead just do the logging ourselves
+        # Custom setup logging
         logger.info(f"GNNSelfplayRunner starting: {self.config.board_type}_{self.config.num_players}p")
         logger.info(f"  Engine: gnn ({self._model_tier})")
         logger.info(f"  Target games: {self.config.num_games}")
+        # Open database if configured
+        self._open_database()
 
         import torch
         from ..ai.neural_net.model_factory import create_model_for_board, HAS_GNN
@@ -498,8 +591,10 @@ class GNNSelfplayRunner(SelfplayRunner):
         game_id = str(uuid.uuid4())
 
         board_type = BoardType(self.config.board_type)
-        state = create_initial_state(board_type, self.config.num_players)
+        initial_state = create_initial_state(board_type, self.config.num_players)
+        state = initial_state
         moves = []
+        move_objects = []  # Actual Move objects for DB storage
         samples = []
         device = next(self._model.parameters()).device
         is_hex = board_type.value in ("hexagonal", "hex8")
@@ -560,8 +655,10 @@ class GNNSelfplayRunner(SelfplayRunner):
                     "player": state.current_player,
                 })
 
+            current_player = state.current_player
             state = GameEngine.apply_move(state, move)
-            moves.append({"player": state.current_player, "move": str(move)})
+            moves.append({"player": current_player, "move": str(move)})
+            move_objects.append(move)
 
         duration_ms = (time.time() - start_time) * 1000
 
@@ -572,7 +669,18 @@ class GNNSelfplayRunner(SelfplayRunner):
             duration_ms=duration_ms,
             moves=moves,
             samples=samples,
-            metadata={"engine": f"gnn_{self._model_tier}"},
+            metadata={
+                "engine": f"gnn_{self._model_tier}",
+                "engine_mode": f"gnn_{self._model_tier}",
+                "board_type": self.config.board_type,
+                "num_players": self.config.num_players,
+                "difficulty": self.config.difficulty,
+                "source": self.config.source,
+                "model_tier": self._model_tier,
+            },
+            initial_state=initial_state,
+            final_state=state,
+            move_objects=move_objects,
         )
 
 

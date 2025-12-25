@@ -7,6 +7,7 @@ These tests verify:
 4. Difficulty tier integration works correctly
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +16,10 @@ import pytest
 import torch
 
 from app.models import AIConfig
+
+# Check if GNN model exists for tests that require it
+GNN_MODEL_PATH = Path("models/gnn_hex8_2p/gnn_policy_best.pt")
+HAS_GNN_MODEL = GNN_MODEL_PATH.exists()
 from app.ai.base import BaseAI
 from app.ai.canonical_move_encoding import encode_move_for_board
 from app.ai.neural_net.constants import get_policy_size_for_board
@@ -325,6 +330,7 @@ class TestFactoryIntegration:
         assert isinstance(ai, BaseAI)
         assert ai.player_number == 1
 
+    @pytest.mark.skipif(not HAS_GNN_MODEL, reason="GNN model not available")
     def test_factory_tournament_gnn(self):
         """AIFactory.create_for_tournament should work with 'gnn' agent_id."""
         from app.ai.factory import AIFactory
@@ -339,6 +345,7 @@ class TestFactoryIntegration:
 
         assert isinstance(ai, BaseAI)
 
+    @pytest.mark.skipif(not HAS_GNN_MODEL, reason="GNN model not available")
     def test_factory_tournament_hybrid(self):
         """AIFactory.create_for_tournament should work with 'hybrid' agent_id."""
         from app.ai.factory import AIFactory

@@ -45,7 +45,8 @@ logger = logging.getLogger(__name__)
 # - v9: Added quality_score and quality_category columns for training data prioritization
 # - v10: Added move_probs column for storing soft policy targets from MCTS search
 # - v11: Added search_stats_json column for rich training data (Q-values, uncertainty, etc.)
-SCHEMA_VERSION = 11
+# - v12: Added engine_mode column for fast AI type filtering/analysis
+SCHEMA_VERSION = 12
 
 # Default snapshot interval (every N moves)
 DEFAULT_SNAPSHOT_INTERVAL = 20
@@ -89,7 +90,9 @@ CREATE TABLE IF NOT EXISTS games (
     metadata_json TEXT,
     -- v9 additions: quality scoring for training data prioritization
     quality_score REAL,
-    quality_category TEXT
+    quality_category TEXT,
+    -- v12 additions: engine_mode for fast AI type filtering
+    engine_mode TEXT
 );
 
 -- Indexes on games
@@ -105,6 +108,9 @@ CREATE INDEX IF NOT EXISTS idx_games_board_created ON games(board_type, created_
 -- Quality scoring indexes for training data prioritization (v9)
 CREATE INDEX IF NOT EXISTS idx_games_quality ON games(quality_score DESC);
 CREATE INDEX IF NOT EXISTS idx_games_quality_board ON games(board_type, quality_score DESC);
+-- Engine mode index for AI type filtering (v12)
+CREATE INDEX IF NOT EXISTS idx_games_engine_mode ON games(engine_mode);
+CREATE INDEX IF NOT EXISTS idx_games_board_engine ON games(board_type, engine_mode);
 
 -- Per-player metadata
 CREATE TABLE IF NOT EXISTS game_players (
@@ -1094,6 +1100,48 @@ class GameReplayDB:
 
         self._set_schema_version(conn, 11)
         logger.info("Migration to v11 complete")
+
+    def _migrate_v11_to_v12(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v11 to v12.
+
+        Adds:
+        - engine_mode column to games table for fast AI type filtering
+        - Backfills engine_mode from metadata_json where available
+        """
+        logger.info("Migrating schema from v11 to v12")
+
+        # Add engine_mode column to games
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN engine_mode TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+
+        # Backfill engine_mode from metadata_json where available
+        try:
+            conn.execute("""
+                UPDATE games
+                SET engine_mode = json_extract(metadata_json, '$.engine_mode')
+                WHERE metadata_json IS NOT NULL
+                  AND json_extract(metadata_json, '$.engine_mode') IS NOT NULL
+                  AND engine_mode IS NULL
+            """)
+            backfilled = conn.execute("SELECT changes()").fetchone()[0]
+            if backfilled > 0:
+                logger.info(f"Backfilled engine_mode for {backfilled} games from metadata_json")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not backfill engine_mode: {e}")
+
+        # Create indexes
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_games_engine_mode ON games(engine_mode)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_games_board_engine ON games(board_type, engine_mode)")
+        except sqlite3.OperationalError as e:
+            if "already exists" not in str(e).lower():
+                raise
+
+        self._set_schema_version(conn, 12)
+        logger.info("Migration to v12 complete")
 
     # =========================================================================
     # Write Operations
@@ -2836,6 +2884,7 @@ class GameReplayDB:
 
         if existing:
             # Update existing record (preserves FK relationships)
+            engine_mode = metadata.get("engine_mode")
             conn.execute(
                 """
                 UPDATE games SET
@@ -2849,7 +2898,8 @@ class GameReplayDB:
                     source = ?,
                     metadata_json = ?,
                     quality_score = ?,
-                    quality_category = ?
+                    quality_category = ?,
+                    engine_mode = ?
                 WHERE game_id = ?
                 """,
                 (
@@ -2864,19 +2914,21 @@ class GameReplayDB:
                     metadata_json,
                     quality_score,
                     quality_category,
+                    engine_mode,
                     game_id,
                 ),
             )
         else:
             # Insert new game record
+            engine_mode = metadata.get("engine_mode")
             conn.execute(
                 """
                 INSERT INTO games
                 (game_id, board_type, num_players, rng_seed, created_at, completed_at,
                  game_status, winner, termination_reason, total_moves, total_turns,
                  duration_ms, source, schema_version, metadata_json,
-                 quality_score, quality_category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 quality_score, quality_category, engine_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_id,
@@ -2896,6 +2948,7 @@ class GameReplayDB:
                     metadata_json,
                     quality_score,
                     quality_category,
+                    engine_mode,
                 ),
             )
 

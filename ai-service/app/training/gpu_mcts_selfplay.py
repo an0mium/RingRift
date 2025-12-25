@@ -66,6 +66,9 @@ class GPUMCTSSelfplayConfig:
     record_state_snapshots: bool = True  # Store full states
     sample_every: int = 1                # Sample every N moves
 
+    # Metadata for training data provenance
+    engine_mode: str = "gumbel-mcts"     # Engine mode identifier
+
 
 @dataclass
 class SelfplaySample:
@@ -512,6 +515,7 @@ class GPUMCTSSelfplayRunner:
             in_channels=np.asarray(features.shape[1]),
             export_version=np.asarray("2.1"),
             source=np.asarray("gpu_mcts_selfplay"),
+            engine_mode=np.asarray(self.config.engine_mode),
         )
 
         logger.info(f"Exported {len(all_samples)} samples to {output_path}")

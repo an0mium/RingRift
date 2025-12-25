@@ -424,6 +424,177 @@ class ClusterDataSyncDaemon:
 
 
 # =============================================================================
+# Training Node Watcher
+# =============================================================================
+
+class TrainingNodeWatcher:
+    """Detects active training and triggers priority sync.
+
+    This class monitors for training activity across the cluster and
+    ensures training nodes have fresh data before training starts.
+
+    Features:
+    - Detects training node via process monitoring
+    - Triggers priority sync when training detected
+    - Integrates with freshness checker for pre-training validation
+    """
+
+    def __init__(self):
+        self._running = False
+        self._watch_task: asyncio.Task | None = None
+        self._training_nodes: set[str] = set()
+        self._last_check_time: float = 0.0
+
+    async def start(self, check_interval: float = 30.0) -> None:
+        """Start watching for training activity.
+
+        Args:
+            check_interval: Seconds between checks
+        """
+        self._running = True
+        self._watch_task = asyncio.create_task(
+            self._watch_loop(check_interval)
+        )
+        logger.info("TrainingNodeWatcher started")
+
+    async def stop(self) -> None:
+        """Stop watching."""
+        self._running = False
+        if self._watch_task:
+            self._watch_task.cancel()
+            try:
+                await self._watch_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("TrainingNodeWatcher stopped")
+
+    async def _watch_loop(self, check_interval: float) -> None:
+        """Main watch loop."""
+        while self._running:
+            try:
+                await self._check_training_activity()
+            except Exception as e:
+                logger.error(f"Training watch error: {e}")
+
+            await asyncio.sleep(check_interval)
+
+    async def _check_training_activity(self) -> None:
+        """Check for training activity across cluster."""
+        self._last_check_time = time.time()
+
+        # Get cluster status
+        status = get_p2p_status()
+        if not status:
+            return
+
+        training_detected = set()
+
+        # Check peers for training activity
+        peers = status.get("peers", {})
+        for node_id, info in peers.items():
+            # Check for training process indicators
+            running_jobs = info.get("running_jobs", [])
+            for job in running_jobs:
+                job_type = job.get("type", "")
+                if "train" in job_type.lower():
+                    training_detected.add(node_id)
+                    break
+
+            # Also check process list if available
+            processes = info.get("processes", [])
+            for proc in processes:
+                if "train" in str(proc).lower():
+                    training_detected.add(node_id)
+                    break
+
+        # Detect new training nodes
+        new_training = training_detected - self._training_nodes
+        if new_training:
+            logger.info(f"New training detected on nodes: {new_training}")
+            await self._on_training_detected(new_training)
+
+        self._training_nodes = training_detected
+
+    async def _on_training_detected(self, nodes: set[str]) -> None:
+        """Handle detection of new training activity.
+
+        Triggers priority sync to ensure training nodes have fresh data.
+        """
+        try:
+            daemon = get_cluster_data_sync_daemon()
+            if daemon.is_running:
+                logger.info(f"Triggering priority sync for training nodes: {nodes}")
+                await daemon.trigger_sync()
+        except Exception as e:
+            logger.error(f"Failed to trigger sync for training: {e}")
+
+    def detect_local_training(self) -> bool:
+        """Check if training is running locally.
+
+        Returns:
+            True if local training detected
+        """
+        import subprocess
+
+        try:
+            # Check for training processes
+            result = subprocess.run(
+                ["pgrep", "-f", "app.training.train"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    async def trigger_priority_sync(self, node_id: str) -> bool:
+        """Trigger priority sync for a specific training node.
+
+        Args:
+            node_id: Node that needs priority sync
+
+        Returns:
+            True if sync was triggered
+        """
+        try:
+            daemon = get_cluster_data_sync_daemon()
+            if daemon.is_running:
+                logger.info(f"Priority sync requested for training node: {node_id}")
+                await daemon.trigger_sync()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Priority sync failed: {e}")
+            return False
+
+    def get_training_nodes(self) -> set[str]:
+        """Get set of currently detected training nodes."""
+        return self._training_nodes.copy()
+
+    @property
+    def stats(self) -> dict[str, Any]:
+        """Get watcher statistics."""
+        return {
+            "running": self._running,
+            "training_nodes": list(self._training_nodes),
+            "last_check_time": self._last_check_time,
+        }
+
+
+# Singleton watcher
+_training_watcher: TrainingNodeWatcher | None = None
+
+
+def get_training_node_watcher() -> TrainingNodeWatcher:
+    """Get the singleton TrainingNodeWatcher instance."""
+    global _training_watcher
+    if _training_watcher is None:
+        _training_watcher = TrainingNodeWatcher()
+    return _training_watcher
+
+
+# =============================================================================
 # Singleton Access
 # =============================================================================
 

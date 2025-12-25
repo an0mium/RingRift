@@ -13,8 +13,8 @@ TEMP_DIR="/tmp/vast_sync_$$"
 LOG_FILE="/var/log/ringrift/vast_sync.log"
 
 if [ -z "${RINGRIFT_LEGACY_SYNC:-}" ]; then
-    echo "[sync_vast_data] Deprecated; use cluster_sync_coordinator.py --mode full"
-    python3 "$SCRIPT_DIR/cluster_sync_coordinator.py" --mode full
+    echo "[sync_vast_data] Deprecated; use unified_data_sync.py --once"
+    python3 "$SCRIPT_DIR/unified_data_sync.py" --once
     exit $?
 fi
 

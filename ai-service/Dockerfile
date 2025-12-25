@@ -21,7 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# torch must be installed first because torch-scatter/torch-sparse import it during setup
+RUN pip install --no-cache-dir torch==2.9.1 && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/

@@ -448,7 +448,7 @@ Investigation found that `ACTIVE_NO_CANDIDATE_MOVES` violations are **expected b
 
 #### Structured End-Explanation Model
 
-- [x] Author `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md` defining the payload (outcome type, reason code, rules citations, teaching tags, telemetry)
+- [x] Author `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md` defining the payload (outcome type, reason code, rules citations, teaching tags, telemetry)
 - [x] Implement mapping from engine outcomes + `weirdStateReasons` to the new payload in the shared layer with unit tests
 - [x] Wire `GameHUD` and `VictoryModal` to render the structured explanation and emit matching telemetry
 
@@ -708,7 +708,7 @@ Results in `ai-service/logs/lps_ablation/lps_ablation_*.json`
 - [ ] `docs/planning/STRATEGIC_ROADMAP.md` – Phased roadmap
 - [ ] `KNOWN_ISSUES.md` – P0/P1 issues
 - [ ] `tests/README.md` – Test categories
-- [ ] `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md` – Structured end-explanation model
+- [ ] `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md` – Structured end-explanation model
 - [ ] `docs/ux/UX_RULES_CONCEPTS_INDEX.md` – Rules concepts index and cross-links
 - [ ] `docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md` – Telemetry-driven rules UX iteration spec
 - [ ] `ai-service/TRAINING_DATA_REGISTRY.md` – Canonical vs legacy DB status after new gates

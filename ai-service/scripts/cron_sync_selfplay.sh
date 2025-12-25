@@ -17,6 +17,6 @@ echo $$ > "$LOCKFILE"
 trap "rm -f $LOCKFILE" EXIT
 
 echo "$(date): Starting selfplay sync..."
-echo "$(date): Deprecated path; delegating to cluster_sync_coordinator.py --mode games"
-python3 scripts/cluster_sync_coordinator.py --mode games || echo "$(date): Sync failed with code $?"
+# Use unified_data_sync.py --once for one-shot sync (replaces deprecated cluster_sync_coordinator.py)
+python3 scripts/unified_data_sync.py --once || echo "$(date): Sync failed with code $?"
 echo "$(date): Sync completed"

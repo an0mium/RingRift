@@ -18,8 +18,8 @@ SCRIPT_DIR="/Users/armand/Development/RingRift/ai-service/scripts"
 LOG_FILE="/tmp/ringrift_sync.log"
 
 if [ -z "${RINGRIFT_LEGACY_SYNC:-}" ]; then
-    echo "[local_data_sync] Deprecated; use cluster_sync_coordinator.py --mode full"
-    python3 "$SCRIPT_DIR/cluster_sync_coordinator.py" --mode full
+    echo "[local_data_sync] Deprecated; use unified_data_sync.py --once"
+    python3 "$SCRIPT_DIR/unified_data_sync.py" --once
     exit $?
 fi
 

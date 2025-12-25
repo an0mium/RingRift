@@ -262,11 +262,15 @@ class TestLambdaManager:
     async def test_close_session(self):
         """Can close HTTP session."""
         manager = LambdaManager(api_key="test")
-        manager._session = MagicMock()
-        manager._session.closed = False
+
+        # Create a mock that behaves like an async session
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_session.close = AsyncMock()
+        manager._session = mock_session
 
         await manager.close()
-        manager._session.close.assert_called_once()
+        mock_session.close.assert_called_once()
 
 
 class TestLambdaManagerSSH:

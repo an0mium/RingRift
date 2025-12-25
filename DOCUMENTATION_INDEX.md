@@ -89,7 +89,7 @@ Engine and system architecture documentation.
 | [STATE_MACHINES.md](docs/architecture/STATE_MACHINES.md)                                                   | Session/AI/choice state machines         |
 | [TOPOLOGY_MODES.md](docs/architecture/TOPOLOGY_MODES.md)                                                   | Board topology design                    |
 | [ORCHESTRATOR_ROLLOUT_PLAN.md](docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md)                             | Orchestrator migration plan              |
-| [ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md](docs/architecture/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)   | Migration completion                     |
+| [FSM_MIGRATION_STATUS_2025_12.md](docs/architecture/FSM_MIGRATION_STATUS_2025_12.md)                       | Migration status snapshot                |
 | [SHARED_ENGINE_CONSOLIDATION_PLAN.md](docs/architecture/SHARED_ENGINE_CONSOLIDATION_PLAN.md)               | Engine consolidation design              |
 | [CLIENT_SANDBOX_ENGINE_REFACTOR_PROPOSAL.md](docs/architecture/CLIENT_SANDBOX_ENGINE_REFACTOR_PROPOSAL.md) | Deferred refactor proposal (not started) |
 | [NEURAL_NET_INTEGRATION_DESIGN.md](docs/architecture/NEURAL_NET_INTEGRATION_DESIGN.md)                     | Neural network integration design        |
@@ -377,12 +377,11 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 
 ### Analysis & Status Reports
 
-| Document                                                                                                         | Purpose                         |
-| ---------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| [ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md](ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md) | Latest selfplay analysis        |
-| [ai-service/docs/TRAINING_PIPELINE_STATUS_2025_12_12.md](ai-service/docs/TRAINING_PIPELINE_STATUS_2025_12_12.md) | Training pipeline status update |
-| [ai-service/AI_ASSESSMENT_REPORT.md](ai-service/AI_ASSESSMENT_REPORT.md)                                         | AI service technical assessment |
-| [ai-service/AI_IMPROVEMENT_PLAN.md](ai-service/AI_IMPROVEMENT_PLAN.md)                                           | AI service improvement roadmap  |
+| Document                                                                                                                                                       | Purpose                         |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| [ai-service/docs/archive/status_reports/TRAINING_PIPELINE_STATUS_2025_12_12.md](ai-service/docs/archive/status_reports/TRAINING_PIPELINE_STATUS_2025_12_12.md) | Training pipeline status update |
+| [ai-service/AI_ASSESSMENT_REPORT.md](ai-service/AI_ASSESSMENT_REPORT.md)                                                                                       | AI service technical assessment |
+| [ai-service/AI_IMPROVEMENT_PLAN.md](ai-service/AI_IMPROVEMENT_PLAN.md)                                                                                         | AI service improvement roadmap  |
 
 ---
 
@@ -396,7 +395,7 @@ RingRift supports multiple deployment and test environments:
 - **Cloud-hosted staging and load-testing environments (optional)** – Operators may provision remote instances on AWS EC2/ECS or another cloud provider to run:
   - The RingRift backend/API and WebSocket endpoints for staging (for example `https://staging.example.com`, `wss://staging.example.com`).
   - One or more load-generator instances (for example k6 workers or equivalent) that execute the same scenarios described in [tests/load/README.md](tests/load/README.md) against a configurable base URL.
-  - AI training and self-play infrastructure that uses cloud storage and queues, as outlined in [ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md).
+  - AI training and self-play infrastructure that uses cloud storage and queues, as outlined in [ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md).
 
 These cloud environments are deployment-specific:
 
@@ -408,7 +407,7 @@ Key reference documents:
 - [docs/operations/STAGING_ENVIRONMENT.md](docs/operations/STAGING_ENVIRONMENT.md) – Staging environment topology, Docker-based setup, and how load tests attach to staging.
 - [docs/testing/BASELINE_CAPACITY.md](docs/testing/BASELINE_CAPACITY.md) – Baseline capacity scenarios and how to execute and record them.
 - [docs/operations/SLO_VERIFICATION.md](docs/operations/SLO_VERIFICATION.md) – SLO verification pipeline that consumes k6 JSON outputs from any environment.
-- [ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) – Cloud training and distributed self-play infrastructure plan (illustrative, not required for all deployments).
+- [ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) – Cloud training and distributed self-play infrastructure plan (illustrative, not required for all deployments).
 
 ---
 

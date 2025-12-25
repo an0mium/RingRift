@@ -28,11 +28,11 @@ This document audits the current teaching coverage for the six high-risk rules c
 
 Coverage was assessed by reviewing:
 
-- [`TeachingOverlay.tsx`](../src/client/components/TeachingOverlay.tsx:38) – 11 teaching topics with descriptions and tips
-- [`GameHUD.tsx`](../src/client/components/GameHUD.tsx:364) – Weird-state banners, phase help buttons, victory tooltips
-- [`VictoryModal.tsx`](../src/client/components/VictoryModal.tsx:606) – "What happened?" links and explanation text
-- [`teachingScenarios.ts`](../src/shared/teaching/teachingScenarios.ts:51) – 6 scenario metadata entries
-- [`weirdStateReasons.ts`](../src/shared/engine/weirdStateReasons.ts:8) – 6 reason codes with teaching topic mappings
+- [`TeachingOverlay.tsx`](../../src/client/components/TeachingOverlay.tsx:38) – 11 teaching topics with descriptions and tips
+- [`GameHUD.tsx`](../../src/client/components/GameHUD.tsx:364) – Weird-state banners, phase help buttons, victory tooltips
+- [`VictoryModal.tsx`](../../src/client/components/VictoryModal.tsx:606) – "What happened?" links and explanation text
+- [`teachingScenarios.ts`](../../src/shared/teaching/teachingScenarios.ts:51) – 6 scenario metadata entries
+- [`weirdStateReasons.ts`](../../src/shared/engine/weirdStateReasons.ts:8) – 6 reason codes with teaching topic mappings
 - [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1) – Planned teaching flows (8 flows, ~24 steps)
 
 ### Coverage Level Definitions
@@ -65,13 +65,13 @@ Coverage was assessed by reviewing:
 
 **Current Coverage:**
 
-- ✅ TeachingOverlay topics: [`active_no_moves`](../src/client/components/TeachingOverlay.tsx:111) and [`forced_elimination`](../src/client/components/TeachingOverlay.tsx:123) with UX_RULES_COPY_SPEC-aligned descriptions
-- ✅ Teaching scenarios: 4 steps in `fe_loop_intro` flow ([`teachingScenarios.ts:51-122`](../src/shared/teaching/teachingScenarios.ts:51))
+- ✅ TeachingOverlay topics: [`active_no_moves`](../../src/client/components/TeachingOverlay.tsx:111) and [`forced_elimination`](../../src/client/components/TeachingOverlay.tsx:123) with UX_RULES_COPY_SPEC-aligned descriptions
+- ✅ Teaching scenarios: 4 steps in `fe_loop_intro` flow ([`teachingScenarios.ts:51-122`](../../src/shared/teaching/teachingScenarios.ts:51))
   - Step 1-2: `showInTeachingOverlay=true`, `showInSandboxPresets=true`, `showInTutorialCarousel=true`
   - Step 3-4: `showInTeachingOverlay=true` only
-- ✅ [`GameHUD.tsx`](../src/client/components/GameHUD.tsx:1454) WeirdStateBanner for `active-no-moves-*` and `forced-elimination` types
-- ✅ [`VictoryModal.tsx`](../src/client/components/VictoryModal.tsx:727) "What happened?" link for FE-related endings
-- ✅ Reason codes: `ANM_MOVEMENT_FE_BLOCKED`, `FE_SEQUENCE_CURRENT_PLAYER` ([`weirdStateReasons.ts:8-14`](../src/shared/engine/weirdStateReasons.ts:8))
+- ✅ [`GameHUD.tsx`](../../src/client/components/GameHUD.tsx:1454) WeirdStateBanner for `active-no-moves-*` and `forced-elimination` types
+- ✅ [`VictoryModal.tsx`](../../src/client/components/VictoryModal.tsx:727) "What happened?" link for FE-related endings
+- ✅ Reason codes: `ANM_MOVEMENT_FE_BLOCKED`, `FE_SEQUENCE_CURRENT_PLAYER` ([`weirdStateReasons.ts:8-14`](../../src/shared/engine/weirdStateReasons.ts:8))
 - ✅ TOPIC_RULES_CONCEPTS mapping: `active_no_moves` → `anm_forced_elimination`
 
 **Gaps:**
@@ -104,8 +104,8 @@ Coverage was assessed by reviewing:
 
 **Current Coverage:**
 
-- ✅ TeachingOverlay topic: [`victory_stalemate`](../src/client/components/TeachingOverlay.tsx:157) covers stalemate + LPS (combined)
-- ✅ Teaching scenario: 1 step (`structural_stalemate.step_1`) – guided, intermediate ([`teachingScenarios.ts:124-140`](../src/shared/teaching/teachingScenarios.ts:124))
+- ✅ TeachingOverlay topic: [`victory_stalemate`](../../src/client/components/TeachingOverlay.tsx:157) covers stalemate + LPS (combined)
+- ✅ Teaching scenario: 1 step (`structural_stalemate.step_1`) – guided, intermediate ([`teachingScenarios.ts:124-140`](../../src/shared/teaching/teachingScenarios.ts:124))
 - ✅ VictoryModal "What happened?" link for stalemate endings
 - ✅ Reason code: `STRUCTURAL_STALEMATE_TIEBREAK`
 - ❌ Step 1 has `showInSandboxPresets=false`, `showInTutorialCarousel=false`
@@ -146,9 +146,9 @@ Coverage was assessed by reviewing:
 
 **Current Coverage:**
 
-- ✅ TeachingOverlay topic: [`territory`](../src/client/components/TeachingOverlay.tsx:99) with tips mentioning mini-regions
-- ✅ Teaching scenario: 1 step (`mini_region.step_3`) – interactive, advanced ([`teachingScenarios.ts:141-161`](../src/shared/teaching/teachingScenarios.ts:141))
-- ✅ GameHUD territory processing help button ([`GameHUD.tsx:1760`](../src/client/components/GameHUD.tsx:1760))
+- ✅ TeachingOverlay topic: [`territory`](../../src/client/components/TeachingOverlay.tsx:99) with tips mentioning mini-regions
+- ✅ Teaching scenario: 1 step (`mini_region.step_3`) – interactive, advanced ([`teachingScenarios.ts:141-161`](../../src/shared/teaching/teachingScenarios.ts:141))
+- ✅ GameHUD territory processing help button ([`GameHUD.tsx:1760`](../../src/client/components/GameHUD.tsx:1760))
 - ✅ TOPIC_RULES_CONCEPTS: `territory` → `territory_mini_region`
 - ❌ Steps 1-2 of `mini_region_intro` flow not implemented
 - ❌ Step 3 marked `showInSandboxPresets=false` (TODO comment in code)
@@ -190,8 +190,8 @@ Coverage was assessed by reviewing:
 
 **Current Coverage:**
 
-- ✅ TeachingOverlay topic: [`chain_capture`](../src/client/components/TeachingOverlay.tsx:75) with tips about mandatory continuation
-- ✅ GameHUD phase help for `chain_capture` phase ([`GameHUD.tsx:1243`](../src/client/components/GameHUD.tsx:1243))
+- ✅ TeachingOverlay topic: [`chain_capture`](../../src/client/components/TeachingOverlay.tsx:75) with tips about mandatory continuation
+- ✅ GameHUD phase help for `chain_capture` phase ([`GameHUD.tsx:1243`](../../src/client/components/GameHUD.tsx:1243))
 - ❌ No teaching scenarios in `teachingScenarios.ts` for `capture_chain_mandatory` flow
 - ❌ [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:342) specifies 3 steps; none implemented
 
@@ -231,10 +231,10 @@ Coverage was assessed by reviewing:
 
 **Current Coverage:**
 
-- ✅ TeachingOverlay topic: [`victory_stalemate`](../src/client/components/TeachingOverlay.tsx:157) covers LPS (combined with stalemate)
+- ✅ TeachingOverlay topic: [`victory_stalemate`](../../src/client/components/TeachingOverlay.tsx:157) covers LPS (combined with stalemate)
 - ✅ Reason code: `LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS`
-- ✅ VictoryModal explanation for LPS endings ([`VictoryModal.tsx:607`](../src/client/components/VictoryModal.tsx:607))
-- ✅ GameHUD VictoryConditionsPanel tooltip for LPS ([`GameHUD.tsx:1073`](../src/client/components/GameHUD.tsx:1073))
+- ✅ VictoryModal explanation for LPS endings ([`VictoryModal.tsx:607`](../../src/client/components/VictoryModal.tsx:607))
+- ✅ GameHUD VictoryConditionsPanel tooltip for LPS ([`GameHUD.tsx:1073`](../../src/client/components/GameHUD.tsx:1073))
 - ❌ No teaching scenarios in `teachingScenarios.ts` for `last_player_standing_intro` flow
 - ❌ [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:460) specifies 3 steps; none implemented
 
@@ -327,9 +327,9 @@ Coverage was assessed by reviewing:
 
 **Current Coverage:**
 
-- ✅ TeachingOverlay topics: [`line_bonus`](../src/client/components/TeachingOverlay.tsx:87) and [`territory`](../src/client/components/TeachingOverlay.tsx:99) separately
+- ✅ TeachingOverlay topics: [`line_bonus`](../../src/client/components/TeachingOverlay.tsx:87) and [`territory`](../../src/client/components/TeachingOverlay.tsx:99) separately
 - ✅ Phase indicators in GameHUD show current phase
-- ✅ Helper tests exist ([`lineDecisionHelpers.shared.test.ts`](../tests/unit/lineDecisionHelpers.shared.test.ts:23), [`territoryDecisionHelpers.shared.test.ts`](../tests/unit/territoryDecisionHelpers.shared.test.ts:76))
+- ✅ Helper tests exist ([`lineDecisionHelpers.shared.test.ts`](../../tests/unit/lineDecisionHelpers.shared.test.ts:23), [`territoryDecisionHelpers.shared.test.ts`](../../tests/unit/territoryDecisionHelpers.shared.test.ts:76))
 - ❌ No teaching scenarios for `line_vs_territory_blocking` flow
 - ❌ [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:292) specifies 3 steps; none implemented
 

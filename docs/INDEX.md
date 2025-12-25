@@ -57,13 +57,13 @@ This index provides navigation and status tracking for all project documentation
 
 ### Primary Docs
 
-| Document                                   | Purpose                | Status |
-| ------------------------------------------ | ---------------------- | ------ |
-| `ai-service/README.md`                     | AI service overview    | Active |
-| `ai-service/docs/TRAINING_FEATURES.md`     | Training feature guide | Active |
-| `ai-service/docs/CONSOLIDATION_ROADMAP.md` | Consolidation progress | Active |
-| `ai-service/docs/GPU_PIPELINE_ROADMAP.md`  | GPU training pipeline  | Active |
-| `ai-service/docs/DISTRIBUTED_SELFPLAY.md`  | Distributed training   | Active |
+| Document                                           | Purpose                | Status |
+| -------------------------------------------------- | ---------------------- | ------ |
+| `ai-service/README.md`                             | AI service overview    | Active |
+| `ai-service/docs/training/TRAINING_FEATURES.md`    | Training feature guide | Active |
+| `ai-service/docs/CONSOLIDATION_ROADMAP.md`         | Consolidation progress | Active |
+| `ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md` | GPU training pipeline  | Active |
+| `ai-service/docs/training/DISTRIBUTED_SELFPLAY.md` | Distributed training   | Active |
 
 ### Human Calibration
 
@@ -85,14 +85,16 @@ This index provides navigation and status tracking for all project documentation
 
 ## UX & Teaching
 
-| Document                                    | Purpose                       | Status  |
-| ------------------------------------------- | ----------------------------- | ------- |
-| `docs/ux/RULES_QUICK_REFERENCE_DIAGRAMS.md` | ASCII rule diagrams           | **New** |
-| `docs/ux/UX_RULES_TEACHING_SCENARIOS.md`    | Teaching scenario definitions | Active  |
-| `docs/ux/UX_RULES_COPY_SPEC.md`             | UI copy specifications        | Active  |
-| `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`     | Edge case UX handling         | Active  |
-| `docs/ux/UX_RULES_TELEMETRY_SPEC.md`        | UX telemetry design           | Active  |
-| `docs/getting-started/AUDIENCE.md`          | Target audience positioning   | Active  |
+| Document                                     | Purpose                       | Status  |
+| -------------------------------------------- | ----------------------------- | ------- |
+| `docs/ux/RULES_QUICK_REFERENCE_DIAGRAMS.md`  | ASCII rule diagrams           | **New** |
+| `docs/ux/UX_RULES_CONCEPTS_INDEX.md`         | Rules concepts navigation map | Active  |
+| `docs/ux/UX_RULES_TEACHING_SCENARIOS.md`     | Teaching scenario definitions | Active  |
+| `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md` | Game-end explanation model    | Active  |
+| `docs/ux/UX_RULES_COPY_SPEC.md`              | UI copy specifications        | Active  |
+| `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`      | Edge case UX handling         | Active  |
+| `docs/ux/UX_RULES_TELEMETRY_SPEC.md`         | UX telemetry design           | Active  |
+| `docs/getting-started/AUDIENCE.md`           | Target audience positioning   | Active  |
 
 ---
 
@@ -140,14 +142,14 @@ See `docs/runbooks/` for 25+ specific runbooks covering:
 
 ## Planning & Status
 
-| Document                                       | Purpose               | Status     |
-| ---------------------------------------------- | --------------------- | ---------- |
-| `docs/COMPREHENSIVE_ACTION_PLAN_2025_12_17.md` | Current action plan   | **Active** |
-| `docs/archive/historical/CURRENT_STATE.md`     | Project state summary | Reference  |
-| `PROJECT_GOALS.md`                             | High-level goals      | Active     |
-| `TODO.md`                                      | Active TODO list      | Active     |
-| `KNOWN_ISSUES.md`                              | Known issues tracker  | Active     |
-| `docs/production/RELEASE_NOTES_v0.1.0-beta.md` | Release notes draft   | Active     |
+| Document                                              | Purpose               | Status     |
+| ----------------------------------------------------- | --------------------- | ---------- |
+| `docs/COMPREHENSIVE_ACTION_PLAN_2025_12_17.md`        | Current action plan   | **Active** |
+| `docs/archive/historical/CURRENT_STATE_ASSESSMENT.md` | Project state summary | Reference  |
+| `PROJECT_GOALS.md`                                    | High-level goals      | Active     |
+| `TODO.md`                                             | Active TODO list      | Active     |
+| `KNOWN_ISSUES.md`                                     | Known issues tracker  | Active     |
+| `docs/production/RELEASE_NOTES_v0.1.0-beta.md`        | Release notes draft   | Active     |
 
 ---
 

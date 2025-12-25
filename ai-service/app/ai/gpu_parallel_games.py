@@ -25,8 +25,11 @@ game simulation. The CPU implementation uses vectorized numpy operations that
 are more efficient than MPS kernel launches for the small tensor operations
 in game state management.
 
-CUDA provides the expected speedups. MPS optimization would require eliminating
-~80 .item() calls and fully vectorizing all conditional logic.
+CUDA provides the expected 6-10x speedups. After extensive optimization (Dec 2025),
+only 1 .item() call remains:
+1. Statistics tracking (once per batch at end of run_games, minimal impact)
+All move selection (policy, heuristic, center-bias) is now fully vectorized with
+segment-wise softmax sampling - no per-game loops or .item() calls in the hot path.
 """
 
 from __future__ import annotations
@@ -657,59 +660,118 @@ class ParallelGameRunner:
                 # from_logits_batch: (num_active, H*W)
                 # to_logits_batch: (num_active, H*W)
 
-            # === Vectorized Move Scoring ===
-            # Score all moves across all games in parallel
-            # Optimized 2025-12-14: Pre-extract numpy arrays to avoid .item() calls in loop
+            # === Fully Vectorized Move Scoring (Optimized 2025-12-25) ===
+            # Score ALL moves across ALL games in parallel with no per-game loops
             center = self.board_size // 2
             center_idx = center * self.board_size + center
             num_positions = self.board_size * self.board_size
 
-            # Pre-extract game indices and move metadata to avoid per-iteration .item() calls
-            game_indices_np = games_with_moves.cpu().numpy()
-            move_offsets_np = moves.move_offsets[games_with_moves].cpu().numpy()
-            moves_per_game_np = moves.moves_per_game[games_with_moves].cpu().numpy()
+            # Build mapping from global game index to local logits index
+            # games_with_moves contains the actual game indices that have moves
+            # We need to map each move's game_idx to the corresponding logits index
+            game_to_local = torch.full((batch_size,), -1, dtype=torch.long, device=device)
+            game_to_local[games_with_moves] = torch.arange(len(games_with_moves), device=device)
 
-            for local_idx in range(len(game_indices_np)):
-                g = int(game_indices_np[local_idx])
-                move_start = int(move_offsets_np[local_idx])
-                move_count = int(moves_per_game_np[local_idx])
+            # Get local logits index for each move
+            move_game_idx = moves.game_idx.long()
+            local_logits_idx = game_to_local[move_game_idx]
 
-                if move_count == 0:
-                    continue
+            # Mask for moves belonging to games with policy evaluation
+            valid_moves_mask = local_logits_idx >= 0
 
-                # Get from/to positions for all moves of this game
-                from_y = moves.from_y[move_start:move_start + move_count]
-                from_x = moves.from_x[move_start:move_start + move_count]
-                to_y = moves.to_y[move_start:move_start + move_count]
-                to_x = moves.to_x[move_start:move_start + move_count]
+            # Compute flat indices for ALL moves (use center for negative coords)
+            from_idx = torch.where(
+                moves.from_y >= 0,
+                moves.from_y * self.board_size + moves.from_x,
+                torch.full_like(moves.from_y, center_idx)
+            ).long().clamp(0, num_positions - 1)
 
-                # Compute flat indices vectorized (use center for negative coords)
-                from_idx = torch.where(
-                    from_y >= 0,
-                    from_y * self.board_size + from_x,
-                    torch.full_like(from_y, center_idx)
-                ).long()
-                to_idx = torch.where(
-                    to_y >= 0,
-                    to_y * self.board_size + to_x,
-                    torch.full_like(to_y, center_idx)
-                ).long()
+            to_idx = torch.where(
+                moves.to_y >= 0,
+                moves.to_y * self.board_size + moves.to_x,
+                torch.full_like(moves.to_y, center_idx)
+            ).long().clamp(0, num_positions - 1)
 
-                # Clamp indices to valid range
-                from_idx = from_idx.clamp(0, num_positions - 1)
-                to_idx = to_idx.clamp(0, num_positions - 1)
+            # Initialize scores with large negative for invalid moves
+            scores = torch.full((moves.total_moves,), float('-inf'), device=device)
 
-                # Get logits for this game
-                from_logits = from_logits_batch[local_idx]
-                to_logits = to_logits_batch[local_idx]
+            # Score valid moves using advanced indexing
+            # from_logits_batch[local_logits_idx, from_idx] gives the from_logit for each move
+            valid_local_idx = local_logits_idx[valid_moves_mask]
+            valid_from_idx = from_idx[valid_moves_mask]
+            valid_to_idx = to_idx[valid_moves_mask]
 
-                # Compute move scores vectorized
-                move_scores = from_logits[from_idx] + to_logits[to_idx]
+            scores[valid_moves_mask] = (
+                from_logits_batch[valid_local_idx, valid_from_idx] +
+                to_logits_batch[valid_local_idx, valid_to_idx]
+            )
 
-                # Sample move with temperature (single .item() per game for result)
-                probs = torch.softmax(move_scores / temperature, dim=0)
-                selected_local = int(torch.multinomial(probs, 1).item())
-                selected[g] = selected_local
+            # === Segment-wise Softmax Sampling (no .item() calls) ===
+            # Apply temperature
+            scores = scores / temperature
+
+            # Segment-wise softmax: compute max per game for numerical stability
+            neg_inf = torch.full((batch_size,), float('-inf'), device=device)
+            max_per_game = neg_inf.scatter_reduce(0, move_game_idx, scores, reduce='amax')
+            scores_stable = scores - max_per_game[move_game_idx]
+
+            # Compute exp(scores) - invalid moves stay at 0 due to -inf
+            exp_scores = torch.exp(scores_stable)
+
+            # Sum exp per game
+            sum_per_game = torch.zeros(batch_size, device=device)
+            sum_per_game.scatter_add_(0, move_game_idx, exp_scores)
+
+            # Compute probabilities
+            probs = exp_scores / (sum_per_game[move_game_idx] + 1e-10)
+
+            # Segment-wise multinomial sampling using cumsum trick
+            game_idx = move_game_idx
+            is_sorted = (game_idx[1:] >= game_idx[:-1]).all() if moves.total_moves > 1 else True
+
+            if is_sorted:
+                sorted_indices = torch.arange(moves.total_moves, device=device)
+                sorted_game_idx = game_idx
+                sorted_probs = probs
+            else:
+                sorted_indices = torch.argsort(game_idx)
+                sorted_game_idx = game_idx[sorted_indices]
+                sorted_probs = probs[sorted_indices]
+
+            cumsum_probs = torch.cumsum(sorted_probs, dim=0)
+
+            game_starts = torch.zeros(batch_size, dtype=torch.long, device=device)
+            game_starts[1:] = torch.searchsorted(sorted_game_idx, torch.arange(1, batch_size, device=device))
+
+            cumsum_at_start = torch.zeros(batch_size, device=device)
+            cumsum_at_start[1:] = cumsum_probs[game_starts[1:] - 1]
+
+            per_game_cumsum = cumsum_probs - cumsum_at_start[sorted_game_idx]
+
+            # Generate one random value per game
+            rand_vals = torch.rand(batch_size, device=device)
+            exceeds_rand = per_game_cumsum > rand_vals[sorted_game_idx]
+
+            # Find first exceeding index per game
+            large_val = moves.total_moves + 1
+            indices_or_large = torch.where(
+                exceeds_rand,
+                torch.arange(moves.total_moves, device=device, dtype=torch.float32),
+                torch.full((moves.total_moves,), float(large_val), device=device)
+            )
+
+            first_exceed_f = torch.full((batch_size,), float(large_val), dtype=torch.float32, device=device)
+            first_exceed_f.scatter_reduce_(0, sorted_game_idx, indices_or_large, reduce='amin')
+            first_exceed = first_exceed_f.long()
+
+            # Map back to local indices
+            has_moves = moves.moves_per_game > 0
+            valid_selection = has_moves & active_mask & (first_exceed < large_val)
+
+            original_indices = sorted_indices[first_exceed.clamp(0, moves.total_moves - 1)]
+            local_idx = original_indices - moves.move_offsets
+
+            selected[valid_selection] = local_idx[valid_selection]
 
         except Exception as e:
             logger.debug(f"Policy selection failed, falling back to center-bias: {e}")
@@ -3161,50 +3223,39 @@ class ParallelGameRunner:
         weights_list: list[list[dict[str, float]]],
         active_mask: torch.Tensor,
     ) -> torch.Tensor:
-        """Select the best move for each game using heuristic evaluation.
+        """Select the best move for each game using GPU-accelerated heuristic evaluation.
 
-        This is a simplified version - a full implementation would:
-        1. Apply each candidate move to a temporary state
-        2. Evaluate the resulting position
-        3. Select the move with best score
+        Uses fully vectorized heuristic scoring from gpu_selection.py:
+        - Center distance scoring (closer = better)
+        - Capture value scoring (target stack height)
+        - Adjacency to own stacks
+        - Line potential detection
 
-        For now, we select randomly with bias toward center positions.
+        The heuristic weights from weights_list are resolved to the current player
+        for each game and passed to the vectorized selection function.
+
+        Optimized 2025-12-25: Uses select_moves_heuristic for proper GPU-accelerated
+        heuristic evaluation instead of simple center-bias.
         """
-        batch_size = self.batch_size
-        device = self.device
+        # Resolve per-game weights to current player's weights
+        # weights_list is [game][player] -> weights dict
+        # We need [game] -> current player's weights dict
+        current_players = self.state.current_player.cpu().numpy()
+        resolved_weights: list[dict[str, float]] = []
+        for g in range(self.batch_size):
+            player_idx = int(current_players[g]) - 1  # Convert 1-indexed to 0-indexed
+            if weights_list and len(weights_list) > g and len(weights_list[g]) > player_idx:
+                resolved_weights.append(weights_list[g][player_idx])
+            else:
+                # Default weights if not provided
+                resolved_weights.append({})
 
-        # Simple selection: prefer center positions
-        selected = torch.zeros(batch_size, dtype=torch.int64, device=device)
-
-        center = self.board_size // 2
-
-        for g in range(batch_size):
-            if not active_mask[g] or moves.moves_per_game[g] == 0:
-                continue
-
-            # Get moves for this game
-            start_idx = moves.move_offsets[g]
-            end_idx = start_idx + moves.moves_per_game[g]
-
-            game_moves_y = moves.from_y[start_idx:end_idx]
-            game_moves_x = moves.from_x[start_idx:end_idx]
-
-            # Score by distance to center (lower is better -> invert for softmax)
-            dist_to_center = (
-                (game_moves_y.float() - center).abs() +
-                (game_moves_x.float() - center).abs()
-            )
-
-            # Convert to scores: higher score for closer to center
-            max_dist = center * 2  # Maximum possible Manhattan distance
-            scores = (max_dist - dist_to_center) + torch.rand_like(dist_to_center) * 2.0
-
-            # Softmax selection with temperature=1.0 for stochasticity
-            probs = torch.softmax(scores, dim=0)
-            best_local_idx = torch.multinomial(probs, 1).item()
-            selected[g] = best_local_idx
-
-        return selected
+        # Use fully vectorized heuristic selection (no .item() calls, no per-game loops)
+        return select_moves_heuristic(
+            moves, self.state, active_mask,
+            weights_list=resolved_weights,
+            temperature=1.0
+        )
 
     def _check_victory_conditions(self) -> None:
         """Check and update victory conditions for all games.

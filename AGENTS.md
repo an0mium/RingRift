@@ -44,7 +44,7 @@ The rules semantics SSoT is:
 - Supporting UX/rules documents:
   - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
   - `docs/UX_RULES_TEACHING_SCENARIOS.md`
-  - `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md`
+  - `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md`
 
 **Requirements for agents:**
 
@@ -298,7 +298,7 @@ Core UX/rules alignment:
 - Teaching & weird‑state specs:
   - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
   - `docs/UX_RULES_TEACHING_SCENARIOS.md`
-  - `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md`
+  - `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md`
 - UI components:
   - `src/client/components/GameHUD.tsx`
   - `src/client/components/TeachingOverlay.tsx`
@@ -454,7 +454,8 @@ docker-compose up -d           # Full stack in Docker
 | ---------- | ---- | ------------ | ------------ | ---------------- | ------------------ |
 | square8    | 8    | 64           | 18           | 4                | 3                  |
 | square19   | 19   | 361          | 72           | 4                | 4                  |
-| hexagonal  | 13   | 469          | 96           | 4                | 4                  |
+| hex8       | 9    | 61           | 18           | 4                | 3                  |
+| hexagonal  | 25   | 469          | 96           | 4                | 4                  |
 
 ### Victory Thresholds (Ring Elimination per RR-CANON-R061)
 
@@ -464,6 +465,7 @@ Formula: `round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))`
 | ---------- | -------- | -------- | -------- |
 | square8    | 18       | 24       | 30       |
 | square19   | 72       | 96       | 120      |
+| hex8       | 18       | 24       | 30       |
 | hexagonal  | 96       | 128      | 160      |
 
 ---

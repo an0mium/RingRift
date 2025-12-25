@@ -175,7 +175,7 @@ The model should define types and example payloads that can be produced by the r
 
 **Acceptance criteria**
 
-- A new spec document (for example [`docs/UX_RULES_EXPLANATION_MODEL_SPEC.md`](docs/UX_RULES_EXPLANATION_MODEL_SPEC.md:1)) exists and:
+- A new spec document (for example [`docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md`](../../ux/UX_RULES_EXPLANATION_MODEL_SPEC.md:1)) exists and:
   - Defines a structured explanation payload (e.g. `RulesEndExplanation`) with clearly named fields for outcome type, primary reason code, contributing factors, rules citations, teaching topics, and telemetry tags.
   - Provides worked examples for at least four endings:
     - Normal win by ring majority.

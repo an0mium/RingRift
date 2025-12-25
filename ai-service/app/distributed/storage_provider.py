@@ -177,6 +177,7 @@ class LambdaNFSProvider(StorageProvider):
     """Storage provider for Lambda Labs with 14PB shared NFS."""
 
     NFS_BASE = Path("/lambda/nfs/RingRift")
+    NFS_TEST_FILE = ".nfs_health_check"
 
     def __init__(self, nfs_base: Path | None = None):
         self._nfs_base = nfs_base or self.NFS_BASE
@@ -198,6 +199,9 @@ class LambdaNFSProvider(StorageProvider):
             max_sync_interval_seconds=300,  # Less urgent with shared storage
             priority_in_fallback=90,  # High priority - reliable
         )
+        self._nfs_verified = False
+        self._last_nfs_check = 0.0
+        self._nfs_check_interval = 60.0  # Verify every 60 seconds
 
     @property
     def provider_type(self) -> StorageProviderType:
@@ -215,6 +219,89 @@ class LambdaNFSProvider(StorageProvider):
     def is_available(cls) -> bool:
         """Check if Lambda NFS is available."""
         return cls.NFS_BASE.exists() and cls.NFS_BASE.is_dir()
+
+    def verify_nfs_mount(self, force: bool = False) -> bool:
+        """Verify NFS mount is healthy by performing a write test.
+
+        This detects stale NFS mounts or permissions issues that would
+        cause silent data loss.
+
+        Args:
+            force: Force re-verification even if cache is valid
+
+        Returns:
+            True if NFS is healthy and writable
+        """
+        import time
+
+        # Check cache
+        if not force:
+            if self._nfs_verified and (time.time() - self._last_nfs_check < self._nfs_check_interval):
+                return True
+
+        test_path = self._nfs_base / self.NFS_TEST_FILE
+        node_id = socket.gethostname()
+        test_content = f"{node_id}:{time.time()}"
+
+        try:
+            # Test 1: Write a file
+            test_path.write_text(test_content)
+
+            # Test 2: Read it back
+            read_content = test_path.read_text()
+            if read_content != test_content:
+                logger.warning(f"NFS read mismatch: wrote '{test_content}', read '{read_content}'")
+                self._nfs_verified = False
+                return False
+
+            # Test 3: Delete it
+            test_path.unlink()
+
+            self._nfs_verified = True
+            self._last_nfs_check = time.time()
+            logger.debug(f"NFS verification passed: {self._nfs_base}")
+            return True
+
+        except PermissionError as e:
+            logger.error(f"NFS verification failed (permission): {e}")
+            self._nfs_verified = False
+            return False
+        except OSError as e:
+            # Catches stale NFS handle, connection issues, etc.
+            logger.error(f"NFS verification failed (OS error): {e}")
+            self._nfs_verified = False
+            return False
+        except Exception as e:
+            logger.error(f"NFS verification failed (unexpected): {e}")
+            self._nfs_verified = False
+            return False
+
+    def should_skip_rsync_to(self, target_node: str) -> bool:
+        """Check if rsync should be skipped to target node.
+
+        IMPORTANT: Only skips if NFS is verified healthy.
+
+        Args:
+            target_node: Target node identifier
+
+        Returns:
+            True if rsync should be skipped (both nodes have verified NFS)
+        """
+        if not self.capabilities.skip_rsync_for_shared:
+            return False
+
+        # Only skip if NFS is verified healthy
+        if not self.verify_nfs_mount():
+            logger.warning("NFS verification failed - will use rsync fallback")
+            return False
+
+        # Skip rsync between Lambda nodes (both have NFS)
+        return bool(target_node.startswith("lambda-") and self.provider_type == StorageProviderType.LAMBDA_NFS)
+
+    @property
+    def is_nfs_healthy(self) -> bool:
+        """Check if NFS is currently healthy."""
+        return self.verify_nfs_mount()
 
 
 class VastEphemeralProvider(StorageProvider):
@@ -496,6 +583,25 @@ def is_nfs_available() -> bool:
     """Check if NFS storage is available."""
     provider = get_storage_provider()
     return provider.capabilities.supports_direct_nfs
+
+
+def verify_nfs_health() -> bool:
+    """Verify NFS storage is healthy and writable.
+
+    This performs a write/read/delete test to ensure NFS isn't stale.
+    Should be called before relying on NFS for data sync.
+
+    Returns:
+        True if NFS is healthy, False if verification failed or NFS unavailable
+    """
+    provider = get_storage_provider()
+    if provider.provider_type != StorageProviderType.LAMBDA_NFS:
+        return False
+
+    if isinstance(provider, LambdaNFSProvider):
+        return provider.verify_nfs_mount(force=True)
+
+    return False
 
 
 def get_aria2_sources(exclude_self: bool = True) -> list[str]:

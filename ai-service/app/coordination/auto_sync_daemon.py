@@ -48,22 +48,41 @@ class AutoSyncConfig:
     max_concurrent_syncs: int = 4
     min_games_to_sync: int = 10
     bandwidth_limit_mbps: int = 20
+    # Disk usage thresholds (from sync_routing)
+    max_disk_usage_percent: float = 70.0
+    target_disk_usage_percent: float = 60.0
+    # Enable automatic disk cleanup
+    auto_cleanup_enabled: bool = True
+    # Use ClusterManifest for tracking
+    use_cluster_manifest: bool = True
 
     @classmethod
     def from_config_file(cls, config_path: Path | None = None) -> AutoSyncConfig:
-        """Load configuration from unified_loop.yaml."""
+        """Load configuration from distributed_hosts.yaml or unified_loop.yaml."""
+        base_dir = Path(__file__).resolve().parent.parent.parent
+
+        # Try distributed_hosts.yaml first (canonical source)
         if config_path is None:
-            # Find config relative to this file
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            config_path = base_dir / "config" / "unified_loop.yaml"
+            config_path = base_dir / "config" / "distributed_hosts.yaml"
 
         config = cls()
 
+        # Load from distributed_hosts.yaml
         if config_path.exists():
             try:
                 with open(config_path) as f:
                     data = yaml.safe_load(f)
 
+                # Get sync_routing settings
+                sync_routing = data.get("sync_routing", {})
+                config.max_disk_usage_percent = sync_routing.get(
+                    "max_disk_usage_percent", 70.0
+                )
+                config.target_disk_usage_percent = sync_routing.get(
+                    "target_disk_usage_percent", 60.0
+                )
+
+                # Get auto_sync settings
                 auto_sync = data.get("auto_sync", {})
                 config.enabled = auto_sync.get("enabled", True)
                 config.interval_seconds = auto_sync.get("interval_seconds", 300)
@@ -74,6 +93,21 @@ class AutoSyncConfig:
                 config.min_games_to_sync = auto_sync.get("min_games_to_sync", 10)
                 config.bandwidth_limit_mbps = auto_sync.get("bandwidth_limit_mbps", 20)
 
+            except Exception as e:
+                logger.warning(f"Failed to load config from {config_path}: {e}")
+
+        # Fallback to unified_loop.yaml
+        unified_config_path = base_dir / "config" / "unified_loop.yaml"
+        if unified_config_path.exists():
+            try:
+                with open(unified_config_path) as f:
+                    data = yaml.safe_load(f)
+
+                auto_sync = data.get("auto_sync", {})
+                # Only override if not already set
+                if not config.exclude_hosts:
+                    config.exclude_hosts = auto_sync.get("exclude_hosts", [])
+
                 # Also check data_aggregation.excluded_nodes for compatibility
                 data_agg = data.get("data_aggregation", {})
                 for node in data_agg.get("excluded_nodes", []):
@@ -81,7 +115,7 @@ class AutoSyncConfig:
                         config.exclude_hosts.append(node)
 
             except Exception as e:
-                logger.warning(f"Failed to load auto_sync config: {e}")
+                logger.warning(f"Failed to load unified_loop.yaml: {e}")
 
         return config
 
@@ -105,6 +139,7 @@ class AutoSyncDaemon:
     - Gossip-based replication for eventual consistency
     - Provider-aware sync (skip NFS, prioritize ephemeral)
     - Coordinator exclusion (save disk space)
+    - ClusterManifest for central tracking and disk management
     """
 
     def __init__(self, config: AutoSyncConfig | None = None):
@@ -113,8 +148,14 @@ class AutoSyncDaemon:
         self._running = False
         self._stats = SyncStats()
         self._sync_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task | None = None
         self._gossip_daemon = None
         self._semaphore = asyncio.Semaphore(self.config.max_concurrent_syncs)
+
+        # ClusterManifest integration
+        self._cluster_manifest: ClusterManifest | None = None
+        if self.config.use_cluster_manifest:
+            self._init_cluster_manifest()
 
         # Detect provider type
         self._provider = self._detect_provider()
@@ -122,8 +163,26 @@ class AutoSyncDaemon:
 
         logger.info(
             f"AutoSyncDaemon initialized: node={self.node_id}, "
-            f"provider={self._provider}, nfs={self._is_nfs_node}"
+            f"provider={self._provider}, nfs={self._is_nfs_node}, "
+            f"manifest={self._cluster_manifest is not None}"
         )
+
+    def _init_cluster_manifest(self) -> None:
+        """Initialize the ClusterManifest for tracking."""
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+            self._cluster_manifest = get_cluster_manifest()
+
+            # Update local capacity
+            capacity = self._cluster_manifest.update_local_capacity()
+            logger.info(
+                f"ClusterManifest initialized: disk usage {capacity.usage_percent:.1f}%"
+            )
+
+        except ImportError as e:
+            logger.warning(f"ClusterManifest not available: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize ClusterManifest: {e}")
 
     def _detect_provider(self) -> str:
         """Detect the cloud provider for this node."""
@@ -264,6 +323,20 @@ class AutoSyncDaemon:
             logger.debug("Skipping sync cycle (excluded host)")
             return
 
+        # Check ClusterManifest exclusion rules
+        if self._cluster_manifest:
+            from app.distributed.cluster_manifest import DataType
+            if not self._cluster_manifest.can_receive_data(self.node_id, DataType.GAME):
+                policy = self._cluster_manifest.get_sync_policy(self.node_id)
+                logger.debug(
+                    f"Skipping sync cycle (manifest exclusion: {policy.exclusion_reason})"
+                )
+                return
+
+        # Check disk capacity before syncing
+        if not await self._check_disk_capacity():
+            return
+
         # Check for pending data to sync
         pending = await self._get_pending_sync_data()
         if pending < self.config.min_games_to_sync:
@@ -274,6 +347,126 @@ class AutoSyncDaemon:
 
         # Trigger data collection from peers
         await self._collect_from_peers()
+
+        # Register synced data to manifest
+        await self._register_synced_data()
+
+    async def _check_disk_capacity(self) -> bool:
+        """Check if disk has capacity for more data.
+
+        Returns:
+            True if sync should proceed, False if disk is full
+        """
+        if not self._cluster_manifest:
+            return True
+
+        # Update and check capacity
+        capacity = self._cluster_manifest.update_local_capacity()
+
+        if capacity.usage_percent >= self.config.max_disk_usage_percent:
+            logger.warning(
+                f"Disk usage {capacity.usage_percent:.1f}% exceeds threshold "
+                f"({self.config.max_disk_usage_percent}%), triggering cleanup"
+            )
+
+            # Run cleanup if enabled
+            if self.config.auto_cleanup_enabled:
+                await self._run_disk_cleanup()
+
+                # Check again after cleanup
+                capacity = self._cluster_manifest.update_local_capacity()
+                if capacity.usage_percent >= self.config.max_disk_usage_percent:
+                    logger.error(
+                        f"Disk still at {capacity.usage_percent:.1f}% after cleanup, "
+                        "skipping sync"
+                    )
+                    return False
+            else:
+                return False
+
+        return True
+
+    async def _run_disk_cleanup(self) -> None:
+        """Run disk cleanup to free space."""
+        if not self._cluster_manifest:
+            return
+
+        try:
+            from app.distributed.cluster_manifest import DiskCleanupPolicy
+
+            policy = DiskCleanupPolicy(
+                trigger_usage_percent=self.config.max_disk_usage_percent,
+                target_usage_percent=self.config.target_disk_usage_percent,
+                min_age_days=7,
+                min_replicas_before_delete=2,
+                preserve_canonical=True,
+            )
+
+            result = self._cluster_manifest.run_disk_cleanup(policy)
+
+            if result.triggered and result.bytes_freed > 0:
+                logger.info(
+                    f"Disk cleanup freed {result.bytes_freed / 1024 / 1024:.1f} MB "
+                    f"({result.databases_deleted} DBs, {result.npz_deleted} NPZ files)"
+                )
+
+        except Exception as e:
+            logger.error(f"Disk cleanup failed: {e}")
+
+    async def _register_synced_data(self) -> None:
+        """Register synced games to ClusterManifest."""
+        if not self._cluster_manifest:
+            return
+
+        # Get data directory
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        data_dir = base_dir / "data" / "games"
+
+        if not data_dir.exists():
+            return
+
+        import sqlite3
+
+        registered = 0
+        for db_path in data_dir.glob("*.db"):
+            if db_path.name.startswith(".") or "manifest" in db_path.name:
+                continue
+
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+
+                # Get board type and num_players
+                cursor.execute(
+                    "SELECT board_type, num_players FROM games LIMIT 1"
+                )
+                row = cursor.fetchone()
+                board_type = row[0] if row else None
+                num_players = row[1] if row else None
+
+                # Get game IDs
+                cursor.execute("SELECT game_id FROM games")
+                game_ids = [r[0] for r in cursor.fetchall()]
+                conn.close()
+
+                if game_ids:
+                    # Register games in batch
+                    games = [
+                        (gid, self.node_id, str(db_path))
+                        for gid in game_ids
+                    ]
+                    count = self._cluster_manifest.register_games_batch(
+                        games,
+                        board_type=board_type,
+                        num_players=num_players,
+                    )
+                    registered += count
+
+            except Exception as e:
+                logger.debug(f"Failed to register games from {db_path}: {e}")
+
+        if registered > 0:
+            logger.info(f"Registered {registered} games to ClusterManifest")
 
     async def _get_pending_sync_data(self) -> int:
         """Get count of games pending sync."""
@@ -317,6 +510,28 @@ class AutoSyncDaemon:
         if self._gossip_daemon:
             gossip_status = self._gossip_daemon.get_status()
 
+        # Get manifest status
+        manifest_status = {}
+        if self._cluster_manifest:
+            try:
+                capacity = self._cluster_manifest.get_node_capacity(self.node_id)
+                inventory = self._cluster_manifest.get_node_inventory(self.node_id)
+                policy = self._cluster_manifest.get_sync_policy(self.node_id)
+
+                manifest_status = {
+                    "enabled": True,
+                    "disk_usage_percent": capacity.usage_percent if capacity else 0,
+                    "can_receive_games": policy.receive_games,
+                    "exclusion_reason": policy.exclusion_reason,
+                    "registered_games": inventory.game_count,
+                    "registered_models": inventory.model_count,
+                    "registered_npz": inventory.npz_count,
+                }
+            except Exception as e:
+                manifest_status = {"enabled": True, "error": str(e)}
+        else:
+            manifest_status = {"enabled": False}
+
         return {
             "node_id": self.node_id,
             "running": self._running,
@@ -326,6 +541,8 @@ class AutoSyncDaemon:
                 "enabled": self.config.enabled,
                 "interval_seconds": self.config.interval_seconds,
                 "exclude_hosts": self.config.exclude_hosts,
+                "max_disk_usage_percent": self.config.max_disk_usage_percent,
+                "auto_cleanup_enabled": self.config.auto_cleanup_enabled,
             },
             "stats": {
                 "total_syncs": self._stats.total_syncs,
@@ -336,6 +553,7 @@ class AutoSyncDaemon:
                 "last_error": self._stats.last_error,
             },
             "gossip": gossip_status,
+            "manifest": manifest_status,
         }
 
 

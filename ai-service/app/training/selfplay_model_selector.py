@@ -6,13 +6,21 @@ in order of preference:
 1. Production model from registry (if promoted)
 2. Latest checkpoint from training runs
 3. Canonical baseline model
-4. None (use random policy)
+4. Cluster-wide model search (if enabled)
+5. NNUE model (fallback)
+6. None (use random policy)
 
 Usage:
     selector = SelfplayModelSelector(board_type="square8", num_players=2)
 
     # Get the best available model path
     model_path = selector.get_current_model()
+
+    # Enable cluster search for missing models
+    selector = SelfplayModelSelector(
+        board_type="square8", num_players=2,
+        search_cluster=True,
+    )
 
     # Subscribe to model updates (for hot reload)
     selector.subscribe(callback)
@@ -60,6 +68,7 @@ class SelfplayModelSelector:
         num_players: int = 2,
         prefer_nnue: bool = False,
         cache_ttl: float = 60.0,
+        search_cluster: bool = True,
     ):
         """Initialize model selector.
 
@@ -68,20 +77,25 @@ class SelfplayModelSelector:
             num_players: Number of players (2, 3, or 4)
             prefer_nnue: If True, prefer NNUE models over policy/value nets
             cache_ttl: Time to live for cached model path (seconds)
+            search_cluster: If True, search cluster for models when not found locally
         """
         self.board_type = board_type.lower()
         self.num_players = num_players
         self.prefer_nnue = prefer_nnue
         self.cache_ttl = cache_ttl
+        self.search_cluster = search_cluster
 
         self._config_key = f"{self.board_type}_{self.num_players}p"
         self._cached_path: Path | None = None
         self._cache_time: float = 0
         self._subscribers: list[Callable[[Path], None]] = []
 
+        # Lazy-load cluster discovery
+        self._cluster_discovery = None
+
         logger.debug(
             f"SelfplayModelSelector initialized: config={self._config_key}, "
-            f"prefer_nnue={prefer_nnue}"
+            f"prefer_nnue={prefer_nnue}, search_cluster={search_cluster}"
         )
 
     def get_current_model(self, force_refresh: bool = False) -> Path | None:
@@ -132,7 +146,15 @@ class SelfplayModelSelector:
             self._update_cache(model_path)
             return model_path
 
-        # 5. Try NNUE as fallback
+        # 5. Try cluster-wide search (will sync model if found)
+        if self.search_cluster:
+            model_path = self._get_cluster_model()
+            if model_path and model_path.exists():
+                logger.info(f"Using cluster model: {model_path}")
+                self._update_cache(model_path)
+                return model_path
+
+        # 6. Try NNUE as fallback
         if not self.prefer_nnue:
             model_path = self._get_nnue_model()
             if model_path and model_path.exists():
@@ -145,6 +167,43 @@ class SelfplayModelSelector:
             "Selfplay will use random policy."
         )
         self._update_cache(None)
+        return None
+
+    def _get_cluster_model(self) -> Path | None:
+        """Search cluster for model and sync if found.
+
+        Uses ClusterModelDiscovery to:
+        1. Check ClusterManifest for known model locations
+        2. Query remote nodes via SSH if needed
+        3. Sync the best model to local
+
+        Returns:
+            Path to synced local model, or None if not found
+        """
+        try:
+            from app.models.cluster_discovery import get_cluster_model_discovery
+
+            if self._cluster_discovery is None:
+                self._cluster_discovery = get_cluster_model_discovery()
+
+            # Use ensure_model_available which handles sync
+            local_path = self._cluster_discovery.ensure_model_available(
+                board_type=self.board_type,
+                num_players=self.num_players,
+                prefer_canonical=True,
+            )
+
+            if local_path and local_path.exists():
+                logger.info(
+                    f"Cluster model synced: {local_path.name}"
+                )
+                return local_path
+
+        except ImportError:
+            logger.debug("ClusterModelDiscovery not available")
+        except Exception as e:
+            logger.warning(f"Cluster model search failed: {e}")
+
         return None
 
     def _get_production_model(self) -> Path | None:

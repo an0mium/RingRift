@@ -51,8 +51,8 @@ CONFIG_FILE="$AI_SERVICE_DIR/config/distributed_hosts.yaml"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 if [[ -z "${RINGRIFT_LEGACY_SYNC:-}" ]]; then
-    echo "[sync_cluster_data] Deprecated; use cluster_sync_coordinator.py --mode games"
-    python3 "$SCRIPT_DIR/cluster_sync_coordinator.py" --mode games
+    echo "[sync_cluster_data] Deprecated; use unified_data_sync.py --once"
+    python3 "$SCRIPT_DIR/unified_data_sync.py" --once
     exit $?
 fi
 

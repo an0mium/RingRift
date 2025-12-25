@@ -215,6 +215,20 @@ except ImportError:
     RegressionSeverity = None
     HAS_REGRESSION_DETECTOR = False
 
+# Training data freshness checking (2025-12)
+try:
+    from app.coordination.training_freshness import (
+        check_freshness_sync,
+        FreshnessConfig,
+        FreshnessResult,
+    )
+    HAS_FRESHNESS_CHECK = True
+except ImportError:
+    check_freshness_sync = None
+    FreshnessConfig = None
+    FreshnessResult = None
+    HAS_FRESHNESS_CHECK = False
+
 # Training anomaly detection and enhancements (2025-12)
 try:
     from app.training.training_enhancements import (
@@ -748,6 +762,10 @@ def train_model(
     lr_finder_iterations: int = 100,
     # GNN support (2025-12)
     model_type: str = "cnn",  # "cnn", "gnn", or "hybrid"
+    # Training data freshness check (2025-12)
+    check_data_freshness: bool = False,
+    max_data_age_hours: float = 1.0,
+    warn_on_stale_data: bool = True,
 ):
     """
     Train the RingRift neural network model.
@@ -836,6 +854,50 @@ def train_model(
                 )
     else:
         seed_all(config.seed)
+
+    # ==========================================================================
+    # Training Data Freshness Check (2025-12)
+    # ==========================================================================
+    # Validate that training data is fresh before starting training
+    # This helps ensure training nodes have up-to-date data
+    if check_data_freshness and HAS_FRESHNESS_CHECK:
+        if not distributed or is_main_process():
+            logger.info(
+                f"Checking training data freshness "
+                f"(max_age={max_data_age_hours}h)..."
+            )
+            try:
+                freshness_result = check_freshness_sync(
+                    board_type=config.board_type.value,
+                    num_players=num_players,
+                    max_age_hours=max_data_age_hours,
+                )
+                if freshness_result.is_fresh:
+                    logger.info(
+                        f"Training data is fresh: {freshness_result.games_available} games, "
+                        f"age={freshness_result.data_age_hours:.1f}h"
+                    )
+                else:
+                    msg = (
+                        f"Training data is stale: age={freshness_result.data_age_hours:.1f}h "
+                        f"(threshold={max_data_age_hours}h), "
+                        f"games={freshness_result.games_available}"
+                    )
+                    if warn_on_stale_data:
+                        logger.warning(msg)
+                        logger.warning(
+                            "Consider running data sync before training: "
+                            "python scripts/run_training_loop.py --sync-only"
+                        )
+                    else:
+                        logger.info(msg)
+            except Exception as e:
+                logger.warning(f"Data freshness check failed: {e}")
+    elif check_data_freshness and not HAS_FRESHNESS_CHECK:
+        if not distributed or is_main_process():
+            logger.warning(
+                "Data freshness check requested but module not available"
+            )
 
     # ==========================================================================
     # Data Validation (2025-12)

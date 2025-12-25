@@ -986,7 +986,7 @@ class GPUSelfPlayGenerator:
                         "stalemate_tiebreaker": results["stalemate_tiebreakers"][i],
                         "termination_reason": f"status:completed:{vtype}",
                         # === Engine/opponent metadata ===
-                        "engine_mode": "gpu_heuristic",
+                        "engine_mode": self.engine_mode,
                         "opponent_type": "selfplay",
                         "player_types": ["gpu_batch"] * self.num_players,
                         "batch_id": batch_idx,

@@ -148,7 +148,7 @@ especially in less-tested corners of the rules.
 **P18.5-\* Resolution (December 2025):**
 
 - **Extended Contract Vectors:** 49 vectors across the core families (placement, movement, capture/chain_capture including extended chains, forced elimination, territory/line endgames including near_victory_territory, hex edge cases, meta moves such as swap_sides and multi-phase turns) with **0 mismatches** between TS and Python.
-- **swap_sides Parity:** Verified across all layers (TS backend, TS sandbox, Python) per [P18.5-4_SWAP_SIDES_PARITY_REPORT.md](docs/P18.5-4_SWAP_SIDES_PARITY_REPORT.md).
+- **swap_sides Parity:** Verified across all layers (TS backend, TS sandbox, Python) per [P18.5-4_SWAP_SIDES_PARITY_REPORT.md](docs/archive/assessments/P18.5-4_SWAP_SIDES_PARITY_REPORT.md).
 - **Orchestrator Phase 4:** 100% rollout, all hosts using orchestrator adapters as the canonical rules path.
 
 **Previous Progress (November 25, 2025):**
@@ -607,7 +607,7 @@ configuration using `"jsx": "react-jsx"`. Both `GameEventLog.snapshot.test.tsx` 
 
 ### DC.1 – Mid-Phase Contract Vectors Not Suitable for Game Seeding
 
-**Source:** [P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md](docs/P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md)
+**Source:** [P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md](docs/archive/assessments/P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md)
 **Status:** Design clarification, not a bug
 **Date:** December 1, 2025
 

@@ -11,13 +11,13 @@
 >
 > **Inputs:**
 >
-> - Canonical rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:232) (R070–R072, R100, R170–R173, R190–R191).
-> - Behavioural catalogue [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
-> - Edge‑case report [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:184).
-> - Final audit [`archive/FINAL_RULES_AUDIT_REPORT.md`](archive/FINAL_RULES_AUDIT_REPORT.md:136).
-> - Canonical copy baselines in [`docs/ux/UX_RULES_COPY_SPEC.md`](docs/ux/UX_RULES_COPY_SPEC.md:331).
-> - Telemetry schema in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](docs/ux/UX_RULES_TELEMETRY_SPEC.md:1).
-> - Concept navigation index in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](docs/ux/UX_RULES_CONCEPTS_INDEX.md:1) to keep reason codes aligned with rules anchors, teaching topics, and telemetry labels.
+> - Canonical rules in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:232) (R070–R072, R100, R170–R173, R190–R191).
+> - Behavioural catalogue [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
+> - Edge‑case report [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:184).
+> - Final audit [`archive/FINAL_RULES_AUDIT_REPORT.md`](../../archive/FINAL_RULES_AUDIT_REPORT.md:136).
+> - Canonical copy baselines in [`docs/ux/UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:331).
+> - Telemetry schema in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1).
+> - Concept navigation index in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1) to keep reason codes aligned with rules anchors, teaching topics, and telemetry labels.
 
 This spec is **semantics‑first**. It does not define UI layout or styling; instead, it pins:
 
@@ -25,7 +25,7 @@ This spec is **semantics‑first**. It does not define UI layout or styling; ins
 - Canonical short **HUD banner titles**.
 - Canonical full **explanations** for VictoryModal and TeachingOverlay.
 - **Rules doc anchors** for deep links.
-- Mapping tables for HUD / VictoryModal / TeachingOverlay and `rules_context` used in [`UX_RULES_TELEMETRY_SPEC.md`](docs/ux/UX_RULES_TELEMETRY_SPEC.md:172).
+- Mapping tables for HUD / VictoryModal / TeachingOverlay and `rules_context` used in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:172).
 
 Code‑mode tasks are expected to:
 
@@ -37,11 +37,11 @@ Code‑mode tasks are expected to:
 
 ## 0. Iteration Log & Improvement History
 
-This spec is part of the rules‑UX improvement loop described in [`UX_RULES_IMPROVEMENT_LOOP.md`](docs/ux/UX_RULES_IMPROVEMENT_LOOP.md:24). Concrete changes to weird‑state reason codes, HUD/VictoryModal copy, and TeachingOverlay routing are recorded in numbered iteration files under `docs/ux/rules_iterations/`:
+This spec is part of the rules‑UX improvement loop described in [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md:24). Concrete changes to weird‑state reason codes, HUD/VictoryModal copy, and TeachingOverlay routing are recorded in numbered iteration files under `docs/ux/rules_iterations/`:
 
-- [`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md:1) – Initial hotspot‑oriented plan for ANM/FE loops, structural stalemate, and mini‑regions.
-- [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md:1) – Backfilled record for W1–W5 work that aligned game‑end explanations (HUD + VictoryModal + TeachingOverlay) and telemetry with ANM/FE, structural stalemate, and territory mini‑regions.
-- [`UX_RULES_IMPROVEMENT_ITERATION_0003.md`](docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0003.md:1) – Backfilled record for W1–W5 work on territory mini‑regions (Q23) and capture‑chain teaching flows.
+- [`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md:1) – Initial hotspot‑oriented plan for ANM/FE loops, structural stalemate, and mini‑regions.
+- [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md:1) – Backfilled record for W1–W5 work that aligned game‑end explanations (HUD + VictoryModal + TeachingOverlay) and telemetry with ANM/FE, structural stalemate, and territory mini‑regions.
+- [`UX_RULES_IMPROVEMENT_ITERATION_0003.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0003.md:1) – Backfilled record for W1–W5 work on territory mini‑regions (Q23) and capture‑chain teaching flows.
 
 Future rules‑UX iterations SHOULD continue this numbering (0004, 0005, …) and update both this spec and the iteration files together when introducing or refining weird‑state reason codes, copy, or telemetry mapping.
 
@@ -52,18 +52,18 @@ The following states are considered “weird” or high‑confusion from a UX pe
 1. **ANM‑Movement‑FE** – Active‑No‑Moves in the movement family of phases (movement / capture / chain_capture) where:
    - The player controls stacks,
    - Has no legal placements, moves, or captures,
-   - Forced elimination is available and will fire ([`RR‑CANON‑R072`](RULES_CANONICAL_SPEC.md:210), [`RR‑CANON‑R100`](RULES_CANONICAL_SPEC.md:443), ANM‑SCEN‑01 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39)).
+   - Forced elimination is available and will fire ([`RR‑CANON‑R072`](../../RULES_CANONICAL_SPEC.md:210), [`RR‑CANON‑R100`](../../RULES_CANONICAL_SPEC.md:443), ANM‑SCEN‑01 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39)).
 
 2. **FE‑Sequence** – Visible forced‑elimination sequence where a player repeatedly loses caps due to FE (often in endgame), without understanding why caps are disappearing.
 
 3. **Structural‑Stalemate** – **Global stalemate / plateau**:
    - No legal placements, moves, captures, or forced eliminations for any player,
-   - Game ends via tie‑break ladder (territory → eliminated rings → markers → last actor) per [`RR‑CANON‑R173`](RULES_CANONICAL_SPEC.md:619).
+   - Game ends via tie‑break ladder (territory → eliminated rings → markers → last actor) per [`RR‑CANON‑R173`](../../RULES_CANONICAL_SPEC.md:619).
 
 4. **LPS‑Early‑Win** – **Last‑Player‑Standing** early victory:
    - Exactly one player has “real actions” (placements, moves, captures) over a full round,
    - Others are permanently stuck or only have FE,
-   - Canonical rules treat this as a distinct victory condition ([`RR‑CANON‑R172`](RULES_CANONICAL_SPEC.md:603); ANM‑SCEN‑07).
+   - Canonical rules treat this as a distinct victory condition ([`RR‑CANON‑R172`](../../RULES_CANONICAL_SPEC.md:603); ANM‑SCEN‑07).
 
 This document defines dedicated **reason codes** and UX for these six categories. Additional territory chain‑reaction or line‑+‑territory cascades are visually dramatic but largely covered by standard victory copy; they are **not** treated as separate weird‑state reasons here.
 
@@ -78,16 +78,16 @@ Each reason code is intended to be stable across hosts (backend, sandbox, Python
 - HUD weird‑state banners.
 - VictoryModal explanations (where applicable).
 - TeachingOverlay topic routing.
-- Telemetry `payload.reason_code` and `rules_context` fields ([`UX_RULES_TELEMETRY_SPEC.md`](docs/ux/UX_RULES_TELEMETRY_SPEC.md:218)).
+- Telemetry `payload.reason_code` and `rules_context` fields ([`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:218)).
 
 #### RWS‑001 ANM_MOVEMENT_FE_BLOCKED
 
 - **Description:** Current player has turn‑material (stacks and/or rings in hand) but **no legal placements, movements, or captures** in the movement family phases; forced elimination will remove caps until a legal move exists or stacks are gone. In canonical recordings this always appears as one or more explicit `forced_elimination` moves in the dedicated `forced_elimination` phase, not as a silent side effect.
 - **Rules references:**
-  - [`RR‑CANON‑R072`](RULES_CANONICAL_SPEC.md:210) (forced‑elimination entry).
-  - [`RR‑CANON‑R100`](RULES_CANONICAL_SPEC.md:443) (forced elimination when blocked).
-  - ANM‑SCEN‑01 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
-- **Canonical `rules_context`:** `anm_forced_elimination` (see [`UX_RULES_TELEMETRY_SPEC.md`](docs/ux/UX_RULES_TELEMETRY_SPEC.md:145)).
+  - [`RR‑CANON‑R072`](../../RULES_CANONICAL_SPEC.md:210) (forced‑elimination entry).
+  - [`RR‑CANON‑R100`](../../RULES_CANONICAL_SPEC.md:443) (forced elimination when blocked).
+  - ANM‑SCEN‑01 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
+- **Canonical `rules_context`:** `anm_forced_elimination` (see [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:145)).
 
 > Routine no‑action bookkeeping (`no_line_action`, `no_territory_action`) is **not treated as a weird state for UX surfaces**. These moves remain mandatory for canonical histories (RR‑CANON‑R075) and can still be tagged for telemetry/debugging, but HUD/Victory/Teaching overlays should not surface them unless there is an anomaly (e.g., a host surfaced an interactive banner but offered zero options).
 
@@ -95,33 +95,33 @@ Each reason code is intended to be stable across hosts (backend, sandbox, Python
 
 - **Description:** A forced‑elimination **sequence** is removing caps from the **local player’s** stacks because they are repeatedly blocked on their turns. In logs and parity tooling this corresponds to a run of `forced_elimination` moves in the `forced_elimination` phase between normal interactive turns.
 - **Rules references:**
-  - [`RR‑CANON‑R100`](RULES_CANONICAL_SPEC.md:443) (forced elimination semantics).
-  - [`RR‑CANON‑R205–R207`](RULES_CANONICAL_SPEC.md:290) (forced‑elimination taxonomy and progress).
-  - CCE‑007 in [`RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:459) (selection heuristics).
+  - [`RR‑CANON‑R100`](../../RULES_CANONICAL_SPEC.md:443) (forced elimination semantics).
+  - [`RR‑CANON‑R205–R207`](../../RULES_CANONICAL_SPEC.md:290) (forced‑elimination taxonomy and progress).
+  - CCE‑007 in [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:459) (selection heuristics).
 - **Canonical `rules_context`:** `anm_forced_elimination`.
 
 #### RWS‑003 STRUCTURAL_STALEMATE_TIEBREAK
 
 - **Description:** **Structural stalemate / plateau**: no legal placements, moves, captures, or forced eliminations for any player; game ends and is resolved by territory and eliminated‑ring tiebreakers.
 - **Rules references:**
-  - [`RR‑CANON‑R173`](RULES_CANONICAL_SPEC.md:619) (global stalemate and tiebreak ladder).
-  - ANM‑SCEN‑06 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:140).
+  - [`RR‑CANON‑R173`](../../RULES_CANONICAL_SPEC.md:619) (global stalemate and tiebreak ladder).
+  - ANM‑SCEN‑06 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:140).
 - **Canonical `rules_context`:** `structural_stalemate`.
 
 #### RWS‑004 LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS
 
 - **Description:** **Last‑Player‑Standing** victory: requires **three consecutive complete rounds** where exactly one player has real actions (placements, moves, captures) and all others have none (only FE or nothing). In the first round, the exclusive player must have and take at least one real action. After the second and third rounds complete with the same condition, that player wins by LPS.
 - **Rules references:**
-  - [`RR‑CANON‑R172`](RULES_CANONICAL_SPEC.md:603) (Last‑Player‑Standing).
-  - ANM‑SCEN‑07 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:160).
-  - CCE‑006 in [`RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:443) (implementation compromise).
+  - [`RR‑CANON‑R172`](../../RULES_CANONICAL_SPEC.md:603) (Last‑Player‑Standing).
+  - ANM‑SCEN‑07 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:160).
+  - CCE‑006 in [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:443) (implementation compromise).
 - **Canonical `rules_context`:** `last_player_standing`.
 
 ---
 
 ## 3. Canonical Copy by Reason Code
 
-This section defines UX copy blocks per reason code. Where possible, it builds directly on the canonical baselines in [`UX_RULES_COPY_SPEC.md`](docs/ux/UX_RULES_COPY_SPEC.md:331) §10.
+This section defines UX copy blocks per reason code. Where possible, it builds directly on the canonical baselines in [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:331) §10.
 
 ### 3.1 HUD Banners
 
@@ -137,7 +137,7 @@ This section defines UX copy blocks per reason code. Where possible, it builds d
 - **HUD body (other player):**  
   `"<Name> controls stacks but has no legal placements, movements, or captures. A cap will be removed from one of their stacks until a real move becomes available, following the forced-elimination rules."`
 
-These refine and specialise the general ANM and FE banners in [`UX_RULES_COPY_SPEC.md`](docs/ux/UX_RULES_COPY_SPEC.md:347).
+These refine and specialise the general ANM and FE banners in [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:347).
 
 #### RWS‑002 ANM_LINE_NO_ACTIONS
 
@@ -177,7 +177,7 @@ Used when the local player has seen multiple successive FE events in a short per
 
 #### RWS‑006 LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS
 
-Displayed when the game ends by LPS (once engines fully implement [`RR‑CANON‑R172`](RULES_CANONICAL_SPEC.md:603)).
+Displayed when the game ends by LPS (once engines fully implement [`RR‑CANON‑R172`](../../RULES_CANONICAL_SPEC.md:603)).
 
 - **HUD badge label:** `"Last Player Standing"`
 - **HUD title (winner local):**
@@ -200,36 +200,36 @@ Typically used as a **sub‑section** within a longer VictoryModal explanation w
 - **Title:** `"Forced Elimination on your turns"`
 - **Body:**  
   `"Several of your turns reached a state where you controlled stacks but had no legal placements, movements, or captures. In those moments the forced-elimination rule removed caps from your stacks, permanently eliminating rings until a real move became available or your stacks ran out. These eliminations counted toward Ring Elimination and may have contributed to the final result."`
-- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4 _Forced Elimination When Blocked_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:443) R100.
+- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4 _Forced Elimination When Blocked_; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:443) R100.
 
 #### RWS‑005 STRUCTURAL_STALEMATE_TIEBREAK (Terminal reason)
 
 - **Title:** `"Structural stalemate – final score from territory and rings"`
 - **Body:**  
   `"The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder."`
-- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4 _End of Game "Stalemate" Resolution_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173.
+- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4 _End of Game "Stalemate" Resolution_; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:619) R173.
 
 #### RWS‑006 LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS (Terminal reason)
 
 - **Title:** `"Last Player Standing – only one player had real moves for three rounds"`
 - **Body:**
   `"The game ended by Last Player Standing. For THREE consecutive complete rounds, only one player had any real actions available at the start of their turns – real actions meaning placements, non-capture movements, or overtaking captures. In the first round, this player had and took at least one real action while all others had none. In the second and third rounds, the same condition persisted. After the third round completed, the remaining active player won by Last Player Standing."`
-- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1360) §13.3 _Last Player Standing_; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:603) R172.
+- **Doc anchor:** [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1360) §13.3 _Last Player Standing_; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:603) R172.
 
 ---
 
 ### 3.3 TeachingOverlay Topics
 
-For each weird state, TeachingOverlay SHOULD offer a deep‑dive topic, either existing (per [`UX_RULES_COPY_SPEC.md`](docs/ux/UX_RULES_COPY_SPEC.md:438)) or newly added.
+For each weird state, TeachingOverlay SHOULD offer a deep‑dive topic, either existing (per [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:438)) or newly added.
 
 #### RWS‑001 / RWS‑004 (ANM + Forced Elimination)
 
 Map both to existing topics:
 
-- `teaching.active_no_moves` ([`TeachingOverlay.TEACHING_CONTENT.active_no_moves`](src/client/components/TeachingOverlay.tsx:98)):
+- `teaching.active_no_moves` ([`TeachingOverlay.TEACHING_CONTENT.active_no_moves`](../../src/client/components/TeachingOverlay.tsx:98)):
   - **Title:** `"When you have no legal moves"`.
   - Focus: definition of ANM, real moves vs FE, structural stalemate.
-- `teaching.forced_elimination` ([`TeachingOverlay.TEACHING_CONTENT.forced_elimination`](src/client/components/TeachingOverlay.tsx:110)):
+- `teaching.forced_elimination` ([`TeachingOverlay.TEACHING_CONTENT.forced_elimination`](../../src/client/components/TeachingOverlay.tsx:110)):
   - **Title:** `"Forced Elimination (FE)"`.
   - Focus: FE conditions, how caps are removed, how eliminations are credited.
 
@@ -242,12 +242,12 @@ Map both to existing topics:
 
 Recommended new focus area inside the existing lines topic:
 
-- Reuse `teaching.line_bonus` ([`TeachingOverlay.TEACHING_CONTENT.line_bonus`](src/client/components/TeachingOverlay.tsx:72)) and extend copy (in a future docs pass) with a sub‑section:
+- Reuse `teaching.line_bonus` ([`TeachingOverlay.TEACHING_CONTENT.line_bonus`](../../src/client/components/TeachingOverlay.tsx:72)) and extend copy (in a future docs pass) with a sub‑section:
   - `"When there are no line decisions left, the game automatically moves on to Territory and victory checks – you cannot make further line choices this turn."`
 
 #### RWS‑003 ANM_TERRITORY_NO_ACTIONS
 
-Route to `teaching.territory` ([`TeachingOverlay.TEACHING_CONTENT.territory`](src/client/components/TeachingOverlay.tsx:84)).
+Route to `teaching.territory` ([`TeachingOverlay.TEACHING_CONTENT.territory`](../../src/client/components/TeachingOverlay.tsx:84)).
 
 Add clarifying bullet in that topic:
 
@@ -255,9 +255,9 @@ Add clarifying bullet in that topic:
 
 #### RWS‑005 STRUCTURAL_STALEMATE_TIEBREAK
 
-Route to `teaching.victory_stalemate` ([`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:144)).
+Route to `teaching.victory_stalemate` ([`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](../../src/client/components/TeachingOverlay.tsx:144)).
 
-Ensure that topic clearly enumerates the four‑step tiebreak ladder used in [`RR‑CANON‑R173`](RULES_CANONICAL_SPEC.md:619).
+Ensure that topic clearly enumerates the four‑step tiebreak ladder used in [`RR‑CANON‑R173`](../../RULES_CANONICAL_SPEC.md:619).
 
 #### RWS‑006 LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS
 
@@ -294,15 +294,15 @@ Suggested key names (in a small central dictionary):
 | `STRUCTURAL_STALEMATE_TIEBREAK`               | `hud.weird.structural_stalemate.title`     | `hud.weird.structural_stalemate.body`     |
 | `LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS` | `hud.weird.lps_early_win.title`            | `hud.weird.lps_early_win.body`            |
 
-All keys above MUST use copy drawn from §3.1, possibly via [`UX_RULES_COPY_SPEC.md`](docs/ux/UX_RULES_COPY_SPEC.md:331) §10 consolidation.
+All keys above MUST use copy drawn from §3.1, possibly via [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:331) §10 consolidation.
 
 ### 4.2 VictoryModal Mapping: `reason_code → explanation_text_key, rules_doc_anchor`
 
-| Reason code                                   | VictoryModal explanation key           | Rules doc anchor                                                                                                                     |
-| :-------------------------------------------- | :------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
-| `ANM_MOVEMENT_FE_BLOCKED`                     | `victory.explain.fe_sequence`          | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:443) R100   |
-| `STRUCTURAL_STALEMATE_TIEBREAK`               | `victory.explain.structural_stalemate` | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:619) R173 |
-| `LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS` | `victory.explain.last_player_standing` | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1360) §13.3; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:603) R172 |
+| Reason code                                   | VictoryModal explanation key           | Rules doc anchor                                                                                                                           |
+| :-------------------------------------------- | :------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANM_MOVEMENT_FE_BLOCKED`                     | `victory.explain.fe_sequence`          | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:443) R100   |
+| `STRUCTURAL_STALEMATE_TIEBREAK`               | `victory.explain.structural_stalemate` | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:619) R173 |
+| `LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS` | `victory.explain.last_player_standing` | [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1360) §13.3; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:603) R172 |
 
 For `ANM_LINE_NO_ACTIONS` and `ANM_TERRITORY_NO_ACTIONS`, VictoryModal typically uses standard line / territory text; no extra reason‑specific key is required beyond possible debug / dev tooling.
 
@@ -319,7 +319,7 @@ For `ANM_LINE_NO_ACTIONS` and `ANM_TERRITORY_NO_ACTIONS`, VictoryModal typically
 
 ### 4.4 Telemetry Mapping: `reason_code → rules_context`
 
-This mapping MUST be used by the telemetry layer (see [`UX_RULES_TELEMETRY_SPEC.md`](docs/ux/UX_RULES_TELEMETRY_SPEC.md:218)):
+This mapping MUST be used by the telemetry layer (see [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:218)):
 
 | Reason code                                   | `rules_context`                                                                 |
 | :-------------------------------------------- | :------------------------------------------------------------------------------ |
@@ -343,7 +343,7 @@ This section defines **scenario‑level expectations** for Code‑mode tests. Sc
   - Square‑8, 2‑player game.
   - Player A controls exactly one stack; A has `ringsInHand == 0`.
   - No legal placements or movements/captures exist for A.
-  - Forced elimination is required under [`RR‑CANON‑R100`](RULES_CANONICAL_SPEC.md:443).
+  - Forced elimination is required under [`RR‑CANON‑R100`](../../RULES_CANONICAL_SPEC.md:443).
 - **Expected HUD banner (local A):**
   - Title: `"You have no legal moves this turn"`.
   - Badge: `"Forced Elimination"`.
@@ -411,13 +411,13 @@ Current TypeScript and Python engines already expose termination / weird‑state
 
 ## 7. Relationship to Other UX Specs
 
-- [`UX_RULES_COPY_SPEC.md`](docs/ux/UX_RULES_COPY_SPEC.md:331) remains the **canonical copy source** for generic movement, capture, lines, territory, and victory text. This document only defines **weird‑state‑specific overlays** on top.
-- [`UX_RULES_TELEMETRY_SPEC.md`](docs/ux/UX_RULES_TELEMETRY_SPEC.md:172) relies on the `reason_code` and `rules_context` mappings in §4.4 for:
+- [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:331) remains the **canonical copy source** for generic movement, capture, lines, territory, and victory text. This document only defines **weird‑state‑specific overlays** on top.
+- [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:172) relies on the `reason_code` and `rules_context` mappings in §4.4 for:
   - `weird_state_banner_impression`,
   - `weird_state_details_open`,
   - `resign_after_weird_state`.
-- For the structured payload consumed by end-of-game UX surfaces, see [`UX_RULES_EXPLANATION_MODEL_SPEC.md`](docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md:1).
-- [`UX_RULES_TEACHING_SCENARIOS.md`](docs/ux/UX_RULES_TEACHING_SCENARIOS.md:1) should reference the reason codes in §2 when defining flows that specifically demystify ANM/FE, structural stalemate, or LPS.
+- For the structured payload consumed by end-of-game UX surfaces, see [`UX_RULES_EXPLANATION_MODEL_SPEC.md`](UX_RULES_EXPLANATION_MODEL_SPEC.md:1).
+- [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1) should reference the reason codes in §2 when defining flows that specifically demystify ANM/FE, structural stalemate, or LPS.
 
 Together, these documents give a complete blueprint for:
 

@@ -5,7 +5,7 @@
 > - This document is the **rules-level canonical spec** for RingRift semantics and the single source of truth for rules behaviour. It normalizes the narrative sources into precise, implementation-ready constraints.
 > - It defines **RR-CANON-RXXX** rule IDs for core invariants, resources, turn/phase structure, line/territory semantics, and victory conditions.
 > - It intentionally **does not** re-specify the engine API or Move/decision/WebSocket lifecycle. For those, see:
->   - [`docs/CANONICAL_ENGINE_API.md` §3.9–3.10](docs/CANONICAL_ENGINE_API.md) for `Move`, `PendingDecision`, `PlayerChoice*`, WebSocket payloads, and the orchestrator-backed decision loop.
+>   - [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](docs/architecture/CANONICAL_ENGINE_API.md) for `Move`, `PendingDecision`, `PlayerChoice*`, WebSocket payloads, and the orchestrator-backed decision loop.
 >   - `src/shared/types/game.ts` and `src/shared/engine/orchestration/types.ts` for the canonical type definitions.
 > - **Single Source of Truth (SSoT):** The canonical rules defined in this document are the **ultimate authority** for RingRift game semantics. All implementations—TypeScript shared engine, Python AI service, client sandbox, replay systems, and any future engines—must derive from and faithfully implement these canonical rules.
 > - **Implementation hierarchy:**
@@ -473,7 +473,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - For ANM invariants and termination analysis:
     - Forced-elimination actions **do** count as global legal actions (RR-CANON-R200–R203); sequences in which forced elimination is the only available action are legal but must strictly increase the eliminated-ring component `E` of the progress metric `S = M + C + E` in RR-CANON-R191.
     - Because each forced elimination removes at least one ring from the acting player's cap and total rings are finite, any segment of play in which some player is repeatedly forced to eliminate caps must terminate in finitely many steps.
-  - The ANM semantics in RR-CANON-R200–R203, together with the progress invariant in RR-CANON-R191, therefore justify the `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, and `INV-TERMINATION` invariants described in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:119).
+- The ANM semantics in RR-CANON-R200–R203, together with the progress invariant in RR-CANON-R191, therefore justify the `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, and `INV-TERMINATION` invariants described in [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:119).
 
 - **[RR-CANON-R208] Multi-phase turn sequence for line→Territory turns.**
   - For any turn in which an interactive action by the current player P (placement, movement, capture, or chain-capture segment) creates at least one new line owned by P and/or disconnects a Territory region they control, the canonical sequence of phases is:
@@ -510,8 +510,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 > **Cross-references (non-normative but recommended):**
 >
-> - Scenario-level ANM and forced-elimination behaviour, including concrete examples for RR-CANON-R200–R207, is catalogued in [`docs/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
-> - Invariant and parity expectations for these rules are described in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:119) under `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, and `PARITY-TS-PY-ACTIVE-NO-MOVES`.
+> - Scenario-level ANM and forced-elimination behaviour, including concrete examples for RR-CANON-R200–R207, is catalogued in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
+> - Invariant and parity expectations for these rules are described in [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:119) under `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, and `PARITY-TS-PY-ACTIVE-NO-MOVES`.
 
 ---
 

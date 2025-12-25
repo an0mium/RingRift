@@ -173,9 +173,12 @@ def get_db_connection(
                 victory_type TEXT,
                 created_at TEXT,
                 source TEXT,
+                engine_mode TEXT,
                 metadata_json TEXT
             )
         """)
+        # Create index for engine_mode filtering
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_games_engine_mode ON games(engine_mode)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS game_moves (
                 game_id TEXT NOT NULL,
@@ -239,13 +242,15 @@ def process_chunk(
             move_count = len(moves)
             victory_type = record.get("victory_type", "unknown")
             timestamp = record.get("timestamp", record.get("created_at", ""))
+            # Extract engine_mode from record or nested metadata
+            engine_mode = record.get("engine_mode") or record.get("metadata", {}).get("engine_mode")
 
             # Insert game with conflict handling
             cursor = conn.execute("""
                 INSERT OR IGNORE INTO games
                 (game_id, board_type, num_players, winner, move_count, total_moves,
-                 game_status, victory_type, created_at, source, metadata_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 game_status, victory_type, created_at, source, engine_mode, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 game_id,
                 board_type,
@@ -257,6 +262,7 @@ def process_chunk(
                 victory_type,
                 timestamp,
                 f"jsonl:{source_file}",
+                engine_mode,
                 json.dumps(record),
             ))
 
