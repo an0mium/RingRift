@@ -518,6 +518,8 @@ def run_baseline_gauntlet(
     verbose: bool = False,
     model_getter: Callable[[], Any] | None = None,
     model_type: str = "cnn",
+    store_results: bool = True,
+    model_id: str | None = None,
 ) -> GauntletResult:
     """Run a gauntlet evaluation against baseline opponents.
 
@@ -531,6 +533,8 @@ def run_baseline_gauntlet(
         verbose: Whether to log per-game results
         model_getter: Callable returning model weights (in-memory loading, zero disk I/O)
         model_type: Type of model - "cnn" (default), "gnn", or "hybrid"
+        store_results: Whether to store results in gauntlet_results.db (default: True)
+        model_id: Model identifier for result storage (derived from model_path if not specified)
 
     Returns:
         GauntletResult with aggregated statistics
@@ -661,6 +665,37 @@ def run_baseline_gauntlet(
         win_rate=result.win_rate,
         games=result.total_games,
     )
+
+    # Store results in gauntlet_results.db (December 2025)
+    if store_results:
+        try:
+            from app.training.gauntlet_results_db import get_gauntlet_db
+
+            # Derive model_id from path if not specified
+            effective_model_id = model_id
+            if effective_model_id is None and model_path is not None:
+                effective_model_id = Path(model_path).stem
+
+            if effective_model_id:
+                db = get_gauntlet_db()
+                for baseline_name, stats in result.opponent_results.items():
+                    db.store_result(
+                        model_id=effective_model_id,
+                        board_type=board_type.value if hasattr(board_type, "value") else str(board_type),
+                        num_players=num_players,
+                        opponent=baseline_name,
+                        wins=stats.get("wins", 0),
+                        losses=stats.get("games", 0) - stats.get("wins", 0),
+                        draws=0,
+                        metadata={
+                            "estimated_elo": result.estimated_elo,
+                            "model_type": model_type,
+                            "passes_gating": result.passes_baseline_gating,
+                        },
+                    )
+                logger.debug(f"[gauntlet] Stored results for {effective_model_id} in gauntlet_results.db")
+        except Exception as e:
+            logger.warning(f"[gauntlet] Failed to store results in DB: {e}")
 
     return result
 
