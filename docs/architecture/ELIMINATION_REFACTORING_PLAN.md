@@ -24,12 +24,12 @@ Elimination logic is currently spread across multiple files with subtle differen
 
 ### Canonical Rules (from RULES_CANONICAL_SPEC.md)
 
-| Context                  | Elimination Cost         | Eligible Stacks                                      | Reference     |
-| ------------------------ | ------------------------ | ---------------------------------------------------- | ------------- |
-| **Line Processing**      | 1 ring from top          | Any controlled stack (including height-1)            | RR-CANON-R122 |
-| **Territory Processing** | Entire cap               | Multicolor OR single-color height > 1 (NOT height-1) | RR-CANON-R145 |
-| **Forced Elimination**   | Entire cap               | Any controlled stack (including height-1)            | RR-CANON-R100 |
-| **Recovery Action**      | 1 buried ring extraction | Any stack with player's buried ring                  | RR-CANON-R113 |
+| Context                  | Elimination Cost         | Eligible Stacks                           | Reference     |
+| ------------------------ | ------------------------ | ----------------------------------------- | ------------- |
+| **Line Processing**      | 1 ring from top          | Any controlled stack (including height-1) | RR-CANON-R122 |
+| **Territory Processing** | Entire cap               | Any controlled stack (including height-1) | RR-CANON-R145 |
+| **Forced Elimination**   | Entire cap               | Any controlled stack (including height-1) | RR-CANON-R100 |
+| **Recovery Action**      | 1 buried ring extraction | Any stack with player's buried ring       | RR-CANON-R113 |
 
 ## Refactoring Goals
 

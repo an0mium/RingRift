@@ -57,11 +57,11 @@ BEFORE: Red stack moves to space       AFTER: Marker removed, top ring eliminate
 Lines are formed from consecutive markers of the same color along a direction.
 
 ```
-HORIZONTAL LINE (4+ markers = line on most boards)
+HORIZONTAL LINE (lineLength+ markers = line)
 
      1     2     3     4     5
    ┌───┐ ┌───┐ ┌───┐ ┌───┐ ┌───┐
-   │ ● │─│ ● │─│ ● │─│ ● │ │   │  ◄── 4 Red markers = valid line!
+   │ ● │─│ ● │─│ ● │─│ ● │ │   │  ◄── 4 Red markers = valid line when lineLength = 4
    └───┘ └───┘ └───┘ └───┘ └───┘
 
 DIAGONAL LINE

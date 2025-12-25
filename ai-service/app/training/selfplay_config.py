@@ -302,7 +302,7 @@ def create_argument_parser(
         "--board", "--board-type",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hex8", "hex", "hexagonal"],
+        choices=["square8", "square19", "hex8", "hex", "hexagonal", "full_hex", "hex24"],
         help="Board type (default: square8)",
     )
     game_group.add_argument(

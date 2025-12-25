@@ -115,7 +115,6 @@ try:
         AdaptiveLRScheduler,
         CalibrationAutomation,
         CheckpointAverager,
-        DataQualityScorer,
         EnhancedEarlyStopping,
         EWCRegularizer,
         GradientAccumulator,
@@ -127,13 +126,20 @@ except ImportError:
     HAS_TRAINING_ENHANCEMENTS = False
     CheckpointAverager = None
     GradientAccumulator = None
-    DataQualityScorer = None
     AdaptiveLRScheduler = None
     EnhancedEarlyStopping = None
     EWCRegularizer = None
     ModelEnsemble = None
     CalibrationAutomation = None
     create_training_enhancements = None
+
+# Quality scoring - use UnifiedQualityScorer (DataQualityScorer is deprecated)
+try:
+    from app.quality.unified_quality import UnifiedQualityScorer
+    HAS_QUALITY_SCORER = True
+except ImportError:
+    HAS_QUALITY_SCORER = False
+    UnifiedQualityScorer = None
 
 try:
     from .multi_task_learning import (
@@ -248,7 +254,7 @@ class OptimizedTrainingPipeline:
 
         # Training enhancements
         self._checkpoint_averager = CheckpointAverager() if HAS_TRAINING_ENHANCEMENTS else None
-        self._quality_scorer = DataQualityScorer() if HAS_TRAINING_ENHANCEMENTS else None
+        self._quality_scorer = UnifiedQualityScorer() if HAS_QUALITY_SCORER else None
         self._calibration = CalibrationAutomation() if HAS_TRAINING_ENHANCEMENTS else None
 
         # Advanced training utilities

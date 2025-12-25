@@ -6,22 +6,20 @@ and distributed training support via PyTorch DDP.
 Recommended Usage (December 2025):
     For unified data management and training coordination, consider using:
     - TrainingDataCoordinator: app.training.data_coordinator
-    - TrainingOrchestrator: app.training.orchestrated_training
+    - UnifiedTrainingOrchestrator: app.training.unified_orchestrator
 
     Example:
         from app.training.data_coordinator import get_data_coordinator
-        from app.training.orchestrated_training import get_training_orchestrator
+        from app.training.unified_orchestrator import UnifiedTrainingOrchestrator
 
         # Use data coordinator for quality-aware data loading
         coordinator = get_data_coordinator()
         await coordinator.prepare_for_training(board_type="square8", num_players=2)
 
-        # Use training orchestrator for unified lifecycle management
-        orchestrator = get_training_orchestrator()
+        # Use unified training orchestrator for lifecycle management
+        orchestrator = UnifiedTrainingOrchestrator.from_config(config)
         await orchestrator.initialize()
-        async with orchestrator.training_context():
-            # Run training...
-            pass
+        # Run training with orchestrator...
 """
 
 import contextlib

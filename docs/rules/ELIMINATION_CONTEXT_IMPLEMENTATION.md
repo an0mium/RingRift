@@ -12,12 +12,12 @@ This document tracks the implementation and validation of the elimination contex
 
 The elimination cost for processing lines vs territories differs:
 
-| Context                  | Cost            | Eligible Stacks                              | Canonical Reference |
-| ------------------------ | --------------- | -------------------------------------------- | ------------------- |
-| **Line Processing**      | 1 ring from top | Any controlled stack (including height-1)    | RR-CANON-R122       |
-| **Territory Processing** | Entire cap      | Multicolor stacks OR single-color height > 1 | RR-CANON-R145       |
-| **Forced Elimination**   | Entire cap      | Any controlled stack (including height-1)    | RR-CANON-R100       |
-| **Recovery Move**        | 1 buried ring   | Stacks with buried rings                     | RR-CANON-R082       |
+| Context                  | Cost            | Eligible Stacks                           | Canonical Reference |
+| ------------------------ | --------------- | ----------------------------------------- | ------------------- |
+| **Line Processing**      | 1 ring from top | Any controlled stack (including height-1) | RR-CANON-R122       |
+| **Territory Processing** | Entire cap      | Any controlled stack (including height-1) | RR-CANON-R145       |
+| **Forced Elimination**   | Entire cap      | Any controlled stack (including height-1) | RR-CANON-R100       |
+| **Recovery Move**        | 1 buried ring   | Stacks with buried rings                  | RR-CANON-R082       |
 
 ### Key Definitions (RR-CANON-R022)
 

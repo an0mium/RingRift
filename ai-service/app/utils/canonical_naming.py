@@ -95,6 +95,7 @@ _BOARD_TYPE_ALIASES: dict[str, str] = {
     "fullhex": "hexagonal",  # Full hex = hexagonal (largest hex board)
     "full_hex": "hexagonal",
     "full-hex": "hexagonal",
+    "full hex": "hexagonal",  # With space (user-friendly form)
 }
 
 

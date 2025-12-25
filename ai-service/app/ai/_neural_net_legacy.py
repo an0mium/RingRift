@@ -62,14 +62,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-# Emit deprecation warning on import (only once per session)
-warnings.warn(
-    "The app.ai._neural_net_legacy module is deprecated and will be removed in a future version. "
-    "Use app.ai.neural_net for new code. See module docstring for migration guidance.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
 from ..models import (
     BoardState,
     BoardType,

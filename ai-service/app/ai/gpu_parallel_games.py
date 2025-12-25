@@ -2407,7 +2407,7 @@ class ParallelGameRunner:
                 torch.tensor(1, device=self.device)
             )
             # Gather opponent's ring status
-            opponent_indices = opponent_players.unsqueeze(1)  # (batch_size, 1)
+            opponent_indices = opponent_players.unsqueeze(1).long()  # (batch_size, 1) - int64 for gather
             opponent_has_rings = player_has_rings.gather(1, opponent_indices).squeeze(1)  # (batch_size,)
             # Result: opponent eliminated (no rings) in active games
             result = active_mask & ~opponent_has_rings
@@ -2475,7 +2475,8 @@ class ParallelGameRunner:
 
         # Use gather to get each game's current player's territory count
         # Expand current_players to match territory_count shape for gather
-        player_indices = current_players.unsqueeze(1)  # (batch_size, 1)
+        # Note: gather() requires int64 indices
+        player_indices = current_players.unsqueeze(1).to(torch.int64)  # (batch_size, 1)
         player_territory = self.state.territory_count.gather(1, player_indices).squeeze(1)  # (batch_size,)
 
         # Condition 1: player has minimum threshold (vectorized)
@@ -3277,7 +3278,7 @@ class ParallelGameRunner:
         has_stacks = player_mask.flatten(1).any(dim=1)
 
         # Check if player has rings in hand (vectorized using gather)
-        player_indices = current_players.unsqueeze(-1)  # (batch_size, 1)
+        player_indices = current_players.unsqueeze(-1).long()  # (batch_size, 1) - int64 for gather
         has_rings_in_hand = (
             torch.gather(state.rings_in_hand, 1, player_indices).squeeze(-1) > 0
         )
