@@ -78,6 +78,16 @@ except ImportError:
     PromotionController = None
     PromotionType = None
 
+# Import event emission for feedback loop (December 2025)
+try:
+    from app.coordination.event_emitters import emit_promotion_complete_sync
+    HAS_EVENT_EMITTERS = True
+except ImportError:
+    HAS_EVENT_EMITTERS = False
+
+    def emit_promotion_complete_sync(*args, **kwargs):
+        return False
+
 DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 PRODUCTION_DIR = AI_SERVICE_ROOT / "models" / "production"
 PROMOTION_LOG = AI_SERVICE_ROOT / "data" / ".promotion_history.json"
@@ -574,6 +584,13 @@ def promote_after_gauntlet(
     shutil.copy2(model_path, canonical_path)
     print(f"  ✓ Updated canonical model: {canonical_path}")
 
+    # Create ringrift_best_* symlink for inference (December 2025)
+    symlink_path = AI_SERVICE_ROOT / "models" / f"ringrift_best_{config}.pth"
+    if symlink_path.exists() or symlink_path.is_symlink():
+        symlink_path.unlink()
+    symlink_path.symlink_to(f"canonical_{config}.pth")
+    print(f"  ✓ Created inference symlink: {symlink_path.name} -> canonical_{config}.pth")
+
     # Update promotion history
     history = load_promotion_history()
     history["promoted"].append({
@@ -585,6 +602,21 @@ def promote_after_gauntlet(
         "gauntlet_results": gauntlet_results,
     })
     save_promotion_history(history)
+
+    # Emit PROMOTION_COMPLETE event for feedback loop (December 2025)
+    # This notifies the curriculum system and triggers model distribution
+    emitted = emit_promotion_complete_sync(
+        model_id=str(model_path.name),
+        board_type=board_type,
+        num_players=num_players,
+        promotion_type="gauntlet",
+        elo_improvement=elo - 1500.0 if elo else None,  # Delta from baseline
+        model_path=str(canonical_path),
+        win_rate_vs_random=gauntlet_results.get("win_rate_vs_random"),
+        win_rate_vs_heuristic=gauntlet_results.get("win_rate_vs_heuristic"),
+    )
+    if emitted:
+        print("  ✓ Emitted PROMOTION_COMPLETE event")
 
     return True
 
@@ -722,6 +754,72 @@ def check_gauntlet_resources(skip_check: bool = False) -> tuple[bool, str]:
     return True, "OK"
 
 
+def run_gauntlet_with_retry(
+    model_path: Path,
+    board_type: str,
+    num_players: int,
+    games_per_opponent: int = 20,
+    model_type: str | None = None,
+    max_retries: int = 3,
+    retry_delay: float = 5.0,
+) -> dict | None:
+    """Run gauntlet evaluation with retry logic.
+
+    On failure, retries with increased game count to reduce variance.
+    This helps overcome transient failures and statistical variance.
+
+    Args:
+        model_path: Path to model file
+        board_type: Board type
+        num_players: Number of players
+        games_per_opponent: Base games per baseline opponent
+        model_type: Model type or None to auto-detect
+        max_retries: Maximum retry attempts (default: 3)
+        retry_delay: Delay between retries in seconds
+
+    Returns:
+        Gauntlet results dict or None if all attempts failed
+    """
+    last_error = None
+
+    for attempt in range(max_retries):
+        # Increase games on retry to reduce variance
+        # Attempt 0: base games, Attempt 1: 1.5x, Attempt 2: 2x
+        retry_games = int(games_per_opponent * (1 + 0.5 * attempt))
+
+        if attempt > 0:
+            print(f"\n[Retry {attempt}/{max_retries - 1}] Retrying with {retry_games} games per opponent...")
+            time.sleep(retry_delay)
+
+        try:
+            results = run_gauntlet_evaluation(
+                model_path, board_type, num_players, retry_games,
+                model_type=model_type,
+            )
+
+            # If we got valid results (even if gauntlet failed), return them
+            if results:
+                if attempt > 0:
+                    print(f"  Evaluation completed on attempt {attempt + 1}")
+                return results
+
+        except Exception as e:
+            last_error = e
+            print(f"  Attempt {attempt + 1} failed: {e}")
+
+            # Only continue retrying for transient errors
+            # For fatal errors like model not found, don't retry
+            error_msg = str(e).lower()
+            if any(fatal in error_msg for fatal in ["model not found", "file not found", "invalid"]):
+                print(f"  Fatal error - not retrying")
+                break
+
+    print(f"Error: All {max_retries} gauntlet attempts failed")
+    if last_error:
+        print(f"  Last error: {last_error}")
+    return None
+
+
 def run_gauntlet_promotion(
     model_path: Path,
     board_type: str,
@@ -731,6 +829,7 @@ def run_gauntlet_promotion(
     dry_run: bool = False,
     model_type: str | None = None,
     skip_resource_check: bool = False,
+    max_retries: int = 3,
 ) -> bool:
     """Full gauntlet-based promotion workflow.
 
@@ -743,6 +842,7 @@ def run_gauntlet_promotion(
         dry_run: If True, only preview without making changes
         model_type: Model type ("cnn", "gnn", "hybrid") or None to auto-detect
         skip_resource_check: If True, skip pre-execution resource checks
+        max_retries: Maximum retry attempts for gauntlet evaluation (default: 3)
 
     Returns:
         True if promotion successful, False otherwise
@@ -766,14 +866,15 @@ def run_gauntlet_promotion(
         print(f"Error: Model file not found: {model_path}")
         return False
 
-    # Run gauntlet evaluation
-    try:
-        results = run_gauntlet_evaluation(
-            model_path, board_type, num_players, games_per_opponent,
-            model_type=model_type,
-        )
-    except Exception as e:
-        print(f"Error running gauntlet: {e}")
+    # Run gauntlet evaluation with retry logic (Dec 2025)
+    results = run_gauntlet_with_retry(
+        model_path, board_type, num_players, games_per_opponent,
+        model_type=model_type,
+        max_retries=max_retries,
+    )
+
+    if results is None:
+        print("Error: Gauntlet evaluation failed after all retries")
         return False
 
     # Print results
@@ -876,6 +977,8 @@ Examples:
                         help="Sync promoted model to cluster nodes")
     parser.add_argument("--skip-resource-check", action="store_true",
                         help="Skip pre-execution resource checks (memory, CPU, concurrent gauntlets)")
+    parser.add_argument("--max-retries", type=int, default=3,
+                        help="Max retry attempts for gauntlet evaluation (default: 3)")
 
     args = parser.parse_args()
 
@@ -890,7 +993,7 @@ Examples:
 
     # Branch between gauntlet mode and ELO mode
     if args.gauntlet:
-        # Gauntlet-based promotion
+        # Gauntlet-based promotion with retry logic (Dec 2025)
         success = run_gauntlet_promotion(
             model_path=args.model,
             board_type=args.board_type,
@@ -900,6 +1003,7 @@ Examples:
             dry_run=args.dry_run,
             model_type=getattr(args, 'model_type', None),
             skip_resource_check=args.skip_resource_check,
+            max_retries=args.max_retries,
         )
         sys.exit(0 if success else 1)
 

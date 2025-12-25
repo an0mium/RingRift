@@ -116,6 +116,24 @@ class DaemonType(Enum):
     # Tournament daemon (December 2025) - automatic tournament scheduling
     TOURNAMENT_DAEMON = "tournament_daemon"
 
+    # Feedback loop controller (December 2025) - orchestrates all feedback signals
+    FEEDBACK_LOOP = "feedback_loop"
+
+    # NPZ distribution (December 2025) - sync training data after export
+    NPZ_DISTRIBUTION = "npz_distribution"
+
+    # Orphan detection (December 2025) - detect orphaned games not in manifest
+    ORPHAN_DETECTION = "orphan_detection"
+
+    # Auto-evaluation (December 2025) - trigger evaluation after training completes
+    EVALUATION = "evaluation"
+
+    # Quality monitor (December 2025) - continuous selfplay quality monitoring
+    QUALITY_MONITOR = "quality_monitor"
+
+    # Model performance watchdog (December 2025) - monitors model win rates
+    MODEL_PERFORMANCE_WATCHDOG = "model_performance_watchdog"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -241,8 +259,12 @@ class DaemonManager:
         self.register_factory(DaemonType.GOSSIP_SYNC, self._create_gossip_sync)
         self.register_factory(DaemonType.DATA_SERVER, self._create_data_server)
 
-        # Continuous training
-        self.register_factory(DaemonType.CONTINUOUS_TRAINING_LOOP, self._create_continuous_training_loop)
+        # Continuous training - depends on EVENT_ROUTER for training pipeline events
+        self.register_factory(
+            DaemonType.CONTINUOUS_TRAINING_LOOP,
+            self._create_continuous_training_loop,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Auto sync (December 2025)
         self.register_factory(DaemonType.AUTO_SYNC, self._create_auto_sync)
@@ -256,8 +278,70 @@ class DaemonManager:
         # Replication monitor (December 2025)
         self.register_factory(DaemonType.REPLICATION_MONITOR, self._create_replication_monitor)
 
-        # Tournament daemon (December 2025)
-        self.register_factory(DaemonType.TOURNAMENT_DAEMON, self._create_tournament_daemon)
+        # Tournament daemon (December 2025) - depends on EVENT_ROUTER for event subscriptions
+        self.register_factory(
+            DaemonType.TOURNAMENT_DAEMON,
+            self._create_tournament_daemon,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Data pipeline orchestrator (December 2025) - depends on EVENT_ROUTER for pipeline events
+        self.register_factory(
+            DaemonType.DATA_PIPELINE,
+            self._create_data_pipeline,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Model sync daemon (December 2025)
+        self.register_factory(DaemonType.MODEL_SYNC, self._create_model_sync)
+
+        # Model distribution daemon (December 2025) - depends on EVENT_ROUTER for MODEL_PROMOTED events
+        self.register_factory(
+            DaemonType.MODEL_DISTRIBUTION,
+            self._create_model_distribution,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # P2P backend (December 2025)
+        self.register_factory(DaemonType.P2P_BACKEND, self._create_p2p_backend)
+
+        # Unified promotion daemon (December 2025) - depends on EVENT_ROUTER for EVALUATION_COMPLETED events
+        self.register_factory(
+            DaemonType.UNIFIED_PROMOTION,
+            self._create_unified_promotion,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Cluster monitor (December 2025)
+        self.register_factory(DaemonType.CLUSTER_MONITOR, self._create_cluster_monitor)
+
+        # Feedback loop controller (December 2025) - depends on EVENT_ROUTER for all feedback signals
+        self.register_factory(
+            DaemonType.FEEDBACK_LOOP,
+            self._create_feedback_loop,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Auto-evaluation daemon (December 2025) - triggers evaluation after TRAINING_COMPLETE
+        self.register_factory(
+            DaemonType.EVALUATION,
+            self._create_evaluation_daemon,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Quality monitor daemon (December 2025) - continuous quality monitoring
+        self.register_factory(
+            DaemonType.QUALITY_MONITOR,
+            self._create_quality_monitor,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Model performance watchdog (December 2025) - monitors model win rates
+        self.register_factory(
+            DaemonType.MODEL_PERFORMANCE_WATCHDOG,
+            self._create_model_performance_watchdog,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
     def register_factory(
         self,
@@ -623,43 +707,54 @@ class DaemonManager:
                 logger.error(f"Health check error: {e}")
 
     async def _check_health(self) -> None:
-        """Check health of all daemons and attempt recovery of FAILED ones."""
-        current_time = time.time()
+        """Check health of all daemons and attempt recovery of FAILED ones.
 
-        for daemon_type, info in list(self._daemons.items()):
-            # Attempt recovery of FAILED daemons after cooldown period
-            if info.state == DaemonState.FAILED:
-                # Skip daemons with import errors - they can't be recovered
-                if info.import_error:
+        Note: Acquires self._lock to prevent race conditions with start/stop/register.
+        Restarts are done outside the lock to avoid deadlock since start() also acquires lock.
+        """
+        daemons_to_restart: list[DaemonType] = []
+
+        async with self._lock:
+            current_time = time.time()
+
+            for daemon_type, info in list(self._daemons.items()):
+                # Attempt recovery of FAILED daemons after cooldown period
+                if info.state == DaemonState.FAILED:
+                    # Skip daemons with import errors - they can't be recovered
+                    if info.import_error:
+                        continue
+
+                    time_since_failure = current_time - info.last_failure_time
+                    if time_since_failure >= self.config.recovery_cooldown:
+                        logger.info(
+                            f"Attempting recovery of {daemon_type.value} after "
+                            f"{time_since_failure:.0f}s cooldown"
+                        )
+                        # Reset restart count to allow recovery attempts
+                        info.restart_count = 0
+                        info.state = DaemonState.STOPPED  # Reset state before restart
+                        daemons_to_restart.append(daemon_type)
                     continue
 
-                time_since_failure = current_time - info.last_failure_time
-                if time_since_failure >= self.config.recovery_cooldown:
-                    logger.info(
-                        f"Attempting recovery of {daemon_type.value} after "
-                        f"{time_since_failure:.0f}s cooldown"
-                    )
-                    # Reset restart count to allow recovery attempts
-                    info.restart_count = 0
-                    info.state = DaemonState.STOPPED  # Reset state before restart
-                    await self.start(daemon_type)
-                continue
+                if info.state != DaemonState.RUNNING:
+                    continue
 
-            if info.state != DaemonState.RUNNING:
-                continue
+                # Check if task is still alive
+                if info.task is None or info.task.done():
+                    if info.task and info.task.exception():
+                        info.last_error = str(info.task.exception())
+                        info.last_failure_time = current_time
 
-            # Check if task is still alive
-            if info.task is None or info.task.done():
-                if info.task and info.task.exception():
-                    info.last_error = str(info.task.exception())
-                    info.last_failure_time = current_time
+                    if self.config.auto_restart_failed and info.restart_count < info.max_restarts:
+                        logger.warning(f"{daemon_type.value} died, restarting...")
+                        daemons_to_restart.append(daemon_type)
+                    else:
+                        info.state = DaemonState.FAILED
+                        info.last_failure_time = current_time
 
-                if self.config.auto_restart_failed and info.restart_count < info.max_restarts:
-                    logger.warning(f"{daemon_type.value} died, restarting...")
-                    await self.start(daemon_type)
-                else:
-                    info.state = DaemonState.FAILED
-                    info.last_failure_time = current_time
+        # Handle restarts outside lock to prevent deadlock (start() also acquires lock)
+        for daemon_type in daemons_to_restart:
+            await self.start(daemon_type)
 
     def get_status(self) -> dict[str, Any]:
         """Get status of all daemons.
@@ -695,6 +790,19 @@ class DaemonManager:
         """Check if a daemon is running."""
         info = self._daemons.get(daemon_type)
         return info is not None and info.state == DaemonState.RUNNING
+
+    def get_daemon_info(self, daemon_type: DaemonType) -> DaemonInfo | None:
+        """Get daemon info by type (public API).
+
+        Used by DaemonWatchdog to inspect daemon state and detect stuck tasks.
+
+        Args:
+            daemon_type: The type of daemon to look up
+
+        Returns:
+            DaemonInfo if daemon is registered, None otherwise
+        """
+        return self._daemons.get(daemon_type)
 
     # =========================================================================
     # Liveness and Readiness Probes (December 2025)
@@ -860,12 +968,18 @@ class DaemonManager:
     async def _create_event_router(self) -> None:
         """Create and run the unified event router."""
         try:
-            from app.coordination.event_router import UnifiedEventRouter
+            from app.coordination.event_router import get_router, start_coordinator
 
-            router = UnifiedEventRouter.get_instance()
-            await router.start()
+            # Start the event router (auto-creates singleton on first call)
+            await start_coordinator()
+            router = get_router()
+            logger.info("Event router started successfully")
+
+            # Keep daemon alive while router is running
+            while True:
+                await asyncio.sleep(3600)
         except ImportError as e:
-            logger.error(f"UnifiedEventRouter not available: {e}")
+            logger.error(f"Event router not available: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_cross_process_poller(self) -> None:
@@ -1063,6 +1177,282 @@ class DaemonManager:
             logger.error(f"TournamentDaemon not available: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
 
+    async def _create_data_pipeline(self) -> None:
+        """Create and run data pipeline orchestrator daemon (December 2025).
+
+        Orchestrates the training data pipeline:
+        SELFPLAY → SYNC → NPZ_EXPORT → TRAINING → EVALUATION → PROMOTION
+
+        Subscribes to pipeline events and triggers next stages automatically.
+        """
+        try:
+            from app.coordination.data_pipeline_orchestrator import DataPipelineOrchestrator
+
+            orchestrator = DataPipelineOrchestrator()
+            await orchestrator.run_forever()
+
+        except ImportError as e:
+            logger.error(f"DataPipelineOrchestrator not available: {e}")
+            raise
+
+    async def _create_model_sync(self) -> None:
+        """Create and run model sync daemon (December 2025).
+
+        Synchronizes model files across cluster nodes.
+        """
+        try:
+            from app.coordination.daemon_adapters import ModelSyncDaemon
+
+            daemon = ModelSyncDaemon()
+            await daemon.run()
+
+        except ImportError as e:
+            logger.error(f"ModelSyncDaemon not available: {e}")
+            raise
+
+    async def _create_model_distribution(self) -> None:
+        """Create and run model distribution daemon (December 2025).
+
+        Automatically distributes models to cluster nodes after promotion.
+        Subscribes to MODEL_PROMOTED events.
+        """
+        try:
+            from app.coordination.model_distribution_daemon import ModelDistributionDaemon
+
+            daemon = ModelDistributionDaemon()
+            await daemon.start()
+
+            while daemon.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"ModelDistributionDaemon not available: {e}")
+            raise
+
+    async def _create_p2p_backend(self) -> None:
+        """Create and run P2P backend server (December 2025).
+
+        Runs the P2P mesh network backend for cluster communication.
+        """
+        try:
+            from app.distributed.p2p import P2PNode
+
+            node = P2PNode()
+            await node.start()
+
+            while node.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"P2P backend not available: {e}")
+            raise
+
+    async def _create_unified_promotion(self) -> None:
+        """Create and run unified promotion daemon (December 2025).
+
+        Handles model promotion decisions based on evaluation results.
+        Subscribes to EVALUATION_COMPLETED events.
+        """
+        try:
+            from app.training.promotion_controller import PromotionController
+
+            controller = PromotionController()
+            # Controller auto-wires to events in __init__
+
+            # Keep daemon alive
+            while True:
+                await asyncio.sleep(3600)
+
+        except ImportError as e:
+            logger.error(f"PromotionController not available: {e}")
+            raise
+
+    async def _create_cluster_monitor(self) -> None:
+        """Create and run cluster monitor daemon (December 2025).
+
+        Monitors cluster health and node status.
+        """
+        try:
+            from app.distributed.cluster_monitor import ClusterMonitor
+
+            monitor = ClusterMonitor()
+            await monitor.run_forever(interval=30)
+
+        except ImportError as e:
+            logger.error(f"ClusterMonitor not available: {e}")
+            raise
+
+    async def _create_feedback_loop(self) -> None:
+        """Create and run gauntlet feedback controller daemon (December 2025).
+
+        Orchestrates feedback from gauntlet evaluation to training:
+        - EVALUATION_COMPLETED → Hyperparameter adjustments
+        - Strong models → Reduce exploration, raise quality threshold
+        - Weak models → Trigger extra selfplay, extend epochs
+        - ELO plateau → Advance curriculum stage
+        - Regression → Consider rollback
+
+        This is the central nervous system of the training improvement loop.
+        """
+        try:
+            from app.coordination.gauntlet_feedback_controller import (
+                get_gauntlet_feedback_controller,
+            )
+
+            controller = await get_gauntlet_feedback_controller()
+            await controller.start()
+
+            # Keep running while controller is active
+            while controller.is_running:
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"GauntletFeedbackController not available: {e}")
+            raise
+
+    async def _create_evaluation_daemon(self) -> None:
+        """Create and run auto-evaluation daemon (December 2025).
+
+        Automatically triggers gauntlet evaluation when TRAINING_COMPLETE events
+        are received. This closes the feedback loop by ensuring every trained
+        model gets evaluated without manual intervention.
+
+        Emits EVALUATION_COMPLETED events for downstream consumers (promotion,
+        curriculum feedback, etc.)
+        """
+        try:
+            from app.coordination.evaluation_daemon import get_evaluation_daemon
+
+            daemon = get_evaluation_daemon()
+            await daemon.start()
+
+            # Keep running while daemon is active
+            while daemon.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"EvaluationDaemon not available: {e}")
+            raise
+
+    async def _create_quality_monitor(self) -> None:
+        """Create and run quality monitor daemon (December 2025).
+
+        Continuously monitors selfplay data quality and emits events when
+        quality degrades or recovers. This enables reactive throttling of
+        selfplay and training pipeline gates.
+
+        Emits:
+            - LOW_QUALITY_DATA_WARNING: Quality dropped below threshold
+            - HIGH_QUALITY_DATA_AVAILABLE: Quality recovered
+            - QUALITY_SCORE_UPDATED: Quality changed significantly
+        """
+        try:
+            from app.coordination.quality_monitor_daemon import create_quality_monitor
+
+            await create_quality_monitor()
+
+        except ImportError as e:
+            logger.error(f"QualityMonitorDaemon not available: {e}")
+            raise
+
+    async def _create_model_performance_watchdog(self) -> None:
+        """Create and run model performance watchdog daemon (December 2025).
+
+        Monitors model win rates from EVALUATION_COMPLETED events and emits
+        alerts when performance degrades below acceptable thresholds.
+
+        Subscribes to:
+            - EVALUATION_COMPLETED: Triggered after gauntlet evaluation
+
+        Emits:
+            - REGRESSION_DETECTED: Model performance dropped below threshold
+        """
+        try:
+            from app.coordination.model_performance_watchdog import (
+                create_model_performance_watchdog,
+            )
+
+            await create_model_performance_watchdog()
+
+        except ImportError as e:
+            logger.error(f"ModelPerformanceWatchdog not available: {e}")
+            raise
+
+
+# =============================================================================
+# Daemon Profiles (December 2025)
+# =============================================================================
+# Profiles group daemons by use case for easier management.
+
+DAEMON_PROFILES: dict[str, list[DaemonType]] = {
+    # Coordinator node profile - runs on central MacBook
+    "coordinator": [
+        DaemonType.EVENT_ROUTER,
+        DaemonType.P2P_BACKEND,
+        DaemonType.TOURNAMENT_DAEMON,
+        DaemonType.MODEL_DISTRIBUTION,
+        DaemonType.REPLICATION_MONITOR,
+        DaemonType.CLUSTER_MONITOR,
+        DaemonType.FEEDBACK_LOOP,
+        DaemonType.QUALITY_MONITOR,  # Monitor selfplay data quality
+        DaemonType.MODEL_PERFORMANCE_WATCHDOG,  # Monitor model win rates
+    ],
+
+    # Training node profile - runs on GPU nodes
+    "training_node": [
+        DaemonType.EVENT_ROUTER,
+        DaemonType.DATA_PIPELINE,
+        DaemonType.CONTINUOUS_TRAINING_LOOP,
+        DaemonType.AUTO_SYNC,
+        DaemonType.TRAINING_NODE_WATCHER,
+        DaemonType.EVALUATION,  # Auto-evaluate after training completes
+        DaemonType.QUALITY_MONITOR,  # Monitor local selfplay quality
+    ],
+
+    # Ephemeral node profile - runs on Vast.ai/spot instances
+    "ephemeral": [
+        DaemonType.EVENT_ROUTER,
+        DaemonType.EPHEMERAL_SYNC,
+        DaemonType.DATA_PIPELINE,
+    ],
+
+    # Selfplay-only profile - just generates games
+    "selfplay": [
+        DaemonType.EVENT_ROUTER,
+        DaemonType.AUTO_SYNC,
+    ],
+
+    # Full profile - all daemons (for testing)
+    "full": [dt for dt in DaemonType],
+
+    # Minimal profile - just event routing
+    "minimal": [
+        DaemonType.EVENT_ROUTER,
+    ],
+}
+
+
+async def start_profile(profile: str) -> dict[DaemonType, bool]:
+    """Start all daemons in a profile.
+
+    Args:
+        profile: Profile name from DAEMON_PROFILES
+
+    Returns:
+        Dict mapping daemon type to start success
+
+    Raises:
+        ValueError: If profile not found
+    """
+    if profile not in DAEMON_PROFILES:
+        raise ValueError(f"Unknown profile: {profile}. Available: {list(DAEMON_PROFILES.keys())}")
+
+    manager = get_daemon_manager()
+    daemon_types = DAEMON_PROFILES[profile]
+
+    logger.info(f"Starting daemon profile '{profile}' with {len(daemon_types)} daemons")
+    return await manager.start_all(daemon_types)
+
 
 # Singleton accessor
 _daemon_manager: DaemonManager | None = None
@@ -1127,8 +1517,11 @@ __all__ = [
     "DaemonState",
     # Enums
     "DaemonType",
+    # Profiles
+    "DAEMON_PROFILES",
     # Functions
     "get_daemon_manager",
     "reset_daemon_manager",
     "setup_signal_handlers",
+    "start_profile",
 ]

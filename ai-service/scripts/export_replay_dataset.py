@@ -96,6 +96,14 @@ except ImportError:
     HAS_GAME_DISCOVERY = False
     GameDiscovery = None
 
+# Quality scoring for filtering (December 2025)
+try:
+    from app.quality.unified_quality import compute_game_quality_from_params
+    HAS_QUALITY_SCORER = True
+except ImportError:
+    HAS_QUALITY_SCORER = False
+    compute_game_quality_from_params = None
+
 
 def _normalize_hex_board_size(board: "BoardState") -> "BoardState":
     """Normalize hex board size from legacy Convention A to Convention B.
@@ -311,6 +319,7 @@ def export_replay_dataset_multi(
     append: bool = False,
     encoder_version: str = "default",
     require_moves: bool = True,
+    min_quality: float | None = None,  # December 2025: Quality filtering
 ) -> None:
     """
     Export training samples from multiple GameReplayDB files into an NPZ dataset
@@ -411,6 +420,8 @@ def export_replay_dataset_multi(
         filter_desc.append(f"max {max_moves} moves")
     if exclude_recovery:
         filter_desc.append("excluding recovery games")
+    if min_quality is not None:
+        filter_desc.append(f"min quality score {min_quality:.2f}")
     if filter_desc:
         print(f"Quality filters: {', '.join(filter_desc)}")
     print(f"Value targets: {'rank-aware' if use_rank_aware_values else 'binary winner/loser'}")
@@ -451,6 +462,21 @@ def export_replay_dataset_multi(
                     games_skipped += 1
                     continue
                 if term and not (term.startswith("status:completed") or term == "env_done_flag"):
+                    games_skipped += 1
+                    continue
+
+            # Quality filtering (December 2025)
+            if min_quality is not None and HAS_QUALITY_SCORER:
+                quality = compute_game_quality_from_params(
+                    game_id=game_id or "unknown",
+                    game_status=str(meta.get("game_status", "")),
+                    winner=meta.get("winner"),
+                    termination_reason=str(meta.get("termination_reason", "")),
+                    total_moves=len(moves) if moves else 0,
+                    board_type=board_type.value if hasattr(board_type, "value") else str(board_type),
+                    source=str(meta.get("source", "")),
+                )
+                if quality.score < min_quality:
                     games_skipped += 1
                     continue
 
@@ -893,6 +919,7 @@ def export_replay_dataset(
     append: bool = False,
     encoder_version: str = "default",
     require_moves: bool = True,
+    min_quality: float | None = None,
 ) -> None:
     """
     Export training samples from a single GameReplayDB into an NPZ dataset.
@@ -922,6 +949,7 @@ def export_replay_dataset(
         append=append,
         require_moves=require_moves,
         encoder_version=encoder_version,
+        min_quality=min_quality,
     )
 
 
@@ -1055,6 +1083,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Exclude games that contain recovery slide moves. "
             "Use this for training data purity when recovery rules have changed."
+        ),
+    )
+    parser.add_argument(
+        "--min-quality",
+        type=float,
+        default=None,
+        help=(
+            "Minimum quality score (0.0-1.0) to include a game. Uses UnifiedQualityScorer "
+            "to evaluate game quality based on completion status, move count, and source. "
+            "Recommended: 0.5 for adequate+ quality, 0.7 for good+ quality."
         ),
     )
     parser.add_argument(
@@ -1330,6 +1368,7 @@ def main(argv: list[str] | None = None) -> int:
         append=bool(args.append),
         encoder_version=args.encoder_version,
         require_moves=not args.no_require_moves,
+        min_quality=args.min_quality,
     )
 
     # Update cache if enabled

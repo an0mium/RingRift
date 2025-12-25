@@ -568,6 +568,53 @@ async def emit_promotion_complete(
     return await _emit_stage_event(StageEvent.PROMOTION_COMPLETE, result)
 
 
+def emit_promotion_complete_sync(
+    model_id: str,
+    board_type: str,
+    num_players: int,
+    promotion_type: str = "production",
+    elo_improvement: float | None = None,
+    model_path: str | None = None,
+    **metadata,
+) -> bool:
+    """Synchronous version of emit_promotion_complete.
+
+    Use this in sync contexts like CLI scripts (e.g., auto_promote.py).
+
+    Args:
+        model_id: Model ID promoted
+        board_type: Board type
+        num_players: Number of players
+        promotion_type: Type of promotion (production, champion)
+        elo_improvement: Elo improvement over previous
+        model_path: Path to promoted model
+        **metadata: Additional metadata
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_STAGE_EVENTS:
+        return False
+
+    result = StageCompletionResult(
+        event=StageEvent.PROMOTION_COMPLETE,
+        success=True,
+        iteration=0,
+        timestamp=_get_timestamp(),
+        board_type=board_type,
+        num_players=num_players,
+        model_path=model_path,
+        elo_delta=elo_improvement,
+        metadata={
+            "model_id": model_id,
+            "promotion_type": promotion_type,
+            **metadata,
+        },
+    )
+
+    return _emit_stage_event_sync(StageEvent.PROMOTION_COMPLETE, result)
+
+
 # =============================================================================
 # Export Events
 # =============================================================================
@@ -732,6 +779,67 @@ async def emit_quality_updated(
 
     except Exception as e:
         logger.debug(f"Failed to emit quality event: {e}")
+        return False
+
+
+async def emit_game_quality_score(
+    game_id: str,
+    quality_score: float,
+    quality_category: str,
+    training_weight: float,
+    game_length: int = 0,
+    is_decisive: bool = True,
+    source: str = "",
+    **metadata,
+) -> bool:
+    """Emit per-game quality score event via DataEventBus.
+
+    Used by UnifiedQualityScorer to publish individual game quality scores
+    for monitoring and coordination.
+
+    Args:
+        game_id: Game identifier
+        quality_score: Quality score (0.0-1.0)
+        quality_category: Quality category (excellent, good, adequate, poor, unusable)
+        training_weight: Computed training weight
+        game_length: Number of moves in game
+        is_decisive: Whether game had a clear winner
+        source: Event source identifier
+        **metadata: Additional metadata
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.QUALITY_SCORE_UPDATED,
+            payload={
+                "game_id": game_id,
+                "quality_score": quality_score,
+                "quality_category": quality_category,
+                "training_weight": training_weight,
+                "game_length": game_length,
+                "is_decisive": is_decisive,
+                "source": source,
+                "is_per_game": True,  # Distinguish from aggregate quality events
+                **metadata,
+            },
+            source=source or "unified_quality",
+        )
+
+        await bus.publish(event)
+        logger.debug(f"Emitted game quality score event for {game_id}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit game quality event: {e}")
         return False
 
 
@@ -2066,8 +2174,10 @@ __all__ = [
     "emit_plateau_detected",
     # Promotion events
     "emit_promotion_complete",
+    "emit_promotion_complete_sync",
     # Quality events
     "emit_quality_updated",
+    "emit_game_quality_score",
     "emit_regression_detected",
     # Selfplay events
     "emit_selfplay_complete",

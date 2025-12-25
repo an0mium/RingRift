@@ -651,6 +651,49 @@ def get_curriculum_weights() -> dict[str, float]:
     return get_curriculum_feedback().get_curriculum_weights()
 
 
+def sync_curriculum_weights_to_p2p() -> bool:
+    """Sync curriculum weights to JSON file for P2P orchestrator consumption.
+
+    This exports the current curriculum weights to the standard path
+    (data/curriculum_weights.json) that the P2P orchestrator reads for
+    selfplay job prioritization.
+
+    Returns:
+        True if export succeeded, False otherwise
+
+    Usage:
+        from app.training.curriculum_feedback import sync_curriculum_weights_to_p2p
+        sync_curriculum_weights_to_p2p()
+    """
+    try:
+        from app.utils.paths import AI_SERVICE_ROOT
+
+        output_path = AI_SERVICE_ROOT / "data" / "curriculum_weights.json"
+        feedback = get_curriculum_feedback()
+        weights = feedback.get_curriculum_weights()
+
+        # Write in format expected by p2p_orchestrator
+        import time
+        data = {
+            "weights": weights,
+            "updated_at": time.time(),
+            "updated_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "source": "curriculum_feedback",
+        }
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = output_path.with_suffix(".tmp")
+        with open(temp_path, "w") as f:
+            json.dump(data, f, indent=2)
+        temp_path.rename(output_path)
+
+        logger.debug(f"Synced curriculum weights to {output_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to sync curriculum weights: {e}")
+        return False
+
+
 def wire_opponent_tracker_to_curriculum() -> None:
     """Wire OpponentWinRateTracker to CurriculumFeedback for weak opponent detection.
 
@@ -1708,6 +1751,8 @@ class PromotionToCurriculumWatcher:
         if self.auto_export:
             try:
                 self.feedback.export_weights_json(self.export_path)
+                # Also sync to standard P2P path for orchestrator consumption
+                sync_curriculum_weights_to_p2p()
             except Exception as e:
                 logger.warning(f"Failed to export weights: {e}")
 

@@ -52,11 +52,11 @@ logger = logging.getLogger(__name__)
 try:
     import asyncio
 
-    from app.coordination.event_router import emit_quality_score_updated
+    from app.coordination.event_emitters import emit_game_quality_score
     HAS_QUALITY_EVENTS = True
 except ImportError:
     HAS_QUALITY_EVENTS = False
-    emit_quality_score_updated = None
+    emit_game_quality_score = None
 
 
 class QualityCategory(str, Enum):
@@ -395,10 +395,10 @@ class UnifiedQualityScorer:
         quality.sync_priority = self.compute_sync_priority(quality)
 
         # Emit quality event for coordination (async, non-blocking)
-        if HAS_QUALITY_EVENTS and emit_quality_score_updated is not None and game_id:
+        if HAS_QUALITY_EVENTS and emit_game_quality_score is not None and game_id:
             try:
                 asyncio.get_running_loop()
-                asyncio.ensure_future(emit_quality_score_updated(
+                asyncio.ensure_future(emit_game_quality_score(
                     game_id=game_id,
                     quality_score=quality.quality_score,
                     quality_category=quality.category.value,
