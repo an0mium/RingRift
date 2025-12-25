@@ -38,6 +38,7 @@ Purpose: Consolidate event bus fragmentation (Phase 13 consolidation)
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import threading
 import time
@@ -117,6 +118,24 @@ def _generate_event_id() -> str:
     return str(uuid.uuid4())
 
 
+def _compute_content_hash(event_type: str, payload: dict[str, Any]) -> str:
+    """Compute a hash of event content for deduplication.
+
+    This allows detecting duplicate events even if they have different event_ids
+    (which happens when the same event is forwarded through different buses).
+
+    Only considers stable payload fields - excludes timestamps and node-specific data.
+    """
+    # Extract stable fields for hashing (exclude timestamps, node names, etc.)
+    stable_payload = {
+        k: v for k, v in payload.items()
+        if k not in ("timestamp", "created_at", "node_name", "source", "routed")
+    }
+    # Create deterministic string representation
+    content = f"{event_type}:{sorted(stable_payload.items())}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
 @dataclass
 class RouterEvent:
     """Unified event representation across all bus types."""
@@ -131,6 +150,18 @@ class RouterEvent:
     data_event: Any | None = None
     stage_result: Any | None = None
     cross_process_event: Any | None = None
+
+    def __post_init__(self):
+        """Compute content hash after initialization."""
+        # Content hash for detecting duplicate events forwarded through different buses
+        self._content_hash: str = _compute_content_hash(self.event_type, self.payload)
+
+    @property
+    def content_hash(self) -> str:
+        """Get content-based hash for deduplication across buses."""
+        if not hasattr(self, '_content_hash') or not self._content_hash:
+            self._content_hash = _compute_content_hash(self.event_type, self.payload)
+        return self._content_hash
 
 
 EventCallback = Callable[[RouterEvent], Union[None, Any]]
@@ -162,11 +193,14 @@ class UnifiedEventRouter:
         self._event_history: list[RouterEvent] = []
         self._max_history = 1000
 
-        # Deduplication: track seen event IDs to prevent loops
-        self._seen_events: set[str] = set()
-        self._seen_events_order: list[str] = []  # For LRU eviction
+        # Deduplication: track seen event IDs and content hashes to prevent loops
+        self._seen_events: set[str] = set()  # event_id based
+        self._seen_content_hashes: set[str] = set()  # content-based (Dec 2025)
+        self._seen_events_order: list[str] = []  # For LRU eviction (event_id)
+        self._seen_hashes_order: list[str] = []  # For LRU eviction (content hash)
         self._max_seen_events = max_seen_events
         self._duplicates_prevented = 0
+        self._content_duplicates_prevented = 0  # Content-hash based duplicates
 
         # Metrics
         self._events_routed: dict[str, int] = {}
@@ -385,7 +419,7 @@ class UnifiedEventRouter:
         """Dispatch event to router subscribers with deduplication."""
         _ = exclude_origin  # Kept for API compatibility
         async with self._lock:
-            # Deduplication: skip if we've already seen this event
+            # Deduplication: skip if we've already seen this event by ID
             if event.event_id in self._seen_events:
                 self._duplicates_prevented += 1
                 logger.debug(
@@ -394,12 +428,29 @@ class UnifiedEventRouter:
                 )
                 return
 
-            # Mark as seen with LRU eviction
+            # Content-based deduplication: catch events forwarded through different buses
+            # (Dec 2025 - prevents amplification loops)
+            content_hash = event.content_hash
+            if content_hash in self._seen_content_hashes:
+                self._content_duplicates_prevented += 1
+                logger.debug(
+                    f"[EventRouter] Skipping content-duplicate event {event.event_type} "
+                    f"(hash={content_hash}, id={event.event_id[:8]})"
+                )
+                return
+
+            # Mark as seen with LRU eviction (both event_id and content_hash)
             self._seen_events.add(event.event_id)
             self._seen_events_order.append(event.event_id)
             while len(self._seen_events) > self._max_seen_events:
                 oldest = self._seen_events_order.pop(0)
                 self._seen_events.discard(oldest)
+
+            self._seen_content_hashes.add(content_hash)
+            self._seen_hashes_order.append(content_hash)
+            while len(self._seen_content_hashes) > self._max_seen_events:
+                oldest_hash = self._seen_hashes_order.pop(0)
+                self._seen_content_hashes.discard(oldest_hash)
 
             # Track in history
             self._event_history.append(event)
@@ -436,7 +487,7 @@ class UnifiedEventRouter:
         """Synchronous dispatch for non-async contexts with deduplication."""
         _ = exclude_origin  # Kept for API compatibility
         with self._sync_lock:
-            # Deduplication: skip if we've already seen this event
+            # Deduplication: skip if we've already seen this event by ID
             if event.event_id in self._seen_events:
                 self._duplicates_prevented += 1
                 logger.debug(
@@ -445,12 +496,29 @@ class UnifiedEventRouter:
                 )
                 return
 
-            # Mark as seen with LRU eviction
+            # Content-based deduplication: catch events forwarded through different buses
+            # (Dec 2025 - prevents amplification loops)
+            content_hash = event.content_hash
+            if content_hash in self._seen_content_hashes:
+                self._content_duplicates_prevented += 1
+                logger.debug(
+                    f"[EventRouter] Skipping content-duplicate event {event.event_type} "
+                    f"(hash={content_hash}, id={event.event_id[:8]})"
+                )
+                return
+
+            # Mark as seen with LRU eviction (both event_id and content_hash)
             self._seen_events.add(event.event_id)
             self._seen_events_order.append(event.event_id)
             while len(self._seen_events) > self._max_seen_events:
                 oldest = self._seen_events_order.pop(0)
                 self._seen_events.discard(oldest)
+
+            self._seen_content_hashes.add(content_hash)
+            self._seen_hashes_order.append(content_hash)
+            while len(self._seen_content_hashes) > self._max_seen_events:
+                oldest_hash = self._seen_hashes_order.pop(0)
+                self._seen_content_hashes.discard(oldest_hash)
 
             # Track in history
             self._event_history.append(event)
@@ -597,9 +665,12 @@ class UnifiedEventRouter:
             "has_stage_events": HAS_STAGE_EVENTS,
             "has_cross_process": HAS_CROSS_PROCESS,
             "cross_process_polling": self._cp_poller is not None,
-            # Deduplication metrics
-            "duplicates_prevented": self._duplicates_prevented,
+            # Deduplication metrics (Dec 2025 enhanced)
+            "duplicates_prevented": self._duplicates_prevented,  # By event_id
+            "content_duplicates_prevented": self._content_duplicates_prevented,  # By content hash
+            "total_duplicates_prevented": self._duplicates_prevented + self._content_duplicates_prevented,
             "seen_events_count": len(self._seen_events),
+            "seen_content_hashes_count": len(self._seen_content_hashes),
             "max_seen_events": self._max_seen_events,
         }
 
