@@ -41,14 +41,14 @@ BEFORE                    AFTER
 ### 3. Lines & Territory
 
 ```
-4 markers in a row = LINE!     →    Collapses to TERRITORY
+4 markers in a row = LINE! (8×8 2-player)     →    Collapses to TERRITORY
 ┌───┐ ┌───┐ ┌───┐ ┌───┐           ┌───┐ ┌───┐ ┌───┐ ┌───┐
 │ ● │ │ ● │ │ ● │ │ ● │    ──►    │ ▓ │ │ ▓ │ │ ▓ │ │ ▓ │
 └───┘ └───┘ └───┘ └───┘           └───┘ └───┘ └───┘ └───┘
                                    permanent, blocks movement
 ```
 
-- **4+ markers in a row** = line (collapses to territory)
+- **4+ markers in a row** = line (3+ in 3–4p on 8×8/hex8)
 - Costs: you must **eliminate 1 ring** from any stack you control
 - Territory is **permanent** and counts toward victory
 

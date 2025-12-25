@@ -51,14 +51,15 @@ Understanding what happens when your stack interacts with markers during movemen
 
 ## 2. Line Processing Options
 
-When you form a line of 4+ markers in a row, you process it for territory.
+When you form a line of `lineLength+` markers in a row, you process it for territory.
+(`lineLength` is 4 for 2-player 8×8/hex8 and for 19×19/Hex; 3 for 3–4 player 8×8/hex8.)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│              LINE PROCESSING (4+ markers in a row)               │
+│           LINE PROCESSING (lineLength+ markers in a row)         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  EXACT LENGTH (exactly 4 markers on 8×8, or required length):   │
+│  EXACT LENGTH (exactly required length, e.g., 4 on 8×8 2p):      │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
 │     ○ ─ ○ ─ ○ ─ ○      (4 markers in a line)                   │
@@ -67,11 +68,11 @@ When you form a line of 4+ markers in a row, you process it for territory.
 │                                                                  │
 │     Cost: Eliminate ONE RING from any stack you control          │
 │                                                                  │
-│     NO CHOICE - this happens automatically                       │
+│     NO CHOICE - you must resolve the line                         │
 │                                                                  │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  OVERLENGTH (more than required, e.g., 5+ markers):             │
+│  OVERLENGTH (more than required, e.g., 5+ when lineLength=4):    │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
 │     ○ ─ ○ ─ ○ ─ ○ ─ ○      (5 markers in a line)               │
@@ -83,8 +84,9 @@ When you form a line of 4+ markers in a row, you process it for territory.
 │     │                        │                        │         │
 │     │  ■ ─ ■ ─ ■ ─ ■ ─ ■    │  ■ ─ ■ ─ ■ ─ ■ ─ ○    │         │
 │     │                        │                        │         │
-│     │  Collapse ALL markers  │  Collapse only 4      │         │
-│     │  (5 territory spaces)  │  (4 territory spaces) │         │
+│     │  Collapse ALL markers  │  Collapse only        │         │
+│     │  (5 territory spaces)  │  required length      │         │
+│     │                        │  (lineLength spaces)  │         │
 │     │                        │                        │         │
 │     │  Cost: 1 ring          │  Cost: NONE           │         │
 │     │                        │                        │         │

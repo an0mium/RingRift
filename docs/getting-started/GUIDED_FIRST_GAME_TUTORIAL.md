@@ -114,7 +114,7 @@ You now have 2 markers in column 4!
 
 ### Setup
 
-Position your stack adjacent to an opponent's stack with empty space beyond.
+Position your stack adjacent to an opponent's stack with a valid landing space beyond (empty or marker).
 
 ### What to Do
 
@@ -158,7 +158,7 @@ Maneuver to complete a row/column/diagonal of 4+ markers
 ### What to Do
 
 1. Move your stack to leave the 4th marker in a row
-2. **Line processing triggers automatically**
+2. **Line processing triggers (forced)**
 3. Choose elimination target (any stack you control)
 4. Watch markers collapse to territory
 
