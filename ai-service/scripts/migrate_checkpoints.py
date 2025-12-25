@@ -240,10 +240,10 @@ def migrate_checkpoint(
 
     try:
         # Load legacy checkpoint
-        checkpoint = torch.load(
+        from app.utils.torch_utils import safe_load_checkpoint
+        checkpoint = safe_load_checkpoint(
             str(source_path),
-            map_location=torch.device("cpu"),
-            weights_only=False,
+            map_location="cpu",
         )
 
         # Check if already versioned
@@ -316,7 +316,7 @@ def migrate_checkpoint(
         torch.save(versioned_checkpoint, temp_path)
 
         # Validate
-        test_load = torch.load(temp_path, map_location="cpu", weights_only=False)
+        test_load = safe_load_checkpoint(temp_path, map_location="cpu")
         if manager.METADATA_KEY not in test_load:
             temp_path.unlink()
             raise ValueError("Migration validation failed - metadata missing")

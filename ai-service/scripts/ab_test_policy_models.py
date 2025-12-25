@@ -183,8 +183,9 @@ def create_mcts_ai(
             import torch
 
             from app.ai.nnue_policy import RingRiftNNUEWithPolicy
+            from app.utils.torch_utils import safe_load_checkpoint
 
-            checkpoint = torch.load(policy_model_path, map_location="cpu", weights_only=False)
+            checkpoint = safe_load_checkpoint(policy_model_path, map_location="cpu")
             state_dict = checkpoint
             hidden_dim = 256
             num_hidden_layers = 2

@@ -152,9 +152,9 @@ def validate_model_file(model_path: Path, compute_checksum: bool = False) -> Mod
     # Try to load the model
     start_time = time.time()
     try:
-        import torch
+        from app.utils.torch_utils import safe_load_checkpoint
         # Use map_location to avoid GPU memory issues during validation
-        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+        checkpoint = safe_load_checkpoint(model_path, map_location='cpu')
         load_time_ms = (time.time() - start_time) * 1000
 
         # Basic sanity checks on loaded checkpoint
@@ -389,7 +389,8 @@ def validate_model_after_save(model_path: Path, expected_keys: list[str] | None 
             return False
 
         # Load and verify
-        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+        from app.utils.torch_utils import safe_load_checkpoint
+        checkpoint = safe_load_checkpoint(model_path, map_location='cpu')
 
         if checkpoint is None:
             return False
@@ -516,8 +517,8 @@ for model_path in models_dir.glob("*.pth"):
         result["error"] = "Suspiciously small"
     else:
         try:
-            import torch
-            torch.load(model_path, map_location='cpu', weights_only=False)
+            from app.utils.torch_utils import safe_load_checkpoint
+            safe_load_checkpoint(model_path, map_location='cpu')
             result["valid"] = True
         except Exception as e:
             result["valid"] = False

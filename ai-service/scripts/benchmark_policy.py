@@ -151,8 +151,9 @@ def load_policy_model(
         return None
 
     try:
-        # weights_only=False needed for our trusted checkpoints that may have numpy scalars
-        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+        # Use safe_load_checkpoint which tries weights_only=True first
+        from app.utils.torch_utils import safe_load_checkpoint
+        checkpoint = safe_load_checkpoint(model_path, map_location="cpu")
         hidden_dim = checkpoint.get("hidden_dim", 256)
         num_hidden_layers = checkpoint.get("num_hidden_layers", 2)
 

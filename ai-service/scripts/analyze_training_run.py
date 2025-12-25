@@ -303,7 +303,8 @@ def analyze_checkpoint(checkpoint_path: Path) -> None:
     print("=" * 60)
 
     try:
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        from app.utils.torch_utils import safe_load_checkpoint
+        checkpoint = safe_load_checkpoint(checkpoint_path, map_location="cpu")
     except Exception as e:
         logger.error(f"Failed to load checkpoint: {e}")
         return

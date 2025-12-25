@@ -65,16 +65,16 @@ def _resolve_latest_checkpoint(models_dir: Path, model_id: str) -> Path | None:
 def _try_load_checkpoint(path: Path) -> _CheckpointLoadResult:
     """Best-effort checkpoint integrity check.
 
-    Uses ``torch.load(..., weights_only=False)`` because RingRift checkpoints can
-    include lightweight metadata alongside tensor weights.
+    Uses safe_load_checkpoint which tries weights_only=True first, then falls
+    back to weights_only=False for RingRift checkpoints with metadata.
     """
     try:
-        import torch  # type: ignore
+        from app.utils.torch_utils import safe_load_checkpoint
     except Exception as exc:
-        return _CheckpointLoadResult(ok=False, error=f"torch_import_failed: {exc}")
+        return _CheckpointLoadResult(ok=False, error=f"import_failed: {exc}")
 
     try:
-        _ = torch.load(str(path), map_location="cpu", weights_only=False)
+        _ = safe_load_checkpoint(str(path), map_location="cpu")
         return _CheckpointLoadResult(ok=True, error=None)
     except Exception as exc:
         return _CheckpointLoadResult(ok=False, error=f"{type(exc).__name__}: {exc}")

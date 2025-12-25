@@ -52,7 +52,8 @@ def infer_config_from_checkpoint(path: Path) -> InferredConfig:
     config = InferredConfig()
 
     try:
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        from app.utils.torch_utils import safe_load_checkpoint
+        checkpoint = safe_load_checkpoint(path, map_location="cpu")
     except Exception as e:
         logger.debug(f"Could not load {path}: {e}")
         return config

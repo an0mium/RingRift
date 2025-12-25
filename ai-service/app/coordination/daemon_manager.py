@@ -93,6 +93,9 @@ class DaemonType(Enum):
     # Cluster-wide data sync (December 2025)
     CLUSTER_DATA_SYNC = "cluster_data_sync"
 
+    # Automated P2P data sync (December 2025)
+    AUTO_SYNC = "auto_sync"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -216,6 +219,9 @@ class DaemonManager:
 
         # Continuous training
         self.register_factory(DaemonType.CONTINUOUS_TRAINING_LOOP, self._create_continuous_training_loop)
+
+        # Auto sync (December 2025)
+        self.register_factory(DaemonType.AUTO_SYNC, self._create_auto_sync)
 
     def register_factory(
         self,
@@ -791,6 +797,29 @@ class DaemonManager:
 
         except ImportError as e:
             logger.error(f"ContinuousTrainingLoop not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
+
+    async def _create_auto_sync(self) -> None:
+        """Create and run automated P2P data sync daemon (December 2025).
+
+        This daemon orchestrates data synchronization across the cluster using:
+        - Layer 1: Push-from-generator (immediate push to neighbors)
+        - Layer 2: P2P gossip replication (eventual consistency)
+
+        Excludes coordinator nodes (MacBooks) from receiving synced data.
+        """
+        try:
+            from app.coordination.auto_sync_daemon import AutoSyncDaemon
+
+            daemon = AutoSyncDaemon()
+            await daemon.start()
+
+            # Wait for daemon to complete (or be stopped)
+            while daemon.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"AutoSyncDaemon not available: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
 
 
