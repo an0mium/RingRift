@@ -699,6 +699,58 @@ p2p:
   gossip_sync_enabled: true # Gossip-based data replication ENABLED
   gossip_port: 8771 # Port for gossip protocol
 
+# Automated Data Sync Configuration (Dec 2025)
+# Ensures selfplay data is available across all storage-capable nodes
+# Uses hybrid approach: push-from-generator + P2P gossip replication
+auto_sync:
+  enabled: true # Master switch for automated sync
+
+  # Sync intervals
+  interval_seconds: 300 # 5 minutes between sync cycles
+  gossip_interval_seconds: 60 # Gossip exchange every 60s
+
+  # Hosts to exclude from receiving synced data
+  # These hosts will NOT receive data (saves disk space)
+  # Note: mac-studio has OWC external drive and SHOULD receive syncs
+  exclude_hosts:
+    - local-macbook # Development MacBook - limited disk
+    - macbook-armand # Development MacBook - limited disk
+
+  # NFS optimization - Lambda nodes share NFS, no sync needed between them
+  skip_nfs_sync: true # Skip sync between NFS-mounted nodes
+
+  # Concurrent sync limits
+  max_concurrent_syncs: 4 # Max parallel sync operations
+  min_games_to_sync: 10 # Min games before triggering sync
+
+  # Bandwidth limits (uses existing BandwidthManager)
+  bandwidth_limit_mbps: 20 # Per-host bandwidth limit
+
+  # Provider-specific sync behavior
+  providers:
+    lambda:
+      sync_method: skip # NFS shared, no sync needed between Lambda nodes
+      priority: low
+    vast:
+      sync_method: rsync # Ephemeral storage, sync eagerly
+      priority: high # Sync quickly before instance terminates
+    hetzner:
+      sync_method: rsync
+      priority: normal
+    mac:
+      sync_method: rsync
+      priority: normal
+
+  # Push-on-generate settings (Layer 1)
+  push_on_generate:
+    enabled: true # Push new games immediately to neighbors
+    max_neighbors: 3 # Push to up to 3 neighbors
+    prefer_storage_nodes: true # Prefer nodes with large disk
+
+  # Health check settings
+  health_check_interval_seconds: 60
+  unhealthy_threshold: 3 # Mark peer unhealthy after 3 failures
+
 # Data Aggregation Configuration
 # Centralizes game data from all nodes into a single source of truth
 # then replicates to designated replica nodes
@@ -717,9 +769,10 @@ data_aggregation:
       path: 'data/games/jsonl_aggregated.db'
 
   # Nodes to exclude from receiving replicas (e.g., disk constrained)
+  # Note: mac-studio has OWC external drive and SHOULD receive replicas
   excluded_nodes:
-    - 'local-macbook'
-    - 'macbook-armand'
+    - 'local-macbook' # Development MacBook - limited disk
+    - 'macbook-armand' # Development MacBook - limited disk
 
   # Aggregation schedule
   aggregate_interval_seconds: 300 # 5 minutes - pull data from all nodes

@@ -119,6 +119,7 @@ class GossipSyncDaemon:
         data_dir: Path,
         peers_config: dict[str, dict],
         listen_port: int = GOSSIP_PORT,
+        exclude_hosts: list[str] | None = None,
     ):
         self.node_id = node_id
         self.data_dir = Path(data_dir)
@@ -127,10 +128,16 @@ class GossipSyncDaemon:
         self._running = False
         self._server: asyncio.Server | None = None
 
+        # Load hosts to exclude from receiving synced data (e.g., coordinator)
+        self.exclude_hosts = set(exclude_hosts or [])
+        self.exclude_hosts.update(self._load_exclude_hosts_from_config())
+
         # Initialize peers from config
         for name, config in peers_config.items():
             if name == node_id:
                 continue  # Don't add self
+            if name in self.exclude_hosts:
+                continue  # Don't sync TO excluded hosts
             self.state.peers[name] = GossipPeer(
                 name=name,
                 host=config.get("gossip_host", config.get("ssh_host", "")),
@@ -140,8 +147,31 @@ class GossipSyncDaemon:
                 ssh_port=config.get("ssh_port", 22),
             )
 
+        if self.exclude_hosts:
+            print(f"[Gossip] Excluding hosts from sync: {self.exclude_hosts}")
+
         # Load known game IDs from local databases
         self._load_known_games()
+
+    def _load_exclude_hosts_from_config(self) -> set[str]:
+        """Load hosts that should never receive synced data from config."""
+        try:
+            # Try unified_loop.yaml first
+            script_dir = Path(__file__).resolve().parent.parent.parent
+            config_path = script_dir / "config" / "unified_loop.yaml"
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+                # Check auto_sync.exclude_hosts
+                auto_sync = config.get("auto_sync", {})
+                exclude = set(auto_sync.get("exclude_hosts", []))
+                # Also check data_aggregation.excluded_nodes for compatibility
+                data_agg = config.get("data_aggregation", {})
+                exclude.update(data_agg.get("excluded_nodes", []))
+                return exclude
+        except Exception as e:
+            print(f"[Gossip] Warning: Could not load exclude hosts from config: {e}")
+        return set()
 
     def _load_known_games(self):
         """Load game IDs from local databases into memory."""
