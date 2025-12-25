@@ -64,7 +64,7 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 
 ### Games (`/api/games`)
 
-> **Move transport:** Interactive move submission is performed over the WebSocket API, not via a general-purpose HTTP move endpoint. For the canonical transport decision (WebSocket vs HTTP, and the scope of any HTTP move harness), see [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md).
+> **Move transport:** Interactive move submission is performed over the WebSocket API. A feature-flagged internal HTTP move harness (`POST /games/:gameId/moves`) exists for load tests and tooling; it is not a public client API. For the canonical transport decision (WebSocket vs HTTP, and the scope of the harness), see [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md).
 
 | Method | Endpoint                             | Description                       | Auth Required |
 | ------ | ------------------------------------ | --------------------------------- | ------------- |

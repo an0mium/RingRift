@@ -3137,7 +3137,8 @@ class ParallelGameRunner:
             # Check for lines for the current player using vectorized detection
             _, line_counts = detect_lines_vectorized(self.state, player, single_game_mask)
 
-            if line_counts[g].item() == 0:
+            # Pre-extract to numpy to avoid .item() sync (Dec 2025 optimization)
+            if line_counts.cpu().numpy()[g] == 0:
                 # No lines formed, we're done with cascade
                 break
 
