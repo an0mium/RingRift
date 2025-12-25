@@ -120,6 +120,20 @@ class SelfplayRunner(ABC):
         self._signal_received = False
         self._db = None  # Database connection for record_db
 
+        # Phase 3 Feedback Loop: Quality-based throttling (December 2025)
+        self._quality_throttle_factor = 1.0  # 1.0 = full speed, 0.0 = paused
+        self._quality_paused = False  # True when quality is critically low
+        self._quality_event_subscription = None
+
+        # Phase 14 Feedback Loop: Curriculum and selfplay target events (December 2025)
+        self._curriculum_difficulty = 1.0  # Multiplier for opponent difficulty
+        self._extra_games_requested = 0  # Extra games from weak model feedback
+        self._regeneration_pending = False  # True when quality blocked training
+
+        # PFSP opponent selection (December 2025)
+        self._pfsp_enabled = False
+        self._pfsp_selector = None
+
         # Setup signal handlers - only respond to first signal
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -156,9 +170,46 @@ class SelfplayRunner(ABC):
         """Called before run loop. Override for custom initialization."""
         logger.info(f"SelfplayRunner starting: {self.config.board_type}_{self.config.num_players}p")
         logger.info(f"  Engine: {self.config.engine_mode.value}")
+        self._apply_selfplay_rate_adjustment()  # Adjust num_games based on Elo momentum
         logger.info(f"  Target games: {self.config.num_games}")
         self._load_model()
         self._open_database()
+        self._subscribe_to_quality_events()
+        self._subscribe_to_feedback_events()
+        self._init_pfsp()
+
+    def _apply_selfplay_rate_adjustment(self) -> None:
+        """Adjust selfplay game count based on FeedbackAccelerator rate recommendation.
+
+        December 2025: Selfplay rate now responds to Elo momentum:
+        - Improving models: Generate more games (higher rate multiplier)
+        - Plateauing models: Reduce games (focus on quality over quantity)
+        - Stable models: Normal rate
+
+        This creates a positive feedback loop where improving models get more
+        training data, accelerating their improvement.
+        """
+        try:
+            from app.training.feedback_accelerator import get_feedback_accelerator
+
+            config_key = f"{self.config.board_type}_{self.config.num_players}p"
+            accelerator = get_feedback_accelerator()
+
+            rate_multiplier = accelerator.get_selfplay_rate_recommendation(config_key)
+
+            # Only adjust if rate is non-default
+            if rate_multiplier != 1.0:
+                original_games = self.config.num_games
+                self.config.num_games = int(self.config.num_games * rate_multiplier)
+
+                logger.info(
+                    f"  [Adaptive] Selfplay rate adjusted for {config_key}: "
+                    f"{original_games} -> {self.config.num_games} games ({rate_multiplier:.2f}x)"
+                )
+        except ImportError:
+            pass  # FeedbackAccelerator not available
+        except Exception as e:
+            logger.debug(f"[SelfplayRunner] Selfplay rate adjustment not applied: {e}")
 
     def teardown(self) -> None:
         """Called after run loop. Override for custom cleanup."""
@@ -209,6 +260,236 @@ class SelfplayRunner(ABC):
                 self._db = None
             except Exception as e:
                 logger.warning(f"Error closing database: {e}")
+
+    def _subscribe_to_quality_events(self) -> None:
+        """Subscribe to quality events for throttling (Phase 3 Feedback Loop).
+
+        December 2025: Selfplay now responds to data quality signals.
+        When quality drops, selfplay rate is reduced to avoid generating
+        more low-quality data that would waste compute.
+        """
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_event_router
+
+            router = get_event_router()
+            config_key = f"{self.config.board_type}_{self.config.num_players}p"
+
+            def on_quality_warning(event):
+                """Handle LOW_QUALITY_DATA_WARNING events."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = f"{payload.get('board_type')}_{payload.get('num_players')}p"
+
+                # Only respond to our config's quality events
+                if event_config != config_key:
+                    return
+
+                quality_score = payload.get("quality_score", 1.0)
+                severity = payload.get("severity", "warning")
+
+                if severity == "critical" or quality_score < 0.5:
+                    # Critical quality issue - pause selfplay
+                    self._quality_paused = True
+                    self._quality_throttle_factor = 0.0
+                    logger.warning(
+                        f"[QualityThrottle] PAUSING selfplay for {config_key}: "
+                        f"quality={quality_score:.2f} (critical)"
+                    )
+                else:
+                    # Warning level - reduce rate by 50%
+                    self._quality_throttle_factor = 0.5
+                    logger.warning(
+                        f"[QualityThrottle] Reducing selfplay rate for {config_key}: "
+                        f"quality={quality_score:.2f}, factor=0.5"
+                    )
+
+            def on_quality_updated(event):
+                """Handle QUALITY_SCORE_UPDATED events to restore throttle."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = f"{payload.get('board_type')}_{payload.get('num_players')}p"
+
+                if event_config != config_key:
+                    return
+
+                quality_score = payload.get("quality_score", 1.0)
+
+                # Restore full rate if quality is good
+                if quality_score >= 0.8:
+                    if self._quality_throttle_factor < 1.0:
+                        logger.info(
+                            f"[QualityThrottle] Restoring full selfplay rate for {config_key}: "
+                            f"quality={quality_score:.2f}"
+                        )
+                    self._quality_throttle_factor = 1.0
+                    self._quality_paused = False
+
+            # Subscribe to quality events
+            router.subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, on_quality_warning)
+            router.subscribe(DataEventType.QUALITY_SCORE_UPDATED, on_quality_updated)
+
+            logger.debug(f"[SelfplayRunner] Subscribed to quality events for {config_key}")
+
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"[SelfplayRunner] Failed to subscribe to quality events: {e}")
+
+    def _subscribe_to_feedback_events(self) -> None:
+        """Subscribe to feedback loop events (Phase 14 Integration).
+
+        December 2025: Selfplay now responds to:
+        - CURRICULUM_ADVANCED: Increase opponent difficulty
+        - SELFPLAY_TARGET_UPDATED: Adjust games to generate
+        - TRAINING_BLOCKED_BY_QUALITY: Trigger data regeneration
+        """
+        try:
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            if bus is None:
+                return
+
+            config_key = f"{self.config.board_type}_{self.config.num_players}p"
+
+            def on_curriculum_advanced(event):
+                """Handle CURRICULUM_ADVANCED events - increase difficulty."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config", "")
+
+                # Only respond to our config's events
+                if event_config != config_key:
+                    return
+
+                # Increase difficulty multiplier
+                self._curriculum_difficulty = min(self._curriculum_difficulty * 1.2, 3.0)
+                logger.info(
+                    f"[FeedbackLoop] Curriculum advanced for {config_key}: "
+                    f"difficulty multiplier now {self._curriculum_difficulty:.2f}"
+                )
+
+            def on_selfplay_target_updated(event):
+                """Handle SELFPLAY_TARGET_UPDATED events - request extra games."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config", "")
+
+                if event_config != config_key:
+                    return
+
+                extra_games = payload.get("extra_games", 0)
+                if extra_games > 0:
+                    self._extra_games_requested += extra_games
+                    logger.info(
+                        f"[FeedbackLoop] Extra selfplay requested for {config_key}: "
+                        f"+{extra_games} games (total pending: {self._extra_games_requested})"
+                    )
+
+            def on_training_blocked_by_quality(event):
+                """Handle TRAINING_BLOCKED_BY_QUALITY events - trigger regeneration."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config", "")
+
+                if event_config != config_key:
+                    return
+
+                quality_score = payload.get("quality_score", 0.0)
+                self._regeneration_pending = True
+                logger.warning(
+                    f"[FeedbackLoop] Training blocked for {config_key} due to low quality "
+                    f"({quality_score:.2f}). Regeneration pending."
+                )
+
+            # Subscribe to feedback events using string event types
+            # These events are emitted via router.publish() with string types
+            bus.subscribe("CURRICULUM_ADVANCED", on_curriculum_advanced)
+            bus.subscribe("SELFPLAY_TARGET_UPDATED", on_selfplay_target_updated)
+            bus.subscribe("TRAINING_BLOCKED_BY_QUALITY", on_training_blocked_by_quality)
+
+            logger.debug(f"[SelfplayRunner] Subscribed to feedback events for {config_key}")
+
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"[SelfplayRunner] Failed to subscribe to feedback events: {e}")
+
+    def _init_pfsp(self) -> None:
+        """Initialize PFSP (Prioritized Fictitious Self-Play) opponent selection.
+
+        December 2025: PFSP prioritizes opponents where win rate is near 50%,
+        maximizing learning signal from each selfplay game.
+        """
+        try:
+            from app.training.pfsp_opponent_selector import (
+                get_pfsp_selector,
+                wire_pfsp_events,
+            )
+
+            self._pfsp_selector = get_pfsp_selector()
+            wire_pfsp_events()  # Subscribe to MODEL_PROMOTED, EVALUATION_COMPLETED
+            self._pfsp_enabled = True
+
+            logger.info(f"[PFSP] Initialized opponent selector for selfplay")
+
+        except ImportError as e:
+            logger.debug(f"[PFSP] Module not available: {e}")
+        except Exception as e:
+            logger.debug(f"[PFSP] Failed to initialize: {e}")
+
+    def get_pfsp_opponent(self, current_model: str, available_opponents: list[str]) -> str:
+        """Select opponent using PFSP if enabled, otherwise random.
+
+        Args:
+            current_model: Current model identifier
+            available_opponents: List of available opponent model identifiers
+
+        Returns:
+            Selected opponent model identifier
+        """
+        if not self._pfsp_enabled or self._pfsp_selector is None:
+            import random
+            return random.choice(available_opponents) if available_opponents else current_model
+
+        return self._pfsp_selector.select_opponent(current_model, available_opponents)
+
+    def record_pfsp_result(
+        self,
+        current_model: str,
+        opponent: str,
+        current_model_won: bool,
+        draw: bool = False,
+    ) -> None:
+        """Record game result for PFSP statistics.
+
+        Args:
+            current_model: Current model identifier
+            opponent: Opponent model identifier
+            current_model_won: Whether current model won
+            draw: Whether game was a draw
+        """
+        if self._pfsp_enabled and self._pfsp_selector is not None:
+            self._pfsp_selector.record_game_result(
+                current_model=current_model,
+                opponent=opponent,
+                current_model_won=current_model_won,
+                draw=draw,
+            )
+
+    def _apply_quality_throttle(self) -> bool:
+        """Apply quality-based throttling. Returns True if game should be skipped."""
+        if self._quality_paused:
+            # Critical quality issue - wait and retry
+            import time
+            time.sleep(5.0)  # Wait 5 seconds before checking again
+            return True  # Skip this game iteration
+
+        if self._quality_throttle_factor < 1.0:
+            # Probabilistic throttling - skip some games
+            import random
+            if random.random() > self._quality_throttle_factor:
+                import time
+                time.sleep(0.5)  # Small delay when throttled
+                return True  # Skip this game
+
+        return False  # Proceed with game
 
     def _save_game_to_db(self, result: GameResult) -> None:
         """Save a completed game to the database.
@@ -357,7 +638,13 @@ class SelfplayRunner(ABC):
 
         try:
             game_idx = 0
-            while self.running and game_idx < self.config.num_games:
+            # Include extra games requested via feedback events (December 2025)
+            target_games = self.config.num_games + self._extra_games_requested
+            while self.running and game_idx < target_games:
+                # Phase 3 Feedback Loop: Check quality throttle before each game
+                if self._apply_quality_throttle():
+                    continue  # Skip this iteration if throttled
+
                 try:
                     result = self.run_game(game_idx)
                     self.stats.record_game(result)
@@ -367,9 +654,11 @@ class SelfplayRunner(ABC):
                     # Progress logging
                     log_interval = getattr(self.config, 'log_interval', 10)
                     if (game_idx + 1) % log_interval == 0:
+                        throttle_info = "" if self._quality_throttle_factor >= 1.0 else f" [throttle={self._quality_throttle_factor:.1f}]"
+                        extra_info = f" (+{self._extra_games_requested} extra)" if self._extra_games_requested > 0 else ""
                         logger.info(
-                            f"  Progress: {game_idx + 1}/{self.config.num_games} games, "
-                            f"{self.stats.games_per_second:.2f} g/s"
+                            f"  Progress: {game_idx + 1}/{target_games} games{extra_info}, "
+                            f"{self.stats.games_per_second:.2f} g/s{throttle_info}"
                         )
 
                 except Exception as e:
@@ -377,6 +666,17 @@ class SelfplayRunner(ABC):
                     self.stats.games_failed += 1
 
                 game_idx += 1
+
+                # Check for new extra games requested (dynamic feedback loop)
+                if game_idx >= target_games and self._extra_games_requested > 0:
+                    # Consume extra games into new target
+                    new_target = game_idx + self._extra_games_requested
+                    logger.info(
+                        f"[FeedbackLoop] Extending run with {self._extra_games_requested} extra games "
+                        f"(new target: {new_target})"
+                    )
+                    target_games = new_target
+                    self._extra_games_requested = 0
 
         finally:
             self._emit_orchestrator_event()

@@ -34,6 +34,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.coordination.protocols import (
+    CoordinatorStatus,
+    HealthCheckResult,
+    register_coordinator,
+    unregister_coordinator,
+)
+
 logger = logging.getLogger(__name__)
 
 # Add parent to path for imports
@@ -84,10 +91,117 @@ class ModelDistributionDaemon:
         self._pending_models: list[dict[str, Any]] = []
         self._sync_lock = asyncio.Lock()
 
+        # CoordinatorProtocol state (December 2025 - Phase 14)
+        self._coordinator_status = CoordinatorStatus.INITIALIZING
+        self._start_time: float = 0.0
+        self._events_processed: int = 0
+        self._errors_count: int = 0
+        self._last_error: str = ""
+        self._successful_distributions: int = 0
+        self._failed_distributions: int = 0
+
+    # =========================================================================
+    # CoordinatorProtocol Implementation (December 2025 - Phase 14)
+    # =========================================================================
+
+    @property
+    def name(self) -> str:
+        """Unique name identifying this coordinator."""
+        return "ModelDistributionDaemon"
+
+    @property
+    def status(self) -> CoordinatorStatus:
+        """Current status of the coordinator."""
+        return self._coordinator_status
+
+    @property
+    def uptime_seconds(self) -> float:
+        """Time since daemon started, in seconds."""
+        if self._start_time <= 0:
+            return 0.0
+        return time.time() - self._start_time
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Get daemon metrics in protocol-compliant format.
+
+        Returns:
+            Dictionary of metrics including distribution-specific stats.
+        """
+        return {
+            "name": self.name,
+            "status": self._coordinator_status.value,
+            "uptime_seconds": self.uptime_seconds,
+            "start_time": self._start_time,
+            "events_processed": self._events_processed,
+            "errors_count": self._errors_count,
+            "last_error": self._last_error,
+            # Distribution-specific metrics
+            "pending_models": len(self._pending_models),
+            "successful_distributions": self._successful_distributions,
+            "failed_distributions": self._failed_distributions,
+            "last_sync_time": self._last_sync_time,
+        }
+
+    def health_check(self) -> HealthCheckResult:
+        """Check daemon health.
+
+        Returns:
+            Health check result with status and distribution details.
+        """
+        # Check for error state
+        if self._coordinator_status == CoordinatorStatus.ERROR:
+            return HealthCheckResult.unhealthy(
+                f"Daemon in error state: {self._last_error}"
+            )
+
+        # Check if stopped
+        if self._coordinator_status == CoordinatorStatus.STOPPED:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="Daemon is stopped",
+            )
+
+        # Check for high failure rate
+        total_dist = self._successful_distributions + self._failed_distributions
+        if total_dist > 0 and self._failed_distributions > self._successful_distributions:
+            return HealthCheckResult.degraded(
+                f"High failure rate: {self._failed_distributions} failures, "
+                f"{self._successful_distributions} successes",
+                failure_rate=self._failed_distributions / total_dist,
+            )
+
+        # Check for pending models buildup
+        if len(self._pending_models) > 10:
+            return HealthCheckResult.degraded(
+                f"{len(self._pending_models)} models pending distribution",
+                pending_models=len(self._pending_models),
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=self._coordinator_status,
+            details={
+                "uptime_seconds": self.uptime_seconds,
+                "successful_distributions": self._successful_distributions,
+                "pending_models": len(self._pending_models),
+                "last_sync_time": self._last_sync_time,
+            },
+        )
+
     async def start(self) -> None:
         """Start the daemon and subscribe to events."""
+        if self._coordinator_status == CoordinatorStatus.RUNNING:
+            return  # Already running
+
         logger.info("ModelDistributionDaemon starting...")
         self._running = True
+        self._coordinator_status = CoordinatorStatus.RUNNING
+        self._start_time = time.time()
+
+        # Register with coordinator registry
+        register_coordinator(self)
 
         # Try to subscribe to MODEL_PROMOTED events
         try:
@@ -123,7 +237,16 @@ class ModelDistributionDaemon:
 
     async def stop(self) -> None:
         """Stop the daemon gracefully."""
+        if self._coordinator_status == CoordinatorStatus.STOPPED:
+            return  # Already stopped
+
+        self._coordinator_status = CoordinatorStatus.STOPPING
         self._running = False
+
+        # Unregister from coordinator registry
+        unregister_coordinator(self.name)
+
+        self._coordinator_status = CoordinatorStatus.STOPPED
 
     def _on_model_promoted(self, event: dict[str, Any]) -> None:
         """Handle MODEL_PROMOTED event (sync callback)."""
@@ -245,7 +368,28 @@ class ModelDistributionDaemon:
     async def _emit_distribution_complete(
         self, models: list[dict[str, Any]]
     ) -> None:
-        """Emit MODEL_DISTRIBUTION_COMPLETE event."""
+        """Emit MODEL_DISTRIBUTION_COMPLETE event with distribution confirmation."""
+        # Query ClusterManifest for model locations to confirm distribution
+        confirmed_distributions = []
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+            for model_info in models:
+                model_path = model_info.get("path", "")
+                if model_path:
+                    locations = manifest.find_model(model_path)
+                    node_ids = [loc.node_id for loc in locations]
+                    confirmed_distributions.append({
+                        "model": model_path,
+                        "nodes": node_ids,
+                        "confirmed_count": len(node_ids),
+                    })
+        except ImportError:
+            logger.debug("ClusterManifest not available for distribution confirmation")
+        except Exception as e:
+            logger.warning(f"Failed to query model locations: {e}")
+
         try:
             from app.coordination.event_router import emit
 
@@ -253,11 +397,20 @@ class ModelDistributionDaemon:
                 event_type="MODEL_DISTRIBUTION_COMPLETE",
                 data={
                     "models": models,
+                    "confirmed_distributions": confirmed_distributions,
                     "timestamp": time.time(),
                     "node_id": os.environ.get("RINGRIFT_NODE_ID", "unknown"),
                 },
             )
-            logger.info("Emitted MODEL_DISTRIBUTION_COMPLETE event")
+            # Log confirmation summary
+            if confirmed_distributions:
+                total_confirmations = sum(d["confirmed_count"] for d in confirmed_distributions)
+                logger.info(
+                    f"Emitted MODEL_DISTRIBUTION_COMPLETE event "
+                    f"({len(models)} models, {total_confirmations} node confirmations)"
+                )
+            else:
+                logger.info("Emitted MODEL_DISTRIBUTION_COMPLETE event")
         except Exception as e:
             logger.warning(f"Failed to emit distribution event: {e}")
 
