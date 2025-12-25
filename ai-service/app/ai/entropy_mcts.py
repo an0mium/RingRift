@@ -173,6 +173,7 @@ class EntropyNode:
     parent: "EntropyNode | None" = None
     move: "Move | None" = None
     prior: float = 0.0
+    action_idx: int | None = None  # Action that led to this node
 
     # Standard MCTS values
     visit_count: int = 0
@@ -254,6 +255,7 @@ class EntropyMCTS:
         value_fn: Callable,
         num_simulations: int = 800,
         add_noise: bool = True,
+        apply_action_fn: Callable | None = None,
     ) -> tuple[int, np.ndarray]:
         """Run entropy-guided MCTS search.
 
@@ -263,6 +265,8 @@ class EntropyMCTS:
             value_fn: Function(state) -> value
             num_simulations: Number of simulations to run
             add_noise: Add Dirichlet noise at root for exploration
+            apply_action_fn: Function(state, action_idx) -> new_state
+                             Required for proper MCTS simulation
 
         Returns:
             Tuple of (best_action_index, visit_distribution)
@@ -287,12 +291,13 @@ class EntropyMCTS:
                     state_hash=hash(f"{state_hash}_{action_idx}"),
                     parent=self.root,
                     prior=policy_probs[action_idx],
+                    action_idx=action_idx,
                 )
                 self.root.children[action_idx] = child
 
         # Run simulations
         for _ in range(num_simulations):
-            self._simulate(state, policy_fn, value_fn)
+            self._simulate(state, policy_fn, value_fn, apply_action_fn)
 
         # Extract visit counts
         visits = np.zeros(len(policy_probs))
@@ -309,20 +314,31 @@ class EntropyMCTS:
         state: "GameState",
         policy_fn: Callable,
         value_fn: Callable,
+        apply_action_fn: Callable | None = None,
     ):
-        """Run one simulation from root to leaf."""
+        """Run one simulation from root to leaf.
+
+        Args:
+            state: Current game state at root
+            policy_fn: Function(state) -> policy_probs
+            value_fn: Function(state) -> value
+            apply_action_fn: Function(state, action_idx) -> new_state
+        """
         node = self.root
         path = [node]
+        current_state = state
 
         # Selection: traverse to leaf using entropy-UCB
         while node.children:
             action_idx, child = self._select_child(node)
             node = child
             path.append(node)
-            # TODO: Apply action to state for real implementation
+            # Apply action to state to get successor state
+            if apply_action_fn is not None and child.action_idx is not None:
+                current_state = apply_action_fn(current_state, child.action_idx)
 
-        # Expansion and evaluation
-        value = value_fn(state)
+        # Expansion and evaluation at the actual leaf state
+        value = value_fn(current_state)
 
         # Backpropagation
         for node in reversed(path):

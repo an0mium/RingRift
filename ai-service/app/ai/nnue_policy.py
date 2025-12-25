@@ -15,9 +15,12 @@ Training:
 - Combined: L = value_weight * L_value + policy_weight * L_policy
 """
 
+import logging
 import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import torch
@@ -43,6 +46,8 @@ from .nnue import (
 try:  # pragma: no cover
     from ..training.selfplay_config import normalize_engine_mode
 except Exception:  # pragma: no cover
+    logger.debug("Using fallback normalize_engine_mode (selfplay_config not available)")
+
     def normalize_engine_mode(raw_mode: str) -> str:
         return str(raw_mode).strip().lower()
 

@@ -36,12 +36,15 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Final
 
 from prometheus_client import Counter, Gauge, Histogram
+
+logger = logging.getLogger(__name__)
 
 from app.metrics.constants import (
     DURATION_BUCKETS_SECONDS,
@@ -787,6 +790,7 @@ def collect_quality_metrics_from_bridge() -> bool:
 
         return True
     except Exception:
+        logger.exception("Failed to collect quality metrics from bridge")
         return False
 
 
@@ -845,6 +849,7 @@ def collect_quality_metrics_from_manifest(
 
         return True
     except Exception:
+        logger.exception("Failed to collect quality metrics from manifest")
         return False
 
 
@@ -892,6 +897,7 @@ def get_selfplay_queue_size(orchestrator: str = "unified_ai_loop") -> float:
     try:
         return SELFPLAY_QUEUE_SIZE.labels(orchestrator)._value.get()
     except Exception:
+        logger.debug("Failed to get selfplay queue size metric", exc_info=True)
         return 0.0
 
 
@@ -907,4 +913,5 @@ def get_pipeline_iterations(orchestrator: str = "unified_ai_loop") -> float:
     try:
         return PIPELINE_ITERATIONS_TOTAL.labels(orchestrator)._value.get()
     except Exception:
+        logger.debug("Failed to get pipeline iterations metric", exc_info=True)
         return 0.0
