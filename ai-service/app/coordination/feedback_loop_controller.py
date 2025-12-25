@@ -551,7 +551,8 @@ class FeedbackLoopController:
                         total_moves=game["total_moves"] or 0,
                     )
                     quality_scores.append(quality.quality_score)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[FeedbackLoopController] Failed to compute quality for game {game.get('game_id', 'unknown')}: {e}")
                     continue
 
             if not quality_scores:
@@ -624,20 +625,67 @@ class FeedbackLoopController:
             pass
 
     def _trigger_evaluation(self, config_key: str, model_path: str) -> None:
-        """Trigger model evaluation."""
-        logger.info(f"[FeedbackLoopController] Triggering evaluation for {config_key}")
+        """Trigger gauntlet evaluation automatically after training.
+
+        December 2025: Wires TRAINING_COMPLETED → auto-gauntlet evaluation.
+        This closes the training feedback loop by automatically evaluating
+        newly trained models against baselines.
+
+        The gauntlet results determine whether the model should be promoted
+        to production or if more training is needed.
+        """
+        logger.info(f"[FeedbackLoopController] Triggering gauntlet evaluation for {config_key}")
 
         try:
             from app.coordination.pipeline_actions import trigger_evaluation
 
-            asyncio.create_task(
-                trigger_evaluation({
-                    "config": config_key,
-                    "model_path": model_path,
-                })
-            )
-        except (ImportError, RuntimeError):
-            pass
+            # Parse config_key into board_type and num_players
+            # Format: "hex8_2p", "square8_4p", etc.
+            parts = config_key.rsplit("_", 1)
+            if len(parts) != 2:
+                logger.warning(f"[FeedbackLoopController] Invalid config_key format: {config_key}")
+                return
+
+            board_type = parts[0]
+            try:
+                num_players = int(parts[1].replace("p", ""))
+            except ValueError:
+                logger.warning(f"[FeedbackLoopController] Cannot parse num_players from: {config_key}")
+                return
+
+            # Launch gauntlet evaluation asynchronously
+            async def run_gauntlet():
+                result = await trigger_evaluation(
+                    model_path=model_path,
+                    board_type=board_type,
+                    num_players=num_players,
+                    num_games=50,  # Standard gauntlet size
+                )
+                if result.success:
+                    logger.info(
+                        f"[FeedbackLoopController] Gauntlet passed for {config_key}: "
+                        f"eligible={result.metadata.get('promotion_eligible')}"
+                    )
+                    # Emit evaluation completed event
+                    if result.metadata.get("promotion_eligible"):
+                        self._consider_promotion(
+                            config_key,
+                            model_path,
+                            result.metadata.get("win_rates", {}).get("heuristic", 0) / 100,
+                            result.metadata.get("elo_delta", 0),
+                        )
+                else:
+                    logger.warning(
+                        f"[FeedbackLoopController] Gauntlet failed for {config_key}: "
+                        f"{result.error or 'unknown error'}"
+                    )
+
+            asyncio.create_task(run_gauntlet())
+
+        except ImportError as e:
+            logger.debug(f"[FeedbackLoopController] trigger_evaluation not available: {e}")
+        except RuntimeError as e:
+            logger.debug(f"[FeedbackLoopController] Could not create gauntlet task: {e}")
 
     def _record_training_in_curriculum(self, config_key: str) -> None:
         """Record training completion in curriculum."""

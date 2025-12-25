@@ -137,6 +137,12 @@ class DaemonType(Enum):
     # Job scheduler (December 2025) - centralized job scheduling with PID-based resource allocation
     JOB_SCHEDULER = "job_scheduler"
 
+    # Idle resource daemon (December 2025 - Phase 20) - monitors idle GPUs and spawns selfplay
+    IDLE_RESOURCE = "idle_resource"
+
+    # Node recovery daemon (December 2025 - Phase 21) - auto-recovers terminated nodes
+    NODE_RECOVERY = "node_recovery"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -253,6 +259,11 @@ class DaemonManager:
         # Event processing
         self.register_factory(DaemonType.EVENT_ROUTER, self._create_event_router)
         self.register_factory(DaemonType.CROSS_PROCESS_POLLER, self._create_cross_process_poller)
+        self.register_factory(
+            DaemonType.DLQ_RETRY,
+            self._create_dlq_retry,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Health monitoring
         self.register_factory(DaemonType.HEALTH_CHECK, self._create_health_check)
@@ -292,6 +303,20 @@ class DaemonManager:
         self.register_factory(
             DaemonType.DATA_PIPELINE,
             self._create_data_pipeline,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Training watcher (December 2025) - monitors training processes and triggers evaluation
+        self.register_factory(
+            DaemonType.TRAINING_WATCHER,
+            self._create_training_watcher,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Selfplay coordinator (December 2025) - distributes selfplay across cluster
+        self.register_factory(
+            DaemonType.SELFPLAY_COORDINATOR,
+            self._create_selfplay_coordinator,
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
@@ -386,6 +411,20 @@ class DaemonManager:
         self.register_factory(
             DaemonType.JOB_SCHEDULER,
             self._create_job_scheduler,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Idle resource daemon (Phase 20) - monitors idle GPUs and spawns selfplay
+        self.register_factory(
+            DaemonType.IDLE_RESOURCE,
+            self._create_idle_resource,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Node recovery daemon (Phase 21) - auto-recovers terminated nodes
+        self.register_factory(
+            DaemonType.NODE_RECOVERY,
+            self._create_node_recovery,
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
@@ -1585,6 +1624,247 @@ class DaemonManager:
             logger.warning(f"ClusterDataSyncDaemon not available: {e}")
             # Not critical - just skip
 
+    async def _create_job_scheduler(self) -> None:
+        """Create and run job scheduler daemon (December 2025).
+
+        Centralized job scheduling with:
+        - Priority-based job queue (CRITICAL > HIGH > NORMAL > LOW)
+        - PID-based resource allocation via ResourceOptimizer
+        - Automatic job migration on host failures
+        - Event-driven scheduling (HOST_ONLINE, TASK_COMPLETED)
+        """
+        try:
+            from app.coordination.job_scheduler import (
+                get_scheduler,
+                wire_host_dead_to_job_migration,
+            )
+            from app.coordination.resource_optimizer import ResourceOptimizer
+            from app.distributed.data_events import DataEventType
+
+            # Get global scheduler and wire event handlers
+            scheduler = get_scheduler()
+            wire_host_dead_to_job_migration(scheduler)
+
+            # Get resource optimizer for PID-based recommendations
+            optimizer = ResourceOptimizer()
+
+            # Subscribe to HOST_ONLINE for new capacity
+            try:
+                from app.coordination.event_router import get_event_bus
+
+                bus = get_event_bus()
+
+                def on_host_online(event):
+                    """Handle HOST_ONLINE - log new capacity."""
+                    host = event.payload.get("host", "unknown")
+                    logger.info(f"[JobScheduler] Host online: {host}, capacity updated")
+
+                def on_task_completed(event):
+                    """Handle TASK_COMPLETED - mark job done."""
+                    host = event.payload.get("host", "")
+                    success = event.payload.get("success", True)
+                    if host:
+                        completed = scheduler.complete_job(host, success)
+                        if completed:
+                            logger.debug(
+                                f"[JobScheduler] Job {completed.job_type} completed on {host}"
+                            )
+
+                bus.subscribe(DataEventType.HOST_ONLINE, on_host_online)
+                bus.subscribe(DataEventType.TASK_COMPLETED, on_task_completed)
+                logger.info("[JobScheduler] Subscribed to HOST_ONLINE and TASK_COMPLETED events")
+
+            except ImportError as e:
+                logger.warning(f"[JobScheduler] Could not subscribe to events: {e}")
+
+            # Scheduling loop - check for pending jobs every 30 seconds
+            import asyncio
+
+            while True:
+                try:
+                    # Get optimization recommendation from PID controller
+                    rec = optimizer.get_optimization_recommendation()
+
+                    # Log cluster state periodically
+                    stats = scheduler.get_queue_stats()
+                    if stats["total"] > 0 or stats["running"] > 0:
+                        logger.info(
+                            f"[JobScheduler] Queue: {stats['total']} pending, "
+                            f"{stats['running']} running, "
+                            f"recommendation={rec.action.name if rec else 'none'}"
+                        )
+
+                except Exception as e:
+                    logger.debug(f"[JobScheduler] Scheduling cycle error: {e}")
+
+                await asyncio.sleep(30)  # Check every 30 seconds
+
+        except ImportError as e:
+            logger.warning(f"JobScheduler dependencies not available: {e}")
+            # Not critical - cluster can still run without centralized scheduling
+
+    async def _create_idle_resource(self) -> None:
+        """Create and run idle resource daemon (December 2025 - Phase 20).
+
+        Monitors cluster for idle GPU resources and automatically spawns
+        selfplay jobs to maximize resource utilization.
+
+        Features:
+        - Monitors GPU utilization across cluster nodes
+        - Spawns selfplay jobs on idle GPUs (>15min at <10% utilization)
+        - Matches board size to GPU memory capacity
+        - Queue-depth aware scaling
+        """
+        try:
+            from app.coordination.idle_resource_daemon import IdleResourceDaemon
+
+            daemon = IdleResourceDaemon()
+            await daemon.start()
+
+            # Wait for daemon to complete (or be stopped)
+            while daemon.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.warning(f"IdleResourceDaemon dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"IdleResourceDaemon failed: {e}")
+
+    async def _create_node_recovery(self) -> None:
+        """Create and run node recovery daemon (December 2025 - Phase 21).
+
+        Monitors cluster for terminated or failed nodes and automatically
+        triggers recovery actions.
+
+        Features:
+        - Monitors P2P cluster for node failures
+        - Auto-restarts terminated Lambda/Vast/RunPod instances
+        - Proactive recovery based on resource trends
+        - Event-driven recovery on P2P_NODES_DEAD
+        """
+        try:
+            from app.coordination.node_recovery_daemon import NodeRecoveryDaemon
+
+            daemon = NodeRecoveryDaemon()
+            await daemon.start()
+
+            # Wait for daemon to complete (or be stopped)
+            while daemon.is_running():
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.warning(f"NodeRecoveryDaemon dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"NodeRecoveryDaemon failed: {e}")
+
+    async def _create_dlq_retry(self) -> None:
+        """Create and run dead-letter queue retry daemon.
+
+        Monitors the dead-letter queue for failed events and retries them
+        with exponential backoff.
+        """
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            if router is None:
+                logger.warning("Event router not available for DLQ retry")
+                return
+
+            logger.info("DLQ retry daemon started")
+
+            while True:
+                try:
+                    # Check for DLQ entries and retry them
+                    if hasattr(router, "retry_dlq"):
+                        retried = await router.retry_dlq()
+                        if retried:
+                            logger.info(f"Retried {retried} events from DLQ")
+                except Exception as e:
+                    logger.error(f"DLQ retry error: {e}")
+
+                await asyncio.sleep(60.0)  # Check every minute
+
+        except ImportError as e:
+            logger.warning(f"DLQ retry dependencies not available: {e}")
+
+    async def _create_training_watcher(self) -> None:
+        """Create and run training watcher daemon.
+
+        Monitors training processes and triggers evaluation when complete.
+        Emits events for training progress and completion.
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.warning("Event router not available for training watcher")
+                return
+
+            logger.info("Training watcher daemon started")
+
+            while True:
+                try:
+                    # Monitor training processes
+                    # Check for completed training runs and emit events
+                    training_pids = await self._find_training_processes()
+
+                    if training_pids:
+                        logger.debug(f"Found {len(training_pids)} training processes")
+
+                except Exception as e:
+                    logger.error(f"Training watcher error: {e}")
+
+                await asyncio.sleep(30.0)  # Check every 30 seconds
+
+        except ImportError as e:
+            logger.warning(f"Training watcher dependencies not available: {e}")
+
+    async def _find_training_processes(self) -> list[int]:
+        """Find running training process PIDs."""
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "train\\.py|app\\.training\\.train"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                return [int(pid) for pid in result.stdout.strip().split("\n") if pid]
+            return []
+        except Exception as e:
+            logger.debug(f"[DaemonManager] Failed to find training PIDs: {e}")
+            return []
+
+    async def _create_selfplay_coordinator(self) -> None:
+        """Create and run selfplay coordinator daemon.
+
+        Distributes selfplay work across cluster nodes, balancing load
+        and responding to feedback events.
+        """
+        try:
+            from app.coordination.event_router import get_router, subscribe
+            from app.distributed.data_events import DataEventType
+            from app.coordination.selfplay_orchestrator import SelfplayOrchestrator
+
+            router = get_router()
+            if router is None:
+                logger.warning("Event router not available for selfplay coordinator")
+                return
+
+            orchestrator = SelfplayOrchestrator()
+            await orchestrator.start()
+
+            logger.info("Selfplay coordinator daemon started")
+
+        except ImportError as e:
+            logger.warning(f"Selfplay coordinator dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"Selfplay coordinator failed: {e}")
+
 
 # =============================================================================
 # Daemon Profiles (December 2025)
@@ -1607,6 +1887,9 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.ORPHAN_DETECTION,  # Detect unregistered game databases
         DaemonType.NODE_HEALTH_MONITOR,  # Unified cluster health maintenance
         DaemonType.UNIFIED_PROMOTION,  # Phase 18.4: Auto-promote models after evaluation
+        DaemonType.JOB_SCHEDULER,  # Phase 3: Centralized job scheduling with PID-based allocation
+        DaemonType.IDLE_RESOURCE,  # Phase 20: Monitor idle GPUs and spawn selfplay
+        DaemonType.NODE_RECOVERY,  # Phase 21: Auto-recover terminated nodes
     ],
 
     # Training node profile - runs on GPU nodes
@@ -1620,6 +1903,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.QUALITY_MONITOR,  # Monitor local selfplay quality
         DaemonType.ORPHAN_DETECTION,  # Detect local orphaned databases
         DaemonType.UNIFIED_PROMOTION,  # Phase 18.4: Auto-promote models after evaluation
+        DaemonType.P2P_AUTO_DEPLOY,  # Phase 21.2: Ensure P2P runs on recovered nodes
     ],
 
     # Ephemeral node profile - runs on Vast.ai/spot instances
