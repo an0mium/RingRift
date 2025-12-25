@@ -829,6 +829,81 @@ class WeightedRingRiftDataset(RingRiftDataset):
 
                 weights[i] = weight
 
+        elif self.weighting == 'chain_emphasis':
+            # Emphasize chain initiation decisions, de-emphasize forced continuations
+            # Chain initiations (overtaking_capture) are strategic decisions -> high weight
+            # Forced continuations (continue_capture_segment) often have only 1 legal move -> low weight
+            move_types = None
+            if self.data is not None and 'move_types' in self.data:
+                move_types = self.data['move_types']
+
+            if move_types is not None:
+                for i, orig_idx in enumerate(self.valid_indices):
+                    move_type = str(move_types[orig_idx])
+                    if move_type == 'overtaking_capture':
+                        # Chain initiation - strategic decision worth learning
+                        weights[i] = 2.0
+                    elif move_type == 'continue_capture_segment':
+                        # Forced continuation - often only one legal move
+                        weights[i] = 0.5
+                    else:
+                        # Standard moves - normal weight
+                        weights[i] = 1.0
+            else:
+                logger.warning(
+                    "chain_emphasis weighting requested but move_types not in dataset. "
+                    "Using uniform weights."
+                )
+
+        elif self.weighting == 'combined_chain':
+            # Full combination: late_game + phase + source + chain_emphasis
+            late_game_available = (
+                move_numbers is not None and total_game_moves is not None
+            )
+            phase_available = phases is not None
+            engine_modes = None
+            if self.data is not None and 'engine_modes' in self.data:
+                engine_modes = self.data['engine_modes']
+            move_types = None
+            if self.data is not None and 'move_types' in self.data:
+                move_types = self.data['move_types']
+
+            from app.training.source_weighting import get_quality_tier
+
+            for i, orig_idx in enumerate(self.valid_indices):
+                weight = 1.0
+
+                # Late game factor (0.5 to 1.0)
+                if late_game_available:
+                    move_num = move_numbers[orig_idx]
+                    total = max(total_game_moves[orig_idx], 1)
+                    progress = move_num / total
+                    weight *= (0.5 + 0.5 * progress)
+
+                # Phase factor
+                if phase_available:
+                    phase = str(phases[orig_idx])
+                    weight *= self.PHASE_WEIGHTS.get(phase, 1.0)
+
+                # Source quality factor (Gumbel 3x)
+                if engine_modes is not None:
+                    mode = str(engine_modes[orig_idx])
+                    tier = get_quality_tier(mode)
+                    if tier == 'high':
+                        weight *= 3.0
+                    elif tier == 'medium':
+                        weight *= 1.5
+
+                # Chain emphasis factor
+                if move_types is not None:
+                    move_type = str(move_types[orig_idx])
+                    if move_type == 'overtaking_capture':
+                        weight *= 2.0  # Chain initiation
+                    elif move_type == 'continue_capture_segment':
+                        weight *= 0.5  # Forced continuation
+
+                weights[i] = weight
+
         else:
             logger.warning(
                 f"Unknown weighting strategy '{self.weighting}'. Using uniform."

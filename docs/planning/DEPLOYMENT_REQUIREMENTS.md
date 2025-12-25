@@ -302,7 +302,7 @@ ai-service (healthy) ┘
 
 ### Optional with Defaults
 
-See [`.env.example`](../.env.example) for full list with descriptions.
+See [`.env.example`](../../.env.example) for full list with descriptions.
 
 ---
 
@@ -494,7 +494,7 @@ docker-compose up -d
 | Alertmanager | 9093 | Alert routing      |
 | Grafana      | 3002 | Dashboards         |
 
-See [`monitoring/`](../monitoring/) for configuration files.
+See [`monitoring/`](../../monitoring) for configuration files.
 
 ---
 

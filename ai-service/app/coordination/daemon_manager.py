@@ -229,6 +229,12 @@ class DaemonManager:
         # Auto sync (December 2025)
         self.register_factory(DaemonType.AUTO_SYNC, self._create_auto_sync)
 
+        # Training node watcher (Phase 6, December 2025)
+        self.register_factory(DaemonType.TRAINING_NODE_WATCHER, self._create_training_node_watcher)
+
+        # Ephemeral sync for Vast.ai (Phase 4, December 2025)
+        self.register_factory(DaemonType.EPHEMERAL_SYNC, self._create_ephemeral_sync)
+
     def register_factory(
         self,
         daemon_type: DaemonType,

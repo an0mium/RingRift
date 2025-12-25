@@ -12,9 +12,9 @@
 
 This document summarizes the security threat model and hardening plan for RingRift. It aligns with:
 
-- [`FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:1)
+- [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:1)
 - [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:1)
-- [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:1)
+- [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md:1)
 
 ---
 
@@ -23,34 +23,34 @@ This document summarizes the security threat model and hardening plan for RingRi
 ### 1.1 Assets
 
 - **Player identity and credentials**
-  - Emails, usernames, and password hashes stored in Postgres (see [`prisma/schema.prisma`](../prisma/schema.prisma:1)).
-  - Auth tokens (JWT access/refresh) used by HTTP routes in [`auth`](../src/server/routes/auth.ts:1) and WebSocket auth in [`WebSocketServer`](../src/server/websocket/server.ts:1).
+  - Emails, usernames, and password hashes stored in Postgres (see [`prisma/schema.prisma`](../../prisma/schema.prisma:1)).
+  - Auth tokens (JWT access/refresh) used by HTTP routes in [`auth`](../../src/server/routes/auth.ts:1) and WebSocket auth in [`WebSocketServer`](../../src/server/websocket/server.ts:1).
 - **Game state and history**
-  - In-memory state and move history managed by [`GameSession`](../src/server/game/GameSession.ts:1) and [`GameEngine`](../src/server/game/GameEngine.ts:1).
-  - Persisted game metadata, snapshots, and moves via Prisma (see [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md:1)).
+  - In-memory state and move history managed by [`GameSession`](../../src/server/game/GameSession.ts:1) and [`GameEngine`](../../src/server/game/GameEngine.ts:1).
+  - Persisted game metadata, snapshots, and moves via Prisma (see [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1)).
 - **Ratings, leaderboards, and profiles**
-  - Player ratings, results, and profile data handled by services such as [`RatingService`](../src/server/services/RatingService.ts:1) and shared types in [`user`](../src/shared/types/user.ts:1).
+  - Player ratings, results, and profile data handled by services such as [`RatingService`](../../src/server/services/RatingService.ts:1) and shared types in [`user`](../../src/shared/types/user.ts:1).
 - **Infrastructure access and secrets**
-  - Database and Redis credentials, JWT secrets, AI service endpoints, and other operational secrets validated by [`config`](../src/server/config.ts:1) and [`envFlags`](../src/shared/utils/envFlags.ts:1).
+  - Database and Redis credentials, JWT secrets, AI service endpoints, and other operational secrets validated by [`config`](../../src/server/config.ts:1) and [`envFlags`](../../src/shared/utils/envFlags.ts:1).
 - **AI and rules infrastructure**
-  - Python AI and rules endpoints described in [`ai-service/README.md`](../ai-service/README.md:1) and [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md:1).
+  - Python AI and rules endpoints described in [`ai-service/README.md`](../../ai-service/README.md:1) and [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md:1).
 - **Logs, metrics, and diagnostics**
-  - Structured logs produced by [`logger`](../src/server/utils/logger.ts:1).
-  - Metrics from [`rulesParityMetrics`](../src/server/utils/rulesParityMetrics.ts:1) and Python-side metrics under [`ai-service/app/metrics.py`](../ai-service/app/metrics.py:1).
-  - Client error reports via [`errorReporting`](../src/client/utils/errorReporting.ts:1) and the `/api/client-errors` route in [`index`](../src/server/routes/index.ts:1).
+  - Structured logs produced by [`logger`](../../src/server/utils/logger.ts:1).
+  - Metrics from [`rulesParityMetrics`](../../src/server/utils/rulesParityMetrics.ts:1) and Python-side metrics under [`ai-service/app/metrics.py`](../../ai-service/app/metrics.py:1).
+  - Client error reports via [`errorReporting`](../../src/client/utils/errorReporting.ts:1) and the `/api/client-errors` route in [`index`](../../src/server/routes/index.ts:1).
 
 ### 1.2 Trust boundaries
 
 - **Browser SPA ↔ backend HTTP (REST)**
-  - Auth, game, and user endpoints implemented in [`auth`](../src/server/routes/auth.ts:1), [`game`](../src/server/routes/game.ts:1), and [`user`](../src/server/routes/user.ts:1).
+  - Auth, game, and user endpoints implemented in [`auth`](../../src/server/routes/auth.ts:1), [`game`](../../src/server/routes/game.ts:1), and [`user`](../../src/server/routes/user.ts:1).
 - **Browser SPA ↔ backend WebSocket**
-  - Socket.IO connection managed by [`WebSocketServer`](../src/server/websocket/server.ts:1) and consumed via [`GameContext`](../src/client/contexts/GameContext.tsx:1).
+  - Socket.IO connection managed by [`WebSocketServer`](../../src/server/websocket/server.ts:1) and consumed via [`GameContext`](../../src/client/contexts/GameContext.tsx:1).
 - **Backend ↔ AI / rules service**
-  - Internal HTTP calls from [`AIServiceClient`](../src/server/services/AIServiceClient.ts:1) and [`PythonRulesClient`](../src/server/services/PythonRulesClient.ts:1) to the Python service.
+  - Internal HTTP calls from [`AIServiceClient`](../../src/server/services/AIServiceClient.ts:1) and [`PythonRulesClient`](../../src/server/services/PythonRulesClient.ts:1) to the Python service.
 - **Backend ↔ Postgres / Redis**
-  - Prisma access in [`connection`](../src/server/database/connection.ts:1) and Redis access in [`redis`](../src/server/cache/redis.ts:1) used for caching, locks, and rate limiting.
+  - Prisma access in [`connection`](../../src/server/database/connection.ts:1) and Redis access in [`redis`](../../src/server/cache/redis.ts:1) used for caching, locks, and rate limiting.
 - **CI/CD and deployment ↔ production stack**
-  - GitHub Actions workflows (see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml:1)) build, test, and deploy Node and Python services using Docker, as referenced in [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:838).
+  - GitHub Actions workflows (see [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1)) build, test, and deploy Node and Python services using Docker, as referenced in [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:838).
 
 ```mermaid
 flowchart LR
@@ -82,7 +82,7 @@ flowchart LR
 
 ## 2. Threat surfaces, controls, and gaps
 
-This section focuses on concrete threat surfaces and maps each to existing controls and known gaps. It is consistent with the production-readiness analysis in [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:1973) and [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:18).
+This section focuses on concrete threat surfaces and maps each to existing controls and known gaps. It is consistent with the production-readiness analysis in [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:1973) and [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:18).
 
 ### 2.1 Authentication & session management
 
@@ -95,12 +95,12 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 **Existing controls**
 
-- Auth endpoints in [`auth`](../src/server/routes/auth.ts:1) implement registration, login, refresh, logout, email verification, and password reset using bcrypt password hashing.
-- Redis-backed rate limiting and login abuse protection via [`rateLimiter`](../src/server/middleware/rateLimiter.ts:1) and auth-specific limiters.
-- Account lockout logic and tests are in place to throttle repeated failed login attempts (see [`auth`](../src/server/routes/auth.ts:1) and associated test suites referenced from [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:37)).
-- JWT secrets, token lifetimes, and env configuration are validated by [`config`](../src/server/config.ts:1) and [`envFlags`](../src/shared/utils/envFlags.ts:1), which reject placeholder secrets in production.
-- WebSocket authentication in [`WebSocketServer`](../src/server/websocket/server.ts:1) validates JWTs and user status before allowing game joins.
-- Client-side token handling is centralized in [`AuthContext`](../src/client/contexts/AuthContext.tsx:1).
+- Auth endpoints in [`auth`](../../src/server/routes/auth.ts:1) implement registration, login, refresh, logout, email verification, and password reset using bcrypt password hashing.
+- Redis-backed rate limiting and login abuse protection via [`rateLimiter`](../../src/server/middleware/rateLimiter.ts:1) and auth-specific limiters.
+- Account lockout logic and tests are in place to throttle repeated failed login attempts (see [`auth`](../../src/server/routes/auth.ts:1) and associated test suites referenced from [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:37)).
+- JWT secrets, token lifetimes, and env configuration are validated by [`config`](../../src/server/config.ts:1) and [`envFlags`](../../src/shared/utils/envFlags.ts:1), which reject placeholder secrets in production.
+- WebSocket authentication in [`WebSocketServer`](../../src/server/websocket/server.ts:1) validates JWTs and user status before allowing game joins.
+- Client-side token handling is centralized in [`AuthContext`](../../src/client/contexts/AuthContext.tsx:1).
 
 **Gaps / risks**
 
@@ -119,10 +119,10 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 **Existing controls**
 
-- HTTP routes in [`game`](../src/server/routes/game.ts:1) enforce auth and ownership checks for creating, listing, joining, and leaving games.
-- WebSocket handlers in [`WebSocketServer`](../src/server/websocket/server.ts:1) validate `join_game`, `leave_game`, `player_move`, and `player_choice_response` against the authenticated user and game membership.
-- Game-level authorization helpers in [`GameSession`](../src/server/game/GameSession.ts:1) and [`GameSessionManager`](../src/server/game/GameSessionManager.ts:1) gate access to in-memory sessions.
-- Rating and matchmaking flows are wired through authenticated APIs and services such as [`RatingService`](../src/server/services/RatingService.ts:1) and [`MatchmakingService`](../src/server/services/MatchmakingService.ts:1).
+- HTTP routes in [`game`](../../src/server/routes/game.ts:1) enforce auth and ownership checks for creating, listing, joining, and leaving games.
+- WebSocket handlers in [`WebSocketServer`](../../src/server/websocket/server.ts:1) validate `join_game`, `leave_game`, `player_move`, and `player_choice_response` against the authenticated user and game membership.
+- Game-level authorization helpers in [`GameSession`](../../src/server/game/GameSession.ts:1) and [`GameSessionManager`](../../src/server/game/GameSessionManager.ts:1) gate access to in-memory sessions.
+- Rating and matchmaking flows are wired through authenticated APIs and services such as [`RatingService`](../../src/server/services/RatingService.ts:1) and [`MatchmakingService`](../../src/server/services/MatchmakingService.ts:1).
 
 **Gaps / risks**
 
@@ -140,11 +140,11 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 **Existing controls**
 
-- Strong runtime validation for WebSocket events via [`WebSocketPayloadSchemas`](../src/shared/validation/websocketSchemas.ts:1) using Zod.
-- Prisma ORM usage in [`connection`](../src/server/database/connection.ts:1) avoids manual SQL string building in most paths.
-- Shared domain types in [`game`](../src/shared/types/game.ts:1) and [`user`](../src/shared/types/user.ts:1) constrain in-process data structures.
-- The Python AI service validates request bodies via Pydantic models as documented in [`ai-service/README.md`](../ai-service/README.md:1).
-- Centralized HTTP error handling in [`errorHandler`](../src/server/middleware/errorHandler.ts:1) ensures internal exceptions are not surfaced directly to clients.
+- Strong runtime validation for WebSocket events via [`WebSocketPayloadSchemas`](../../src/shared/validation/websocketSchemas.ts:1) using Zod.
+- Prisma ORM usage in [`connection`](../../src/server/database/connection.ts:1) avoids manual SQL string building in most paths.
+- Shared domain types in [`game`](../../src/shared/types/game.ts:1) and [`user`](../../src/shared/types/user.ts:1) constrain in-process data structures.
+- The Python AI service validates request bodies via Pydantic models as documented in [`ai-service/README.md`](../../ai-service/README.md:1).
+- Centralized HTTP error handling in [`errorHandler`](../../src/server/middleware/errorHandler.ts:1) ensures internal exceptions are not surfaced directly to clients.
 
 **Gaps / risks**
 
@@ -163,10 +163,10 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 **Existing controls**
 
-- Redis-backed rate limiting middleware in [`rateLimiter`](../src/server/middleware/rateLimiter.ts:1) protects key HTTP entrypoints, especially auth.
-- AI timeouts, structured AI errors, and fallbacks in [`AIServiceClient`](../src/server/services/AIServiceClient.ts:1) and [`PythonRulesClient`](../src/server/services/PythonRulesClient.ts:1) ensure AI failures do not stall games.
-- Error mapping and fallback behaviours for AI/DB failures are centralized in [`errorHandler`](../src/server/middleware/errorHandler.ts:1) and in `maybePerformAITurn` flows in [`GameSession`](../src/server/game/GameSession.ts:1).
-- Redis-backed locks and safety checks in [`redis`](../src/server/cache/redis.ts:1), [`GameSessionManager`](../src/server/game/GameSessionManager.ts:1), and topology flags in [`envFlags`](../src/shared/utils/envFlags.ts:1) reduce the risk of concurrency issues in multi-instance deployments.
+- Redis-backed rate limiting middleware in [`rateLimiter`](../../src/server/middleware/rateLimiter.ts:1) protects key HTTP entrypoints, especially auth.
+- AI timeouts, structured AI errors, and fallbacks in [`AIServiceClient`](../../src/server/services/AIServiceClient.ts:1) and [`PythonRulesClient`](../../src/server/services/PythonRulesClient.ts:1) ensure AI failures do not stall games.
+- Error mapping and fallback behaviours for AI/DB failures are centralized in [`errorHandler`](../../src/server/middleware/errorHandler.ts:1) and in `maybePerformAITurn` flows in [`GameSession`](../../src/server/game/GameSession.ts:1).
+- Redis-backed locks and safety checks in [`redis`](../../src/server/cache/redis.ts:1), [`GameSessionManager`](../../src/server/game/GameSessionManager.ts:1), and topology flags in [`envFlags`](../../src/shared/utils/envFlags.ts:1) reduce the risk of concurrency issues in multi-instance deployments.
 
 **Gaps / risks**
 
@@ -184,12 +184,12 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 **Existing controls**
 
-- Separation of configuration and secrets into env files validated by [`config`](../src/server/config.ts:1) and documented in [`.env.example`](../.env.example:1).
-- Database migration and backup/restore workflows are described in [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md:1).
-- Structured logging via [`logger`](../src/server/utils/logger.ts:1) and strongly typed client-error reporting via [`errorReporting`](../src/client/utils/errorReporting.ts:1) reduce the need for ad-hoc `console.log` of sensitive values.
+- Separation of configuration and secrets into env files validated by [`config`](../../src/server/config.ts:1) and documented in [`.env.example`](../../.env.example:1).
+- Database migration and backup/restore workflows are described in [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1).
+- Structured logging via [`logger`](../../src/server/utils/logger.ts:1) and strongly typed client-error reporting via [`errorReporting`](../../src/client/utils/errorReporting.ts:1) reduce the need for ad-hoc `console.log` of sensitive values.
 - Operator-facing drills for critical secrets and backups now exist as:
-  - [`docs/runbooks/SECRETS_ROTATION_DRILL.md`](./runbooks/SECRETS_ROTATION_DRILL.md) – JWT and database credential rotation drill for staging/non-production.
-  - [`docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`](./runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md) – non-destructive Postgres backup/restore drill using a separate restore database.
+  - [`docs/runbooks/SECRETS_ROTATION_DRILL.md`](../runbooks/SECRETS_ROTATION_DRILL.md) – JWT and database credential rotation drill for staging/non-production.
+  - [`docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`](../runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md) – non-destructive Postgres backup/restore drill using a separate restore database.
 
 **Gaps / risks**
 
@@ -208,9 +208,9 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 **Existing controls**
 
-- Dependency audits and security scanning (for example, `npm audit` and Snyk) are part of CI as summarized in [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:839).
-- Python dependencies are pinned in [`ai-service/requirements.txt`](../ai-service/requirements.txt:1), reducing the risk of surprise upstream changes.
-- CI workflows under [`.github/workflows`](../.github/workflows/ci.yml:1) build and test both Node and Python components before deployment.
+- Dependency audits and security scanning (for example, `npm audit` and Snyk) are part of CI as summarized in [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:839).
+- Python dependencies are pinned in [`ai-service/requirements.txt`](../../ai-service/requirements.txt:1), reducing the risk of surprise upstream changes.
+- CI workflows under [`.github/workflows`](../../.github/workflows/ci.yml:1) build and test both Node and Python components before deployment.
 - Docker-based deployment model and a small number of images simplify provenance and rollback.
 
 **Gaps / risks**
@@ -228,7 +228,7 @@ The following items define a focused S-05 security backlog. Each item is intenti
 ### S-05.A – Auth & token lifecycle hardening
 
 - **Goal:** Define and implement a clear lifecycle for access and refresh tokens, including rotation and revocation semantics that work consistently across HTTP and WebSocket flows.
-- **Scope:** Backend, frontend, tests, and docs (notably [`auth`](../src/server/routes/auth.ts:1), [`AuthContext`](../src/client/contexts/AuthContext.tsx:1), [`WebSocketServer`](../src/server/websocket/server.ts:1), and [`config`](../src/server/config.ts:1)).
+- **Scope:** Backend, frontend, tests, and docs (notably [`auth`](../../src/server/routes/auth.ts:1), [`AuthContext`](../../src/client/contexts/AuthContext.tsx:1), [`WebSocketServer`](../../src/server/websocket/server.ts:1), and [`config`](../../src/server/config.ts:1)).
 - **Risk level:** High – Directly affects resistance to account takeover and incident response readiness.
 - **Dependencies:** Builds on existing rate limiting and lockout logic documented in [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:37) and complements other auth/Z hardening tasks in the roadmap.
 
@@ -241,9 +241,9 @@ Key directions:
 ### S-05.B – Game-session and spectator authorization review
 
 - **Goal:** Make game access rules explicit and verifiable for all HTTP endpoints and WebSocket events, including future spectator and rating features.
-- **Scope:** Backend and tests around [`game`](../src/server/routes/game.ts:1), [`WebSocketServer`](../src/server/websocket/server.ts:1), [`GameSession`](../src/server/game/GameSession.ts:1), and related services such as [`RatingService`](../src/server/services/RatingService.ts:1).
+- **Scope:** Backend and tests around [`game`](../../src/server/routes/game.ts:1), [`WebSocketServer`](../../src/server/websocket/server.ts:1), [`GameSession`](../../src/server/game/GameSession.ts:1), and related services such as [`RatingService`](../../src/server/services/RatingService.ts:1).
 - **Risk level:** High – Authorization errors can expose hidden information or allow manipulation of other players’ games and ratings.
-- **Dependencies:** Builds on the current multiplayer lifecycle and session-management design in [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:1632).
+- **Dependencies:** Builds on the current multiplayer lifecycle and session-management design in [`archive/FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:1632).
 
 Key directions:
 
@@ -254,22 +254,22 @@ Key directions:
 ### S-05.C – Abuse, quotas, and backpressure
 
 - **Goal:** Evolve from ad-hoc rate limiting to a documented, coherent abuse-prevention strategy across auth, lobby, games, chat, and AI usage.
-- **Scope:** Backend, infra, tests, and docs (centred on [`rateLimiter`](../src/server/middleware/rateLimiter.ts:1), [`game`](../src/server/routes/game.ts:1), and AI integration code paths).
+- **Scope:** Backend, infra, tests, and docs (centred on [`rateLimiter`](../../src/server/middleware/rateLimiter.ts:1), [`game`](../../src/server/routes/game.ts:1), and AI integration code paths).
 - **Risk level:** High – Without coherent quotas and backpressure, small numbers of malicious or buggy clients can degrade the overall service.
-- **Dependencies:** Align with performance and scalability targets in the P-01 section of [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:155).
+- **Dependencies:** Align with performance and scalability targets in the P-01 section of [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md:155).
 
 Key directions:
 
 - Define per-account and per-IP quotas for game creation, join attempts, and chat messages, along with reasonable defaults for early production.
 - Introduce coarse-grained backpressure modes for sustained AI or DB stress, such as temporarily disabling AI-vs-AI games or capping concurrent AI moves per node.
-- Surface quota and abuse metrics explicitly via [`rulesParityMetrics`](../src/server/utils/rulesParityMetrics.ts:1) or companion metrics, suitable for alerts and dashboards.
+- Surface quota and abuse metrics explicitly via [`rulesParityMetrics`](../../src/server/utils/rulesParityMetrics.ts:1) or companion metrics, suitable for alerts and dashboards.
 
 ### S-05.D – Validation coverage & logging hygiene
 
 - **Goal:** Ensure every external input path is validated and that logs avoid leaking secrets or unnecessary PII.
-- **Scope:** Backend and AI service endpoints, shared schemas such as [`WebSocketPayloadSchemas`](../src/shared/validation/websocketSchemas.ts:1), and logging utilities like [`logger`](../src/server/utils/logger.ts:1).
+- **Scope:** Backend and AI service endpoints, shared schemas such as [`WebSocketPayloadSchemas`](../../src/shared/validation/websocketSchemas.ts:1), and logging utilities like [`logger`](../../src/server/utils/logger.ts:1).
 - **Risk level:** Medium – Current controls are strong, but gaps can emerge as the feature set grows.
-- **Dependencies:** Builds on the existing error-handling and validation design in [`errorHandler`](../src/server/middleware/errorHandler.ts:1) and [`ai-service/README.md`](../ai-service/README.md:1).
+- **Dependencies:** Builds on the existing error-handling and validation design in [`errorHandler`](../../src/server/middleware/errorHandler.ts:1) and [`ai-service/README.md`](../../ai-service/README.md:1).
 
 Key directions:
 
@@ -280,10 +280,10 @@ Key directions:
 ### S-05.E – Data retention, privacy, and user data workflows
 
 - **Goal:** Establish pragmatic policies for how long user and game data are retained and how user data can be deleted or exported if needed.
-- **Scope:** Backend, DB schema and migrations, and operator documentation such as [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md:1).
+- **Scope:** Backend, DB schema and migrations, and operator documentation such as [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1).
 - **Risk level:** Medium – Important for future regulatory alignment and for limiting the impact of potential data leaks.
-- **Dependencies:** Builds on current backup/restore and migration guidance in [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:267).
-- **Design details:** The concrete data inventory, retention/anonymisation rules, and user data workflows for S‑05.E are defined in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](./DATA_LIFECYCLE_AND_PRIVACY.md:1).
+- **Dependencies:** Builds on current backup/restore and migration guidance in [`archive/FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:267).
+- **Design details:** The concrete data inventory, retention/anonymisation rules, and user data workflows for S‑05.E are defined in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](DATA_LIFECYCLE_AND_PRIVACY.md:1).
 
 Key directions:
 
@@ -294,10 +294,10 @@ Key directions:
 ### S-05.F – Supply chain & CI/CD safeguards
 
 - **Goal:** Reduce supply-chain risk and make CI/CD guarantees about what code and images reach production explicit.
-- **Scope:** CI workflows under [`.github/workflows`](../.github/workflows/ci.yml:1), Docker build pipeline, and contributor documentation.
+- **Scope:** CI workflows under [`.github/workflows`](../../.github/workflows/ci.yml:1), Docker build pipeline, and contributor documentation.
 - **Risk level:** Medium – Becomes more important as the player base and contributor count grow.
-- **Dependencies:** Builds on existing CI practices and security scanning noted in [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:838).
-- **Design details:** The supply-chain & CI/CD threat overview, current controls/gaps, and S‑05.F.x implementation tracks are defined in [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](./SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
+- **Dependencies:** Builds on existing CI practices and security scanning noted in [`archive/FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:838).
+- **Design details:** The supply-chain & CI/CD threat overview, current controls/gaps, and S‑05.F.x implementation tracks are defined in [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
 
 Key directions:
 
