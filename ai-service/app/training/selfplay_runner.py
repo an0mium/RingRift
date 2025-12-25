@@ -110,8 +110,9 @@ class SelfplayRunner(ABC):
         self.running = True
         self._model = None
         self._callbacks: list[Callable[[GameResult], None]] = []
+        self._signal_received = False
 
-        # Setup signal handlers
+        # Setup signal handlers - only respond to first signal
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
@@ -128,8 +129,15 @@ class SelfplayRunner(ABC):
         return cls(config)
 
     def _handle_signal(self, signum: int, frame: Any) -> None:
-        logger.info(f"Received signal {signum}, stopping...")
+        if self._signal_received:
+            # Already received a signal, ignore subsequent ones
+            return
+        self._signal_received = True
+        logger.info(f"Received signal {signum}, stopping gracefully...")
         self.running = False
+        # Restore default handlers to prevent infinite loops
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     @abstractmethod
     def run_game(self, game_idx: int) -> GameResult:
