@@ -1952,7 +1952,7 @@ Yes, with restrictions. You may land on **any valid space beyond the captured pi
 
 - The total distance traveled (including the jump) is **at least your stack's height**.
 - The path to the landing space (excluding the target itself) is clear of other rings/stacks and collapsed spaces.
-- The landing space itself is either **(a) empty and not collapsed**, or **(b) occupied by a single marker of any color and not collapsed**.
+- The landing space itself is either **(a) empty and not collapsed**, or **(b) occupied by a single marker of any color (own or opponent) and not collapsed**.
 - You cannot land closer than your stack height.
 - You are **not required to stop at the first valid space** after the captured piece.
 - If landing on a marker, it is removed and then the moving stack must eliminate its top ring, with that ring credited to you for victory-condition purposes.
@@ -2183,7 +2183,7 @@ Note that by definition, any stack you control must have at least one ring of yo
     • Territory Disconnection checks use **4-direction (Von Neumann neighborhood)** adjacency (orthogonal only). This standardizes the territory rule across square boards.
 2.  Movement Distance Rule
     • Single simplified rule:
-    "You can move in a straight line (orthogonal or diagonal) any number of empty spaces (or to a same‑color marker space, which is then handled as described in Sections 8.2 / 16.5.1), but you must not stop closer to your start than your stack's height. If no available landing space meets that requirement, you cannot move in that direction."
+    "You can move in a straight line (orthogonal or diagonal) any number of empty spaces (or to a space with any marker, which is then handled as described in Sections 8.2 / 16.5.1), but you must not stop closer to your start than your stack's height. If no available landing space meets that requirement, you cannot move in that direction."
     • The landing rule after passing markers during non-capture moves is consistent across all versions. You are not required to stop at the first valid space after markers.
 3.  Rings & Counts
     • Each player has 18 rings of their own color (instead of 72). These are their entire personal ring supply; this yields 36 total rings for 2 players, or 54 total rings for 3 players.

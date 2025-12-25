@@ -83,7 +83,7 @@ python scripts/cli.py health
   - Auto-reconnect on network changes, IP change detection
   - Start: `python scripts/node_resilience.py --daemon`
 - `gpu_cluster_manager.py` - GPU cluster inventory and scaling helpers
-  - Uses `config/cluster.yaml` as the node source of truth
+  - Uses `config/cluster.yaml` (legacy inventory; distributed_hosts is canonical)
 - `setup_cluster_ssh.sh` - SSH agent/bootstrap helper + connectivity check
 
 ### Training

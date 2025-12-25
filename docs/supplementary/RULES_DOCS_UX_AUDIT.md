@@ -59,10 +59,10 @@ This section reviews text visible to end-users in the web client and the primary
 - DOCUX‑P6 – **Resolved**: FAQ Q24 now includes the clarification: "Note that by definition, any stack you control must have at least one ring of your colour at the top—that's what 'control' means. Therefore, there is always a non-empty cap to eliminate."
 - DOCUX‑P7 – **Resolved**: §11.2 now consistently uses "Required Length (3 for 8×8, 4 for 19×19/Hex)" throughout, with no ambiguous "4 or 5" references.
 
-**Update (post-2025-12-08):**
+**Update (2025-12-24):**
 
-- DOCUX-P5 – Landing rule drift reappeared in FAQ Q3 and simplified/quick-comparison sections; these now align to "empty or any marker" landing.
-- DOCUX-P8 – Territory eligibility drift reappeared in FAQ Q15 and simplified summaries; these now align to "any controlled stack, including height-1".
+- DOCUX-P5 – Landing rule drift reappeared in the simplified 8×8 overview sentence; corrected to "space with any marker" to match the unified landing rule.
+- DOCUX-P8 – Territory eligibility wording remains aligned: any controlled stack, including height-1 standalone rings.
 
 ---
 

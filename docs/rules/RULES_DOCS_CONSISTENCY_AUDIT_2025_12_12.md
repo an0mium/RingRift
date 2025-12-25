@@ -6,6 +6,7 @@
 >
 > **Re-verified:** 2025-12-13 (post recovery + selfplay doc updates). No new inconsistencies found.
 > **Updated:** 2025-12-17 (territory processing eligibility contradiction fixed; residual Complete Rules drift in FAQ Q15 and 16.x summaries corrected).
+> **Updated:** 2025-12-24 (Complete Rules simplified 8×8 movement wording aligned with unified landing rule; no remaining inconsistencies found).
 
 ---
 

@@ -89,7 +89,7 @@ CPU_WORK_TYPES = {
 
 @dataclass
 class NodeConfig:
-    """Static node configuration from cluster_nodes.yaml."""
+    """Static node configuration from cluster inventory."""
     name: str
     host: str
     user: str = "ubuntu"
@@ -160,33 +160,35 @@ def load_cluster_config() -> dict[str, list[NodeConfig]]:
             data = yaml.safe_load(f) or {}
 
         hosts = data.get("hosts", {})
-        for name, node_data in hosts.items():
-            if not isinstance(node_data, dict):
-                continue
-            gpu = node_data.get("gpu", node_data.get("gpu_type", "")) or ""
-            node_type = _infer_node_type(name, gpu)
-            host = node_data.get("tailscale_ip") or node_data.get("ssh_host") or node_data.get("host", "")
-            node = NodeConfig(
-                name=name,
-                host=host,
-                user=node_data.get("ssh_user", node_data.get("user", "ubuntu")),
-                gpu=gpu,
-                gpu_memory_gb=node_data.get("vram_gb", 0),
-                cpu_cores=node_data.get("cpus", 0),
-                memory_gb=node_data.get("memory_gb", 0),
-                description=node_data.get("notes", ""),
-                priority=node_data.get("priority", 5),
-                wake_method=node_data.get("wake_method", "ssh"),
-                is_optional=node_data.get("is_optional", False),
-                node_type=node_type,
-            )
-            nodes[node_type].append(node)
+        if hosts:
+            for name, node_data in hosts.items():
+                if not isinstance(node_data, dict):
+                    continue
+                gpu = node_data.get("gpu", node_data.get("gpu_type", "")) or ""
+                node_type = _infer_node_type(name, gpu)
+                host = node_data.get("tailscale_ip") or node_data.get("ssh_host") or node_data.get("host", "")
+                node = NodeConfig(
+                    name=name,
+                    host=host,
+                    user=node_data.get("ssh_user", node_data.get("user", "ubuntu")),
+                    gpu=gpu,
+                    gpu_memory_gb=node_data.get("vram_gb", 0),
+                    cpu_cores=node_data.get("cpus", 0),
+                    memory_gb=node_data.get("memory_gb", 0),
+                    description=node_data.get("notes", ""),
+                    priority=node_data.get("priority", 5),
+                    wake_method=node_data.get("wake_method", "ssh"),
+                    is_optional=node_data.get("is_optional", False),
+                    node_type=node_type,
+                )
+                nodes[node_type].append(node)
 
-        logger.info(
-            f"Loaded distributed hosts: {len(nodes['gpu_heavy'])} GPU-heavy, "
-            f"{len(nodes['gpu_medium'])} GPU-medium, {len(nodes['cpu_rich'])} CPU-rich"
-        )
-        return nodes
+            logger.info(
+                f"Loaded distributed hosts: {len(nodes['gpu_heavy'])} GPU-heavy, "
+                f"{len(nodes['gpu_medium'])} GPU-medium, {len(nodes['cpu_rich'])} CPU-rich"
+            )
+            return nodes
+        logger.warning("No hosts found in distributed_hosts.yaml, falling back to cluster_nodes.yaml")
 
     with open(cluster_nodes_path) as f:
         data = yaml.safe_load(f) or {}

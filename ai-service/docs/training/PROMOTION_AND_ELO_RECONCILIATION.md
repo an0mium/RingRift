@@ -344,13 +344,14 @@ Expected performance:
 
 ### Remote Hosts
 
-Configure P2P hosts in `config/remote_hosts.yaml`:
+Configure P2P hosts in `config/distributed_hosts.yaml`:
 
 ```yaml
-standard_hosts:
+hosts:
   gpu-node-1:
     ssh_host: 10.0.0.1 # Replace with actual IP or hostname
     role: selfplay
+    p2p_voter: true
   gpu-node-2:
     ssh_host: 10.0.0.2 # Replace with actual IP or hostname
     role: selfplay

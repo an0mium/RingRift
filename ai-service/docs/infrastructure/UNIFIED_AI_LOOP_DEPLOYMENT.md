@@ -154,23 +154,22 @@ curriculum:
 
 ### Host Configuration
 
-`config/remote_hosts.yaml` defines all cluster hosts:
+`config/distributed_hosts.yaml` defines cluster hosts (canonical inventory).
+`config/remote_hosts.yaml` is only used by data sync tooling.
 
 ```yaml
-standard_hosts:
-  lambda_h100:
+hosts:
+  lambda-h100:
     ssh_host: '<primary-gpu-ip>'
     ssh_user: 'ubuntu'
-    role: 'training,hp_tuning,tournament'
-    has_gpu: true
-    gpu_type: 'H100'
+    role: 'training,tournament'
+    gpu: 'H100'
 
-  selfplay_1:
+  selfplay-1:
     ssh_host: '10.0.0.10' # Your selfplay node IP
     ssh_user: 'ubuntu'
     role: 'selfplay'
-    has_gpu: true
-    gpu_type: 'GH200'
+    gpu: 'GH200'
 ```
 
 ## Systemd Service (Production)
@@ -397,7 +396,8 @@ for host in <selfplay-node-1> <selfplay-node-2>; do
 done
 
 # Check host configuration
-cat config/remote_hosts.yaml | grep ssh_host
+cat config/distributed_hosts.yaml | grep ssh_host
+# If using external unified_data_sync, also verify config/remote_hosts.yaml
 
 # Manual sync test (replace with your actual IP)
 rsync -avz ubuntu@<selfplay-node>:~/ringrift/ai-service/data/games/*.db /tmp/
@@ -639,23 +639,24 @@ status = get_utilization_status()
 
 ## Files Reference
 
-| File                                                 | Purpose                        |
-| ---------------------------------------------------- | ------------------------------ |
-| `scripts/unified_ai_loop.py`                         | Main daemon coordinator        |
-| `scripts/deploy_unified_loop.sh`                     | Cluster deployment script      |
-| `scripts/regression_gate.py`                         | Pre-promotion regression tests |
-| `config/unified_loop.yaml`                           | Main configuration             |
-| `config/remote_hosts.yaml`                           | Host definitions               |
-| `config/systemd/ringrift-ai-loop.service`            | Systemd service file           |
-| `config/monitoring/grafana-dashboard.json`           | Grafana dashboard              |
-| `config/monitoring/alerting-rules.yaml`              | Prometheus alert rules         |
-| `app/coordination/resource_optimizer.py`             | Resource utilization optimizer |
-| `app/coordination/resource_targets.py`               | Utilization target definitions |
-| `monitoring/prometheus/rules/utilization_alerts.yml` | Utilization-specific alerts    |
-| `deploy/grafana/unified-ai-loop-dashboard.json`      | Main Grafana dashboard         |
-| `logs/unified_loop/daemon.log`                       | Daemon log file                |
-| `logs/unified_loop/unified_loop_state.json`          | Persistent state               |
-| `data/coordination/resource_state.db`                | Resource optimizer state DB    |
+| File                                                 | Purpose                             |
+| ---------------------------------------------------- | ----------------------------------- |
+| `scripts/unified_ai_loop.py`                         | Main daemon coordinator             |
+| `scripts/deploy_unified_loop.sh`                     | Cluster deployment script           |
+| `scripts/regression_gate.py`                         | Pre-promotion regression tests      |
+| `config/unified_loop.yaml`                           | Main configuration                  |
+| `config/distributed_hosts.yaml`                      | Cluster host inventory (canonical)  |
+| `config/remote_hosts.yaml`                           | Data sync host definitions (legacy) |
+| `config/systemd/ringrift-ai-loop.service`            | Systemd service file                |
+| `config/monitoring/grafana-dashboard.json`           | Grafana dashboard                   |
+| `config/monitoring/alerting-rules.yaml`              | Prometheus alert rules              |
+| `app/coordination/resource_optimizer.py`             | Resource utilization optimizer      |
+| `app/coordination/resource_targets.py`               | Utilization target definitions      |
+| `monitoring/prometheus/rules/utilization_alerts.yml` | Utilization-specific alerts         |
+| `deploy/grafana/unified-ai-loop-dashboard.json`      | Main Grafana dashboard              |
+| `logs/unified_loop/daemon.log`                       | Daemon log file                     |
+| `logs/unified_loop/unified_loop_state.json`          | Persistent state                    |
+| `data/coordination/resource_state.db`                | Resource optimizer state DB         |
 
 ## Command Reference
 

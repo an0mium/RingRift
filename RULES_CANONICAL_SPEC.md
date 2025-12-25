@@ -1162,9 +1162,9 @@ Any localized prose that diverges from these parameterized values in the Complet
 Below are the most important differences, categorized by type, with canonical interpretation.
 
 1. **Landing flexibility (movement + capture).**
-   - Complete Rules: FAQ Q3 and simplified 8×8 / quick-comparison sections previously limited capture landing to empty or own-marker spaces, contradicting the unified landing rule.
+   - Complete Rules: FAQ Q3 and simplified 8×8 / quick-comparison sections now align with the unified landing rule (landing on any marker is legal).
    - Compact Spec: §3.2 unifies the rule: **all** versions allow landing on any valid space beyond markers meeting the distance requirement; you are not required to stop at the first such space.
-   - Category: **Resolved doc drift**.
+   - Category: **Resolved doc drift** (no remaining divergence).
    - Canonical: Follow the unified rule from the Compact Spec (RR-CANON-R091–R092).
 
 2. **Line-length wording ("4 or 5" vs required length).**
@@ -1194,9 +1194,9 @@ Below are the most important differences, categorized by type, with canonical in
      affect the recorded game history or training data.
 
 5. **Forced elimination impossibility edge case.**
-   - Complete Rules: FAQ Q24 now aligns with RR-CANON; the earlier contradiction has been removed.
+   - Complete Rules: FAQ Q24 aligns with RR-CANON; there is no remaining drift.
    - Compact Spec: §2.3 assumes that if a player controls a stack, they always have at least one ring in the cap to eliminate.
-   - Category: **Resolved doc drift**.
+   - Category: **Resolved doc drift** (no remaining divergence).
    - Canonical: Treat forced elimination as always applicable whenever a player controls any stack (RR-CANON-R100).
 
 6. **Territory border marker collapse scope.**

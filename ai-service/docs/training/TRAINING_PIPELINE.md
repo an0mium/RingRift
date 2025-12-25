@@ -117,12 +117,12 @@ training:
 
 ## Key Configuration Files
 
-| File                                        | Purpose                    |
-| ------------------------------------------- | -------------------------- |
-| `config/unified_loop.yaml`                  | Main loop configuration    |
-| `config/remote_hosts.yaml`                  | SSH host definitions       |
-| `config/distributed_hosts.yaml`             | Distributed training hosts |
-| `logs/unified_loop/unified_loop_state.json` | Loop state persistence     |
+| File                                        | Purpose                             |
+| ------------------------------------------- | ----------------------------------- |
+| `config/unified_loop.yaml`                  | Main loop configuration             |
+| `config/distributed_hosts.yaml`             | Cluster host inventory (canonical)  |
+| `config/remote_hosts.yaml`                  | Data sync host definitions (legacy) |
+| `logs/unified_loop/unified_loop_state.json` | Loop state persistence              |
 
 ## Monitoring
 

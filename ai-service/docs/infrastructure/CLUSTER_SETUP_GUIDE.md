@@ -106,37 +106,33 @@ COORDINATOR_PATH="/home/ubuntu/RingRift/ai-service/data/games"
 NODES_STRING="worker1:10.0.0.10:/home/ubuntu/RingRift/ai-service/data/games worker2:10.0.0.11:/home/ubuntu/RingRift/ai-service/data/games"
 ```
 
-### Create config/remote_hosts.yaml:
+### Create config/distributed_hosts.yaml:
 
 ```bash
-cp config/remote_hosts.yaml.example config/remote_hosts.yaml
+cp config/distributed_hosts.template.yaml config/distributed_hosts.yaml
 ```
 
 Edit with your actual hosts. Example:
 
 ```yaml
-standard_hosts:
-  gpu_primary:
+hosts:
+  gpu-primary:
     ssh_host: '10.0.0.1'
     ssh_user: 'ubuntu'
-    remote_path: '~/RingRift/ai-service/data/games'
+    ringrift_path: '~/RingRift/ai-service'
     role: 'training,tournament'
-    has_gpu: true
-    gpu_type: 'H100'
+    gpu: 'H100'
 
-  gpu_worker_1:
+  gpu-worker-1:
     ssh_host: '10.0.0.10'
     ssh_user: 'ubuntu'
-    remote_path: '~/RingRift/ai-service/data/games'
+    ringrift_path: '~/RingRift/ai-service'
     role: 'selfplay'
-    has_gpu: true
-    gpu_type: 'RTX 4090'
-
-training:
-  nn_host: 'gpu_primary'
-  selfplay_hosts:
-    - 'gpu_worker_1'
+    gpu: 'RTX 4090'
 ```
+
+If you use `unified_data_sync.py`, also create `config/remote_hosts.yaml`
+(legacy sync format) with the same hosts.
 
 ## Step 3: Deploy Code to Cluster
 
@@ -322,7 +318,7 @@ ssh -R 8770:localhost:8770 relay-server
 ### Adding More Workers
 
 1. Set up the new node (Step 1)
-2. Add to `config/remote_hosts.yaml`
+2. Add to `config/distributed_hosts.yaml` (and `config/remote_hosts.yaml` if using data sync)
 3. Deploy code: `python scripts/update_cluster_code.py`
 4. Start selfplay on the new node
 

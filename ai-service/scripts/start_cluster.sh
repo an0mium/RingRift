@@ -14,7 +14,7 @@
 # Prerequisites:
 # - Tailscale connected to all vast nodes
 # - SSH keys configured for root@vast-* hosts
-# - Config files in config/remote_hosts.yaml and config/unified_loop.yaml
+# - Config files in config/distributed_hosts.yaml and config/unified_loop.yaml
 
 set -e
 
@@ -68,14 +68,19 @@ sync_configs() {
     log_info "Syncing config files to all nodes..."
     local config_dir="$(dirname "$0")/../config"
 
+    local config_files=("$config_dir/unified_loop.yaml" "$config_dir/distributed_hosts.yaml")
+    if [[ -f "$config_dir/remote_hosts.yaml" ]]; then
+        config_files+=("$config_dir/remote_hosts.yaml")
+    fi
+
     for node in "${GPU_NODES[@]}" "$DATA_AGGREGATOR"; do
         if $DRY_RUN; then
-            echo "  scp $config_dir/remote_hosts.yaml $config_dir/unified_loop.yaml root@$node:..."
+            echo "  scp ${config_files[*]} root@$node:..."
         else
             # Find the ringrift directory on this node
             local remote_path=$(ssh -o ConnectTimeout=5 root@$node 'ls -d /workspace/ringrift /root/ringrift /workspace/RingRift /root/RingRift 2>/dev/null | head -1' 2>/dev/null || echo "")
             if [[ -n "$remote_path" ]]; then
-                scp -q "$config_dir/remote_hosts.yaml" "$config_dir/unified_loop.yaml" "root@$node:$remote_path/ai-service/config/" 2>/dev/null || true
+                scp -q "${config_files[@]}" "root@$node:$remote_path/ai-service/config/" 2>/dev/null || true
                 log_info "  Synced configs to $node"
             else
                 log_warn "  Could not find ringrift directory on $node"

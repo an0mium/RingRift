@@ -2,10 +2,10 @@
 
 This module provides a unified interface for loading and validating cluster
 node configurations. It consolidates the following config files:
-- config/cluster_nodes.yaml (primary source)
-- config/distributed_hosts.yaml (legacy, for compatibility)
-- config/p2p_hosts.yaml (legacy, for compatibility)
-- config/cluster.yaml (legacy, for compatibility)
+- config/distributed_hosts.yaml (primary source)
+- config/cluster_nodes.yaml (fallback, legacy inventory)
+- config/cluster.yaml (legacy, P2P/alerts fallback)
+- config/p2p_hosts.yaml (legacy, minimal peer list)
 
 Usage:
     from scripts.lib.unified_cluster_config import get_cluster_config, NodeConfig
@@ -43,10 +43,10 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
 # Config file paths (in priority order)
 CONFIG_PATHS = [
-    PROJECT_ROOT / "config" / "cluster_nodes.yaml",
     PROJECT_ROOT / "config" / "distributed_hosts.yaml",
-    PROJECT_ROOT / "config" / "p2p_hosts.yaml",
+    PROJECT_ROOT / "config" / "cluster_nodes.yaml",
     PROJECT_ROOT / "config" / "cluster.yaml",
+    PROJECT_ROOT / "config" / "p2p_hosts.yaml",
 ]
 
 # Cache settings
@@ -250,49 +250,116 @@ class UnifiedClusterConfig:
             self._parse_cluster_yaml(config)
 
     def _parse_cluster_nodes(self, config: dict[str, Any]) -> None:
-        """Parse cluster_nodes.yaml format (primary format)."""
-        for node_id, node_cfg in config.get("nodes", {}).items():
-            if node_id in self.nodes:
-                continue  # Don't override existing
+        """Parse cluster_nodes.yaml format (legacy inventory)."""
+        nodes_section = config.get("nodes")
+        if isinstance(nodes_section, dict):
+            for node_id, node_cfg in nodes_section.items():
+                if node_id in self.nodes:
+                    continue  # Don't override existing
 
-            ssh = node_cfg.get("ssh", {})
-            paths = node_cfg.get("paths", {})
-            resources = node_cfg.get("resources", {})
+                ssh = node_cfg.get("ssh", {})
+                paths = node_cfg.get("paths", {})
+                resources = node_cfg.get("resources", {})
+
+                self.nodes[node_id] = NodeConfig(
+                    node_id=node_id,
+                    ssh_host=ssh.get("host", ""),
+                    ssh_user=ssh.get("user", "ubuntu"),
+                    ssh_key=ssh.get("key", ""),
+                    ssh_port=ssh.get("port", 22),
+                    tailscale_ip=node_cfg.get("tailscale_ip", ""),
+                    direct_ip=node_cfg.get("direct_ip", ""),
+                    ringrift_path=paths.get("ringrift", "/home/ubuntu/ringrift/ai-service"),
+                    venv_path=paths.get("venv", "/home/ubuntu/ringrift/ai-service/venv"),
+                    data_path=paths.get("data", "/home/ubuntu/ringrift/ai-service/data"),
+                    gpu_type=resources.get("gpu", ""),
+                    vram_gb=resources.get("vram_gb", 0),
+                    memory_gb=resources.get("memory_gb", 0),
+                    cpu_cores=resources.get("cpu_cores", 0),
+                    roles=node_cfg.get("roles", []),
+                    status=node_cfg.get("status", "active"),
+                    is_p2p_voter=node_cfg.get("p2p_voter", False),
+                    is_controller=node_cfg.get("controller", False),
+                )
+            return
+
+        for group_cfg in config.values():
+            if not isinstance(group_cfg, dict):
+                continue
+            group_nodes = group_cfg.get("nodes")
+            if not isinstance(group_nodes, list):
+                continue
+            group_ssh_key = group_cfg.get("ssh_key", "")
+            for node_cfg in group_nodes:
+                if not isinstance(node_cfg, dict):
+                    continue
+                node_id = node_cfg.get("name")
+                if not node_id or node_id in self.nodes:
+                    continue
+                self.nodes[node_id] = NodeConfig(
+                    node_id=node_id,
+                    ssh_host=node_cfg.get("host", ""),
+                    ssh_user=node_cfg.get("user", "ubuntu"),
+                    ssh_key=node_cfg.get("ssh_key", group_ssh_key),
+                    ssh_port=node_cfg.get("port", 22),
+                    tailscale_ip=node_cfg.get("tailscale_ip", ""),
+                    direct_ip=node_cfg.get("direct_ip", ""),
+                    ringrift_path="/home/ubuntu/ringrift/ai-service",
+                    venv_path="/home/ubuntu/ringrift/ai-service/venv",
+                    data_path="/home/ubuntu/ringrift/ai-service/data",
+                    gpu_type=node_cfg.get("gpu", ""),
+                    vram_gb=node_cfg.get("gpu_memory_gb", 0),
+                    memory_gb=node_cfg.get("memory_gb", 0),
+                    cpu_cores=node_cfg.get("cpu_cores", 0),
+                    roles=node_cfg.get("roles", []),
+                    status=node_cfg.get("status", "active"),
+                    is_p2p_voter=node_cfg.get("p2p_voter", False),
+                    is_controller=node_cfg.get("controller", False),
+                )
+
+    def _parse_distributed_hosts(self, config: dict[str, Any]) -> None:
+        """Parse distributed_hosts.yaml format (primary)."""
+        hosts = config.get("hosts")
+        if not isinstance(hosts, dict):
+            hosts = config
+
+        for node_id, node_cfg in hosts.items():
+            if not isinstance(node_cfg, dict) or node_id in self.nodes:
+                continue
+            if not any(k in node_cfg for k in ("ssh_host", "host", "ssh_user", "user")):
+                continue
+
+            roles = list(node_cfg.get("roles", []))
+            role = node_cfg.get("role")
+            if role and role not in roles:
+                roles.append(role)
+
+            status = node_cfg.get("status", "active")
+            if status in ("ready", "online"):
+                status = "active"
+            elif status in ("offline", "terminated", "setup"):
+                status = "inactive"
 
             self.nodes[node_id] = NodeConfig(
                 node_id=node_id,
-                ssh_host=ssh.get("host", ""),
-                ssh_user=ssh.get("user", "ubuntu"),
-                ssh_key=ssh.get("key", ""),
-                ssh_port=ssh.get("port", 22),
+                ssh_host=node_cfg.get("ssh_host", node_cfg.get("host", "")),
+                ssh_user=node_cfg.get("ssh_user", node_cfg.get("user", "ubuntu")),
+                ssh_key=node_cfg.get("ssh_key", ""),
+                ssh_port=node_cfg.get("ssh_port", 22),
                 tailscale_ip=node_cfg.get("tailscale_ip", ""),
                 direct_ip=node_cfg.get("direct_ip", ""),
-                ringrift_path=paths.get("ringrift", "/home/ubuntu/ringrift/ai-service"),
-                venv_path=paths.get("venv", "/home/ubuntu/ringrift/ai-service/venv"),
-                data_path=paths.get("data", "/home/ubuntu/ringrift/ai-service/data"),
-                gpu_type=resources.get("gpu", ""),
-                vram_gb=resources.get("vram_gb", 0),
-                memory_gb=resources.get("memory_gb", 0),
-                cpu_cores=resources.get("cpu_cores", 0),
-                roles=node_cfg.get("roles", []),
-                status=node_cfg.get("status", "active"),
+                ringrift_path=node_cfg.get("ringrift_path", "/home/ubuntu/ringrift/ai-service"),
+                venv_path=node_cfg.get("venv_path", "/home/ubuntu/ringrift/ai-service/venv"),
+                data_path=node_cfg.get("data_path", "/home/ubuntu/ringrift/ai-service/data"),
+                gpu_type=node_cfg.get("gpu", node_cfg.get("gpu_type", "")),
+                vram_gb=node_cfg.get("vram_gb", 0),
+                memory_gb=node_cfg.get("memory_gb", 0),
+                cpu_cores=node_cfg.get("cpus", 0),
+                roles=roles,
+                status=status,
                 is_p2p_voter=node_cfg.get("p2p_voter", False),
                 is_controller=node_cfg.get("controller", False),
             )
-
-    def _parse_distributed_hosts(self, config: dict[str, Any]) -> None:
-        """Parse distributed_hosts.yaml format (legacy)."""
-        for node_id, node_cfg in config.items():
-            if isinstance(node_cfg, dict) and node_id not in self.nodes:
-                self.nodes[node_id] = NodeConfig(
-                    node_id=node_id,
-                    ssh_host=node_cfg.get("ssh_host", node_cfg.get("host", "")),
-                    ssh_user=node_cfg.get("ssh_user", node_cfg.get("user", "ubuntu")),
-                    ssh_key=node_cfg.get("ssh_key", ""),
-                    ringrift_path=node_cfg.get("ringrift_path", node_cfg.get("path", "")),
-                    gpu_type=node_cfg.get("gpu", ""),
-                    is_p2p_voter=node_cfg.get("p2p_voter", False),
-                )
 
     def _parse_p2p_hosts(self, config: dict[str, Any]) -> None:
         """Parse p2p_hosts.yaml format (legacy)."""

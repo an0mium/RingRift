@@ -284,7 +284,7 @@ python scripts/gpu_cluster_manager.py deploy --group primary_training
 **3. Run selfplay on cluster node (via SSH):**
 
 ```bash
-# SSH to a training node (check config/cluster.yaml for hosts)
+# SSH to a training node (check config/distributed_hosts.yaml for hosts)
 ssh ubuntu@<node-ip> "cd ~/ringrift/ai-service && source venv/bin/activate && \
   PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
     --board-type square19 \
@@ -300,7 +300,7 @@ ssh ubuntu@<node-ip> "cd ~/ringrift/ai-service && source venv/bin/activate && \
 python scripts/p2p_orchestrator.py \
   --board-type square19 \
   --num-games 1000 \
-  --hosts config/cluster.yaml
+  --hosts config/distributed_hosts.yaml
 ```
 
 **5. Monitor training jobs:**

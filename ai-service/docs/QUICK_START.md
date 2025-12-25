@@ -214,7 +214,7 @@ python scripts/cluster_health_check.py --verbose
 
 ### SSH Cluster Setup
 
-1. Configure hosts in `config/cluster.yaml`
+1. Configure hosts in `config/distributed_hosts.yaml`
 2. Set up SSH keys for passwordless access
 3. Run cluster orchestrator:
 
