@@ -160,13 +160,21 @@ class ModelConfigContract:
         if hasattr(model, 'policy_fc'):
             return model.policy_fc.weight.shape[0]
 
-        # Fallback: look for any layer with 'policy' in name
+        # Square v2 style: policy_fc2 is the final policy layer
+        if hasattr(model, 'policy_fc2'):
+            return model.policy_fc2.weight.shape[0]
+
+        # Fallback: look for the largest policy layer output
+        # (the final policy layer typically has the largest output = policy_size)
+        max_policy_size = None
         for name, module in model.named_modules():
             if 'policy' in name.lower() and hasattr(module, 'weight'):
                 if len(module.weight.shape) >= 2:
-                    return module.weight.shape[0]
+                    size = module.weight.shape[0]
+                    if max_policy_size is None or size > max_policy_size:
+                        max_policy_size = size
 
-        return None
+        return max_policy_size
 
     def validate_checkpoint_metadata(self, metadata: dict[str, Any]) -> list[str]:
         """Validate checkpoint metadata against this contract.

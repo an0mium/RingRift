@@ -3545,7 +3545,8 @@ def _parse_args() -> argparse.Namespace:
             "Provides 10-100x speedup on CUDA GPUs (vs CPU heuristic). "
             "GPU selfplay is 100%% parity-verified against TypeScript. "
             "Supports all board types (square8, hex8, square19, hexagonal) and "
-            "2-4 players. Falls back to CPU if CUDA unavailable."
+            "2-4 players. NOTE: MPS (Apple Silicon) is slower than CPU due to "
+            "~80 .item() sync calls - use CUDA clusters for production."
         ),
     )
     parser.add_argument(
