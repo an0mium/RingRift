@@ -189,14 +189,6 @@ except ImportError:
     HAS_CIRCUIT_BREAKER = False
     FallbackChain = None
 
-# Retry policy for network operations (2025-12)
-try:
-    from app.training.fault_tolerance import RetryPolicy
-    HAS_RETRY_POLICY = True
-except ImportError:
-    HAS_RETRY_POLICY = False
-    RetryPolicy = None
-
 # Try to import unified manifest (consolidated implementation)
 try:
     from app.distributed.unified_manifest import (
@@ -658,6 +650,7 @@ class UnifiedDataSyncService:
         self._last_manifest_replication: float = 0.0
         self._last_ephemeral_sync: float = 0.0
         self._last_persistent_sync: float = 0.0
+        self._sync_state_lock = asyncio.Lock()  # Atomic sync state updates
 
     def _init_components(self):
         """Initialize sub-components based on config."""
@@ -1293,11 +1286,12 @@ class UnifiedDataSyncService:
                 if isinstance(result, int):
                     total_new += result
 
-        # Update last sync times
-        if self._ephemeral_hosts:
-            self._last_ephemeral_sync = now
-        if self._persistent_hosts:
-            self._last_persistent_sync = now
+        # Update last sync times atomically
+        async with self._sync_state_lock:
+            if self._ephemeral_hosts:
+                self._last_ephemeral_sync = now
+            if self._persistent_hosts:
+                self._last_persistent_sync = now
 
         return total_new
 

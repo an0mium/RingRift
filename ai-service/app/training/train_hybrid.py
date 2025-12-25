@@ -87,8 +87,11 @@ def train_epoch(model, loader, optimizer, device):
     total_correct = 0
     total_samples = 0
     total_weight = 0
+    num_batches = len(loader)
 
-    for features, globals_, policy_target, value_target in loader:
+    for batch_idx, (features, globals_, policy_target, value_target) in enumerate(loader):
+        if batch_idx % 500 == 0:
+            logger.info(f"  Batch {batch_idx}/{num_batches} ({100*batch_idx/num_batches:.1f}%)")
         features = features.to(device)
         globals_ = globals_.to(device)
         policy_target = policy_target.to(device)
@@ -170,6 +173,7 @@ def main():
     parser.add_argument("--cnn-blocks", type=int, default=6)
     parser.add_argument("--gnn-layers", type=int, default=3)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--num-workers", type=int, default=0, help="DataLoader workers (0=main process)")
     args = parser.parse_args()
 
     # Load data
@@ -205,13 +209,13 @@ def main():
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=args.num_workers,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=4,
+        num_workers=args.num_workers,
     )
 
     logger.info(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}")

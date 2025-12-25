@@ -152,20 +152,38 @@ class CrossProcessEventQueue:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
+        """Get thread-local database connection with retry on BUSY errors."""
+        import random
+
         if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(
-                str(self.db_path),
-                timeout=float(SQLITE_TIMEOUT * 2),  # 60s for cross-process events
-                isolation_level=None,  # Autocommit for better concurrency
-            )
-            self._local.conn.row_factory = sqlite3.Row
-            # WAL mode for concurrent access
-            self._local.conn.execute('PRAGMA journal_mode=WAL')
-            self._local.conn.execute(f'PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_LONG_MS}')
-            self._local.conn.execute('PRAGMA synchronous=NORMAL')
-            self._local.conn.execute('PRAGMA wal_autocheckpoint=100')  # Checkpoint every 100 pages
-            self._local.conn.execute('PRAGMA cache_size=-2000')  # 2MB cache
+            # Retry with jitter to prevent thundering herd
+            max_retries = 3
+            base_delay = 0.1
+
+            for attempt in range(max_retries):
+                try:
+                    self._local.conn = sqlite3.connect(
+                        str(self.db_path),
+                        timeout=float(SQLITE_TIMEOUT * 2),  # 60s for cross-process events
+                        isolation_level=None,  # Autocommit for better concurrency
+                    )
+                    self._local.conn.row_factory = sqlite3.Row
+                    # WAL mode for concurrent access
+                    self._local.conn.execute('PRAGMA journal_mode=WAL')
+                    self._local.conn.execute(f'PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_LONG_MS}')
+                    self._local.conn.execute('PRAGMA synchronous=NORMAL')
+                    # Increased checkpoint interval for better concurrency
+                    self._local.conn.execute('PRAGMA wal_autocheckpoint=500')
+                    self._local.conn.execute('PRAGMA cache_size=-4000')  # 4MB cache
+                    break
+                except sqlite3.OperationalError as e:
+                    if "database is locked" in str(e) and attempt < max_retries - 1:
+                        # Add jitter: base_delay * (1 + random 0-1)
+                        delay = base_delay * (2 ** attempt) * (1 + random.random())
+                        logger.warning(f"Database locked, retry {attempt + 1} after {delay:.2f}s")
+                        time.sleep(delay)
+                    else:
+                        raise
         return self._local.conn
 
     def _init_db(self) -> None:

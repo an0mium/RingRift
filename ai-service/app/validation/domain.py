@@ -28,6 +28,8 @@ VALID_BOARD_TYPES = {
     "square8", "square19",
     "hex8", "hexagonal",
     "square", "hex",  # Generic aliases
+    "fullhex", "full_hex",  # Aliases for hexagonal (largest hex board)
+    "hex24",  # Diameter convention alias for hexagonal
 }
 
 # Config key pattern: {board_type}_{num_players}p

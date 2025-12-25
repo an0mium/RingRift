@@ -49,6 +49,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Disable torch.compile on GH200 nodes (driver incompatibility)
+# Set this before any torch imports to prevent compile() errors
+if not os.environ.get('RINGRIFT_DISABLE_TORCH_COMPILE'):
+    os.environ['RINGRIFT_DISABLE_TORCH_COMPILE'] = '1'
+
 # Ensure app imports resolve
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
@@ -393,6 +398,7 @@ def generate_game(
             selected_move = legal_moves[random.randint(0, len(legal_moves) - 1)]
             mcts_policy = {}  # No MCTS policy for random moves
             value = None
+            search_stats = None  # No search stats for random moves
         else:
             # AI selects move (Gumbel MCTS search)
             selected_move = ai.select_move(state)

@@ -65,6 +65,10 @@ MIN_GAMES_PROMOTE = 100
 # Minimum win rate for promotion consideration
 MIN_WIN_RATE_PROMOTE = 0.45
 
+# Win rate required to beat current best in head-to-head tournament
+# (candidate must demonstrate superiority with >55% decisive wins)
+WIN_RATE_BEAT_BEST = 0.55
+
 # Cooldown between promotion attempts (seconds)
 PROMOTION_COOLDOWN_SECONDS = 900  # 15 minutes
 
@@ -227,12 +231,22 @@ MIN_WIN_RATE_VS_RANDOM = 0.70  # 70%
 MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50%
 
 # -----------------------------------------------------------------------------
+# 3-Player Adjusted Thresholds
+# -----------------------------------------------------------------------------
+# For 3-player games, random baseline is 33% (1/3 chance), not 50%.
+# Thresholds adjusted: 70% for 2p (1.4x over 50%) -> 55% for 3p (1.65x over 33%)
+# Heuristic: 25% is achievable for early 3p models (can tighten later)
+
+MIN_WIN_RATE_VS_RANDOM_3P = 0.55  # 55% (1.65x better than 33% random baseline)
+MIN_WIN_RATE_VS_HEURISTIC_3P = 0.25  # 25% (achievable for early 3p models)
+
+# -----------------------------------------------------------------------------
 # 4-Player Adjusted Thresholds
 # -----------------------------------------------------------------------------
 # For 4-player games, random baseline is 25% (1/4 chance), not 50%.
 # Thresholds are adjusted to match equivalent relative improvement.
 # 70% for 2p (1.4x over 50%) -> 50% for 4p (2x over 25%)
-# Heuristic: 25% is achievable for early 4p models (can tighten later)
+# Heuristic: 20% is achievable for early 4p models (can tighten later)
 
 MIN_WIN_RATE_VS_RANDOM_4P = 0.50  # 50% (2x better than 25% random baseline)
 MIN_WIN_RATE_VS_HEURISTIC_4P = 0.20  # 20% (baseline for early 4p models, tighten later)
@@ -242,6 +256,8 @@ def get_min_win_rate_vs_random(num_players: int = 2) -> float:
     """Get minimum win rate vs random based on player count."""
     if num_players >= 4:
         return MIN_WIN_RATE_VS_RANDOM_4P
+    if num_players == 3:
+        return MIN_WIN_RATE_VS_RANDOM_3P
     return MIN_WIN_RATE_VS_RANDOM
 
 
@@ -249,6 +265,8 @@ def get_min_win_rate_vs_heuristic(num_players: int = 2) -> float:
     """Get minimum win rate vs heuristic based on player count."""
     if num_players >= 4:
         return MIN_WIN_RATE_VS_HEURISTIC_4P
+    if num_players == 3:
+        return MIN_WIN_RATE_VS_HEURISTIC_3P
     return MIN_WIN_RATE_VS_HEURISTIC
 
 # Baseline Elo estimates for Elo calculation from win rates

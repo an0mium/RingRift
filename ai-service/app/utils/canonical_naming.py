@@ -12,7 +12,9 @@ CANONICAL BOARD TYPE VALUES:
 NAMING CONVENTION FOR HEX BOARDS:
     The number in hex board names refers to the "diameter" (2 * radius):
     - hex8 = radius 4, diameter 8, 61 cells
-    - hex24 (alias for hexagonal) = radius 12, diameter 24, 469 cells
+    - hex24 / fullhex / hexagonal = radius 12, diameter 24, 469 cells
+
+    "fullhex" is a convenient alias for the largest hexagonal board.
 
 CANONICAL CONFIG KEY FORMAT:
     {board_type}_{num_players}p
@@ -84,9 +86,15 @@ _BOARD_TYPE_ALIASES: dict[str, str] = {
     "hex": "hexagonal",
     "hex24": "hexagonal",  # Diameter convention (2 * radius 12 = 24)
     "hex_24": "hexagonal",
+    "hex-24": "hexagonal",
     "largehex": "hexagonal",
     "large_hex": "hexagonal",
+    "large-hex": "hexagonal",
     "bighex": "hexagonal",
+    "big_hex": "hexagonal",
+    "fullhex": "hexagonal",  # Full hex = hexagonal (largest hex board)
+    "full_hex": "hexagonal",
+    "full-hex": "hexagonal",
 }
 
 

@@ -571,6 +571,7 @@ class TestCoordinationBootstrap:
             enable_cache=False,
             enable_model=False,
             enable_error=False,
+            enable_health=False,  # New: consolidated health manager
             enable_leadership=False,
             enable_selfplay=False,
             enable_pipeline=False,
@@ -584,6 +585,7 @@ class TestCoordinationBootstrap:
             enable_multi_provider=False,
             enable_job_scheduler=False,
             enable_global_task=False,
+            enable_integrations=False,  # New: integration wiring
             register_with_registry=False,
         )
 

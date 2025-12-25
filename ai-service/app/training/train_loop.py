@@ -4,6 +4,7 @@ import shutil
 
 from app.ai.descent_ai import DescentAI
 from app.ai.heuristic_weights import HEURISTIC_WEIGHT_PROFILES
+from app.config.thresholds import WIN_RATE_BEAT_BEST
 from app.models import AIConfig
 from app.training.config import TrainConfig, get_model_version_for_board
 from app.training.generate_data import generate_dataset, generate_dataset_gpu_parallel
@@ -188,7 +189,7 @@ def run_training_loop(config: TrainConfig | None = None, use_optimized_pipeline:
                 win_rate = results["A"] / total_decisive
                 print(f"Candidate win rate: {win_rate:.2f}")
 
-                if win_rate > 0.55:
+                if win_rate > WIN_RATE_BEAT_BEST:
                     print("Candidate promoted to Best Model!")
                     shutil.copy(candidate_model_file, best_model_file)
                     # Also update the main model file used for inference
@@ -326,7 +327,7 @@ def _run_training_loop_optimized(config: TrainConfig) -> None:
                     win_rate = results["A"] / total_decisive
                     print(f"Candidate win rate: {win_rate:.2f}")
 
-                    if win_rate > 0.55:
+                    if win_rate > WIN_RATE_BEAT_BEST:
                         print("Candidate promoted to Best Model!")
                         shutil.copy(result.model_path, best_model_file)
                         shutil.copy(result.model_path, model_file)

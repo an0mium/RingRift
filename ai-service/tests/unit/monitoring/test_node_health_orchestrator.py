@@ -659,7 +659,7 @@ class TestNodeHealthOrchestrator:
         """Test successful event subscription."""
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             result = orchestrator.subscribe_to_events()
 
         assert result is True
@@ -671,7 +671,7 @@ class TestNodeHealthOrchestrator:
         mock_bus = MagicMock()
         orchestrator._subscribed = True
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orchestrator.unsubscribe()
 
         assert orchestrator._subscribed is False
@@ -703,7 +703,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orch = wire_health_events()
 
         assert orch is not None
@@ -716,7 +716,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orch1 = wire_health_events()
             orch2 = wire_health_events()
 
@@ -738,12 +738,12 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             wire_health_events()
 
         assert get_health_orchestrator() is not None
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             reset_health_orchestrator()
 
         assert get_health_orchestrator() is None

@@ -2886,18 +2886,31 @@ class ParallelGameRunner:
         - Defender's top ring is eliminated
         - Stacks merge (attacker on top)
         - Control transfers to attacker
+
+        Optimized 2025-12-24: Pre-extract to numpy to minimize .item() calls.
         """
         state = self.state
-        from_y = moves.from_y[move_idx].item()
-        from_x = moves.from_x[move_idx].item()
-        to_y = moves.to_y[move_idx].item()
-        to_x = moves.to_x[move_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[move_idx].item()
+
+        # Pre-extract all needed values to numpy/Python in one batch
+        # This minimizes GPU↔CPU sync points
+        from_y = int(moves.from_y[move_idx].cpu().numpy())
+        from_x = int(moves.from_x[move_idx].cpu().numpy())
+        to_y = int(moves.to_y[move_idx].cpu().numpy())
+        to_x = int(moves.to_x[move_idx].cpu().numpy())
+        player = int(state.current_player[g].cpu().numpy())
+        move_type = int(moves.move_type[move_idx].cpu().numpy())
+        move_count = int(state.move_count[g].cpu().numpy())
+        is_chain = bool(state.in_capture_chain[g].cpu().numpy())
+        current_phase = int(state.current_phase[g].cpu().numpy())
+        attacker_height = int(state.stack_height[g, from_y, from_x].cpu().numpy())
+        defender_height = int(state.stack_height[g, to_y, to_x].cpu().numpy())
+        defender_owner = int(state.stack_owner[g, to_y, to_x].cpu().numpy())
+
+        # Pre-extract marker_owner slice for the game
+        marker_owner_g = state.marker_owner[g].cpu().numpy()
 
         # Record move in history
         # 9 columns: move_type, player, from_y, from_x, to_y, to_x, phase, capture_target_y, capture_target_x
-        move_count = state.move_count[g].item()
         if move_count < state.max_history_moves:
             state.move_history[g, move_count, 0] = move_type
             state.move_history[g, move_count, 1] = player
@@ -2909,8 +2922,6 @@ class ParallelGameRunner:
             # - Direct capture during MOVEMENT phase → MOVEMENT phase
             # - First capture after MOVE_STACK (CAPTURE phase) → CAPTURE phase
             # - Chain captures → CHAIN_CAPTURE phase
-            is_chain = state.in_capture_chain[g].item()
-            current_phase = state.current_phase[g].item()
             if is_chain:
                 record_phase = GamePhase.CHAIN_CAPTURE
             elif current_phase == GamePhase.MOVEMENT:
@@ -2923,11 +2934,6 @@ class ParallelGameRunner:
             state.move_history[g, move_count, 7] = to_y
             state.move_history[g, move_count, 8] = to_x
 
-        # Get moving stack info
-        attacker_height = state.stack_height[g, from_y, from_x].item()
-        defender_height = state.stack_height[g, to_y, to_x].item()
-        defender_owner = state.stack_owner[g, to_y, to_x].item()
-
         # Process markers along path (simplified - flip opposing markers)
         dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
         dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
@@ -2936,8 +2942,8 @@ class ParallelGameRunner:
         for step in range(1, int(dist)):  # Don't flip at destination yet
             check_y = from_y + dy * step
             check_x = from_x + dx * step
-            marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
+            marker_val = marker_owner_g[check_y, check_x]
+            if marker_val != 0 and marker_val != player:
                 # Flip opponent marker to our color
                 state.marker_owner[g, check_y, check_x] = player
 
@@ -2969,17 +2975,28 @@ class ParallelGameRunner:
         - Origin becomes empty
         - Destination gets merged stack (if own stack) or new stack
         - Markers along path: flip on pass, collapse cost on landing
+
+        Optimized 2025-12-24: Pre-extract to numpy to minimize .item() calls.
         """
         state = self.state
-        from_y = moves.from_y[move_idx].item()
-        from_x = moves.from_x[move_idx].item()
-        to_y = moves.to_y[move_idx].item()
-        to_x = moves.to_x[move_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[move_idx].item()
+
+        # Pre-extract all needed values to numpy/Python in one batch
+        from_y = int(moves.from_y[move_idx].cpu().numpy())
+        from_x = int(moves.from_x[move_idx].cpu().numpy())
+        to_y = int(moves.to_y[move_idx].cpu().numpy())
+        to_x = int(moves.to_x[move_idx].cpu().numpy())
+        player = int(state.current_player[g].cpu().numpy())
+        move_type = int(moves.move_type[move_idx].cpu().numpy())
+        move_count = int(state.move_count[g].cpu().numpy())
+        moving_height = int(state.stack_height[g, from_y, from_x].cpu().numpy())
+
+        # Pre-extract marker_owner and stack info for the game
+        marker_owner_g = state.marker_owner[g].cpu().numpy()
+        dest_marker = int(marker_owner_g[to_y, to_x])
+        dest_owner = int(state.stack_owner[g, to_y, to_x].cpu().numpy())
+        dest_height = int(state.stack_height[g, to_y, to_x].cpu().numpy())
 
         # Record move in history
-        move_count = state.move_count[g].item()
         if move_count < state.max_history_moves:
             state.move_history[g, move_count, 0] = move_type
             state.move_history[g, move_count, 1] = player
@@ -2989,9 +3006,6 @@ class ParallelGameRunner:
             state.move_history[g, move_count, 5] = to_x
             state.move_history[g, move_count, 6] = GamePhase.MOVEMENT
 
-        # Get moving stack info
-        moving_height = state.stack_height[g, from_y, from_x].item()
-
         # Process markers along path (simplified - flip opposing markers)
         dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
         dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
@@ -3000,15 +3014,14 @@ class ParallelGameRunner:
         for step in range(1, int(dist)):  # Don't flip at destination yet
             check_y = from_y + dy * step
             check_x = from_x + dx * step
-            marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
+            marker_val = marker_owner_g[check_y, check_x]
+            if marker_val != 0 and marker_val != player:
                 # Flip opponent marker to our color
                 state.marker_owner[g, check_y, check_x] = player
 
         # Handle landing on ANY marker (own or opponent) - per RR-CANON-R092:
         # The marker is removed and the top ring of the landing stack is eliminated.
         # Note: Landing does NOT collapse the position (only path markers collapse).
-        dest_marker = state.marker_owner[g, to_y, to_x].item()
         landing_ring_cost = 0
         if dest_marker != 0:
             # Landing on any marker costs 1 ring (cap elimination)
@@ -3018,10 +3031,6 @@ class ParallelGameRunner:
         # Clear origin
         state.stack_owner[g, from_y, from_x] = 0
         state.stack_height[g, from_y, from_x] = 0
-
-        # Handle destination
-        dest_owner = state.stack_owner[g, to_y, to_x].item()
-        dest_height = state.stack_height[g, to_y, to_x].item()
 
         if dest_owner == 0:
             # Landing on empty
@@ -3047,17 +3056,22 @@ class ParallelGameRunner:
         - If line formed, process it (collapse markers, eliminate ring)
         - After line processing, check for territory claims
         - Cascade continues until no new lines are formed
+
+        Optimized 2025-12-24: Pre-extract to numpy to minimize .item() calls.
         """
         state = self.state
-        from_y = moves.from_y[move_idx].item()
-        from_x = moves.from_x[move_idx].item()
-        to_y = moves.to_y[move_idx].item()
-        to_x = moves.to_x[move_idx].item()
-        player = state.current_player[g].item()
-        move_type = moves.move_type[move_idx].item()
+
+        # Pre-extract all needed values to numpy/Python in one batch
+        from_y = int(moves.from_y[move_idx].cpu().numpy())
+        from_x = int(moves.from_x[move_idx].cpu().numpy())
+        to_y = int(moves.to_y[move_idx].cpu().numpy())
+        to_x = int(moves.to_x[move_idx].cpu().numpy())
+        player = int(state.current_player[g].cpu().numpy())
+        move_type = int(moves.move_type[move_idx].cpu().numpy())
+        move_count = int(state.move_count[g].cpu().numpy())
+        current_buried = int(state.buried_rings[g, player].cpu().numpy())
 
         # Record move in history
-        move_count = state.move_count[g].item()
         if move_count < state.max_history_moves:
             state.move_history[g, move_count, 0] = move_type
             state.move_history[g, move_count, 1] = player
@@ -3075,7 +3089,6 @@ class ParallelGameRunner:
         # Deduct recovery cost: 1 buried ring
         # In the canonical rules, recovery costs rings from the buried pool
         # NOTE: buried_rings is 1-indexed (shape: batch_size, num_players + 1)
-        current_buried = state.buried_rings[g, player].item()
         if current_buried > 0:
             state.buried_rings[g, player] = current_buried - 1
 

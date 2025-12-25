@@ -14,131 +14,44 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import torch
-import numpy as np
 import logging
+import torch
 
 from app.game_engine import GameEngine
 from app.models import BoardType, AIConfig
 from app.ai.random_ai import RandomAI
 from app.ai.heuristic_ai import HeuristicAI
-from app.ai.neural_net.gnn_policy import GNNPolicyNet
+from app.ai.gnn_ai import GNNAI, HAS_PYG
 from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def _resolve_board_type(value: str | BoardType | None) -> BoardType:
+    """Normalize board type from checkpoints or CLI."""
+    if isinstance(value, BoardType):
+        return value
+    if isinstance(value, str):
+        normalized = value.lower()
+        mapping = {
+            "square8": BoardType.SQUARE8,
+            "square19": BoardType.SQUARE19,
+            "hex8": BoardType.HEX8,
+            "hexagonal": BoardType.HEXAGONAL,
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+    return BoardType.HEX8
 
-class GNNPlayer:
-    """GNN-based AI player for evaluation."""
 
-    def __init__(self, model_path: str, player_number: int, device: str = "cpu"):
-        self.player_number = player_number
-        self.device = device
-
-        # Load model
-        ckpt = torch.load(model_path, map_location=device)
-        self.model = GNNPolicyNet(
-            node_feature_dim=32,
-            hidden_dim=ckpt["hidden_dim"],
-            num_layers=ckpt["num_layers"],
-            conv_type=ckpt["conv_type"],
-            action_space_size=ckpt["action_space_size"],
-            global_feature_dim=20,
-        )
-        self.model.load_state_dict(ckpt["model_state_dict"])
-        self.model.eval()
-        self.model.to(device)
-
-        self.action_space_size = ckpt["action_space_size"]
-        self.board_type = ckpt["board_type"]
-
-        logger.info(f"Loaded GNN model with val_acc={ckpt['val_acc']:.4f}")
-
-    def _state_to_graph(self, state):
-        """Convert game state to graph format."""
-        from torch_geometric.data import Data
-
-        board = state.board
-        size = len(board.cells) if hasattr(board, 'cells') else 9
-
-        # Build node features from board state
-        node_features = []
-        pos_to_idx = {}
-
-        # For hex board, iterate through valid cells
-        if hasattr(board, 'cells'):
-            for pos, cell in board.cells.items():
-                idx = len(pos_to_idx)
-                pos_to_idx[pos] = idx
-
-                # Build 32-dim node features
-                feat = np.zeros(32, dtype=np.float32)
-                feat[0] = 1.0  # Valid cell
-                feat[1] = cell.stack_height / 5.0 if hasattr(cell, 'stack_height') else 0
-                feat[2] = 1.0 if cell.owner == self.player_number else 0
-                feat[3] = 1.0 if cell.owner and cell.owner != self.player_number else 0
-                # Add more features as needed
-                node_features.append(feat)
-        else:
-            # Fallback for square board
-            for y in range(size):
-                for x in range(size):
-                    idx = len(pos_to_idx)
-                    pos_to_idx[(x, y)] = idx
-                    feat = np.zeros(32, dtype=np.float32)
-                    feat[0] = 1.0
-                    node_features.append(feat)
-
-        if not node_features:
-            # Empty fallback
-            node_features = [np.zeros(32, dtype=np.float32)]
-            pos_to_idx[(0, 0)] = 0
-
-        node_features = np.stack(node_features)
-
-        # Build edges (6-connectivity for hex)
-        edges = []
-        hex_dirs = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, -1), (-1, 1)]
-
-        for pos, idx in pos_to_idx.items():
-            for dx, dy in hex_dirs:
-                neighbor = (pos[0] + dx, pos[1] + dy)
-                if neighbor in pos_to_idx:
-                    edges.append([idx, pos_to_idx[neighbor]])
-
-        if not edges:
-            edges = [[0, 0]]  # Self-loop fallback
-
-        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
-
-        return Data(
-            x=torch.tensor(node_features, dtype=torch.float32),
-            edge_index=edge_index,
-        )
-
-    def _get_global_features(self, state):
-        """Extract global features from state."""
-        features = np.zeros(20, dtype=np.float32)
-        features[0] = state.turn_number / 100.0
-        features[1] = self.player_number / 4.0
-        # Add more global features as needed
-        return features
-
-    def select_move(self, state):
-        """Select move using GNN policy."""
-        legal_moves = GameEngine.get_valid_moves(state, self.player_number)
-
-        if not legal_moves:
-            return None
-
-        # For simplicity, use weighted random from legal moves
-        # Full implementation would decode action indices
-        return np.random.choice(legal_moves)
-
-    def get_move(self, state):
-        """Alias for select_move."""
-        return self.select_move(state)
+def _build_gnn_ai(model_path: str, player_number: int, device: str) -> GNNAI:
+    """Instantiate a GNNAI player with the given checkpoint."""
+    return GNNAI(
+        player_number=player_number,
+        config=AIConfig(difficulty=8),
+        model_path=model_path,
+        device=device,
+    )
 
 
 def play_game(p1, p2, game_id: str, board_type: BoardType, max_moves: int = 300):
@@ -180,6 +93,7 @@ def evaluate_against_baseline(
     baseline: str,
     num_games: int = 20,
     board_type: BoardType = BoardType.HEXAGONAL,
+    device: str = "cpu",
 ):
     """Evaluate GNN model against a baseline."""
 
@@ -189,6 +103,10 @@ def evaluate_against_baseline(
 
     logger.info(f"Evaluating GNN vs {baseline} ({num_games} games)...")
 
+    # Pre-create GNN players
+    gnn_p1 = _build_gnn_ai(model_path, player_number=1, device=device)
+    gnn_p2 = _build_gnn_ai(model_path, player_number=2, device=device)
+
     # Play as P1
     logger.info(f"  Playing as P1 ({games_per_side} games)...")
     for i in range(games_per_side):
@@ -197,10 +115,7 @@ def evaluate_against_baseline(
         else:
             opponent = HeuristicAI(player_number=2, config=AIConfig(difficulty=3))
 
-        # Use Heuristic as GNN proxy for now (full impl needs action decoding)
-        gnn_proxy = HeuristicAI(player_number=1, config=AIConfig(difficulty=4))
-
-        winner, moves = play_game(gnn_proxy, opponent, f"gnn_p1_{i}", board_type)
+        winner, moves = play_game(gnn_p1, opponent, f"gnn_p1_{i}", board_type)
         if winner == 1:
             wins_as_p1 += 1
 
@@ -212,9 +127,7 @@ def evaluate_against_baseline(
         else:
             opponent = HeuristicAI(player_number=1, config=AIConfig(difficulty=3))
 
-        gnn_proxy = HeuristicAI(player_number=2, config=AIConfig(difficulty=4))
-
-        winner, moves = play_game(opponent, gnn_proxy, f"gnn_p2_{i}", board_type)
+        winner, moves = play_game(opponent, gnn_p2, f"gnn_p2_{i}", board_type)
         if winner == 2:
             wins_as_p2 += 1
 
@@ -241,6 +154,9 @@ def main():
     parser.add_argument("--baselines", default="random,heuristic")
     args = parser.parse_args()
 
+    if not HAS_PYG:
+        raise SystemExit("PyTorch Geometric required for GNN evaluation.")
+
     baselines = args.baselines.split(",")
 
     print("=" * 60)
@@ -257,13 +173,16 @@ def main():
     print(f"Architecture: {ckpt['conv_type'].upper()}, {ckpt['num_layers']} layers")
     print()
 
+    board_type = _resolve_board_type(ckpt.get("board_type"))
+
     results = []
     for baseline in baselines:
         result = evaluate_against_baseline(
             args.model,
             baseline.strip(),
             args.games,
-            BoardType.HEXAGONAL,
+            board_type,
+            device="cpu",
         )
         results.append(result)
 
@@ -274,7 +193,7 @@ def main():
         bar = "█" * int(r["win_rate"] * 10) + "░" * (10 - int(r["win_rate"] * 10))
         print(f"vs {r['baseline']:<12}: {bar} {r['win_rate']*100:5.1f}%")
 
-    print("\nNote: Using Heuristic(d4) as GNN proxy pending full action decoder")
+    print("\nNote: GNN moves use canonical action encoding via GNNAI.")
     print("=" * 60)
 
 

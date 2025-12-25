@@ -498,15 +498,19 @@ def compute_territory_batch(
 
         # Determine which players to process for
         if current_player_only:
-            target_players = [int(state.current_player[g].item())]
+            target_players = [int(state.current_player[g].cpu().numpy())]
         else:
             target_players = list(range(1, state.num_players + 1))
 
         # Pre-extract game arrays as numpy to avoid .item() calls in loops
+        # Optimized Dec 2025: Added ring_under_cap_np, buried_at_np, territory_count_np
         stack_height_np = state.stack_height[g].cpu().numpy()
         stack_owner_np = state.stack_owner[g].cpu().numpy()
         is_collapsed_np = state.is_collapsed[g].cpu().numpy()
         marker_owner_np = state.marker_owner[g].cpu().numpy() if hasattr(state, 'marker_owner') else None
+        ring_under_cap_np = state.ring_under_cap[g].cpu().numpy() if hasattr(state, 'ring_under_cap') else None
+        buried_at_np = state.buried_at[g].cpu().numpy() if hasattr(state, 'buried_at') else None
+        territory_count_np = state.territory_count[g].cpu().numpy()
 
         # RR-CANON-R142: ActiveColors = ALL players with ANY ring on board (including buried)
         # Only skip if no rings exist on board at all
@@ -683,17 +687,20 @@ def compute_territory_batch(
 
                     # Update territory count BEFORE checking victory
                     state.territory_count[g, player] += territory_count
+                    # Keep numpy mirror in sync for subsequent reads (Dec 2025 optimization)
+                    territory_count_np[player] += territory_count
 
                     # Check for territory victory AFTER region collapse but BEFORE self-elimination
                     # Per RR-CANON-R171/R062: territory victory if player has >= min AND > all opponents
                     # If victory achieved, skip self-elimination - game ends immediately (matches CPU)
                     total_spaces = board_size * board_size
                     min_threshold = total_spaces // state.num_players + 1
-                    player_territory = int(state.territory_count[g, player].item())
+                    # Use pre-extracted territory_count_np to avoid .item() calls (Dec 2025 optimization)
+                    player_territory = int(territory_count_np[player])
                     opponent_total = 0
                     for opp in range(1, state.num_players + 1):
                         if opp != player:
-                            opponent_total += int(state.territory_count[g, opp].item())
+                            opponent_total += int(territory_count_np[opp])
 
                     territory_victory = (player_territory >= min_threshold and player_territory > opponent_total)
 
@@ -702,8 +709,8 @@ def compute_territory_batch(
                         # Per RR-CANON-R145, this is required when processing a region
                         # Skip only if territory victory achieved (game ends immediately)
 
-                        # Get current stack state
-                        current_height = int(state.stack_height[g, cap_y, cap_x].item())
+                        # Get current stack state (use pre-extracted numpy)
+                        current_height = int(stack_height_np[cap_y, cap_x])
                         new_height = current_height - cap_height
 
                         # Player eliminates own rings for territory cap cost
@@ -712,8 +719,8 @@ def compute_territory_batch(
                         state.rings_caused_eliminated[g, player] += cap_height
 
                         if new_height > 0:
-                            # There are buried rings - transfer ownership
-                            ring_under = int(state.ring_under_cap[g, cap_y, cap_x].item())
+                            # There are buried rings - transfer ownership (use pre-extracted numpy)
+                            ring_under = int(ring_under_cap_np[cap_y, cap_x]) if ring_under_cap_np is not None else 0
                             new_owner = ring_under if ring_under > 0 else (1 if player == 2 else 2)
 
                             state.stack_height[g, cap_y, cap_x] = new_height
@@ -724,8 +731,10 @@ def compute_territory_batch(
                             # Update ring_stack: shift remaining rings down (remove player's cap)
                             # Ring stack is stored bottom-to-top, so we need to keep bottom rings
                             if hasattr(state, 'ring_stack'):
+                                # Pre-extract slice to avoid .item() in loop
+                                ring_stack_slice = state.ring_stack[g, cap_y, cap_x, :current_height].cpu().numpy()
                                 for i in range(new_height):
-                                    state.ring_stack[g, cap_y, cap_x, i] = state.ring_stack[g, cap_y, cap_x, i].item()
+                                    state.ring_stack[g, cap_y, cap_x, i] = int(ring_stack_slice[i])
                                 for i in range(new_height, current_height):
                                     state.ring_stack[g, cap_y, cap_x, i] = 0
 
@@ -735,17 +744,18 @@ def compute_territory_batch(
                             state.cap_height[g, cap_y, cap_x] = new_cap
 
                             # Update ring_under_cap from buried_at (find next buried player)
+                            # Use pre-extracted buried_at_np to avoid .item() calls
                             new_ring_under = 0
                             for p in range(1, state.num_players + 1):
                                 if p != new_owner:
-                                    if hasattr(state, 'buried_at') and state.buried_at[g, p, cap_y, cap_x].item() > 0:
+                                    if buried_at_np is not None and int(buried_at_np[p, cap_y, cap_x]) > 0:
                                         new_ring_under = p
                                         break
                             state.ring_under_cap[g, cap_y, cap_x] = new_ring_under
 
                             # Decrement buried_at for eliminated player if they had buried rings
-                            if hasattr(state, 'buried_at'):
-                                buried_count = int(state.buried_at[g, player, cap_y, cap_x].item())
+                            if buried_at_np is not None:
+                                buried_count = int(buried_at_np[player, cap_y, cap_x])
                                 if buried_count > 0:
                                     state.buried_at[g, player, cap_y, cap_x] = 0
                                     state.buried_rings[g, player] = max(0, state.buried_rings[g, player] - buried_count)

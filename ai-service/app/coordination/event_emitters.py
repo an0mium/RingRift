@@ -42,26 +42,36 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 try:
-    from app.coordination.stage_events import (
+    from app.coordination.event_router import (
         StageCompletionResult,
         StageEvent,
-        get_event_bus as get_stage_bus,
+        get_stage_event_bus as get_stage_bus,
+        DataEvent,
+        DataEventType,
+        get_event_bus as get_data_bus,
     )
     HAS_STAGE_EVENTS = True
 except ImportError:
     HAS_STAGE_EVENTS = False
     StageEvent = None
     StageCompletionResult = None
+    DataEvent = None
+    DataEventType = None
 
     def get_stage_bus():
         return None
 
+    def get_data_bus():
+        return None
+
+# Backward compatibility - was a separate try block
 try:
-    from app.coordination.event_router import (
-        DataEvent,
-        DataEventType,
-        get_event_bus as get_data_bus,
-    )
+    if DataEvent is None:
+        from app.coordination.event_router import (
+            DataEvent,
+            DataEventType,
+            get_event_bus as get_data_bus,
+        )
     HAS_DATA_EVENTS = True
 except ImportError:
     HAS_DATA_EVENTS = False

@@ -614,11 +614,20 @@ class GumbelMCTSAI(BaseAI):
 
         # Lazy initialize GPU Gumbel MCTS
         if self._gpu_gumbel_mcts is None:
+            # Ensure GPU availability is checked before initialization
+            # (self._gpu_available starts as None, which is falsy)
+            self._ensure_gpu_available()
+
             # Get eval_mode from AIConfig, default to "hybrid" for balanced speed/quality
             eval_mode = getattr(self.config, 'gpu_tree_eval_mode', 'hybrid')
+
+            # Use minimum budget of 800 for GPU tree search quality
+            # (Sequential Halving needs sufficient budget for accurate convergence)
+            effective_budget = max(self.simulation_budget, 800)
+
             gpu_config = GPUGumbelMCTSConfig(
                 num_sampled_actions=self.num_sampled_actions,
-                simulation_budget=max(self.simulation_budget, 800),
+                simulation_budget=effective_budget,
                 max_nodes=1024,
                 max_actions=min(256, len(valid_moves) * 2),
                 max_rollout_depth=10,

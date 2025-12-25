@@ -16,48 +16,47 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ### Canonical (Parity + Canonical-History Gated)
 
-| Database                    | Board Type | Players | Status        | Gate Summary                          | Notes                                                                 |
-| --------------------------- | ---------- | ------- | ------------- | ------------------------------------- | --------------------------------------------------------------------- |
-| `canonical_square8_2p.db`   | square8    | 2       | **canonical** | db_health.canonical_square8_2p.json   | 1,152 games, 100% parity verified (2025-12-23)                        |
-| `canonical_square8_3p.db`   | square8    | 3       | **canonical** | db_health.canonical_square8_3p.json   | 67 games, 100% parity verified (2025-12-23)                           |
-| `canonical_square8_4p.db`   | square8    | 4       | **canonical** | db_health.canonical_square8_4p.json   | 11,514 games, 100% parity verified (2025-12-23)                       |
-| `canonical_square19_2p.db`  | square19   | 2       | **canonical** | db_health.canonical_square19_2p.json  | 56 games, 100% parity verified (2025-12-23)                           |
-| `canonical_square19_3p.db`  | square19   | 3       | **canonical** | db_health.canonical_square19_3p.json  | 126 games, 100% parity verified (2025-12-23)                          |
-| `canonical_square19_4p.db`  | square19   | 4       | **canonical** | db_health.canonical_square19_4p.json  | 16 games, 100% parity verified (2025-12-23)                           |
-| `canonical_hex8_2p.db`      | hex8       | 2       | **canonical** | db_health.canonical_hex8_2p.json      | 295 games, 100% parity verified (2025-12-23)                          |
-| `canonical_hex8_3p.db`      | hex8       | 3       | **canonical** | db_health.canonical_hex8_3p.json      | 528 games, 100% parity verified (2025-12-23)                          |
-| `canonical_hex8_4p.db`      | hex8       | 4       | **canonical** | db_health.canonical_hex8_4p.json      | 1,284 games, 100% parity verified (2025-12-23)                        |
-| `canonical_hexagonal_2p.db` | hexagonal  | 2       | **canonical** | db_health.canonical_hexagonal_2p.json | 112 games, 100% parity verified (2025-12-23). HEX-PARITY-02 RESOLVED. |
-| `canonical_hexagonal_3p.db` | hexagonal  | 3       | **canonical** | db_health.canonical_hexagonal_3p.json | 61 games, 100% parity verified (2025-12-23)                           |
-| `canonical_hexagonal_4p.db` | hexagonal  | 4       | **canonical** | db_health.canonical_hexagonal_4p.json | 10 games, 100% parity verified (2025-12-23)                           |
+| Database                    | Board Type | Players | Status           | Gate Summary                          | Notes                                                                |
+| --------------------------- | ---------- | ------- | ---------------- | ------------------------------------- | -------------------------------------------------------------------- |
+| `canonical_square8_2p.db`   | square8    | 2       | **pending_gate** | db_health.canonical_square8_2p.json   | 1,152 games; parity gate blocked (TS replay harness missing `npx`).  |
+| `canonical_square8_3p.db`   | square8    | 3       | **pending_gate** | db_health.canonical_square8_3p.json   | 67 games; parity gate blocked (TS replay harness missing `npx`).     |
+| `canonical_square8_4p.db`   | square8    | 4       | **pending_gate** | db_health.canonical_square8_4p.json   | 11,514 games; parity gate blocked (TS replay harness missing `npx`). |
+| `canonical_square19_2p.db`  | square19   | 2       | **pending_gate** | db_health.canonical_square19_2p.json  | 56 games; parity gate blocked (TS replay harness missing `npx`).     |
+| `canonical_square19_3p.db`  | square19   | 3       | **pending_gate** | db_health.canonical_square19_3p.json  | 126 games; parity gate blocked (TS replay harness missing `npx`).    |
+| `canonical_square19_4p.db`  | square19   | 4       | **pending_gate** | db_health.canonical_square19_4p.json  | 16 games; parity gate blocked (TS replay harness missing `npx`).     |
+| `canonical_hex8_2p.db`      | hex8       | 2       | **pending_gate** | db_health.canonical_hex8_2p.json      | 295 games; parity gate blocked (TS replay harness missing `npx`).    |
+| `canonical_hex8_3p.db`      | hex8       | 3       | **pending_gate** | db_health.canonical_hex8_3p.json      | 528 games; parity gate blocked (TS replay harness missing `npx`).    |
+| `canonical_hex8_4p.db`      | hex8       | 4       | **pending_gate** | db_health.canonical_hex8_4p.json      | 1,284 games; parity gate blocked (TS replay harness missing `npx`).  |
+| `canonical_hexagonal_2p.db` | hexagonal  | 2       | **pending_gate** | db_health.canonical_hexagonal_2p.json | 112 games; parity gate blocked (TS replay harness missing `npx`).    |
+| `canonical_hexagonal_3p.db` | hexagonal  | 3       | **pending_gate** | db_health.canonical_hexagonal_3p.json | 61 games; parity gate blocked (TS replay harness missing `npx`).     |
+| `canonical_hexagonal_4p.db` | hexagonal  | 4       | **pending_gate** | db_health.canonical_hexagonal_4p.json | 10 games; parity gate blocked (TS replay harness missing `npx`).     |
 
-The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (`square8`, `square19`, and `hexagonal`), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
+The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. The latest `db_health.canonical_*.json` summaries show `canonical_ok == false` across all current canonical DBs due to TS replay harness failures (missing `npx`) and one phase-invariant error in `canonical_square19.db`; treat these DBs as `pending_gate` until the gate is re-run successfully.
 
 ### Coverage Matrix (2025-12-23)
 
 Target: All 12 combinations (4 board types × 3 player counts) with canonical training data.
 
-| Board     | 2P             | 3P             | 4P            |
-| --------- | -------------- | -------------- | ------------- |
-| square8   | ✅ 1,152       | ⚠️ small (67)  | ✅ 11,514     |
-| square19  | ⚠️ small (56)  | ⚠️ small (126) | ⚠️ small (16) |
-| hex8      | ✅ 295         | ✅ 528         | ✅ 1,284      |
-| hexagonal | ⚠️ small (112) | ⚠️ small (61)  | ⚠️ small (10) |
+| Board     | 2P                           | 3P                           | 4P                          |
+| --------- | ---------------------------- | ---------------------------- | --------------------------- |
+| square8   | ⚠️ 1,152 (gate blocked)      | ⚠️ 67 (small, gate blocked)  | ⚠️ 11,514 (gate blocked)    |
+| square19  | ⚠️ 56 (small, gate blocked)  | ⚠️ 126 (small, gate blocked) | ⚠️ 16 (small, gate blocked) |
+| hex8      | ⚠️ 295 (gate blocked)        | ⚠️ 528 (gate blocked)        | ⚠️ 1,284 (gate blocked)     |
+| hexagonal | ⚠️ 112 (small, gate blocked) | ⚠️ 61 (small, gate blocked)  | ⚠️ 10 (small, gate blocked) |
 
 Legend:
 
 - ✅ = Canonical, sufficient volume (>=200 games)
-- ⚠️ = Canonical but insufficient volume (<200 games)
-- ❌ = Not generated or parity-blocked
+- ⚠️ = Pending parity gate and/or insufficient volume
+- ❌ = Not generated
 
-**All 12 board/player combinations now pass parity validation!** (2025-12-22)
+**Parity status:** Current gates are blocked by TS replay harness failures (missing `npx`) and one phase-invariant error in `canonical_square19.db`. Re-run the parity gate after fixing the toolchain and resolving the square19 invariant.
 
-**Priority Actions (2025-12-22):**
+**Priority Actions (2025-12-23):**
 
-1. Scale up square8 2P/3P/4P to 200+ games each
-2. Scale up square19 2P/3P/4P to 200+ games each
-3. Scale up hex8 2P/3P/4P to 200+ games each
-4. Scale up hexagonal 2P/3P/4P to 200+ games each
+1. Ensure Node toolchain is available for TS replay (`npx` on PATH), then re-run parity gates.
+2. Investigate the `canonical_square19.db` phase invariant (`process_line` in `territory_processing`) and re-gate.
+3. After gates pass, scale up board/player combinations to 200+ games each.
 
 **Generation Commands:**
 
@@ -180,6 +179,8 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 - 2025-12-12: `canonical_square8_3p.db` has initial gated games; scale up before training.
 - 2025-12-12: `canonical_square8_4p.db` is now canonical (`canonical_ok=true`); scale up before training.
 - 2025-12-20: `canonical_square19.db` re-gated with direct soak (light band) and `RINGRIFT_USE_MAKE_UNMAKE=true`; parity + history gates passed (`canonical_ok=true`). Scale volume toward targets.
+- 2025-12-23: Latest `db_health.canonical_*.json` summaries show `canonical_ok=false` across canonical DBs due to TS replay harness failures (missing `npx`). Re-run parity gates after fixing the Node toolchain.
+- 2025-12-23: `db_health.canonical_square19.json` reports a TS replay phase invariant (`process_line` in `territory_processing` at k=234). Investigate and re-gate square19.
 - Historical: the sandboxed environment can fail OpenMP shared-memory allocation (`OMP: Error #179: Function Can't open SHM2 failed`); run canonical self-play on a host/container with SHM permissions.
 - (Historical) 2025-12-09 re-gate of `canonical_square8.db` found TS replay structural errors; resolved on 2025-12-12 by aligning TS territory-control victory to collapsed-territory counts.
 

@@ -2,6 +2,7 @@
 
 > Status: partially implemented. Describes the intended training, evaluation, and promotion loop for Square-8 2-player D2/D4/D6/D8 tiers.  
 > Core building blocks (tier eval configs, perf budgets, curriculum harness) and the combined gating CLI are now implemented; remaining orchestration is incremental wiring on top.
+> Implementation reference: `ai-service/docs/training/TIER_PROMOTION_SYSTEM.md` (module/API overview).
 
 This document specifies a concrete, repeatable pipeline for training, evaluating, and promoting AI models for the Square-8 2-player difficulty ladder tiers D2, D4, D6, and D8.
 

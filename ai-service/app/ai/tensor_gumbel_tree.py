@@ -825,6 +825,36 @@ class GPUGumbelMCTS:
                 )
                 best_move = valid_moves[0]
 
+            # Phase/move validation (RR-GPU-TREE-002: was missing from search_with_stats)
+            # This ensures the returned move is valid for the current game phase
+            from ..models import GamePhase, MoveType
+            phase = game_state.current_phase
+            move_type = best_move.type
+
+            phase_move_valid = True
+            if phase == GamePhase.LINE_PROCESSING:
+                allowed = {MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION,
+                          MoveType.CHOOSE_LINE_REWARD, MoveType.NO_LINE_ACTION,
+                          MoveType.ELIMINATE_RINGS_FROM_STACK}
+                phase_move_valid = move_type in allowed
+            elif phase == GamePhase.TERRITORY_PROCESSING:
+                allowed = {MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION,
+                          MoveType.ELIMINATE_RINGS_FROM_STACK, MoveType.SKIP_TERRITORY_PROCESSING,
+                          MoveType.NO_TERRITORY_ACTION}
+                phase_move_valid = move_type in allowed
+            elif phase == GamePhase.FORCED_ELIMINATION:
+                phase_move_valid = move_type == MoveType.FORCED_ELIMINATION
+
+            if not phase_move_valid:
+                logger.error(
+                    f"GPU tree phase/move mismatch in search_with_stats: "
+                    f"move_type={move_type.value} in phase={phase.value}. "
+                    f"top_k had types: {[m.type.value for m in top_k_moves[:5]]}. "
+                    f"valid_moves had types: {[m.type.value for m in valid_moves[:5]]}. "
+                    f"Falling back to first valid_move."
+                )
+                best_move = valid_moves[0]
+
             # Build policy distribution
             policy = self.tree.get_policy_distribution(tree_idx=0)
             policy_dict = {}
@@ -1483,18 +1513,47 @@ class MultiTreeMCTS:
                 neural_net,
             )
 
-            # Collect results
+            # Collect results with phase/move validation (RR-GPU-TREE-002)
+            from ..models import GamePhase, MoveType
             result_moves = []
             result_policies = []
 
             for b in range(batch_size):
                 best_idx = best_action_indices[b]
                 best_move = all_top_k_moves[b][best_idx]
+                valid_moves = all_valid_moves[b]
+                game_state = game_states[b]
+
+                # Phase/move validation (RR-GPU-TREE-002)
+                phase = game_state.current_phase
+                move_type = best_move.type
+                phase_move_valid = True
+
+                if phase == GamePhase.LINE_PROCESSING:
+                    allowed = {MoveType.PROCESS_LINE, MoveType.CHOOSE_LINE_OPTION,
+                              MoveType.CHOOSE_LINE_REWARD, MoveType.NO_LINE_ACTION,
+                              MoveType.ELIMINATE_RINGS_FROM_STACK}
+                    phase_move_valid = move_type in allowed
+                elif phase == GamePhase.TERRITORY_PROCESSING:
+                    allowed = {MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION,
+                              MoveType.ELIMINATE_RINGS_FROM_STACK, MoveType.SKIP_TERRITORY_PROCESSING,
+                              MoveType.NO_TERRITORY_ACTION}
+                    phase_move_valid = move_type in allowed
+                elif phase == GamePhase.FORCED_ELIMINATION:
+                    phase_move_valid = move_type == MoveType.FORCED_ELIMINATION
+
+                if not phase_move_valid:
+                    logger.error(
+                        f"MultiTreeMCTS phase/move mismatch at batch {b}: "
+                        f"move_type={move_type.value} in phase={phase.value}. "
+                        f"Falling back to first valid_move."
+                    )
+                    best_move = valid_moves[0]
+
                 result_moves.append(best_move)
 
                 # Build policy dict
                 policy = self.tree.get_policy_distribution(tree_idx=b)
-                valid_moves = all_valid_moves[b]
                 policy_dict = {}
                 for i, move in enumerate(valid_moves):
                     move_key = self._move_to_key(move)

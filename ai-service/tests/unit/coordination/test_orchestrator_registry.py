@@ -154,6 +154,11 @@ class TestOrchestratorRole:
             "model_sync",
             "data_sync",
             "unified_loop",
+            # Training enhancement roles (December 2025)
+            "distillation_leader",
+            "promotion_leader",
+            "external_sync_leader",
+            "vast_pipeline_leader",
         }
         actual_roles = {role.value for role in OrchestratorRole}
         assert actual_roles == expected_roles

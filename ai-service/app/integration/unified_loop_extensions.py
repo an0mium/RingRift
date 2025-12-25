@@ -483,8 +483,8 @@ class UnifiedLoopExtensions:
                             host_name='local',
                             cpu_percent=cpu,
                             memory_percent=mem,
-                            gpu_util=gpu_util,
-                            jobs_running=1 if self.loop.state.training_in_progress else 0
+                            gpu_percent=gpu_util if gpu_util else 0.0,
+                            active_jobs=1 if self.loop.state.training_in_progress else 0
                         )
                     except ImportError:
                         pass

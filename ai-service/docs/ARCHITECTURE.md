@@ -6,7 +6,7 @@ This document describes the high-level architecture of the RingRift AI Service.
 
 The AI service is a distributed system for training and serving game-playing AI at multiple difficulty levels. It supports:
 
-- **Multi-algorithm AI** spanning 10 production difficulty levels (D1-D10), plus internal/experimental tiers
+- **Multi-algorithm AI** spanning 10 production difficulty levels (D1-D10) with an internal benchmark tier (D11)
 - **Distributed training** across GPU clusters
 - **P2P coordination** for fault-tolerant data sync and job scheduling
 - **Continuous evaluation** with Elo-based model promotion
@@ -52,7 +52,7 @@ AI instances are cached with LRU eviction (512 max) to maintain persistent searc
 
 ### 2. AI Implementations (`app/ai/`)
 
-Multi-algorithm strategy supporting 10 production + 8 experimental difficulty levels (D11 reserved for internal benchmarks):
+Multi-algorithm strategy supporting 10 production difficulty levels (D1-D10) plus an internal benchmark tier (D11):
 
 **Production Tier (D1-D10)**:
 
@@ -72,17 +72,8 @@ Multi-algorithm strategy supporting 10 production + 8 experimental difficulty le
 | ----- | --------- | ------------------------------------ |
 | 11    | Ultimate  | Extended Descent with 60s think time |
 
-**Experimental Tier (D12-D19)** - Research algorithms for 2000+ Elo:
-
-| Level | Algorithm     | Description                                |
-| ----- | ------------- | ------------------------------------------ |
-| 12    | EBMO          | Energy-Based Model Optimization            |
-| 13    | GMO           | Gradient Move Optimization (68.8% vs MCTS) |
-| 14    | IG-GMO        | Information-Geometric GMO                  |
-| 15    | Gumbel-MCTS   | Gumbel-based MCTS for soft policy targets  |
-| 16    | Improved MCTS | PUCT + transposition tables                |
-| 17    | GMO-MCTS      | Hybrid: GMO priors + MCTS tree search      |
-| 18-19 | GMO v2        | Enhanced GMO with uncertainty estimation   |
+Research-only algorithms live in internal/experimental docs and are not part of the
+public D1-D10 ladder.
 
 Key modules:
 
@@ -90,7 +81,7 @@ Key modules:
 - `heuristic_ai.py` - Territory, capture, stability evaluation
 - `mcts_ai.py` - UCB/RAVE tree search
 - `descent_ai.py` - Upper Confidence Bound From Max
-- `neural_net/` - ResNet-style CNN architectures (v2, v3, v4)
+- `neural_net/` - CNN + optional GNN/hybrid architectures (v2/v3/v4 + gnn/hybrid tiers)
 - `nnue.py` - NNUE incremental evaluation
 - `gumbel_mcts_ai.py` - Gumbel-MCTS with soft policy targets
 - `gmo_ai.py`, `gmo_v2.py` - Gradient Move Optimization variants

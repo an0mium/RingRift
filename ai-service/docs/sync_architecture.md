@@ -102,6 +102,8 @@ Features:
 - Automatic transport selection based on capabilities
 - NFS optimization (skip sync when storage is shared)
 - Circuit breaker integration
+- Sync watchdog (deadline per sync, consecutive failure tracking)
+- Data server health checks with best-effort restart and `get_sync_health()` metrics
 
 ## Exports from app.coordination
 

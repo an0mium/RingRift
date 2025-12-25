@@ -225,6 +225,8 @@ def convert_gpu_history_to_canonical(
     - scripts/import_gpu_selfplay_to_db.py
     - app/rules/history_contract.py validation
 
+    Optimized Dec 2025: Pre-extract numpy array to avoid repeated .item() calls.
+
     Args:
         state: BatchGameState containing move history
         game_idx: Index of the game in the batch
@@ -240,27 +242,30 @@ def convert_gpu_history_to_canonical(
     history_cols = state.move_history.shape[2] if len(state.move_history.shape) > 2 else 7
     has_capture_target_cols = history_cols >= 9
 
+    # Pre-extract move history for this game as numpy to avoid repeated .item() calls
+    history_np = state.move_history[game_idx].cpu().numpy()
+
     for i in range(state.max_history_moves):
-        move_type = state.move_history[game_idx, i, 0].item()
+        move_type = int(history_np[i, 0])
         if move_type < 0:
             break
 
-        player = int(state.move_history[game_idx, i, 1].item())
-        from_y = int(state.move_history[game_idx, i, 2].item())
-        from_x = int(state.move_history[game_idx, i, 3].item())
-        to_y = int(state.move_history[game_idx, i, 4].item())
-        to_x = int(state.move_history[game_idx, i, 5].item())
-        phase = int(state.move_history[game_idx, i, 6].item())
+        player = int(history_np[i, 1])
+        from_y = int(history_np[i, 2])
+        from_x = int(history_np[i, 3])
+        to_y = int(history_np[i, 4])
+        to_x = int(history_np[i, 5])
+        phase = int(history_np[i, 6])
 
         # Read capture target columns if available (December 2025)
         capture_target_y = -1
         capture_target_x = -1
         if has_capture_target_cols:
-            capture_target_y = int(state.move_history[game_idx, i, 7].item())
-            capture_target_x = int(state.move_history[game_idx, i, 8].item())
+            capture_target_y = int(history_np[i, 7])
+            capture_target_x = int(history_np[i, 8])
 
         canonical_move = convert_gpu_move_to_canonical(
-            move_type=int(move_type),
+            move_type=move_type,
             player=player,
             from_y=from_y,
             from_x=from_x,
@@ -370,8 +375,8 @@ def export_game_to_canonical_dict(
     # Get canonical moves
     moves = convert_gpu_history_to_canonical(state, game_idx, board_type)
 
-    # Determine winner
-    winner = int(state.winner[game_idx].item())
+    # Determine winner (use .cpu().numpy() instead of .item() for consistency)
+    winner = int(state.winner[game_idx].cpu().numpy())
     winner = winner if winner > 0 else None
 
     # Determine victory type

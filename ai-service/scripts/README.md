@@ -93,11 +93,15 @@ python scripts/cli.py health
   - Balance mode and curriculum selection are integrated in the loop
   - Policy label smoothing and augmentation run via the unified training stack
   - Start: `python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml`
-- `run_nn_training_baseline.py` - **Primary NN training script** (21KB)
-  - Board-specific hyperparameters from `config/hyperparameters.json`
-  - Optimized settings: batch_size=256, warmup_epochs=5, cosine scheduler
-  - Victory-type balanced sampling (`--sampling-weights victory_type`)
-  - Start: `python scripts/run_nn_training_baseline.py --board square8 --num-players 2`
+- `run_nn_training_baseline.py` - **Compatibility wrapper** for NN training
+  - Forwards arguments to `python -m app.training.train`
+  - Start: `python scripts/run_nn_training_baseline.py --board-type square8 --num-players 2`
+- `run_tier_training_pipeline.py` - **Tier-based training pipeline** (D2-D10)
+  - D2: heuristic CMA-ES, D4: search persona, D6+: neural
+  - Start: `python scripts/run_tier_training_pipeline.py --tier D6 --board square8 --num-players 2`
+- `evaluate_gnn_model.py` - **GNN gameplay evaluation** (requires PyTorch Geometric)
+  - Compares GNN model vs random/heuristic baselines using GNNAI + canonical move encoding
+  - Start: `python scripts/evaluate_gnn_model.py --model models/gnn_hex8_2p/gnn_policy_best.pt --games 20`
 - `run_optimized_training.py` - **Optimized training wrapper**
   - Auto-selects best hyperparameters per board/player config
   - Optional Elo calibration after training (`--run-elo`)

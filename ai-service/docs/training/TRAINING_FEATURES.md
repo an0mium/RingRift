@@ -1251,7 +1251,9 @@ Batch size automatically scales based on detected GPU:
 | Version | Description                           | Recommended For |
 | ------- | ------------------------------------- | --------------- |
 | v2      | Flat policy head                      | square19        |
+| v2_lite | Reduced-capacity v2                   | memory-limited  |
 | v3      | Spatial policy with rank distribution | square8         |
+| v3_lite | Reduced-capacity v3                   | memory-limited  |
 | v4      | NAS-optimized with attention          | Experimental    |
 
 ### Hex Board Models
@@ -1260,6 +1262,12 @@ Batch size automatically scales based on detected GPU:
 | --------------- | ------------- | ------------------------- |
 | HexNeuralNet_v2 | 10 per player | Original hex architecture |
 | HexNeuralNet_v3 | 16 per player | Improved, recommended     |
+
+### Model Types (CNN/GNN/Hybrid)
+
+The training CLI supports `--model-type` to route to the GNN pipeline.
+`gnn` and `hybrid` require PyTorch Geometric and use
+`app.training.train_gnn_policy` under the hood.
 
 ### Configuration
 
@@ -1274,7 +1282,12 @@ training:
 ```bash
 python -m app.training.train \
   --board-type hex8 \
-  --model-version hex  # Auto-selects HexNeuralNet
+  --model-version v3  # Auto-selects hex architecture for hex boards
+
+# GNN training (requires PyTorch Geometric)
+python -m app.training.train \
+  --board-type hex8 \
+  --model-type gnn
 ```
 
 ---
@@ -1288,7 +1301,8 @@ python -m app.training.train \
 | `--data-path`     | str  | Required | Path to training NPZ file          |
 | `--save-path`     | str  | Auto     | Output model path                  |
 | `--board-type`    | str  | Required | square8, square19, hex8, hexagonal |
-| `--model-version` | str  | Auto     | v2, v3, v4, hex                    |
+| `--model-version` | str  | Auto     | v2, v2_lite, v3, v3_lite, v4 (CNN) |
+| `--model-type`    | str  | cnn      | cnn, gnn, hybrid (GNN uses PyG)    |
 
 ### Training Parameters
 

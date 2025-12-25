@@ -45,6 +45,8 @@ from app.config.thresholds import (
     PRODUCTION_MIN_GAMES,
     MIN_WIN_RATE_VS_RANDOM,
     MIN_WIN_RATE_VS_HEURISTIC,
+    get_min_win_rate_vs_random,
+    get_min_win_rate_vs_heuristic,
 )
 
 # Import PromotionController for unified promotion logic (December 2025)
@@ -633,19 +635,21 @@ def run_gauntlet_promotion(
     print(f"  Wins: {results['total_wins']}, Losses: {results['total_losses']}, Draws: {results['total_draws']}")
     print(f"  Overall win rate: {results['win_rate']:.1%}")
     print()
+    min_random = get_min_win_rate_vs_random(num_players)
+    min_heuristic = get_min_win_rate_vs_heuristic(num_players)
     print(f"  vs RANDOM: {results['win_rate_vs_random']:.1%} "
-          f"({'✓ PASS' if results['passes_random'] else '✗ FAIL'}, need {MIN_WIN_RATE_VS_RANDOM:.0%})")
+          f"({'✓ PASS' if results['passes_random'] else '✗ FAIL'}, need {min_random:.0%})")
     print(f"  vs HEURISTIC: {results['win_rate_vs_heuristic']:.1%} "
-          f"({'✓ PASS' if results['passes_heuristic'] else '✗ FAIL'}, need {MIN_WIN_RATE_VS_HEURISTIC:.0%})")
+          f"({'✓ PASS' if results['passes_heuristic'] else '✗ FAIL'}, need {min_heuristic:.0%})")
     print(f"  Estimated ELO: {results['estimated_elo']:.0f}")
     print()
 
     if not results['passes_gauntlet']:
         print("✗ GAUNTLET FAILED - Model not promoted")
         if not results['passes_random']:
-            print(f"  Need {MIN_WIN_RATE_VS_RANDOM:.0%} vs random, got {results['win_rate_vs_random']:.1%}")
+            print(f"  Need {min_random:.0%} vs random, got {results['win_rate_vs_random']:.1%}")
         if not results['passes_heuristic']:
-            print(f"  Need {MIN_WIN_RATE_VS_HEURISTIC:.0%} vs heuristic, got {results['win_rate_vs_heuristic']:.1%}")
+            print(f"  Need {min_heuristic:.0%} vs heuristic, got {results['win_rate_vs_heuristic']:.1%}")
         return False
 
     print("✓ GAUNTLET PASSED - Promoting model...")

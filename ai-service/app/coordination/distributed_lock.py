@@ -455,6 +455,105 @@ def training_lock(config_key: str, timeout: int = DEFAULT_ACQUIRE_TIMEOUT):
             lock.release()
 
 
+def cleanup_stale_locks(
+    max_age_hours: float = 24.0,
+    lock_dir: Path | None = None,
+) -> dict[str, int]:
+    """Clean up stale lock files.
+
+    Removes locks that are:
+    - Older than max_age_hours
+    - Have expired timeouts
+    - Owned by dead processes on same host
+
+    Args:
+        max_age_hours: Maximum lock age before cleanup
+        lock_dir: Lock directory (defaults to LOCK_DIR)
+
+    Returns:
+        Dict with cleanup statistics
+    """
+    lock_dir = lock_dir or LOCK_DIR
+    stats = {
+        "scanned": 0,
+        "removed_expired": 0,
+        "removed_old": 0,
+        "removed_dead_process": 0,
+        "errors": 0,
+    }
+
+    if not lock_dir.exists():
+        return stats
+
+    hostname = socket.gethostname()
+    max_age_seconds = max_age_hours * 3600
+    now = time.time()
+
+    for lock_file in lock_dir.glob("*.lock"):
+        stats["scanned"] += 1
+
+        try:
+            # Read lock metadata
+            with open(lock_file) as f:
+                lines = f.readlines()
+
+            if len(lines) < 3:
+                continue
+
+            lock_id = lines[0].strip()
+            lock_time = float(lines[1].strip())
+            lock_timeout = float(lines[2].strip())
+
+            # Check age
+            age = now - lock_time
+            if age > max_age_seconds:
+                lock_file.unlink(missing_ok=True)
+                stats["removed_old"] += 1
+                logger.info(f"Removed old lock: {lock_file.name} (age: {age/3600:.1f}h)")
+                continue
+
+            # Check expired timeout
+            if age > lock_timeout:
+                lock_file.unlink(missing_ok=True)
+                stats["removed_expired"] += 1
+                logger.info(f"Removed expired lock: {lock_file.name}")
+                continue
+
+            # Check if process is dead (same host only)
+            parts = lock_id.split(":")
+            if len(parts) >= 2:
+                lock_hostname = parts[0]
+                try:
+                    lock_pid = int(parts[1])
+
+                    if lock_hostname == hostname:
+                        # Check if process exists
+                        try:
+                            os.kill(lock_pid, 0)
+                        except OSError:
+                            # Process doesn't exist
+                            lock_file.unlink(missing_ok=True)
+                            stats["removed_dead_process"] += 1
+                            logger.info(f"Removed lock from dead process: {lock_file.name} (pid {lock_pid})")
+                            continue
+                except ValueError:
+                    pass  # Invalid PID format
+
+        except Exception as e:
+            stats["errors"] += 1
+            logger.debug(f"Error processing lock {lock_file}: {e}")
+
+    total_removed = (
+        stats["removed_expired"]
+        + stats["removed_old"]
+        + stats["removed_dead_process"]
+    )
+    if total_removed > 0:
+        logger.info(f"Lock cleanup complete: {total_removed} removed of {stats['scanned']} scanned")
+
+    return stats
+
+
 __all__ = [
     "DEFAULT_ACQUIRE_TIMEOUT",
     # Constants
@@ -465,6 +564,7 @@ __all__ = [
     "LockProtocol",
     "acquire_training_lock",
     # Functions
+    "cleanup_stale_locks",
     "get_appropriate_lock",
     "release_training_lock",
     "training_lock",

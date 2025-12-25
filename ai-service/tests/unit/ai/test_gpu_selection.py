@@ -475,8 +475,8 @@ class TestSelectMovesHeuristic:
         num_trials = 500
 
         for _ in range(num_trials):
-            selected_high = select_moves_heuristic(moves, state, active_mask, weights=high_center_weights, temperature=0.3)
-            selected_no = select_moves_heuristic(moves, state, active_mask, weights=no_center_weights, temperature=0.3)
+            selected_high = select_moves_heuristic(moves, state, active_mask, weights_list=[high_center_weights], temperature=0.3)
+            selected_no = select_moves_heuristic(moves, state, active_mask, weights_list=[no_center_weights], temperature=0.3)
             if selected_high[0].item() == 0:
                 high_center_count += 1
             if selected_no[0].item() == 0:
@@ -568,7 +568,7 @@ class TestSelectMovesHeuristic:
         line_extend_count = 0
         num_trials = 500
         for _ in range(num_trials):
-            selected = select_moves_heuristic(moves, state, active_mask, weights=weights, temperature=0.5)
+            selected = select_moves_heuristic(moves, state, active_mask, weights_list=[weights], temperature=0.5)
             if selected[0].item() == 0:
                 line_extend_count += 1
 
@@ -584,7 +584,7 @@ class TestSelectMovesHeuristic:
         active_mask = torch.ones(batch_size, dtype=torch.bool, device=device)
 
         # Should not raise with no weights
-        selected = select_moves_heuristic(moves, state, active_mask, weights=None)
+        selected = select_moves_heuristic(moves, state, active_mask, weights_list=None)
 
         assert selected.shape == (batch_size,)
         assert (selected >= 0).all()

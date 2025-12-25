@@ -1,3 +1,10 @@
+# Local AI assistant context (user-specific)
+CLAUDE.md
+ai-service/CLAUDE.md
+
+# Test/debug results (generated locally)
+results/
+
 # Dependencies
 node_modules/
 npm-debug.log*

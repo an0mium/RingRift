@@ -68,6 +68,9 @@ def place_stack(state, game_idx: int, y: int, x: int, owner: int, height: int):
     state.stack_owner[game_idx, y, x] = owner
     state.stack_height[game_idx, y, x] = height
     state.cap_height[game_idx, y, x] = height
+    # Also set ring_stack for active colors detection
+    for depth in range(height):
+        state.ring_stack[game_idx, y, x, depth] = owner
 
 
 def place_marker(state, game_idx: int, y: int, x: int, owner: int):

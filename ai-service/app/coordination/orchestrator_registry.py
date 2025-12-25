@@ -121,8 +121,14 @@ try:
 except ImportError:
     # Fallback for testing/standalone use
     HEARTBEAT_INTERVAL_SECONDS = 30  # How often to update heartbeat
-    HEARTBEAT_TIMEOUT_SECONDS = 90  # Consider dead if no heartbeat in this time
-    STALE_CLEANUP_INTERVAL = 60  # How often to clean up stale entries
+    HEARTBEAT_TIMEOUT_SECONDS = 60  # Consider dead if no heartbeat (reduced from 90s)
+    STALE_CLEANUP_INTERVAL = 30  # How often to clean up stale entries (reduced from 60s)
+
+# Warning threshold - emit warning at 50% of timeout
+HEARTBEAT_WARNING_THRESHOLD = HEARTBEAT_TIMEOUT_SECONDS * 0.5
+
+# Number of missed heartbeats before marking stale (requires 2 consecutive)
+MISSED_HEARTBEATS_BEFORE_STALE = 2
 
 
 class OrchestratorRole(Enum):
@@ -490,15 +496,47 @@ class OrchestratorRegistry:
                 conn.commit()
 
     def _cleanup_stale_orchestrators(self):
-        """Remove orchestrators that haven't sent heartbeat."""
-        cutoff = (datetime.now() - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)).isoformat()
+        """Remove orchestrators that haven't sent heartbeat.
+
+        Two-phase cleanup:
+        1. Warn at 50% of timeout (HEARTBEAT_WARNING_THRESHOLD)
+        2. Remove at 100% of timeout (HEARTBEAT_TIMEOUT_SECONDS)
+        """
+        warning_cutoff = (
+            datetime.now() - timedelta(seconds=HEARTBEAT_WARNING_THRESHOLD)
+        ).isoformat()
+        stale_cutoff = (
+            datetime.now() - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)
+        ).isoformat()
 
         with self._get_conn() as conn:
-            # Find stale entries
+            # First, warn about orchestrators approaching timeout (50%)
+            cursor = conn.execute('''
+                SELECT id, role, hostname, pid, last_heartbeat FROM orchestrators
+                WHERE last_heartbeat < ? AND last_heartbeat >= ? AND state NOT IN (?, ?)
+            ''', (warning_cutoff, stale_cutoff,
+                  OrchestratorState.STOPPED.value, OrchestratorState.DEAD.value))
+
+            warning_entries = cursor.fetchall()
+            for row in warning_entries:
+                try:
+                    last_hb = datetime.fromisoformat(row['last_heartbeat'])
+                    elapsed = (datetime.now() - last_hb).total_seconds()
+                    logger.warning(
+                        f"Orchestrator heartbeat delayed: {row['role']} "
+                        f"({row['hostname']}:{row['pid']}) - "
+                        f"{elapsed:.0f}s since last heartbeat "
+                        f"(warning at {HEARTBEAT_WARNING_THRESHOLD:.0f}s)"
+                    )
+                except Exception:
+                    pass
+
+            # Find fully stale entries (100% of timeout)
             cursor = conn.execute('''
                 SELECT id, role, hostname, pid FROM orchestrators
-                WHERE last_heartbeat < ? AND state != ?
-            ''', (cutoff, OrchestratorState.STOPPED.value))
+                WHERE last_heartbeat < ? AND state NOT IN (?, ?)
+            ''', (stale_cutoff,
+                  OrchestratorState.STOPPED.value, OrchestratorState.DEAD.value))
 
             stale = cursor.fetchall()
             for row in stale:
@@ -511,14 +549,115 @@ class OrchestratorRegistry:
             # Delete stale entries
             conn.execute('''
                 DELETE FROM orchestrators
-                WHERE last_heartbeat < ? AND state != ?
-            ''', (cutoff, OrchestratorState.STOPPED.value))
+                WHERE last_heartbeat < ? AND state NOT IN (?, ?)
+            ''', (stale_cutoff,
+                  OrchestratorState.STOPPED.value, OrchestratorState.DEAD.value))
             conn.commit()
 
     def _cleanup_on_exit(self):
         """Cleanup handler called on process exit."""
         with suppress(Exception):
             self.release_role()
+
+    def probe_orchestrator_liveness(self, orchestrator_id: str) -> bool:
+        """Actively probe if an orchestrator process is still alive.
+
+        Uses OS-level process checking (same host) or heartbeat recency (remote).
+        More aggressive than passive heartbeat timeout detection.
+
+        Returns:
+            True if orchestrator appears alive, False otherwise.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                'SELECT hostname, pid, last_heartbeat FROM orchestrators WHERE id = ?',
+                (orchestrator_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            hostname = row['hostname']
+            pid = row['pid']
+
+            # If on same host, check if process is actually running
+            if hostname == socket.gethostname():
+                try:
+                    # Check if process exists (doesn't send signal)
+                    os.kill(pid, 0)
+                    return True
+                except OSError:
+                    # Process doesn't exist - mark as stale immediately
+                    logger.info(f"Probe found dead process: {orchestrator_id} (pid {pid})")
+                    self._mark_stale(orchestrator_id, "Process not found on same host")
+                    return False
+
+            # For remote hosts, check heartbeat recency with warning threshold
+            try:
+                last_hb = datetime.fromisoformat(row['last_heartbeat'])
+                elapsed = (datetime.now() - last_hb).total_seconds()
+
+                if elapsed > HEARTBEAT_WARNING_THRESHOLD:
+                    logger.warning(
+                        f"Orchestrator {orchestrator_id} heartbeat delayed: "
+                        f"{elapsed:.0f}s (warning at {HEARTBEAT_WARNING_THRESHOLD:.0f}s)"
+                    )
+
+                return elapsed < HEARTBEAT_TIMEOUT_SECONDS
+            except (ValueError, TypeError):
+                return False
+
+    def _mark_stale(
+        self,
+        orchestrator_id: str,
+        reason: str = "Marked stale by active probe",
+    ) -> None:
+        """Immediately mark an orchestrator as stale and clean it up.
+
+        Unlike passive cleanup which waits for timeout, this is for cases
+        where we know definitively the orchestrator is dead.
+        """
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                'SELECT role, hostname, pid FROM orchestrators WHERE id = ?',
+                (orchestrator_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            logger.info(f"Marking orchestrator as stale: {row['role']} "
+                       f"({row['hostname']}:{row['pid']}) - {reason}")
+
+            self._log_event(
+                conn, 'ACTIVE_STALE_CLEANUP',
+                f"Immediately removed {row['role']} - {reason}",
+                orchestrator_id=orchestrator_id,
+                role=row['role']
+            )
+
+            conn.execute(
+                'DELETE FROM orchestrators WHERE id = ?',
+                (orchestrator_id,)
+            )
+            conn.commit()
+
+    def probe_all_orchestrators(self) -> dict[str, bool]:
+        """Probe liveness of all registered orchestrators.
+
+        Returns:
+            Dict mapping orchestrator_id to liveness status.
+        """
+        results = {}
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                'SELECT id FROM orchestrators WHERE state NOT IN (?, ?)',
+                (OrchestratorState.STOPPED.value, OrchestratorState.DEAD.value)
+            )
+            for row in cursor:
+                orch_id = row['id']
+                results[orch_id] = self.probe_orchestrator_liveness(orch_id)
+        return results
 
     # =========================================================================
     # Query Methods

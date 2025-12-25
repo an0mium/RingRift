@@ -156,19 +156,30 @@ def create_heuristic_ai(
 
 def extract_features(state, current_player: int, board_type: str):
     """Extract neural network features from game state."""
-    from app.ai.neural_net.hex_neural_net_v2 import HexNeuralNet_v2
     from app.models import BoardType
+    from app.training.encoding import HexStateEncoder, SquareStateEncoder
+    from app.ai.neural_net import HEX8_BOARD_SIZE, POLICY_SIZE_HEX8, HEX_BOARD_SIZE, P_HEX
 
     board_type_enum = BoardType(board_type)
 
-    # Get feature extraction from model
     try:
-        if hasattr(state, "encode_features"):
-            features, global_features = state.encode_features(current_player)
+        # Create appropriate encoder based on board type
+        if board_type_enum in (BoardType.HEXAGONAL, BoardType.HEX8):
+            if board_type_enum == BoardType.HEX8:
+                encoder = HexStateEncoder(
+                    board_size=HEX8_BOARD_SIZE,
+                    policy_size=POLICY_SIZE_HEX8,
+                )
+            else:
+                encoder = HexStateEncoder(
+                    board_size=HEX_BOARD_SIZE,
+                    policy_size=P_HEX,
+                )
         else:
-            # Manual feature extraction
-            from app.ai.neural_net.feature_encoding_v2 import encode_state_v2
-            features, global_features = encode_state_v2(state, current_player)
+            # Square boards
+            encoder = SquareStateEncoder(board_type=board_type_enum)
+
+        features, global_features = encoder.encode_state(state)
         return features, global_features
     except Exception as e:
         logger.debug(f"Feature extraction failed: {e}")

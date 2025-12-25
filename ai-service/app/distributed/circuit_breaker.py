@@ -245,6 +245,9 @@ class CircuitBreaker:
         backoff_multiplier: float = 2.0,
         max_backoff: float = DEFAULT_MAX_BACKOFF,
         jitter_factor: float = 0.1,
+        # Active recovery parameters (December 2025)
+        active_recovery_probe: Callable[[str], bool] | None = None,
+        max_consecutive_opens: int = 5,  # After this many, require manual reset
     ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -255,6 +258,8 @@ class CircuitBreaker:
         self.backoff_multiplier = backoff_multiplier
         self.max_backoff = max_backoff
         self.jitter_factor = jitter_factor
+        self._active_recovery_probe = active_recovery_probe
+        self.max_consecutive_opens = max_consecutive_opens
 
         self._circuits: dict[str, _CircuitData] = {}
         self._lock = RLock()
@@ -430,6 +435,103 @@ class CircuitBreaker:
         # Notify state change outside lock
         if old_state is not None and new_state is not None:
             self._notify_state_change(target, old_state, new_state)
+
+    def try_active_recovery(self, target: str) -> bool:
+        """Actively probe target for recovery instead of waiting for timeout.
+
+        Uses the configured active_recovery_probe callback to check if the
+        target is healthy. If probe succeeds, transitions to HALF_OPEN or
+        directly to CLOSED.
+
+        Returns:
+            True if recovery probe succeeded, False otherwise.
+        """
+        if not self._active_recovery_probe:
+            return False
+
+        with self._lock:
+            circuit = self._get_or_create_circuit(target)
+
+            # Only try recovery on OPEN circuits
+            if circuit.state != CircuitState.OPEN:
+                return circuit.state == CircuitState.CLOSED
+
+            # Check if we've exceeded max consecutive opens
+            if circuit.consecutive_opens >= self.max_consecutive_opens:
+                # Requires manual reset
+                return False
+
+        # Run probe outside lock
+        try:
+            probe_success = self._active_recovery_probe(target)
+        except Exception:
+            probe_success = False
+
+        if probe_success:
+            with self._lock:
+                old_state = circuit.state
+                # Transition to half-open for gradual recovery
+                circuit.state = CircuitState.HALF_OPEN
+                circuit.half_open_at = time.time()
+                circuit.half_open_calls = 0
+                self._notify_state_change(target, old_state, CircuitState.HALF_OPEN)
+            return True
+
+        return False
+
+    def force_reset(self, target: str) -> None:
+        """Force reset a circuit to CLOSED state.
+
+        Use this for manual intervention when a circuit is stuck open
+        (e.g., after max_consecutive_opens exceeded).
+
+        This resets all counters including consecutive_opens.
+        """
+        with self._lock:
+            circuit = self._get_or_create_circuit(target)
+            old_state = circuit.state
+
+            circuit.state = CircuitState.CLOSED
+            circuit.failure_count = 0
+            circuit.success_count = 0
+            circuit.consecutive_opens = 0
+            circuit.opened_at = None
+            circuit.half_open_at = None
+            circuit.half_open_calls = 0
+
+            self._notify_state_change(target, old_state, CircuitState.CLOSED)
+
+    def is_permanently_open(self, target: str) -> bool:
+        """Check if circuit has exceeded max consecutive opens.
+
+        When a circuit exceeds max_consecutive_opens, it won't auto-recover
+        and requires force_reset() for manual intervention.
+
+        Returns:
+            True if circuit is open and at max consecutive opens.
+        """
+        with self._lock:
+            circuit = self._get_or_create_circuit(target)
+            return (
+                circuit.state == CircuitState.OPEN
+                and circuit.consecutive_opens >= self.max_consecutive_opens
+            )
+
+    def get_permanently_open_circuits(self) -> list[str]:
+        """Get all targets with permanently open circuits.
+
+        Returns:
+            List of target names that require manual force_reset().
+        """
+        result = []
+        with self._lock:
+            for target, circuit in self._circuits.items():
+                if (
+                    circuit.state == CircuitState.OPEN
+                    and circuit.consecutive_opens >= self.max_consecutive_opens
+                ):
+                    result.append(target)
+        return result
 
     def get_state(self, target: str) -> CircuitState:
         """Get current state for a target."""

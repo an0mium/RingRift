@@ -37,8 +37,14 @@ Engine Modes:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
+
+# Disable torch.compile on GH200 nodes (driver incompatibility)
+# Set this before any torch imports to prevent compile() errors
+if not os.environ.get('RINGRIFT_DISABLE_TORCH_COMPILE'):
+    os.environ['RINGRIFT_DISABLE_TORCH_COMPILE'] = '1'
 
 # Setup path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -137,8 +143,7 @@ def emit_selfplay_complete_event(config: SelfplayConfig, stats: RunStats) -> Non
         stats: Run statistics
     """
     try:
-        from app.coordination.event_router import get_router
-        from app.coordination.stage_events import StageEvent
+        from app.coordination.event_router import get_router, StageEvent
 
         router = get_router()
         router.publish(

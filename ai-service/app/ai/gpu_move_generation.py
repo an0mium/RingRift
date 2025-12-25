@@ -65,6 +65,8 @@ def compute_cap_from_ring_stack(state, game_idx: int, y: int, x: int) -> int:
     This is the authoritative cap computation after ownership transfers.
     The ring_stack tensor stores all rings from bottom (index 0) to top (index height-1).
 
+    Optimized Dec 2025: Pre-extract ring_stack slice as numpy to avoid .item() calls.
+
     Args:
         state: BatchGameState with ring_stack tensor
         game_idx: Game index in batch
@@ -73,19 +75,22 @@ def compute_cap_from_ring_stack(state, game_idx: int, y: int, x: int) -> int:
     Returns:
         Number of consecutive rings from top matching the controlling player
     """
-    height = int(state.stack_height[game_idx, y, x].item())
+    # Pre-extract values to avoid repeated .item() calls
+    height = int(state.stack_height[game_idx, y, x].cpu().numpy())
     if height <= 0:
         return 0
 
-    owner = int(state.stack_owner[game_idx, y, x].item())
+    owner = int(state.stack_owner[game_idx, y, x].cpu().numpy())
     if owner <= 0:
         return 0
+
+    # Pre-extract ring_stack slice as numpy for the loop
+    ring_stack_slice = state.ring_stack[game_idx, y, x, :height].cpu().numpy()
 
     cap = 0
     # Count from top (height-1) down to bottom (0)
     for i in range(height - 1, -1, -1):
-        ring_owner = int(state.ring_stack[game_idx, y, x, i].item())
-        if ring_owner == owner:
+        if int(ring_stack_slice[i]) == owner:
             cap += 1
         else:
             break
@@ -1512,7 +1517,7 @@ def generate_chain_capture_moves_from_position(
     board_size = state.board_size
 
     # Pre-extract game state as numpy to avoid repeated .item() calls
-    player = int(state.current_player[game_idx].item())
+    player = int(state.current_player[game_idx].cpu().numpy())
     stack_owner_np = state.stack_owner[game_idx].cpu().numpy()
     stack_height_np = state.stack_height[game_idx].cpu().numpy()
     cap_height_np = state.cap_height[game_idx].cpu().numpy()
@@ -1620,6 +1625,7 @@ def apply_single_chain_capture(
       the landing marker removal + cap-elimination cost.
 
     Optimized 2025-12-13: Pre-extract numpy arrays to avoid .item() calls in loops.
+    Optimized Dec 2025: Added ring_under_cap, buried_at, move_count pre-extraction.
 
     Args:
         state: BatchGameState to modify
@@ -1631,12 +1637,15 @@ def apply_single_chain_capture(
         (new_y, new_x) landing position for potential chain continuation
     """
     # Pre-extract game slice as numpy for efficient reading (avoid .item() calls)
-    player = int(state.current_player[game_idx].item())
+    player = int(state.current_player[game_idx].cpu().numpy())
     stack_owner_np = state.stack_owner[game_idx].cpu().numpy()
     stack_height_np = state.stack_height[game_idx].cpu().numpy()
     cap_height_np = state.cap_height[game_idx].cpu().numpy()
     marker_owner_np = state.marker_owner[game_idx].cpu().numpy()
     is_collapsed_np = state.is_collapsed[game_idx].cpu().numpy()
+    ring_under_cap_np = state.ring_under_cap[game_idx].cpu().numpy()
+    buried_at_np = state.buried_at[game_idx].cpu().numpy()  # Shape: [num_players+1, board_size, board_size]
+    move_count = int(state.move_count[game_idx].cpu().numpy())
 
     # Capture move representation:
     # - (from -> landing) is passed in as (to_y, to_x)
@@ -1644,7 +1653,7 @@ def apply_single_chain_capture(
     attacker_height = int(stack_height_np[from_y, from_x])
     attacker_cap_height = int(cap_height_np[from_y, from_x])
     # BUG FIX (2025-12-22): Extract attacker_ring_under early for buried_at logic
-    attacker_ring_under_early = int(state.ring_under_cap[game_idx, from_y, from_x].item())
+    attacker_ring_under_early = int(ring_under_cap_np[from_y, from_x])
 
     dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
     dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
@@ -1674,7 +1683,7 @@ def apply_single_chain_capture(
             f"in game {game_idx}. This indicates a bug in chain capture generation."
         )
         # Still move the stack as a fallback, but don't record as capture
-        attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
+        attacker_ring_under = int(ring_under_cap_np[from_y, from_x])
         state.stack_height[game_idx, to_y, to_x] = attacker_height
         state.stack_owner[game_idx, to_y, to_x] = player
         state.cap_height[game_idx, to_y, to_x] = min(attacker_cap_height, attacker_height)
@@ -1688,7 +1697,7 @@ def apply_single_chain_capture(
 
     # Record in history AFTER verifying target exists (December 2025 bugfix)
     # Chain captures use CONTINUE_CAPTURE_SEGMENT and CHAIN_CAPTURE phase
-    mc = int(state.move_count[game_idx].item())
+    mc = move_count
     if mc < state.max_history_moves:
         state.move_history[game_idx, mc, 0] = MoveType.CONTINUE_CAPTURE_SEGMENT
         state.move_history[game_idx, mc, 1] = player
@@ -1735,7 +1744,7 @@ def apply_single_chain_capture(
     target_owner = int(stack_owner_np[target_y, target_x])
     target_height = int(stack_height_np[target_y, target_x])
     target_cap_height = int(cap_height_np[target_y, target_x])
-    target_ring_under = int(state.ring_under_cap[game_idx, target_y, target_x].item())
+    target_ring_under = int(ring_under_cap_np[target_y, target_x])
 
     state.marker_owner[game_idx, target_y, target_x] = 0
 
@@ -1760,7 +1769,7 @@ def apply_single_chain_capture(
         state.ring_stack[game_idx, target_y, target_x, :] = 0
         # BUG FIX 2025-12-20: Clear buried_at and decrement buried_rings when stack eliminated
         for p in range(1, state.num_players + 1):
-            buried_count = state.buried_at[game_idx, p, target_y, target_x].item()
+            buried_count = int(buried_at_np[p, target_y, target_x])
             if buried_count > 0:
                 state.buried_at[game_idx, p, target_y, target_x] = 0
                 state.buried_rings[game_idx, p] -= buried_count
@@ -1772,7 +1781,7 @@ def apply_single_chain_capture(
         # Compute new ring_under_cap from remaining buried_at BEFORE setting cap
         new_ring_under = 0
         for p in range(1, state.num_players + 1):
-            if p != new_owner and state.buried_at[game_idx, p, target_y, target_x].item() > 0:
+            if p != new_owner and int(buried_at_np[p, target_y, target_x]) > 0:
                 new_ring_under = p
                 break
         state.ring_under_cap[game_idx, target_y, target_x] = new_ring_under
@@ -1783,7 +1792,7 @@ def apply_single_chain_capture(
         # actually HAD buried rings at this position. The ring_under_cap itself is NOT
         # in buried_at (only rings BELOW ring_under_cap are buried).
         if target_ring_under > 0:
-            buried_count = state.buried_at[game_idx, target_ring_under, target_y, target_x].item()
+            buried_count = int(buried_at_np[target_ring_under, target_y, target_x])
             if buried_count > 0:
                 state.buried_at[game_idx, target_ring_under, target_y, target_x] -= 1
                 state.buried_rings[game_idx, target_ring_under] -= 1
@@ -1818,7 +1827,8 @@ def apply_single_chain_capture(
     buried_count = attacker_height - attacker_cap_height
 
     # Get attacker's ring_under_cap BEFORE computing new ownership (needed for cap_elim_with_buried)
-    attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
+    # Note: Uses pre-extracted value from function start (same as attacker_ring_under_early)
+    attacker_ring_under = int(ring_under_cap_np[from_y, from_x])
 
     if state.num_players == 2 and cap_fully_eliminated and attacker_has_buried:
         # BUG FIX 2025-12-21: When cap is eliminated AND attacker has buried rings,
@@ -1831,7 +1841,7 @@ def apply_single_chain_capture(
         else:
             new_cap = buried_count
         # The buried rings are now exposed - clear buried tracking
-        buried_count_at_pos = state.buried_at[game_idx, new_owner, to_y, to_x].item()
+        buried_count_at_pos = int(buried_at_np[new_owner, to_y, to_x])
         if buried_count_at_pos > 0:
             state.buried_at[game_idx, new_owner, to_y, to_x] = 0
             state.buried_rings[game_idx, new_owner] -= buried_count_at_pos
@@ -1909,7 +1919,7 @@ def apply_single_chain_capture(
 
     # December 2025: Move buried_at tracking from origin to landing
     for p in range(1, state.num_players + 1):
-        buried_count = state.buried_at[game_idx, p, from_y, from_x].item()
+        buried_count = int(buried_at_np[p, from_y, from_x])
         if buried_count > 0:
             state.buried_at[game_idx, p, to_y, to_x] += buried_count
             state.buried_at[game_idx, p, from_y, from_x] = 0
@@ -1936,6 +1946,7 @@ def apply_single_initial_capture(
     Used for post-movement captures where we need to record the correct phase.
 
     December 2025: Added for post-movement capture parity with CPU phase machine.
+    Optimized Dec 2025: Pre-extract numpy arrays to avoid .item() calls.
 
     Args:
         state: BatchGameState to modify
@@ -1946,17 +1957,21 @@ def apply_single_initial_capture(
     Returns:
         (new_y, new_x) landing position for potential chain continuation
     """
-    player = int(state.current_player[game_idx].item())
+    # Pre-extract all read values as numpy to avoid .item() calls
+    player = int(state.current_player[game_idx].cpu().numpy())
     stack_owner_np = state.stack_owner[game_idx].cpu().numpy()
     stack_height_np = state.stack_height[game_idx].cpu().numpy()
     cap_height_np = state.cap_height[game_idx].cpu().numpy()
     marker_owner_np = state.marker_owner[game_idx].cpu().numpy()
     is_collapsed_np = state.is_collapsed[game_idx].cpu().numpy()
+    ring_under_cap_np = state.ring_under_cap[game_idx].cpu().numpy()
+    buried_at_np = state.buried_at[game_idx].cpu().numpy()  # Shape: [num_players+1, board_size, board_size]
+    move_count = int(state.move_count[game_idx].cpu().numpy())
 
     attacker_height = int(stack_height_np[from_y, from_x])
     attacker_cap_height = int(cap_height_np[from_y, from_x])
     # BUG FIX (2025-12-22): Extract attacker_ring_under early for buried_at logic
-    attacker_ring_under_early = int(state.ring_under_cap[game_idx, from_y, from_x].item())
+    attacker_ring_under_early = int(ring_under_cap_np[from_y, from_x])
 
     dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
     dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
@@ -1981,7 +1996,7 @@ def apply_single_initial_capture(
         return to_y, to_x
 
     # Record in history with OVERTAKING_CAPTURE and CAPTURE phase
-    mc = int(state.move_count[game_idx].item())
+    mc = move_count
     if mc < state.max_history_moves:
         state.move_history[game_idx, mc, 0] = MoveType.OVERTAKING_CAPTURE
         state.move_history[game_idx, mc, 1] = player
@@ -2025,7 +2040,7 @@ def apply_single_initial_capture(
     target_owner = int(stack_owner_np[target_y, target_x])
     target_height = int(stack_height_np[target_y, target_x])
     target_cap_height = int(cap_height_np[target_y, target_x])
-    target_ring_under = int(state.ring_under_cap[game_idx, target_y, target_x].item())
+    target_ring_under = int(ring_under_cap_np[target_y, target_x])
 
     state.marker_owner[game_idx, target_y, target_x] = 0
 
@@ -2049,7 +2064,7 @@ def apply_single_initial_capture(
         state.ring_stack[game_idx, target_y, target_x, :] = 0
         # BUG FIX 2025-12-20: Clear buried_at and decrement buried_rings when stack eliminated
         for p in range(1, state.num_players + 1):
-            buried_count = state.buried_at[game_idx, p, target_y, target_x].item()
+            buried_count = int(buried_at_np[p, target_y, target_x])
             if buried_count > 0:
                 state.buried_at[game_idx, p, target_y, target_x] = 0
                 state.buried_rings[game_idx, p] -= buried_count
@@ -2061,7 +2076,7 @@ def apply_single_initial_capture(
         # Compute new ring_under_cap from remaining buried_at BEFORE setting cap
         new_ring_under = 0
         for p in range(1, state.num_players + 1):
-            if p != new_owner and state.buried_at[game_idx, p, target_y, target_x].item() > 0:
+            if p != new_owner and int(buried_at_np[p, target_y, target_x]) > 0:
                 new_ring_under = p
                 break
         state.ring_under_cap[game_idx, target_y, target_x] = new_ring_under
@@ -2072,7 +2087,7 @@ def apply_single_initial_capture(
         # actually HAD buried rings at this position. The ring_under_cap itself is NOT
         # in buried_at (only rings BELOW ring_under_cap are buried).
         if target_ring_under > 0:
-            buried_count = state.buried_at[game_idx, target_ring_under, target_y, target_x].item()
+            buried_count = int(buried_at_np[target_ring_under, target_y, target_x])
             if buried_count > 0:
                 state.buried_at[game_idx, target_ring_under, target_y, target_x] -= 1
                 state.buried_rings[game_idx, target_ring_under] -= 1
@@ -2119,7 +2134,7 @@ def apply_single_initial_capture(
         else:
             new_cap = buried_count
         # The buried rings are now exposed - clear buried tracking
-        buried_count_at_pos = state.buried_at[game_idx, opponent, to_y, to_x].item()
+        buried_count_at_pos = int(buried_at_np[opponent, to_y, to_x])
         if buried_count_at_pos > 0:
             state.buried_at[game_idx, opponent, to_y, to_x] = 0
             state.buried_rings[game_idx, opponent] -= buried_count_at_pos
@@ -2143,7 +2158,7 @@ def apply_single_initial_capture(
         new_cap = max(0, min(attacker_cap_height - landing_ring_cost, new_height))
 
     # Get attacker's ring_under_cap before clearing origin
-    attacker_ring_under = int(state.ring_under_cap[game_idx, from_y, from_x].item())
+    attacker_ring_under = int(ring_under_cap_np[from_y, from_x])
 
     # Compute ring_under_cap for landing position (December 2025)
     # BUG FIX 2025-12-21: When capturing, the captured ring goes to the BOTTOM of the stack.
@@ -2200,7 +2215,7 @@ def apply_single_initial_capture(
 
     # December 2025: Move buried_at tracking from origin to landing
     for p in range(1, state.num_players + 1):
-        buried_count = state.buried_at[game_idx, p, from_y, from_x].item()
+        buried_count = int(buried_at_np[p, from_y, from_x])
         if buried_count > 0:
             state.buried_at[game_idx, p, to_y, to_x] += buried_count
             state.buried_at[game_idx, p, from_y, from_x] = 0

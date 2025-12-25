@@ -85,6 +85,9 @@ class DaemonType(Enum):
     EXTERNAL_DRIVE_SYNC = "external_drive_sync"
     VAST_CPU_PIPELINE = "vast_cpu_pipeline"
 
+    # Continuous training loop (December 2025)
+    CONTINUOUS_TRAINING_LOOP = "continuous_training_loop"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -94,6 +97,12 @@ class DaemonState(Enum):
     STOPPING = "stopping"
     FAILED = "failed"
     RESTARTING = "restarting"
+    IMPORT_FAILED = "import_failed"  # Permanent failure due to missing imports
+
+
+# Constants for recovery behavior
+DAEMON_RESTART_RESET_AFTER = 3600  # Reset restart count after 1 hour of stability
+MAX_RESTART_DELAY = 300  # Cap exponential backoff at 5 minutes
 
 
 @dataclass
@@ -113,6 +122,13 @@ class DaemonInfo:
     # Dependencies
     depends_on: list[DaemonType] = field(default_factory=list)
 
+    # Stability tracking for restart count reset
+    stable_since: float = 0.0  # When daemon became stable (no errors)
+    last_failure_time: float = 0.0  # When the last failure occurred
+
+    # Import error tracking
+    import_error: str | None = None  # Specific import error message
+
     @property
     def uptime_seconds(self) -> float:
         """Get uptime in seconds."""
@@ -129,6 +145,7 @@ class DaemonManagerConfig:
     shutdown_timeout: float = 10.0  # Max time to wait for graceful shutdown
     auto_restart_failed: bool = True  # Auto-restart failed daemons
     max_restart_attempts: int = 5  # Max restart attempts per daemon
+    recovery_cooldown: float = 300.0  # Time before attempting to recover FAILED daemons
 
 
 class DaemonManager:
@@ -191,6 +208,9 @@ class DaemonManager:
         # P2P services
         self.register_factory(DaemonType.GOSSIP_SYNC, self._create_gossip_sync)
         self.register_factory(DaemonType.DATA_SERVER, self._create_data_server)
+
+        # Continuous training
+        self.register_factory(DaemonType.CONTINUOUS_TRAINING_LOOP, self._create_continuous_training_loop)
 
     def register_factory(
         self,
@@ -275,17 +295,50 @@ class DaemonManager:
         daemon_type: DaemonType,
         factory: Callable[[], Coroutine[Any, Any, None]]
     ) -> None:
-        """Run a daemon with error handling and restart logic."""
+        """Run a daemon with error handling and restart logic.
+
+        Features:
+        - Import errors are treated as permanent failures (IMPORT_FAILED state)
+        - Restart count resets after DAEMON_RESTART_RESET_AFTER seconds of stability
+        - Exponential backoff for restart delays (capped at MAX_RESTART_DELAY)
+        """
         info = self._daemons[daemon_type]
 
         while not self._shutdown_event.is_set():
+            # Reset restart counter after period of stability
+            if info.last_failure_time > 0:
+                time_since_failure = time.time() - info.last_failure_time
+                if time_since_failure > DAEMON_RESTART_RESET_AFTER:
+                    if info.restart_count > 0:
+                        logger.info(
+                            f"{daemon_type.value} stable for {DAEMON_RESTART_RESET_AFTER}s, "
+                            f"resetting restart count from {info.restart_count} to 0"
+                        )
+                        info.restart_count = 0
+                        info.last_failure_time = 0.0
+
             try:
+                info.stable_since = time.time()  # Mark start of stable period
                 await factory()
             except asyncio.CancelledError:
                 logger.debug(f"{daemon_type.value} cancelled")
                 break
+            except ImportError as e:
+                # Import errors are permanent - require code/environment fix
+                info.last_error = str(e)
+                info.import_error = str(e)
+                info.state = DaemonState.IMPORT_FAILED
+                info.last_failure_time = time.time()
+                logger.error(
+                    f"{daemon_type.value} import failed permanently: {e}. "
+                    f"Fix the import and restart the daemon manager."
+                )
+                # Don't retry import failures - they need manual intervention
+                break
             except Exception as e:
                 info.last_error = str(e)
+                info.last_failure_time = time.time()
+                info.stable_since = 0.0
                 logger.error(f"{daemon_type.value} failed: {e}")
 
                 if not info.auto_restart:
@@ -297,15 +350,17 @@ class DaemonManager:
                     info.state = DaemonState.FAILED
                     break
 
-                # Restart
+                # Restart with exponential backoff
                 info.restart_count += 1
                 info.state = DaemonState.RESTARTING
-                logger.info(f"Restarting {daemon_type.value} (attempt {info.restart_count})")
-                await asyncio.sleep(info.restart_delay)
+                delay = min(info.restart_delay * (2 ** (info.restart_count - 1)), MAX_RESTART_DELAY)
+                logger.info(f"Restarting {daemon_type.value} (attempt {info.restart_count}) in {delay:.1f}s")
+                await asyncio.sleep(delay)
                 info.state = DaemonState.RUNNING
                 info.start_time = time.time()
 
-        info.state = DaemonState.STOPPED
+        if info.state not in (DaemonState.FAILED, DaemonState.IMPORT_FAILED):
+            info.state = DaemonState.STOPPED
 
     async def stop(self, daemon_type: DaemonType) -> bool:
         """Stop a specific daemon.
@@ -340,6 +395,56 @@ class DaemonManager:
             logger.info(f"Stopped daemon: {daemon_type.value}")
             return True
 
+    async def restart_failed_daemon(
+        self,
+        daemon_type: DaemonType,
+        force: bool = False,
+    ) -> bool:
+        """Restart a failed daemon, optionally resetting its restart count.
+
+        This method allows manual recovery of daemons that have exceeded their
+        restart limit or have import errors.
+
+        Args:
+            daemon_type: Type of daemon to restart
+            force: If True, reset restart count and clear import error
+
+        Returns:
+            True if restart initiated successfully
+        """
+        async with self._lock:
+            info = self._daemons.get(daemon_type)
+            if info is None:
+                logger.error(f"Unknown daemon type: {daemon_type}")
+                return False
+
+            if info.state not in (DaemonState.FAILED, DaemonState.IMPORT_FAILED, DaemonState.STOPPED):
+                logger.warning(
+                    f"Cannot restart {daemon_type.value}: state is {info.state.value}, "
+                    f"expected FAILED, IMPORT_FAILED, or STOPPED"
+                )
+                return False
+
+            # Import failures need force=True to retry
+            if info.state == DaemonState.IMPORT_FAILED and not force:
+                logger.warning(
+                    f"{daemon_type.value} has import error: {info.import_error}. "
+                    f"Use force=True to retry after fixing the import."
+                )
+                return False
+
+            if force:
+                logger.info(f"Force restarting {daemon_type.value}, resetting counters")
+                info.restart_count = 0
+                info.import_error = None
+                info.last_error = None
+                info.last_failure_time = 0.0
+
+            logger.info(f"Restarting failed daemon: {daemon_type.value}")
+
+        # Release lock before starting (start() acquires its own lock)
+        return await self.start(daemon_type)
+
     async def start_all(self, types: list[DaemonType] | None = None) -> dict[DaemonType, bool]:
         """Start all (or specified) daemons in dependency order.
 
@@ -362,6 +467,14 @@ class DaemonManager:
         if not self._health_task or self._health_task.done():
             self._running = True
             self._health_task = asyncio.create_task(self._health_loop())
+
+        # Start daemon watchdog for active monitoring
+        try:
+            from app.coordination.daemon_watchdog import start_watchdog
+            asyncio.create_task(start_watchdog())
+            logger.info("Daemon watchdog started")
+        except Exception as e:
+            logger.warning(f"Failed to start daemon watchdog: {e}")
 
         return results
 
@@ -387,6 +500,13 @@ class DaemonManager:
         logger.info("DaemonManager shutting down...")
         self._shutdown_event.set()
         self._running = False
+
+        # Stop watchdog first
+        try:
+            from app.coordination.daemon_watchdog import stop_watchdog
+            await stop_watchdog()
+        except Exception as e:
+            logger.debug(f"Watchdog stop error (expected if not started): {e}")
 
         # Stop health check
         if self._health_task:
@@ -450,8 +570,28 @@ class DaemonManager:
                 logger.error(f"Health check error: {e}")
 
     async def _check_health(self) -> None:
-        """Check health of all running daemons."""
-        for daemon_type, info in self._daemons.items():
+        """Check health of all daemons and attempt recovery of FAILED ones."""
+        current_time = time.time()
+
+        for daemon_type, info in list(self._daemons.items()):
+            # Attempt recovery of FAILED daemons after cooldown period
+            if info.state == DaemonState.FAILED:
+                # Skip daemons with import errors - they can't be recovered
+                if info.import_error:
+                    continue
+
+                time_since_failure = current_time - info.last_failure_time
+                if time_since_failure >= self.config.recovery_cooldown:
+                    logger.info(
+                        f"Attempting recovery of {daemon_type.value} after "
+                        f"{time_since_failure:.0f}s cooldown"
+                    )
+                    # Reset restart count to allow recovery attempts
+                    info.restart_count = 0
+                    info.state = DaemonState.STOPPED  # Reset state before restart
+                    await self.start(daemon_type)
+                continue
+
             if info.state != DaemonState.RUNNING:
                 continue
 
@@ -459,12 +599,14 @@ class DaemonManager:
             if info.task is None or info.task.done():
                 if info.task and info.task.exception():
                     info.last_error = str(info.task.exception())
+                    info.last_failure_time = current_time
 
                 if self.config.auto_restart_failed and info.restart_count < info.max_restarts:
                     logger.warning(f"{daemon_type.value} died, restarting...")
                     await self.start(daemon_type)
                 else:
                     info.state = DaemonState.FAILED
+                    info.last_failure_time = current_time
 
     def get_status(self) -> dict[str, Any]:
         """Get status of all daemons.
@@ -515,9 +657,9 @@ class DaemonManager:
                 interval_seconds=300,
                 categories=[SyncCategory.GAMES, SyncCategory.MODELS, SyncCategory.TRAINING],
             )
-        except ImportError:
-            logger.warning("SyncCoordinator not available")
-            await asyncio.sleep(float('inf'))  # Sleep forever
+        except ImportError as e:
+            logger.error(f"SyncCoordinator not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_high_quality_sync(self) -> None:
         """Create and run high-quality data sync watcher."""
@@ -532,9 +674,9 @@ class DaemonManager:
             # Keep daemon alive
             while True:
                 await asyncio.sleep(3600)
-        except ImportError:
-            logger.warning("High-quality sync watcher not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"High-quality sync watcher not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_elo_sync(self) -> None:
         """Create and run ELO sync daemon."""
@@ -543,9 +685,9 @@ class DaemonManager:
 
             manager = EloSyncManager.get_instance()
             await manager.start_sync_daemon(interval_seconds=60)
-        except ImportError:
-            logger.warning("EloSyncManager not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"EloSyncManager not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_event_router(self) -> None:
         """Create and run the unified event router."""
@@ -554,9 +696,9 @@ class DaemonManager:
 
             router = UnifiedEventRouter.get_instance()
             await router.start()
-        except ImportError:
-            logger.warning("UnifiedEventRouter not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"UnifiedEventRouter not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_cross_process_poller(self) -> None:
         """Create and run cross-process event poller."""
@@ -566,10 +708,11 @@ class DaemonManager:
             poller = CrossProcessEventPoller()
             poller.start()  # start() is sync, runs in background thread
             # Keep this coroutine alive while the poller runs
-            await asyncio.sleep(float('inf'))
-        except ImportError:
-            logger.warning("CrossProcessEventPoller not available")
-            await asyncio.sleep(float('inf'))
+            while True:
+                await asyncio.sleep(3600)  # Check every hour
+        except ImportError as e:
+            logger.error(f"CrossProcessEventPoller not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_health_check(self) -> None:
         """Create and run health check daemon."""
@@ -578,9 +721,9 @@ class DaemonManager:
 
             daemon = HealthCheckDaemon()
             await daemon.start()
-        except ImportError:
-            logger.warning("HealthCheckDaemon not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"HealthCheckDaemon not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_queue_monitor(self) -> None:
         """Create and run queue monitor."""
@@ -589,9 +732,9 @@ class DaemonManager:
 
             monitor = QueueMonitor()
             await monitor.start()
-        except ImportError:
-            logger.warning("QueueMonitor not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"QueueMonitor not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_gossip_sync(self) -> None:
         """Create and run gossip sync daemon."""
@@ -600,9 +743,9 @@ class DaemonManager:
 
             daemon = GossipSyncDaemon()
             await daemon.start()
-        except ImportError:
-            logger.warning("GossipSyncDaemon not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"GossipSyncDaemon not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_data_server(self) -> None:
         """Create and run aria2 data server."""
@@ -614,9 +757,36 @@ class DaemonManager:
             # Keep alive
             while coordinator.is_data_server_running():
                 await asyncio.sleep(60)
-        except ImportError:
-            logger.warning("Data server not available")
-            await asyncio.sleep(float('inf'))
+        except ImportError as e:
+            logger.error(f"Data server not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
+
+    async def _create_continuous_training_loop(self) -> None:
+        """Create and run continuous training loop daemon."""
+        try:
+            from app.coordination.continuous_loop import (
+                ContinuousTrainingLoop,
+                LoopConfig,
+            )
+
+            # Default config - can be customized via environment or config file
+            config = LoopConfig(
+                configs=[("hex8", 2), ("square8", 2)],
+                selfplay_games_per_iteration=1000,
+                selfplay_engine="gumbel-mcts",
+                max_iterations=0,  # Infinite
+            )
+
+            loop = ContinuousTrainingLoop(config)
+            await loop.start()
+
+            # Wait for loop to complete (or be stopped)
+            while loop._running:
+                await asyncio.sleep(10)
+
+        except ImportError as e:
+            logger.error(f"ContinuousTrainingLoop not available: {e}")
+            raise  # Propagate error so DaemonManager marks as FAILED
 
 
 # Singleton accessor

@@ -438,7 +438,7 @@ class TestPEROrchestrator:
         """Test successful event subscription."""
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             result = orchestrator.subscribe_to_events()
 
         assert result is True
@@ -455,7 +455,7 @@ class TestPEROrchestrator:
 
     def test_subscribe_to_events_failure(self, orchestrator):
         """Test subscription failure."""
-        with patch("app.distributed.data_events.get_event_bus", side_effect=Exception("No bus")):
+        with patch("app.coordination.event_router.get_event_bus", side_effect=Exception("No bus")):
             result = orchestrator.subscribe_to_events()
 
         assert result is False
@@ -466,7 +466,7 @@ class TestPEROrchestrator:
         mock_bus = MagicMock()
         orchestrator._subscribed = True
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orchestrator.unsubscribe()
 
         assert orchestrator._subscribed is False
@@ -481,14 +481,14 @@ class TestPEROrchestrator:
         """Test emitting stats event."""
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orchestrator._emit_stats_event()
 
         assert mock_bus.publish_sync.call_count == 1
 
     def test_emit_stats_event_failure(self, orchestrator):
         """Test stats event emission failure (should not raise)."""
-        with patch("app.distributed.data_events.get_event_bus", side_effect=Exception("Error")):
+        with patch("app.coordination.event_router.get_event_bus", side_effect=Exception("Error")):
             orchestrator._emit_stats_event()  # Should not raise
 
 
@@ -514,7 +514,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orch = wire_per_events()
 
         assert orch is not None
@@ -527,7 +527,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orch = wire_per_events(buffer_stale_threshold_seconds=1800.0)
 
         assert orch.buffer_stale_threshold_seconds == 1800.0
@@ -538,7 +538,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orch1 = wire_per_events()
             orch2 = wire_per_events()
 
@@ -556,7 +556,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             wire_per_events()
 
         assert get_per_orchestrator() is not None
@@ -571,12 +571,12 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             wire_per_events()
 
         assert get_per_orchestrator() is not None
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             reset_per_orchestrator()
 
         assert get_per_orchestrator() is None
@@ -590,7 +590,7 @@ class TestModuleFunctions:
 
         mock_bus = MagicMock()
 
-        with patch("app.distributed.data_events.get_event_bus", return_value=mock_bus):
+        with patch("app.coordination.event_router.get_event_bus", return_value=mock_bus):
             orch = wire_per_events()
             assert orch._subscribed is True
 

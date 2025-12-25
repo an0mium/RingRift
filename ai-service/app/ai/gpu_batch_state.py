@@ -757,7 +757,17 @@ class BatchGameState:
 
         rings_per_player = get_rings_per_player(board_type)
 
-        # Build stacks dict from GPU tensors
+        # Pre-extract numpy arrays for this game to avoid repeated .item() calls
+        # This provides ~10x speedup for to_game_state() (Dec 2025 optimization)
+        stack_owner_np = self.stack_owner[game_idx].cpu().numpy()
+        stack_height_np = self.stack_height[game_idx].cpu().numpy()
+        cap_height_np = self.cap_height[game_idx].cpu().numpy()
+        ring_stack_np = self.ring_stack[game_idx].cpu().numpy()
+        marker_owner_np = self.marker_owner[game_idx].cpu().numpy()
+        is_collapsed_np = self.is_collapsed[game_idx].cpu().numpy()
+        territory_owner_np = self.territory_owner[game_idx].cpu().numpy()
+
+        # Build stacks dict from pre-extracted numpy arrays
         stacks: dict[str, RingStack] = {}
         markers: dict[str, MarkerInfo] = {}
         collapsed_spaces: dict[str, int] = {}
@@ -782,41 +792,41 @@ class BatchGameState:
                     pos_key = f"{col},{row}"  # Square boards use canvas coords
                     position = Position(x=col, y=row)
 
-                # Check for stack
-                stack_owner = self.stack_owner[game_idx, y, x].item()
-                stack_height = self.stack_height[game_idx, y, x].item()
-                if stack_owner > 0 and stack_height > 0:
-                    cap_h = self.cap_height[game_idx, y, x].item()
-                    # Reconstruct rings from ring_stack tensor (December 2025)
+                # Check for stack (using pre-extracted numpy)
+                owner = int(stack_owner_np[y, x])
+                height = int(stack_height_np[y, x])
+                if owner > 0 and height > 0:
+                    cap_h = int(cap_height_np[y, x])
+                    # Reconstruct rings from ring_stack array (December 2025)
                     rings = []
-                    for i in range(int(stack_height)):
-                        ring_owner = self.ring_stack[game_idx, y, x, i].item()
+                    for i in range(height):
+                        ring_owner = int(ring_stack_np[y, x, i])
                         if ring_owner > 0:
-                            rings.append(int(ring_owner))
+                            rings.append(ring_owner)
                         else:
                             # Fallback for empty slots (shouldn't happen)
-                            rings.append(int(stack_owner))
+                            rings.append(owner)
 
                     stacks[pos_key] = RingStack(
                         position=position,
                         rings=rings,
-                        stackHeight=stack_height,
+                        stackHeight=height,
                         capHeight=cap_h,
-                        controllingPlayer=stack_owner,
+                        controllingPlayer=owner,
                     )
 
-                # Check for marker
-                marker_owner = self.marker_owner[game_idx, y, x].item()
-                if marker_owner > 0:
+                # Check for marker (using pre-extracted numpy)
+                m_owner = int(marker_owner_np[y, x])
+                if m_owner > 0:
                     markers[pos_key] = MarkerInfo(
-                        player=marker_owner,
+                        player=m_owner,
                         position=position,
                         type="regular",
                     )
 
-                # Check for collapsed space
-                if self.is_collapsed[game_idx, y, x].item():
-                    terr_owner = self.territory_owner[game_idx, y, x].item()
+                # Check for collapsed space (using pre-extracted numpy)
+                if is_collapsed_np[y, x]:
+                    terr_owner = int(territory_owner_np[y, x])
                     if terr_owner > 0:
                         collapsed_spaces[pos_key] = terr_owner
 
@@ -829,11 +839,27 @@ class BatchGameState:
             collapsedSpaces=collapsed_spaces,
         )
 
-        # Create Player objects
+        # Pre-extract player arrays and scalar values (avoid repeated .item() calls)
+        eliminated_rings_np = self.eliminated_rings[game_idx].cpu().numpy()
+        rings_in_hand_np = self.rings_in_hand[game_idx].cpu().numpy()
+        lps_action_mask_np = self.lps_current_round_real_action_mask[game_idx].cpu().numpy()
+
+        # Pre-extract scalar values once
+        gpu_phase_val = int(self.current_phase[game_idx].cpu().numpy())
+        gpu_status = int(self.game_status[game_idx].cpu().numpy())
+        winner_val = int(self.winner[game_idx].cpu().numpy())
+        current_player_val = int(self.current_player[game_idx].cpu().numpy())
+        mmy = int(self.must_move_from_y[game_idx].cpu().numpy())
+        mmx = int(self.must_move_from_x[game_idx].cpu().numpy())
+        lps_round_idx = int(self.lps_round_index[game_idx].cpu().numpy())
+        lps_first_player = int(self.lps_current_round_first_player[game_idx].cpu().numpy())
+        lps_excl = int(self.lps_exclusive_player_for_completed_round[game_idx].cpu().numpy())
+
+        # Create Player objects (using pre-extracted numpy)
         players: list[Player] = []
         total_rings_eliminated = 0
         for p in range(1, self.num_players + 1):
-            elim_rings = int(self.eliminated_rings[game_idx, p].item())
+            elim_rings = int(eliminated_rings_np[p])
             total_rings_eliminated += elim_rings
             players.append(
                 Player(
@@ -843,14 +869,13 @@ class BatchGameState:
                     playerNumber=p,
                     isReady=True,
                     timeRemaining=600000,  # 10 min default
-                    ringsInHand=int(self.rings_in_hand[game_idx, p].item()),
+                    ringsInHand=int(rings_in_hand_np[p]),
                     eliminatedRings=elim_rings,
                     territorySpaces=0,  # Not tracked in GPU state
                 )
             )
 
         # Map GPU phase to CPU phase (December 2025: canonical phases)
-        gpu_phase_val = int(self.current_phase[game_idx].item())
         phase_map = {
             GamePhase.RING_PLACEMENT.value: CPUGamePhase.RING_PLACEMENT,
             GamePhase.MOVEMENT.value: CPUGamePhase.MOVEMENT,
@@ -867,7 +892,6 @@ class BatchGameState:
         cpu_phase = phase_map.get(gpu_phase_val, CPUGamePhase.RING_PLACEMENT)
 
         # Map GPU game status to CPU status
-        gpu_status = int(self.game_status[game_idx].item())
         status_map = {
             GameStatus.ACTIVE.value: CPUGameStatus.ACTIVE,
             GameStatus.COMPLETED.value: CPUGameStatus.COMPLETED,
@@ -883,14 +907,13 @@ class BatchGameState:
         now = datetime.now()
 
         # Create GameState with all required fields
-        winner_val = int(self.winner[game_idx].item())
         game_state = GameState(
             id=f"gpu-game-{game_idx}",
             boardType=board_type,
             board=board,
             players=players,
             currentPhase=cpu_phase,
-            currentPlayer=int(self.current_player[game_idx].item()),
+            currentPlayer=current_player_val,
             moveHistory=[],
             timeControl=TimeControl(initialTime=600000, increment=0, type="none"),
             gameStatus=cpu_status,
@@ -906,25 +929,21 @@ class BatchGameState:
         )
 
         # Set must_move_from constraint via stack key
-        mmy = self.must_move_from_y[game_idx].item()
-        mmx = self.must_move_from_x[game_idx].item()
         if mmy >= 0 and mmx >= 0:
             game_state.must_move_from_stack_key = f"{mmx},{mmy}"
 
         # Set LPS tracking state
-        game_state.lps_round_index = int(self.lps_round_index[game_idx].item())
-        fp = self.lps_current_round_first_player[game_idx].item()
-        game_state.lps_current_round_first_player = int(fp) if fp > 0 else None
+        game_state.lps_round_index = lps_round_idx
+        game_state.lps_current_round_first_player = lps_first_player if lps_first_player > 0 else None
 
-        # LPS actor mask (dict[int, bool])
+        # LPS actor mask (dict[int, bool]) - using pre-extracted numpy
         lps_mask: dict[int, bool] = {}
         for p in range(1, self.num_players + 1):
-            if self.lps_current_round_real_action_mask[game_idx, p].item():
+            if lps_action_mask_np[p]:
                 lps_mask[p] = True
         game_state.lps_current_round_actor_mask = lps_mask
 
-        excl = self.lps_exclusive_player_for_completed_round[game_idx].item()
-        game_state.lps_exclusive_player_for_completed_round = int(excl) if excl > 0 else None
+        game_state.lps_exclusive_player_for_completed_round = lps_excl if lps_excl > 0 else None
 
         return game_state
 

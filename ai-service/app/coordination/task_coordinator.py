@@ -842,10 +842,23 @@ class TaskCoordinator:
         )
         self._heartbeat_monitor.start()
 
+        # Resource recovery loop for auto-resumption (December 2025)
+        self._resource_recovery_task: threading.Thread | None = None
+        self._resource_recovery_interval = 30.0  # Check every 30s
+        self._resource_recovery_threshold = 0.90  # Resume when below 90% of critical
+        self._paused_due_to_resources = False
+        self._stop_recovery_loop = threading.Event()
+
         logger.info("Task coordinator initialized (with heartbeat monitor)")
 
     def _shutdown(self) -> None:
         """Cleanup on shutdown."""
+        # Stop resource recovery loop
+        if hasattr(self, '_stop_recovery_loop'):
+            self._stop_recovery_loop.set()
+        if hasattr(self, '_resource_recovery_task') and self._resource_recovery_task:
+            self._resource_recovery_task.join(timeout=5.0)
+
         if hasattr(self, '_heartbeat_monitor'):
             self._heartbeat_monitor.stop()
 
@@ -880,6 +893,83 @@ class TaskCoordinator:
     def resume(self) -> None:
         """Resume task spawning."""
         self.set_state(CoordinatorState.RUNNING)
+        self._paused_due_to_resources = False
+
+    def start_resource_recovery_loop(self) -> None:
+        """Start the resource recovery monitoring loop.
+
+        This loop periodically checks resource usage and auto-resumes
+        if the coordinator was paused due to resource pressure and
+        resources have recovered below the threshold.
+        """
+        if self._resource_recovery_task and self._resource_recovery_task.is_alive():
+            return  # Already running
+
+        self._stop_recovery_loop.clear()
+        self._resource_recovery_task = threading.Thread(
+            target=self._resource_recovery_loop,
+            daemon=True,
+            name="resource-recovery-loop",
+        )
+        self._resource_recovery_task.start()
+        logger.info("Resource recovery loop started")
+
+    def stop_resource_recovery_loop(self) -> None:
+        """Stop the resource recovery monitoring loop."""
+        self._stop_recovery_loop.set()
+        if self._resource_recovery_task:
+            self._resource_recovery_task.join(timeout=5.0)
+            self._resource_recovery_task = None
+
+    def _resource_recovery_loop(self) -> None:
+        """Background loop that checks resources and auto-resumes if recovered."""
+        while not self._stop_recovery_loop.is_set():
+            try:
+                self._check_resource_recovery()
+            except Exception as e:
+                logger.error(f"Resource recovery check error: {e}")
+
+            # Wait for next check
+            self._stop_recovery_loop.wait(timeout=self._resource_recovery_interval)
+
+    def _check_resource_recovery(self) -> None:
+        """Check if resources have recovered enough to auto-resume."""
+        # Only check if we're paused due to resources
+        if not self._paused_due_to_resources:
+            return
+
+        if self.state != CoordinatorState.PAUSED:
+            return
+
+        try:
+            import psutil
+        except ImportError:
+            return
+
+        # Check current resource usage
+        disk_percent = psutil.disk_usage("/").percent
+        memory_percent = psutil.virtual_memory().percent
+
+        # Calculate recovery thresholds (90% of critical thresholds)
+        disk_recovery = self.limits.halt_on_disk_percent * self._resource_recovery_threshold
+        memory_recovery = self.limits.halt_on_memory_percent * self._resource_recovery_threshold
+
+        # Check if both resources are below recovery threshold
+        if disk_percent < disk_recovery and memory_percent < memory_recovery:
+            logger.info(
+                f"Resources recovered: disk={disk_percent:.0f}% < {disk_recovery:.0f}%, "
+                f"mem={memory_percent:.0f}% < {memory_recovery:.0f}%. Auto-resuming."
+            )
+            self.resume()
+
+    def pause_for_resources(self) -> None:
+        """Pause due to resource pressure (enables auto-recovery)."""
+        self._paused_due_to_resources = True
+        self.set_state(CoordinatorState.PAUSED)
+
+        # Start recovery loop if not already running
+        if not self._resource_recovery_task or not self._resource_recovery_task.is_alive():
+            self.start_resource_recovery_loop()
 
     def emergency_stop(self) -> None:
         """Emergency stop - halt all spawning and signal shutdown."""
@@ -1490,13 +1580,15 @@ class TaskCoordinator:
         }
         self._resource_cache_time = time.time()
 
-        # Auto-pause on critical resource usage
+        # Auto-pause on critical resource usage (with auto-recovery)
         if (disk_percent >= self.limits.halt_on_disk_percent or
             memory_percent >= self.limits.halt_on_memory_percent) and self.state == CoordinatorState.RUNNING:
             logger.warning(
                 f"Critical resources on {node_id}: "
-                f"disk={disk_percent:.0f}%, mem={memory_percent:.0f}%"
+                f"disk={disk_percent:.0f}%, mem={memory_percent:.0f}%. "
+                f"Auto-pausing with recovery monitoring."
             )
+            self.pause_for_resources()
 
     # ==========================================
     # Callbacks

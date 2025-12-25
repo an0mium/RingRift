@@ -317,7 +317,9 @@ The v2 architectures provide improved playing strength with memory-aware model s
 
 ### Memory Tier Selection
 
-Use `RINGRIFT_NN_MEMORY_TIER` environment variable:
+Use `RINGRIFT_NN_MEMORY_TIER` environment variable. Supported tiers:
+`high`, `low`, `v3-high`, `v3-low`, `v4`, `gnn`, `hybrid`. Unsupported values
+fall back to `high`. The `gnn` and `hybrid` tiers require PyTorch Geometric.
 
 ```bash
 # High memory (96GB systems) - maximum playing strength
@@ -326,8 +328,16 @@ export RINGRIFT_NN_MEMORY_TIER=high
 # Low memory (48GB systems) - memory-efficient
 export RINGRIFT_NN_MEMORY_TIER=low
 
-# Legacy (default) - use v1 architectures
-export RINGRIFT_NN_MEMORY_TIER=legacy
+# V3 spatial policy heads (experimental)
+export RINGRIFT_NN_MEMORY_TIER=v3-high
+export RINGRIFT_NN_MEMORY_TIER=v3-low
+
+# V4 NAS-optimized attention (square boards only)
+export RINGRIFT_NN_MEMORY_TIER=v4
+
+# Optional GNN tiers (requires PyTorch Geometric)
+export RINGRIFT_NN_MEMORY_TIER=gnn
+export RINGRIFT_NN_MEMORY_TIER=hybrid
 ```
 
 ### V2 Architecture Comparison
@@ -344,6 +354,13 @@ export RINGRIFT_NN_MEMORY_TIER=legacy
 | Square19 Params       | ~36M (144 MB)    | ~14M (56 MB)      |
 | Hex Params            | ~44M (175 MB)    | ~19M (75 MB)      |
 | Target Memory (2 NNs) | ~35 GB budget    | ~15 GB budget     |
+
+### Additional Tiers (v3/v4/GNN)
+
+- `v3-high` / `v3-low`: Spatial policy heads, lower parameter count (experimental).
+- `v4`: NAS-optimized attention model for square boards.
+- `gnn`: Pure graph policy/value model (requires PyTorch Geometric).
+- `hybrid`: CNN + GNN hybrid model (requires PyTorch Geometric).
 
 ### Key V2 Improvements
 

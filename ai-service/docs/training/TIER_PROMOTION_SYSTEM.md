@@ -2,6 +2,9 @@
 
 The tier promotion system manages model progression through difficulty tiers (D1-D10). D11 is reserved for internal benchmarks and is not exposed via the public API.
 
+> Source of truth: `docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md` for the end-to-end workflow.  
+> This document is a concise module/API reference and should stay aligned with that pipeline.
+
 ## Architecture
 
 ```

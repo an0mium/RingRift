@@ -96,6 +96,9 @@ def value_from_final_ranking(
     Ranking is determined by eliminated_rings (more = better), with ties broken
     by territory_spaces.
 
+    IMPORTANT: Handles eliminated players correctly - if the perspective player
+    is not in final_state.players, they were eliminated and get worst rank (-1.0).
+
     Args:
         final_state: The completed game state
         perspective: Player number (1-indexed) to compute value for
@@ -114,6 +117,13 @@ def value_from_final_ranking(
     if num_players == 2:
         if winner == perspective:
             return 1.0
+        return -1.0
+
+    # Build set of active player numbers (those still in final_state.players)
+    active_player_nums = {p.player_number for p in final_state.players}
+
+    # If perspective player was eliminated, they get worst rank
+    if perspective not in active_player_nums:
         return -1.0
 
     # For multiplayer, compute ranking based on eliminated_rings (primary)
@@ -154,24 +164,28 @@ def compute_multi_player_values(
     This is used with RingRiftCNN_MultiPlayer which outputs values for all
     players simultaneously instead of just the current player's perspective.
 
+    IMPORTANT: This iterates over ALL expected players (1 to num_players), not
+    just those remaining in final_state.players. Eliminated players are assigned
+    the worst rank (last place = -1.0 value).
+
     Args:
         final_state: The completed game state
-        num_players: Number of active players in the game (2, 3, or 4)
+        num_players: Number of players in the game (2, 3, or 4)
         max_players: Maximum players the model supports (default: 4)
 
     Returns:
         List of values of length max_players, where:
-        - Active players (0 to num_players-1) have values in [-1, +1]
-        - Inactive slots are filled with 0.0
+        - Players 1 to num_players have values in [-1, +1]
+        - Inactive slots (num_players+1 to max_players) are filled with 0.0
 
     Examples:
         >>> # 2-player game where P1 wins
         >>> values = compute_multi_player_values(state, num_players=2)
         >>> # values = [1.0, -1.0, 0.0, 0.0]
 
-        >>> # 3-player game ranking P2, P1, P3
+        >>> # 3-player game where P3 wins, P2 eliminated mid-game
         >>> values = compute_multi_player_values(state, num_players=3)
-        >>> # values = [0.0, 1.0, -1.0, 0.0]  (P2=1st, P1=2nd, P3=3rd)
+        >>> # values = [-1.0, -1.0, 1.0, 0.0]  (P1=loser, P2=eliminated, P3=winner)
     """
     # Initialize with zeros for inactive slots
     values = [0.0] * max_players
@@ -182,7 +196,10 @@ def compute_multi_player_values(
     if winner is None or not final_state.players:
         return values
 
-    # Compute ranking based on eliminated_rings and territory_spaces
+    # Build set of active player numbers (those still in final_state.players)
+    active_player_nums = {p.player_number for p in final_state.players}
+
+    # Compute ranking for active players based on eliminated_rings and territory_spaces
     player_scores = []
     for player in final_state.players:
         score = (player.eliminated_rings, player.territory_spaces)
@@ -196,13 +213,18 @@ def compute_multi_player_values(
     for rank, (player_num, _) in enumerate(player_scores, start=1):
         player_ranks[player_num] = rank
 
-    # Compute value for each active player position
-    for player in final_state.players:
-        player_idx = player.player_number - 1  # 0-indexed for array
+    # Compute value for ALL expected players, not just active ones
+    for player_num in range(1, num_players + 1):
+        player_idx = player_num - 1  # 0-indexed for array
         if player_idx >= max_players:
             continue
 
-        rank = player_ranks.get(player.player_number, num_players)
+        if player_num in active_player_nums:
+            # Active player - use computed rank
+            rank = player_ranks.get(player_num, num_players)
+        else:
+            # Eliminated player - worst rank (last place)
+            rank = num_players
 
         if num_players <= 1:
             values[player_idx] = 0.0

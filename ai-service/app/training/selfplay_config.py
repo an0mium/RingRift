@@ -233,6 +233,12 @@ class SelfplayConfig:
             "sq8": "square8",
             "sq19": "square19",
             "square19": "square19",
+            # Full hex / hex24 aliases for hexagonal (469-cell board, radius 12)
+            "full_hex": "hexagonal",
+            "full-hex": "hexagonal",
+            "fullhex": "hexagonal",
+            "full_hexagonal": "hexagonal",
+            "hex24": "hexagonal",
         }
         return aliases.get(board_type.lower(), board_type.lower())
 

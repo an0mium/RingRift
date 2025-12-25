@@ -30,10 +30,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +263,40 @@ class DataManifest:
             db_path: Path to SQLite database
         """
         self.db_path = db_path
+        # Connection pooling (December 2025): Persistent connection with lock
+        # Eliminates 30+ connect/close cycles per batch operation
+        self._conn: sqlite3.Connection | None = None
+        self._lock = threading.Lock()
         self._init_db()
+
+    @contextmanager
+    def _connection(self) -> Generator[sqlite3.Connection, None, None]:
+        """Get a database connection with thread safety.
+
+        Uses a persistent connection with lock to avoid connection churn.
+        Creates connection on first access (lazy initialization).
+
+        Yields:
+            SQLite connection
+        """
+        with self._lock:
+            if self._conn is None:
+                self._conn = sqlite3.connect(
+                    self.db_path,
+                    check_same_thread=False,
+                    timeout=30.0,
+                )
+                # Enable WAL mode for better concurrent read performance
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.execute("PRAGMA synchronous=NORMAL")
+            yield self._conn
+
+    def close(self) -> None:
+        """Close the persistent connection."""
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def _init_db(self) -> None:
         """Initialize the manifest database schema."""
@@ -488,12 +523,10 @@ class DataManifest:
         Returns:
             True if game is already synced
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM synced_games WHERE game_id = ?", (game_id,))
-        result = cursor.fetchone() is not None
-        conn.close()
-        return result
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM synced_games WHERE game_id = ?", (game_id,))
+            return cursor.fetchone() is not None
 
     def is_content_synced(self, content_hash: str) -> bool:
         """Check if content with this hash has been synced.
@@ -504,12 +537,10 @@ class DataManifest:
         Returns:
             True if content is already synced
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM synced_games WHERE content_hash = ?", (content_hash,))
-        result = cursor.fetchone() is not None
-        conn.close()
-        return result
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM synced_games WHERE content_hash = ?", (content_hash,))
+            return cursor.fetchone() is not None
 
     def get_unsynced_game_ids(self, game_ids: list[str]) -> list[str]:
         """Filter list to only unsynced game IDs.
@@ -523,14 +554,12 @@ class DataManifest:
         if not game_ids:
             return []
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Batch check
-        placeholders = ",".join("?" * len(game_ids))
-        cursor.execute(f"SELECT game_id FROM synced_games WHERE game_id IN ({placeholders})", game_ids)
-        synced = {row[0] for row in cursor.fetchall()}
-        conn.close()
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            # Batch check
+            placeholders = ",".join("?" * len(game_ids))
+            cursor.execute(f"SELECT game_id FROM synced_games WHERE game_id IN ({placeholders})", game_ids)
+            synced = {row[0] for row in cursor.fetchall()}
 
         return [gid for gid in game_ids if gid not in synced]
 
@@ -1137,40 +1166,35 @@ class DataManifest:
 
     def get_synced_count(self) -> int:
         """Get total number of synced games."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM synced_games")
-        count = cursor.fetchone()[0]
-        conn.close()
-        return count
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM synced_games")
+            return cursor.fetchone()[0]
 
     def get_synced_count_by_host(self) -> dict[str, int]:
         """Get synced game counts by host."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT source_host, COUNT(*) FROM synced_games
-            GROUP BY source_host
-        """)
-        result = {row[0]: row[1] for row in cursor.fetchall()}
-        conn.close()
-        return result
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT source_host, COUNT(*) FROM synced_games
+                GROUP BY source_host
+            """)
+            return {row[0]: row[1] for row in cursor.fetchall()}
 
     def get_synced_count_by_config(self) -> dict[str, int]:
         """Get synced game counts by board config."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT board_type, num_players, COUNT(*) FROM synced_games
-            WHERE board_type IS NOT NULL
-            GROUP BY board_type, num_players
-        """)
-        result = {}
-        for row in cursor.fetchall():
-            key = f"{row[0]}_{row[1]}p" if row[0] and row[1] else "unknown"
-            result[key] = row[2]
-        conn.close()
-        return result
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT board_type, num_players, COUNT(*) FROM synced_games
+                WHERE board_type IS NOT NULL
+                GROUP BY board_type, num_players
+            """)
+            result = {}
+            for row in cursor.fetchall():
+                key = f"{row[0]}_{row[1]}p" if row[0] and row[1] else "unknown"
+                result[key] = row[2]
+            return result
 
     # =========================================================================
     # Host Sync State

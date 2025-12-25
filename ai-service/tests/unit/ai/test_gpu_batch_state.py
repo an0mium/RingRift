@@ -558,7 +558,7 @@ class TestDeriveVictoryType:
         state.rings_caused_eliminated[0, 1] = 20
 
         victory_type, tiebreaker = state.derive_victory_type(0, max_moves=500)
-        assert victory_type == "elimination"
+        assert victory_type == "ring_elimination"
         assert tiebreaker is None
 
     def test_lps_victory(self, device):

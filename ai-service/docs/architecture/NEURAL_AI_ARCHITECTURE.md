@@ -72,6 +72,19 @@ global_features = [
 
 Use axial coordinates with padding. The GNN approach handles this naturally; for CNN, use hexagonal convolutions or treat as sparse grid with masking.
 
+### 1.4 GNN/Hybrid Policy Path
+
+GNN tiers are first-class and intended for production experimentation:
+
+- **Training:** `python -m app.training.train --model-type gnn|hybrid` routes to
+  `app.training.train_gnn_policy` (PyTorch Geometric required).
+- **Inference:** `app.ai.gnn_ai.GNNAI` uses `app.ai.neural_net.graph_encoding` plus
+  `app.ai.canonical_move_encoding.encode_move_for_board` to select legal moves.
+- **Configuration:** memory tiers `gnn`/`hybrid` are supported via
+  `RINGRIFT_NN_MEMORY_TIER` and the shared model factory.
+
+If PyTorch Geometric is unavailable, fall back to CNN tiers.
+
 ---
 
 ## 2. Action Space Decomposition

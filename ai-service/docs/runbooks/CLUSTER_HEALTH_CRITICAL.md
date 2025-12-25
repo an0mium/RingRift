@@ -27,6 +27,13 @@ curl -H "X-Admin-Key: $ADMIN_KEY" \
 
 # Check sync-specific metrics
 curl http://localhost:8001/metrics | grep -E "ringrift_sync_"
+
+# Execution-layer sync health (deadlines, consecutive failures)
+python -c "
+from app.distributed.sync_coordinator import SyncCoordinator
+sync = SyncCoordinator.get_instance()
+print(sync.get_sync_health())
+"
 ```
 
 ### 2. Identify Affected Hosts

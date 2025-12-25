@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
-"""Transfer learning: adapt 2-player model to 4-player.
+"""Transfer learning: adapt 2-player model to N-player.
 
-This script takes a trained 2-player model and adapts it for 4-player games by:
+This script takes a trained 2-player model and adapts it for 3 or 4-player games by:
 1. Loading all shared weights (conv layers, residual blocks, policy head)
-2. Reinitializing the value head for 4 players (extends from 2 outputs to 4)
+2. Reinitializing the value head for N players (extends from 2 outputs to N)
 
 Usage:
+    # Transfer to 4-player (default)
     PYTHONPATH=. python scripts/transfer_2p_to_4p.py \
         --source models/canonical_sq8_2p.pth \
         --output models/transfer_sq8_4p_init.pth \
         --board-type square8
+
+    # Transfer to 3-player
+    PYTHONPATH=. python scripts/transfer_2p_to_4p.py \
+        --source models/canonical_hex8_2p.pth \
+        --output models/transfer_hex8_3p_init.pth \
+        --board-type hex8 \
+        --target-players 3
 """
 
 import argparse
@@ -21,10 +29,20 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> None:
-    """Transfer 2-player model weights to 4-player architecture."""
+def transfer_2p_to_np(source_path: str, output_path: str, board_type: str, target_players: int = 4) -> None:
+    """Transfer 2-player model weights to N-player architecture.
+
+    Args:
+        source_path: Path to source 2-player model
+        output_path: Path to save target model
+        board_type: Board type (square8, hex8, etc.)
+        target_players: Target number of players (3 or 4)
+    """
+    if target_players not in (3, 4):
+        raise ValueError(f"target_players must be 3 or 4, got {target_players}")
 
     logger.info(f"Loading source model: {source_path}")
+    logger.info(f"Transfer: 2-player -> {target_players}-player")
     checkpoint = torch.load(source_path, map_location='cpu')
 
     # Handle different checkpoint formats
@@ -44,10 +62,10 @@ def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> No
                 value_keys_to_resize.append(key)
                 logger.info(f"  Found 2-player value head: {key} {shape}")
 
-    # Resize value head from 2 to 4 players
+    # Resize value head from 2 to target_players
     for key in value_keys_to_resize:
         old_weight = state_dict[key]
-        new_shape = (4, old_weight.shape[1]) if len(old_weight.shape) == 2 else (4,)
+        new_shape = (target_players, old_weight.shape[1]) if len(old_weight.shape) == 2 else (target_players,)
 
         # Initialize new weights
         new_weight = torch.zeros(new_shape)
@@ -55,15 +73,15 @@ def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> No
         # Copy existing weights for players 1-2
         if len(old_weight.shape) == 2:
             new_weight[:2, :] = old_weight
-            # Initialize players 3-4 by averaging players 1-2 with noise
+            # Initialize additional players by averaging players 1-2 with noise
             avg = old_weight.mean(dim=0)
-            new_weight[2, :] = avg + torch.randn_like(avg) * 0.01
-            new_weight[3, :] = avg + torch.randn_like(avg) * 0.01
+            for p in range(2, target_players):
+                new_weight[p, :] = avg + torch.randn_like(avg) * 0.01
         else:
             new_weight[:2] = old_weight
             avg = old_weight.mean()
-            new_weight[2] = avg + torch.randn(1).item() * 0.01
-            new_weight[3] = avg + torch.randn(1).item() * 0.01
+            for p in range(2, target_players):
+                new_weight[p] = avg + torch.randn(1).item() * 0.01
 
         state_dict[key] = new_weight
         logger.info(f"  Resized {key}: {old_weight.shape} -> {new_weight.shape}")
@@ -73,10 +91,10 @@ def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> No
         if 'value_fc2' in key and 'bias' in key:
             old_bias = state_dict[key]
             if old_bias.shape[0] == 2:
-                new_bias = torch.zeros(4)
+                new_bias = torch.zeros(target_players)
                 new_bias[:2] = old_bias
-                new_bias[2] = old_bias.mean() + torch.randn(1).item() * 0.01
-                new_bias[3] = old_bias.mean() + torch.randn(1).item() * 0.01
+                for p in range(2, target_players):
+                    new_bias[p] = old_bias.mean() + torch.randn(1).item() * 0.01
                 state_dict[key] = new_bias
                 logger.info(f"  Resized {key}: {old_bias.shape} -> {new_bias.shape}")
 
@@ -84,11 +102,11 @@ def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> No
     new_checkpoint = {
         'model_state_dict': state_dict,
         'transfer_from': source_path,
-        'transfer_type': '2p_to_4p',
-        'num_players': 4,
+        'transfer_type': f'2p_to_{target_players}p',
+        'num_players': target_players,
         '_versioning_metadata': {
             'config': {
-                'num_players': 4,
+                'num_players': target_players,
                 'board_type': board_type,
                 'transfer_learning': True,
             }
@@ -99,7 +117,7 @@ def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> No
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
     torch.save(new_checkpoint, output_path)
-    logger.info(f"Saved 4-player model to: {output_path}")
+    logger.info(f"Saved {target_players}-player model to: {output_path}")
 
     # Verify
     verify = torch.load(output_path, map_location='cpu')
@@ -109,14 +127,22 @@ def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> No
             logger.info(f"  Verified {key}: {verify_sd[key].shape}")
 
 
+# Keep the old function name for backwards compatibility
+def transfer_2p_to_4p(source_path: str, output_path: str, board_type: str) -> None:
+    """Transfer 2-player model weights to 4-player architecture (backwards compat)."""
+    return transfer_2p_to_np(source_path, output_path, board_type, target_players=4)
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Transfer 2-player model to 4-player")
+    parser = argparse.ArgumentParser(description="Transfer 2-player model to N-player")
     parser.add_argument('--source', required=True, help='Source 2-player model path')
-    parser.add_argument('--output', required=True, help='Output 4-player model path')
+    parser.add_argument('--output', required=True, help='Output model path')
     parser.add_argument('--board-type', required=True, choices=['square8', 'square19', 'hex8', 'hexagonal'])
+    parser.add_argument('--target-players', type=int, default=4, choices=[3, 4],
+                        help='Target number of players (default: 4)')
 
     args = parser.parse_args()
-    transfer_2p_to_4p(args.source, args.output, args.board_type)
+    transfer_2p_to_np(args.source, args.output, args.board_type, args.target_players)
 
 
 if __name__ == '__main__':

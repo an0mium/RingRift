@@ -68,6 +68,7 @@ DAEMON_CATEGORIES = {
         DaemonType.SELFPLAY_COORDINATOR,
         DaemonType.DISTILLATION,
         DaemonType.UNIFIED_PROMOTION,
+        DaemonType.CONTINUOUS_TRAINING_LOOP,
     ],
     "monitoring": [
         DaemonType.HEALTH_CHECK,
@@ -130,6 +131,8 @@ Examples:
     cat_group.add_argument("--events", action="store_true", help="Start event daemons")
     cat_group.add_argument("--p2p", action="store_true", help="Start P2P daemons")
     cat_group.add_argument("--external", action="store_true", help="Start external daemons")
+    cat_group.add_argument("--continuous", action="store_true",
+                            help="Start continuous training loop daemon only")
 
     # Actions
     action_group = parser.add_argument_group("Actions")
@@ -177,6 +180,8 @@ def get_daemons_to_start(args: argparse.Namespace) -> list[DaemonType]:
         daemons.update(DAEMON_CATEGORIES["p2p"])
     if args.external:
         daemons.update(DAEMON_CATEGORIES["external"])
+    if args.continuous:
+        daemons.add(DaemonType.CONTINUOUS_TRAINING_LOOP)
 
     # Handle specific daemons
     if args.daemons:

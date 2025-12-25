@@ -446,12 +446,37 @@ class TrainingCoordinator:
         Returns:
             job_id if registered successfully, None if slot not available
         """
-        # First try to acquire distributed lock
+        # First try to acquire distributed lock with retry
         config_key = f"{board_type}_{num_players}p"
         lock = DistributedLock(f"training:{config_key}")
 
-        if not lock.acquire(timeout=30, blocking=True):
-            logger.warning(f"Could not acquire distributed lock for {config_key}")
+        # Retry with increasing timeouts: 30s, 60s, 90s
+        lock_timeouts = [30, 60, 90]
+        lock_acquired = False
+
+        for attempt, timeout in enumerate(lock_timeouts):
+            if lock.acquire(timeout=timeout, blocking=True):
+                lock_acquired = True
+                break
+
+            logger.warning(
+                f"Lock acquisition attempt {attempt + 1}/{len(lock_timeouts)} failed "
+                f"for {config_key} (timeout={timeout}s)"
+            )
+
+            # Wait before next attempt (except on last try)
+            if attempt < len(lock_timeouts) - 1:
+                time.sleep(5)
+
+        if not lock_acquired:
+            logger.error(f"Could not acquire distributed lock for {config_key} after {len(lock_timeouts)} attempts")
+            # Emit failure event for monitoring
+            self._emit_training_event(
+                "lock_failed",
+                board_type=board_type,
+                num_players=num_players,
+                attempts=len(lock_timeouts),
+            )
             return None
 
         try:

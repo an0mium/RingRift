@@ -574,5 +574,9 @@ class TestParallelGameRunner:
 
         assert isinstance(weights, dict)
         assert len(weights) > 0
-        assert "stack_count" in weights
-        assert "territory_count" in weights
+        # Weights may be CMA-ES optimized (WEIGHT_* prefix) or legacy (stack_count, etc.)
+        has_cmaes_weights = any(k.startswith("WEIGHT_") for k in weights)
+        has_legacy_weights = "stack_count" in weights or "territory_count" in weights
+        assert has_cmaes_weights or has_legacy_weights, f"No valid weights found: {weights}"
+        # All values should be numeric
+        assert all(isinstance(v, (int, float)) for v in weights.values())
