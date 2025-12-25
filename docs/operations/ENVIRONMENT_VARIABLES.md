@@ -819,9 +819,11 @@ and shadow validation is no longer supported. Use `RINGRIFT_FSM_VALIDATION_MODE=
 
 ### Orchestrator rollout controls
 
-These variables control **automatic rollback** of the orchestrator in production.
-They are evaluated by `OrchestratorRolloutService` and should typically be adjusted
-only in staging or by on-call operators following a runbook.
+These variables are retained for **diagnostics and metrics classification** only.
+The orchestrator adapter is permanently enabled, so these settings do **not**
+change live routing or roll back to legacy paths. `OrchestratorRolloutService`
+still uses them to label engine-selection reasons in metrics and the
+`/api/admin/orchestrator/status` endpoint, which can help triage incidents.
 
 For recommended combinations of `NODE_ENV`, `RINGRIFT_APP_TOPOLOGY`,
 `RINGRIFT_RULES_MODE`, and the orchestrator flags across CI, staging, and
@@ -842,12 +844,10 @@ production phases, see the env/phase presets table in
 | Default  | `""` (empty string)        |
 | Required | No                         |
 
-Comma-separated list of **user IDs** that are **always routed through the
-orchestrator**, regardless of `ORCHESTRATOR_ROLLOUT_PERCENTAGE` or other
-heuristics.
-
-Use this to force-enable orchestrator behaviour for internal accounts or
-specific test users.
+Comma-separated list of **user IDs** that are always **classified** as
+orchestrator-selected for metrics/logging. This does **not** change runtime
+behaviour (the orchestrator is always on), but it helps tag internal/test
+accounts during diagnostics.
 
 #### `ORCHESTRATOR_DENYLIST_USERS`
 
@@ -857,12 +857,10 @@ specific test users.
 | Default  | `""` (empty string)        |
 | Required | No                         |
 
-Comma-separated list of **user IDs** that are **never routed through the
-orchestrator**, even if the global rollout percentage would otherwise include
-them.
-
-Use this to exclude sensitive or high-value accounts from orchestrator
-experiments while rollout is in progress.
+Comma-separated list of **user IDs** that are classified as **legacy-selected**
+for metrics/logging. This does **not** change runtime behaviour, but it helps
+label sensitive accounts when reviewing rollout metrics or circuit-breaker
+events.
 
 #### `ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED`
 
@@ -872,13 +870,14 @@ experiments while rollout is in progress.
 | Default  | `true`    |
 | Required | No        |
 
-Enables the orchestrator **circuit breaker**. When enabled, sustained error
-rates or latency regressions for orchestrator-processed sessions will
-automatically reduce or disable orchestrator usage according to the thresholds
-below.
+Enables the orchestrator **circuit breaker state tracking**. When enabled,
+`OrchestratorRolloutService` will open/close the breaker based on the thresholds
+below and emit the `ringrift_orchestrator_circuit_breaker_state` metric. This
+does **not** auto-disable the orchestrator (routing is fixed), but it provides
+an incident signal.
 
-Set to `false` only for controlled experiments where automatic rollback is not
-desired (for example, during development or in tightly monitored staging
+Set to `false` only for controlled experiments where circuit-breaker telemetry
+is not desired (for example, during development or in tightly monitored staging
 runs).
 
 #### `ORCHESTRATOR_ERROR_THRESHOLD_PERCENT`
@@ -891,11 +890,11 @@ runs).
 | Required | No       |
 
 Percentage of orchestrator-processed requests within the error window that may
-fail **before** the circuit breaker trips.
+fail **before** the circuit breaker trips. This updates breaker state and
+metrics; it does not change routing.
 
 - At `5` (default), if more than 5% of orchestrator turns fail within the
-  configured window, the orchestrator is considered unhealthy and may be
-  disabled or scaled back.
+  configured window, the circuit breaker is marked open and recorded in metrics.
 
 #### `ORCHESTRATOR_ERROR_WINDOW_SECONDS`
 
@@ -917,8 +916,8 @@ the circuit breaker.
 | Required | No       |
 
 P99 latency threshold for orchestrator-processed requests, in milliseconds.
-Used by `OrchestratorRolloutService` to detect performance regressions during
-rollout.
+Used by `OrchestratorRolloutService` to detect regressions and annotate
+circuit-breaker metrics (no routing changes are applied).
 
 ---
 

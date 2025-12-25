@@ -8,8 +8,8 @@ playtesters. It does not run in CI or production.
 
 This document complements, but does not replace:
 
-- `docs/ai/AI_DIFFICULTY_SPEC.md` — logical difficulty tiers (D1–D10) and
-  intended strength ordering.
+- `docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md` — ladder tiers (D1–D10)
+  and intended strength ordering.
 - `ai-service/app/config/ladder_config.py` — concrete engine settings per
   `(difficulty, board_type, num_players)` via `LadderTierConfig`.
 - Tier evaluation and gating tools in `ai-service/app/training/` —
@@ -232,8 +232,8 @@ Map these observations back to the difficulty spec and ladder:
   - Or increasing D2 randomness / reducing think time in the ladder
     config, then re‑running AI‑vs‑AI gating before exposing the change.
 - If D6 feels like the true “expert” tier and D8 is unreachable for
-  almost everyone, treat D8 as experimental or hidden until the
-  ladder is re‑tuned.
+  almost everyone, keep D8 as an opt‑in high‑end tier and revisit
+  ladder budgets before expanding defaults.
 
 Calibration results should be recorded in a shared, access‑controlled
 document or dashboard. Avoid storing user identifiers; it is enough to

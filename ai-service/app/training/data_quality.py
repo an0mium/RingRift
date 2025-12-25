@@ -796,11 +796,89 @@ class DatabaseQualityChecker:
 
             conn.close()
 
+            # Phase 3 Feedback Loop: Emit quality events for selfplay throttling
+            self._emit_quality_events(report)
+
         except Exception as e:
             report.issues.append(f"Failed to generate report: {e}")
             report.quality_score = 0.0
 
         return report
+
+    def _emit_quality_events(self, report: DataQualityReport) -> None:
+        """Emit quality-related events for the feedback loop.
+
+        December 2025: Phase 3 of self-improvement feedback loop.
+        Emits events that selfplay_runner can subscribe to for throttling.
+
+        Args:
+            report: Quality report with score and issues
+        """
+        try:
+            import asyncio
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            # Extract config info from metadata if available
+            config_breakdown = report.metadata.get("config_breakdown", {})
+            board_type = "unknown"
+            num_players = 2
+
+            # Try to extract from first config
+            for config_key in config_breakdown:
+                parts = config_key.rsplit("_", 1)
+                if len(parts) == 2:
+                    board_type = parts[0]
+                    try:
+                        num_players = int(parts[1].replace("p", ""))
+                    except ValueError:
+                        pass
+                    break
+
+            # Always emit QUALITY_SCORE_UPDATED
+            asyncio.get_event_loop().run_until_complete(
+                emit_data_event(
+                    event_type=DataEventType.QUALITY_SCORE_UPDATED,
+                    payload={
+                        "database_path": report.database_path,
+                        "board_type": board_type,
+                        "num_players": num_players,
+                        "quality_score": report.quality_score,
+                        "total_games": report.total_games,
+                        "valid_games": report.valid_games,
+                        "issues_count": len(report.issues),
+                        "issues": report.issues[:5],  # First 5 issues
+                    },
+                )
+            )
+
+            # Emit LOW_QUALITY_DATA_WARNING if score drops below threshold
+            QUALITY_THRESHOLD = 0.8
+            if report.quality_score < QUALITY_THRESHOLD:
+                asyncio.get_event_loop().run_until_complete(
+                    emit_data_event(
+                        event_type=DataEventType.LOW_QUALITY_DATA_WARNING,
+                        payload={
+                            "database_path": report.database_path,
+                            "board_type": board_type,
+                            "num_players": num_players,
+                            "quality_score": report.quality_score,
+                            "threshold": QUALITY_THRESHOLD,
+                            "severity": "critical" if report.quality_score < 0.5 else "warning",
+                            "issues": report.issues,
+                            "recommendations": report.recommendations,
+                        },
+                    )
+                )
+                logger.warning(
+                    f"[DataQuality] Emitted LOW_QUALITY_DATA_WARNING: "
+                    f"score={report.quality_score:.2f} < threshold={QUALITY_THRESHOLD}"
+                )
+
+        except RuntimeError:
+            # No event loop running - skip event emission in sync context
+            pass
+        except Exception as e:
+            logger.debug(f"[DataQuality] Failed to emit quality events: {e}")
 
 
 # =============================================================================

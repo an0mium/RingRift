@@ -18,7 +18,6 @@ import {
   isLpsActivePhase,
   buildLpsVictoryResult,
   LpsTrackingState,
-  LPS_REQUIRED_CONSECUTIVE_ROUNDS,
   LPS_DEFAULT_REQUIRED_ROUNDS,
 } from '../../src/shared/engine/lpsTracking';
 import type { GameState, GamePhase, Player } from '../../src/shared/types/game';
@@ -889,10 +888,6 @@ describe('lpsTracking module', () => {
   describe('LPS_DEFAULT_REQUIRED_ROUNDS constant', () => {
     it('should equal 3 (canonical default)', () => {
       expect(LPS_DEFAULT_REQUIRED_ROUNDS).toBe(3);
-    });
-
-    it('should equal deprecated LPS_REQUIRED_CONSECUTIVE_ROUNDS for backward compat', () => {
-      expect(LPS_DEFAULT_REQUIRED_ROUNDS).toBe(LPS_REQUIRED_CONSECUTIVE_ROUNDS);
     });
   });
 

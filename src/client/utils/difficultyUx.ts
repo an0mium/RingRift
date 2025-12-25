@@ -34,8 +34,7 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
       'Uses a mostly random policy with only light safeguards against illegal or impossible moves. Intended purely for learning the interface and basic rules, not for meaningful competition.',
     recommendedAudience:
       'First-time strategy players and testers who want a stress-free way to learn RingRift basics.',
-    notes:
-      'Not part of the calibrated ladder. Corresponds to legacy D1 random play and should be treated as unrated.',
+    notes: 'Baseline-only tier; not part of the human-calibrated ladder.',
   },
   {
     id: 2,
@@ -75,21 +74,20 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   },
   {
     id: 5,
-    name: 'Tough (D5 – MCTS)',
-    shortDescription:
-      'First MCTS tier: tougher conversion and stronger tactical awareness than minimax.',
+    name: 'Tough (D5 – Descent)',
+    shortDescription: 'Neural search tier that plays more globally than minimax.',
     detailedDescription:
-      'Backed by the canonical D5 MCTS profile (heuristic rollouts; no neural net). Plays with stronger global search than minimax tiers, improving midgame conversion and reducing unforced mistakes while remaining fast enough for casual sandbox play.',
+      'Backed by the canonical D5 Descent profile (neural search). Plays with stronger global planning than minimax tiers, improving midgame conversion and reducing unforced mistakes while remaining within reasonable budgets.',
     recommendedAudience:
       'Players who beat D4 consistently and want a demanding but not yet “expert” opponent.',
-    notes: 'Canonical ladder tier: MCTS (non-neural).',
+    notes: 'Canonical ladder tier: Descent (neural).',
   },
   {
     id: 6,
-    name: 'Advanced (D6 – Neural MCTS)',
-    shortDescription: 'Strong neural-guided MCTS that punishes shallow plans and weak structures.',
+    name: 'Advanced (D6 – Descent)',
+    shortDescription: 'Neural search with higher budget and stronger long-term planning.',
     detailedDescription:
-      'Backed by the canonical D6 MCTS profile (neural value/policy guidance). Avoids most obvious tactical shots, punishes over-extensions, and steadily converts small advantages over many moves. Games often feel tense and technical.',
+      'Backed by the canonical D6 Descent profile (neural search with higher budget). Avoids most obvious tactical shots, punishes over-extensions, and steadily converts small advantages over many moves.',
     recommendedAudience:
       'Strong club-level abstract-game players and advanced RingRift players who already handle D4 comfortably.',
     notes:
@@ -97,17 +95,17 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   },
   {
     id: 7,
-    name: 'Expert (D7 – Neural MCTS)',
-    shortDescription: 'Neural-guided MCTS with higher budget; mistakes are punished quickly.',
+    name: 'Expert (D7 – MCTS)',
+    shortDescription: 'Heuristic-only MCTS with a larger budget; mistakes are punished quickly.',
     detailedDescription:
-      'Backed by the canonical D7 MCTS profile (neural guidance with higher search budget). Plays with high tactical awareness and strong conversion, and will quickly capitalise on poor trades or slow play.',
+      'Backed by the canonical D7 MCTS profile (heuristic-only, no neural guidance). Plays with high tactical awareness and strong conversion, and will quickly capitalise on poor trades or slow play.',
     recommendedAudience:
       'Very strong regular players who beat D6 at a healthy rate but are not yet ready for the full D8 challenge.',
-    notes: 'Canonical ladder tier: MCTS (neural).',
+    notes: 'Canonical ladder tier: MCTS (heuristic-only).',
   },
   {
     id: 8,
-    name: 'Strong Expert (D8 – Near‑expert)',
+    name: 'Strong Expert (D8 – Neural MCTS)',
     shortDescription: 'Strong search-based AI intended as the top calibrated tier for most humans.',
     detailedDescription:
       'Backed by the canonical D8 MCTS profile (neural guidance with large search budget). Rarely blunders outright, converts small advantages, and punishes greedy territory or elimination attempts. Even very strong human players should find sustaining a high win rate difficult.',
@@ -118,26 +116,22 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   },
   {
     id: 9,
-    name: 'Master (Experimental)',
-    shortDescription:
-      'Experimental high-end AI; behaviour and strength may change between releases.',
+    name: 'Master (D9 – Gumbel MCTS)',
+    shortDescription: 'Top-end neural search using Gumbel MCTS.',
     detailedDescription:
-      'Represents experimental high-difficulty configurations (often based on stronger MCTS or Descent-style search). Not currently part of the human-calibrated ladder and primarily used for internal testing, tournaments, or stress testing.',
+      'Backed by the canonical D9 Gumbel MCTS profile (neural guidance with a large budget). Plays with deep tactical awareness and strong conversion; even expert players should find sustaining a high win rate difficult.',
     recommendedAudience:
-      'Internal testers and expert players who explicitly want to probe experimental, potentially unstable AI behaviour.',
-    notes:
-      'Treated as experimental / unrated. Do not use as a calibration anchor; ladder and engine settings may change without notice.',
+      'Expert players who want to test themselves against the strongest public ladder tiers.',
+    notes: 'Canonical ladder tier: Gumbel MCTS (neural).',
   },
   {
     id: 10,
-    name: 'Grandmaster (Experimental)',
-    shortDescription: 'Maximum experimental difficulty; not guaranteed to be fun or fair.',
+    name: 'Grandmaster (D10 – Gumbel MCTS)',
+    shortDescription: 'Maximum public difficulty; the strongest available engine.',
     detailedDescription:
-      'Reserved for maximum-strength experimental profiles, typically used to explore the limits of search or new engine variants. May feel inconsistent or unbalanced on some boards and is not calibrated against human skill bands.',
-    recommendedAudience:
-      'AI and engine developers, or expert players explicitly stress-testing the system.',
-    notes:
-      'Explicitly unrated and outside the human calibration guide. Use with caution in user-facing surfaces; prefer D2/D4/D6/D8 for meaningful difficulty settings.',
+      'Backed by the canonical D10 Gumbel MCTS profile (largest search budget). Intended to be exceptionally challenging and suitable for stress-testing high-level play.',
+    recommendedAudience: 'Elite players and AI testers who want the strongest possible challenge.',
+    notes: 'Canonical ladder tier: Gumbel MCTS (neural).',
   },
 ];
 

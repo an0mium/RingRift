@@ -197,6 +197,10 @@ class SelfplayConfig:
     # Difficulty level (used to determine simulation_budget if not set)
     difficulty: int | None = None
 
+    # Elo-adaptive budget (December 2025)
+    model_elo: float | None = None  # Model Elo for adaptive budget calculation
+    training_epoch: int = 0  # Training epoch for progressive budget scaling
+
     # Additional engine-specific options
     extra_options: dict[str, Any] = field(default_factory=dict)
 
@@ -261,6 +265,45 @@ class SelfplayConfig:
             "hexagonal": BoardType.HEXAGONAL,
         }
         return mapping.get(self.board_type, BoardType.SQUARE8)
+
+    def get_effective_budget(self) -> int:
+        """Get the effective simulation budget for MCTS search.
+
+        Priority order:
+        1. Explicit simulation_budget if set
+        2. Elo-adaptive budget if model_elo is set
+        3. Difficulty-based budget if difficulty is set
+        4. Default budget (150)
+
+        Returns:
+            Simulation budget for MCTS search
+
+        Example:
+            >>> config = SelfplayConfig(model_elo=1450, training_epoch=50)
+            >>> budget = config.get_effective_budget()
+            >>> print(f"Budget: {budget}")
+            Budget: 225
+        """
+        from app.ai.gumbel_common import (
+            GUMBEL_BUDGET_STANDARD,
+            get_budget_for_difficulty,
+            get_elo_adaptive_budget,
+        )
+
+        # Priority 1: Explicit budget
+        if self.simulation_budget is not None:
+            return self.simulation_budget
+
+        # Priority 2: Elo-adaptive budget
+        if self.model_elo is not None:
+            return get_elo_adaptive_budget(self.model_elo, self.training_epoch)
+
+        # Priority 3: Difficulty-based budget
+        if self.difficulty is not None:
+            return get_budget_for_difficulty(self.difficulty)
+
+        # Priority 4: Default
+        return GUMBEL_BUDGET_STANDARD
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for serialization."""
@@ -361,6 +404,20 @@ def create_argument_parser(
         type=int,
         default=None,
         help="Difficulty level 1-10 for auto budget selection (default: 8)",
+    )
+    engine_group.add_argument(
+        "--model-elo",
+        type=float,
+        default=None,
+        help="Model Elo for Elo-adaptive budget (December 2025). "
+             "If set, overrides --difficulty for budget calculation.",
+    )
+    engine_group.add_argument(
+        "--training-epoch",
+        type=int,
+        default=0,
+        help="Training epoch for progressive budget scaling (default: 0). "
+             "Used with --model-elo for Elo-adaptive budget.",
     )
 
     # Output settings
@@ -628,6 +685,8 @@ def parse_selfplay_args(
         temperature=parsed.temperature,
         simulation_budget=getattr(parsed, "simulation_budget", None),
         difficulty=getattr(parsed, "difficulty", None),
+        model_elo=getattr(parsed, "model_elo", None),
+        training_epoch=getattr(parsed, "training_epoch", 0),
         # Output settings
         output_format=parsed.output_format,
         output_dir=parsed.output_dir,

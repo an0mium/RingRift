@@ -101,21 +101,22 @@ Multi-algorithm strategy supporting 10 production difficulty levels (D1-D10) plu
 
 **Production Tier (D1-D10)**:
 
-| Level | Algorithm | Description                                      |
-| ----- | --------- | ------------------------------------------------ |
-| 1     | Random    | Pure random valid moves                          |
-| 2     | Heuristic | 45+ CMA-ES optimized weighted evaluation factors |
-| 3     | Minimax   | Alpha-beta search with heuristic evaluation      |
-| 4     | Minimax   | Alpha-beta search with NNUE neural evaluation    |
-| 5     | MCTS      | Monte Carlo Tree Search (heuristic rollouts)     |
-| 6-8   | MCTS      | MCTS with neural value/policy guidance           |
-| 9-10  | Descent   | AlphaZero-style UBFM search with neural guidance |
+| Level | Algorithm   | Description                                      |
+| ----- | ----------- | ------------------------------------------------ |
+| 1     | Random      | Pure random valid moves                          |
+| 2     | Heuristic   | 45+ CMA-ES optimized weighted evaluation factors |
+| 3     | Minimax     | Alpha-beta search with heuristic evaluation      |
+| 4     | Minimax     | Alpha-beta search with NNUE neural evaluation    |
+| 5-6   | Descent     | Neural search with global planning               |
+| 7     | MCTS        | Monte Carlo Tree Search (heuristic-only)         |
+| 8     | MCTS        | MCTS with neural value/policy guidance           |
+| 9-10  | Gumbel MCTS | Gumbel MCTS with neural guidance                 |
 
 **Internal Tier (benchmark-only, not exposed via public API):**
 
-| Level | Algorithm | Description                          |
-| ----- | --------- | ------------------------------------ |
-| 11    | Ultimate  | Extended Descent with 60s think time |
+| Level | Algorithm | Description                              |
+| ----- | --------- | ---------------------------------------- |
+| 11    | Ultimate  | Extended Gumbel MCTS with 60s think time |
 
 Research-only algorithms live in internal/experimental docs and are not part of the
 public D1-D10 ladder.
@@ -125,7 +126,8 @@ Key modules:
 - `factory.py` - AIFactory for difficulty → algorithm mapping
 - `heuristic_ai.py` - Territory, capture, stability evaluation
 - `mcts_ai.py` - UCB/RAVE tree search
-- `descent_ai.py` - Upper Confidence Bound From Max
+- `descent_ai.py` - Upper Confidence Bound From Max (Descent)
+- `gumbel_mcts_ai.py` - Gumbel MCTS search (neural-guided)
 - `neural_net/` - CNN + optional GNN/hybrid architectures (v2/v3/v4 + gnn/hybrid tiers)
 - `nnue.py` - NNUE incremental evaluation
 - `gumbel_mcts_ai.py` - Gumbel-MCTS with soft policy targets

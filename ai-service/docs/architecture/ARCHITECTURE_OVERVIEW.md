@@ -92,15 +92,16 @@ Diagnostics + admin endpoints:
 
 10-level production ladder (D1-D10) with pluggable AI implementations (D11 is internal benchmark-only):
 
-| Level | AI Type   | Implementation                                   |
-| ----- | --------- | ------------------------------------------------ |
-| D1    | Random    | `random_ai.py`                                   |
-| D2    | Heuristic | `heuristic_ai.py` (45+ CMA-ES optimized weights) |
-| D3    | Minimax   | `minimax_ai.py` (alpha-beta, heuristic eval)     |
-| D4    | Minimax   | `minimax_ai.py` (alpha-beta + NNUE neural eval)  |
-| D5    | MCTS      | `mcts_ai.py` (heuristic rollouts)                |
-| D6-8  | MCTS      | `mcts_ai.py` (neural policy/value guidance)      |
-| D9-10 | Descent   | `descent_ai.py` (AlphaZero-style UBFM search)    |
+| Level | AI Type     | Implementation                                   |
+| ----- | ----------- | ------------------------------------------------ |
+| D1    | Random      | `random_ai.py`                                   |
+| D2    | Heuristic   | `heuristic_ai.py` (45+ CMA-ES optimized weights) |
+| D3    | Minimax     | `minimax_ai.py` (alpha-beta, heuristic eval)     |
+| D4    | Minimax     | `minimax_ai.py` (alpha-beta + NNUE neural eval)  |
+| D5-6  | Descent     | `descent_ai.py` (neural UBFM/Descent search)     |
+| D7    | MCTS        | `mcts_ai.py` (heuristic rollouts)                |
+| D8    | MCTS        | `mcts_ai.py` (neural policy/value guidance)      |
+| D9-10 | Gumbel MCTS | `gumbel_mcts_ai.py` (Gumbel MCTS search)         |
 
 Internal benchmark-only tier (not exposed via public API):
 

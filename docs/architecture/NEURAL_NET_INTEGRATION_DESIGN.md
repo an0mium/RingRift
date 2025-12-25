@@ -6,26 +6,28 @@ This document outlines a research-backed approach to integrating neural network 
 
 ## Difficulty Ladder
 
-The difficulty ladder is structured to give each AI type exactly 2 slots (1 non-neural, 1 neural), with ordering: Heuristic < Minimax < MCTS < Descent.
+The difficulty ladder maps Minimax to D3–D4, Descent to D5–D6, MCTS to D7–D8
+(heuristic then neural), and Gumbel MCTS to D9–D10.
 
-| Difficulty | AI Type   | Neural | Implementation                             |
-| ---------- | --------- | ------ | ------------------------------------------ |
-| 1          | Random    | No     | Pure random move selection                 |
-| 2          | Heuristic | No     | Simple heuristic evaluation                |
-| 3          | Minimax   | No     | Alpha-beta + PVS + hand-crafted heuristic  |
-| 4          | Minimax   | Yes    | **NNUE-style neural evaluation**           |
-| 5          | MCTS      | No     | PUCT + heuristic rollouts                  |
-| 6          | MCTS      | Yes    | **Neural value/policy guidance**           |
-| 7          | MCTS      | Yes    | Neural + higher search budget              |
-| 8          | MCTS      | Yes    | Neural + large search budget               |
-| 9          | Descent   | Yes    | UBFM/AlphaZero-style + neural policy/value |
-| 10         | Descent   | Yes    | Strongest Descent configuration            |
+| Difficulty | AI Type     | Neural | Implementation                            |
+| ---------- | ----------- | ------ | ----------------------------------------- |
+| 1          | Random      | No     | Pure random move selection                |
+| 2          | Heuristic   | No     | Simple heuristic evaluation               |
+| 3          | Minimax     | No     | Alpha-beta + PVS + hand-crafted heuristic |
+| 4          | Minimax     | Yes    | **NNUE-style neural evaluation**          |
+| 5          | Descent     | Yes    | UBFM/Descent search with neural guidance  |
+| 6          | Descent     | Yes    | Stronger Descent configuration            |
+| 7          | MCTS        | No     | PUCT + heuristic rollouts                 |
+| 8          | MCTS        | Yes    | **Neural value/policy guidance**          |
+| 9          | Gumbel MCTS | Yes    | Gumbel MCTS + neural policy/value         |
+| 10         | Gumbel MCTS | Yes    | Strongest Gumbel MCTS configuration       |
 
 ### Key Design Decisions
 
 - **Minimax slots (D3-4)**: D3 uses pure heuristic evaluation, D4 adds NNUE neural evaluation
-- **MCTS slots (D5-8)**: D5 uses heuristic rollouts only, D6+ add neural value/policy
-- **Descent slots (D9-10)**: Always use neural policy+value (AlphaZero-style)
+- **Descent slots (D5-6)**: Always use neural policy+value (AlphaZero-style)
+- **MCTS slots (D7-8)**: D7 uses heuristic rollouts only, D8 adds neural value/policy
+- **Gumbel MCTS slots (D9-10)**: Always use neural policy+value
 
 ---
 
@@ -136,9 +138,9 @@ class MinimaxAI(HeuristicAI):
    - Label positions with game outcomes (win/loss/draw)
    - Train to predict game result from position
 
-2. **Distillation from Descent**:
-   - Use Descent AI (D9-10) evaluations as teacher
-   - Train NNUE to match Descent value predictions
+2. **Distillation from Gumbel MCTS**:
+   - Use Gumbel MCTS (D9-10) evaluations as teacher
+   - Train NNUE to match Gumbel value predictions
    - More sample-efficient than outcome-based training
 
 3. **Incremental Weight Updates**:
@@ -147,7 +149,7 @@ class MinimaxAI(HeuristicAI):
 
 ---
 
-## Part 2: MCTS with Neural Value Network (Difficulty 6+)
+## Part 2: MCTS with Neural Value Network (Difficulty 8+)
 
 ### Approach: Neural Leaf Evaluation + Policy Prior
 
@@ -286,20 +288,20 @@ class RingRiftNet(nn.Module):
 5. Add model checkpoint loading infrastructure
 6. LadderTierConfig for D4 already has `use_neural_net=True`
 
-### Phase 2: Neural MCTS (D6+)
+### Phase 2: Neural MCTS (D8+)
 
 **Files to Modify**:
 
 - `ai-service/app/ai/mcts_ai.py` - Add neural leaf evaluation
-- `ai-service/app/config/ladder_config.py` - D6+ tiers already have neural config
+- `ai-service/app/config/ladder_config.py` - D8+ tiers already have neural config
 
 **Implementation Steps**:
 
-1. Add `use_neural_evaluation` flag gated on difficulty >= 6
+1. Add `use_neural_evaluation` flag gated on difficulty >= 8
 2. Modify `_evaluate_leaf()` to use neural value when available
 3. Modify PUCT calculation to use neural policy priors
 4. Create training pipeline for MCTS policy targets
-5. LadderTierConfig for D6-8 already has `use_neural_net=True`
+5. LadderTierConfig for D8-10 already has `use_neural_net=True`
 
 ### Phase 3: Training Pipeline
 

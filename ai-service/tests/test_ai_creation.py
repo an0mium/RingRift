@@ -20,17 +20,18 @@ TEST_TIMEOUT_SECONDS = 30
 @pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
 def test_select_ai_type():
     # Canonical mapping (updated 2025):
-    #   1→Random, 2→Heuristic, 3–4→Minimax, 5–8→MCTS, 9–10→Descent
+    #   1→Random, 2→Heuristic, 3–4→Minimax, 5–6→Descent,
+    #   7–8→MCTS, 9–10→Gumbel MCTS
     assert _select_ai_type(1) == AIType.RANDOM
     assert _select_ai_type(2) == AIType.HEURISTIC
     assert _select_ai_type(3) == AIType.MINIMAX
     assert _select_ai_type(4) == AIType.MINIMAX
-    assert _select_ai_type(5) == AIType.MCTS
-    assert _select_ai_type(6) == AIType.MCTS
+    assert _select_ai_type(5) == AIType.DESCENT
+    assert _select_ai_type(6) == AIType.DESCENT
     assert _select_ai_type(7) == AIType.MCTS
     assert _select_ai_type(8) == AIType.MCTS
-    assert _select_ai_type(9) == AIType.DESCENT
-    assert _select_ai_type(10) == AIType.DESCENT
+    assert _select_ai_type(9) == AIType.GUMBEL_MCTS
+    assert _select_ai_type(10) == AIType.GUMBEL_MCTS
 
 
 @pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
@@ -41,12 +42,12 @@ def test_difficulty_profile_mapping():
         2: (AIType.HEURISTIC, 0.3, 200, "v1-heuristic-2"),
         3: (AIType.MINIMAX, 0.15, 1800, "v1-minimax-3"),
         4: (AIType.MINIMAX, 0.08, 2800, "v1-minimax-4-nnue"),
-        5: (AIType.MCTS, 0.05, 4000, "v1-mcts-5"),
-        6: (AIType.MCTS, 0.02, 5500, "v1-mcts-6-neural"),
-        7: (AIType.MCTS, 0.0, 7500, "v1-mcts-7-neural"),
-        8: (AIType.MCTS, 0.0, 9600, "v1-mcts-8-neural"),
-        9: (AIType.DESCENT, 0.0, 12600, "v1-descent-9"),
-        10: (AIType.DESCENT, 0.0, 16000, "v1-descent-10"),
+        5: (AIType.DESCENT, 0.05, 4000, "ringrift_best_sq8_2p"),
+        6: (AIType.DESCENT, 0.02, 5500, "ringrift_best_sq8_2p"),
+        7: (AIType.MCTS, 0.0, 7500, "v1-mcts-7"),
+        8: (AIType.MCTS, 0.0, 9600, "ringrift_best_sq8_2p"),
+        9: (AIType.GUMBEL_MCTS, 0.0, 12600, "ringrift_best_sq8_2p"),
+        10: (AIType.GUMBEL_MCTS, 0.0, 16000, "ringrift_best_sq8_2p"),
     }
 
     for difficulty, (

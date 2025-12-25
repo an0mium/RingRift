@@ -32,12 +32,12 @@ Think times are search budgets passed to the AI service, not artificial delays. 
 | D2         | Heuristic    | 200ms      | ~150ms           | 220ms      |
 | D3         | Minimax      | 1800ms     | ~1200ms          | 1980ms     |
 | D4         | Minimax+NNUE | 2800ms     | ~2000ms          | 3080ms     |
-| D5         | MCTS         | 4000ms     | ~3000ms          | 4400ms     |
-| D6         | MCTS+Neural  | 5500ms     | ~4000ms          | 6050ms     |
-| D7         | MCTS+Neural  | 7500ms     | ~5500ms          | 8250ms     |
+| D5         | Descent      | 4000ms     | ~3000ms          | 4400ms     |
+| D6         | Descent      | 5500ms     | ~4000ms          | 6050ms     |
+| D7         | MCTS         | 7500ms     | ~5500ms          | 8250ms     |
 | D8         | MCTS+Neural  | 9600ms     | ~7000ms          | 10560ms    |
-| D9         | Descent      | 12600ms    | ~9000ms          | 13860ms    |
-| D10        | Descent      | 16000ms    | ~12000ms         | 17600ms    |
+| D9         | Gumbel MCTS  | 12600ms    | ~9000ms          | 13860ms    |
+| D10        | Gumbel MCTS  | 16000ms    | ~12000ms         | 17600ms    |
 
 Budget formulas (from `ai-service/app/config/perf_budgets.py`):
 
@@ -137,6 +137,6 @@ AI_MAX_CONCURRENT_REQUESTS=16
 export const AI_DIFFICULTY_PRESETS = {
   1: { aiType: 'random', thinkTime: 150, profileId: 'v1-random-1' },
   // ... see source for full table
-  10: { aiType: 'descent', thinkTime: 16000, profileId: 'v1-descent-10' },
+  10: { aiType: 'gumbel_mcts', thinkTime: 16000, profileId: 'ringrift_best_sq8_2p' },
 };
 ```

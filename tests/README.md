@@ -334,9 +334,8 @@ TS_NODE_PROJECT=tsconfig.server.json npm run load:orchestrator:smoke
 and inspect `/metrics` for:
 
 - `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",mismatch_type=...}`
-- `ringrift_orchestrator_shadow_mismatch_rate`
 
-This profile is **not** used by default in CI (which runs with `RINGRIFT_RULES_MODE=ts`); it is intended for ad‑hoc parity investigations and to exercise the shadow‑mode counters and alerts described in `docs/operations/ALERTING_THRESHOLDS.md` and `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
+This profile is **not** used by default in CI (which runs with `RINGRIFT_RULES_MODE=ts`); it is intended for ad‑hoc parity investigations and to exercise the runtime‑python parity counters and alerts described in `docs/operations/ALERTING_THRESHOLDS.md` and `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (historical context).
 
 ### High-Level Testing Overview (by purpose)
 
@@ -1140,9 +1139,9 @@ To lock in behaviour around a historically problematic square8/2p plateau (seed 
   - Recreates the sandbox AI configuration used by the heavy fuzz harness (square8 / 2 AI players, deterministic seed).
   - Advances the game via `ClientSandboxEngine.maybeRunAITurn` until a requested action index or until an early stall/termination, enforcing the S-invariant along the way.
   - Returns a full `GameState`, an order-stable `ComparableSnapshot`, the number of actions taken, and a live `ClientSandboxEngine` bound to that checkpoint.
-- `tests/unit/ClientSandboxEngine.aiStallRegression.test.ts` – unit-level regression that:
-  - Uses the seed harness to checkpoint a mid-game plateau near action ≈58 for `square8` / 2 AI / seed 1.
-  - Asserts that from this checkpoint the sandbox AI does **not** enter a long active stall (no 8+ consecutive no-op AI turns while `gameStatus === 'active'`).
+- `tests/unit/ClientSandboxEngine.aiStallDiagnostics.test.ts` – unit-level stall diagnostics that:
+  - Validates stall window lengths and no-op AI turn tracing under sandbox hooks.
+  - Ensures no-op AI turns are surfaced in the sandbox trace buffer for debugging.
 - `tests/scenarios/AI_TerminationFromSeed1Plateau.test.ts` – scenario-level termination test that:
   - Reuses the same plateau and focuses on global S-invariant + eventual termination behaviour.
   - Asserts that S remains non-decreasing from the plateau and that the game either completes or continues to evolve under additional AI play within a generous bound.
@@ -1190,9 +1189,9 @@ orchestrator S-invariant regression suite.
 >   the previous section:
 >   - `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`
 >   - `tests/utils/aiSeedSnapshots.ts`
->   - `tests/unit/ClientSandboxEngine.aiStallRegression.test.ts`
+>   - `tests/unit/ClientSandboxEngine.aiStallDiagnostics.test.ts`
+>   - `tests/unit/ClientSandboxEngine.aiStallNormalization.test.ts`
 >   - `tests/scenarios/AI_TerminationFromSeed1Plateau.test.ts`
->   - `tests/unit/ClientSandboxEngine.aiSingleSeedDebug.test.ts`
 > - For a narrative of the original stall investigation and the legacy
 >   `aiStall.seed1` harness, see `archive/AI_STALL_DEBUG_SUMMARY.md`.
 >

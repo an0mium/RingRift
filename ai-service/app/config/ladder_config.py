@@ -8,7 +8,7 @@ difficulty ladder used by:
 * The FastAPI service (/ai/move) when constructing AIs for live games.
 * Tier evaluation and gating scripts when calibrating candidate models.
 
-The initial slice focuses on square8, 2-player D2/D4/D6/D8 tiers.
+The default mapping covers the square8 2-player ladder D1–D10 (D11 internal).
 Additional boards or player counts can be added incrementally.
 """
 
@@ -58,10 +58,10 @@ def _build_default_square8_two_player_configs() -> dict[
     - D2: Heuristic
     - D3: Minimax (non-neural, heuristic eval only)
     - D4: Minimax (neural/NNUE)
-    - D5: MCTS (non-neural, heuristic rollouts)
-    - D6: MCTS (neural value/policy)
-    - D7-8: MCTS (neural, higher budgets)
-    - D9-10: Descent (AlphaZero-style, always neural)
+    - D5-6: Descent (neural search)
+    - D7: MCTS (heuristic-only)
+    - D8: MCTS (neural)
+    - D9-10: Gumbel MCTS (neural)
 
     Strength differences between tiers are expressed via ``ai_type``,
     ``use_neural_net``, ``randomness`` and ``think_time_ms``.
@@ -323,18 +323,18 @@ def _build_default_square19_two_player_configs() -> dict[
             use_neural_net=True,
             notes="High square19 2p tier using Descent with neural guidance.",
         ),
-        # D7 – expert MCTS on square19, 2-player (neural).
+        # D7 – expert MCTS on square19, 2-player (heuristic-only).
         (7, BoardType.SQUARE19, 2): LadderTierConfig(
             difficulty=7,
             board_type=BoardType.SQUARE19,
             num_players=2,
             ai_type=AIType.MCTS,
-            model_id="ringrift_best_sq19_2p",
+            model_id=None,
             heuristic_profile_id="heuristic_v1_sq19_2p",
             randomness=0.0,
             think_time_ms=11000,
-            use_neural_net=True,
-            notes="Expert square19 2p tier using MCTS with neural guidance.",
+            use_neural_net=False,
+            notes="Expert square19 2p tier using heuristic-only MCTS.",
         ),
         # D8 – strong expert MCTS on square19, 2-player (neural).
         (8, BoardType.SQUARE19, 2): LadderTierConfig(
@@ -468,18 +468,18 @@ def _build_default_hex_two_player_configs() -> dict[
             use_neural_net=True,
             notes="High hex 2p tier using Descent with neural guidance.",
         ),
-        # D7 – expert MCTS on hexagonal, 2-player (neural).
+        # D7 – expert MCTS on hexagonal, 2-player (heuristic-only).
         (7, BoardType.HEXAGONAL, 2): LadderTierConfig(
             difficulty=7,
             board_type=BoardType.HEXAGONAL,
             num_players=2,
             ai_type=AIType.MCTS,
-            model_id="ringrift_best_hex_2p",
+            model_id=None,
             heuristic_profile_id="heuristic_v1_hex_2p",
             randomness=0.0,
             think_time_ms=11000,
-            use_neural_net=True,
-            notes="Expert hex 2p tier using MCTS with neural guidance.",
+            use_neural_net=False,
+            notes="Expert hex 2p tier using heuristic-only MCTS.",
         ),
         # D8 – strong expert MCTS on hexagonal, 2-player (neural).
         (8, BoardType.HEXAGONAL, 2): LadderTierConfig(
@@ -638,18 +638,18 @@ def _build_default_generic_board_configs(
             use_neural_net=True,
             notes=f"High {board_type.value} {num_players}p tier using Descent with neural.",
         ),
-        # D7-8: MCTS + NN
+        # D7: heuristic-only MCTS, D8: neural MCTS
         (7, board_type, num_players): LadderTierConfig(
             difficulty=7,
             board_type=board_type,
             num_players=num_players,
             ai_type=AIType.MCTS,
-            model_id=best_model_id,
+            model_id=None,
             heuristic_profile_id=heuristic_profile_id,
             randomness=0.0,
             think_time_ms=_think(7, 11000),
-            use_neural_net=True,
-            notes=f"Expert {board_type.value} {num_players}p tier using MCTS with neural.",
+            use_neural_net=False,
+            notes=f"Expert {board_type.value} {num_players}p tier using heuristic-only MCTS.",
         ),
         (8, board_type, num_players): LadderTierConfig(
             difficulty=8,
@@ -868,18 +868,18 @@ def _build_default_square8_three_player_configs() -> dict[
             use_neural_net=True,
             notes="High square8 3p tier using MCTS with neural guidance.",
         ),
-        # D7 – expert MCTS on square8, 3-player (neural).
+        # D7 – expert MCTS on square8, 3-player (heuristic-only).
         (7, BoardType.SQUARE8, 3): LadderTierConfig(
             difficulty=7,
             board_type=BoardType.SQUARE8,
             num_players=3,
             ai_type=AIType.MCTS,
-            model_id="ringrift_best_sq8_3p",
+            model_id=None,
             heuristic_profile_id="heuristic_v1_sq8_3p",
             randomness=0.0,
             think_time_ms=8500,
-            use_neural_net=True,
-            notes="Expert square8 3p tier using MCTS with neural guidance.",
+            use_neural_net=False,
+            notes="Expert square8 3p tier using heuristic-only MCTS.",
         ),
         # D8 – strong expert MCTS on square8, 3-player (neural).
         (8, BoardType.SQUARE8, 3): LadderTierConfig(
@@ -1010,18 +1010,18 @@ def _build_default_square8_four_player_configs() -> dict[
             use_neural_net=True,
             notes="High square8 4p tier using MCTS with neural guidance.",
         ),
-        # D7 – expert MCTS on square8, 4-player (neural).
+        # D7 – expert MCTS on square8, 4-player (heuristic-only).
         (7, BoardType.SQUARE8, 4): LadderTierConfig(
             difficulty=7,
             board_type=BoardType.SQUARE8,
             num_players=4,
             ai_type=AIType.MCTS,
-            model_id="ringrift_best_sq8_4p",
+            model_id=None,
             heuristic_profile_id="heuristic_v1_sq8_4p",
             randomness=0.0,
             think_time_ms=9000,
-            use_neural_net=True,
-            notes="Expert square8 4p tier using MCTS with neural guidance.",
+            use_neural_net=False,
+            notes="Expert square8 4p tier using heuristic-only MCTS.",
         ),
         # D8 – strong expert MCTS on square8, 4-player (neural).
         (8, BoardType.SQUARE8, 4): LadderTierConfig(

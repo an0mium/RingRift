@@ -35,9 +35,9 @@ processTurn(state, move)
 ## Key Files
 
 - **turnOrchestrator.ts** - Main `processTurn` and `processTurnAsync` entry points
-- **phaseStateMachine.ts** - Manages game phase transitions (deprecated, being replaced by FSM)
 - **types.ts** - Type definitions for orchestration layer
-- **../fsm/FSMAdapter.ts** - FSM-based validation and orchestration (canonical)
+- **../fsm/TurnStateMachine.ts** - Canonical FSM for phase transitions
+- **../fsm/FSMAdapter.ts** - FSM integration utilities
 
 ## FSM Integration
 
@@ -49,20 +49,16 @@ The turn orchestrator uses FSM (Finite State Machine) as the **canonical** sourc
 
 ### Validation
 
-FSM validation is enforced in `processTurn`. The legacy `validateMove()` function is deprecated:
+FSM validation is enforced in `processTurn`:
 
 ```typescript
-// Preferred: Use FSM validation directly
+// Use FSM validation directly
 import { validateMoveWithFSM } from '../fsm';
 
 const result = validateMoveWithFSM(gameState, move);
 if (!result.valid) {
   console.error('Invalid move:', result.reason, 'errorCode:', result.errorCode);
 }
-
-// Deprecated: Legacy validation (maintained for backward compatibility)
-import { validateMove } from './orchestration/turnOrchestrator';
-const validation = validateMove(gameState, proposedMove); // @deprecated
 ```
 
 ### FSMDecisionSurface

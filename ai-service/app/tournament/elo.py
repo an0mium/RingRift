@@ -34,6 +34,49 @@ except ImportError:
 
 
 @dataclass
+class EloVelocity:
+    """Elo improvement velocity over a time period.
+
+    This dataclass tracks the rate of Elo change, useful for:
+    - Detecting rapid improvement (increase training intensity)
+    - Detecting plateaus (trigger hyperparameter search)
+    - Monitoring training health
+
+    Part of the strength-driven training system (December 2025).
+    """
+
+    elo_per_hour: float  # Elo change per hour
+    elo_per_game: float  # Elo change per game
+    trend: str  # "improving", "stable", "declining"
+    lookback_hours: float  # Hours considered for calculation
+    games_in_period: int  # Games played in the lookback period
+    elo_start: float  # Elo at start of period
+    elo_end: float  # Elo at end of period
+
+    @property
+    def is_improving(self) -> bool:
+        """Check if model is actively improving."""
+        return self.trend == "improving"
+
+    @property
+    def is_plateau(self) -> bool:
+        """Check if model has plateaued (stable or declining)."""
+        return self.trend in ("stable", "declining")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "elo_per_hour": round(self.elo_per_hour, 2),
+            "elo_per_game": round(self.elo_per_game, 3),
+            "trend": self.trend,
+            "lookback_hours": self.lookback_hours,
+            "games_in_period": self.games_in_period,
+            "elo_start": round(self.elo_start, 1),
+            "elo_end": round(self.elo_end, 1),
+        }
+
+
+@dataclass
 class EloRating:
     """Elo rating for an agent.
 
@@ -150,6 +193,103 @@ class EloRating:
             "ci_95_lower": ci_lower,
             "ci_95_upper": ci_upper,
         }
+
+    def compute_velocity(
+        self,
+        lookback_hours: float = 24.0,
+        improving_threshold_per_hour: float = 10.0,
+        declining_threshold_per_hour: float = -5.0,
+    ) -> EloVelocity:
+        """Compute Elo improvement velocity over a lookback period.
+
+        This method analyzes the rating history to determine the rate of
+        Elo change, useful for:
+        - Detecting rapid improvement (increase training intensity)
+        - Detecting plateaus (trigger hyperparameter search)
+        - Monitoring training health
+
+        Part of the strength-driven training system (December 2025).
+
+        Args:
+            lookback_hours: Hours to look back for velocity calculation.
+            improving_threshold_per_hour: Elo/hour above which trend is "improving".
+            declining_threshold_per_hour: Elo/hour below which trend is "declining".
+
+        Returns:
+            EloVelocity with rate metrics and trend classification.
+
+        Example:
+            >>> rating = EloRating("model_v1", rating=1600, games_played=100)
+            >>> # After adding some history entries...
+            >>> velocity = rating.compute_velocity(lookback_hours=24)
+            >>> print(f"Elo/hour: {velocity.elo_per_hour:.1f}, trend: {velocity.trend}")
+            Elo/hour: 15.2, trend: improving
+        """
+        from datetime import timedelta
+
+        if len(self.rating_history) < 2:
+            return EloVelocity(
+                elo_per_hour=0.0,
+                elo_per_game=0.0,
+                trend="stable",
+                lookback_hours=lookback_hours,
+                games_in_period=len(self.rating_history),
+                elo_start=self.rating,
+                elo_end=self.rating,
+            )
+
+        now = datetime.now()
+        cutoff = now - timedelta(hours=lookback_hours)
+
+        # Filter history to lookback period
+        recent_history = [
+            (ts, elo) for ts, elo in self.rating_history
+            if ts >= cutoff
+        ]
+
+        if len(recent_history) < 2:
+            # Not enough data in lookback period, use all history
+            recent_history = self.rating_history
+
+        if len(recent_history) < 2:
+            return EloVelocity(
+                elo_per_hour=0.0,
+                elo_per_game=0.0,
+                trend="stable",
+                lookback_hours=lookback_hours,
+                games_in_period=len(recent_history),
+                elo_start=self.rating,
+                elo_end=self.rating,
+            )
+
+        first_ts, first_elo = recent_history[0]
+        last_ts, last_elo = recent_history[-1]
+
+        elo_delta = last_elo - first_elo
+        time_delta_seconds = (last_ts - first_ts).total_seconds()
+        time_delta_hours = max(time_delta_seconds / 3600, 0.001)  # Avoid division by zero
+        games_delta = len(recent_history) - 1  # Number of games between first and last
+
+        elo_per_hour = elo_delta / time_delta_hours
+        elo_per_game = elo_delta / max(games_delta, 1)
+
+        # Classify trend
+        if elo_per_hour > improving_threshold_per_hour:
+            trend = "improving"
+        elif elo_per_hour < declining_threshold_per_hour:
+            trend = "declining"
+        else:
+            trend = "stable"
+
+        return EloVelocity(
+            elo_per_hour=elo_per_hour,
+            elo_per_game=elo_per_game,
+            trend=trend,
+            lookback_hours=lookback_hours,
+            games_in_period=len(recent_history),
+            elo_start=first_elo,
+            elo_end=last_elo,
+        )
 
 
 class EloCalculator:

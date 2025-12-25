@@ -1681,7 +1681,7 @@ These deviations and clarifications are considered part of the canonical placeme
 
 - [ ] Backend and sandbox territory region detection and Q23 gating both funnel through shared helpers (`filterProcessableTerritoryRegions`, `applyTerritoryRegion`, and decision helpers), with host-specific code limited to interaction and history.
 - [ ] Python territory logic (`_get_territory_processing_moves`, `_apply_territory_claim`, `_can_process_disconnected_region` in [`game_engine/__init__.py`](../../ai-service/app/game_engine/__init__.py) and `mutators/territory.py`) is verified against TS via contract vectors for simple regions, complex regions, and Q23 edge cases.
-- [ ] All territory-related tests (e.g. `tests/unit/GameEngine.territoryDisconnection.test.ts`, `tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts`, `ai-service/tests/test_territory_forced_elimination_divergence.py`) pass and show converging behavior across engines.
+- [ ] All territory-related tests (e.g. `tests/unit/BoardManager.territoryDisconnection.test.ts`, `tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts`, `ai-service/tests/test_territory_forced_elimination_divergence.py`) pass and show converging behavior across engines.
 
 **Deliverables:**
 

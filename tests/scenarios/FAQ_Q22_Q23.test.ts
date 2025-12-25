@@ -478,7 +478,7 @@ describeOrSkip('FAQ Q22-Q23: Graduated Line Rewards & Territory Prerequisites', 
         // NOTE: The interior 3×3 block is a second disconnected region that
         // could also be processed with an additional `choose_territory_option`
         // move; its numeric invariants are covered by the dedicated rules-layer
-        // tests in territoryProcessing.rules.* and sandboxTerritory*.rules.*.
+        // tests in territoryProcessing.shared.* and sandboxTerritory*.rules.*.
         expect(finalBlue.eliminatedRings).toBe(initialEliminated + 4);
 
         // Sample a point known to be in the processed (outer) region to confirm

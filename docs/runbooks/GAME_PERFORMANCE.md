@@ -29,9 +29,9 @@
     - HTTP latency histograms used by `HIGH_LATENCY.md`
   - Orchestrator health:
     - `ringrift_orchestrator_error_rate`
-    - `ringrift_orchestrator_shadow_mismatch_rate`
     - `ringrift_orchestrator_circuit_breaker_state`
     - `ringrift_orchestrator_rollout_percentage` (telemetry-only; remains 100% with the flag removed)
+    - `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",mismatch_type=...}` (only when running python‑authoritative diagnostics)
   - Rules correctness and engine health (PASS22 metrics):
     - `ringrift_parity_checks_total` (TS ↔ Python parity checks; success vs failure)
     - `ringrift_contract_tests_passing` / `ringrift_contract_tests_total` (contract vector coverage)

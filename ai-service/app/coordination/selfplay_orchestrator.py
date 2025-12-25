@@ -718,15 +718,22 @@ class SelfplayOrchestrator:
         self,
         base_jobs_per_config: int,
         configs: list[str] | None = None,
+        skip_stuck_configs: bool = True,
+        min_plateau_hours: int = 48,
     ) -> dict[str, int]:
         """Calculate job allocation for each config based on curriculum weights.
 
         This is the main method for applying curriculum weights to selfplay
         job distribution. Higher-weighted configs get more jobs.
 
+        December 2025: Now supports stuck config detection (Phase 4 feedback loop).
+        Configs with Elo plateau > min_plateau_hours get 0 jobs if skip_stuck_configs=True.
+
         Args:
             base_jobs_per_config: Base number of jobs per config (before weighting)
             configs: List of configs to allocate (None = all known configs)
+            skip_stuck_configs: If True, skip configs that are permanently stuck (Elo plateau)
+            min_plateau_hours: Minimum hours of plateau to consider a config stuck
 
         Returns:
             Dict mapping config_key to number of jobs
@@ -743,15 +750,37 @@ class SelfplayOrchestrator:
         if not configs:
             return {}
 
+        # Phase 4 Feedback Loop: Detect and filter stuck configs
+        stuck_configs: set[str] = set()
+        if skip_stuck_configs:
+            try:
+                from app.training.curriculum_feedback import get_curriculum_feedback
+
+                cf = get_curriculum_feedback()
+                stuck_configs = cf.get_stuck_config_keys(min_plateau_hours=min_plateau_hours)
+                if stuck_configs:
+                    logger.warning(
+                        f"[SelfplayOrchestrator] Stuck configs detected (>{min_plateau_hours}h plateau): "
+                        f"{sorted(stuck_configs)} - allocating 0 jobs"
+                    )
+            except Exception as e:
+                logger.warning(f"[SelfplayOrchestrator] Failed to detect stuck configs: {e}")
+                # Continue without stuck detection on error
+
         allocation = {}
         for config in configs:
+            # Skip stuck configs - they get 0 jobs
+            if config in stuck_configs:
+                allocation[config] = 0
+                continue
+
             weight = self.get_config_weight(config)
             jobs = int(round(base_jobs_per_config * weight))
             allocation[config] = max(1, jobs)  # At least 1 job per config
 
         logger.debug(
             f"[SelfplayOrchestrator] Job allocation: {allocation} "
-            f"(base={base_jobs_per_config})"
+            f"(base={base_jobs_per_config}, stuck_skipped={len(stuck_configs)})"
         )
         return allocation
 
@@ -1048,6 +1077,46 @@ def wire_selfplay_events() -> SelfplayOrchestrator:
     return orchestrator
 
 
+def wire_curriculum_to_selfplay() -> SelfplayOrchestrator:
+    """Wire curriculum feedback to selfplay orchestrator.
+
+    December 2025: Phase 1 of self-improvement feedback loop.
+    This ensures:
+    1. Selfplay orchestrator subscribes to CURRICULUM_REBALANCED events
+    2. Initial curriculum weights are loaded from CurriculumFeedback
+    3. Job allocation uses curriculum weights
+
+    Call this at startup to enable curriculum-aware selfplay allocation.
+
+    Returns:
+        The configured SelfplayOrchestrator instance
+
+    Example:
+        from app.coordination.selfplay_orchestrator import wire_curriculum_to_selfplay
+
+        # At startup
+        orchestrator = wire_curriculum_to_selfplay()
+
+        # Later, get weighted job allocation
+        allocation = orchestrator.calculate_job_allocation(
+            base_jobs_per_config=10,
+            configs=["square8_2p", "hex8_2p", "square8_4p"]
+        )
+        # Result: {"square8_2p": 12, "hex8_2p": 8, "square8_4p": 15}
+    """
+    orchestrator = get_selfplay_orchestrator()
+
+    # Subscribe to events (including CURRICULUM_REBALANCED)
+    orchestrator.subscribe_to_events()
+    orchestrator.subscribe_to_stage_events()
+
+    # Load initial weights from curriculum feedback
+    orchestrator.load_curriculum_weights_from_feedback()
+
+    logger.info("[wire_curriculum_to_selfplay] Curriculum feedback wired to selfplay orchestrator")
+    return orchestrator
+
+
 async def emit_selfplay_completion(
     task_id: str,
     board_type: str,
@@ -1127,5 +1196,6 @@ __all__ = [
     "get_selfplay_stats",
     "get_simulation_budget_for_board",
     "is_large_board",
+    "wire_curriculum_to_selfplay",
     "wire_selfplay_events",
 ]

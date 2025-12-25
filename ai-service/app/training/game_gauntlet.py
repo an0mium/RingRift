@@ -117,6 +117,91 @@ class BaselineOpponent(Enum):
     HEURISTIC = "heuristic"
 
 
+# ============================================
+# Early Stopping with Statistical Confidence (Dec 2025)
+# ============================================
+
+
+def compute_wilson_interval(
+    wins: int,
+    total: int,
+    confidence: float = 0.95,
+) -> tuple[float, float]:
+    """Compute Wilson score confidence interval for win rate.
+
+    Wilson score interval is more accurate than normal approximation,
+    especially for extreme proportions or small samples.
+
+    Args:
+        wins: Number of wins
+        total: Total games played
+        confidence: Confidence level (e.g., 0.95 for 95%)
+
+    Returns:
+        Tuple of (lower_bound, upper_bound) for win rate
+    """
+    if total == 0:
+        return (0.0, 1.0)
+
+    try:
+        from scipy import stats
+        z = stats.norm.ppf(1 - (1 - confidence) / 2)
+    except ImportError:
+        # Fallback z-scores for common confidence levels
+        z_table = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}
+        z = z_table.get(confidence, 1.96)
+
+    p_hat = wins / total
+    denominator = 1 + z**2 / total
+    center = (p_hat + z**2 / (2 * total)) / denominator
+    margin = z * ((p_hat * (1 - p_hat) + z**2 / (4 * total)) / total) ** 0.5 / denominator
+
+    lower = max(0.0, center - margin)
+    upper = min(1.0, center + margin)
+
+    return (lower, upper)
+
+
+def should_early_stop(
+    wins: int,
+    losses: int,
+    threshold: float = 0.5,
+    confidence: float = 0.95,
+    min_games: int = 10,
+) -> tuple[bool, str]:
+    """Check if we can stop early based on statistical confidence.
+
+    Uses Wilson score interval to determine if the win rate is significantly
+    above or below the threshold with the given confidence level.
+
+    Args:
+        wins: Number of wins so far
+        losses: Number of losses so far
+        threshold: Win rate threshold to compare against (e.g., 0.5 for 50%)
+        confidence: Confidence level (e.g., 0.95 for 95%)
+        min_games: Minimum games before early stopping is considered
+
+    Returns:
+        Tuple of (should_stop, reason) where reason explains why/why not
+    """
+    total = wins + losses
+
+    if total < min_games:
+        return (False, f"Need {min_games - total} more games")
+
+    lower, upper = compute_wilson_interval(wins, total, confidence)
+
+    # Check if entire confidence interval is above threshold (clear win)
+    if lower > threshold:
+        return (True, f"Win rate {wins/total:.1%} (CI: {lower:.1%}-{upper:.1%}) > {threshold:.0%}")
+
+    # Check if entire confidence interval is below threshold (clear loss)
+    if upper < threshold:
+        return (True, f"Win rate {wins/total:.1%} (CI: {lower:.1%}-{upper:.1%}) < {threshold:.0%}")
+
+    return (False, f"Inconclusive: CI {lower:.1%}-{upper:.1%} spans {threshold:.0%}")
+
+
 # Import baseline Elo estimates from centralized config
 try:
     from app.config.thresholds import (
@@ -126,19 +211,29 @@ try:
         MIN_WIN_RATE_VS_RANDOM,
         get_min_win_rate_vs_heuristic,
         get_min_win_rate_vs_random,
+        get_elo_adaptive_win_rate_vs_heuristic,
+        get_elo_adaptive_win_rate_vs_random,
     )
+    HAS_ELO_ADAPTIVE = True
 except ImportError:
     # Fallback values - keep in sync with app/config/thresholds.py
     BASELINE_ELO_RANDOM = 400
     BASELINE_ELO_HEURISTIC = 1200
     MIN_WIN_RATE_VS_RANDOM = 0.70  # 70% (matches thresholds.py)
     MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50% (matches thresholds.py)
+    HAS_ELO_ADAPTIVE = False
 
     def get_min_win_rate_vs_random(num_players: int = 2) -> float:
         return 0.50 if num_players >= 4 else MIN_WIN_RATE_VS_RANDOM
 
     def get_min_win_rate_vs_heuristic(num_players: int = 2) -> float:
         return 0.20 if num_players >= 4 else MIN_WIN_RATE_VS_HEURISTIC
+
+    def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) -> float:
+        return get_min_win_rate_vs_random(num_players)
+
+    def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 2) -> float:
+        return get_min_win_rate_vs_heuristic(num_players)
 
 BASELINE_ELOS = {
     BaselineOpponent.RANDOM: BASELINE_ELO_RANDOM,
@@ -180,6 +275,10 @@ class GauntletResult:
 
     # Elo estimate
     estimated_elo: float = 1500.0
+
+    # Early stopping (December 2025)
+    early_stopped_baselines: list[str] = field(default_factory=list)
+    games_saved_by_early_stopping: int = 0
 
 
 def create_baseline_ai(
@@ -520,6 +619,11 @@ def run_baseline_gauntlet(
     model_type: str = "cnn",
     store_results: bool = True,
     model_id: str | None = None,
+    early_stopping: bool = True,
+    early_stopping_confidence: float = 0.95,
+    early_stopping_min_games: int = 10,
+    elo_adaptive_thresholds: bool = False,
+    model_elo: float | None = None,
 ) -> GauntletResult:
     """Run a gauntlet evaluation against baseline opponents.
 
@@ -535,6 +639,11 @@ def run_baseline_gauntlet(
         model_type: Type of model - "cnn" (default), "gnn", or "hybrid"
         store_results: Whether to store results in gauntlet_results.db (default: True)
         model_id: Model identifier for result storage (derived from model_path if not specified)
+        early_stopping: Whether to stop early when statistical confidence is reached (default: True)
+        early_stopping_confidence: Confidence level for early stopping (default: 0.95)
+        early_stopping_min_games: Minimum games before early stopping (default: 10)
+        elo_adaptive_thresholds: Scale thresholds based on model Elo (default: False)
+        model_elo: Model's current Elo rating (required if elo_adaptive_thresholds=True)
 
     Returns:
         GauntletResult with aggregated statistics
@@ -622,6 +731,35 @@ def run_baseline_gauntlet(
                         f"{outcome} ({game_result.victory_reason}, {game_result.move_count} moves)"
                     )
 
+                # Check for early stopping (December 2025)
+                if early_stopping:
+                    # Get the threshold for this baseline
+                    if baseline == BaselineOpponent.RANDOM:
+                        threshold = get_min_win_rate_vs_random(num_players)
+                    elif baseline == BaselineOpponent.HEURISTIC:
+                        threshold = get_min_win_rate_vs_heuristic(num_players)
+                    else:
+                        threshold = MIN_WIN_RATES.get(baseline, 0.5)
+
+                    losses = opponent_stats["games"] - opponent_stats["wins"]
+                    stop, reason = should_early_stop(
+                        wins=opponent_stats["wins"],
+                        losses=losses,
+                        threshold=threshold,
+                        confidence=early_stopping_confidence,
+                        min_games=early_stopping_min_games,
+                    )
+
+                    if stop:
+                        games_remaining = games_per_opponent - (game_num + 1)
+                        result.early_stopped_baselines.append(baseline_name)
+                        result.games_saved_by_early_stopping += games_remaining
+                        logger.info(
+                            f"[gauntlet] Early stopping vs {baseline_name} at game {game_num+1}: {reason} "
+                            f"(saved {games_remaining} games)"
+                        )
+                        break
+
             except Exception as e:
                 logger.error(f"Error in game {game_num} vs {baseline_name}: {e}")
                 continue
@@ -632,14 +770,26 @@ def run_baseline_gauntlet(
 
         result.opponent_results[baseline_name] = opponent_stats
 
-        # Check baseline gating (use player-aware thresholds)
+        # Check baseline gating (use player-aware or Elo-adaptive thresholds)
         if check_baseline_gating:
-            if baseline == BaselineOpponent.RANDOM:
-                min_required = get_min_win_rate_vs_random(num_players)
-            elif baseline == BaselineOpponent.HEURISTIC:
-                min_required = get_min_win_rate_vs_heuristic(num_players)
+            # Use Elo-adaptive thresholds if enabled and model_elo provided
+            if elo_adaptive_thresholds and model_elo is not None:
+                if baseline == BaselineOpponent.RANDOM:
+                    min_required = get_elo_adaptive_win_rate_vs_random(model_elo, num_players)
+                elif baseline == BaselineOpponent.HEURISTIC:
+                    min_required = get_elo_adaptive_win_rate_vs_heuristic(model_elo, num_players)
+                else:
+                    min_required = MIN_WIN_RATES.get(baseline, 0.0)
+                threshold_type = f"{num_players}p/elo-adaptive@{model_elo:.0f}"
             else:
-                min_required = MIN_WIN_RATES.get(baseline, 0.0)
+                # Fallback to static player-aware thresholds
+                if baseline == BaselineOpponent.RANDOM:
+                    min_required = get_min_win_rate_vs_random(num_players)
+                elif baseline == BaselineOpponent.HEURISTIC:
+                    min_required = get_min_win_rate_vs_heuristic(num_players)
+                else:
+                    min_required = MIN_WIN_RATES.get(baseline, 0.0)
+                threshold_type = f"{num_players}p thresholds"
 
             if opponent_stats["win_rate"] < min_required:
                 result.passes_baseline_gating = False
@@ -647,7 +797,7 @@ def run_baseline_gauntlet(
                 logger.warning(
                     f"[gauntlet] Failed baseline gating vs {baseline_name}: "
                     f"{opponent_stats['win_rate']:.1%} < {min_required:.0%} required"
-                    f" ({num_players}p thresholds)"
+                    f" ({threshold_type})"
                 )
 
     # Calculate overall win rate

@@ -33,13 +33,14 @@ These tests are designed to validate the existing v1 balanced profile rather tha
 
 The AI Service implements a multi-tier difficulty system with six AI implementations:
 
-| AI Type                                 | Difficulty Levels | Key Features                              |
-| --------------------------------------- | ----------------- | ----------------------------------------- |
-| [`RandomAI`](app/ai/random_ai.py)       | 1                 | Pure random move selection                |
-| [`HeuristicAI`](app/ai/heuristic_ai.py) | 2                 | 45+ CMA-ES optimized evaluation factors   |
-| [`MinimaxAI`](app/ai/minimax_ai.py)     | 3–4               | Alpha-beta + PVS + NNUE neural evaluation |
-| [`MCTSAI`](app/ai/mcts_ai.py)           | 5–8               | PUCT + RAVE + neural value/policy heads   |
-| [`DescentAI`](app/ai/descent_ai.py)     | 9–10              | AlphaZero-style UBFM search               |
+| AI Type                                    | Difficulty Levels | Key Features                              |
+| ------------------------------------------ | ----------------- | ----------------------------------------- |
+| [`RandomAI`](app/ai/random_ai.py)          | 1                 | Pure random move selection                |
+| [`HeuristicAI`](app/ai/heuristic_ai.py)    | 2                 | 45+ CMA-ES optimized evaluation factors   |
+| [`MinimaxAI`](app/ai/minimax_ai.py)        | 3–4               | Alpha-beta + PVS + NNUE neural evaluation |
+| [`DescentAI`](app/ai/descent_ai.py)        | 5–6               | AlphaZero-style UBFM search (neural)      |
+| [`MCTSAI`](app/ai/mcts_ai.py)              | 7–8               | MCTS (D7 heuristic, D8 neural guidance)   |
+| [`GumbelMCTSAI`](app/ai/gumbel_mcts_ai.py) | 9–10              | Gumbel MCTS with neural guidance          |
 
 ### 1.3 MPS-Compatible Architecture (Apple Silicon)
 
@@ -58,7 +59,7 @@ export RINGRIFT_NN_ARCHITECTURE=auto
 python scripts/run_self_play_soak.py ...
 ```
 
-| [`NeuralNetAI`](app/ai/neural_net/__init__.py) | Backend for 7–10 | ResNet CNN with policy/value heads |
+| [`NeuralNetAI`](app/ai/neural_net/__init__.py) | Backend for neural tiers (5–6, 8–10) | ResNet CNN with policy/value heads |
 
 ### 1.2 Canonical Difficulty Ladder & Product-Facing Profiles
 
@@ -67,15 +68,16 @@ The canonical 1–10 difficulty ladder is defined in `_CANONICAL_DIFFICULTY_PROF
 the intended _product-facing_ interpretation so lobby/matchmaking UIs and operators
 have a shared understanding of what each band represents.
 
-| Difficulty | Internal AI type(s)         | Profile ID (Python)    | Suggested label / use case                                     |
-| ---------- | --------------------------- | ---------------------- | -------------------------------------------------------------- |
-| 1          | `RandomAI`                  | `v1-random-1`          | **Beginner – Random**: sandbox/tutorial only, not for rating.  |
-| 2          | `HeuristicAI`               | `v1-heuristic-2`       | **Beginner – Heuristic**: default "easy" AI vs human.          |
-| 3          | `MinimaxAI`                 | `v1-minimax-3`         | **Intermediate – Minimax**: heuristic-only evaluation.         |
-| 4          | `MinimaxAI` + `NNUE`        | `v1-minimax-4-nnue`    | **Intermediate – Minimax+NNUE**: neural position evaluation.   |
-| 5          | `MCTSAI`                    | `v1-mcts-5`            | **Challenging – MCTS**: heuristic rollouts, default strong AI. |
-| 6–8        | `MCTSAI` + `NeuralNetAI`    | `v1-mcts-6/7/8-neural` | **Expert – Neural MCTS**: neural value/policy guidance.        |
-| 9–10       | `DescentAI` + `NeuralNetAI` | `v1-descent-9/10`      | **Master – Descent**: AlphaZero-style UBFM, highest strength.  |
+| Difficulty | Internal AI type(s)            | Profile ID (Python)    | Suggested label / use case                                     |
+| ---------- | ------------------------------ | ---------------------- | -------------------------------------------------------------- |
+| 1          | `RandomAI`                     | `v1-random-1`          | **Beginner – Random**: sandbox/tutorial only, not for rating.  |
+| 2          | `HeuristicAI`                  | `v1-heuristic-2`       | **Beginner – Heuristic**: default "easy" AI vs human.          |
+| 3          | `MinimaxAI`                    | `v1-minimax-3`         | **Intermediate – Minimax**: heuristic-only evaluation.         |
+| 4          | `MinimaxAI` + `NNUE`           | `v1-minimax-4-nnue`    | **Intermediate – Minimax+NNUE**: neural position evaluation.   |
+| 5–6        | `DescentAI` + `NeuralNetAI`    | `ringrift_best_sq8_2p` | **Challenging – Descent**: neural search with global planning. |
+| 7          | `MCTSAI`                       | `v1-mcts-7`            | **Expert – MCTS**: heuristic-only MCTS with larger budget.     |
+| 8          | `MCTSAI` + `NeuralNetAI`       | `ringrift_best_sq8_2p` | **Strong Expert – Neural MCTS**: neural value/policy guidance. |
+| 9–10       | `GumbelMCTSAI` + `NeuralNetAI` | `ringrift_best_sq8_2p` | **Master – Gumbel MCTS**: strongest search budgets.            |
 
 Product-level guidance:
 
@@ -1418,18 +1420,18 @@ python scripts/run_ssh_distributed_tournament.py \
 
 The tournament validates the following canonical AI configurations:
 
-| Tier | AI Type   | Algorithm                  | Think Time | Randomness | Neural |
-| ---- | --------- | -------------------------- | ---------- | ---------- | ------ |
-| D1   | Random    | Uniform random             | 150ms      | 50%        | No     |
-| D2   | Heuristic | 45-weight evaluation       | 200ms      | 30%        | No     |
-| D3   | Minimax   | Alpha-beta search          | 1.8s       | 15%        | No     |
-| D4   | Minimax   | Alpha-beta + NNUE          | 2.8s       | 8%         | Yes    |
-| D5   | MCTS      | Monte Carlo Tree Search    | 4.0s       | 5%         | No     |
-| D6   | MCTS      | MCTS + neural value/policy | 5.5s       | 2%         | Yes    |
-| D7   | MCTS      | Expert neural MCTS         | 7.5s       | 0%         | Yes    |
-| D8   | MCTS      | Strong expert MCTS         | 9.6s       | 0%         | Yes    |
-| D9   | Descent   | AlphaZero-style UBFM       | 12.6s      | 0%         | Yes    |
-| D10  | Descent   | Grandmaster Descent        | 16.0s      | 0%         | Yes    |
+| Tier | AI Type     | Algorithm                  | Think Time | Randomness | Neural |
+| ---- | ----------- | -------------------------- | ---------- | ---------- | ------ |
+| D1   | Random      | Uniform random             | 150ms      | 50%        | No     |
+| D2   | Heuristic   | 45-weight evaluation       | 200ms      | 30%        | No     |
+| D3   | Minimax     | Alpha-beta search          | 1.8s       | 15%        | No     |
+| D4   | Minimax     | Alpha-beta + NNUE          | 2.8s       | 8%         | Yes    |
+| D5   | Descent     | UBFM/Descent search        | 4.0s       | 5%         | Yes    |
+| D6   | Descent     | Stronger Descent search    | 5.5s       | 2%         | Yes    |
+| D7   | MCTS        | Heuristic-only MCTS        | 7.5s       | 0%         | No     |
+| D8   | MCTS        | MCTS + neural value/policy | 9.6s       | 0%         | Yes    |
+| D9   | Gumbel MCTS | Gumbel MCTS (neural)       | 12.6s      | 0%         | Yes    |
+| D10  | Gumbel MCTS | Strongest Gumbel MCTS      | 16.0s      | 0%         | Yes    |
 
 ### 10.4 AI Strength Assessment
 
@@ -1443,12 +1445,12 @@ Based on architectural analysis, canonical ladder configuration, and preliminary
 | D2   | Heuristic    | 45-weight eval      | 1200-1400          | Tuned evaluation function  |
 | D3   | Minimax      | Alpha-beta (3-ply)  | 1350-1500          | Look-ahead search          |
 | D4   | Minimax+NNUE | Alpha-beta + neural | 1450-1600          | Better position evaluation |
-| D5   | MCTS         | Monte Carlo TS      | 1500-1700          | Statistical sampling       |
-| D6   | MCTS+Neural  | Neural value/policy | 1650-1850          | Guided search              |
-| D7   | MCTS Expert  | Deep neural MCTS    | 1800-2000          | Increased search budget    |
-| D8   | MCTS Strong  | Extended budget     | 1900-2100          | More simulations           |
-| D9   | Descent      | AlphaZero UBFM      | 2000-2200          | Best-first search          |
-| D10  | Descent Max  | Maximum budget      | 2100-2400          | Deepest search             |
+| D5   | Descent      | UBFM/Descent search | 1500-1700          | Best-first search          |
+| D6   | Descent      | Stronger budget     | 1650-1850          | Deeper search              |
+| D7   | MCTS         | Heuristic MCTS      | 1800-2000          | Increased search budget    |
+| D8   | MCTS+Neural  | Neural value/policy | 1900-2100          | Guided search              |
+| D9   | Gumbel MCTS  | Gumbel + neural     | 2000-2200          | Strongest search           |
+| D10  | Gumbel MCTS  | Maximum budget      | 2100-2400          | Deepest search             |
 
 #### Key Observations from Architecture
 

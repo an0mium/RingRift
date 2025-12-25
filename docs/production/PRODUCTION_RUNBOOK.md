@@ -306,9 +306,10 @@ Think times by difficulty:
 | D2 | Heuristic | ~200ms |
 | D3 | Minimax | ~1.8s |
 | D4 | Minimax+NNUE | ~2.8s |
-| D5 | MCTS | ~4s |
-| D6-8 | MCTS+Neural | 5-10s |
-| D9-10 | Descent+Neural | 12-16s |
+| D5–6 | Descent+Neural | 4-5.5s |
+| D7 | MCTS (heuristic) | ~7.5s |
+| D8 | MCTS+Neural | ~9.6s |
+| D9–10 | Gumbel MCTS+Neural | 12-16s |
 
 ## Contacts
 

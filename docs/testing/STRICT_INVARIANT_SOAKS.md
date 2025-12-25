@@ -81,7 +81,7 @@ Important knobs for memory/CPU safety:
   - `descent-only` – all players use `DescentAI` (heavy tree search + NN; highest memory/CPU).
   - `mixed` – per-player sampling across the canonical difficulty ladder.
 - `--difficulty-band` (for `engine-mode=mixed`):
-  - `canonical` (default) – difficulties `[1,2,4,5,6,7,8,9,10]` (Random, Heuristic, Minimax, MCTS, Descent).
+  - `canonical` (default) – difficulties `[1,2,3,4,5,6,7,8,9,10]` (Random, Heuristic, Minimax, Descent, MCTS, Gumbel MCTS).
   - `light` – **memory-conscious band** `[1,2,4,5]` (Random, Heuristic, low-depth Minimax).
 - `--gc-interval` (int, default `0`):
   - If `> 0`, clears the `GameEngine` move cache and runs `gc.collect()` every _N_ games.
@@ -352,7 +352,7 @@ Key properties:
 - AI difficulty band:
   - `RINGRIFT_SELFPLAY_STABILITY_DIFFICULTY_BAND` – defaults to `light`.
     - `light`: difficulties `[1,2,4,5]` (Random, Heuristic, low-depth Minimax).
-    - `canonical`: full ladder `[1,2,4,5,6,7,8,9,10]` including MCTS/Descent.
+    - `canonical`: full ladder `[1,2,3,4,5,6,7,8,9,10]` including Descent/MCTS/Gumbel.
 
 Example invocations:
 

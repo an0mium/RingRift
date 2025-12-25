@@ -1489,7 +1489,7 @@ class TrainingRunMetadata:
 
 ## Training Data
 
-- **Source**: Self-play games using DescentAI difficulty 7
+- **Source**: Self-play games using DescentAI difficulty 6
 - **Games**: 1,000
 - **Positions**: 50,000
 - **Augmentation**: 8× for square boards

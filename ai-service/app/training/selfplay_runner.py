@@ -185,6 +185,44 @@ class SelfplayRunner(ABC):
         self._subscribe_to_feedback_events()
         self._init_pfsp()
 
+    def _apply_elo_adaptive_config(self) -> None:
+        """Apply Elo-adaptive configuration for budget and temperature.
+
+        December 2025: Fetches current model Elo from FeedbackAccelerator
+        and sets it on the config. This enables:
+        - Elo-adaptive MCTS budget (via SelfplayConfig.get_effective_budget())
+        - Elo-adaptive temperature (via create_elo_adaptive_scheduler())
+
+        Weak models (Elo < 1300) get low budget/high exploration.
+        Strong models (Elo > 1700) get high budget/low exploration.
+        """
+        try:
+            from app.training.feedback_accelerator import get_feedback_accelerator
+
+            config_key = f"{self.config.board_type}_{self.config.num_players}p"
+            accelerator = get_feedback_accelerator()
+
+            momentum = accelerator.get_config_momentum(config_key)
+            if momentum is not None and momentum.current_elo > 0:
+                self.config.model_elo = momentum.current_elo
+
+                # Also update base budget from Elo-adaptive logic
+                budget = self.config.get_effective_budget()
+                self._base_budget = budget
+                self._current_budget = budget
+
+                logger.info(
+                    f"  [Elo-Adaptive] Model Elo {momentum.current_elo:.0f}, "
+                    f"budget {budget} sims"
+                )
+            else:
+                logger.debug(f"[Elo-Adaptive] No momentum data for {config_key}, using defaults")
+
+        except ImportError:
+            pass  # FeedbackAccelerator not available
+        except Exception as e:
+            logger.debug(f"[SelfplayRunner] Elo-adaptive config not applied: {e}")
+
     def _apply_selfplay_rate_adjustment(self) -> None:
         """Adjust selfplay game count based on FeedbackAccelerator rate recommendation.
 
@@ -348,6 +386,8 @@ class SelfplayRunner(ABC):
         - CURRICULUM_ADVANCED: Increase opponent difficulty
         - SELFPLAY_TARGET_UPDATED: Adjust games to generate
         - TRAINING_BLOCKED_BY_QUALITY: Trigger data regeneration
+        - MODEL_PROMOTED: Reset difficulty boost on successful promotion
+        - PROMOTION_FAILED: Increase opponent difficulty on failed promotion
         """
         try:
             from app.coordination.event_router import get_router, subscribe
@@ -406,10 +446,49 @@ class SelfplayRunner(ABC):
                     f"({quality_score:.2f}). Regeneration pending."
                 )
 
+            def on_promotion_success(event):
+                """Handle MODEL_PROMOTED events - reset difficulty boost on success."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config_key", "")
+
+                if event_config != config_key:
+                    return
+
+                # Reset difficulty boost on successful promotion
+                old_boost = self._promotion_difficulty_boost
+                self._promotion_difficulty_boost = 1.0
+                self._consecutive_promotion_failures = 0
+                logger.info(
+                    f"[FeedbackLoop] Promotion succeeded for {config_key}: "
+                    f"resetting difficulty boost from {old_boost:.2f} to 1.0"
+                )
+
+            def on_promotion_failed(event):
+                """Handle PROMOTION_FAILED events - increase opponent difficulty."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config_key", "")
+
+                if event_config != config_key:
+                    return
+
+                # Failed promotion → increase opponent difficulty to generate harder games
+                self._consecutive_promotion_failures += 1
+                # Exponential backoff: 1.0 → 1.2 → 1.44 → 1.73 → 2.07 (capped at 3.0)
+                self._promotion_difficulty_boost = min(
+                    self._promotion_difficulty_boost * 1.2, 3.0
+                )
+                logger.info(
+                    f"[FeedbackLoop] Promotion failed for {config_key}: "
+                    f"difficulty boost now {self._promotion_difficulty_boost:.2f} "
+                    f"(consecutive failures: {self._consecutive_promotion_failures})"
+                )
+
             # Subscribe to feedback events using DataEventType enums
             subscribe(DataEventType.CURRICULUM_ADVANCED, on_curriculum_advanced)
             subscribe(DataEventType.SELFPLAY_TARGET_UPDATED, on_selfplay_target_updated)
             subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, on_training_blocked_by_quality)
+            subscribe(DataEventType.MODEL_PROMOTED, on_promotion_success)
+            subscribe(DataEventType.PROMOTION_FAILED, on_promotion_failed)
 
             logger.debug(f"[SelfplayRunner] Subscribed to feedback events for {config_key}")
 
@@ -630,8 +709,36 @@ class SelfplayRunner(ABC):
         except Exception as e:
             logger.warning(f"Failed to emit selfplay event: {e}")
 
-    def get_temperature(self, move_number: int) -> float:
-        """Get temperature for move selection based on scheduling."""
+    def get_temperature(self, move_number: int, game_state=None) -> float:
+        """Get temperature for move selection based on scheduling.
+
+        December 2025: Uses Elo-adaptive temperature when model_elo is available.
+        Weak models (Elo < 1300) get high temperature (1.5) for exploration.
+        Strong models (Elo > 1700) get low temperature (0.5) for exploitation.
+
+        Args:
+            move_number: Current move number in the game.
+            game_state: Optional game state for adaptive scheduling.
+
+        Returns:
+            Temperature value for move selection.
+        """
+        # Use Elo-adaptive scheduler if model_elo is set
+        if self.config.model_elo is not None:
+            try:
+                from app.training.temperature_scheduling import create_elo_adaptive_scheduler
+
+                scheduler = create_elo_adaptive_scheduler(
+                    model_elo=self.config.model_elo,
+                    exploration_moves=getattr(self.config, 'temperature_threshold', 30),
+                )
+                return scheduler.get_temperature(move_number, game_state)
+            except ImportError:
+                pass  # Fall through to default logic
+            except Exception as e:
+                logger.debug(f"[Temperature] Elo-adaptive scheduler failed: {e}")
+
+        # Default temperature logic (backward compatible)
         threshold = getattr(self.config, 'temperature_threshold', 30)
         opening_temp = getattr(self.config, 'opening_temperature', 1.0)
         base_temp = getattr(self.config, 'base_temperature', 0.1)

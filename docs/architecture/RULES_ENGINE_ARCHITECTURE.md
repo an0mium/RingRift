@@ -83,15 +83,14 @@ important groups are:
   - Backend adapter: [`TurnEngineAdapter.ts`](../../src/server/game/turn/TurnEngineAdapter.ts:1)
   - Client adapter: [`SandboxOrchestratorAdapter.ts`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts:1)
   - Host orchestration modes:
-    - Backend `GameEngine.makeMove()` can operate in **adapter mode** (delegating to `TurnEngineAdapter` / `processTurnAsync`) or in **legacy mode** (validating via `RuleEngine` and applying moves directly via `applyMove`). Movement/capture mutation in the legacy path now uses Movement/Capture aggregates, but phase progression is still host-managed. In production, adapter mode is the **default and canonical** path; legacy mode is confined to tests, diagnostics, and kill‑switch/circuit‑breaker scenarios (see `EngineSelection.LEGACY` below).
+    - Backend `GameEngine.makeMove()` always delegates to `TurnEngineAdapter` / `processTurnAsync`. The legacy `RuleEngine` pipeline has been removed from production paths; diagnostics use shared helpers directly rather than host‑managed phase progression.
     - Client `ClientSandboxEngine` now treats orchestrator‑driven flows (via `SandboxOrchestratorAdapter` and shared `turnLogic`) as the **canonical** rules path for sandbox games. Legacy click‑driven flows remain only as thin UI/test shims over shared aggregates and turn helpers, and are treated as **tests/tools‑only** surfaces rather than independent rules engines.
     - Python has no embedded TS orchestrator; instead, its `GameEngine` is parity‑validated against the TS orchestrator + contracts via v2 contract vectors and parity suites. It remains a host/adapter, not a separate rules SSoT.
   - Engine selection modes (backend):
-    - `EngineSelection.ORCHESTRATOR` – canonical production path: `GameSession.configureEngineSelection()` enables the `TurnEngineAdapter` (`useOrchestratorAdapter=true`), and all turn processing goes through `processTurnAsync` with Movement/Capture/Placement/Line/Territory/Victory aggregates as the single source of rules.
-    - `EngineSelection.SHADOW` – legacy remains authoritative, but the orchestrator runs in parallel on a cloned state via `ShadowModeComparator` and reports mismatch/error/latency metrics to Prometheus. Used for safe rollout and regression detection.
-    - `EngineSelection.LEGACY` – test/tools‑only path: bypasses the adapter and uses the legacy `GameEngine`/`RuleEngine` turn pipeline. In production this mode is reachable only via the orchestrator kill switch or an open circuit breaker (see `OrchestratorRolloutService` and the rollout docs listed below). Normal gameplay is expected to use `ORCHESTRATOR` or `SHADOW`.
+    - `EngineSelection.ORCHESTRATOR` – canonical production path: `GameEngine` always delegates to `TurnEngineAdapter` / `processTurnAsync`, with Movement/Capture/Placement/Line/Territory/Victory aggregates as the single source of rules.
+    - `EngineSelection.LEGACY` – diagnostics-only classification used for metrics/history. The legacy `GameEngine`/`RuleEngine` turn pipeline has been removed from production paths; there is no shadow mode or runtime kill switch.
 
-      **Legacy mode (REMOVED in PASS20):** Previously available as circuit-breaker fallback; ~1,147 lines of legacy code removed in December 2025. Orchestrator is now the only production path.
+      **Legacy mode removed (PASS20):** ~1,147 lines of legacy code removed in December 2025. Orchestrator is now the only production path.
 
 > **Rollout & runbooks:** The canonical description of environment phases, feature flags, SLOs, and rollback levers for orchestrator rollout now lives in:
 >
@@ -683,7 +682,7 @@ Any change to Territory, capture, or elimination logic must keep these invariant
 The following examples are encoded as tests and serve as _living specifications_:
 
 - **Single-region Q23 positive (square19):**
-  - Tests: `tests/unit/GameEngine.territoryDisconnection.test.ts`, `tests/unit/territoryProcessing.rules.test.ts`.
+  - Tests: `tests/unit/BoardManager.territoryDisconnection.test.ts`, `tests/unit/territoryProcessing.shared.test.ts`.
   - Scenario: a 3x3 interior region is fully surrounded by Player 1's markers. Player 1 has at least one stack outside the region.
   - Expected behaviour:
     - Region is detected as disconnected and eligible (positive Q23).
@@ -693,7 +692,7 @@ The following examples are encoded as tests and serve as _living specifications_
     - `S` increases appropriately due to new `collapsedSpaces` and `eliminatedRings`.
 
 - **Q23 negative (sandbox rules):**
-  - Tests: `tests/unit/sandboxTerritoryEngine.rules.test.ts` (legacy‑named diagnostic harness that now exercises `ClientSandboxEngine.processDisconnectedRegionsForCurrentPlayer`), `tests/unit/ClientSandboxEngine.territoryDisconnection.test.ts` (Q23-specific cases).
+  - Tests: `tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`, `tests/unit/ClientSandboxEngine.territoryDisconnection.test.ts` (Q23-specific cases).
   - Scenario: a region is fully enclosed by Player 1's markers, but Player 1 has no stacks or caps outside that region.
   - Expected behaviour:
     - Region is detected as disconnected but **ineligible** (negative Q23).
@@ -701,7 +700,7 @@ The following examples are encoded as tests and serve as _living specifications_
     - No stacks are eliminated; `eliminatedRings` and `collapsedSpaces` do not change.
 
 - **Seed 17 parity checkpoints:**
-  - Tests: `tests/unit/Seed17GeometryParity.GameEngine_vs_Sandbox.test.ts`, `tests/unit/Seed17Move52Parity.GameEngine_vs_Sandbox.test.ts`, `tests/unit/Sandbox_vs_Backend.seed17.traceDebug.test.ts`.
+  - Tests: `tests/unit/Seed17GeometryParity.GameEngine_vs_Sandbox.test.ts`, `tests/unit/Seed17Move52Parity.GameEngine_vs_Sandbox.test.ts`, `archive/tests/unit/Sandbox_vs_Backend.seed17.traceDebug.test.ts`.
   - These parity suites assert that for a difficult seed (17), backend and sandbox agree on:
     - Geometry and movement legality.
     - Territory disconnections and collapses.
@@ -717,8 +716,8 @@ The backend GameEngine and sandbox must agree on the **effective order** in whic
 
 - Current backend implementation (TS):
   - `GameEngine.processAutomaticConsequences` calls into Territory processing and line processing in a carefully chosen order so that:
-    - Territory disconnection tests (`GameEngine.territoryDisconnection.*.test.ts`) match sandbox expectations for square8, square19, and hex.
-    - Parity suites (`TerritoryParity.GameEngine_vs_Sandbox.test.ts`, Seed 17 parity tests) remain green.
+    - Territory disconnection tests (`BoardManager.territoryDisconnection.*.test.ts`) match sandbox expectations for square8, square19, and hex.
+    - Parity suites (`archive/tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts`, Seed 17 parity tests) remain green.
 
 Any future changes to this ordering **must**:
 

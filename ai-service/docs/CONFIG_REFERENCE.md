@@ -77,7 +77,7 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_RULES_MUTATOR_FIRST`         | Enable mutator-first orchestration (requires server flag)      | `false`           |
 | `RINGRIFT_SERVER_ENABLE_MUTATOR_FIRST` | Allow mutator-first mode at all                                | `false`           |
 | `RINGRIFT_FORCE_BOOKKEEPING_MOVES`     | Synthesize required no\_\* bookkeeping moves for current actor | `false`           |
-| `RINGRIFT_FSM_VALIDATION_MODE`         | FSM validation mode (`active`, `passive`, `off`)               | `active`          |
+| `RINGRIFT_FSM_VALIDATION_MODE`         | FSM validation mode (`active`, `off`)                          | `active`          |
 | `RINGRIFT_STRICT_NO_MOVE_INVARIANT`    | Strict legacy move invariant checks                            | `false`           |
 | `RINGRIFT_SKIP_PHASE_INVARIANT`        | Skip legacy phase invariant checks                             | `false`           |
 | `RINGRIFT_RECOVERY_STACK_STRIKE_V1`    | Enable recovery stack-strike fallback                          | `true`            |

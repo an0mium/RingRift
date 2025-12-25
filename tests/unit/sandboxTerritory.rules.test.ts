@@ -27,7 +27,7 @@ import {
  * These tests bypass ClientSandboxEngine and drive the pure
  * `processDisconnectedRegionOnBoard` helper directly on handcrafted
  * BoardState/Player structures. They mirror the backend
- * territoryProcessing.rules test geometry and assert that for a small,
+ * territoryProcessing.shared test geometry and assert that for a small,
  * fully-specified disconnected region:
  *
  * - findDisconnectedRegionsOnBoard discovers a region matching the curated

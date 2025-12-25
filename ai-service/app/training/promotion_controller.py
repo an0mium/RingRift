@@ -287,8 +287,54 @@ class PromotionController:
                     self._pending_promotion_checks[model_id] = elo_delta
 
             router.subscribe(DataEventType.ELO_SIGNIFICANT_CHANGE.value, on_elo_significant_change)
+
+            # Subscribe to EVALUATION_COMPLETED for automatic promotion checks (December 2025)
+            async def on_evaluation_completed(event):
+                """Handle evaluation completion for auto-promotion checks."""
+                payload = event.payload if hasattr(event, 'payload') else {}
+                model_id = payload.get("model_id", payload.get("model_path", ""))
+                board_type = payload.get("board_type", "square8")
+                num_players = payload.get("num_players", 2)
+
+                # Check win rate vs heuristic (primary promotion criterion)
+                win_rate_vs_heuristic = payload.get("win_rate_vs_heuristic", 0.0)
+
+                # Also check result dict structure
+                results = payload.get("results", {})
+                for opponent, data in results.items():
+                    if "heuristic" in opponent.lower():
+                        win_rate_vs_heuristic = max(
+                            win_rate_vs_heuristic,
+                            data.get("win_rate", 0.0)
+                        )
+
+                # If model beats heuristic 55%+ of the time, emit promotion candidate event
+                if win_rate_vs_heuristic >= 0.55:
+                    logger.info(
+                        f"[PromotionController] Promotion candidate detected: "
+                        f"{model_id} with {win_rate_vs_heuristic:.1%} vs heuristic"
+                    )
+                    # Emit PROMOTION_CANDIDATE for downstream handlers
+                    await router.publish(
+                        DataEventType.PROMOTION_CANDIDATE.value,
+                        {
+                            "model_id": model_id,
+                            "board_type": board_type,
+                            "num_players": num_players,
+                            "win_rate_vs_heuristic": win_rate_vs_heuristic,
+                            "source": "evaluation_completed",
+                        }
+                    )
+                    # Queue for promotion evaluation
+                    self._pending_promotion_checks[model_id] = win_rate_vs_heuristic
+
+            router.subscribe(DataEventType.EVALUATION_COMPLETED.value, on_evaluation_completed)
+
             self._event_subscribed = True
-            logger.info("[PromotionController] Subscribed to ELO_SIGNIFICANT_CHANGE events")
+            logger.info(
+                "[PromotionController] Subscribed to ELO_SIGNIFICANT_CHANGE and "
+                "EVALUATION_COMPLETED events"
+            )
             return True
 
         except Exception as e:

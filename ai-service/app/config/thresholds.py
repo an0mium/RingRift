@@ -269,6 +269,106 @@ def get_min_win_rate_vs_heuristic(num_players: int = 2) -> float:
         return MIN_WIN_RATE_VS_HEURISTIC_3P
     return MIN_WIN_RATE_VS_HEURISTIC
 
+
+# =============================================================================
+# Elo-Adaptive Thresholds (December 2025)
+# =============================================================================
+# Scale promotion requirements based on model strength. Early training models
+# have easier thresholds to bootstrap quickly; strong models have strict gates.
+
+
+def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) -> float:
+    """Get Elo-adaptive win rate threshold vs random baseline.
+
+    Thresholds scale with model strength:
+    - Weak models (< 1300 Elo): Lower threshold for fast iteration
+    - Medium models (1300-1500): Standard threshold
+    - Strong models (1500-1700): Higher threshold for quality
+    - Very strong (> 1700): Strict threshold
+
+    Args:
+        model_elo: Current model Elo rating
+        num_players: Number of players (2, 3, or 4)
+
+    Returns:
+        Adaptive minimum win rate vs random
+    """
+    # Get base threshold from player count
+    base = get_min_win_rate_vs_random(num_players)
+
+    # Scale based on Elo
+    if model_elo < 1300:
+        # Weak model: easier threshold (0.85x of base)
+        multiplier = 0.85
+    elif model_elo < 1500:
+        # Medium model: standard threshold
+        multiplier = 1.0
+    elif model_elo < 1700:
+        # Strong model: stricter threshold (1.1x of base)
+        multiplier = 1.1
+    else:
+        # Very strong: strictest threshold (1.2x of base)
+        multiplier = 1.2
+
+    # Clamp to [0.5, 0.95] range
+    return min(0.95, max(0.5, base * multiplier))
+
+
+def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 2) -> float:
+    """Get Elo-adaptive win rate threshold vs heuristic baseline.
+
+    Thresholds scale with model strength:
+    - Weak models (< 1300 Elo): Lower threshold (break-even is fine)
+    - Medium models (1300-1500): Standard threshold
+    - Strong models (1500-1700): Higher threshold
+    - Very strong (> 1700): Strict threshold (must dominate heuristic)
+
+    Args:
+        model_elo: Current model Elo rating
+        num_players: Number of players (2, 3, or 4)
+
+    Returns:
+        Adaptive minimum win rate vs heuristic
+    """
+    # Get base threshold from player count
+    base = get_min_win_rate_vs_heuristic(num_players)
+
+    # Scale based on Elo
+    if model_elo < 1300:
+        # Weak model: easier threshold (0.8x of base)
+        multiplier = 0.8
+    elif model_elo < 1500:
+        # Medium model: standard threshold
+        multiplier = 1.0
+    elif model_elo < 1700:
+        # Strong model: stricter threshold (1.15x of base)
+        multiplier = 1.15
+    else:
+        # Very strong: strictest threshold (1.3x of base)
+        multiplier = 1.3
+
+    # Clamp to [0.15, 0.85] range (heuristic is tough)
+    return min(0.85, max(0.15, base * multiplier))
+
+
+def get_adaptive_thresholds(model_elo: float, num_players: int = 2) -> dict[str, float]:
+    """Get all adaptive thresholds for a model based on Elo.
+
+    Convenience function that returns both random and heuristic thresholds.
+
+    Args:
+        model_elo: Current model Elo rating
+        num_players: Number of players
+
+    Returns:
+        Dict with 'random' and 'heuristic' win rate thresholds
+    """
+    return {
+        "random": get_elo_adaptive_win_rate_vs_random(model_elo, num_players),
+        "heuristic": get_elo_adaptive_win_rate_vs_heuristic(model_elo, num_players),
+    }
+
+
 # Baseline Elo estimates for Elo calculation from win rates
 BASELINE_ELO_RANDOM = 400
 BASELINE_ELO_HEURISTIC = 1200

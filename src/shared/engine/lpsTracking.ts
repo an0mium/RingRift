@@ -310,9 +310,6 @@ export interface LpsEvaluationResult {
  */
 export const LPS_DEFAULT_REQUIRED_ROUNDS = 3;
 
-/** @deprecated Use LPS_DEFAULT_REQUIRED_ROUNDS instead. */
-export const LPS_REQUIRED_CONSECUTIVE_ROUNDS = LPS_DEFAULT_REQUIRED_ROUNDS;
-
 /**
  * Evaluate whether the Last-Player-Standing victory condition (R172) is satisfied.
  *

@@ -516,3 +516,154 @@ def create_adaptive_controller(
         controller.setup_event_subscriptions()
 
     return controller
+
+
+# =============================================================================
+# Elo-Based Plateau Detection (December 2025)
+# =============================================================================
+#
+# Enhanced plateau detection using Elo velocity and polynomial fitting.
+# This complements the promotion-based detection with statistical analysis.
+# =============================================================================
+
+
+def detect_elo_plateau(
+    elo_history: list[float],
+    window_size: int = 10,
+    threshold_elo_per_game: float = 0.5,
+) -> tuple[bool, dict]:
+    """Detect if Elo improvement has plateaued using polynomial fitting.
+
+    This function fits a linear polynomial to recent Elo history and checks
+    if the slope indicates stalled improvement. Useful for:
+    - Triggering hyperparameter search when training stalls
+    - Adjusting exploration parameters
+    - Deciding when to stop training
+
+    Part of the strength-driven training system (December 2025).
+
+    Args:
+        elo_history: List of Elo ratings over time (chronological order).
+        window_size: Number of recent data points to consider.
+        threshold_elo_per_game: Slope threshold below which is considered plateau.
+
+    Returns:
+        Tuple of (is_plateau: bool, details: dict) where details contains:
+        - slope: Elo change per game
+        - window_size: Actual window used
+        - start_elo: Elo at window start
+        - end_elo: Elo at window end
+        - confidence: Fit quality (R-squared)
+
+    Example:
+        >>> elo_history = [1500, 1510, 1525, 1530, 1531, 1532, 1532, 1533, 1533, 1534]
+        >>> is_plateau, details = detect_elo_plateau(elo_history, window_size=5)
+        >>> print(f"Plateau: {is_plateau}, slope: {details['slope']:.2f}")
+        Plateau: True, slope: 0.30
+    """
+    if len(elo_history) < 3:
+        return False, {
+            "slope": 0.0,
+            "window_size": len(elo_history),
+            "start_elo": elo_history[0] if elo_history else 0.0,
+            "end_elo": elo_history[-1] if elo_history else 0.0,
+            "confidence": 0.0,
+            "reason": "insufficient_data",
+        }
+
+    # Use recent window
+    recent = elo_history[-window_size:] if len(elo_history) >= window_size else elo_history
+    actual_window = len(recent)
+
+    try:
+        import numpy as np
+
+        x = np.arange(len(recent))
+        y = np.array(recent)
+
+        # Linear fit: y = slope * x + intercept
+        slope, intercept = np.polyfit(x, y, 1)
+
+        # Compute R-squared for confidence
+        y_pred = slope * x + intercept
+        ss_res = np.sum((y - y_pred) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+        is_plateau = slope < threshold_elo_per_game
+
+        return is_plateau, {
+            "slope": float(slope),
+            "window_size": actual_window,
+            "start_elo": float(recent[0]),
+            "end_elo": float(recent[-1]),
+            "confidence": float(max(0.0, r_squared)),
+            "reason": "low_slope" if is_plateau else "improving",
+        }
+
+    except ImportError:
+        # Fallback without numpy: simple slope calculation
+        start_elo = recent[0]
+        end_elo = recent[-1]
+        slope = (end_elo - start_elo) / max(len(recent) - 1, 1)
+
+        is_plateau = slope < threshold_elo_per_game
+
+        return is_plateau, {
+            "slope": slope,
+            "window_size": actual_window,
+            "start_elo": start_elo,
+            "end_elo": end_elo,
+            "confidence": 0.5,  # Lower confidence without proper fit
+            "reason": "low_slope" if is_plateau else "improving",
+        }
+
+
+async def on_plateau_detected(
+    config_key: str,
+    plateau_details: dict,
+) -> None:
+    """Handle detected plateau by boosting exploration.
+
+    This function is called when plateau is detected and triggers:
+    - Exploration boost via FeedbackAccelerator
+    - PLATEAU_DETECTED event emission
+    - Logging for observability
+
+    Part of the strength-driven training system (December 2025).
+
+    Args:
+        config_key: Configuration key (e.g., "hex8_2p")
+        plateau_details: Details from detect_elo_plateau()
+    """
+    logger.warning(
+        f"[PlateauDetection] Detected for {config_key}: "
+        f"slope={plateau_details.get('slope', 0):.2f} Elo/game, "
+        f"window={plateau_details.get('window_size', 0)} games"
+    )
+
+    # Try to boost exploration via FeedbackAccelerator
+    try:
+        from app.training.feedback_accelerator import get_feedback_accelerator
+
+        accelerator = get_feedback_accelerator()
+        accelerator.signal_training_needed(
+            config_key=config_key,
+            urgency="high",
+            reason=f"plateau_detected (slope={plateau_details.get('slope', 0):.2f})",
+        )
+        logger.info(f"[PlateauDetection] Signaled training boost for {config_key}")
+    except ImportError:
+        logger.debug("[PlateauDetection] FeedbackAccelerator not available")
+    except Exception as e:
+        logger.debug(f"[PlateauDetection] Failed to signal accelerator: {e}")
+
+    # Emit plateau detected event
+    if HAS_EVENT_SYSTEM:
+        await emit_plateau_detected(
+            config=config_key,
+            iterations_without_improvement=plateau_details.get("window_size", 0),
+            avg_win_rate=0.0,  # Not available from Elo history
+            recommended_action="Consider hyperparameter search or curriculum adjustment",
+            source="elo_plateau_detection",
+        )

@@ -523,10 +523,13 @@ async def trigger_evaluation(
     config: ActionConfig | None = None,
     num_games: int = 100,
     baselines: list[str] | None = None,
+    max_retries: int = 3,
+    retry_delay: float = 5.0,
 ) -> StageCompletionResult:
-    """Trigger gauntlet evaluation of a trained model.
+    """Trigger gauntlet evaluation of a trained model with retry logic.
 
     Evaluates a model against baseline opponents to measure strength.
+    On failure, retries with increased game count to reduce variance.
 
     Args:
         model_path: Path to model checkpoint
@@ -534,8 +537,10 @@ async def trigger_evaluation(
         num_players: Number of players (2, 3, 4)
         iteration: Pipeline iteration number
         config: Action configuration
-        num_games: Games per opponent
+        num_games: Base games per opponent
         baselines: Baseline opponents to test against
+        max_retries: Maximum retry attempts (default: 3)
+        retry_delay: Delay between retries in seconds
 
     Returns:
         StageCompletionResult with evaluation results
@@ -544,96 +549,124 @@ async def trigger_evaluation(
     root = _get_ai_service_root()
     start_time = time.time()
     baselines = baselines or ["random", "heuristic"]
+    last_error = None
 
-    try:
-        cmd = [
-            config.python_executable,
-            "-m", config.evaluate_module,
-            "--board-type", board_type,
-            "--num-players", str(num_players),
-            "--model-path", model_path,
-            "--games", str(num_games),
-        ]
+    for attempt in range(max_retries):
+        # Increase games on retry to reduce variance
+        retry_games = int(num_games * (1 + 0.5 * attempt))
 
-        exit_code, stdout, stderr = await _run_subprocess(
-            cmd,
-            timeout=config.evaluation_timeout,
-            cwd=root,
-            env={"PYTHONPATH": str(root)},
-        )
-
-        duration = time.time() - start_time
-        success = exit_code == 0
-
-        # Parse evaluation results
-        win_rates = {}
-        elo_delta = 0.0
-        for line in stdout.split("\n"):
-            line_lower = line.lower()
-            # Parse win rates like "vs random: 95.0%"
-            if "vs " in line_lower and "%" in line:
-                try:
-                    parts = line.split(":")
-                    opponent = parts[0].split("vs")[-1].strip()
-                    rate_str = parts[1].strip().replace("%", "")
-                    win_rates[opponent] = float(rate_str)
-                except (ValueError, IndexError):
-                    pass
-            # Parse elo delta
-            if "elo" in line_lower and ("delta" in line_lower or "+" in line):
-                try:
-                    elo_delta = float(line.split(":")[-1].strip().replace("+", ""))
-                except ValueError:
-                    pass
-
-        # Check promotion eligibility (win_rates are integer percentages, thresholds are 0-1)
-        eligible = all([
-            win_rates.get("random", 0) >= PRODUCTION_MIN_WIN_RATE_VS_RANDOM * 100,
-            win_rates.get("heuristic", 0) >= PRODUCTION_MIN_WIN_RATE_VS_HEURISTIC * 100,
-        ]) if win_rates else False
-
-        result = StageCompletionResult(
-            success=success,
-            stage="evaluation",
-            iteration=iteration,
-            duration_seconds=duration,
-            output_path=model_path,
-            error=stderr if not success else None,
-            exit_code=exit_code,
-            stdout=stdout,
-            stderr=stderr,
-            metadata={
-                "board_type": board_type,
-                "num_players": num_players,
-                "model_path": model_path,
-                "win_rates": win_rates,
-                "elo_delta": elo_delta,
-                "num_games": num_games,
-                "promotion_eligible": eligible,
-            },
-        )
-
-        if success:
+        if attempt > 0:
             logger.info(
-                f"[PipelineActions] Evaluation completed in {duration:.1f}s: "
-                f"win_rates={win_rates}, elo_delta={elo_delta:+.0f}"
+                f"[PipelineActions] Evaluation retry {attempt}/{max_retries - 1} "
+                f"with {retry_games} games per opponent"
             )
-            await _emit_evaluation_complete(result)
-        else:
-            logger.error(f"[PipelineActions] Evaluation failed: {stderr[:500]}")
+            await asyncio.sleep(retry_delay)
 
-        return result
+        try:
+            cmd = [
+                config.python_executable,
+                "-m", config.evaluate_module,
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--model-path", model_path,
+                "--games", str(retry_games),
+            ]
 
-    except Exception as e:
-        duration = time.time() - start_time
-        logger.exception(f"[PipelineActions] Evaluation error: {e}")
-        return StageCompletionResult(
-            success=False,
-            stage="evaluation",
-            iteration=iteration,
-            duration_seconds=duration,
-            error=str(e),
-        )
+            exit_code, stdout, stderr = await _run_subprocess(
+                cmd,
+                timeout=config.evaluation_timeout,
+                cwd=root,
+                env={"PYTHONPATH": str(root)},
+            )
+
+            attempt_duration = time.time() - start_time
+            success = exit_code == 0
+
+            # Parse evaluation results
+            win_rates = {}
+            elo_delta = 0.0
+            for line in stdout.split("\n"):
+                line_lower = line.lower()
+                # Parse win rates like "vs random: 95.0%"
+                if "vs " in line_lower and "%" in line:
+                    try:
+                        parts = line.split(":")
+                        opponent = parts[0].split("vs")[-1].strip()
+                        rate_str = parts[1].strip().replace("%", "")
+                        win_rates[opponent] = float(rate_str)
+                    except (ValueError, IndexError):
+                        pass
+                # Parse elo delta
+                if "elo" in line_lower and ("delta" in line_lower or "+" in line):
+                    try:
+                        elo_delta = float(line.split(":")[-1].strip().replace("+", ""))
+                    except ValueError:
+                        pass
+
+            # Check promotion eligibility (win_rates are integer percentages, thresholds are 0-1)
+            eligible = all([
+                win_rates.get("random", 0) >= PRODUCTION_MIN_WIN_RATE_VS_RANDOM * 100,
+                win_rates.get("heuristic", 0) >= PRODUCTION_MIN_WIN_RATE_VS_HEURISTIC * 100,
+            ]) if win_rates else False
+
+            result = StageCompletionResult(
+                success=success,
+                stage="evaluation",
+                iteration=iteration,
+                duration_seconds=attempt_duration,
+                output_path=model_path,
+                error=stderr if not success else None,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                metadata={
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "model_path": model_path,
+                    "win_rates": win_rates,
+                    "elo_delta": elo_delta,
+                    "num_games": retry_games,
+                    "promotion_eligible": eligible,
+                    "attempt": attempt + 1,
+                },
+            )
+
+            if success:
+                logger.info(
+                    f"[PipelineActions] Evaluation completed in {attempt_duration:.1f}s: "
+                    f"win_rates={win_rates}, elo_delta={elo_delta:+.0f}"
+                )
+                await _emit_evaluation_complete(result)
+                return result
+            else:
+                last_error = stderr[:500]
+                logger.warning(
+                    f"[PipelineActions] Evaluation attempt {attempt + 1} failed: {last_error}"
+                )
+                # Continue to next retry if not last attempt
+                if attempt < max_retries - 1:
+                    continue
+                # Last attempt - return failure result
+                logger.error(f"[PipelineActions] All {max_retries} evaluation attempts failed")
+                return result
+
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"[PipelineActions] Evaluation attempt {attempt + 1} error: {e}")
+            # Continue to next retry if not last attempt
+            if attempt < max_retries - 1:
+                continue
+
+    # All retries exhausted with exceptions
+    duration = time.time() - start_time
+    logger.error(f"[PipelineActions] All {max_retries} evaluation attempts failed with errors")
+    return StageCompletionResult(
+        success=False,
+        stage="evaluation",
+        iteration=iteration,
+        duration_seconds=duration,
+        error=last_error or "All retries failed",
+    )
 
 
 async def trigger_promotion(

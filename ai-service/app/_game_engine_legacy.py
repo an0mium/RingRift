@@ -1287,7 +1287,7 @@ class GameEngine:
         # (b) No stacks on board AND no player with rings in hand has any
         #     legal placement (respecting no-dead-placement rule).
         #
-        # This mirrors TS victoryLogic.ts hasAnyLegalPlacementOnBareBoard().
+        # This mirrors TS VictoryAggregate.ts hasAnyLegalPlacementOnBareBoard().
         no_stacks_left = not game_state.board.stacks
         any_rings_in_hand = any(p.rings_in_hand > 0 for p in game_state.players)
 

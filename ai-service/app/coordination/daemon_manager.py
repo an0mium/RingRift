@@ -191,7 +191,7 @@ class DaemonManagerConfig:
     shutdown_timeout: float = 10.0  # Max time to wait for graceful shutdown
     auto_restart_failed: bool = True  # Auto-restart failed daemons
     max_restart_attempts: int = 5  # Max restart attempts per daemon
-    recovery_cooldown: float = 300.0  # Time before attempting to recover FAILED daemons
+    recovery_cooldown: float = 10.0  # Time before attempting to recover FAILED daemons (reduced from 300s for faster recovery)
 
 
 class DaemonManager:
@@ -695,6 +695,18 @@ class DaemonManager:
 
         return result
 
+    def _get_dependents(self, daemon_type: DaemonType) -> list[DaemonType]:
+        """Get all daemons that depend on the given daemon type.
+
+        Used for cascading restarts when a dependency fails.
+        Returns daemons in order so that direct dependents come first.
+        """
+        dependents: list[DaemonType] = []
+        for dt, info in self._daemons.items():
+            if daemon_type in info.depends_on:
+                dependents.append(dt)
+        return dependents
+
     async def _health_loop(self) -> None:
         """Background health check loop."""
         while self._running and not self._shutdown_event.is_set():
@@ -753,7 +765,21 @@ class DaemonManager:
                         info.last_failure_time = current_time
 
         # Handle restarts outside lock to prevent deadlock (start() also acquires lock)
+        # Also cascade restart to dependent daemons when a dependency fails
+        all_to_restart: set[DaemonType] = set(daemons_to_restart)
         for daemon_type in daemons_to_restart:
+            dependents = self._get_dependents(daemon_type)
+            if dependents:
+                logger.info(
+                    f"Cascading restart: {daemon_type.value} failed, "
+                    f"also restarting {len(dependents)} dependents: "
+                    f"{[d.value for d in dependents]}"
+                )
+                all_to_restart.update(dependents)
+
+        # Restart in dependency order (dependencies first, then dependents)
+        sorted_restarts = self._sort_by_dependencies(list(all_to_restart))
+        for daemon_type in sorted_restarts:
             await self.start(daemon_type)
 
     def get_status(self) -> dict[str, Any]:

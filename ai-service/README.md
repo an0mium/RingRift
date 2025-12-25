@@ -9,7 +9,7 @@ A Python-based AI microservice that powers the intelligent opponents in RingRift
 
 ## What's Inside
 
-- **10 Difficulty Levels** — Random (D1) → Heuristic (D2) → Minimax (D3-4) → MCTS (D5-8) → Descent (D9-10)
+- **10 Difficulty Levels** — Random (D1) → Heuristic (D2) → Minimax (D3-4) → Descent (D5-6) → MCTS (D7-8) → Gumbel MCTS (D9-10)
 - **Neural Network Integration** — ResNet-style CNNs with policy/value heads for position evaluation
 - **Distributed Training** — Self-play generation, Elo tracking, and model promotion across GPU clusters
 - **P2P Orchestration** — Automatic cluster coordination with leader election and health monitoring
@@ -106,20 +106,20 @@ curl http://localhost:8001/health
 
 ## The Difficulty Ladder
 
-| Level | AI Type   | Description                             | Think Time |
-| ----- | --------- | --------------------------------------- | ---------- |
-| 1     | Random    | Random valid moves                      | 150ms      |
-| 2     | Heuristic | 45+ weighted factors (CMA-ES optimized) | 200ms      |
-| 3     | Minimax   | Alpha-beta search, heuristic eval       | 1.8s       |
-| 4     | Minimax   | Alpha-beta + NNUE neural eval           | 2.8s       |
-| 5     | MCTS      | Heuristic rollouts (no neural)          | 4.0s       |
-| 6     | MCTS      | Neural value/policy guidance            | 5.5s       |
-| 7     | MCTS      | Neural guidance (higher budget)         | 7.5s       |
-| 8     | MCTS      | Neural guidance (large budget)          | 9.6s       |
-| 9     | Descent   | Descent/UBFM with neural guidance       | 12.6s      |
-| 10    | Descent   | Strongest Descent configuration         | 16s        |
+| Level | AI Type     | Description                             | Think Time |
+| ----- | ----------- | --------------------------------------- | ---------- |
+| 1     | Random      | Random valid moves                      | 150ms      |
+| 2     | Heuristic   | 45+ weighted factors (CMA-ES optimized) | 200ms      |
+| 3     | Minimax     | Alpha-beta search, heuristic eval       | 1.8s       |
+| 4     | Minimax     | Alpha-beta + NNUE neural eval           | 2.8s       |
+| 5     | Descent     | Neural search with global planning      | 4.0s       |
+| 6     | Descent     | Stronger neural search                  | 5.5s       |
+| 7     | MCTS        | Heuristic-only MCTS (larger budget)     | 7.5s       |
+| 8     | MCTS        | Neural value/policy guidance            | 9.6s       |
+| 9     | Gumbel MCTS | Gumbel MCTS with neural guidance        | 12.6s      |
+| 10    | Gumbel MCTS | Strongest Gumbel MCTS configuration     | 16s        |
 
-> **Note:** Ladder tiers are board-aware; for square19/hexagonal, D3-6 use Descent + NN (minimax/MCTS too slow), and D9-10 use Gumbel MCTS per `app/config/ladder_config.py`.
+> **Note:** Ladder tiers are board-aware; for square19/hexagonal, D3-6 use Descent + NN (minimax too slow), D7 uses heuristic-only MCTS, D8 uses neural MCTS, and D9-10 use Gumbel MCTS per `app/config/ladder_config.py`.
 > **Experimental tiers:** EBMO, GMO, and IG-GMO are research AIs and are not part of the ladder. Use `AIFactory.create(AIType.IG_GMO, ...)` or tournament agent IDs like `ig_gmo` to run them.
 > **Internal tiers:** D11+ profiles exist for training/benchmarks but are not exposed by the public API (1-10 only).
 
@@ -143,8 +143,9 @@ ai-service/
 │   │   ├── random_ai.py     # D1: Random moves
 │   │   ├── heuristic_ai.py  # D2: Weighted evaluation
 │   │   ├── minimax_ai.py    # D3-4: Alpha-beta search
-│   │   ├── mcts_ai.py       # D5-8: Monte Carlo search
-│   │   ├── descent_ai.py    # D9-10: UBFM/Descent
+│   │   ├── mcts_ai.py       # D7-8: Monte Carlo search
+│   │   ├── descent_ai.py    # D5-6: UBFM/Descent
+│   │   ├── gumbel_mcts_ai.py # D9-10: Gumbel MCTS search
 │   │   ├── nnue.py          # NNUE value network
 │   │   ├── nnue_policy.py   # NNUE with policy head
 │   │   └── neural_net.py    # CNN architectures

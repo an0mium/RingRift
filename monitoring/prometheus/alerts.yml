@@ -770,9 +770,9 @@ groups:
           team: backend
         annotations:
           summary: 'Orchestrator circuit breaker is OPEN'
-          description: 'The orchestrator has been automatically disabled due to high error rate.'
+          description: 'The orchestrator circuit breaker state is open due to elevated error rate.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
-          impact: 'All traffic using legacy engine. Requires manual investigation before increasing rollout again.'
+          impact: 'High error rates on the canonical orchestrator path; investigate regressions and consider a deployment rollback if needed.'
 
       # -----------------------------------------------------------------------
       # High Orchestrator Error Rate (Warning)
@@ -787,7 +787,7 @@ groups:
           summary: 'Orchestrator error rate elevated ({{ $value | humanizePercentage }})'
           description: 'Orchestrator error rate is above 2%. Circuit may trip at 5% depending on configuration.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
-          impact: 'Increased risk of moves failing on the orchestrator path; consider pausing rollout increases.'
+          impact: 'Increased risk of moves failing on the orchestrator path; pause python-authoritative diagnostics and investigate recent changes.'
 
       # -----------------------------------------------------------------------
       # Shadow Mode Mismatches (DEPRECATED)
@@ -840,7 +840,7 @@ groups:
             One or more orchestrator-related invariant violations were observed in the last hour
             for invariant_id={{ $labels.invariant_id }} (type={{ $labels.type }}).
             This indicates a violation of SLO-PROD-ORCH-INVARIANTS and should trigger an immediate
-            rollout freeze and investigation.
+            investigation and potential deployment rollback.
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
           impact: 'Invariants violated under real player traffic; rules or host wiring may be producing illegal states.'
 

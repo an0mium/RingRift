@@ -443,17 +443,15 @@ describe('sandboxAI', () => {
         const hooks = createMockHooks({
           getGameState: jest.fn().mockReturnValue(gameState),
           enumerateLegalRingPlacements: jest.fn().mockReturnValue([]), // No placements
-          getPlayerStacks: jest
-            .fn()
-            .mockReturnValue([
-              {
-                position: pos(3, 3),
-                rings: [1, 1],
-                stackHeight: 2,
-                capHeight: 2,
-                controllingPlayer: 1,
-              },
-            ]),
+          getPlayerStacks: jest.fn().mockReturnValue([
+            {
+              position: pos(3, 3),
+              rings: [1, 1],
+              stackHeight: 2,
+              capHeight: 2,
+              controllingPlayer: 1,
+            },
+          ]),
           hasAnyLegalMoveOrCaptureFrom: jest.fn().mockReturnValue(true), // Can move from stack
         });
         const rng = createMockRng();
@@ -651,17 +649,15 @@ describe('sandboxAI', () => {
         const hooks = createMockHooks({
           getGameState: jest.fn().mockReturnValue(gameState),
           hasPendingLineRewardElimination: jest.fn().mockReturnValue(true),
-          getPlayerStacks: jest
-            .fn()
-            .mockReturnValue([
-              {
-                position: pos(3, 3),
-                rings: [1, 1],
-                stackHeight: 2,
-                capHeight: 2,
-                controllingPlayer: 1,
-              },
-            ]),
+          getPlayerStacks: jest.fn().mockReturnValue([
+            {
+              position: pos(3, 3),
+              rings: [1, 1],
+              stackHeight: 2,
+              capHeight: 2,
+              controllingPlayer: 1,
+            },
+          ]),
         });
         const rng = createMockRng([0.1]);
 
@@ -694,8 +690,9 @@ describe('sandboxAI', () => {
       });
     });
 
-    // Note: territory_processing phase tests are covered by integration tests
-    // (SandboxAI.ringPlacementNoopRegression.test.ts) due to module-level state
+    // Note: territory_processing phase tests are covered by sandbox AI
+    // simulation suites (ClientSandboxEngine.aiSimulation.test.ts and
+    // ClientSandboxEngine.aiStallDiagnostics.test.ts) due to module-level state
     // making isolated unit tests unreliable.
 
     describe('other phases', () => {

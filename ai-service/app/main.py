@@ -2320,19 +2320,19 @@ _CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "use_neural_net": True,
     },
     5: {
-        # Upper-mid: MCTS with heuristic rollouts only (no neural net)
-        "ai_type": AIType.MCTS,
+        # Upper-mid: Descent search with neural guidance
+        "ai_type": AIType.DESCENT,
         "randomness": 0.05,
         "think_time_ms": 4000,
-        "profile_id": "v1-mcts-5",
-        "use_neural_net": False,
+        "profile_id": "ringrift_best_sq8_2p",
+        "use_neural_net": True,
     },
     6: {
-        # High: MCTS with neural value/policy guidance
-        "ai_type": AIType.MCTS,
+        # High: Descent search with stronger neural guidance
+        "ai_type": AIType.DESCENT,
         "randomness": 0.02,
         "think_time_ms": 5500,
-        "profile_id": "v1-mcts-6-neural",
+        "profile_id": "ringrift_best_sq8_2p",
         "use_neural_net": True,
     },
     7: {
@@ -2348,23 +2348,23 @@ _CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
         "think_time_ms": 9600,
-        "profile_id": "v1-mcts-8-neural",
+        "profile_id": "ringrift_best_sq8_2p",
         "use_neural_net": True,
     },
     9: {
-        # Master: Descent/UBFM-style search with NN guidance
-        "ai_type": AIType.DESCENT,
+        # Master: Gumbel MCTS with neural guidance
+        "ai_type": AIType.GUMBEL_MCTS,
         "randomness": 0.0,
         "think_time_ms": 12600,
-        "profile_id": "v1-descent-9",
+        "profile_id": "ringrift_best_sq8_2p",
         "use_neural_net": True,
     },
     10: {
-        # Grandmaster: strongest Descent configuration
-        "ai_type": AIType.DESCENT,
+        # Grandmaster: strongest Gumbel MCTS configuration
+        "ai_type": AIType.GUMBEL_MCTS,
         "randomness": 0.0,
         "think_time_ms": 16000,
-        "profile_id": "v1-descent-10",
+        "profile_id": "ringrift_best_sq8_2p",
         "use_neural_net": True,
     },
 }

@@ -39,8 +39,8 @@ The goals of this plan are to:
 
 ### 1.1 Orchestrator flags and incident posture
 
-At runtime, orchestrator selection and rollout are controlled by a small set of
-environment flags:
+At runtime, orchestrator routing is fixed (always on); remaining flags are
+diagnostic/telemetry controls:
 
 - `ORCHESTRATOR_ADAPTER_ENABLED` – master switch to enable/disable orchestrator adapters for new sessions. **Hardcoded to `true`** since Phase 3.
 - `ORCHESTRATOR_ROLLOUT_PERCENTAGE` – **removed in Phase 3**; historically controlled gradual rollout (adapter is now always 100%).
@@ -204,8 +204,8 @@ This section enumerates remaining TS backend and sandbox modules that either:
 | `src/server/game/rules/lineProcessing.ts`           | Historical backend line-processing module referenced in earlier passes. Marked as removed in [`docs/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md:105).                                                                                   | Y (historical)                                                                                                          | Already removed (no current code path).                                                                                                                                   | N/A                                                                            | Historical only                                                                         |
 | `src/server/game/rules/territoryProcessing.ts`      | Historical backend territory-processing module. Marked as removed in [`docs/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md:106).                                                                                                           | Y (historical)                                                                                                          | Already removed.                                                                                                                                                          | N/A                                                                            | Historical only                                                                         |
 | `src/server/game/rules/captureChainEngine.ts`       | Historical backend capture-chain state helper. Replaced by `CaptureAggregate` and `GameEngine` wiring.                                                                                                                                                             | Y (historical)                                                                                                          | Already removed.                                                                                                                                                          | N/A                                                                            | Historical only                                                                         |
-| `src/server/game/RulesBackendFacade.ts`             | Backend rules/AI boundary; selects between TS and Python engines and coordinates shadow parity via `rulesParityMetrics`.                                                                                                                                           | N – engine selection and parity only.                                                                                   | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
-| `src/server/services/OrchestratorRolloutService.ts` | Backend service controlling orchestrator rollout percentage, shadow mode, allow/deny lists, and circuit breaker wiring, surfaced via `/api/admin/orchestrator/status` and Prometheus metrics.                                                                      | N – rollout control only.                                                                                               | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
+| `src/server/game/RulesBackendFacade.ts`             | Backend rules/AI boundary; selects TS vs Python authority and coordinates runtime parity checks via `rulesParityMetrics` when `RINGRIFT_RULES_MODE=python`.                                                                                                        | N – engine selection and parity only.                                                                                   | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
+| `src/server/services/OrchestratorRolloutService.ts` | Backend service tracking circuit-breaker state and selection reasons (allow/deny lists) for metrics and `/api/admin/orchestrator/status`. Routing is fixed; rollout/shadow flags are historical.                                                                   | N – diagnostics/metrics only.                                                                                           | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
 
 **Backend summary**
 
@@ -255,16 +255,20 @@ They are not considered legacy rules _paths_ for the purposes of rollback; they 
 
 The remaining orchestrator rollout and legacy shutdown work is organised into four coarse-grained phases that can be implemented in 1–2 passes each by Code, QA, and DevOps agents.
 
+> **Historical note:** These phases have been completed. Rollout-percentage and
+> shadow-mode levers were removed; the content below is retained for context and
+> should not be executed as a live operational playbook.
+
 ### 5.1 Phase overview table
 
 **Table 3 – Rollout phases**
 
-| Phase                                                      | Description                                                                                                                                                                        | Modules in scope (examples)                                                                                                                                                                                                                                                     | Required tests & metrics (gates)                                                                                                                                                                                                                                                                                                                                      | Rollback levers                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase A – Backend orchestrator-only path**               | Make `TurnEngineAdapter` + `processTurnAsync` the only production backend turn path. Legacy `GameEngine` and `RuleEngine` pipelines remain only as test harnesses and diagnostics. | `GameEngine.ts` (non-adapter branch of `makeMove` and decision loops), `RuleEngine.ts` legacy `processMove` and post-processing helpers, `TurnEngineAdapter.ts`, `RulesBackendFacade.ts`, `OrchestratorRolloutService.ts`.                                                      | TS: full `test:core`, rules scenario suites (`tests/scenarios/**`), backend parity suites (`tests/unit/Backend_vs_Sandbox.*`), adapter tests. Python: all `ai-service/tests/**` including parity/contract tests. Metrics: orchestrator error rate < 2%, `ringrift_orchestrator_shadow_mismatch_rate` near 0 in shadow runs, `game_move_latency_ms` meeting v1.0 SLOs. | Env flags: `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE` kept < 100 until gates met, `ORCHESTRATOR_SHADOW_MODE_ENABLED` toggled for diagnostics, `RINGRIFT_RULES_MODE=ts` vs `shadow` for staging. Git: Phase A implemented in a small number of reversible commits. |
-| **Phase B – Sandbox orchestrator-only path**               | Make `SandboxOrchestratorAdapter` + `processTurnAsync` the only sandbox rules path. Legacy sandbox pipeline remains only in trace/parity harnesses.                                | `ClientSandboxEngine.ts` legacy pipeline and post-movement helpers, `SandboxOrchestratorAdapter.ts`, sandbox helpers (`sandboxMovement.ts`, `sandboxCaptures.ts`, `sandboxLines.ts`, `sandboxTerritory.ts`, `sandboxGameEnd.ts`, `sandboxElimination.ts`, `sandboxVictory.ts`). | TS: sandbox unit tests (`tests/unit/ClientSandboxEngine.*.test.ts`), RulesMatrix sandbox scenarios, backend vs sandbox parity tests, orchestrator adapter tests. Metrics: local sandbox parity vs backend on trace seeds, no regressions in `tests/scenarios/RulesMatrix.*`, no change in CLI parity harness behaviour.                                               | Flag: `ClientSandboxEngine.useOrchestratorAdapter` default `true`, with explicit opt-out preserved only for diagnostics. Git: Phase B changes split from Phase A so sandbox-only regressions can be reverted independently.                                                                   |
-| **Phase C – Legacy helper shutdown & diagnostics fencing** | Remove truly redundant modules and move any remaining tools into a diagnostics namespace with explicit SSOT banners.                                                               | Backend legacy helpers in `RuleEngine.ts` and `GameEngine.ts` that are no longer referenced; sandbox helpers that are pure analysis (`sandboxCaptureSearch.ts`, mutable-board simulators); diagnostics scripts under `scripts/`.                                                | TS: any tests that directly reference legacy helpers either updated to call shared aggregates or moved under an `archive/` diagnostics suite. Contract and parity tests remain green. No new references to deprecated helpers appear in `eslint-report.json` or `scripts/ssot/rules-ssot-check.ts`.                                                                   | Git: removal commits grouped per host (backend vs sandbox) so reverts are straightforward. No feature flags required; by this point production paths are already orchestrator-only.                                                                                                           |
-| **Phase D – Final clean-up and documentation alignment**   | Align documentation and runbooks with orchestrator-only architecture; ensure SSOT checks cover this plan.                                                                          | `docs/CANONICAL_ENGINE_API.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`, `docs/PASS16_ASSESSMENT_REPORT.md`, `docs/INDEX.md`, `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`.                                                         | Docs: updated SSOT banners and diagrams; cross-links from PASS16 and the docs index to this plan. Scripts: `scripts/ssot/rules-ssot-check.ts` extended to assert that backend and sandbox hosts reference the orchestrator and aggregates as SSOT. All tests and metrics remain green as in previous phases.                                                          | Git: doc-only commits, easily reversible but low risk. No feature flags.                                                                                                                                                                                                                      |
+| Phase                                                      | Description                                                                                                                                                                        | Modules in scope (examples)                                                                                                                                                                                                                                                     | Required tests & metrics (gates)                                                                                                                                                                                                                                                                                                                                   | Rollback levers                                                                                                                                                                                                             |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase A – Backend orchestrator-only path**               | Make `TurnEngineAdapter` + `processTurnAsync` the only production backend turn path. Legacy `GameEngine` and `RuleEngine` pipelines remain only as test harnesses and diagnostics. | `GameEngine.ts` (non-adapter branch of `makeMove` and decision loops), `RuleEngine.ts` legacy `processMove` and post-processing helpers, `TurnEngineAdapter.ts`, `RulesBackendFacade.ts`, `OrchestratorRolloutService.ts`.                                                      | TS: full `test:core`, rules scenario suites (`tests/scenarios/**`), backend parity suites (`tests/unit/Backend_vs_Sandbox.*`), adapter tests. Python: all `ai-service/tests/**` including parity/contract tests. Metrics: orchestrator error rate < 2%, runtime python parity mismatches near zero when diagnostics run, `game_move_latency_ms` meeting v1.0 SLOs. | Rollback: deployment rollback only; production stays `RINGRIFT_RULES_MODE=ts` with `python` reserved for diagnostics.                                                                                                       |
+| **Phase B – Sandbox orchestrator-only path**               | Make `SandboxOrchestratorAdapter` + `processTurnAsync` the only sandbox rules path. Legacy sandbox pipeline remains only in trace/parity harnesses.                                | `ClientSandboxEngine.ts` legacy pipeline and post-movement helpers, `SandboxOrchestratorAdapter.ts`, sandbox helpers (`sandboxMovement.ts`, `sandboxCaptures.ts`, `sandboxLines.ts`, `sandboxTerritory.ts`, `sandboxGameEnd.ts`, `sandboxElimination.ts`, `sandboxVictory.ts`). | TS: sandbox unit tests (`tests/unit/ClientSandboxEngine.*.test.ts`), RulesMatrix sandbox scenarios, backend vs sandbox parity tests, orchestrator adapter tests. Metrics: local sandbox parity vs backend on trace seeds, no regressions in `tests/scenarios/RulesMatrix.*`, no change in CLI parity harness behaviour.                                            | Flag: `ClientSandboxEngine.useOrchestratorAdapter` default `true`, with explicit opt-out preserved only for diagnostics. Git: Phase B changes split from Phase A so sandbox-only regressions can be reverted independently. |
+| **Phase C – Legacy helper shutdown & diagnostics fencing** | Remove truly redundant modules and move any remaining tools into a diagnostics namespace with explicit SSOT banners.                                                               | Backend legacy helpers in `RuleEngine.ts` and `GameEngine.ts` that are no longer referenced; sandbox helpers that are pure analysis (`sandboxCaptureSearch.ts`, mutable-board simulators); diagnostics scripts under `scripts/`.                                                | TS: any tests that directly reference legacy helpers either updated to call shared aggregates or moved under an `archive/` diagnostics suite. Contract and parity tests remain green. No new references to deprecated helpers appear in `eslint-report.json` or `scripts/ssot/rules-ssot-check.ts`.                                                                | Git: removal commits grouped per host (backend vs sandbox) so reverts are straightforward. No feature flags required; by this point production paths are already orchestrator-only.                                         |
+| **Phase D – Final clean-up and documentation alignment**   | Align documentation and runbooks with orchestrator-only architecture; ensure SSOT checks cover this plan.                                                                          | `docs/CANONICAL_ENGINE_API.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`, `docs/PASS16_ASSESSMENT_REPORT.md`, `docs/INDEX.md`, `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`.                                                         | Docs: updated SSOT banners and diagrams; cross-links from PASS16 and the docs index to this plan. Scripts: `scripts/ssot/rules-ssot-check.ts` extended to assert that backend and sandbox hosts reference the orchestrator and aggregates as SSOT. All tests and metrics remain green as in previous phases.                                                       | Git: doc-only commits, easily reversible but low risk. No feature flags.                                                                                                                                                    |
 
 ### 5.2 Phase A – Backend orchestrator-only path
 
@@ -272,7 +276,7 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
 
 - Enforce `TurnEngineAdapter` for all production backend moves:
   - Update `GameEngine.makeMove` to:
-    - Consult `OrchestratorRolloutService` and environment flags (`ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE`, allow/deny lists).
+    - Consult `OrchestratorRolloutService` for circuit-breaker state and allow/deny list tagging (diagnostics only).
     - Route all non-test moves through `processMoveViaAdapter`, with legacy path reserved only for test harnesses (guarded by `NODE_ENV === 'test'` or explicit override).
 
 - Quarantine and then deprecate legacy `RuleEngine` pipelines:
@@ -302,13 +306,12 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
   - No regressions in `game_move_latency_ms` and WebSocket error rates as described in `docs/runbooks/GAME_HEALTH.md`.
   - Orchestrator rollout metrics from `OrchestratorRolloutService`:
     - `ringrift_orchestrator_error_rate < 0.02`.
-    - `ringrift_orchestrator_shadow_mismatch_rate < 0.01` for any shadow-mode staging runs.
+    - Runtime python parity mismatches near zero when running `RINGRIFT_RULES_MODE=python`.
 
 **Rollback**
 
 - Immediate rollback:
-  - Set `ORCHESTRATOR_ADAPTER_ENABLED=false` via environment config to route new sessions back to the legacy backend path.
-  - Optionally lower `ORCHESTRATOR_ROLLOUT_PERCENTAGE` to 0 for additional safety.
+  - Use a deployment rollback to a known-good build; runtime flags no longer change routing.
 
 - Phase rollback:
   - Keep all adapter-enforcement changes in clearly labelled commits (e.g. `P16.6.1 backend orchestrator-first`) so that `git revert` restores the previous behaviour if necessary.
@@ -399,7 +402,7 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
 
   - Update `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md` to:
     - Reference the final steady-state where legacy paths are removed.
-    - Document that CI and staging always run with `ORCHESTRATOR_ADAPTER_ENABLED=true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`.
+    - Document that CI and staging always run with `ORCHESTRATOR_ADAPTER_ENABLED=true` and `RINGRIFT_RULES_MODE=ts` (rollout percentage fixed at 100).
 
 **Gating tests and metrics**
 
@@ -432,8 +435,8 @@ metrics or CI jobs:
 - Staging SLOs (orchestrator‑only staging, used to gate promotion to production):
   - `SLO-STAGE-ORCH-ERROR` – orchestrator error fraction in staging stays well
     below overall HTTP error SLOs.
-  - `SLO-STAGE-ORCH-PARITY` – shadow and TS↔Python parity mismatches in staging
-    are effectively zero.
+  - `SLO-STAGE-ORCH-PARITY` – runtime TS↔Python parity mismatches in staging
+    are effectively zero when python-authoritative diagnostics are enabled.
   - `SLO-STAGE-ORCH-INVARIANTS` – no new orchestrator invariant violations in
     staging or short soaks.
 
@@ -450,7 +453,9 @@ and a rough error budget.
 
 #### 6.1.1 Phase 2 – Production Preview success criteria (P18.4-4)
 
-Phase 2 – Production Preview (P18.4-4) is defined as a **limited-scope incremental rollout** where at most 10% of eligible production games are handled by the orchestrator (`ORCHESTRATOR_ROLLOUT_PERCENTAGE <= 10`). It maps to **environment Phase 3 – Incremental production rollout** (§8.5) but intentionally caps traffic until preview SLOs are met.
+> **Historical only:** The production preview phase described a limited-scope incremental rollout (<=10% traffic). Rollout percentage is no longer configurable; this section is retained for context.
+
+Phase 2 – Production Preview (P18.4-4) mapped to **environment Phase 3 – Incremental production rollout** (§8.5) and intentionally capped traffic until preview SLOs were met.
 
 A Production Preview window is considered successful when all of the following hold over the observation period (typically 1–3 hours per step and ≥24h overall at the final preview percentage):
 
@@ -463,14 +468,14 @@ A Production Preview window is considered successful when all of the following h
   - No sustained `HighLatency` / game-performance alerts attributable to orchestrator (see `docs/runbooks/GAME_PERFORMANCE.md` for thresholds).
 
 - **Parity**
-  - When shadow is enabled for spot-checks, `ringrift_orchestrator_shadow_mismatch_rate <= 0.001` (0.1%) and **zero** `RulesParityGameStatusMismatch` alerts.
+  - When python-authoritative diagnostics are enabled, runtime parity mismatches remain near zero and **zero** `RulesParityGameStatusMismatch` alerts fire.
   - No new orchestrator-specific invariant violations in production logs (`ringrift_orchestrator_invariant_violations_total`), and short soaks against the production image continue to report `totalInvariantViolations == 0`.
 
 - **User impact**
   - No P0/P1 incidents or tickets referencing "stuck games", "impossible moves", or obviously incorrect winners that are attributable to orchestrator.
   - Support/telemetry show no spike in client-visible errors for move submission or game state streaming during the preview window.
 
-These conditions define "Success" for Phase 2 in the context of P18.4-4; moving beyond 10% rollout is governed by the broader Phase 3 and Phase 4 criteria elsewhere in this document.
+These conditions defined "Success" for Phase 2 in the context of P18.4-4; rollout percentages are historical and no longer configurable.
 
 ### 6.2 CI SLOs (pre‑merge and pre‑release)
 
@@ -514,12 +519,12 @@ These conditions define "Success" for Phase 2 in the context of P18.4-4; moving 
   breach and **must** block promotion until the underlying rules bug is
   understood and fixed or explicitly waived.
 
-These CI SLOs correspond to **Phase 0 – Pre‑requisites** in the environment
-rollout plan (see §8).
+These CI SLOs correspond to **Phase 0 – Pre‑requisites** in the historical
+environment rollout plan (see §8).
 
 **Auxiliary CI signal – Python AI self‑play invariants**
 
-Although not a hard gate for orchestrator rollout, Python strict‑invariant healthchecks provide an important **P1/P2‑level early warning** for rules/AI regressions:
+Although not a hard gate for orchestrator promotion, Python strict‑invariant healthchecks provide an important **P1/P2‑level early warning** for rules/AI regressions:
 
 - **Metric / alerts:**
   - `ringrift_python_invariant_violations_total{invariant_id, type}` exported by the AI self‑play soak harness (`run_self_play_soak.py` under `RINGRIFT_STRICT_NO_MOVE_INVARIANT=1`).
@@ -535,10 +540,8 @@ Although not a hard gate for orchestrator rollout, Python strict‑invariant hea
 
 Staging runs with the orchestrator as the only rules path:
 
-- `ORCHESTRATOR_ADAPTER_ENABLED=true`
-- `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
+- `ORCHESTRATOR_ADAPTER_ENABLED=true` (hardcoded)
 - `RINGRIFT_RULES_MODE=ts`
-- `ORCHESTRATOR_SHADOW_MODE_ENABLED` toggled on/off for experiments only.
 
 The SLOs below are primarily used to **gate promotion** from staging to
 production.
@@ -559,18 +562,15 @@ production.
     `OrchestratorCircuitBreakerOpen` alert in staging, is considered an SLO
     breach and blocks promotion to production.
 
-**SLO-STAGE-ORCH-PARITY – Staging orchestrator parity and shadow mismatches**
+**SLO-STAGE-ORCH-PARITY – Staging TS↔Python parity mismatches**
 
 - **Metrics:**
-  - `ringrift_orchestrator_shadow_mismatch_rate{environment="staging"}`
   - Rules‑parity counters in the `rules-parity` alert group, for staging
     traffic or scheduled parity jobs:
     - `ringrift_rules_parity_valid_mismatch_total`
     - `ringrift_rules_parity_hash_mismatch_total`
     - `ringrift_rules_parity_game_status_mismatch_total`
 - **Target:**
-  - `ringrift_orchestrator_shadow_mismatch_rate <= 0.001` (0.1%) whenever
-    shadow is enabled in staging.
   - Over any 24‑hour period in staging:
     - Validation/hash mismatches:
       `increase(..._valid_mismatch_total[24h]) <= 5` and
@@ -580,7 +580,7 @@ production.
 - **Window:** 24h trailing.
 - **Error budget (staging):**
   - 0 game‑status mismatches.
-  - At most a handful of validation/hash mismatches during early rollout,
+  - At most a handful of validation/hash mismatches during early staging,
     all investigated and either fixed or documented as expected legacy
     behaviour before promotion.
 
@@ -625,8 +625,8 @@ under the broader availability and latency SLOs documented in
     before the SLO is considered breached.
   - Practically: more than **one** orchestrator‑specific P1 incident or more
     than **three** `OrchestratorErrorRateWarning` episodes lasting > 10m in a
-    28‑day period should trigger a rollout freeze and possibly a rollback to
-    the previous phase.
+    28‑day period should trigger a release freeze and potentially a deployment
+    rollback to the previous stable build.
 
 **SLO-PROD-ORCH-INVARIANTS – Production invariant violations**
 
@@ -643,10 +643,10 @@ under the broader availability and latency SLOs documented in
 - **Window:** 28 days trailing for production logs; per‑run for soaks.
 - **Error budget (production):**
   - Any new invariant violation observed in production should be treated as
-    an SLO breach for rollout purposes:
-    - Freeze further rollout or deprecations.
+    an SLO breach for release purposes:
+    - Freeze further promotions or deprecations.
     - Escalate to rules maintainers to add a regression test and fix the
-      bug before resuming rollout.
+      bug before resuming promotion.
 
 **SLO-PROD-RULES-PARITY – Runtime TS↔Python rules parity**
 
@@ -661,8 +661,8 @@ under the broader availability and latency SLOs documented in
 - **Error budget (production):**
   - 0 game‑status mismatch incidents affecting real games.
   - If more than 2 parity‑related incidents occur in a quarter, consider:
-    - Reducing use of the Python engine in production traffic.
-    - Tightening parity tests and contract vectors before further rollout.
+    - Avoiding python-authoritative diagnostics in production traffic.
+    - Tightening parity tests and contract vectors before further promotion.
 
 ### 6.5 Test suites
 
@@ -695,7 +695,7 @@ following suites must be green. These are explicitly tied to the **PASS18 Weakes
     - `ai-service/tests/invariants/**` (covers `INV-ACTIVE-NO-MOVES` regressions).
 
 These suites are part of the **SLO enforcement mechanism**: failing tests
-invalidate `SLO-CI-ORCH-PARITY` and halt rollout until fixed.
+invalidate `SLO-CI-ORCH-PARITY` and halt promotion until fixed.
 
 ### 6.6 Metrics and observability
 
@@ -708,8 +708,7 @@ metrics must be monitored, as described in
 - Orchestrator‑specific metrics:
   - `ringrift_orchestrator_error_rate`.
   - `ringrift_orchestrator_circuit_breaker_state`.
-  - `ringrift_orchestrator_rollout_percentage`.
-  - `ringrift_orchestrator_shadow_mismatch_rate`.
+  - `ringrift_orchestrator_rollout_percentage` (fixed at 100).
 
 - Game performance metrics:
   - `game_move_latency_ms` (backend move latency).
@@ -717,8 +716,8 @@ metrics must be monitored, as described in
   - WebSocket connection and error metrics.
 
 - Rules parity metrics:
-  - `rulesParityMetrics` counters surfaced by `RulesBackendFacade` in shadow
-    mode and by TS↔Python parity jobs.
+  - `rulesParityMetrics` counters surfaced by `RulesBackendFacade` in
+    python‑authoritative diagnostics and by TS↔Python parity jobs.
 
 Target thresholds should align with v1.0 user‑visible SLOs in
 [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:76) and the thresholds in
@@ -729,13 +728,13 @@ while remaining consistent with the orchestrator SLOs in §§6.2–6.4.
 
 Rollbacks should rely on:
 
-- Feature flags and environment variables:
-  - `ORCHESTRATOR_ADAPTER_ENABLED`.
-  - `ORCHESTRATOR_ROLLOUT_PERCENTAGE`.
-  - `ORCHESTRATOR_SHADOW_MODE_ENABLED`.
-  - `ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED` and related thresholds.
-  - `RINGRIFT_RULES_MODE` (`ts` vs `shadow`).
-  - Sandbox `useOrchestratorAdapter` flag where exposed.
+- Deployment rollback procedures:
+  - Use the existing deployment runbooks to return to a known‑good build when
+    orchestrator regressions are confirmed.
+- Diagnostic flags (do **not** change routing):
+  - `RINGRIFT_RULES_MODE=python` for parity diagnostics only.
+  - `ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED` and thresholds for telemetry.
+  - Sandbox `useOrchestratorAdapter` flags in tests/diagnostics only.
 
 - Git and deployment practices:
   - Each phase implemented in focused, reversible commits or pull requests.
@@ -746,19 +745,17 @@ Rollbacks should rely on:
     [`docs/runbooks/DEPLOYMENT_ROUTINE.md`](../runbooks/DEPLOYMENT_ROUTINE.md:1)
     and [`docs/runbooks/DEPLOYMENT_ROLLBACK.md`](../runbooks/DEPLOYMENT_ROLLBACK.md:1).
 
-These levers define the rollback targets referenced in the environment phases
-(§8).
+These practices inform the historical environment phases (§8); there is no
+runtime rollback lever in current production configurations.
 
-### 6.8 Test / CI profiles (orchestrator vs legacy/shadow)
+### 6.8 Test / CI profiles (orchestrator vs python diagnostics)
 
 To keep semantics and CI signals consistent, test and CI jobs should be
 organised around a small set of standard profiles:
 
 - **Orchestrator‑ON (default gate)**
   - Env:
-    - `ORCHESTRATOR_ADAPTER_ENABLED=true`
-    - `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
-    - `ORCHESTRATOR_SHADOW_MODE_ENABLED=false` (unless a job is explicitly a shadow test)
+    - `ORCHESTRATOR_ADAPTER_ENABLED=true` (hardcoded)
     - `RINGRIFT_RULES_MODE=ts`
   - TS:
     - Core/unit/integration suites (`npm run test:core`, `npm run test:ci`),
@@ -771,14 +768,10 @@ organised around a small set of standard profiles:
     - These jobs are the **only** ones allowed to block merges; any failure
       here is a hard gate and a direct `SLO-CI-ORCH-PARITY` breach.
 
-- **Legacy / SHADOW diagnostics**
+- **Python‑authoritative diagnostics**
   - Env (examples; exact wiring may vary by job):
-    - `ORCHESTRATOR_ADAPTER_ENABLED=true`
-    - `ORCHESTRATOR_SHADOW_MODE_ENABLED=true`
-    - `RINGRIFT_RULES_MODE=shadow` or `legacy` for explicitly marked
-      diagnostic runs.
-    - `ORCHESTRATOR_ROLLOUT_PERCENTAGE` set according to the experiment
-      (often < 100 in staging).
+    - `ORCHESTRATOR_ADAPTER_ENABLED=true` (hardcoded)
+    - `RINGRIFT_RULES_MODE=python`
   - TS:
     - Selected parity/trace suites and host‑comparison tests that are
       explicitly tagged as **diagnostic** (see `tests/README.md`,
@@ -828,12 +821,11 @@ proceeding:
 
 - **Metrics and alerts (runtime posture)**
   - Metrics: `ringrift_orchestrator_error_rate`,
-    `ringrift_orchestrator_shadow_mismatch_rate`,
     `ringrift_orchestrator_invariant_violations_total`,
     `game_move_latency_ms`, `ai_move_latency_ms`, WebSocket error metrics.
   - Alerts: `OrchestratorCircuitBreakerOpen`,
-    `OrchestratorErrorRateWarning`, `OrchestratorShadowMismatches`,
-    `RulesParity*`, and the general game-health alerts in
+    `OrchestratorErrorRateWarning`, `RulesParity*`, and the general
+    game-health alerts in
     `monitoring/prometheus/alerts.yml`.
   - Requirement: no active P0/P1 alerts in these groups for the candidate
     build or environment; SLOs in §§6.2–6.4 and the runbooks above must be
@@ -870,20 +862,20 @@ releases that touch AI difficulty profiles or models.
   - Treat the JSON output as an input to AI performance dashboards or ad-hoc
     analysis (see `docs/runbooks/AI_PERFORMANCE.md` and
     `ai-service/AI_IMPROVEMENT_PLAN.md` for interpretation).
-  - If evaluation reveals clear strength/latency regressions, pause rollout
+  - If evaluation reveals clear strength/latency regressions, pause promotion
     and handle under the AI runbooks even if orchestrator gates are green.
 
 When adding new CI jobs or local profiles, align them with one of these two
 buckets and keep their environment flags documented so it is always clear
 whether a given failure is in the canonical orchestrator‑ON lane or in a
-diagnostic legacy/SHADOW lane.
+python‑authoritative diagnostics lane.
 
 ### 6.9 Orchestrator Parity CI Job (`orchestrator-parity`)
 
 The orchestrator parity CI gate is implemented as the `orchestrator-parity` job
 in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1). It runs under the
 **orchestrator‑ON** profile described above and is required for
-orchestrator‑first rollout and TS↔Python parity guarantees.
+orchestrator‑first promotion and TS↔Python parity guarantees.
 
 - **TS orchestrator/host tests:**
   - Command: `npm run test:orchestrator-parity:ts`
@@ -928,9 +920,9 @@ This section summarises the plan for use by Track A implementation tasks:
   - Ensure TS and Python parity suites remain green and that `rulesParityMetrics` do not regress under realistic workloads.
 
 - **P16.8-DEVOPS – Staging rollout and SLO gating**
-  - Use `ORCHESTRATOR_ROLLOUT_PERCENTAGE`, shadow mode, and orchestrator metrics to drive a gradual rollout as described in `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`.
-  - Require at least one successful staging bake-in period (with shadow metrics and SLOs met) before enabling orchestrator-only mode in production.
-  - Maintain clear rollback procedures using feature flags and deployment runbooks.
+  - Use orchestrator metrics and parity diagnostics as described in `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`.
+  - Require at least one successful staging bake-in period (SLOs met) before production promotion.
+  - Maintain clear rollback procedures using deployment runbooks (no runtime rollout flags remain).
 
 ### 7.1 Phase A – Backend orchestrator-only status (2025-11-28)
 
@@ -994,17 +986,16 @@ sub‑waves:
   - Environment/flag wiring via `OrchestratorRolloutService` and
     `src/server/config/env.ts`, with CI/staging/production profiles matching the
     environment phases referenced throughout §6 and §7.
-  - Clear rollback levers using `ORCHESTRATOR_ADAPTER_ENABLED`,
-    `ORCHESTRATOR_ROLLOUT_PERCENTAGE`, `ORCHESTRATOR_SHADOW_MODE_ENABLED`, and the
-    circuit‑breaker flags, as summarised in §6.7 and the rollout runbook.
+  - Clear rollback guidance using deployment runbooks and circuit‑breaker telemetry
+    (no runtime rollout/shadow flags remain), as summarised in §6.7.
 - **4‑D – Observability & incident readiness**
   - Orchestrator and rules‑parity metrics (`ringrift_orchestrator_*`,
     `rulesParityMetrics`) exported by `MetricsService` and wired into Prometheus
     alerts (see §6.6 and `monitoring/prometheus/alerts.yml`).
   - Runbooks (`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`,
     `docs/runbooks/RULES_PARITY.md`, `docs/runbooks/GAME_HEALTH.md`) that map alerts
-    to concrete levers (rollout percentage, shadow mode, adapter kill‑switch, or
-    AI/infra runbooks).
+    to concrete responses (deployment rollback, parity diagnostics, or AI/infra
+    runbooks).
 
 Wave 4 is considered complete when:
 
@@ -1066,7 +1057,12 @@ Once all phases are complete, **all production and sandbox rules paths will rout
 
 Legacy rules pipelines in backend and sandbox hosts will be fully removed or quarantined as diagnostics-only helpers, and documentation will accurately reflect the orchestrator-first architecture.
 
-## 8. Environment rollout phases and SLO gating
+## 8. Environment rollout phases and SLO gating (Historical reference)
+
+> **Historical only:** The phase presets below reference `ORCHESTRATOR_ROLLOUT_PERCENTAGE`
+> and shadow-mode settings that no longer exist. Current production runs with
+> the orchestrator always on and `RINGRIFT_RULES_MODE=ts`; use
+> `RINGRIFT_RULES_MODE=python` only for explicit parity diagnostics.
 
 The implementation phases in §5 focus on **code structure** (making adapters
 canonical and fencing legacy helpers). This section defines complementary

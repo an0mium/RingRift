@@ -24,35 +24,6 @@ export {
   hasValidMoves,
 } from './turnOrchestrator';
 
-/**
- * @deprecated Phase state machine module - DO NOT USE IN PRODUCTION CODE
- *
- * The phaseStateMachine.ts file is fully deprecated as of December 2025.
- * The FSM-based orchestration (TurnStateMachine + FSMAdapter) is now canonical.
- *
- * These exports are retained ONLY for test backward compatibility:
- * - tests/unit/phaseStateMachine.shared.test.ts
- * - tests/unit/phaseStateMachine.branchCoverage.test.ts
- * - tests/unit/ForcedElimination.phase.test.ts
- *
- * Migration path:
- * - PhaseStateMachine → ProcessingStateContainer (inline in turnOrchestrator.ts)
- * - createTurnProcessingState → createProcessingState (inline in turnOrchestrator.ts)
- * - determineNextPhase → computeFSMOrchestration from ../fsm/FSMAdapter
- *
- * @see docs/architecture/FSM_MIGRATION_STATUS_2025_12.md for full migration status
- * @see ../fsm/TurnStateMachine.ts for canonical FSM
- * @see ../fsm/FSMAdapter.ts for FSM integration utilities
- */
-export {
-  /** @deprecated Use ProcessingStateContainer in turnOrchestrator.ts instead */
-  PhaseStateMachine,
-  /** @deprecated Use createProcessingState in turnOrchestrator.ts instead */
-  createTurnProcessingState,
-  /** @deprecated Part of deprecated phaseStateMachine module */
-  type PhaseContext,
-} from './phaseStateMachine';
-
 // Types
 export type {
   ProcessTurnResult,

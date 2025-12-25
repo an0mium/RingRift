@@ -187,9 +187,9 @@ Non-exhaustive list of tests that rely on or exercise topology semantics:
   - `tests/unit/GameEngine.cyclicCapture.scenarios.test.ts`
   - `tests/unit/GameEngine.cyclicCapture.hex.scenarios.test.ts`
 - Territory and victory:
-  - `tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts`
+  - `archive/tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts`
   - `tests/unit/TerritoryCore.GameEngine_vs_Sandbox.test.ts`
-  - `tests/unit/GameEngine.territoryDisconnection.test.ts`
+  - `tests/unit/BoardManager.territoryDisconnection.test.ts`
 - Contract vectors:
   - `tests/contracts/contractVectorRunner.test.ts`
   - `tests/fixtures/contract-vectors/v2/*.json` (movement, capture, line, territory vectors)

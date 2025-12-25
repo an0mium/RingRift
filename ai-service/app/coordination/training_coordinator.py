@@ -71,6 +71,14 @@ from app.coordination.event_emitters import (
     emit_training_started,
 )
 
+# CoordinatorProtocol support (December 2025 - Phase 14)
+from app.coordination.protocols import (
+    CoordinatorStatus,
+    HealthCheckResult,
+    register_coordinator,
+    unregister_coordinator,
+)
+
 logger = logging.getLogger(__name__)
 
 # Coordinator registration (December 2025)
@@ -195,6 +203,16 @@ class TrainingCoordinator:
         self._cluster_healthy = True
         self._cluster_capacity = 1.0  # 0.0-1.0, affects training decisions
         self._subscribe_to_cluster_events()
+
+        # CoordinatorProtocol state (December 2025 - Phase 14)
+        self._status = CoordinatorStatus.RUNNING
+        self._start_time: float = time.time()
+        self._errors_count: int = 0
+        self._last_error: str = ""
+        self._events_processed: int = 0
+
+        # Register with coordinator registry
+        register_coordinator(self)
 
     def _get_db_path(self) -> Path:
         """Determine the best database path."""
@@ -386,21 +404,139 @@ class TrainingCoordinator:
         """Get current cluster capacity (0.0-1.0)."""
         return self._cluster_capacity
 
+    # =========================================================================
+    # CoordinatorProtocol Implementation (December 2025 - Phase 14)
+    # =========================================================================
+
+    @property
+    def name(self) -> str:
+        """Coordinator name for identification."""
+        return "TrainingCoordinator"
+
+    @property
+    def status(self) -> CoordinatorStatus:
+        """Current status of the coordinator."""
+        return self._status
+
+    @property
+    def uptime_seconds(self) -> float:
+        """Time since coordinator started, in seconds."""
+        if self._start_time <= 0:
+            return 0.0
+        return time.time() - self._start_time
+
+    async def start(self) -> None:
+        """Start the coordinator (already running from __init__)."""
+        if self._status == CoordinatorStatus.RUNNING:
+            return
+        self._status = CoordinatorStatus.RUNNING
+        self._start_time = time.time()
+        register_coordinator(self)
+        logger.info(f"[{self.name}] Started")
+
+    async def stop(self) -> None:
+        """Stop the coordinator."""
+        self._status = CoordinatorStatus.STOPPING
+        unregister_coordinator(self.name)
+        self._status = CoordinatorStatus.STOPPED
+        logger.info(f"[{self.name}] Stopped")
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Get coordinator metrics.
+
+        Returns:
+            Dictionary of metrics (CoordinatorProtocol compliant)
+        """
+        active_jobs = self.get_active_jobs()
+
+        return {
+            "name": self.name,
+            "status": self._status.value,
+            "uptime_seconds": self.uptime_seconds,
+            "start_time": self._start_time,
+            "events_processed": self._events_processed,
+            "errors_count": self._errors_count,
+            "last_error": self._last_error,
+            # Custom metrics
+            "active_training_jobs": len(active_jobs),
+            "cluster_healthy": self._cluster_healthy,
+            "cluster_capacity": self._cluster_capacity,
+            "node_name": self._node_name,
+            "db_path": str(self._db_path),
+            "using_nfs": self._use_nfs and NFS_COORDINATION_PATH.exists(),
+        }
+
+    def health_check(self) -> HealthCheckResult:
+        """Check coordinator health.
+
+        Returns:
+            HealthCheckResult (CoordinatorProtocol compliant)
+        """
+        if self._status == CoordinatorStatus.ERROR:
+            return HealthCheckResult.unhealthy(
+                f"Coordinator in error state: {self._last_error}",
+                db_path=str(self._db_path),
+            )
+
+        if self._status == CoordinatorStatus.STOPPED:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="Coordinator is stopped",
+            )
+
+        # Check database connectivity
+        try:
+            conn = self._get_connection()
+            conn.execute("SELECT 1")
+            db_healthy = True
+        except Exception as e:
+            db_healthy = False
+            return HealthCheckResult.unhealthy(
+                f"Database connection failed: {e}",
+                db_path=str(self._db_path),
+            )
+
+        # Check cluster health
+        if not self._cluster_healthy:
+            return HealthCheckResult.degraded(
+                "Coordinator running but cluster is unhealthy",
+                cluster_capacity=self._cluster_capacity,
+                db_healthy=db_healthy,
+            )
+
+        active_jobs = self.get_active_jobs()
+        return HealthCheckResult(
+            healthy=True,
+            status=self._status,
+            details={
+                "active_training_jobs": len(active_jobs),
+                "cluster_healthy": self._cluster_healthy,
+                "cluster_capacity": self._cluster_capacity,
+                "uptime_seconds": self.uptime_seconds,
+                "db_path": str(self._db_path),
+                "db_healthy": db_healthy,
+            },
+        )
+
     def can_start_training(self, board_type: str, num_players: int) -> bool:
         """Check if training can be started for this config.
 
         Returns:
             True if no active training for this config and slots available
         """
+        config_key = f"{board_type}_{num_players}p"
+
         # Check cluster health first (December 2025 - feedback loop)
         if not self._cluster_healthy:
             logger.info("Training blocked: cluster is unhealthy")
+            self._emit_slot_unavailable(
+                board_type, num_players, reason="cluster_unhealthy"
+            )
             return False
 
         conn = self._get_connection()
         self._cleanup_stale_jobs()
-
-        config_key = f"{board_type}_{num_players}p"
 
         # Check if this config is already being trained
         cursor = conn.execute(
@@ -413,6 +549,12 @@ class TrainingCoordinator:
             logger.info(
                 f"Training for {config_key} already running on {existing['node_name']}"
             )
+            self._emit_slot_unavailable(
+                board_type, num_players,
+                reason="already_running",
+                holder_node=existing['node_name'],
+                holder_job_id=existing['job_id'],
+            )
             return False
 
         # Check total concurrent training limit
@@ -423,6 +565,12 @@ class TrainingCoordinator:
         if active_count >= MAX_TOTAL_CONCURRENT_TRAINING:
             logger.info(
                 f"Max concurrent training ({MAX_TOTAL_CONCURRENT_TRAINING}) reached"
+            )
+            self._emit_slot_unavailable(
+                board_type, num_players,
+                reason="max_concurrent_reached",
+                active_count=active_count,
+                max_allowed=MAX_TOTAL_CONCURRENT_TRAINING,
             )
             return False
 
@@ -471,13 +619,21 @@ class TrainingCoordinator:
         if not lock_acquired:
             logger.error(f"Could not acquire distributed lock for {config_key} after {len(lock_timeouts)} attempts")
             # Emit failure event for monitoring
-            self._emit_training_event(
-                "lock_failed",
+            self._emit_slot_unavailable(
                 board_type=board_type,
                 num_players=num_players,
+                reason="lock_failed",
                 attempts=len(lock_timeouts),
             )
             return None
+
+        # Emit lock acquired event for monitoring (December 2025 - Phase 14)
+        self._emit_training_event(
+            "lock_acquired",
+            job_id="pending",  # Job ID not yet assigned
+            board_type=board_type,
+            num_players=num_players,
+        )
 
         try:
             if not self.can_start_training(board_type, num_players):
@@ -712,6 +868,90 @@ class TrainingCoordinator:
             )
             event_name = "TRAINING_COMPLETE" if success else "TRAINING_FAILED"
             logger.debug(f"Emitted {event_name} for job {job_id}")
+
+        elif event_type == "lock_acquired":
+            # Emit TRAINING_LOCK_ACQUIRED for monitoring
+            self._emit_via_router(
+                "TRAINING_LOCK_ACQUIRED",
+                {
+                    "job_id": job_id,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "node_name": self._node_name,
+                    "config": f"{board_type}_{num_players}p",
+                    "timestamp": time.time(),
+                },
+            )
+            logger.debug(f"Emitted TRAINING_LOCK_ACQUIRED for {board_type}_{num_players}p")
+
+    def _emit_slot_unavailable(
+        self,
+        board_type: str,
+        num_players: int,
+        reason: str,
+        **kwargs,
+    ) -> None:
+        """Emit TRAINING_SLOT_UNAVAILABLE event.
+
+        Provides visibility into why training couldn't start.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+            reason: Why slot is unavailable (cluster_unhealthy, already_running, max_concurrent_reached, lock_failed)
+            **kwargs: Additional context (holder_node, holder_job_id, active_count, etc.)
+        """
+        self._emit_via_router(
+            "TRAINING_SLOT_UNAVAILABLE",
+            {
+                "board_type": board_type,
+                "num_players": num_players,
+                "config": f"{board_type}_{num_players}p",
+                "reason": reason,
+                "requester_node": self._node_name,
+                "timestamp": time.time(),
+                **kwargs,
+            },
+        )
+        logger.debug(
+            f"Emitted TRAINING_SLOT_UNAVAILABLE for {board_type}_{num_players}p: {reason}"
+        )
+
+    def _emit_via_router(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Emit event via unified router.
+
+        Args:
+            event_type: Event type string
+            payload: Event payload
+        """
+        try:
+            from app.coordination.event_router import get_router
+            import asyncio
+
+            router = get_router()
+            if router is None:
+                return
+
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(
+                    router.publish(
+                        event_type=event_type,
+                        payload=payload,
+                        source="TrainingCoordinator",
+                    )
+                )
+            except RuntimeError:
+                # No event loop running - use sync publish
+                asyncio.run(
+                    router.publish(
+                        event_type=event_type,
+                        payload=payload,
+                        source="TrainingCoordinator",
+                    )
+                )
+        except Exception as e:
+            logger.debug(f"Failed to emit {event_type}: {e}")
 
     def get_active_jobs(self) -> list[TrainingJob]:
         """Get all active training jobs."""

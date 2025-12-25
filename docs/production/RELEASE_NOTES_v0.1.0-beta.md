@@ -21,8 +21,10 @@ RingRift v0.1.0-beta is the first public release of RingRift, an abstract strate
 - **D1**: Random
 - **D2**: Heuristic
 - **D3-4**: Minimax (D4 uses NNUE)
-- **D5-8**: MCTS (neural guidance from D6+)
-- **D9-10**: Descent/UBFM with neural guidance
+- **D5-6**: Descent (neural search)
+- **D7**: MCTS (heuristic-only)
+- **D8**: MCTS (neural guidance)
+- **D9-10**: Gumbel MCTS (neural guidance)
 - **Board-aware overrides**: Large boards swap to Descent/Gumbel tiers via `ai-service/app/config/ladder_config.py`
 
 ### Multiple Board Configurations

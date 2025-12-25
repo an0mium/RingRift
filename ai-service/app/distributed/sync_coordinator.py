@@ -2026,6 +2026,20 @@ class HighQualityDataSyncWatcher:
 
         except Exception as e:
             logger.error(f"[HighQualityDataSyncWatcher] Priority sync failed: {e}")
+            # Emit DATA_SYNC_FAILED event
+            try:
+                from app.distributed.data_events import emit_data_sync_failed
+                from app.core.async_context import fire_and_forget
+                fire_and_forget(
+                    emit_data_sync_failed(
+                        host="cluster",
+                        error=str(e),
+                        source="HighQualityDataSyncWatcher.trigger_sync",
+                    ),
+                    error_callback=lambda exc: logger.debug(f"Failed to emit sync failed: {exc}"),
+                )
+            except Exception:
+                pass  # Best effort
         finally:
             self._sync_in_progress = False
 

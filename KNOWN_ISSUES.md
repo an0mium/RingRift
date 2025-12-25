@@ -478,9 +478,9 @@ In particular, for the historically problematic square8/2‑AI plateau around se
 
 - `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`
 - `tests/utils/aiSeedSnapshots.ts`
-- `tests/unit/ClientSandboxEngine.aiStallRegression.test.ts`
+- `tests/unit/ClientSandboxEngine.aiStallDiagnostics.test.ts`
+- `tests/unit/ClientSandboxEngine.aiStallNormalization.test.ts`
 - `tests/scenarios/AI_TerminationFromSeed1Plateau.test.ts`
-- `tests/unit/ClientSandboxEngine.aiSingleSeedDebug.test.ts`
 
 Earlier harnesses like `tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts` and browser‑driven `/sandbox` stall watchdog traces should now be treated as **historical debugging artifacts** (see `archive/AI_STALL_DEBUG_SUMMARY.md`). If they ever disagree with rules‑level suites, S‑invariant tests, or the modern plateau/stall diagnostics above, defer to the rules and lifecycle SSoTs and update or retire the legacy harnesses accordingly.
 

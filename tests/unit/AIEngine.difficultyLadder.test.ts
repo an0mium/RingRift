@@ -15,17 +15,37 @@ describe('AI difficulty ladder (canonical mapping)', () => {
         thinkTime: 2800,
         profileId: 'v1-minimax-4-nnue',
       },
-      5: { aiType: AIType.MCTS, randomness: 0.05, thinkTime: 4000, profileId: 'v1-mcts-5' },
+      5: {
+        aiType: AIType.DESCENT,
+        randomness: 0.05,
+        thinkTime: 4000,
+        profileId: 'ringrift_best_sq8_2p',
+      },
       6: {
-        aiType: AIType.MCTS,
+        aiType: AIType.DESCENT,
         randomness: 0.02,
         thinkTime: 5500,
-        profileId: 'v1-mcts-6-neural',
+        profileId: 'ringrift_best_sq8_2p',
       },
-      7: { aiType: AIType.MCTS, randomness: 0.0, thinkTime: 7500, profileId: 'v1-mcts-7-neural' },
-      8: { aiType: AIType.MCTS, randomness: 0.0, thinkTime: 9600, profileId: 'v1-mcts-8-neural' },
-      9: { aiType: AIType.DESCENT, randomness: 0.0, thinkTime: 12600, profileId: 'v1-descent-9' },
-      10: { aiType: AIType.DESCENT, randomness: 0.0, thinkTime: 16000, profileId: 'v1-descent-10' },
+      7: { aiType: AIType.MCTS, randomness: 0.0, thinkTime: 7500, profileId: 'v1-mcts-7' },
+      8: {
+        aiType: AIType.MCTS,
+        randomness: 0.0,
+        thinkTime: 9600,
+        profileId: 'ringrift_best_sq8_2p',
+      },
+      9: {
+        aiType: AIType.GUMBEL_MCTS,
+        randomness: 0.0,
+        thinkTime: 12600,
+        profileId: 'ringrift_best_sq8_2p',
+      },
+      10: {
+        aiType: AIType.GUMBEL_MCTS,
+        randomness: 0.0,
+        thinkTime: 16000,
+        profileId: 'ringrift_best_sq8_2p',
+      },
     };
 
     for (let difficulty = 1; difficulty <= 10; difficulty += 1) {

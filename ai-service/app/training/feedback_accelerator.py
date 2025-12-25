@@ -485,6 +485,9 @@ class FeedbackAccelerator:
                 f"({old_elo:.0f} -> {new_elo:.0f}), momentum={momentum.momentum_state.value}"
             )
 
+        # Check for Elo plateau and trigger response (December 2025)
+        self._check_elo_plateau(config_key, momentum)
+
         return momentum
 
     def record_games_generated(self, config_key: str, games: int) -> None:
@@ -553,6 +556,64 @@ class FeedbackAccelerator:
         )
 
         self._save_config(config_key)
+
+    def signal_training_needed(
+        self,
+        config_key: str | None = None,
+        urgency: str = "normal",
+        reason: str = "",
+    ) -> None:
+        """Signal that training is urgently needed for a config.
+
+        This is called by CurriculumFeedback when promotion fails, indicating
+        the need for more aggressive training to break plateaus.
+
+        Args:
+            config_key: Configuration key (e.g., "square8_2p"). If None, applies globally.
+            urgency: One of "low", "normal", "high", "critical"
+            reason: Human-readable reason for the urgency
+        """
+        urgency_to_intensity = {
+            "critical": TrainingIntensity.HOT_PATH,
+            "high": TrainingIntensity.ACCELERATED,
+            "normal": TrainingIntensity.NORMAL,
+            "low": TrainingIntensity.REDUCED,
+        }
+
+        new_intensity = urgency_to_intensity.get(urgency, TrainingIntensity.NORMAL)
+
+        if config_key:
+            if config_key not in self._configs:
+                self._configs[config_key] = ConfigMomentum(config_key=config_key)
+
+            momentum = self._configs[config_key]
+            old_intensity = momentum.intensity
+
+            # Only upgrade intensity, never downgrade via signal
+            if self._intensity_priority(new_intensity) > self._intensity_priority(old_intensity):
+                momentum.intensity = new_intensity
+                self._save_config(config_key)
+
+                logger.info(
+                    f"[FeedbackAccelerator] Training urgency signaled for {config_key}: "
+                    f"{old_intensity.value} → {new_intensity.value} ({reason})"
+                )
+        else:
+            # Apply to all configs
+            for key in list(self._configs.keys()):
+                self.signal_training_needed(key, urgency, reason)
+
+    @staticmethod
+    def _intensity_priority(intensity: TrainingIntensity) -> int:
+        """Get numeric priority for intensity comparison."""
+        priority_map = {
+            TrainingIntensity.PAUSED: 0,
+            TrainingIntensity.REDUCED: 1,
+            TrainingIntensity.NORMAL: 2,
+            TrainingIntensity.ACCELERATED: 3,
+            TrainingIntensity.HOT_PATH: 4,
+        }
+        return priority_map.get(intensity, 2)
 
     # =========================================================================
     # Training Decisions
@@ -673,6 +734,52 @@ class FeedbackAccelerator:
             "min_games_threshold": decision.min_games_threshold,
             "intensity": decision.intensity.value,
         }
+
+    def get_selfplay_multiplier(self, config_key: str) -> float:
+        """Get selfplay games multiplier based on Elo momentum (December 2025).
+
+        This implements the Elo momentum → Selfplay rate coupling:
+        - ACCELERATING: 1.5x games (capitalize on positive momentum)
+        - IMPROVING: 1.25x games (boost for continued improvement)
+        - STABLE: 1.0x games (normal rate)
+        - PLATEAU: 1.1x games (slight boost to try to break plateau)
+        - REGRESSING: 0.75x games (reduce noise, focus on quality)
+
+        Args:
+            config_key: Config identifier (e.g., "square8_2p")
+
+        Returns:
+            Multiplier for selfplay games (0.5 - 1.5)
+        """
+        momentum = self._configs.get(config_key)
+        if not momentum:
+            return 1.0
+
+        # Map momentum state to selfplay multiplier
+        multiplier_map = {
+            MomentumState.ACCELERATING: 1.5,  # Max boost during strong improvement
+            MomentumState.IMPROVING: 1.25,    # Good boost during improvement
+            MomentumState.STABLE: 1.0,        # Normal rate when stable
+            MomentumState.PLATEAU: 1.1,       # Slight boost to break plateau
+            MomentumState.REGRESSING: 0.75,   # Reduce rate during regression
+        }
+
+        base_multiplier = multiplier_map.get(momentum.momentum_state, 1.0)
+
+        # Additional boost for consecutive improvements (compound positive feedback)
+        if momentum.consecutive_improvements >= 3:
+            base_multiplier = min(base_multiplier * 1.1, 1.5)
+
+        # Limit during consecutive plateaus
+        if momentum.consecutive_plateaus >= 3:
+            base_multiplier = max(base_multiplier * 0.9, 0.5)
+
+        logger.debug(
+            f"[FeedbackAccelerator] Selfplay multiplier for {config_key}: "
+            f"{base_multiplier:.2f} (momentum={momentum.momentum_state.value})"
+        )
+
+        return base_multiplier
 
     # =========================================================================
     # Curriculum Weight Recommendations
@@ -920,6 +1027,62 @@ class FeedbackAccelerator:
         return metrics
 
     # =========================================================================
+    # Elo Plateau Detection (December 2025)
+    # =========================================================================
+
+    def _check_elo_plateau(self, config_key: str, momentum: ConfigMomentum) -> None:
+        """Check for Elo plateau and trigger response if detected.
+
+        This integrates the detect_elo_plateau() function from adaptive_controller
+        with the FeedbackAccelerator to automatically respond to training stalls.
+
+        When a plateau is detected:
+        1. Signal training needed with high urgency
+        2. Emit PLATEAU_DETECTED event via on_plateau_detected()
+
+        Args:
+            config_key: Configuration key (e.g., "square8_2p")
+            momentum: ConfigMomentum with Elo history
+        """
+        # Need at least 5 data points to detect plateau
+        if len(momentum.elo_history) < 5:
+            return
+
+        try:
+            from app.training.adaptive_controller import detect_elo_plateau, on_plateau_detected
+
+            # Extract Elo values from history
+            elo_values = [snapshot.elo for snapshot in momentum.elo_history]
+
+            # Check for plateau
+            is_plateau, details = detect_elo_plateau(
+                elo_history=elo_values,
+                window_size=10,
+                threshold_elo_per_game=0.5,
+            )
+
+            if is_plateau and details.get("confidence", 0) > 0.5:
+                logger.info(
+                    f"[FeedbackAccelerator] Elo plateau detected for {config_key}: "
+                    f"slope={details.get('slope', 0):.2f}, confidence={details.get('confidence', 0):.2f}"
+                )
+
+                # Trigger async response in background
+                import asyncio
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(on_plateau_detected(config_key, details))
+                except RuntimeError:
+                    # No event loop running - run synchronously
+                    asyncio.run(on_plateau_detected(config_key, details))
+
+        except ImportError:
+            pass  # adaptive_controller not available
+        except Exception as e:
+            logger.debug(f"[FeedbackAccelerator] Plateau detection failed for {config_key}: {e}")
+
+    # =========================================================================
     # Training Callbacks
     # =========================================================================
 
@@ -973,6 +1136,21 @@ def should_trigger_training(config_key: str) -> bool:
 def get_training_intensity(config_key: str) -> dict[str, float]:
     """Get training intensity parameters for a config."""
     return get_feedback_accelerator().get_training_intensity(config_key)
+
+
+def get_selfplay_multiplier(config_key: str) -> float:
+    """Get selfplay games multiplier based on Elo momentum (December 2025).
+
+    This implements the Elo momentum → Selfplay rate coupling.
+    Call this when determining how many selfplay games to generate.
+
+    Args:
+        config_key: Config identifier (e.g., "square8_2p")
+
+    Returns:
+        Multiplier for selfplay games (0.5 - 1.5)
+    """
+    return get_feedback_accelerator().get_selfplay_multiplier(config_key)
 
 
 def record_elo_update(

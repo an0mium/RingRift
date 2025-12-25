@@ -496,9 +496,10 @@ Formula: `round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))`
 
 - **1**: RandomAI (random legal moves)
 - **2**: HeuristicAI (strategic heuristics)
-- **3-6**: MinimaxAI (depth-limited minimax with alpha-beta)
-- **7-8**: MCTSAI (Monte Carlo tree search)
-- **9-10**: DescentAI (UBFM/Descent-style tree search)
+- **3-4**: MinimaxAI (depth-limited minimax with alpha-beta)
+- **5-6**: DescentAI (UBFM/Descent-style tree search, neural-guided)
+- **7-8**: MCTSAI (D7 heuristic-only, D8 neural-guided)
+- **9-10**: GumbelMCTSAI (neural-guided)
 
 ### AI Service Endpoints
 

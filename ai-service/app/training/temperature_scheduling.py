@@ -26,6 +26,7 @@ class ScheduleType(Enum):
     ADAPTIVE = "adaptive"              # Based on game state
     CURRICULUM = "curriculum"          # Based on training progress
     MIXED = "mixed"                    # Combination of schedules
+    ELO_ADAPTIVE = "elo_adaptive"      # Based on model Elo rating (Dec 2025)
 
 
 @dataclass
@@ -307,6 +308,113 @@ class CurriculumSchedule(TemperatureSchedule):
             return max(0.1, base_temp * decay)
 
 
+class EloAdaptiveSchedule(TemperatureSchedule):
+    """
+    Temperature schedule that adapts based on model Elo rating.
+
+    This supports the strength-driven training philosophy (December 2025):
+    - Weak models (< 1300 Elo): High exploration to find strong moves
+    - Medium models (1300-1500): Balanced exploration/exploitation
+    - Strong models (1500-1700): More exploitation, less noise
+    - Very strong (> 1700): Confident, low-temperature play
+
+    Usage:
+        schedule = EloAdaptiveSchedule(model_elo=1450)
+        temp = schedule.get_temperature(move_number=15)
+    """
+
+    def __init__(
+        self,
+        model_elo: float = 1500.0,
+        weak_temp: float = 1.5,
+        medium_temp: float = 1.0,
+        strong_temp: float = 0.7,
+        very_strong_temp: float = 0.5,
+        exploration_moves: int = 30,
+        elo_weak_threshold: float = 1300.0,
+        elo_medium_threshold: float = 1500.0,
+        elo_strong_threshold: float = 1700.0,
+    ):
+        """Initialize Elo-adaptive temperature schedule.
+
+        Args:
+            model_elo: Current model Elo rating
+            weak_temp: Base temperature for weak models (< 1300 Elo)
+            medium_temp: Base temperature for medium models (1300-1500 Elo)
+            strong_temp: Base temperature for strong models (1500-1700 Elo)
+            very_strong_temp: Base temperature for very strong models (> 1700 Elo)
+            exploration_moves: Number of moves before temperature decay
+            elo_weak_threshold: Elo below which model is considered weak
+            elo_medium_threshold: Elo below which model is considered medium
+            elo_strong_threshold: Elo above which model is considered very strong
+        """
+        self.model_elo = model_elo
+        self.weak_temp = weak_temp
+        self.medium_temp = medium_temp
+        self.strong_temp = strong_temp
+        self.very_strong_temp = very_strong_temp
+        self.exploration_moves = exploration_moves
+        self.elo_weak_threshold = elo_weak_threshold
+        self.elo_medium_threshold = elo_medium_threshold
+        self.elo_strong_threshold = elo_strong_threshold
+
+        # Determine base temperature from Elo
+        self._base_temp = self._compute_base_temp()
+
+    def _compute_base_temp(self) -> float:
+        """Compute base temperature from model Elo."""
+        if self.model_elo < self.elo_weak_threshold:
+            return self.weak_temp
+        elif self.model_elo < self.elo_medium_threshold:
+            # Interpolate between weak and medium
+            progress = (self.model_elo - self.elo_weak_threshold) / (
+                self.elo_medium_threshold - self.elo_weak_threshold
+            )
+            return self.weak_temp + progress * (self.medium_temp - self.weak_temp)
+        elif self.model_elo < self.elo_strong_threshold:
+            # Interpolate between medium and strong
+            progress = (self.model_elo - self.elo_medium_threshold) / (
+                self.elo_strong_threshold - self.elo_medium_threshold
+            )
+            return self.medium_temp + progress * (self.strong_temp - self.medium_temp)
+        else:
+            # Very strong - use lowest temperature
+            return self.very_strong_temp
+
+    def update_elo(self, new_elo: float) -> None:
+        """Update model Elo and recalculate base temperature.
+
+        Call this when model Elo changes (e.g., after evaluation).
+        """
+        self.model_elo = new_elo
+        self._base_temp = self._compute_base_temp()
+        logger.debug(
+            f"[EloAdaptiveSchedule] Updated Elo to {new_elo:.0f}, "
+            f"base_temp now {self._base_temp:.2f}"
+        )
+
+    def get_temperature(
+        self,
+        move_number: int,
+        game_state: Any | None = None,
+        training_progress: float | None = None,
+    ) -> float:
+        """Get temperature for a move based on Elo and move number.
+
+        Temperature is high in early moves (exploration phase) and
+        decays exponentially afterward.
+        """
+        if move_number <= self.exploration_moves:
+            return self._base_temp
+        else:
+            # Exponential decay after exploration phase
+            effective_move = move_number - self.exploration_moves
+            decay_rate = 0.03 if self.model_elo < self.elo_medium_threshold else 0.05
+            decay = math.exp(-decay_rate * effective_move)
+            final_temp = 0.1 if self.model_elo >= self.elo_strong_threshold else 0.2
+            return max(final_temp, self._base_temp * decay)
+
+
 class MixedSchedule(TemperatureSchedule):
     """
     Combines multiple schedules with different weights.
@@ -395,6 +503,20 @@ class TemperatureScheduler:
                                      cfg.decay_start_move, cfg.decay_end_move), 0.6),
                 (AdaptiveSchedule(cfg.initial_temp), 0.4)
             ])
+
+        elif cfg.schedule_type == ScheduleType.ELO_ADAPTIVE:
+            # Elo-adaptive schedule (December 2025)
+            return EloAdaptiveSchedule(
+                model_elo=cfg.adaptive_config.get('model_elo', 1500.0),
+                weak_temp=cfg.adaptive_config.get('weak_temp', 1.5),
+                medium_temp=cfg.adaptive_config.get('medium_temp', 1.0),
+                strong_temp=cfg.adaptive_config.get('strong_temp', 0.7),
+                very_strong_temp=cfg.adaptive_config.get('very_strong_temp', 0.5),
+                exploration_moves=cfg.exploration_moves,
+                elo_weak_threshold=cfg.adaptive_config.get('elo_weak_threshold', 1300.0),
+                elo_medium_threshold=cfg.adaptive_config.get('elo_medium_threshold', 1500.0),
+                elo_strong_threshold=cfg.adaptive_config.get('elo_strong_threshold', 1700.0),
+            )
 
         else:
             return LinearDecaySchedule()
@@ -604,6 +726,21 @@ def create_scheduler(preset: str = "default", **kwargs) -> TemperatureScheduler:
             initial_temp=1.2,
             final_temp=0.1,
             decay_end_move=60
+        ),
+        "elo_adaptive": TemperatureConfig(
+            schedule_type=ScheduleType.ELO_ADAPTIVE,
+            initial_temp=1.0,  # Not used directly, but for consistency
+            exploration_moves=30,
+            adaptive_config={
+                'model_elo': 1500.0,
+                'weak_temp': 1.5,
+                'medium_temp': 1.0,
+                'strong_temp': 0.7,
+                'very_strong_temp': 0.5,
+                'elo_weak_threshold': 1300.0,
+                'elo_medium_threshold': 1500.0,
+                'elo_strong_threshold': 1700.0,
+            }
         )
     }
 
@@ -614,6 +751,41 @@ def create_scheduler(preset: str = "default", **kwargs) -> TemperatureScheduler:
         if hasattr(config, key):
             setattr(config, key, value)
 
+    return TemperatureScheduler(config)
+
+
+def create_elo_adaptive_scheduler(
+    model_elo: float,
+    exploration_moves: int = 30,
+) -> TemperatureScheduler:
+    """Create an Elo-adaptive temperature scheduler for a specific model Elo.
+
+    This is a convenience function for the strength-driven training pipeline
+    (December 2025). The scheduler automatically adjusts temperature based on
+    model strength:
+    - Weak models (< 1300 Elo): High exploration (temp ~1.5)
+    - Medium models (1300-1500 Elo): Balanced (temp ~1.0)
+    - Strong models (1500-1700 Elo): More exploitation (temp ~0.7)
+    - Very strong (> 1700 Elo): Confident play (temp ~0.5)
+
+    Args:
+        model_elo: Current model Elo rating
+        exploration_moves: Number of moves before temperature decay
+
+    Returns:
+        TemperatureScheduler configured for Elo-adaptive temperature
+
+    Example:
+        >>> scheduler = create_elo_adaptive_scheduler(model_elo=1450)
+        >>> temp = scheduler.get_temperature(move_number=15)
+        >>> print(f"Temperature: {temp:.2f}")
+        Temperature: 1.25
+    """
+    config = TemperatureConfig(
+        schedule_type=ScheduleType.ELO_ADAPTIVE,
+        exploration_moves=exploration_moves,
+        adaptive_config={'model_elo': model_elo},
+    )
     return TemperatureScheduler(config)
 
 

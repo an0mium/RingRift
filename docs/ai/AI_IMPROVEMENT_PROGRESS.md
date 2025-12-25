@@ -73,7 +73,7 @@ Status tags:
   comparison and leaderboard tracking.
 - **done** Model registry for tracking trained models with lineage (parent_id),
   metrics, and deprecation status.
-- **done** Tier gating integration (D2→D4→D6→D8) with automatic promotion
+- **done** Tier gating integration (D2→D3→D4→D5→D6→D7→D8) with automatic promotion
   based on 55% win rate threshold over 10+ matches.
 - **done** Game deduplication via SHA256 hashing to prevent duplicate games
   in training data.

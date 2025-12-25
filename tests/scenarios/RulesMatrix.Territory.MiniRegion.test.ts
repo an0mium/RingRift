@@ -8,7 +8,7 @@ import { getScenarioById, TerritoryRuleScenario } from './rulesMatrix';
  * getScenarioById. Numeric invariants for this geometry are asserted in the
  * dedicated rules-layer tests:
  *
- *   - tests/unit/territoryProcessing.rules.test.ts
+ *   - tests/unit/territoryProcessing.shared.test.ts
  *   - tests/unit/sandboxTerritory.rules.test.ts
  *   - tests/unit/sandboxTerritoryEngine.rules.test.ts
  *

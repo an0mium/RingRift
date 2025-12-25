@@ -600,8 +600,8 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 **Response**:
 
 1. Check `/metrics` and logs for specific orchestrator failure types (validation errors, timeouts, invariant violations).
-2. Correlate with recent code changes or rollout percentage changes.
-3. If errors are increasing, use circuit-breaker levers per the rollout runbook while triaging. FSM is canonical and orchestrator is permanently enabled.
+2. Correlate with recent code changes or configuration shifts (rules mode, circuit-breaker thresholds).
+3. If errors are increasing, use circuit-breaker telemetry and parity diagnostics per the rollout runbook while triaging. FSM is canonical and the orchestrator is permanently enabled (no rollback lever).
 
 ---
 
@@ -651,7 +651,7 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 
 **Response**:
 
-1. Rollout percentage is fixed at 100% (flag removed); keep the adapter on and use shadow mode or the circuit breaker per the rollout runbook while triaging.
+1. Rollout percentage is fixed at 100% (flag removed); keep `RINGRIFT_RULES_MODE=ts` in production and use circuit-breaker telemetry + parity diagnostics per the rollout runbook while triaging.
 2. Triage the violation using logs and, if available, invariant soak results against the production image.
 3. Add or update regression tests and only resume rollout once the issue is fully understood and fixed.
 
@@ -785,7 +785,7 @@ Underlying metrics:
 
 - **Unified counter:** `ringrift_rules_parity_mismatches_total{mismatch_type, suite}`
   - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`}
-  - `suite` identifies the parity context (for example `runtime_shadow`, `runtime_python_mode`, or future contract-vector suites such as `contract_vectors_v2` corresponding to `PARITY-TS-PY-*` IDs in
+  - `suite` identifies the parity context (for example `runtime_ts`, `runtime_python_mode`, or future contract-vector suites such as `contract_vectors_v2` corresponding to `PARITY-TS-PY-*` IDs in
     [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
 - **Legacy counters (still exported for dashboards):**
   - `ringrift_rules_parity_valid_mismatch_total`
@@ -1085,16 +1085,13 @@ Every environment that is on, or preparing for, orchestrator‑first rollout sho
   - (For AI/self‑play environments) `ringrift_python_invariant_violations_total{invariant_id=...,type=...}` for Python strict‑invariant soaks (`INV-*` IDs).
   - `OrchestratorErrorRateWarning`, `OrchestratorInvariantViolations*`, and `PythonInvariantViolations` alert state.
 - **Rollout posture**
-  - `ringrift_orchestrator_rollout_percentage{environment=...}`
+  - `ringrift_orchestrator_rollout_percentage{environment=...}` (fixed at `100`)
   - `ringrift_orchestrator_circuit_breaker_state{environment=...}`
-  - Shadow mismatch metrics:
-    - `ringrift_orchestrator_shadow_mismatch_rate{environment=...}`
-    - Comparison counters used by `OrchestratorShadowMismatches`.
 - **Game health**
   - Game move latency histograms (P50/P95/P99) broken down by board type or route.
   - HTTP 5xx share on game endpoints (as used in `HighErrorRate` alerts).
   - Rules parity metrics and `RulesParity*` alert state, backed by `ringrift_rules_parity_mismatches_total{mismatch_type, suite}` where suites map onto
-    parity contexts (for example `runtime_shadow`, `runtime_python_mode`, or future `PARITY-*` contract suites).
+    parity contexts (for example `runtime_ts`, `runtime_python_mode`, or future `PARITY-*` contract suites).
 
 For Phase‑based expectations and thresholds, see §§6.2–6.4 and §8 of `ORCHESTRATOR_ROLLOUT_PLAN.md`.
 

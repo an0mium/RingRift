@@ -1028,20 +1028,15 @@ and referenced from the rollout and alerting docs:
   - the `OrchestratorCircuitBreakerOpen` alert.
 
 - **Rollout percentage:**  
-  `ringrift_orchestrator_rollout_percentage` – current effective rollout
-  percentage as seen by the backend host. This is a **derived view over**
-  `config.orchestrator.rolloutPercentage` and
-  `config.featureFlags.orchestrator.rolloutPercentage`, and is used in
-  rollout dashboards and in the environment/phase mapping tables in
-  `ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1.
+  `ringrift_orchestrator_rollout_percentage` – fixed gauge set to `100` at
+  startup (see `src/server/index.ts`). Retained for dashboards and historical
+  rollout tables; it is no longer derived from config.
 
-- **Shadow mismatch rate:**  
-  `ringrift_orchestrator_shadow_mismatch_rate` – rate of divergences between
-  orchestrator and legacy paths when shadow mode is enabled. This complements
-  the TS↔Python rules‑parity metrics and is referenced by the
-  `OrchestratorShadowMismatches` alert group and by
-  `SLO-STAGE-ORCH-PARITY` / `SLO-PROD-RULES-PARITY` in
-  `ORCHESTRATOR_ROLLOUT_PLAN.md`.
+- **Shadow mismatch rate (deprecated):**  
+  `ringrift_orchestrator_shadow_mismatch_rate` is no longer emitted because
+  shadow mode was removed. Runtime parity is now tracked via
+  `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",...}`
+  when `RINGRIFT_RULES_MODE=python` is enabled.
 
 - **Invariant violations (invariant soaks):**  
   `ringrift_orchestrator_invariant_violations_total{type, invariant_id}` – counter for detected
@@ -1072,7 +1067,7 @@ and referenced from the rollout and alerting docs:
     the backend also exposes a unified counter:  
     `ringrift_rules_parity_mismatches_total{mismatch_type, suite}` – incremented by `RulesBackendFacade.compareTsAndPython()` via `rulesParityMetrics` / `MetricsService.recordRulesParityMismatch`.
   - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`} and matches the parity IDs in `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.
-  - `suite` identifies the parity harness, for example `runtime_shadow`, `runtime_python_mode`, or `runtime_ts`.  
+  - `suite` identifies the parity harness, for example `runtime_python_mode`, `runtime_ts`, or future contract-vector suites.  
     This metric allows dashboards to aggregate and break down parity incidents across suites while keeping alert expressions focused on the per-dimension counters above.
 
 Host implementors must treat these metrics as **observability surfaces over

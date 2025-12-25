@@ -62,6 +62,7 @@ DAEMON_CATEGORIES = {
         DaemonType.ELO_SYNC,
         DaemonType.MODEL_SYNC,
         DaemonType.CLUSTER_DATA_SYNC,
+        DaemonType.AUTO_SYNC,  # P2P data sync with gossip replication
     ],
     "training": [
         DaemonType.DATA_PIPELINE,
@@ -70,6 +71,9 @@ DAEMON_CATEGORIES = {
         DaemonType.DISTILLATION,
         DaemonType.UNIFIED_PROMOTION,
         DaemonType.CONTINUOUS_TRAINING_LOOP,
+        DaemonType.TOURNAMENT_DAEMON,  # Auto-schedule tournaments on model events
+        DaemonType.FEEDBACK_LOOP,  # Central feedback loop controller (Dec 2025)
+        DaemonType.EVALUATION,  # Auto-evaluate models after training completes (Dec 2025)
     ],
     "monitoring": [
         DaemonType.HEALTH_CHECK,

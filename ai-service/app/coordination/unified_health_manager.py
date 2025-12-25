@@ -348,6 +348,7 @@ class UnifiedHealthManager(CoordinatorBase):
             router.subscribe(DataEventType.TRAINING_FAILED.value, self._on_training_failed)
             router.subscribe(DataEventType.TASK_FAILED.value, self._on_task_failed)
             router.subscribe(DataEventType.REGRESSION_DETECTED.value, self._on_regression_detected)
+            router.subscribe(DataEventType.REGRESSION_CRITICAL.value, self._on_regression_critical)
 
             # Node events (from RecoveryManager)
             router.subscribe(DataEventType.HOST_OFFLINE.value, self._on_host_offline)
@@ -583,6 +584,95 @@ class UnifiedHealthManager(CoordinatorBase):
         )
 
         self._record_error(error)
+
+    async def _on_regression_critical(self, event) -> None:
+        """Handle REGRESSION_CRITICAL event - trigger immediate rollback.
+
+        Added December 2025 to wire Regression → Rollback coupling.
+        When a critical regression is detected, immediately trigger rollback
+        to the previous stable model version.
+        """
+        payload = event.payload if hasattr(event, 'payload') else event
+
+        model_id = payload.get("model_id", "")
+        severity = payload.get("severity", "critical")
+        win_rate = payload.get("win_rate_vs_heuristic", 0.0)
+        config_key = payload.get("config_key", model_id)
+
+        logger.warning(
+            f"[UnifiedHealthManager] REGRESSION_CRITICAL received for {model_id}: "
+            f"severity={severity}, win_rate={win_rate:.2%}"
+        )
+
+        # Record critical error
+        error = ErrorRecord(
+            error_id=self._generate_error_id(),
+            component="model",
+            error_type="regression_critical",
+            message=f"Critical regression detected - rollback needed: {model_id}",
+            severity=ErrorSeverity.CRITICAL,
+            context={
+                "model_id": model_id,
+                "config_key": config_key,
+                "severity": severity,
+                "win_rate": win_rate,
+            },
+        )
+        self._record_error(error)
+
+        # Trigger rollback
+        try:
+            from app.training.rollback_manager import RollbackManager
+
+            # Get or create rollback manager
+            if not hasattr(self, "_rollback_manager"):
+                try:
+                    from app.training.model_registry import ModelRegistry
+                    registry = ModelRegistry()
+                    self._rollback_manager = RollbackManager(registry)
+                except ImportError:
+                    logger.warning("ModelRegistry not available for rollback")
+                    return
+
+            result = self._rollback_manager.rollback_model(
+                model_id=config_key,
+                reason=f"Auto-rollback: Critical regression (win_rate={win_rate:.2%})",
+                triggered_by="auto_regression_critical",
+            )
+
+            if result.get("success"):
+                logger.info(
+                    f"[UnifiedHealthManager] Rollback successful for {config_key}: "
+                    f"v{result.get('from_version')} → v{result.get('to_version')}"
+                )
+                # Emit rollback event
+                try:
+                    from app.coordination.event_router import get_router
+                    from app.distributed.data_events import DataEventType
+
+                    router = get_router()
+                    await router.publish(
+                        DataEventType.MODEL_PROMOTED.value,  # Re-use promotion event for rollback
+                        {
+                            "model_id": config_key,
+                            "action": "rollback",
+                            "from_version": result.get("from_version"),
+                            "to_version": result.get("to_version"),
+                            "reason": "auto_regression_critical",
+                        }
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not emit rollback event: {e}")
+            else:
+                logger.error(
+                    f"[UnifiedHealthManager] Rollback failed for {config_key}: "
+                    f"{result.get('error')}"
+                )
+
+        except ImportError as e:
+            logger.warning(f"[UnifiedHealthManager] RollbackManager not available: {e}")
+        except Exception as e:
+            logger.error(f"[UnifiedHealthManager] Rollback failed: {e}")
 
     async def _on_host_offline(self, event) -> None:
         """Handle HOST_OFFLINE event."""

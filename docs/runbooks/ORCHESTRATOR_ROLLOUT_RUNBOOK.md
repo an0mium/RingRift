@@ -14,14 +14,14 @@ When investigating an orchestrator-related page or alert, check:
 - `ringrift_orchestrator_circuit_breaker_state` (0 = closed, 1 = open)
 - `ringrift_orchestrator_error_rate` (0.0–1.0 fraction)
 - `ringrift_orchestrator_sessions_total{engine,selection_reason}`
-- `ringrift_orchestrator_shadow_mismatch_rate`
+- `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",mismatch_type=...}` (only when running python‑authoritative diagnostics)
 - Admin API snapshot:
   - `GET /api/admin/orchestrator/status` (requires admin auth)
 
 **Target SLO-style thresholds (steady state):**
 
 - Orchestrator error rate: `ringrift_orchestrator_error_rate < 0.02` (2%) over a 5–10 minute window.
-- Parity mismatch rate: `ringrift_orchestrator_shadow_mismatch_rate < 0.01` (1%) during diagnostic parity runs.
+- Parity mismatches: near‑zero during python‑authoritative diagnostics (see `RULES_PARITY.md`).
 - Circuit breaker closed: `ringrift_orchestrator_circuit_breaker_state == 0` during normal operation.
 
 Use `/metrics` plus the admin API to decide whether to:
@@ -67,7 +67,7 @@ Key questions:
 
 - **Is the circuit breaker open?** (`circuitBreaker.isOpen === true`)
 - **Is the error rate elevated?** (`errorRatePercent > 2–5%`)
-- **Are shadow mismatches non-trivial?** (`shadow.mismatchRate > 0.01`)
+- **Are runtime parity mismatches non-trivial?** (only applicable during python‑authoritative diagnostics)
 
 If any of these are true, stop rollout increases and follow the incident steps below.
 
@@ -81,10 +81,10 @@ If any of these are true, stop rollout increases and follow the incident steps b
 
 > **Historical only:** `ORCHESTRATOR_ROLLOUT_PERCENTAGE` no longer affects the code path (adapter is hardcoded ON). Keep this section for archival reference; do not run these commands on current environments.
 
-1. Confirm error and mismatch rates are low:
+1. Confirm error rates are low:
    - `ringrift_orchestrator_error_rate < 0.02`
-   - `ringrift_orchestrator_shadow_mismatch_rate` near 0 (ideally < 0.01)
    - Circuit breaker closed: `ringrift_orchestrator_circuit_breaker_state == 0`
+   - If python‑authoritative diagnostics were run, parity mismatches should be near zero (see `RULES_PARITY.md`).
 2. Adjust environment (e.g. Kubernetes):
 
 ```bash
@@ -94,7 +94,7 @@ kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=25
 3. Wait at least one error window (default 5 minutes) plus a few minutes of traffic.
 4. Re-check:
    - `/metrics` for error rate and breaker state.
-   - `/api/admin/orchestrator/status` for shadow metrics.
+   - `/api/admin/orchestrator/status` for circuit-breaker state and config.
 5. Repeat for 10% → 25% → 50% → 100% as confidence allows.
 
 ### 3.2 Parity Diagnostics (Post‑Phase 4)
@@ -119,7 +119,7 @@ Prometheus alert `OrchestratorCircuitBreakerOpen` fired.
 Metric: `ringrift_orchestrator_circuit_breaker_state == 1`.
 
 **Impact:**  
-New orchestrator traffic is effectively disabled; legacy engine is used instead.
+Circuit breaker state is open, indicating elevated orchestrator errors. Routing is unchanged (orchestrator remains the canonical path), but this is a high‑severity diagnostic signal.
 
 **Actions:**
 
@@ -129,8 +129,8 @@ New orchestrator traffic is effectively disabled; legacy engine is used instead.
    - `ringrift_orchestrator_error_rate`
    - Application logs around orchestrator adapter (`GameEngine.processMoveViaAdapter`) for repeated errors.
 3. Short-term:
-   - Leave `ORCHESTRATOR_ADAPTER_ENABLED=true` but keep rollout stable.
-   - Do **not** increase `ORCHESTRATOR_ROLLOUT_PERCENTAGE`.
+   - Keep production on `RINGRIFT_RULES_MODE=ts` and avoid python‑authoritative diagnostics unless explicitly debugging parity.
+   - Focus on isolating the failing move types / phases via logs and regression tests.
 4. Remediation:
    - Identify and fix underlying orchestrator issue (e.g. specific move types, board types, or phases).
    - Once fixed and deployed, manually reset the breaker via an admin task (if added) or by restarting the API pods.
@@ -146,60 +146,42 @@ New orchestrator traffic is effectively disabled; legacy engine is used instead.
 
 **Actions:**
 
-1. Pause rollout increases; keep `ORCHESTRATOR_ROLLOUT_PERCENTAGE` constant.
+1. Keep production on `RINGRIFT_RULES_MODE=ts`; pause python‑authoritative diagnostics.
 2. Check logs for adapter or orchestrator-level errors.
 3. If error rate approaches threshold configured in `ORCHESTRATOR_ERROR_THRESHOLD_PERCENT`:
-   - Consider manually lowering rollout (e.g. 50% → 10%).
-   - If severe, temporarily set `ORCHESTRATOR_ADAPTER_ENABLED=false` (kill switch).
+   - Treat as a release regression and prepare a deployment rollback to a known‑good build.
+   - Use circuit‑breaker state and parity diagnostics to confirm recovery.
 
-### 4.3 Alert: OrchestratorShadowMismatches
+### 4.3 Alert: OrchestratorShadowMismatches (Deprecated)
 
 **Signal:**  
 `ringrift_orchestrator_shadow_mismatch_rate > 0.01` for > 5m.
 
 **Actions:**
 
-1. Identify mismatch patterns via:
-   - Logs from `ShadowModeComparator` (`ENGINE MISMATCH` entries).
-2. Short-term:
-   - Stop rollout increases until mismatch rate returns to near zero.
-3. Mid-term:
-   - Add or extend parity/contract tests for the mismatched scenarios.
-   - Fix orchestrator or legacy engine divergence, then redeploy and re-run shadow.
+1. This alert is deprecated; shadow mode and its metric are no longer emitted.
+2. If you see parity mismatches while running `RINGRIFT_RULES_MODE=python`, follow `RULES_PARITY.md`.
 
 ---
 
 ## 5. Emergency Rollback Procedures
 
-### 5.1 Immediate Kill Switch
+### 5.1 Deployment Rollback (Preferred)
 
-Use when orchestrator behaviour is clearly wrong (e.g. incorrect winners, crashes).
+There is no runtime kill switch or rollout‑percentage lever. If orchestrator
+behaviour is clearly wrong (incorrect winners, crashes), roll back to the last
+known‑good build using the standard deployment rollback runbooks.
 
-```bash
-kubectl set env deployment/ringrift-api ORCHESTRATOR_ADAPTER_ENABLED=false
-```
+### 5.2 Mitigation Checklist
 
-Effect:
+Use when error rates are elevated but not catastrophic:
 
-- New sessions will use the legacy engine only.
-- Existing games running on the orchestrator may continue until they complete or the pods restart.
-
-### 5.2 Gradual Rollback
-
-Use when error rates or mismatches are elevated but not catastrophic.
-
-```bash
-kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=10
-```
-
-Then monitor:
-
-- `ringrift_orchestrator_error_rate`
-- `ringrift_orchestrator_shadow_mismatch_rate`
-- HTTP/E2E SLOs (latency, error rates).
+- Keep production on `RINGRIFT_RULES_MODE=ts`.
+- Pause any python‑authoritative diagnostics.
+- Capture logs and parity artifacts for post‑incident analysis.
 
 **Historical note:** `ORCHESTRATOR_ROLLOUT_PERCENTAGE` and shadow-only posture were removed in Phase 4; there is no supported “0% rollout” or `shadow` mode toggle.  
-To force legacy paths for specific users, use `ORCHESTRATOR_DENYLIST_USERS` or allow the circuit breaker to trip.  
+Allow/deny lists and circuit-breaker state are **diagnostic signals only**; they do not change routing.  
 For runtime parity diagnostics, use `RINGRIFT_RULES_MODE=python` in explicit staging/diagnostic runs (see §3.2).
 
 ---
@@ -216,7 +198,6 @@ After any rollout or rollback action:
      - `ringrift_orchestrator_rollout_percentage`
      - `ringrift_orchestrator_circuit_breaker_state`
      - `ringrift_orchestrator_error_rate`
-     - `ringrift_orchestrator_shadow_mismatch_rate`
 3. Run a small set of smoke tests:
    - Create a few games with AI/human players.
    - Exercise capture, lines, territory, and victory conditions.
@@ -247,7 +228,7 @@ After any rollout or rollback action:
      - Registers a small number of throwaway users via `/api/auth/register`.
      - Creates short games via `/api/games` and fetches game lists/details.
      - Samples `/metrics` for orchestrator rollout metrics.
-       Use it as a quick check that backend HTTP + orchestrator wiring behave sensibly at low concurrency before increasing rollout or enabling shadow mode.
+       Use it as a quick check that backend HTTP + orchestrator wiring behave sensibly at low concurrency before production deploys or parity diagnostics.
    - Optionally run a **metrics & observability smoke** to confirm `/metrics` is exposed and key orchestrator gauges are present:
      ```bash
      npm run test:e2e -- tests/e2e/metrics.e2e.spec.ts
@@ -265,17 +246,16 @@ After any rollout or rollback action:
 
 ## 7. References
 
-- **Design & Feature Flags:**
-  `docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`
+- **Design & Feature Flags (archived):**
+  `docs/archive/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`
 
 - **Shared Engine & Adapters:**
   - `src/shared/engine/orchestration/turnOrchestrator.ts`
   - `src/server/game/turn/TurnEngineAdapter.ts`
   - `src/client/sandbox/SandboxOrchestratorAdapter.ts`
 
-- **Rollout & Shadow Services:**
+- **Rollout Services:**
   - `src/server/services/OrchestratorRolloutService.ts`
-  - `src/server/services/ShadowModeComparator.ts`
 
 - **Metrics:**
   - `src/server/services/MetricsService.ts`
@@ -288,6 +268,11 @@ After any rollout or rollback action:
 This section gives an end-to-end, phase-oriented playbook for orchestrator rollout
 and rollback. It is a human-facing view over the environment phases and SLOs
 defined in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (§6 and §8).
+
+> **Historical reference:** The phase-by-phase commands below reference removed
+> flags (`ORCHESTRATOR_ROLLOUT_PERCENTAGE`, `ORCHESTRATOR_SHADOW_MODE_ENABLED`).
+> Keep this section for archival context only; do not execute those commands in
+> current environments.
 
 ### 8.1 Pre-deploy checklist (before promoting a build)
 

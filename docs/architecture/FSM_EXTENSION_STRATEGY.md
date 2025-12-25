@@ -29,7 +29,7 @@ This document tracks the FSM extension roadmap, now largely complete.
 | Location                                              | Integration                                                       |
 | ----------------------------------------------------- | ----------------------------------------------------------------- |
 | `src/shared/engine/orchestration/turnOrchestrator.ts` | Imports `validateMoveWithFSM`, `isMoveTypeValidForPhase` from FSM |
-| Environment Variable                                  | `RINGRIFT_FSM_VALIDATION_MODE` controls shadow/active/off modes   |
+| Environment Variable                                  | `RINGRIFT_FSM_VALIDATION_MODE` controls `off` / `active` modes    |
 
 ### Validation Modes
 
@@ -54,14 +54,14 @@ This document tracks the FSM extension roadmap, now largely complete.
 
 **Goal:** Make FSM-active validation authoritative for move legality.
 
-| Task                                             | Status  | Files                 |
-| ------------------------------------------------ | ------- | --------------------- |
-| Wire FSM validation into turnOrchestrator        | ✅ Done | `turnOrchestrator.ts` |
-| Add shadow mode logging for divergence detection | ✅ Done | `turnOrchestrator.ts` |
-| Enable `active` mode by default in test/parity   | ✅ Done | CI config             |
-| Update fixtures that assume legacy coercions     | ✅ Done | `tests/fixtures/**`   |
-| Remove shadow mode infrastructure                | ✅ Done | Multiple files        |
-| Graduate FSM to canonical                        | ✅ Done | `envFlags.ts`         |
+| Task                                           | Status  | Files                 |
+| ---------------------------------------------- | ------- | --------------------- |
+| Wire FSM validation into turnOrchestrator      | ✅ Done | `turnOrchestrator.ts` |
+| Add divergence logging for diagnostics         | ✅ Done | `turnOrchestrator.ts` |
+| Enable `active` mode by default in test/parity | ✅ Done | CI config             |
+| Update fixtures that assume legacy coercions   | ✅ Done | `tests/fixtures/**`   |
+| Remove shadow mode infrastructure              | ✅ Done | Multiple files        |
+| Graduate FSM to canonical                      | ✅ Done | `envFlags.ts`         |
 
 **Outcome:**
 
@@ -73,15 +73,15 @@ This document tracks the FSM extension roadmap, now largely complete.
 
 **Goal:** Replace manual phase-routing branches with FSM-driven transitions.
 
-| Task                                              | Status  |
-| ------------------------------------------------- | ------- |
-| Add feature flag `RINGRIFT_FSM_ORCHESTRATOR_MODE` | ✅ Done |
-| Add `computeFSMOrchestration()` function          | ✅ Done |
-| Add `compareFSMWithLegacy()` for shadow mode      | ✅ Done |
-| Fix `currentPlayer` tracking for bookkeeping      | ✅ Done |
-| Integrate FSM orchestrator into turnOrchestrator  | ✅ Done |
-| Validate via orchestrator soak + parity gates     | ✅ Done |
-| Graduate to canonical (remove shadow mode)        | ✅ Done |
+| Task                                                 | Status  |
+| ---------------------------------------------------- | ------- |
+| Document `RINGRIFT_FSM_VALIDATION_MODE` (off/active) | ✅ Done |
+| Add `computeFSMOrchestration()` function             | ✅ Done |
+| Add `compareFSMWithLegacy()` for diagnostics         | ✅ Done |
+| Fix `currentPlayer` tracking for bookkeeping         | ✅ Done |
+| Integrate FSM orchestrator into turnOrchestrator     | ✅ Done |
+| Validate via orchestrator soak + parity gates        | ✅ Done |
+| Graduate to canonical (remove shadow mode)           | ✅ Done |
 
 **Outcome:**
 
@@ -352,7 +352,7 @@ All action items from the original FSM Extension Strategy have been completed:
 
 | Metric                                | Target | Final   |
 | ------------------------------------- | ------ | ------- |
-| FSM-legacy divergences in shadow mode | 0      | 0 ✅    |
+| FSM-legacy divergences in diagnostics | 0      | 0 ✅    |
 | Parity tests passing with active mode | 100%   | 100% ✅ |
 | Python phase-machine coverage         | 100%   | 100% ✅ |
 | Canonical DBs passing FSM validation  | 100%   | 100% ✅ |

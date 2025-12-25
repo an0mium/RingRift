@@ -412,6 +412,63 @@ def get_budget_for_difficulty(difficulty: int) -> int:
         return GUMBEL_BUDGET_ULTIMATE
 
 
+def get_elo_adaptive_budget(
+    model_elo: float,
+    training_epoch: int = 0,
+    elo_weak_threshold: float = 1300.0,
+    elo_medium_threshold: float = 1500.0,
+    elo_strong_threshold: float = 1700.0,
+) -> int:
+    """Get Elo-adaptive MCTS budget based on model strength.
+
+    This supports the strength-driven training philosophy (December 2025):
+    - Weak models (< 1300 Elo): Low budget for fast iteration
+    - Medium models (1300-1500): Standard budget
+    - Strong models (1500-1700): High quality budget
+    - Very strong (> 1700): Maximum quality
+
+    The budget also scales with training epoch to provide higher quality
+    data as training progresses.
+
+    Args:
+        model_elo: Current model Elo rating
+        training_epoch: Current training epoch (for progressive scaling)
+        elo_weak_threshold: Elo below which model is considered weak
+        elo_medium_threshold: Elo below which model is considered medium
+        elo_strong_threshold: Elo above which model is considered very strong
+
+    Returns:
+        Recommended simulation budget
+
+    Example:
+        >>> get_elo_adaptive_budget(1200, training_epoch=0)
+        50
+        >>> get_elo_adaptive_budget(1450, training_epoch=50)
+        225
+        >>> get_elo_adaptive_budget(1800, training_epoch=100)
+        1600
+    """
+    # Base budget from Elo
+    if model_elo < elo_weak_threshold:
+        base = 50  # Fast iteration for weak models
+    elif model_elo < elo_medium_threshold:
+        # Interpolate between 50 and 150
+        progress = (model_elo - elo_weak_threshold) / (elo_medium_threshold - elo_weak_threshold)
+        base = int(50 + progress * 100)
+    elif model_elo < elo_strong_threshold:
+        # Interpolate between 150 and 400
+        progress = (model_elo - elo_medium_threshold) / (elo_strong_threshold - elo_medium_threshold)
+        base = int(150 + progress * 250)
+    else:
+        base = GUMBEL_BUDGET_QUALITY  # 800 - Maximum quality for strong models
+
+    # Scale up with training epoch (up to 2x at epoch 100+)
+    epoch_multiplier = min(2.0, 1.0 + training_epoch / 100)
+
+    # Cap at ULTIMATE budget
+    return min(GUMBEL_BUDGET_ULTIMATE, int(base * epoch_multiplier))
+
+
 # =============================================================================
 # Sequential Halving Executor (unified implementation)
 # =============================================================================

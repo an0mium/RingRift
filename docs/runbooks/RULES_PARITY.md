@@ -36,7 +36,7 @@
 - These alerts watch counters derived from the rules parity harness (metrics named like `ringrift_rules_parity_*_mismatch_total`) over a recent time window.
 - They fire when **validation verdicts**, **post-move state hashes**, or **game status (win/loss/draw)** differ between:
   - The canonical TypeScript engine path, and
-  - The Python rules engine (typically exercised in shadow/contract mode via `RulesBackendFacade` and/or the Python parity test suites).
+  - The Python rules engine (typically exercised in python‑authoritative/contract mode via `RulesBackendFacade` and/or the Python parity test suites).
 
 **Impact (by alert):**
 
@@ -56,7 +56,7 @@
 
 - In normal operation, parity mismatches should be extremely rare and generally confined to:
   - Known historical seeds/scenarios tracked in `docs/PARITY_SEED_TRIAGE.md`.
-  - Experimental Python changes being evaluated in shadow or training-only contexts.
+  - Experimental Python changes being evaluated in python‑authoritative or training-only contexts.
 - When alerts fire outside of those expected pockets, you must assume **a new semantic divergence** has been introduced and treat it as a regression until proven otherwise.
 
 ---
@@ -161,7 +161,7 @@ From these entries, extract:
   - `tests/scripts/generate_rules_parity_fixtures.ts`
   - Python parity tests under `ai-service/tests/parity/**` and `ai-service/tests/contracts/test_contract_vectors.py`.
 - If alerts are firing in **staging or production**, verify whether:
-  - Parity harness is running in **shadow-only mode** (TS authoritative, Python shadow).
+  - Parity harness is running in **python‑authoritative diagnostics** (TS still runs for parity).
   - Any user-facing paths actually depend on the Python rules engine for real decisions (e.g. certain AI/training flows).
 
 This distinction affects urgency and the allowed short-term mitigations (see **4.4**).
@@ -298,10 +298,9 @@ Rare but possible when TS behaviour drifted from the written rules:
 
 When `RulesParityGameStatusMismatch` is firing in an environment that serves real games:
 
-1. **Freeze risky rollout paths:**
-   - Follow `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` to:
-     - Halt further increases to `ORCHESTRATOR_ROLLOUT_PERCENTAGE`.
-     - If necessary, reduce rollout back to a known-good level or disable experimental engines/shadow paths.
+1. **Freeze risky diagnostic paths:**
+   - Keep production on `RINGRIFT_RULES_MODE=ts` and pause any python‑authoritative experiments.
+   - Treat `ORCHESTRATOR_ROLLOUT_PERCENTAGE` and shadow-mode controls as historical only (no runtime effect).
 
 2. **Ensure a single canonical engine is used for outcomes:**
    - Confirm that user-visible win/loss/draw decisions are taken from a single, trusted engine (usually the TS path).

@@ -251,13 +251,13 @@ export function useSandboxAI() {
 
 ---
 
-## Phase 4: FSM Validation Promotion (Blocked)
+## Phase 4: FSM Validation Promotion (Complete)
 
 ### Current Status
 
-- FSM shadow validation infrastructure is in place
-- Running in shadow mode (validates but doesn't enforce)
-- Need confidence in shadow validation results before promotion
+- FSM validation is canonical (`RINGRIFT_FSM_VALIDATION_MODE=active` by default).
+- Shadow mode removed; legacy comparisons are diagnostics-only.
+- Promotion complete; remaining items below are historical context.
 
 ### Prerequisites
 

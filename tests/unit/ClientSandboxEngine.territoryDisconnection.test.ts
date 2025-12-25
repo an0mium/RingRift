@@ -17,8 +17,8 @@ import { addMarker, addStack, pos } from '../utils/fixtures';
  * ClientSandboxEngine territory-disconnection + region-collapse tests.
  *
  * These mirror the core 19x19 scenario from
- * GameEngine.territoryDisconnection.test.ts but exercise the
- * client-local sandbox engine instead of the backend GameEngine.
+ * BoardManager.territoryDisconnection.test.ts but exercise the
+ * client-local sandbox engine instead of the backend BoardManager.
  *
  * Goals:
  * - Disconnected regions are detected for the moving player.

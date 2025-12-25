@@ -188,7 +188,7 @@ Rules:
 | D10  | GUMBEL_MCTS (neural)   | `neural`                             | NN checkpoint + Gumbel config                                      |
 | D11  | GUMBEL_MCTS (internal) | —                                    | Internal-only                                                      |
 
-> **Note:** `config/tier_training_pipeline.square8_2p.json` currently lists D5 as `search_persona`; align it with the D5 ladder mapping (Descent) before promotion if D5 remains neural.
+> **Note:** `config/tier_training_pipeline.square8_2p.json` lists D5 as `neural` to match the Descent ladder mapping; update this only if the D5 engine changes.
 
 ### 4.3 D2 – heuristic baseline
 

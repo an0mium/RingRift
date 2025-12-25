@@ -536,6 +536,20 @@ class TrainingNodeWatcher:
                 await daemon.trigger_sync()
         except Exception as e:
             logger.error(f"Failed to trigger sync for training: {e}")
+            # Emit DATA_SYNC_FAILED event
+            try:
+                from app.distributed.data_events import emit_data_sync_failed
+                from app.core.async_context import fire_and_forget
+                fire_and_forget(
+                    emit_data_sync_failed(
+                        host=",".join(nodes) if nodes else "unknown",
+                        error=str(e),
+                        source="TrainingNodeWatcher.trigger_sync_for_training_nodes",
+                    ),
+                    error_callback=lambda exc: logger.debug(f"Failed to emit sync failed: {exc}"),
+                )
+            except Exception:
+                pass  # Best effort
 
     def detect_local_training(self) -> bool:
         """Check if training is running locally.
@@ -576,6 +590,20 @@ class TrainingNodeWatcher:
             return False
         except Exception as e:
             logger.error(f"Priority sync failed: {e}")
+            # Emit DATA_SYNC_FAILED event
+            try:
+                from app.distributed.data_events import emit_data_sync_failed
+                from app.core.async_context import fire_and_forget
+                fire_and_forget(
+                    emit_data_sync_failed(
+                        host=node_id,
+                        error=str(e),
+                        source="TrainingNodeWatcher.trigger_priority_sync",
+                    ),
+                    error_callback=lambda exc: logger.debug(f"Failed to emit sync failed: {exc}"),
+                )
+            except Exception:
+                pass  # Best effort
             return False
 
     def get_training_nodes(self) -> set[str]:

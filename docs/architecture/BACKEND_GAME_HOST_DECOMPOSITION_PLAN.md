@@ -823,20 +823,21 @@ graph LR
 | `src/client/hooks/useBackendChat.ts`           | Chat state management     | 93  | ✅    |
 | `src/client/hooks/useBackendTelemetry.ts`      | Telemetry and tracking    | 193 | ✅    |
 
-### Phase 2 Files (Planned)
+### Phase 2 Files (✅ Created)
 
-| File                                            | Purpose              | Status           |
-| ----------------------------------------------- | -------------------- | ---------------- |
-| `src/client/hooks/useBackendConnectionShell.ts` | Connection lifecycle | Internal in host |
-| `src/client/hooks/useBackendDiagnosticsLog.ts`  | Event logging        | Internal in host |
-| `src/client/hooks/useBackendDecisionUI.ts`      | Decision UI          | Internal in host |
+| File                                            | Purpose              | LOC | Tests |
+| ----------------------------------------------- | -------------------- | --- | ----- |
+| `src/client/hooks/useBackendConnectionShell.ts` | Connection lifecycle | ~70 | ✅    |
+| `src/client/hooks/useBackendDiagnosticsLog.ts`  | Event logging        | ~85 | ✅    |
+| `src/client/hooks/useBackendDecisionUI.ts`      | Decision UI          | ~60 | ✅    |
 
-### Phase 3 Files (Planned)
+### Phase 3 Files (✅ Created)
 
-| File                                                    | Purpose                 | Status      |
-| ------------------------------------------------------- | ----------------------- | ----------- |
-| `src/client/components/backend/BackendBoardSection.tsx` | Board section component | Not created |
-| `src/client/components/backend/BackendGameSidebar.tsx`  | Sidebar component       | Not created |
+| File                                                    | Purpose                 | LOC | Tests |
+| ------------------------------------------------------- | ----------------------- | --- | ----- |
+| `src/client/components/backend/BackendBoardSection.tsx` | Board section component | 82  | ✅    |
+| `src/client/components/backend/BackendGameSidebar.tsx`  | Sidebar component       | 391 | ✅    |
+| `src/client/components/backend/index.ts`                | Barrel file             | 10  | —     |
 
 ---
 
@@ -859,3 +860,4 @@ These modules could be made more generic for Backend/Sandbox sharing in future:
 | ---------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2025-12-25 | Claude (Architect mode) | Initial plan created                                                                                                                                                                                                                                                        |
 | 2025-12-25 | Claude (Architect mode) | **Phase 1 Complete**: Marked Phase 1 as complete, added execution summary with actual LOC counts (184+448+210+93+193=1,128), documented 97 unit tests created, updated metrics showing 2,125→1,613 LOC (-24% reduction), updated Phase 2-3 estimates based on current state |
+| 2025-12-25 | Claude (Code mode)      | **Phase 3 Complete**: Extracted 2 sub-components (BackendBoardSection 82 LOC, BackendGameSidebar 391 LOC, index.ts 10 LOC = 483 LOC total). BackendGameHost reduced to 1,114 LOC (48% reduction from original 2,125). All 36 BackendGameHost tests passing.                 |

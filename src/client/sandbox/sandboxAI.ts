@@ -81,7 +81,7 @@ export const SANDBOX_STALL_WINDOW_STEPS = SANDBOX_NOOP_STALL_THRESHOLD;
 /**
  * Apply the stalemate ladder tie-breaker to determine a winner when the AI
  * stalls but evaluateVictory() returns isGameOver=false. This mirrors the
- * ladder logic from victoryLogic.ts but is used as a fallback for sandbox
+ * ladder logic from VictoryAggregate.ts but is used as a fallback for sandbox
  * stall detection when standard victory conditions haven't been met.
  *
  * Tie-break order:

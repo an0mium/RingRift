@@ -22,15 +22,15 @@
   - `ORCHESTRATOR_ADAPTER_ENABLED` (hardcoded to `true`)
   - `RINGRIFT_RULES_MODE` (`ts` default, `python` diagnostic/authoritative)
   - Legacy rollout/shadow flags were removed; adapter is always 100%.
-- For generic **game-health** issues (long games, stalls, abnormal completion rates), keep orchestrator‑ON by default and treat these flags as **rules‑engine levers**, not first-line mitigations. Adjust them only when shared‑engine/.shared/contract tests indicate a true rules defect and follow `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for any rollback.
+- For generic **game-health** issues (long games, stalls, abnormal completion rates), keep orchestrator‑ON by default and treat these flags as **diagnostic levers**, not first-line mitigations. Adjust them only when shared‑engine/.shared/contract tests indicate a true rules defect; any rollback is a deployment rollback, not a flag change.
 - Key metrics to consult alongside `LongRunningGames`:
   - Game latency and progress:
     - `game_move_latency_ms` (backend move latency)
     - S‑invariant / progress metrics from invariant soaks (see `docs/STRICT_INVARIANT_SOAKS.md`)
   - Orchestrator health:
     - `ringrift_orchestrator_error_rate`
-    - `ringrift_orchestrator_shadow_mismatch_rate`
     - `ringrift_orchestrator_circuit_breaker_state`
+    - `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",mismatch_type=...}` (only when running python‑authoritative diagnostics)
   - AI contribution (when games vs AI dominate the signal):
     - `ringrift_ai_request_duration_seconds_bucket`
     - `ringrift_ai_requests_total` / `ringrift_ai_fallback_total` (see `AI_PERFORMANCE.md`, `AI_ERRORS.md`, `AI_FALLBACK.md`, `AI_SERVICE_DOWN.md`)

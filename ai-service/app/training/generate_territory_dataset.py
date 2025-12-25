@@ -247,19 +247,21 @@ def generate_territory_dataset(
                 # ladder while keeping runtime reasonable on square8:
                 #   1  -> Random
                 #   2  -> Heuristic
-                #   4–6 -> Minimax
+                #   3–4 -> Minimax
+                #   5–6 -> Descent
                 #   7–8 -> MCTS
-                #   9–10 -> Descent
+                #   9–10 -> Gumbel MCTS
                 difficulty_choices = [
                     1,  # Random
                     2,  # Heuristic
+                    3,
                     4,
                     5,
-                    6,  # Minimax band
+                    6,  # Descent band
                     7,
                     8,  # MCTS band
                     9,
-                    10,  # Descent band
+                    10,  # Gumbel MCTS band
                 ]
 
                 def _build_mixed_ai(

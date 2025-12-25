@@ -188,6 +188,10 @@ class ResourceMonitoringCoordinator:
         # Subscription state
         self._subscribed = False
 
+        # Cluster capacity tracking for change detection (December 2025)
+        self._last_emitted_capacity: dict[str, int] = {"total_gpus": 0, "available_gpus": 0}
+        self._capacity_change_threshold = 0.1  # Emit when capacity changes by 10%+
+
     def subscribe_to_events(self) -> bool:
         """Subscribe to resource-related events.
 
@@ -593,7 +597,70 @@ class ResourceMonitoringCoordinator:
         node.last_update_time = time.time()
         self._check_node_thresholds(node)
 
+        # Check if cluster capacity changed significantly (December 2025)
+        self._check_and_emit_capacity_change()
+
         return node
+
+    def _check_and_emit_capacity_change(self) -> None:
+        """Check if cluster capacity changed and emit event if so (December 2025).
+
+        This wires the previously orphaned CLUSTER_CAPACITY_CHANGED event.
+        """
+        # Calculate current cluster capacity
+        total_gpus = 0
+        available_gpus = 0
+        total_nodes = len(self._nodes)
+        healthy_nodes = 0
+
+        for node in self._nodes.values():
+            # Estimate GPUs from task slots (1 GPU ≈ 2 task slots)
+            node_gpus = max(1, node.task_slots_total // 2) if node.task_slots_total else 1
+            node_available = max(0, node.task_slots_available // 2) if node.task_slots_available else 0
+
+            total_gpus += node_gpus
+            available_gpus += node_available
+
+            # Node is healthy if it was updated recently (within 5 minutes)
+            if time.time() - node.last_update_time < 300:
+                healthy_nodes += 1
+
+        # Check if capacity changed significantly
+        last = self._last_emitted_capacity
+        if last["total_gpus"] > 0:
+            change_ratio = abs(available_gpus - last["available_gpus"]) / max(1, last["total_gpus"])
+        else:
+            change_ratio = 1.0 if available_gpus > 0 else 0.0
+
+        if change_ratio >= self._capacity_change_threshold or total_gpus != last["total_gpus"]:
+            # Emit event
+            try:
+                from app.distributed.data_events import emit_cluster_capacity_changed
+                from app.core.async_context import fire_and_forget
+
+                fire_and_forget(
+                    emit_cluster_capacity_changed(
+                        total_gpus=total_gpus,
+                        available_gpus=available_gpus,
+                        total_nodes=total_nodes,
+                        healthy_nodes=healthy_nodes,
+                        source="resource_monitoring_coordinator",
+                    ),
+                    name="emit_cluster_capacity_changed",
+                )
+
+                self._last_emitted_capacity = {
+                    "total_gpus": total_gpus,
+                    "available_gpus": available_gpus,
+                }
+
+                logger.debug(
+                    f"[ResourceMonitoringCoordinator] Emitted CLUSTER_CAPACITY_CHANGED: "
+                    f"{available_gpus}/{total_gpus} GPUs, {healthy_nodes}/{total_nodes} nodes"
+                )
+
+            except ImportError as e:
+                logger.debug(f"Could not emit capacity change: {e}")
 
     def on_backpressure_change(
         self, callback: Callable[[str, bool, BackpressureLevel], None]

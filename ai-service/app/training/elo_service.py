@@ -1577,5 +1577,166 @@ def get_rating_history(
     return [dict(row) for row in cursor.fetchall()]
 
 
+def get_elo_trend(
+    db: EloService,
+    participant_id: str,
+    board_type: str,
+    num_players: int,
+    hours: int = 48,
+    min_samples: int = 3,
+) -> dict[str, Any]:
+    """Get Elo trend (slope) over the last N hours.
+
+    December 2025: Added for Phase 4 weak config detection.
+    This enables detecting permanently stuck configs that should have
+    their selfplay resource allocation reduced.
+
+    Args:
+        db: The EloService instance
+        participant_id: Participant to query (e.g., "canonical_model")
+        board_type: Board type (e.g., "square8")
+        num_players: Player count
+        hours: Time window in hours (default 48h)
+        min_samples: Minimum data points required
+
+    Returns:
+        Dict with trend analysis:
+        - slope: Elo change per hour (positive = improving)
+        - start_elo: Rating at start of window
+        - end_elo: Current/latest rating
+        - total_change: end_elo - start_elo
+        - duration_hours: Actual time span covered
+        - sample_count: Number of data points
+        - is_plateau: True if slope < 1.0 Elo/hour and 5+ samples
+        - is_declining: True if slope < -1.0 Elo/hour
+        - confidence: 0.0-1.0 based on sample count
+
+    Example:
+        trend = get_elo_trend(db, "canonical", "square8", 2, hours=48)
+        if trend["is_plateau"] and trend["duration_hours"] >= 48:
+            print(f"Config stuck for {trend['duration_hours']:.1f}h")
+    """
+    cutoff_time = time.time() - (hours * 3600)
+
+    conn = db._get_connection()
+    cursor = conn.execute("""
+        SELECT rating, timestamp FROM elo_history
+        WHERE participant_id = ? AND board_type = ? AND num_players = ?
+          AND timestamp >= ?
+        ORDER BY timestamp ASC
+    """, (participant_id, board_type, num_players, cutoff_time))
+
+    rows = cursor.fetchall()
+
+    # Default return for insufficient data
+    result = {
+        "slope": 0.0,
+        "start_elo": 0.0,
+        "end_elo": 0.0,
+        "total_change": 0.0,
+        "duration_hours": 0.0,
+        "sample_count": len(rows),
+        "is_plateau": False,
+        "is_declining": False,
+        "confidence": 0.0,
+    }
+
+    if len(rows) < min_samples:
+        return result
+
+    # Extract ratings and timestamps
+    ratings = [row["rating"] for row in rows]
+    timestamps = [row["timestamp"] for row in rows]
+
+    start_elo = ratings[0]
+    end_elo = ratings[-1]
+    duration_seconds = timestamps[-1] - timestamps[0]
+    duration_hours = duration_seconds / 3600.0
+
+    if duration_hours < 0.1:  # Less than 6 minutes
+        return result
+
+    # Calculate slope using simple linear regression
+    total_change = end_elo - start_elo
+    slope = total_change / duration_hours if duration_hours > 0 else 0.0
+
+    # Calculate R² for confidence (optional, simple variance-based)
+    mean_rating = sum(ratings) / len(ratings)
+    ss_tot = sum((r - mean_rating) ** 2 for r in ratings)
+    if ss_tot > 0 and len(ratings) >= 3:
+        # Simple linear fit residuals
+        predicted = [
+            start_elo + slope * ((t - timestamps[0]) / 3600.0)
+            for t in timestamps
+        ]
+        ss_res = sum((r - p) ** 2 for r, p in zip(ratings, predicted))
+        r_squared = 1.0 - (ss_res / ss_tot)
+        r_squared = max(0.0, min(1.0, r_squared))
+    else:
+        r_squared = 0.5  # Default moderate confidence
+
+    # Confidence based on sample count and R²
+    sample_confidence = min(1.0, len(rows) / 20.0)  # Max confidence at 20 samples
+    confidence = (sample_confidence + r_squared) / 2.0
+
+    # Plateau detection: less than 1 Elo/hour change with enough samples
+    is_plateau = abs(slope) < 1.0 and len(rows) >= 5
+
+    # Decline detection: losing more than 1 Elo/hour
+    is_declining = slope < -1.0
+
+    result.update({
+        "slope": round(slope, 3),
+        "start_elo": round(start_elo, 1),
+        "end_elo": round(end_elo, 1),
+        "total_change": round(total_change, 1),
+        "duration_hours": round(duration_hours, 2),
+        "sample_count": len(rows),
+        "is_plateau": is_plateau,
+        "is_declining": is_declining,
+        "confidence": round(confidence, 3),
+    })
+
+    return result
+
+
+def get_elo_trend_for_config(
+    config_key: str,
+    hours: int = 48,
+    participant_id: str = "canonical",
+) -> dict[str, Any]:
+    """Convenience function to get Elo trend for a config key.
+
+    December 2025: Added for Phase 4 weak config detection.
+
+    Args:
+        config_key: Config identifier like "square8_2p"
+        hours: Time window in hours
+        participant_id: Participant ID to query
+
+    Returns:
+        Trend analysis dict (see get_elo_trend)
+    """
+    # Parse config key
+    parts = config_key.rsplit("_", 1)
+    if len(parts) != 2 or not parts[1].endswith("p"):
+        return {
+            "slope": 0.0, "is_plateau": False, "confidence": 0.0,
+            "error": f"Invalid config_key format: {config_key}"
+        }
+
+    board_type = parts[0]
+    try:
+        num_players = int(parts[1][:-1])
+    except ValueError:
+        return {
+            "slope": 0.0, "is_plateau": False, "confidence": 0.0,
+            "error": f"Invalid player count in config_key: {config_key}"
+        }
+
+    db = get_elo_service()
+    return get_elo_trend(db, participant_id, board_type, num_players, hours)
+
+
 # Canonical path - orchestrators should use this
 ELO_DB_PATH = DEFAULT_ELO_DB_PATH

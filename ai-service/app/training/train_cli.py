@@ -315,6 +315,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Fail if training data is stale (instead of just warning)'
     )
 
+    # Adaptive training intensity (2025-12)
+    parser.add_argument(
+        '--use-adaptive-intensity', action='store_true',
+        help='Use FeedbackAccelerator to adjust training intensity based on Elo momentum. '
+             'Improves learning velocity during positive feedback loops.'
+    )
+
     # Regularization (2025-12)
     parser.add_argument(
         '--dropout', type=float, default=0.08,
@@ -583,6 +590,136 @@ def main() -> None:
     if model_version is None:
         model_version = get_model_version_for_board(config.board_type)
 
+    # ==========================================================================
+    # Adaptive Training Intensity (2025-12)
+    # ==========================================================================
+    # Use FeedbackAccelerator to adjust training parameters based on Elo momentum.
+    # This creates positive feedback loops: improving models train faster,
+    # plateauing models get more resources, regressing models conserve resources.
+    # NOTE: As of Dec 2025, adaptive intensity is ENABLED BY DEFAULT. The
+    # --use-adaptive-intensity flag is now deprecated (kept for backwards compat).
+    try:
+        from app.training.feedback_accelerator import get_feedback_accelerator
+
+        # Build config key from board type and num players
+        board_str = config.board_type.value if hasattr(config.board_type, 'value') else str(config.board_type)
+        config_key = f"{board_str}_{args.num_players}p"
+
+        accelerator = get_feedback_accelerator()
+        intensity = accelerator.get_training_intensity(config_key)
+
+        # Apply intensity multipliers only if non-default
+        intensity_level = intensity.get('intensity', 'normal')
+        epochs_mult = intensity.get('epochs_multiplier', 1.0)
+        lr_mult = intensity.get('learning_rate_multiplier', 1.0)
+
+        if intensity_level != 'normal' or epochs_mult != 1.0 or lr_mult != 1.0:
+            original_epochs = config.epochs_per_iter
+            original_lr = config.learning_rate
+
+            config.epochs_per_iter = int(config.epochs_per_iter * epochs_mult)
+            config.learning_rate = config.learning_rate * lr_mult
+
+            logger.info(
+                f"[TrainCLI] Adaptive intensity applied for {config_key}: "
+                f"intensity={intensity_level}, "
+                f"epochs={original_epochs}→{config.epochs_per_iter} ({epochs_mult:.2f}x), "
+                f"lr={original_lr:.6f}→{config.learning_rate:.6f} ({lr_mult:.2f}x)"
+            )
+    except ImportError:
+        # FeedbackAccelerator not available - continue with default intensity
+        pass
+    except Exception as e:
+        logger.debug(f"[TrainCLI] Adaptive intensity not applied: {e}")
+
+    # ==========================================================================
+    # Subscribe to HYPERPARAMETER_UPDATED events (Phase 14, December 2025)
+    # ==========================================================================
+    # Subscribe to feedback events from GauntletFeedbackController to allow
+    # runtime adjustment of training parameters based on gauntlet evaluation.
+    _hyperparameter_updates: dict = {}
+
+    def _subscribe_to_hyperparameter_events(config_key: str) -> None:
+        """Subscribe to HYPERPARAMETER_UPDATED events for this config."""
+        try:
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            if bus is None:
+                return
+
+            def on_hyperparameter_updated(event):
+                """Handle HYPERPARAMETER_UPDATED from GauntletFeedbackController."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config", "")
+
+                if event_config != config_key:
+                    return
+
+                parameter = payload.get("parameter", "")
+                new_value = payload.get("new_value", None)
+                reason = payload.get("reason", "unknown")
+
+                if parameter and new_value is not None:
+                    _hyperparameter_updates[parameter] = {
+                        "value": new_value,
+                        "reason": reason,
+                    }
+                    logger.info(
+                        f"[FeedbackLoop] Received hyperparameter update for {config_key}: "
+                        f"{parameter}={new_value} (reason: {reason})"
+                    )
+
+            bus.subscribe("HYPERPARAMETER_UPDATED", on_hyperparameter_updated)
+            logger.debug(f"[TrainCLI] Subscribed to HYPERPARAMETER_UPDATED for {config_key}")
+
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"[TrainCLI] Failed to subscribe to hyperparameter events: {e}")
+
+    # Build config key and subscribe to feedback events
+    board_str = config.board_type.value if hasattr(config.board_type, 'value') else str(config.board_type)
+    config_key = f"{board_str}_{args.num_players}p"
+    _subscribe_to_hyperparameter_events(config_key)
+
+    # Apply any pending hyperparameter updates received before training starts
+    def _apply_hyperparameter_updates(config: TrainConfig) -> None:
+        """Apply pending hyperparameter updates to training config."""
+        for param, update in _hyperparameter_updates.items():
+            value = update["value"]
+            reason = update["reason"]
+
+            if param == "temperature_scale":
+                # Temperature affects selfplay, not direct training
+                logger.info(f"[FeedbackLoop] Note: temperature_scale update received (for selfplay)")
+            elif param == "quality_threshold_boost":
+                # Quality affects data loading, not direct training
+                logger.info(f"[FeedbackLoop] Note: quality_threshold_boost update received")
+            elif param == "epoch_multiplier" and isinstance(value, (int, float)):
+                old_epochs = config.epochs_per_iter
+                config.epochs_per_iter = int(config.epochs_per_iter * value)
+                logger.info(
+                    f"[FeedbackLoop] Epochs adjusted: {old_epochs} -> {config.epochs_per_iter} "
+                    f"(multiplier={value}, reason={reason})"
+                )
+            elif param == "learning_rate" and isinstance(value, (int, float)):
+                old_lr = config.learning_rate
+                config.learning_rate = float(value)
+                logger.info(
+                    f"[FeedbackLoop] Learning rate adjusted: {old_lr} -> {config.learning_rate} "
+                    f"(reason={reason})"
+                )
+            elif param == "batch_size" and isinstance(value, int):
+                old_batch = config.batch_size
+                config.batch_size = value
+                logger.info(
+                    f"[FeedbackLoop] Batch size adjusted: {old_batch} -> {config.batch_size} "
+                    f"(reason={reason})"
+                )
+
+    _apply_hyperparameter_updates(config)
+
     # Route to GNN/hybrid training if model-type specified (2025-12)
     model_type = getattr(args, 'model_type', 'cnn')
     if model_type in ('gnn', 'hybrid'):
@@ -671,6 +808,10 @@ def main() -> None:
         dropout=getattr(args, 'dropout', 0.08),
         # GNN support (2025-12)
         model_type=getattr(args, 'model_type', 'cnn'),
+        # Training data freshness check (2025-12)
+        check_data_freshness=getattr(args, 'check_data_freshness', False),
+        max_data_age_hours=getattr(args, 'max_data_age_hours', 1.0),
+        fail_on_stale_data=getattr(args, 'fail_on_stale_data', False),
     )
 
 

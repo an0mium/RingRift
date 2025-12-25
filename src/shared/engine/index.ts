@@ -316,11 +316,7 @@ export { SQUARE_MOORE_DIRECTIONS, HEX_DIRECTIONS } from './core';
 export { calculateCapHeight, countRingsOnBoardForPlayer, countRingsInPlayForPlayer } from './core';
 
 // Victory Thresholds
-export {
-  computeRingEliminationVictoryThreshold,
-  computeTerritoryVictoryMinimum,
-  computeTerritoryVictoryThresholdLegacy,
-} from './core';
+export { computeRingEliminationVictoryThreshold, computeTerritoryVictoryMinimum } from './core';
 
 // Marker Effects
 export { applyMarkerEffectsAlongPathOnBoard } from './core';
@@ -737,7 +733,7 @@ export {
   evaluateLpsVictory,
   isLpsActivePhase,
   buildLpsVictoryResult,
-  LPS_REQUIRED_CONSECUTIVE_ROUNDS,
+  LPS_DEFAULT_REQUIRED_ROUNDS,
 } from './lpsTracking';
 
 // =============================================================================

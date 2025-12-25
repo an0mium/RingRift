@@ -16,7 +16,7 @@ This document provides detailed, step-by-step action plans for all identified im
 - **Three victory paths**: Ring elimination, territory control, Last Player Standing
 - **Multiple boards**: 8×8 square (64), 19×19 square (361), hex8 (61), hexagonal (469)
 - **Tech stack**: React + Express + WebSockets + PostgreSQL/Redis + Python AI service
-- **AI**: 10-level difficulty ladder (Random → Heuristic → Minimax → MCTS → AlphaZero-style Descent)
+- **AI**: 10-level difficulty ladder (Random → Heuristic → Minimax → Descent → MCTS → Gumbel MCTS)
 - **Testing**: 10,249 TypeScript tests, 1,824 Python tests, 90 contract vectors (100% parity)
 
 **Current Status**: Stable Beta — production validation in progress, focus on scaling tests, security hardening, UX polish. Hosted demo live at ringrift.ai, v0.1.0-beta released.

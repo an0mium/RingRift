@@ -351,6 +351,28 @@ class ModelLifecycleCoordinator:
             except Exception as e:
                 logger.error(f"[ModelLifecycleCoordinator] Promotion callback error: {e}")
 
+        # Notify ImprovementOptimizer for positive feedback acceleration
+        try:
+            from app.training.improvement_optimizer import record_promotion_success
+
+            config_key = payload.get("config_key", "")
+            elo_gain = payload.get("elo_gain", payload.get("elo_delta", 0.0))
+
+            if config_key:
+                record_promotion_success(
+                    config_key=config_key,
+                    elo_gain=elo_gain if elo_gain else 0.0,
+                    model_id=model_id,
+                )
+                logger.debug(
+                    f"[ModelLifecycleCoordinator] Recorded promotion success for {config_key} "
+                    f"in ImprovementOptimizer (elo_gain={elo_gain})"
+                )
+        except ImportError:
+            pass  # ImprovementOptimizer not available
+        except Exception as e:
+            logger.debug(f"[ModelLifecycleCoordinator] Could not update ImprovementOptimizer: {e}")
+
         logger.info(
             f"[ModelLifecycleCoordinator] Model promoted: {model_id} "
             f"(Elo: {model.elo:.0f})"
@@ -404,6 +426,31 @@ class ModelLifecycleCoordinator:
         # Transition to evaluating
         if model.state == ModelState.TRAINING:
             self._record_state_transition(model, ModelState.EVALUATING, "training complete")
+
+        # Notify ImprovementOptimizer for positive feedback acceleration
+        try:
+            from app.training.improvement_optimizer import record_training_complete
+
+            config_key = payload.get("config_key", "")
+            duration_seconds = payload.get("duration_seconds", 0.0)
+            val_loss = payload.get("val_loss", model.val_loss)
+            calibration_ece = payload.get("calibration_ece")
+
+            if config_key and duration_seconds > 0:
+                record_training_complete(
+                    config_key=config_key,
+                    duration_seconds=duration_seconds,
+                    val_loss=val_loss if val_loss else 0.0,
+                    calibration_ece=calibration_ece,
+                )
+                logger.debug(
+                    f"[ModelLifecycleCoordinator] Recorded training completion for {config_key} "
+                    f"in ImprovementOptimizer"
+                )
+        except ImportError:
+            pass  # ImprovementOptimizer not available
+        except Exception as e:
+            logger.debug(f"[ModelLifecycleCoordinator] Could not update ImprovementOptimizer: {e}")
 
         logger.debug(
             f"[ModelLifecycleCoordinator] Training completed for {model_id}, "

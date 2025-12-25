@@ -128,7 +128,7 @@ Both marked `@deprecated` but still in production paths.
 This item is blocked until:
 
 - FSM handles all phase transitions in `turnOrchestrator`
-- Player tracking divergences resolved (~5% of test cases in shadow mode)
+- Player tracking divergences resolved (formerly tracked via legacy comparison diagnostics)
 
 ### Files to Remove (When Unblocked)
 

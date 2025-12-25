@@ -70,6 +70,14 @@ class ModelDistributionConfig:
     poll_interval_seconds: float = 60.0
     models_dir: str = "models"
 
+    # HTTP distribution settings (December 2025 - Phase 14)
+    # HTTP is faster than rsync for model streaming
+    use_http_distribution: bool = True  # Prefer HTTP when available
+    http_port: int = 8767  # Port for model upload endpoint
+    http_timeout_seconds: float = 60.0  # Timeout per node for HTTP upload
+    http_concurrent_uploads: int = 5  # Max concurrent HTTP uploads
+    fallback_to_rsync: bool = True  # Fallback to rsync if HTTP fails
+
 
 class ModelDistributionDaemon:
     """Daemon that automatically distributes models after promotion.
@@ -273,10 +281,10 @@ class ModelDistributionDaemon:
 
             logger.info(f"Processing {len(models)} pending model distributions")
 
-            # Run sync with retry
+            # Run sync with retry (uses HTTP first, falls back to rsync)
             for attempt in range(self.config.retry_count):
                 try:
-                    success = await self._run_model_sync()
+                    success = await self._run_smart_sync()
                     if success:
                         self._last_sync_time = time.time()
                         logger.info("Model distribution completed successfully")
@@ -342,6 +350,211 @@ class ModelDistributionDaemon:
             )
             return False
 
+    async def _distribute_via_http(
+        self,
+        model_paths: list[Path] | None = None,
+    ) -> bool:
+        """Distribute models to cluster nodes via HTTP streaming.
+
+        This is faster than rsync for model distribution (December 2025).
+        Uploads models directly to nodes' HTTP endpoints in parallel.
+
+        Args:
+            model_paths: Specific models to distribute. If None, distributes
+                        all canonical models.
+
+        Returns:
+            True if all uploads succeeded, False otherwise.
+        """
+        try:
+            import aiohttp
+        except ImportError:
+            logger.warning("aiohttp not available for HTTP distribution")
+            return False
+
+        # Get models to distribute
+        models_dir = ROOT / self.config.models_dir
+        if model_paths is None:
+            model_paths = list(models_dir.glob("canonical_*.pth"))
+            model_paths.extend(models_dir.glob("ringrift_best_*.pth"))
+
+        if not model_paths:
+            logger.info("No models to distribute")
+            return True
+
+        # Get target nodes from distributed hosts config
+        target_nodes = self._get_distribution_targets()
+        if not target_nodes:
+            logger.warning("No target nodes for HTTP distribution")
+            return False
+
+        logger.info(
+            f"Distributing {len(model_paths)} models to {len(target_nodes)} nodes via HTTP"
+        )
+
+        # Track results
+        success_count = 0
+        failure_count = 0
+
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=self.config.http_timeout_seconds)
+        ) as session:
+            # Create upload tasks with concurrency limit
+            semaphore = asyncio.Semaphore(self.config.http_concurrent_uploads)
+
+            async def upload_model(model_path: Path, node: str) -> bool:
+                async with semaphore:
+                    return await self._upload_model_to_node(
+                        session, model_path, node
+                    )
+
+            # Upload all models to all nodes
+            tasks = []
+            for model_path in model_paths:
+                for node in target_nodes:
+                    tasks.append(upload_model(model_path, node))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.debug(f"Upload failed with exception: {result}")
+                    failure_count += 1
+                elif result:
+                    success_count += 1
+                else:
+                    failure_count += 1
+
+        total = len(model_paths) * len(target_nodes)
+        logger.info(
+            f"HTTP distribution complete: {success_count}/{total} successful, "
+            f"{failure_count} failures"
+        )
+
+        # Update metrics
+        self._successful_distributions += success_count
+        self._failed_distributions += failure_count
+
+        # Consider successful if most uploads worked
+        return success_count > total * 0.5
+
+    async def _upload_model_to_node(
+        self,
+        session: "aiohttp.ClientSession",
+        model_path: Path,
+        node: str,
+    ) -> bool:
+        """Upload a single model to a node via HTTP.
+
+        Args:
+            session: aiohttp client session
+            model_path: Path to model file
+            node: Node hostname/IP
+
+        Returns:
+            True if upload succeeded, False otherwise
+        """
+        try:
+            import aiohttp
+
+            url = f"http://{node}:{self.config.http_port}/models/upload"
+
+            # Read model data
+            with open(model_path, "rb") as f:
+                model_data = f.read()
+
+            model_name = model_path.name
+
+            # Create multipart form data
+            form_data = aiohttp.FormData()
+            form_data.add_field(
+                "model",
+                model_data,
+                filename=model_name,
+                content_type="application/octet-stream",
+            )
+
+            async with session.post(url, data=form_data) as response:
+                if response.status == 200:
+                    logger.debug(f"Successfully uploaded {model_name} to {node}")
+                    return True
+                else:
+                    text = await response.text()
+                    logger.debug(
+                        f"Upload to {node} failed: {response.status} - {text[:100]}"
+                    )
+                    return False
+
+        except asyncio.TimeoutError:
+            logger.debug(f"Upload to {node} timed out")
+            return False
+        except Exception as e:
+            logger.debug(f"Upload to {node} failed: {e}")
+            return False
+
+    def _get_distribution_targets(self) -> list[str]:
+        """Get list of target nodes for distribution.
+
+        Reads from distributed_hosts.yaml to find nodes that should
+        receive model updates.
+
+        Returns:
+            List of node hostnames/IPs
+        """
+        try:
+            import yaml
+
+            config_path = ROOT / "config" / "distributed_hosts.yaml"
+            if not config_path.exists():
+                return []
+
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            hosts = config.get("hosts", {})
+            targets = []
+
+            for name, host_config in hosts.items():
+                # Skip inactive hosts
+                if not host_config.get("active", True):
+                    continue
+
+                # Get IP or hostname
+                host = host_config.get("host") or host_config.get("ip")
+                if host:
+                    targets.append(host)
+
+            return targets
+
+        except Exception as e:
+            logger.warning(f"Failed to read distribution targets: {e}")
+            return []
+
+    async def _run_smart_sync(self) -> bool:
+        """Run model sync using best available method.
+
+        Tries HTTP distribution first (faster), falls back to rsync if:
+        - HTTP is disabled
+        - HTTP distribution fails
+        - aiohttp is not available
+
+        Returns:
+            True if sync succeeded, False otherwise
+        """
+        # Try HTTP first if enabled
+        if self.config.use_http_distribution:
+            http_success = await self._distribute_via_http()
+            if http_success:
+                return True
+
+            if self.config.fallback_to_rsync:
+                logger.info("HTTP distribution failed, falling back to rsync")
+            else:
+                return False
+
+        # Fallback to rsync
+        return await self._run_model_sync()
+
     async def _periodic_sync_check(self) -> None:
         """Periodic check for models that need distribution."""
         # Check if there are local canonical models that may need sync
@@ -362,7 +575,8 @@ class ModelDistributionDaemon:
                     f"Found {len(recent_models)} recently modified canonical models, "
                     "triggering periodic sync"
                 )
-                await self._run_model_sync()
+                # Use smart sync (HTTP first, fallback to rsync)
+                await self._run_smart_sync()
                 self._last_sync_time = time.time()
 
     async def _emit_distribution_complete(

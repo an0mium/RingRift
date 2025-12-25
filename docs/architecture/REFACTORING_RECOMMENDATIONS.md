@@ -441,10 +441,10 @@ Following the FSM Extension Strategy, Phase 2 (Orchestrator FSM Control) has bee
 
 | Task                                        | Status      | Details                                                              |
 | ------------------------------------------- | ----------- | -------------------------------------------------------------------- |
-| Add FSM orchestrator mode feature flag      | ✅ Complete | `RINGRIFT_FSM_ORCHESTRATOR_MODE`: `off` / `shadow` / `active`        |
+| Document FSM validation mode flag           | ✅ Complete | `RINGRIFT_FSM_VALIDATION_MODE`: `off` / `active` (shadow removed)    |
 | Create `computeFSMOrchestration()` function | ✅ Complete | Derives FSM state, runs transition, returns next phase/player        |
-| Create `compareFSMWithLegacy()` function    | ✅ Complete | Compares FSM result with legacy orchestration for divergence logging |
-| Integrate into turnOrchestrator             | ✅ Complete | Shadow mode logs divergences, active mode overrides legacy           |
+| Create `compareFSMWithLegacy()` function    | ✅ Complete | Diagnostic helper for FSM vs legacy orchestration comparisons        |
+| Integrate into turnOrchestrator             | ✅ Complete | FSM orchestration is canonical; no shadow/legacy override path       |
 | Fix `NO_PLACEMENT_ACTION` FSM transition    | ✅ Complete | Now correctly goes to `movement` (same player) instead of `turn_end` |
 | Trust `skip_placement` in state derivation  | ✅ Complete | `deriveRingPlacementState` sets `canPlace=false` for skip_placement  |
 
@@ -452,9 +452,9 @@ Following the FSM Extension Strategy, Phase 2 (Orchestrator FSM Control) has bee
 
 **`src/shared/utils/envFlags.ts`:**
 
-- Added `FSMOrchestratorMode` type: `'off'` | `'shadow'` | `'active'`
-- Added helper functions: `getFSMOrchestratorMode()`, `isFSMOrchestratorActive()`, etc.
-- Backwards compat via `RINGRIFT_FSM_ORCHESTRATOR_SHADOW=1`
+- Added `FSMValidationMode` type: `'off'` | `'active'`
+- Added helper functions: `getFSMValidationMode()`, `isFSMActiveMode()`, `isFSMValidationEnabled()`
+- Shadow mode removed; invalid values fall back to `active`
 
 **`src/shared/engine/fsm/FSMAdapter.ts`:**
 
@@ -468,21 +468,17 @@ Following the FSM Extension Strategy, Phase 2 (Orchestrator FSM Control) has bee
 
 **`src/shared/engine/orchestration/turnOrchestrator.ts`:**
 
-- Integrated FSM orchestrator mode check after move processing
-- In shadow mode: logs divergences via `[FSM_ORCHESTRATOR] DIVERGENCE`
-- In active mode: overrides legacy result with FSM-computed phase/player
+- FSM orchestration is canonical; `computeFSMOrchestration()` drives phase/player transitions.
+- `compareFSMWithLegacy()` remains available as an explicit diagnostic helper, but is not wired by default.
 
 **Known Issues:**
 
-Some divergences remain in shadow mode validation related to player tracking timing:
-
-- FSM correctly derives player from moveHint for bookkeeping moves
-- Legacy orchestration sometimes has stale `currentPlayer` values
-- Requires deeper investigation of turn rotation timing in legacy path
+Shadow mode has been removed. If legacy comparisons are needed, use an explicit
+diagnostic harness around `compareFSMWithLegacy()` rather than relying on
+runtime shadow paths.
 
 ### 9.5 Next Steps
 
-1. **Investigate remaining divergences**: Debug player tracking timing in legacy orchestration
-2. **Enable FSM orchestrator shadow in CI**: Monitor divergences in continuous testing
-3. **Phase 3 - Decision Surfaces**: Map multi-step decisions (line order, region order) to FSM
-4. **Phase 4 - Python parity**: Mirror FSM transition table in Python `phase_machine.py`
+1. **Diagnostic comparisons (optional)**: Add a targeted `compareFSMWithLegacy()` harness if legacy parity gaps reappear.
+2. **Decision surfaces**: Ensure multi-step decisions (line order, region order) continue to align with FSM outputs.
+3. **Python parity**: Keep `phase_machine.py` aligned with the FSM transition table and parity tests.

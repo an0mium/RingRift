@@ -148,8 +148,9 @@ The custom RL implementation using PyTorch is **complete**:
 - **Random AI** (D1): Random valid moves ✅
 - **Heuristic AI** (D2): 45+ CMA-ES optimized evaluation factors ✅
 - **Minimax AI** (D3-4): Alpha-beta with NNUE neural evaluation ✅
-- **MCTS AI** (D5-8): Monte Carlo Tree Search with neural value/policy heads ✅
-- **Descent AI** (D9-10): AlphaZero-style UBFM search ✅
+- **Descent AI** (D5-6): Neural UBFM/Descent search ✅
+- **MCTS AI** (D7-8): Monte Carlo Tree Search (D7 heuristic, D8 neural) ✅
+- **Gumbel MCTS** (D9-10): Gumbel MCTS with neural guidance ✅
 
 ### Implemented Training Infrastructure
 

@@ -114,7 +114,7 @@ The AI system operates as a dedicated microservice (`ai-service`) built with Pyt
 - **Resilience:** Multi-tier fallback system ensures games never get stuck due to AI failures.
 - **UI Integration:** Full lobby and game UI support for AI opponent configuration and visualization.
 
-> **Note (PASS20 - December 2025):** As of PASS20 completion, `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true` and the former `ORCHESTRATOR_ROLLOUT_PERCENTAGE` flag was removed. The orchestrator is the only production code path. Legacy and shadow modes remain available only for diagnostics and debugging.
+> **Note (PASS20 - December 2025):** As of PASS20 completion, `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true` and the former `ORCHESTRATOR_ROLLOUT_PERCENTAGE` flag was removed. The orchestrator is the only production code path. Legacy and shadow modes have been removed; diagnostics use python‑authoritative parity runs instead.
 
 ### Rules, shared engine, and training topology
 
@@ -148,7 +148,7 @@ At runtime there are three tightly coupled layers that share the **same rules se
       `tests/unit/TraceFixtures.sharedEngineParity.test.ts`, which all treat the
       shared helpers + aggregates + orchestrator as the canonical rules surface.
   - Host orchestration modes and rollout:
-    - Backend `GameEngine.makeMove()` can run in **orchestrator-adapter mode** (delegating to `TurnEngineAdapter` / `processTurnAsync`) or **legacy mode** (validating via `RuleEngine` and applying moves directly). In production, `ORCHESTRATOR_ADAPTER_ENABLED=true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100` make the adapter path the default, with `OrchestratorRolloutService` and its circuit breaker confining the legacy path to tests, diagnostics, and kill-switch/rollback scenarios.
+    - Backend `GameEngine.makeMove()` always delegates to `TurnEngineAdapter` / `processTurnAsync`; the legacy `RuleEngine` pipeline has been removed from production paths. `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE` has been removed. `OrchestratorRolloutService` now records selection reasons and circuit‑breaker state for metrics only; it does not change routing.
     - `ClientSandboxEngine` similarly offers orchestrator-driven flows (via `SandboxOrchestratorAdapter`) alongside thin legacy UX helpers that call shared aggregates directly for interactive tooling.
     - Python never embeds the TS orchestrator; its `GameEngine` is treated as a host/adapter validated against the TS orchestrator + contracts via v2 contract vectors and parity suites (see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md) for a detailed mapping).
 
@@ -157,7 +157,7 @@ At runtime there are three tightly coupled layers that share the **same rules se
     - Canonical Python engine orchestration: [`GameEngine`](../../ai-service/app/game_engine/__init__.py).
     - Board-level helpers (including disconnected-region detection): [`BoardManager.find_disconnected_regions()`](../../ai-service/app/board_manager.py).
     - Rules façade and shadow-contract mutators: [`DefaultRulesEngine`](../../ai-service/app/rules/default_engine.py), [`TerritoryMutator`](../../ai-service/app/rules/mutators/territory.py) and the other mutators under `ai-service/app/rules/mutators/`.
-  - [`PythonRulesClient`](../../src/server/services/PythonRulesClient.ts) exposes this engine to the TS backend via `/rules/evaluate_move`, and [`RulesBackendFacade`](../../src/server/game/RulesBackendFacade.ts) decides whether to treat the Python engine as **shadow** (parity only) or **authoritative** (`RINGRIFT_RULES_MODE`).
+  - [`PythonRulesClient`](../../src/server/services/PythonRulesClient.ts) exposes this engine to the TS backend via `/rules/evaluate_move`, and [`RulesBackendFacade`](../../src/server/game/RulesBackendFacade.ts) treats Python as **authoritative** only when `RINGRIFT_RULES_MODE=python` (TS still runs for parity checks). There is no separate `shadow` mode flag.
   - Territory semantics are deliberately wired to mirror the TS shared helpers:
     - TS geometry and region detection: [`territoryDetection.ts`](../../src/shared/engine/territoryDetection.ts) ↔ Python [`BoardManager.find_disconnected_regions`](../../ai-service/app/board_manager.py).
     - TS region application and Q23 outside-stack prerequisite: [`territoryProcessing.ts`](../../src/shared/engine/territoryProcessing.ts) and [`territoryDecisionHelpers.ts`](../../src/shared/engine/territoryDecisionHelpers.ts) ↔ Python [`GameEngine._apply_territory_claim()`](../../ai-service/app/game_engine/__init__.py).
@@ -258,18 +258,18 @@ These two tables are kept in **lockstep** and are covered by unit tests on both 
 
 #### Canonical Ladder (v1)
 
-| Difficulty | Label       | AI Type     | Backend preset (TS)                              | Service profile (Python)            |
-| ---------- | ----------- | ----------- | ------------------------------------------------ | ----------------------------------- |
-| 1          | Beginner    | RandomAI    | `aiType: RANDOM`, `randomness: 0.5`, `150 ms`    | `AIType.RANDOM`, `0.5`, `150 ms`    |
-| 2          | Easy        | HeuristicAI | `aiType: HEURISTIC`, `randomness: 0.3`, `200 ms` | `AIType.HEURISTIC`, `0.3`, `200 ms` |
-| 3          | Level 3     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.2`, `1250 ms`  | `AIType.MINIMAX`, `0.2`, `1250 ms`  |
-| 4          | Level 4     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.1`, `2100 ms`  | `AIType.MINIMAX`, `0.1`, `2100 ms`  |
-| 5          | Level 5     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.05`, `3500 ms` | `AIType.MINIMAX`, `0.05`, `3500 ms` |
-| 6          | Level 6     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.02`, `4800 ms` | `AIType.MINIMAX`, `0.02`, `4800 ms` |
-| 7          | Expert      | MCTSAI      | `aiType: MCTS`, `randomness: 0.0`, `7000 ms`     | `AIType.MCTS`, `0.0`, `7000 ms`     |
-| 8          | Expert+     | MCTSAI      | `aiType: MCTS`, `randomness: 0.0`, `9600 ms`     | `AIType.MCTS`, `0.0`, `9600 ms`     |
-| 9          | Master      | DescentAI   | `aiType: DESCENT`, `randomness: 0.0`, `12600 ms` | `AIType.DESCENT`, `0.0`, `12600 ms` |
-| 10         | Grandmaster | DescentAI   | `aiType: DESCENT`, `randomness: 0.0`, `16000 ms` | `AIType.DESCENT`, `0.0`, `16000 ms` |
+| Difficulty | Label       | AI Type      | Backend preset (TS)                                  | Service profile (Python)                |
+| ---------- | ----------- | ------------ | ---------------------------------------------------- | --------------------------------------- |
+| 1          | Beginner    | RandomAI     | `aiType: RANDOM`, `randomness: 0.5`, `150 ms`        | `AIType.RANDOM`, `0.5`, `150 ms`        |
+| 2          | Easy        | HeuristicAI  | `aiType: HEURISTIC`, `randomness: 0.3`, `200 ms`     | `AIType.HEURISTIC`, `0.3`, `200 ms`     |
+| 3          | Level 3     | MinimaxAI    | `aiType: MINIMAX`, `randomness: 0.15`, `1800 ms`     | `AIType.MINIMAX`, `0.15`, `1800 ms`     |
+| 4          | Level 4     | MinimaxAI    | `aiType: MINIMAX`, `randomness: 0.08`, `2800 ms`     | `AIType.MINIMAX`, `0.08`, `2800 ms`     |
+| 5          | Level 5     | DescentAI    | `aiType: DESCENT`, `randomness: 0.05`, `4000 ms`     | `AIType.DESCENT`, `0.05`, `4000 ms`     |
+| 6          | Level 6     | DescentAI    | `aiType: DESCENT`, `randomness: 0.02`, `5500 ms`     | `AIType.DESCENT`, `0.02`, `5500 ms`     |
+| 7          | Expert      | MCTSAI       | `aiType: MCTS`, `randomness: 0.0`, `7500 ms`         | `AIType.MCTS`, `0.0`, `7500 ms`         |
+| 8          | Expert+     | MCTSAI       | `aiType: MCTS`, `randomness: 0.0`, `9600 ms`         | `AIType.MCTS`, `0.0`, `9600 ms`         |
+| 9          | Master      | GumbelMCTSAI | `aiType: GUMBEL_MCTS`, `randomness: 0.0`, `12600 ms` | `AIType.GUMBEL_MCTS`, `0.0`, `12600 ms` |
+| 10         | Grandmaster | GumbelMCTSAI | `aiType: GUMBEL_MCTS`, `randomness: 0.0`, `16000 ms` | `AIType.GUMBEL_MCTS`, `0.0`, `16000 ms` |
 
 Key properties:
 
@@ -292,13 +292,14 @@ behaviour across TS and Python.
 
 1.  **RandomAI** (`random`): Baseline engine for testing and very low difficulty.
 2.  **HeuristicAI** (`heuristic`): Rule-based evaluation using weighted factors (stack control, Territory, mobility).
-3.  **MinimaxAI** (`minimax`): Alpha–beta search with move ordering and quiescence. Wired into the canonical difficulty ladder for difficulties 3–6 via the Python Service’s `_CANONICAL_DIFFICULTY_PROFILES`, using `AIType.MINIMAX` with a bounded `think_time_ms` **search-time** budget (no artificial post‑search delay).
-4.  **MCTSAI** (`mcts`): Monte Carlo Tree Search with PUCT and RAVE, using the shared neural network for value/policy where weights are available. Selected by the ladder for difficulties 7–8.
-5.  **DescentAI** (`descent`): UBFM/Descent-style tree search that also consumes the shared neural network for guidance and learning logs. Selected by the ladder for difficulties 9–10.
+3.  **MinimaxAI** (`minimax`): Alpha–beta search with move ordering and quiescence. Wired into the canonical difficulty ladder for difficulties 3–4 via the Python Service’s `_CANONICAL_DIFFICULTY_PROFILES`, using `AIType.MINIMAX` with a bounded `think_time_ms` **search-time** budget (no artificial post‑search delay).
+4.  **DescentAI** (`descent`): UBFM/Descent-style tree search that consumes the shared neural network for guidance and learning logs. Selected by the ladder for difficulties 5–6.
+5.  **MCTSAI** (`mcts`): Monte Carlo Tree Search with PUCT and RAVE, using the shared neural network for value/policy where weights are available. Selected by the ladder for difficulties 7–8.
+6.  **GumbelMCTSAI** (`gumbel_mcts`): Gumbel MCTS with sequential halving and neural guidance. Selected by the ladder for difficulties 9–10.
 
 **Supporting / experimental components:**
 
-- **NeuralNetAI:** CNN-based evaluation (value and policy heads) shared across board types (8×8, 19×19, hex) and used internally by `MCTSAI` and `DescentAI`.
+- **NeuralNetAI:** CNN-based evaluation (value and policy heads) shared across board types (8×8, 19×19, hex) and used internally by `DescentAI`, `MCTSAI`, and `GumbelMCTSAI`.
 - **Research AIs:** EBMO, GMO, and IG-GMO live in the Python AI service and are not part of the canonical difficulty ladder. Use them only via explicit AI type overrides or tournament tooling.
 - Training-side helpers and analysis tools under `ai-service/app/training/` (self-play data generation, tournaments, overfit tests).
 

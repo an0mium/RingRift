@@ -1790,8 +1790,8 @@ export class GameEngine {
    * current player using the legacy territory-processing pipeline
    * (processOneDisconnectedRegion).
    *
-   * This mirrors the behaviour exercised by
-   * GameEngine.territoryDisconnection.test.ts, but is implemented purely
+   * This mirrors the behaviour exercised by the RulesMatrix territory
+   * scenarios, but is implemented purely
    * in terms of {@link processDisconnectedRegionCore} and the shared
    * territory helpers so it stays aligned with RR‑CANON‑R140–R145 and
    * the TS/Python engines.
@@ -1805,8 +1805,7 @@ export class GameEngine {
    * See Wave 5.4 in TODO.md for deprecation timeline.
    *
    * Ownership / deprecation:
-   * - Used by legacy parity suites (for example
-   *   tests/unit/GameEngine.territoryDisconnection.test.ts and
+   * - Used by legacy parity/scenario suites (for example
    *   tests/scenarios/RulesMatrix.Comprehensive.test.ts) to exercise the
    *   pre-orchestrator territory pipeline.
    * - New territory tests should drive decisions via the shared
@@ -2639,9 +2638,7 @@ export class GameEngine {
           };
 
           const movementMoves = this.ruleEngine.getValidMoves(tempMovementState);
-          const hasMovementLocal = movementMoves.some(
-            (m) => m.type === 'move_stack'
-          );
+          const hasMovementLocal = movementMoves.some((m) => m.type === 'move_stack');
 
           const tempCaptureState: GameState = {
             ...this.gameState,

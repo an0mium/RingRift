@@ -140,9 +140,7 @@ export async function reproduceSquare8TwoAiAtSeed(
         break;
       }
 
-      const currentPlayer = before.players.find(
-        (p) => p.playerNumber === before.currentPlayer
-      );
+      const currentPlayer = before.players.find((p) => p.playerNumber === before.currentPlayer);
       if (!currentPlayer || currentPlayer.type !== 'ai') {
         // For this configuration all players are AI, but keep the
         // guard for completeness.
@@ -180,8 +178,7 @@ export async function reproduceSquare8TwoAiAtSeed(
     }
 
     const state = engine.getGameState();
-    const label =
-      labelOverride ?? `square8-2p-seed${seed}-action-${targetActionIndex}`;
+    const label = labelOverride ?? `square8-2p-seed${seed}-action-${targetActionIndex}`;
     const snapshot = snapshotFromGameState(label, state);
     return { state, snapshot, actionsTaken, engine };
   } finally {
@@ -201,7 +198,7 @@ export async function reproduceSquare8TwoAiSeed1AtAction(
 
 /**
  * Convenience helper for the single-seed debug harness (seed=18). This
- * mirrors the configuration used in ClientSandboxEngine.aiSingleSeedDebug
+ * mirrors the configuration used in historical sandbox AI stall diagnostics
  * and allows other tests (including parity/scenario suites) to obtain a
  * comparable mid-game snapshot without duplicating seed logic.
  */

@@ -616,6 +616,93 @@ class ImprovementOptimizer:
             "config_boosts": dict(self._state.config_boosts),
         }
 
+    def get_training_adjustment(self, config_key: str = "") -> dict[str, Any]:
+        """Get training hyperparameter adjustments based on optimizer state.
+
+        This is the unified interface for training to query what adjustments
+        to apply based on promotion success, evaluation results, and data quality.
+
+        December 2025: Added for Phase 2 of self-improvement feedback loop.
+
+        Args:
+            config_key: Optional config for config-specific adjustments
+
+        Returns:
+            Dict with recommended adjustments:
+            - lr_multiplier: Multiply current LR by this (1.0 = no change)
+            - regularization_boost: Add this to weight decay (0.0 = no change)
+            - batch_size_multiplier: Multiply batch size (1.0 = no change)
+            - should_fast_track: Whether to use reduced epochs
+            - reason: Human-readable explanation
+
+        Example usage in train.py:
+            adjustment = optimizer.get_training_adjustment("square8_2p")
+            if adjustment["lr_multiplier"] != 1.0:
+                for pg in optimizer.param_groups:
+                    pg["lr"] *= adjustment["lr_multiplier"]
+        """
+        adjustment = {
+            "lr_multiplier": 1.0,
+            "regularization_boost": 0.0,
+            "batch_size_multiplier": 1.0,
+            "should_fast_track": False,
+            "reason": "baseline",
+            "threshold_multiplier": self._state.threshold_multiplier,
+            "evaluation_multiplier": self._state.evaluation_frequency_multiplier,
+        }
+
+        reasons = []
+
+        # Success acceleration: 3+ consecutive promotions → faster LR
+        if self._state.consecutive_promotions >= self.PROMOTION_STREAK_THRESHOLD:
+            # On a streak: slightly reduce LR to avoid overshooting
+            adjustment["lr_multiplier"] *= 0.9
+            adjustment["should_fast_track"] = True
+            reasons.append(f"promotion_streak_{self._state.consecutive_promotions}")
+
+        # Elo breakthrough: Recent large gain → maintain momentum
+        recent_gains = [g for g in self._state.elo_gains[-5:] if g >= 50]
+        if recent_gains:
+            # Large gains suggest current hyperparams are good
+            adjustment["lr_multiplier"] *= 0.95
+            reasons.append(f"elo_breakthrough_+{max(recent_gains):.0f}")
+
+        # Data quality issues: Low quality → increase regularization
+        if self._state.data_quality_score < 0.7:
+            adjustment["regularization_boost"] = 0.0005
+            adjustment["lr_multiplier"] *= 1.1  # Slower learning on noisy data
+            reasons.append("low_data_quality")
+
+        # Parity failures: Increase regularization, reduce LR
+        if self._state.parity_success_rate < 0.9:
+            adjustment["regularization_boost"] += 0.0002
+            adjustment["lr_multiplier"] *= 1.05
+            reasons.append(f"parity_{self._state.parity_success_rate:.0%}")
+
+        # Calibration issues: High ECE suggests overconfidence
+        if self._state.calibration_ece > 0.15:
+            adjustment["regularization_boost"] += 0.0003
+            reasons.append(f"calibration_ece_{self._state.calibration_ece:.2f}")
+
+        # Config-specific boost from curriculum feedback
+        config_boost = self._state.config_boosts.get(config_key, 0.0)
+        if config_boost != 0.0:
+            # Positive boost = config needs more training → normal LR
+            # Negative boost = config doing well → slightly reduce LR
+            if config_boost < 0:
+                adjustment["lr_multiplier"] *= 0.95
+            reasons.append(f"config_boost_{config_boost:+.2f}")
+
+        # Apply threshold multiplier (from promotion success)
+        if self._state.threshold_multiplier < 0.8:
+            # We're accelerating: use faster training settings
+            adjustment["should_fast_track"] = True
+            adjustment["batch_size_multiplier"] = 1.25  # Larger batches for speed
+            reasons.append("accelerated_threshold")
+
+        adjustment["reason"] = ", ".join(reasons) if reasons else "baseline"
+        return adjustment
+
     def get_recommendations(self) -> list[OptimizationRecommendation]:
         """Get current optimization recommendations based on state."""
         recommendations = []
@@ -704,6 +791,17 @@ def record_training_complete(
 def get_improvement_metrics() -> dict[str, Any]:
     """Get improvement efficiency metrics."""
     return get_improvement_optimizer().get_improvement_metrics()
+
+
+def get_training_adjustment(config_key: str = "") -> dict[str, Any]:
+    """Get training hyperparameter adjustments based on optimizer state.
+
+    December 2025: Added for Phase 2 self-improvement feedback loop.
+
+    Returns:
+        Dict with recommended adjustments (lr_multiplier, regularization_boost, etc.)
+    """
+    return get_improvement_optimizer().get_training_adjustment(config_key)
 
 
 def get_selfplay_priority_boost(config_key: str) -> float:

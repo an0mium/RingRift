@@ -141,8 +141,8 @@ async def _emit_failure_event(
             error=error,
             coordinator=coordinator,
         )
-    except Exception:
-        pass  # Don't let event emission fail the handler
+    except Exception as e:
+        logger.debug(f"Failed to emit handler_failed event: {e}")  # Don't let event emission fail the handler
 
 
 async def _emit_timeout_event(
@@ -161,8 +161,8 @@ async def _emit_timeout_event(
             timeout_seconds=timeout_seconds,
             coordinator=coordinator,
         )
-    except Exception:
-        pass  # Don't let event emission fail the handler
+    except Exception as e:
+        logger.debug(f"Failed to emit handler_timeout event: {e}")  # Don't let event emission fail the handler
 
 
 async def _emit_health_degraded(
@@ -180,8 +180,8 @@ async def _emit_health_degraded(
             health_score=0.5,
             issues=[f"{handler_name}: {consecutive_failures} consecutive failures"],
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to emit health_degraded event: {e}")
 
 
 def resilient_handler(

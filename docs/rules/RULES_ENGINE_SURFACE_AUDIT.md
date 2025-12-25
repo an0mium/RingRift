@@ -152,7 +152,7 @@ function evaluateVictory(state: GameState): VictoryVerdict;
 | ----------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`GameEngine.ts`](../../src/server/game/GameEngine.ts) (~3,329 lines)               | `GameEngine` class                           | Stateful orchestrator with player interaction                                                                                                             |
 | [`RuleEngine.ts`](../../src/server/game/RuleEngine.ts) (~1,564 lines)               | `RuleEngine` class                           | Stateless validation, move enumeration                                                                                                                    |
-| [`RulesBackendFacade.ts`](../../src/server/game/RulesBackendFacade.ts) (~364 lines) | `RulesBackendFacade` class                   | Parity bridge (TS/Python shadow modes)                                                                                                                    |
+| [`RulesBackendFacade.ts`](../../src/server/game/RulesBackendFacade.ts) (~364 lines) | `RulesBackendFacade` class                   | Parity bridge (TS/Python runtime parity in python mode)                                                                                                   |
 | [`BoardManager.ts`](../../src/server/game/BoardManager.ts) (~1,283 lines)           | `BoardManager` class                         | Board state CRUD, adjacency                                                                                                                               |
 | `rules/captureChainEngine.ts` (legacy; historical, file removed)                    | `updateChainCaptureStateAfterCapture`        | Historical backend chain-capture state tracking module; superseded by `GameEngine` + shared `chainCaptureTracking` and kept here only as a naming anchor. |
 | `rules/lineProcessing.ts` (legacy; historical, file removed)                        | `processLinesForCurrentPlayer`               | Historical backend line-processing orchestration; modern flows use shared `lineDecisionHelpers` + aggregates and backend adapters.                        |
@@ -501,11 +501,11 @@ graph TB
 
 ### 5.1 Parity Validation Infrastructure
 
-| Surface            | Mechanism                             | Coverage                 |
-| ------------------ | ------------------------------------- | ------------------------ |
-| **Server Game**    | `RulesBackendFacade` shadow mode      | Per-move validation      |
-| **Python AI**      | `DefaultRulesEngine` shadow contracts | Per-move-type validation |
-| **Client Sandbox** | Parity test suite                     | Trace-level replay       |
+| Surface            | Mechanism                                        | Coverage                 |
+| ------------------ | ------------------------------------------------ | ------------------------ |
+| **Server Game**    | `RulesBackendFacade` python-authoritative parity | Per-move validation      |
+| **Python AI**      | `DefaultRulesEngine` shadow contracts            | Per-move-type validation |
+| **Client Sandbox** | Parity test suite                                | Trace-level replay       |
 
 ### 5.2 Known Divergence Risks
 

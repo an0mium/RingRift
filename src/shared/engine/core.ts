@@ -158,18 +158,6 @@ export function computeTerritoryVictoryMinimum(totalSpaces: number, numPlayers: 
 }
 
 /**
- * @deprecated Use computeTerritoryVictoryMinimum with numPlayers for new games.
- * Legacy territory threshold: >50% of total spaces.
- * Rule Reference: RR-CANON-R062 (legacy)
- *
- * @param totalSpaces - Total number of spaces on the board
- * @returns Legacy >50% threshold for backward compatibility
- */
-export function computeTerritoryVictoryThresholdLegacy(totalSpaces: number): number {
-  return Math.floor(totalSpaces / 2) + 1;
-}
-
-/**
  * Calculate cap height for a ring stack.
  *
  * Rule Reference: RR-CANON-R145 - Cap height is consecutive rings of

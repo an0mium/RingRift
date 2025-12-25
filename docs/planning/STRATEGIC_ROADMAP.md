@@ -584,7 +584,7 @@ Use these **checklists** when running any P-01 scenario.
 
 #### 4.4 Parity and dependency health
 
-- [ ] If rules shadow mode is enabled, watch `rules_parity_*` counters:
+- [ ] If running python‑authoritative diagnostics, watch `rules_parity_*` counters:
   - Large spikes under load may indicate logic or dependency issues rather than pure performance problems.
 - [ ] Correlate slow or failed operations with:
   - AI timeouts or fallbacks.

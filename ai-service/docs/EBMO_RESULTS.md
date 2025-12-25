@@ -19,9 +19,10 @@ EBMO is a novel AI algorithm that uses **gradient descent on action embeddings**
 
 ```
 D11: Internal benchmark tier    ← Not exposed via public API
-D9-10: Descent (or Gumbel on large boards) ← Production upper tier
-D6-8: MCTS variants              ← Production mid tier
-D5: MCTS (heuristic rollouts)    ← Production lower-mid
+D9-10: Gumbel MCTS (neural)      ← Production upper tier
+D8: MCTS (neural)                ← Production strong tier
+D7: MCTS (heuristic)             ← Production expert tier
+D5-6: Descent (neural)            ← Production mid-high tier
 D4: Minimax + NNUE               ← Production lower tier
 D3: Minimax                      ← Production lower tier
 D2: Heuristic                    ← EBMO loses here (35%)

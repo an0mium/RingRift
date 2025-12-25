@@ -45,7 +45,7 @@ These suites are (or should be) treated as **authoritative** for rules semantics
 | `tests/unit/MovementAggregate.shared.test.ts`               | Rules-level                   | Shared engine (MovementAggregate)    | Authoritative for non-capture movement validation, enumeration, and mutation via `MovementAggregate` across square/hex boards.                                                      | Use as primary reference when adjusting movement rules; keep backend/sandbox movement tests aligned with this suite.                |
 | `tests/unit/LineDetectionParity.rules.test.ts`              | Rules-level                   | Shared engine, BoardManager, sandbox | Authoritative for line detection semantics (markers only, blocking stacks/collapsed spaces, square vs hex geometry).                                                                | Use as primary reference when adjusting line logic anywhere (TS or Python).                                                         |
 | `tests/unit/sandboxTerritory.rules.test.ts`                 | Rules-level                   | Shared engine ↔ sandbox              | Territory rules expressed via sandbox engine but logically anchored to shared semantics.                                                                                            | Ensure key cases are also covered in pure shared-engine tests over time.                                                            |
-| `tests/unit/territoryProcessing.rules.test.ts`              | Rules-level                   | Shared engine ↔ backend              | Territory processing semantics aligned with rules doc.                                                                                                                              | Same as above: prefer pure shared-engine coverage where possible.                                                                   |
+| `tests/unit/territoryProcessing.shared.test.ts`             | Rules-level                   | Shared engine                        | Territory processing semantics aligned with rules doc.                                                                                                                              | Same as above: prefer pure shared-engine coverage where possible.                                                                   |
 | `tests/unit/sandboxTerritoryEngine.rules.test.ts`           | Rules-level                   | Shared engine ↔ sandbox              | Legacy territory engine rules (now superseded by shared helpers and `ClientSandboxEngine` territory integration).                                                                   | Keep as historical/diagnostic until fully replaced by shared-engine + ClientSandboxEngine suites.                                   |
 | `tests/unit/Seed14Move35LineParity.test.ts`                 | Rules-level, seed-specific    | Shared engine, backend, sandbox      | Codifies that after moves 1–34 of the historic seed‑14 trace, **no valid lines exist**, and `process_line` is invalid. This is the canonical resolution of the seed‑14 discrepancy. | Must remain green whenever line rules are modified; if it breaks, treat as a semantics regression until proven otherwise.           |
 | `tests/unit/SInvariant.seed17FinalBoard.test.ts`            | Rules-level invariant         | Shared engine                        | Asserts S‑invariant properties of a particular final board.                                                                                                                         | Use as pattern for additional invariant-based rules tests.                                                                          |
@@ -162,11 +162,10 @@ Representative files (modern canonical + legacy/diagnostic suites):
   - `tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`
 - **Victory / LPS cross‑interaction**
   - `tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts`
-  - `tests/unit/LPS.CrossInteraction.Parity.test.ts`
 - **Sandbox AI simulations and stall diagnostics (diagnostic/opt‑in)**
   - `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`
-  - `tests/unit/ClientSandboxEngine.aiStallRegression.test.ts`
-  - `tests/unit/ClientSandboxEngine.aiSingleSeedDebug.test.ts`
+  - `tests/unit/ClientSandboxEngine.aiStallDiagnostics.test.ts`
+  - `tests/unit/ClientSandboxEngine.aiStallNormalization.test.ts`
 
 **Classification:**
 

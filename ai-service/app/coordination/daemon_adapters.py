@@ -415,6 +415,101 @@ class AutoSyncDaemonAdapter(DaemonAdapter):
         return True
 
 
+class NPZDistributionDaemonAdapter(DaemonAdapter):
+    """Adapter for NPZ training data distribution daemon (December 2025).
+
+    Distributes exported NPZ training files to all training-capable nodes
+    after NPZ_EXPORT_COMPLETE events. Solves the gap where training data
+    would only exist on the export node.
+    """
+
+    @property
+    def daemon_type(self) -> DaemonType:
+        return DaemonType.NPZ_DISTRIBUTION
+
+    @property
+    def role(self) -> OrchestratorRole | None:
+        # Runs on coordinator nodes that generate NPZ files
+        return OrchestratorRole.DATA_DISTRIBUTOR
+
+    @property
+    def depends_on(self) -> list[DaemonType]:
+        return []
+
+    async def _create_daemon(self) -> Any:
+        try:
+            from app.coordination.npz_distribution_daemon import NPZDistributionDaemon
+
+            return NPZDistributionDaemon()
+        except ImportError:
+            logger.warning("[NPZDistributionDaemonAdapter] NPZDistributionDaemon not available")
+            return None
+
+    async def _run_daemon(self, daemon: Any) -> None:
+        if hasattr(daemon, "start"):
+            await daemon.start()
+        elif hasattr(daemon, "run"):
+            await daemon.run()
+        else:
+            while self._running:
+                await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _health_check(self) -> bool:
+        """Check if NPZ distribution daemon is healthy."""
+        if not self._daemon_instance:
+            return False
+        if hasattr(self._daemon_instance, "_running"):
+            return self._daemon_instance._running
+        return True
+
+
+class OrphanDetectionDaemonAdapter(DaemonAdapter):
+    """Adapter for orphan game detection daemon (December 2025).
+
+    Periodically scans for game databases not registered in ClusterManifest
+    and auto-registers them. Prevents "invisible" training data.
+    """
+
+    @property
+    def daemon_type(self) -> DaemonType:
+        return DaemonType.ORPHAN_DETECTION
+
+    @property
+    def role(self) -> OrchestratorRole | None:
+        # Runs on all nodes to detect local orphans
+        return None
+
+    @property
+    def depends_on(self) -> list[DaemonType]:
+        return []
+
+    async def _create_daemon(self) -> Any:
+        try:
+            from app.coordination.orphan_detection_daemon import OrphanDetectionDaemon
+
+            return OrphanDetectionDaemon()
+        except ImportError:
+            logger.warning("[OrphanDetectionDaemonAdapter] OrphanDetectionDaemon not available")
+            return None
+
+    async def _run_daemon(self, daemon: Any) -> None:
+        if hasattr(daemon, "start"):
+            await daemon.start()
+        elif hasattr(daemon, "run"):
+            await daemon.run()
+        else:
+            while self._running:
+                await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _health_check(self) -> bool:
+        """Check if orphan detection daemon is healthy."""
+        if not self._daemon_instance:
+            return False
+        if hasattr(self._daemon_instance, "_running"):
+            return self._daemon_instance._running
+        return True
+
+
 # =============================================================================
 # Adapter Registry
 # =============================================================================
@@ -426,6 +521,8 @@ _ADAPTER_CLASSES: dict[DaemonType, type[DaemonAdapter]] = {
     DaemonType.VAST_CPU_PIPELINE: VastCpuPipelineAdapter,
     DaemonType.CLUSTER_DATA_SYNC: ClusterDataSyncAdapter,
     DaemonType.AUTO_SYNC: AutoSyncDaemonAdapter,
+    DaemonType.NPZ_DISTRIBUTION: NPZDistributionDaemonAdapter,
+    DaemonType.ORPHAN_DETECTION: OrphanDetectionDaemonAdapter,
 }
 
 
@@ -503,6 +600,8 @@ __all__ = [
     "DaemonAdapterConfig",
     "DistillationDaemonAdapter",
     "ExternalDriveSyncAdapter",
+    "NPZDistributionDaemonAdapter",
+    "OrphanDetectionDaemonAdapter",
     "PromotionDaemonAdapter",
     "VastCpuPipelineAdapter",
     "get_available_adapters",

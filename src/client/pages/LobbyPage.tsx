@@ -1101,7 +1101,7 @@ export default function LobbyPage() {
               </button>
             </div>
             <div className="max-h-80 overflow-y-auto mt-2 space-y-2">
-              {DIFFICULTY_DESCRIPTORS.filter((d) => d.id <= 8).map((descriptor) => (
+              {DIFFICULTY_DESCRIPTORS.map((descriptor) => (
                 <div
                   key={descriptor.id}
                   className="p-2 rounded-xl border border-slate-700 bg-slate-800/60 text-xs text-slate-200"
@@ -1118,8 +1118,8 @@ export default function LobbyPage() {
                 </div>
               ))}
               <div className="pt-2 border-t border-slate-700 text-[11px] text-slate-400">
-                Experimental tiers D9–D10 are intended for internal testing and may change between
-                releases. They are not currently part of the human-calibrated ladder.
+                D9–D10 are the strongest public tiers and may take longer per move. Use them when
+                you want a maximum-strength challenge.
               </div>
             </div>
           </Dialog>
