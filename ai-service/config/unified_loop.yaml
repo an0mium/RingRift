@@ -699,6 +699,48 @@ p2p:
   gossip_sync_enabled: true # Gossip-based data replication ENABLED
   gossip_port: 8771 # Port for gossip protocol
 
+# Data Aggregation Configuration
+# Centralizes game data from all nodes into a single source of truth
+# then replicates to designated replica nodes
+data_aggregation:
+  enabled: true # Enable centralized data aggregation
+
+  # Aggregator node (single source of truth for game data)
+  aggregator_node: 'lambda-gh200-h' # Node that collects all data
+  aggregator_db: 'data/games/jsonl_aggregated.db' # Central aggregated database
+
+  # Nodes that receive replicas of the aggregated DB
+  replica_nodes:
+    - host: 'mac-studio'
+      path: '/Volumes/RingRift-Data/cluster_aggregated/jsonl_aggregated.db'
+    - host: 'lambda-2xh100'
+      path: 'data/games/jsonl_aggregated.db'
+
+  # Nodes to exclude from receiving replicas (e.g., disk constrained)
+  excluded_nodes:
+    - 'local-macbook'
+    - 'macbook-armand'
+
+  # Aggregation schedule
+  aggregate_interval_seconds: 300 # 5 minutes - pull data from all nodes
+  replicate_interval_seconds: 600 # 10 minutes - push to replica nodes
+
+  # Source patterns to aggregate (relative to ai-service/)
+  source_patterns:
+    - 'data/games/*.db'
+    - 'data/selfplay/**/*.db'
+    - 'data/tournaments/*.db'
+
+  # SSH configuration for remote access
+  ssh_key_path: '~/.ssh/id_cluster'
+  ssh_timeout_seconds: 30
+  rsync_bandwidth_limit_kbps: 50000 # 50 MB/s limit to avoid network saturation
+
+  # Merge settings
+  deduplicate_by_game_id: true # Deduplicate games on merge
+  preserve_source_metadata: true # Keep track of which node contributed each game
+  vacuum_after_merge: false # VACUUM is slow, run manually during maintenance
+
 # P2P Orchestrator Daemon settings (for p2p_orchestrator.py)
 p2p_daemon:
   # Discovery

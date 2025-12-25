@@ -333,6 +333,17 @@ class SyncConfig:
     quality_decisive_weight: float = 0.3
     min_quality_score_for_priority: float = 0.5  # Minimum quality for priority queue
 
+    # Aggregation mode - centralized data collection and replication
+    enable_aggregation: bool = False  # Enable centralized aggregation mode
+    aggregator_node: str = ""  # Node name that runs aggregation
+    aggregator_db: str = "data/games/jsonl_aggregated.db"  # Central DB path
+    aggregate_interval_seconds: int = 300  # 5 minutes
+    replicate_interval_seconds: int = 600  # 10 minutes
+    replica_nodes: list[dict] = field(default_factory=list)  # type: ignore[misc]
+    excluded_nodes: list[str] = field(default_factory=list)  # type: ignore[misc]
+    source_patterns: list[str] = field(default_factory=lambda: ["data/games/*.db"])  # type: ignore[misc]
+    rsync_bandwidth_limit_kbps: int = 50000  # 50 MB/s limit
+
 
 # HostSyncState - use unified implementation if available
 if HAS_UNIFIED_MANIFEST:
@@ -650,6 +661,8 @@ class UnifiedDataSyncService:
         self._last_manifest_replication: float = 0.0
         self._last_ephemeral_sync: float = 0.0
         self._last_persistent_sync: float = 0.0
+        self._last_aggregation: float = 0.0
+        self._last_replication: float = 0.0
         self._sync_state_lock = asyncio.Lock()  # Atomic sync state updates
 
     def _init_components(self):
@@ -798,6 +811,332 @@ class UnifiedDataSyncService:
         except Exception as e:
             logger.warning(f"{host_name}: Quality extraction failed: {e}")
             return 0
+
+    def _is_aggregator_node(self) -> bool:
+        """Check if this node is the designated aggregator."""
+        if not self.config.enable_aggregation:
+            return False
+        node_name = socket.gethostname()
+        # Match against various naming patterns
+        aggregator = self.config.aggregator_node
+        return (
+            node_name == aggregator
+            or node_name.startswith(aggregator.replace("lambda-", ""))
+            or aggregator.replace("lambda-", "") in node_name
+        )
+
+    async def _list_remote_dbs(self, host: HostConfig, pattern: str) -> list[str]:
+        """List database files on remote host matching pattern.
+
+        Args:
+            host: Host configuration
+            pattern: Glob pattern relative to remote_db_path
+
+        Returns:
+            List of remote database paths
+        """
+        ssh_args = self._build_ssh_args(host)
+        # Handle pattern with subdirectories
+        base_path = host.remote_db_path.rstrip("/")
+        cmd = f'ssh {ssh_args} {host.ssh_user}@{host.ssh_host} "find {base_path} -name \'*.db\' -type f 2>/dev/null"'
+
+        try:
+            process = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.ssh_timeout
+            )
+            dbs = [line.strip() for line in stdout.decode().strip().split("\n") if line.strip()]
+            return dbs
+        except Exception as e:
+            logger.debug(f"{host.name}: Failed to list remote DBs: {e}")
+            return []
+
+    async def _sync_db_file(self, host: HostConfig, remote_db: str, local_dir: Path) -> Path | None:
+        """Sync a single database file from remote host.
+
+        Args:
+            host: Host configuration
+            remote_db: Full path to remote database
+            local_dir: Local directory to sync to
+
+        Returns:
+            Path to local copy, or None if failed
+        """
+        ssh_args = self._build_ssh_args(host)
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create subdirectory structure if needed
+        db_name = Path(remote_db).name
+        local_path = local_dir / db_name
+
+        # Rsync with bandwidth limit
+        bwlimit = self.config.rsync_bandwidth_limit_kbps
+        rsync_cmd = f'rsync -avz --checksum --bwlimit={bwlimit} -e "ssh {ssh_args}" {host.ssh_user}@{host.ssh_host}:{remote_db} {local_path}'
+
+        try:
+            process = await asyncio.create_subprocess_shell(
+                rsync_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.rsync_timeout
+            )
+
+            if process.returncode != 0:
+                logger.debug(f"{host.name}: rsync failed for {db_name}: {stderr.decode()[:100]}")
+                return None
+
+            return local_path
+
+        except asyncio.TimeoutError:
+            logger.debug(f"{host.name}: rsync timeout for {db_name}")
+            return None
+        except Exception as e:
+            logger.debug(f"{host.name}: rsync error for {db_name}: {e}")
+            return None
+
+    async def _merge_into_aggregated(self, source_db: Path, host_name: str) -> int:
+        """Merge games from source database into aggregated database.
+
+        Uses INSERT OR IGNORE with game_id as key to deduplicate.
+
+        Args:
+            source_db: Path to source database
+            host_name: Name of source host for metadata
+
+        Returns:
+            Number of new games added
+        """
+        aggregated_path = AI_SERVICE_ROOT / self.config.aggregator_db
+        aggregated_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Open source database
+            source_conn = sqlite3.connect(source_db)
+            source_cursor = source_conn.cursor()
+
+            # Check if source has games table
+            source_cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='games'"
+            )
+            if not source_cursor.fetchone():
+                source_conn.close()
+                return 0
+
+            # Get game count before
+            agg_conn = sqlite3.connect(aggregated_path)
+            agg_cursor = agg_conn.cursor()
+
+            # Ensure aggregated DB has the games table
+            agg_cursor.execute("""
+                CREATE TABLE IF NOT EXISTS games (
+                    game_id TEXT PRIMARY KEY,
+                    board_type TEXT,
+                    num_players INTEGER,
+                    moves_json TEXT,
+                    winner INTEGER,
+                    final_scores TEXT,
+                    timestamp REAL,
+                    source_host TEXT,
+                    source_db TEXT
+                )
+            """)
+            agg_cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_board ON games(board_type, num_players)")
+
+            count_before = agg_cursor.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+
+            # Attach source database
+            agg_cursor.execute(f"ATTACH DATABASE ? AS source", (str(source_db),))
+
+            # Get columns from source
+            source_cursor.execute("PRAGMA table_info(games)")
+            source_columns = {row[1] for row in source_cursor.fetchall()}
+
+            # Build insert statement with available columns
+            common_cols = ["game_id", "board_type", "num_players", "moves_json", "winner", "final_scores", "timestamp"]
+            available_cols = [c for c in common_cols if c in source_columns]
+
+            if "game_id" not in available_cols:
+                source_conn.close()
+                agg_conn.close()
+                return 0
+
+            # Add source metadata
+            select_cols = ", ".join(f"source.games.{c}" for c in available_cols)
+            insert_cols = ", ".join(available_cols) + ", source_host, source_db"
+            placeholders = f"{select_cols}, '{host_name}', '{source_db.name}'"
+
+            # Insert with deduplication
+            agg_cursor.execute(f"""
+                INSERT OR IGNORE INTO games ({insert_cols})
+                SELECT {placeholders}
+                FROM source.games
+            """)
+
+            agg_conn.commit()
+
+            # Get count after
+            count_after = agg_cursor.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+
+            agg_cursor.execute("DETACH DATABASE source")
+            source_conn.close()
+            agg_conn.close()
+
+            new_games = count_after - count_before
+            return new_games
+
+        except Exception as e:
+            logger.warning(f"Failed to merge {source_db.name} from {host_name}: {e}")
+            return 0
+
+    async def _aggregate_from_cluster(self) -> int:
+        """Pull all game DBs from cluster and merge into aggregated DB.
+
+        This runs on the aggregator node to collect data from all cluster nodes.
+
+        Returns:
+            Total new games aggregated
+        """
+        if not self._is_aggregator_node():
+            return 0
+
+        logger.info("Starting cluster aggregation cycle...")
+        total_new = 0
+        temp_dir = AI_SERVICE_ROOT / "data" / "temp_aggregate"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        for host in self.hosts.values():
+            if not host.enabled:
+                continue
+
+            # Skip excluded nodes
+            if host.name in self.config.excluded_nodes:
+                continue
+
+            try:
+                # List remote databases
+                remote_dbs = await self._list_remote_dbs(host, "*.db")
+                if not remote_dbs:
+                    continue
+
+                host_dir = temp_dir / host.name
+                host_dir.mkdir(parents=True, exist_ok=True)
+
+                for remote_db in remote_dbs:
+                    # Sync the database
+                    local_copy = await self._sync_db_file(host, remote_db, host_dir)
+                    if not local_copy:
+                        continue
+
+                    # Merge into aggregated DB
+                    new_games = await self._merge_into_aggregated(local_copy, host.name)
+                    total_new += new_games
+
+                    if new_games > 0:
+                        logger.debug(f"{host.name}: Merged {new_games} new games from {Path(remote_db).name}")
+
+            except Exception as e:
+                logger.warning(f"{host.name}: Aggregation failed: {e}")
+
+        if total_new > 0:
+            logger.info(f"Aggregation complete: {total_new} new games added")
+
+        return total_new
+
+    async def _replicate_to_nodes(self) -> int:
+        """Replicate aggregated database to replica nodes.
+
+        This runs on the aggregator node to push data to configured replicas.
+
+        Returns:
+            Number of successful replications
+        """
+        if not self._is_aggregator_node():
+            return 0
+
+        if not self.config.replica_nodes:
+            return 0
+
+        aggregated_path = AI_SERVICE_ROOT / self.config.aggregator_db
+        if not aggregated_path.exists():
+            return 0
+
+        logger.info("Starting replication to replica nodes...")
+        success_count = 0
+        bwlimit = self.config.rsync_bandwidth_limit_kbps
+
+        for replica in self.config.replica_nodes:
+            host = replica.get("host", "")
+            remote_path = replica.get("path", "")
+
+            if not host or not remote_path:
+                continue
+
+            try:
+                # Find SSH config for this host
+                ssh_host = None
+                ssh_user = "ubuntu"
+                ssh_key = "~/.ssh/id_cluster"
+
+                # Look up in hosts config
+                for h in self.hosts.values():
+                    if host in h.name or h.name in host:
+                        ssh_host = h.ssh_host
+                        ssh_user = h.ssh_user
+                        if h.ssh_key:
+                            ssh_key = h.ssh_key
+                        break
+
+                if not ssh_host:
+                    # Try direct hostname
+                    ssh_host = host
+
+                # Ensure remote directory exists
+                ssh_args = f"-o ConnectTimeout={self.config.ssh_timeout} -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+                key_path = os.path.expanduser(ssh_key)
+                if os.path.exists(key_path):
+                    ssh_args += f" -i {key_path}"
+
+                remote_dir = str(Path(remote_path).parent)
+                mkdir_cmd = f'ssh {ssh_args} {ssh_user}@{ssh_host} "mkdir -p {remote_dir}"'
+
+                process = await asyncio.create_subprocess_shell(
+                    mkdir_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(process.communicate(), timeout=30)
+
+                # Rsync with bandwidth limit
+                rsync_cmd = f'rsync -avz --checksum --bwlimit={bwlimit} -e "ssh {ssh_args}" {aggregated_path} {ssh_user}@{ssh_host}:{remote_path}'
+
+                process = await asyncio.create_subprocess_shell(
+                    rsync_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.config.rsync_timeout
+                )
+
+                if process.returncode == 0:
+                    logger.info(f"Replicated to {host}:{remote_path}")
+                    success_count += 1
+                else:
+                    logger.warning(f"Replication to {host} failed: {stderr.decode()[:100]}")
+
+            except Exception as e:
+                logger.warning(f"Replication to {host} failed: {e}")
+
+        return success_count
 
     def _build_ssh_args(self, host: HostConfig) -> str:
         """Build SSH arguments string.
@@ -1480,6 +1819,29 @@ class UnifiedDataSyncService:
                         # Replicate manifest after successful sync
                         await self._replicate_manifest()
 
+                    # Run aggregation if this is the aggregator node
+                    if self.config.enable_aggregation and self._is_aggregator_node():
+                        now = time.time()
+                        # Aggregate from cluster
+                        if now - self._last_aggregation >= self.config.aggregate_interval_seconds:
+                            try:
+                                aggregated = await self._aggregate_from_cluster()
+                                self._last_aggregation = now
+                                if aggregated > 0:
+                                    logger.info(f"Aggregated {aggregated} new games from cluster")
+                            except Exception as e:
+                                logger.warning(f"Aggregation error: {e}")
+
+                        # Replicate to replica nodes
+                        if now - self._last_replication >= self.config.replicate_interval_seconds:
+                            try:
+                                replicas = await self._replicate_to_nodes()
+                                self._last_replication = now
+                                if replicas > 0:
+                                    logger.info(f"Replicated to {replicas} nodes")
+                            except Exception as e:
+                                logger.warning(f"Replication error: {e}")
+
                     # Heartbeat
                     if HAS_ORCHESTRATOR_REGISTRY and has_role and (time.time() - last_heartbeat) >= heartbeat_interval:
                         try:
@@ -1583,6 +1945,7 @@ class UnifiedDataSyncService:
         di = data.get("data_ingestion", {})
         aria2_cfg = di.get("aria2", {})
         cluster_cfg = data.get("cluster", {})
+        agg_cfg = data.get("data_aggregation", {})
 
         # Gossip config can be in cluster section (gossip_sync_enabled) or data_ingestion (enable_gossip_sync)
         enable_gossip = cluster_cfg.get("gossip_sync_enabled", di.get("enable_gossip_sync", False))
@@ -1613,6 +1976,16 @@ class UnifiedDataSyncService:
             quality_length_weight=di.get("quality_length_weight", 0.3),
             quality_decisive_weight=di.get("quality_decisive_weight", 0.3),
             min_quality_score_for_priority=di.get("min_quality_score_for_priority", 0.5),
+            # Aggregation configuration (from data_aggregation section)
+            enable_aggregation=agg_cfg.get("enabled", False),
+            aggregator_node=agg_cfg.get("aggregator_node", ""),
+            aggregator_db=agg_cfg.get("aggregator_db", "data/games/jsonl_aggregated.db"),
+            aggregate_interval_seconds=agg_cfg.get("aggregate_interval_seconds", 300),
+            replicate_interval_seconds=agg_cfg.get("replicate_interval_seconds", 600),
+            replica_nodes=agg_cfg.get("replica_nodes", []),
+            excluded_nodes=agg_cfg.get("excluded_nodes", []),
+            source_patterns=agg_cfg.get("source_patterns", ["data/games/*.db"]),
+            rsync_bandwidth_limit_kbps=agg_cfg.get("rsync_bandwidth_limit_kbps", 50000),
         )
 
         # Determine hosts config path

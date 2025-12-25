@@ -270,6 +270,17 @@ Examples:
         logger.info(f"  P2P fallback: {service._p2p_fallback is not None}")
         logger.info(f"  Content dedup: {service._content_deduplicator is not None}")
         logger.info(f"  WAL: {service._ingestion_wal is not None}")
+        # Aggregation mode status
+        if service.config.enable_aggregation:
+            is_agg = service._is_aggregator_node()
+            logger.info(f"  Aggregation enabled: YES (this node is aggregator: {is_agg})")
+            logger.info(f"    Aggregator node: {service.config.aggregator_node}")
+            logger.info(f"    Aggregator DB: {service.config.aggregator_db}")
+            logger.info(f"    Replica nodes: {len(service.config.replica_nodes)}")
+            for replica in service.config.replica_nodes:
+                logger.info(f"      - {replica.get('host')}: {replica.get('path')}")
+        else:
+            logger.info("  Aggregation enabled: NO")
         return
 
     # Signal handlers
