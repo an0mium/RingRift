@@ -440,6 +440,8 @@ class WorkQueue:
             logger.info(f"Added work {item.work_id}: {item.work_type.value} (priority: {item.priority})")
         # Notify (outside lock to avoid blocking)
         self.notifier.on_work_added(item)
+        # Emit event to unified coordination (December 2025)
+        self._emit_work_event("WORK_QUEUED", item)
         return item.work_id
 
     def add_training(self, board_type: str, num_players: int, priority: int = 100) -> str:
@@ -1044,6 +1046,58 @@ class WorkQueue:
             "square19_2p": 0.8,
             "hexagonal_2p": 0.6,
         }
+
+    # =========================================================================
+    # Event System Integration (December 2025)
+    # =========================================================================
+
+    def _emit_work_event(self, event_type: str, item: WorkItem, **extra) -> None:
+        """Emit work queue event to unified event system.
+
+        Integrates work queue with the coordination layer so all work
+        flows through unified event routing.
+
+        Args:
+            event_type: Event type name (e.g., "WORK_QUEUED", "WORK_COMPLETED")
+            item: Work item that triggered the event
+            **extra: Additional payload fields
+        """
+        try:
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            if bus is None:
+                return
+
+            payload = {
+                "work_id": item.work_id,
+                "work_type": item.work_type.value,
+                "priority": item.priority,
+                "board_type": item.config.get("board_type", ""),
+                "num_players": item.config.get("num_players", 2),
+                "claimed_by": item.claimed_by,
+                "attempts": item.attempts,
+                "timestamp": time.time(),
+                **extra,
+            }
+
+            # Use fire-and-forget for non-blocking event emission
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(bus.publish(event_type, payload))
+            except RuntimeError:
+                # No running loop - emit synchronously via thread
+                import threading
+                def emit_async():
+                    asyncio.run(bus.publish(event_type, payload))
+                t = threading.Thread(target=emit_async, daemon=True)
+                t.start()
+
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"Failed to emit work event {event_type}: {e}")
 
 
 # Singleton instance (created on demand by leader)

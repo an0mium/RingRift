@@ -49,12 +49,10 @@
  * }
  * ```
  *
- * ## Migration from Legacy Orchestration
+ * ## Migration Status
  *
- * The FSM replaces the legacy `PhaseStateMachine` in
- * `../orchestration/phaseStateMachine.ts`. That module is deprecated but
- * retained for backwards compatibility. New code should always use this
- * FSM module.
+ * The FSM is now the canonical orchestrator. The legacy `PhaseStateMachine`
+ * was fully removed in PASS30-R1. All new code should use this FSM module.
  *
  * @module fsm
  */

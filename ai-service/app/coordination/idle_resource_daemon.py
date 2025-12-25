@@ -473,7 +473,8 @@ class IdleResourceDaemon:
             from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
-            router.emit(
+            # Phase 22.2 fix: Use publish_sync instead of emit (which doesn't exist)
+            router.publish_sync(
                 DataEventType.P2P_SELFPLAY_SCALED.value
                 if hasattr(DataEventType, 'P2P_SELFPLAY_SCALED')
                 else "p2p_selfplay_scaled",
@@ -485,9 +486,10 @@ class IdleResourceDaemon:
                     "gpu_memory_gb": node.gpu_memory_total_gb,
                     "timestamp": time.time(),
                 },
+                source="idle_resource_daemon",
             )
         except Exception as e:
-            logger.debug(f"Could not emit spawn event: {e}")
+            logger.debug(f"Could not publish spawn event: {e}")
 
     def get_stats(self) -> dict[str, Any]:
         """Get daemon statistics."""

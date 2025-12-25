@@ -395,27 +395,29 @@ class ReplicationMonitorDaemon:
         """Emit events for alerts."""
         try:
             from app.coordination.event_router import (
-                UnifiedEventRouter,
+                get_router,
                 DataEventType,
             )
 
-            router = UnifiedEventRouter.get_instance()
+            router = get_router()
 
             for alert in alerts:
-                await router.emit(
+                # Phase 22.2 fix: Use publish instead of emit (which doesn't exist)
+                await router.publish(
                     event_type=DataEventType.HEALTH_UPDATED,
-                    data={
+                    payload={
                         "source": "replication_monitor",
                         "level": alert.level.value,
                         "message": alert.message,
                         "game_count": alert.game_count,
                         "timestamp": alert.timestamp,
                     },
+                    source="replication_monitor",
                 )
         except ImportError:
             pass  # Event router not available
         except Exception as e:
-            logger.debug(f"Failed to emit alert events: {e}")
+            logger.debug(f"Failed to publish alert events: {e}")
 
     async def _check_emergency_sync(
         self,

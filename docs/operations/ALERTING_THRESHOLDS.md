@@ -622,13 +622,13 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 
 #### OrchestratorInvariantViolationsStaging
 
-| Property      | Value                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------- |
-| **Severity**  | warning                                                                               |
-| **Threshold** | `increase(ringrift_orchestrator_invariant_violations_total[1h]) > 0`                  |
-| **Duration**  | 5 minutes                                                                             |
-| **Impact**    | Invariant violations under CI or staging traffic                                      |
-| **Labels**    | `environment`, `type`, `invariant_id` (see `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`) |
+| Property      | Value                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| **Severity**  | warning                                                                                     |
+| **Threshold** | `increase(ringrift_orchestrator_invariant_violations_total[1h]) > 0`                        |
+| **Duration**  | 5 minutes                                                                                   |
+| **Impact**    | Invariant violations under CI or staging traffic                                            |
+| **Labels**    | `environment`, `type`, `invariant_id` (see `docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`) |
 
 **Rationale**: Any new orchestrator invariant violation (ACTIVE-no-move, S‑invariant decrease, elimination accounting regression) in staging or CI is treated as a staging SLO breach (`SLO-STAGE-ORCH-INVARIANTS`).
 
@@ -642,13 +642,13 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 
 #### OrchestratorInvariantViolationsProduction
 
-| Property      | Value                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------- |
-| **Severity**  | critical                                                                              |
-| **Threshold** | `increase(ringrift_orchestrator_invariant_violations_total[1h]) > 0`                  |
-| **Duration**  | 5 minutes                                                                             |
-| **Impact**    | Invariants violated under real player traffic                                         |
-| **Labels**    | `environment`, `type`, `invariant_id` (see `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`) |
+| Property      | Value                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| **Severity**  | critical                                                                                    |
+| **Threshold** | `increase(ringrift_orchestrator_invariant_violations_total[1h]) > 0`                        |
+| **Duration**  | 5 minutes                                                                                   |
+| **Impact**    | Invariants violated under real player traffic                                               |
+| **Labels**    | `environment`, `type`, `invariant_id` (see `docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`) |
 
 **Rationale**: Any orchestrator invariant violation in production is a direct breach of `SLO-PROD-ORCH-INVARIANTS` and must halt rollout.
 

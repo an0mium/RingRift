@@ -105,6 +105,7 @@ class DataEventType(Enum):
 
     # Selfplay feedback events
     SELFPLAY_TARGET_UPDATED = "selfplay_target_updated"  # Request more/fewer games
+    SELFPLAY_RATE_CHANGED = "selfplay_rate_changed"  # Phase 19.3: Rate multiplier changed (>20%)
 
     # Optimization events
     CMAES_TRIGGERED = "cmaes_triggered"
@@ -168,6 +169,10 @@ class DataEventType(Enum):
     P2P_CLUSTER_UNHEALTHY = "p2p_cluster_unhealthy"
     P2P_NODES_DEAD = "p2p_nodes_dead"
     P2P_SELFPLAY_SCALED = "p2p_selfplay_scaled"
+
+    # Orphan detection events
+    ORPHAN_GAMES_DETECTED = "orphan_games_detected"  # Unregistered game databases found
+    ORPHAN_GAMES_REGISTERED = "orphan_games_registered"  # Orphans auto-registered
 
     # System events
     DAEMON_STARTED = "daemon_started"
@@ -244,6 +249,12 @@ class DataEventType(Enum):
 
     # Coordinator heartbeat events (December 2025)
     COORDINATOR_HEARTBEAT = "coordinator_heartbeat"  # Liveness signal from coordinator
+
+    # Phase 3 feedback loop events (December 2025)
+    TRAINING_LOSS_ANOMALY = "training_loss_anomaly"  # Training loss spike detected
+    SYNC_STALLED = "sync_stalled"  # Sync operation stalled/timed out
+    NODE_OVERLOADED = "node_overloaded"  # Node CPU/GPU utilization critical
+    TRAINING_LOSS_TREND = "training_loss_trend"  # Training loss trend (improving/stalled/degrading)
 
 
 @dataclass

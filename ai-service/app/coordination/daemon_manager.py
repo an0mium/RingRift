@@ -428,6 +428,13 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
+        # P2P auto-deploy daemon (Phase 21.2) - ensures P2P runs on all cluster nodes
+        self.register_factory(
+            DaemonType.P2P_AUTO_DEPLOY,
+            self._create_p2p_auto_deploy,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
     def register_factory(
         self,
         daemon_type: DaemonType,
@@ -1757,6 +1764,26 @@ class DaemonManager:
         except Exception as e:
             logger.error(f"NodeRecoveryDaemon failed: {e}")
 
+    async def _create_p2p_auto_deploy(self) -> None:
+        """Create and run P2P auto-deploy daemon (December 2025 - Phase 21.2).
+
+        Ensures P2P network runs on all cluster nodes by:
+        - Periodically checking which nodes are missing P2P
+        - Auto-deploying P2P to nodes that need it
+        - Reporting P2P coverage metrics
+        - Integrating with UnifiedNodeHealthDaemon for recovery
+        """
+        try:
+            from app.coordination.p2p_auto_deployer import P2PAutoDeployer
+
+            deployer = P2PAutoDeployer()
+            await deployer.run_daemon()
+
+        except ImportError as e:
+            logger.warning(f"P2PAutoDeployer dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"P2PAutoDeployer failed: {e}")
+
     async def _create_dlq_retry(self) -> None:
         """Create and run dead-letter queue retry daemon.
 
@@ -1904,6 +1931,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.ORPHAN_DETECTION,  # Detect local orphaned databases
         DaemonType.UNIFIED_PROMOTION,  # Phase 18.4: Auto-promote models after evaluation
         DaemonType.P2P_AUTO_DEPLOY,  # Phase 21.2: Ensure P2P runs on recovered nodes
+        DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
     ],
 
     # Ephemeral node profile - runs on Vast.ai/spot instances
@@ -1911,6 +1939,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.EVENT_ROUTER,
         DaemonType.EPHEMERAL_SYNC,
         DaemonType.DATA_PIPELINE,
+        DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
     ],
 
     # Selfplay-only profile - just generates games
@@ -1918,6 +1947,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.EVENT_ROUTER,
         DaemonType.AUTO_SYNC,
         DaemonType.QUALITY_MONITOR,  # Monitor quality to trigger throttling feedback
+        DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
     ],
 
     # Full profile - all daemons (for testing)

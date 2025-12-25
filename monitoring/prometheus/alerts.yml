@@ -749,9 +749,9 @@ groups:
           description: >
             One or more Python self-play invariant violations were observed in the last hour
             (invariant_id={{ $labels.invariant_id }}, type={{ $labels.type }}).
-            See docs/INVARIANTS_AND_PARITY_FRAMEWORK.md and docs/STRICT_INVARIANT_SOAKS.md
+            See docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md and docs/testing/STRICT_INVARIANT_SOAKS.md
             for invariant ID semantics and operational guidance.
-          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/STRICT_INVARIANT_SOAKS.md'
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/testing/STRICT_INVARIANT_SOAKS.md'
           impact: 'Potential divergence between Python self-play invariants and the TS orchestrator; may signal rules regressions affecting training.'
   # ===========================================================================
   # ORCHESTRATOR ROLLOUT ALERTS

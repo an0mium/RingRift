@@ -259,46 +259,55 @@ async def wait_for_pipeline_completion(
     Returns:
         True if pipeline completed successfully
     """
-    from app.coordination.data_pipeline_orchestrator import get_orchestrator, PipelineStage
+    from app.coordination.data_pipeline_orchestrator import get_pipeline_orchestrator
 
-    orchestrator = get_orchestrator()
+    orchestrator = get_pipeline_orchestrator()
     config_key = f"{args.board_type}_{args.num_players}p"
 
     start_time = time.time()
     last_stage = None
+    initial_iterations = None
 
     logger.info(f"Waiting for pipeline completion (timeout: {timeout_seconds}s)...")
 
     while time.time() - start_time < timeout_seconds:
-        state = orchestrator.get_config_state(config_key)
+        status = orchestrator.get_status()
 
-        if state is None:
-            logger.warning(f"No pipeline state for {config_key}, waiting...")
+        if status is None:
+            logger.warning(f"No pipeline status available, waiting...")
             await asyncio.sleep(10)
             continue
 
-        current_stage = state.current_stage
+        current_stage = status.get("current_stage", "unknown")
+        iterations_completed = status.get("iterations_completed", 0)
+        models_trained = status.get("total_models_trained", 0)
+
+        # Track initial iteration count to detect completion
+        if initial_iterations is None:
+            initial_iterations = iterations_completed
 
         # Log stage transitions
         if current_stage != last_stage:
-            logger.info(f"Pipeline stage: {current_stage.value if current_stage else 'None'}")
+            logger.info(f"Pipeline stage: {current_stage}")
             last_stage = current_stage
 
-        # Check for completion
-        if current_stage == PipelineStage.IDLE:
-            # Check if we've completed training
-            if state.last_training_completed:
+        # Check for completion: stage is IDLE and a new iteration completed
+        if current_stage in ("idle", "complete"):
+            if iterations_completed > initial_iterations:
                 if args.auto_promote and not args.skip_evaluation:
-                    # Wait for evaluation and promotion
-                    if state.last_evaluation_completed:
+                    # Check for evaluation/promotion completion
+                    if status.get("promotions", 0) > 0 or models_trained > 0:
                         logger.info("Pipeline completed: training + evaluation done")
                         return True
+                    # Wait a bit more for evaluation
+                    logger.info(f"Training complete, waiting for evaluation... (models trained: {models_trained})")
                 else:
                     logger.info("Pipeline completed: training done")
                     return True
 
-        # Check for failures
-        if orchestrator.circuit_breaker and not orchestrator.circuit_breaker.can_execute():
+        # Check for failures via circuit breaker status
+        cb_status = status.get("circuit_breaker", {})
+        if cb_status.get("state") == "open":
             logger.error("Pipeline circuit breaker is OPEN - too many failures")
             return False
 
@@ -426,13 +435,16 @@ def main() -> int:
         logger.info(f"Config: {config_key}")
 
         if not args.dry_run:
-            # Try to get final model path
+            # Try to get final model path from orchestrator status
             try:
-                from app.coordination.data_pipeline_orchestrator import get_orchestrator
-                orchestrator = get_orchestrator()
-                state = orchestrator.get_config_state(config_key)
-                if state and state.last_model_path:
-                    logger.info(f"Model: {state.last_model_path}")
+                from app.coordination.data_pipeline_orchestrator import get_pipeline_orchestrator
+                orchestrator = get_pipeline_orchestrator()
+                status = orchestrator.get_status()
+                # Log relevant completion info
+                if status.get("total_models_trained", 0) > 0:
+                    logger.info(f"Models trained: {status['total_models_trained']}")
+                if status.get("promotions", 0) > 0:
+                    logger.info(f"Promotions: {status['promotions']}")
             except Exception:
                 pass
 

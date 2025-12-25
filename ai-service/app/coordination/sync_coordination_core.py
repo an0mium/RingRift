@@ -626,3 +626,196 @@ def reset_sync_coordination_core() -> None:
     """Reset the singleton (for testing)."""
     global _sync_core
     _sync_core = None
+
+
+# =============================================================================
+# SYNC_STALLED → Alternative Source Handler (Phase 3 December 2025)
+# =============================================================================
+
+
+class SyncStalledHandler:
+    """Handles SYNC_STALLED events by switching to alternative sync sources.
+
+    When a sync operation stalls or times out, this handler:
+    1. Marks the stalled source as temporarily unavailable
+    2. Re-queues the sync request with alternative source selection
+    3. Emits metrics for monitoring stall frequency
+
+    This closes the feedback loop: sync stalls → automatic failover to healthy sources.
+    """
+
+    def __init__(
+        self,
+        stall_penalty_seconds: float = 300.0,  # 5 min penalty for stalled sources
+        max_retries: int = 2,
+    ):
+        """Initialize the handler.
+
+        Args:
+            stall_penalty_seconds: Time to deprioritize stalled sources
+            max_retries: Maximum retry attempts with alternative sources
+        """
+        self.stall_penalty_seconds = stall_penalty_seconds
+        self.max_retries = max_retries
+
+        self._subscribed = False
+        self._stalled_sources: dict[str, float] = {}  # source -> penalty_until
+        self._stall_count = 0
+        self._successful_failovers = 0
+
+    def subscribe(self) -> bool:
+        """Subscribe to SYNC_STALLED events.
+
+        Returns:
+            True if subscription was successful
+        """
+        if self._subscribed:
+            return True
+
+        try:
+            from app.distributed.data_events import DataEventType
+
+            try:
+                from app.coordination.event_router import get_event_bus
+            except ImportError:
+                from app.distributed.data_events import get_event_bus
+
+            bus = get_event_bus()
+
+            def on_sync_stalled(event):
+                """Handle SYNC_STALLED event."""
+                self._handle_stall(event.payload)
+
+            bus.subscribe(DataEventType.SYNC_STALLED, on_sync_stalled)
+            self._subscribed = True
+            logger.info("[SyncStalledHandler] Subscribed to SYNC_STALLED events")
+            return True
+
+        except ImportError as e:
+            logger.debug(f"[SyncStalledHandler] Event system not available: {e}")
+            return False
+
+    def _handle_stall(self, payload: dict[str, Any]) -> None:
+        """Handle a sync stall event.
+
+        Args:
+            payload: Event payload with stall details
+        """
+        import time
+
+        source = payload.get("source", "")
+        target = payload.get("target", "")
+        data_type = payload.get("data_type", "")
+        request_id = payload.get("request_id", "")
+        retry_count = payload.get("retry_count", 0)
+
+        self._stall_count += 1
+
+        # Mark source as temporarily unavailable
+        if source:
+            penalty_until = time.time() + self.stall_penalty_seconds
+            self._stalled_sources[source] = penalty_until
+            logger.warning(
+                f"[SyncStalledHandler] Stall #{self._stall_count}: source={source} "
+                f"marked unavailable for {self.stall_penalty_seconds}s"
+            )
+
+        # Check if we should retry with alternative source
+        if retry_count >= self.max_retries:
+            logger.error(
+                f"[SyncStalledHandler] Max retries ({self.max_retries}) exceeded "
+                f"for {data_type} sync to {target}"
+            )
+            return
+
+        # Re-queue with alternative source
+        try:
+            sync_core = get_sync_coordination_core()
+
+            # Get alternative sources (excluding stalled ones)
+            current_time = time.time()
+            excluded = {
+                s for s, t in self._stalled_sources.items() if t > current_time
+            }
+
+            logger.info(
+                f"[SyncStalledHandler] Re-queueing {data_type} sync to {target} "
+                f"(excluding {len(excluded)} stalled sources, retry #{retry_count + 1})"
+            )
+
+            # Create new request with metadata for tracking
+            from app.coordination.sync_coordination_core import SyncRequest
+
+            new_request = SyncRequest(
+                data_type=data_type,
+                target=target,
+                priority=2,  # Elevated priority for retries
+                max_size_mb=1000,  # Default max size
+                metadata={
+                    "original_source": source,
+                    "retry_count": retry_count + 1,
+                    "excluded_sources": list(excluded),
+                    "original_request_id": request_id,
+                },
+            )
+
+            sync_core.queue_sync(new_request)
+            self._successful_failovers += 1
+
+        except Exception as e:
+            logger.error(f"[SyncStalledHandler] Failed to re-queue sync: {e}")
+
+    def is_source_available(self, source: str) -> bool:
+        """Check if a source is currently available (not penalized).
+
+        Args:
+            source: Source identifier
+
+        Returns:
+            True if source is available
+        """
+        import time
+
+        penalty_until = self._stalled_sources.get(source, 0.0)
+        return time.time() >= penalty_until
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get handler statistics."""
+        import time
+
+        current_time = time.time()
+        active_penalties = {
+            s: t - current_time
+            for s, t in self._stalled_sources.items()
+            if t > current_time
+        }
+
+        return {
+            "subscribed": self._subscribed,
+            "stall_count": self._stall_count,
+            "successful_failovers": self._successful_failovers,
+            "active_penalties": len(active_penalties),
+            "penalized_sources": list(active_penalties.keys()),
+        }
+
+
+# Module-level singleton for the handler
+_stall_handler: SyncStalledHandler | None = None
+
+
+def wire_sync_stalled_handler() -> SyncStalledHandler:
+    """Wire SYNC_STALLED events to automatic failover handling.
+
+    Returns:
+        Subscribed handler instance
+    """
+    global _stall_handler
+    if _stall_handler is None:
+        _stall_handler = SyncStalledHandler()
+        _stall_handler.subscribe()
+    return _stall_handler
+
+
+def get_sync_stalled_handler() -> SyncStalledHandler | None:
+    """Get the sync stalled handler if wired."""
+    return _stall_handler

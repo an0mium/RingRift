@@ -47,16 +47,16 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 
 ### 1.1 Game Engine
 
-| Item                                                           | Status | Evidence                                                |
-| -------------------------------------------------------------- | ------ | ------------------------------------------------------- |
-| All game rules implemented per canonical spec                  | ✅     | `../rules/COMPLETE_RULES.md`, `RULES_CANONICAL_SPEC.md` |
-| TS/Python parity verified (0 divergences)                      | ✅     | 90 contract vectors, 286 parity fixtures, 0 mismatches  |
-| All board types supported (square8, square19, hex8, hexagonal) | ✅     | Geometry contracts in `TOPOLOGY_MODES.md`               |
-| Victory conditions implemented and tested                      | ✅     | Ring elimination, territory control, LPS                |
-| Game end explanation working                                   | ✅     | `gameEndExplanation.ts`, builder tests                  |
-| Phase state machine (8 phases + terminal)                      | ✅     | `phaseStateMachine.ts`, turnOrchestrator                |
-| Forced elimination as explicit choice                          | ✅     | `applyForcedEliminationForPlayer` with `targetPosition` |
-| Chain capture enforcement                                      | ✅     | Contract vectors, parity suites                         |
+| Item                                                           | Status | Evidence                                                              |
+| -------------------------------------------------------------- | ------ | --------------------------------------------------------------------- |
+| All game rules implemented per canonical spec                  | ✅     | `../rules/COMPLETE_RULES.md`, `RULES_CANONICAL_SPEC.md`               |
+| TS/Python parity verified (0 divergences)                      | ✅     | 90 contract vectors, 286 parity fixtures, 0 mismatches                |
+| All board types supported (square8, square19, hex8, hexagonal) | ✅     | Geometry contracts in `TOPOLOGY_MODES.md`                             |
+| Victory conditions implemented and tested                      | ✅     | Ring elimination, territory control, LPS                              |
+| Game end explanation working                                   | ✅     | `gameEndExplanation.ts`, builder tests                                |
+| Phase state machine (8 phases + terminal)                      | ✅     | `fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`, `turnOrchestrator.ts` |
+| Forced elimination as explicit choice                          | ✅     | `applyForcedEliminationForPlayer` with `targetPosition`               |
+| Chain capture enforcement                                      | ✅     | Contract vectors, parity suites                                       |
 
 ### 1.2 AI System
 

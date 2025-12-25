@@ -57,11 +57,11 @@ export { validateMovement } from '../aggregates/MovementAggregate';
 
 #### Orchestration Logic Spread (HIGHEST IMPACT)
 
-**Problem:** Turn processing logic duplicated across 4 files:
+**Problem:** Turn processing logic historically spanned multiple files:
 
 1. `turnOrchestrator.ts` (1,450 LOC) - main entry point
 2. `turnLogic.ts` (313 LOC) - phase advancement
-3. `phaseStateMachine.ts` (400 LOC) - phase transitions
+3. `phaseStateMachine.ts` (400 LOC) - **REMOVED** (PASS30-R1); phase transition logic consolidated into the canonical FSM stack (`fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`)
 4. `GameEngine.ts` (280 LOC) - inline transitions
 
 **Example Duplication:**
@@ -83,15 +83,15 @@ if (nextCaptures.length > 0) {
 
 1. Keep `turnLogic.ts` as golden source for `advanceTurnAndPhase()`
 2. Use `TurnStateMachine` (already defined in `/fsm/TurnStateMachine.ts`) as single source of truth
-3. Delete `phaseStateMachine.ts` wrapper
+3. (Historical) Delete `phaseStateMachine.ts` wrapper — **done** (PASS30-R1)
 4. Remove inline transitions from `GameEngine.ts`
 
 #### State Machine Clarity (MEDIUM-HIGH IMPACT)
 
-**Problem:** Three coexisting state management approaches:
+**Problem:** Three coexisting state management approaches (historical note):
 
 1. `TurnStateMachine` (explicit FSM with type-safe transitions)
-2. `PhaseStateMachine` (procedural wrapper)
+2. `PhaseStateMachine` (procedural wrapper) — **REMOVED** (PASS30-R1)
 3. `GameEngine.checkStateTransitions()` (inline conditionals)
 
 **Recommendation:** Adopt `TurnStateMachine` as the single source of truth:
@@ -549,9 +549,9 @@ tests/
 **Make TurnStateMachine the single orchestration authority:**
 
 ```typescript
-// Current: 3 parallel approaches
+// Current (historical note): 3 parallel approaches
 // 1. TurnStateMachine (FSM) - defined but not used
-// 2. PhaseStateMachine (procedural) - wrapper
+// 2. PhaseStateMachine (procedural) - wrapper (**REMOVED** in PASS30-R1)
 // 3. GameEngine.checkStateTransitions() - inline
 
 // Proposed: Single source of truth

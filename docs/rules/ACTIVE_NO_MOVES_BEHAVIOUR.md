@@ -7,7 +7,7 @@
 > **SSoT alignment:** This file is a derived catalogue over:
 >
 > - Canonical rules spec [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:1) – especially RR-CANON-R070–R072, R100, R170–R173 and the ANM cluster R2xx.
-> - Invariants & parity framework [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:1) – `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, `PARITY-TS-PY-ACTIVE-NO-MOVES`.
+> - Invariants & parity framework [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:1) – `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, `PARITY-TS-PY-ACTIVE-NO-MOVES`.
 > - Implementation mapping [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:1) and rules engine architecture [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md:1).
 > - Python strict-invariant and parity tests under [`ai-service/tests/invariants`](../../ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py:1) and [`ai-service/tests/parity`](../../ai-service/tests/parity/test_active_no_moves_line_processing_regression.py:1).
 >
@@ -76,7 +76,7 @@ The scenarios below capture concrete shapes that have historically exercised the
   - Phase-local invariants may still treat the MOVEMENT micro-phase as “no local moves”, but global ANM invariants (`INV-ACTIVE-NO-MOVES`) must account for placement availability.
 - **Implementations / tests:**
   - Python invariant regression [`test_active_no_moves_movement_placements_only_regression.py`](../../ai-service/tests/invariants/test_active_no_moves_movement_placements_only_regression.py:1).
-  - TS short soaks and plateau diagnostics described in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:84).
+  - TS short soaks and plateau diagnostics described in [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:84).
 - **RR-CANON mapping:**
   - Global placement availability in `RR-CANON-R200`.
   - ANM definition in `RR-CANON-R201` / `RR-CANON-R203` (global actions rather than phase-local only).
@@ -97,7 +97,7 @@ The scenarios below capture concrete shapes that have historically exercised the
   - Any attempt to leave an ACTIVE / MOVEMENT state with a permanently eliminated `currentPlayer` and no actions is invalid under `INV-ACTIVE-NO-MOVES` and `INV-PHASE-CONSISTENCY`.
 - **Implementations / tests:**
   - Python regression [`test_active_no_moves_movement_fully_eliminated_regression.py`](../../ai-service/tests/invariants/test_active_no_moves_movement_fully_eliminated_regression.py:1).
-  - Phase-consistency discussion in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:167).
+  - Phase-consistency discussion in [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:167).
 - **RR-CANON mapping:**
   - Turn rotation and permanent elimination in `RR‑CANON‑R201`.
   - Turn rotation requirements in `RR-CANON-R070`–`RR-CANON-R072` and the ANM cluster.
@@ -194,7 +194,7 @@ The scenarios below capture concrete shapes that have historically exercised the
   - ANM invariants are enforced per active player only; temporarily inactive players (no turn-material) and permanently eliminated players are irrelevant to `INV-ACTIVE-NO-MOVES` but can still affect scoring and some connectivity rules.
 - **Implementations / tests:**
   - TS and Python turn-rotation logic as described in [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md:665).
-  - Python invariants and self-play soaks under `INV-ACTIVE-NO-MOVES` and `INV-PHASE-CONSISTENCY` in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:167).
+  - Python invariants and self-play soaks under `INV-ACTIVE-NO-MOVES` and `INV-PHASE-CONSISTENCY` in [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md:167).
 - **RR-CANON mapping:**
   - Turn rotation and elimination semantics in `RR‑CANON‑R201`, together with `RR-CANON-R142` (Territory colour-representation) and `RR-CANON-R170`–`R173`.
 

@@ -33,31 +33,31 @@ This document tracks architectural debt identified in the RingRift codebase and 
 
 ### Problem
 
-Two competing phase transition systems exist:
+Two phase-transition systems existed historically:
 
-1. **Legacy**: `phaseStateMachine.ts` + `phase_machine.py` (deprecated but still used)
-2. **Canonical**: `TurnStateMachine.ts` + FSM (the intended source of truth)
+1. **Legacy (REMOVED on TS side)**: `phaseStateMachine.ts` (**REMOVED** in PASS30-R1) + `phase_machine.py` (deprecated legacy Python fallback)
+2. **Canonical**: `TurnStateMachine.ts` + `FSMAdapter.ts` (the source of truth)
 
-Both marked @deprecated but still in production paths.
+**Note:** Any mention of `phaseStateMachine.ts` below is historical; the file no longer exists.
 
 ### Files Involved
 
-| File                                                   | Lines | Status                      |
-| ------------------------------------------------------ | ----- | --------------------------- |
-| `src/shared/engine/orchestration/phaseStateMachine.ts` | 447   | DEPRECATED (state tracking) |
-| `ai-service/app/rules/phase_machine.py`                | 380   | DEPRECATED (parity)         |
-| `src/shared/engine/fsm/TurnStateMachine.ts`            | 1112  | CANONICAL (validation)      |
-| `src/shared/engine/fsm/FSMAdapter.ts`                  | 2066  | CANONICAL (validation)      |
-| `ai-service/app/rules/fsm.py`                          | 865   | EXPERIMENTAL                |
+| File                                                   | Lines | Status                       |
+| ------------------------------------------------------ | ----- | ---------------------------- |
+| `src/shared/engine/orchestration/phaseStateMachine.ts` | 447   | **REMOVED** (PASS30-R1)      |
+| `ai-service/app/rules/phase_machine.py`                | 380   | DEPRECATED (legacy fallback) |
+| `src/shared/engine/fsm/TurnStateMachine.ts`            | 1112  | CANONICAL (validation + fsm) |
+| `src/shared/engine/fsm/FSMAdapter.ts`                  | 2066  | CANONICAL (validation + fsm) |
+| `ai-service/app/rules/fsm.py`                          | 865   | EXPERIMENTAL                 |
 
 ### Current Architecture (Dual-System)
 
 **See**: [`PHASE_ORCHESTRATION_ARCHITECTURE.md`](PHASE_ORCHESTRATION_ARCHITECTURE.md)
 
-The systems coexist with clear responsibilities:
+The system now uses a single canonical TS FSM stack:
 
-- **FSM**: Canonical for validation (`validateMoveWithFSM`) and phase resolution (`computeFSMOrchestration`)
-- **Legacy**: Used for state tracking during `processTurn()` execution
+- **FSM**: Canonical for validation (`validateMoveWithFSM`) and phase/turn advancement (via `TurnStateMachine` + `FSMAdapter`)
+- **Legacy (historical)**: `phaseStateMachine.ts` was removed; do not reference it as a current module
 
 This is working correctly with 254+ tests passing.
 
@@ -370,7 +370,7 @@ Deprecated functions still exported, design-time stubs that throw, unused helper
 
 ### Files to Review
 
-- `phaseStateMachine.ts` - Entire module deprecated
+- `phaseStateMachine.ts` - Entire module **REMOVED** (PASS30-R1)
 - `turnDelegateHelpers.ts` - Stubs that throw
 - `rulesConfig.ts` - Possibly unused
 - Various `*Helpers.ts` files with incomplete consolidation
@@ -396,17 +396,17 @@ Deprecated functions still exported, design-time stubs that throw, unused helper
   - Test updated to use `option1Cost`
 - [x] Deprecated exports inventoried (2025-12-11)
 - [x] Dependencies verified (2025-12-11)
-- [ ] Remaining cleanup pending (phaseStateMachine.ts depends on P1)
+- [ ] Remaining cleanup pending (historical note: `phaseStateMachine.ts` removed in PASS30-R1)
 
 ### Deprecated Exports Inventory (2025-12-11)
 
-| Location                   | Export                    | Status  | Blocker                                       |
-| -------------------------- | ------------------------- | ------- | --------------------------------------------- |
-| `phaseStateMachine.ts`     | Entire module (9 exports) | BLOCKED | P1 - turnOrchestrator uses it                 |
-| `turnOrchestrator.ts:2280` | `computeNextPhase`        | Keep    | Internal orchestrator use                     |
-| `turnOrchestrator.ts:2785` | `validateMove` (legacy)   | Keep    | Used by processTurn, FSM validation preferred |
-| `core.ts:781`              | `hashGameState`           | Keep    | Alias to fingerprintGameState, heavy usage    |
-| `types/game.ts:138-146`    | MoveType aliases          | Keep    | Historical game recordings                    |
+| Location                   | Export                    | Status      | Blocker                                       |
+| -------------------------- | ------------------------- | ----------- | --------------------------------------------- |
+| `phaseStateMachine.ts`     | Entire module (9 exports) | **REMOVED** | —                                             |
+| `turnOrchestrator.ts:2280` | `computeNextPhase`        | Keep        | Internal orchestrator use                     |
+| `turnOrchestrator.ts:2785` | `validateMove` (legacy)   | Keep        | Used by processTurn, FSM validation preferred |
+| `core.ts:781`              | `hashGameState`           | Keep        | Alias to fingerprintGameState, heavy usage    |
+| `types/game.ts:138-146`    | MoveType aliases          | Keep        | Historical game recordings                    |
 
 **MoveType Deprecations (keep for backwards compatibility):**
 

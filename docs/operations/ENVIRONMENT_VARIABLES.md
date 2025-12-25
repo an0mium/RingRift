@@ -1099,18 +1099,19 @@ Email sender address.
 
 ### `RINGRIFT_RULES_MODE`
 
-| Property | Value                    |
-| -------- | ------------------------ |
-| Type     | `enum`                   |
-| Values   | `ts`, `python`, `shadow` |
-| Default  | `ts`                     |
-| Required | No                       |
+| Property | Value          |
+| -------- | -------------- |
+| Type     | `enum`         |
+| Values   | `ts`, `python` |
+| Default  | `ts`           |
+| Required | No             |
 
 Rules engine mode:
 
 - `ts`: TypeScript engine only (default)
-- `shadow`: Python runs in parallel for validation (development)
 - `python`: Python engine is authoritative
+
+**Note:** Legacy `shadow` mode was removed; any `shadow` value is treated as `ts`.
 
 ---
 

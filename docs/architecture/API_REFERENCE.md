@@ -31,22 +31,33 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 | Access Token  | API authentication       | 15 minutes |
 | Refresh Token | Obtain new access tokens | 7 days     |
 
+### Refresh Token Handling
+
+- Login and register set a `refreshToken` **httpOnly cookie** (scoped to `/api/auth`).
+- `/auth/refresh` accepts the refresh token from the cookie **or** the request body.
+- Refresh tokens are rotated on each refresh and stored hashed server‑side with token‑family tracking; reuse triggers `AUTH_REFRESH_TOKEN_REUSED`.
+- For backwards compatibility, the refresh token is also returned in the JSON response body.
+
+### Login Lockout
+
+Repeated failed logins trigger a temporary lockout and a `429 AUTH_LOGIN_LOCKED_OUT` response. Thresholds and durations are configurable via `AUTH_MAX_FAILED_LOGIN_ATTEMPTS`, `AUTH_FAILED_LOGIN_WINDOW_SECONDS`, `AUTH_LOCKOUT_DURATION_SECONDS`, and `AUTH_LOGIN_LOCKOUT_ENABLED` in [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md).
+
 ---
 
 ## 📁 API Endpoints Overview
 
 ### Authentication (`/api/auth`)
 
-| Method | Endpoint                | Description                 | Auth Required              |
-| ------ | ----------------------- | --------------------------- | -------------------------- |
-| POST   | `/auth/register`        | Register a new user account | ❌                         |
-| POST   | `/auth/login`           | Login and obtain tokens     | ❌                         |
-| POST   | `/auth/refresh`         | Refresh access token        | ❌ (refresh token in body) |
-| POST   | `/auth/logout`          | Logout from current device  | ✅                         |
-| POST   | `/auth/logout-all`      | Logout from all devices     | ✅                         |
-| POST   | `/auth/verify-email`    | Verify email address        | ❌                         |
-| POST   | `/auth/forgot-password` | Request password reset      | ❌                         |
-| POST   | `/auth/reset-password`  | Reset password with token   | ❌                         |
+| Method | Endpoint                | Description                 | Auth Required                     |
+| ------ | ----------------------- | --------------------------- | --------------------------------- |
+| POST   | `/auth/register`        | Register a new user account | ❌                                |
+| POST   | `/auth/login`           | Login and obtain tokens     | ❌                                |
+| POST   | `/auth/refresh`         | Refresh access token        | ❌ (refresh token cookie or body) |
+| POST   | `/auth/logout`          | Logout from current device  | ✅                                |
+| POST   | `/auth/logout-all`      | Logout from all devices     | ✅                                |
+| POST   | `/auth/verify-email`    | Verify email address        | ❌                                |
+| POST   | `/auth/forgot-password` | Request password reset      | ❌                                |
+| POST   | `/auth/reset-password`  | Reset password with token   | ❌                                |
 
 ### User (`/api/users`)
 
@@ -78,6 +89,49 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 | GET    | `/games/:gameId/diagnostics/session` | Get in-memory session diagnostics | ✅            |
 | GET    | `/games/lobby/available`             | List available games to join      | ✅            |
 | GET    | `/games/user/:userId`                | Get games for a specific user     | ✅            |
+
+#### Create game request body
+
+`POST /games` accepts a superset of the following payload (optional fields omitted are defaulted server-side):
+
+```json
+{
+  "boardType": "square8",
+  "timeControl": {
+    "type": "rapid",
+    "initialTime": 600,
+    "increment": 10
+  },
+  "isRated": true,
+  "isPrivate": false,
+  "maxPlayers": 2,
+  "aiOpponents": {
+    "count": 1,
+    "difficulty": [4],
+    "mode": "service",
+    "aiType": "heuristic",
+    "aiTypes": ["heuristic"]
+  },
+  "rulesOptions": {
+    "swapRuleEnabled": true,
+    "ringsPerPlayer": 18,
+    "lpsRoundsRequired": 3
+  },
+  "seed": 12345,
+  "isCalibrationGame": false,
+  "calibrationDifficulty": 4
+}
+```
+
+Notes:
+
+- `timeControl.type` is `blitz`, `rapid`, or `classical`; `initialTime` is 60-7200 seconds; `increment` is 0-60 seconds.
+- AI games must set `isRated=false`. `aiOpponents.difficulty` must provide at least `count` entries.
+- `aiOpponents.mode` is `local_heuristic` or `service`. `aiTypes` (per opponent, same ordering as `difficulty`) overrides `aiType` (single value).
+- Allowed AI types: `random`, `heuristic`, `minimax`, `mcts`, `descent`.
+- `rulesOptions` overrides per-game rules (swap rule for 2‑player, ring supply, LPS rounds).
+- `seed` pins the RNG for deterministic replays and parity debugging.
+- Calibration fields are optional metadata for AI difficulty studies (typically paired with AI opponents and unrated games).
 
 > **Lifecycle / spectator invariant:** The game detail, history, and diagnostics
 > routes (`GET /games/:gameId`, `GET /games/:gameId/history`,
@@ -120,6 +174,13 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 | GET    | `/selfplay/games/:gameId`       | Fetch full game replay (requires `db` query param)   | ❌            |
 | GET    | `/selfplay/games/:gameId/state` | Reconstruct state at a move (requires `db` + `move`) | ❌            |
 | GET    | `/selfplay/stats`               | Aggregate stats for a DB (requires `db` query param) | ❌            |
+
+#### Self-play query parameters and safety
+
+- All self-play endpoints require a `db` query parameter pointing at a `.db` file **within** the allowed roots:
+  `data/games`, `ai-service/logs/cmaes`, or `ai-service/data/games` (relative to repo root).
+- `GET /selfplay/games` supports filters: `boardType` (`square8`, `square19`, `hex8`, `hexagonal`), `numPlayers` (2-4), `source` (string), `hasWinner` (`true`/`false`), `limit` (1-500), `offset` (0-100000).
+- `GET /selfplay/games/:gameId/state` requires a `move` query parameter (move number).
 
 ### Telemetry (`/api/telemetry`)
 

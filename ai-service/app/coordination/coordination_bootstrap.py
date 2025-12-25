@@ -627,13 +627,52 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
         bus = get_event_bus()
 
         async def on_selfplay_complete_for_sync(event):
-            """Handle SELFPLAY_COMPLETE - trigger data sync if configured."""
+            """Handle SELFPLAY_COMPLETE - trigger data sync if quality passes gate."""
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            # December 2025: Quality gate before sync trigger
+            # Prevents low-quality selfplay data from polluting training pipeline
+            games_count = payload.get("games_count", 0)
+            quality_score = payload.get("quality_score", 0.0)
+
+            QUALITY_GATE_THRESHOLD = 0.5  # Minimum quality to trigger sync
+            MIN_GAMES_FOR_SYNC = 50  # Minimum games to bother syncing
+
+            if quality_score > 0 and quality_score < QUALITY_GATE_THRESHOLD:
+                logger.info(
+                    f"[Bootstrap] Skipping sync - quality {quality_score:.2f} below "
+                    f"threshold {QUALITY_GATE_THRESHOLD} (need more diverse games)"
+                )
+                # Emit low quality event for feedback loop
+                try:
+                    from app.coordination.event_router import RouterEvent, EventSource
+                    low_quality_event = RouterEvent(
+                        event_type="LOW_QUALITY_DETECTED",
+                        payload={
+                            "config": payload.get("config", ""),
+                            "quality_score": quality_score,
+                            "games_count": games_count,
+                            "source": "pre_sync_gate",
+                        },
+                        source="coordination_bootstrap",
+                        origin=EventSource.ROUTER,
+                    )
+                    await bus.publish(low_quality_event)
+                except Exception:
+                    pass
+                return
+
+            if games_count > 0 and games_count < MIN_GAMES_FOR_SYNC:
+                logger.debug(f"[Bootstrap] Skipping sync - only {games_count} games")
+                return
+
+            # Quality OK - proceed with sync
             if hasattr(sync_coord, "trigger_sync_on_selfplay_complete"):
                 await sync_coord.trigger_sync_on_selfplay_complete(event)
             elif hasattr(sync_coord, "schedule_sync"):
                 # Schedule a sync for the board type that finished selfplay
-                board_type = event.payload.get("board_type")
-                num_players = event.payload.get("num_players")
+                board_type = payload.get("board_type")
+                num_players = payload.get("num_players")
                 if board_type and num_players:
                     await sync_coord.schedule_sync(
                         category="games",

@@ -40,11 +40,11 @@ This document tracks the FSM extension roadmap, now largely complete.
 
 ### Related Components
 
-| File                                                   | Role                                               |
-| ------------------------------------------------------ | -------------------------------------------------- |
-| `src/shared/engine/orchestration/phaseStateMachine.ts` | Legacy phase transition helpers (being superseded) |
-| `ai-service/app/rules/history_contract.py`             | Python phase↔move contract (must mirror FSM)       |
-| `ai-service/app/game_engine/__init__.py`               | Python GameEngine (parity target)                  |
+| File                                                   | Role                                                                   |
+| ------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `src/shared/engine/orchestration/phaseStateMachine.ts` | **REMOVED** legacy phase-transition helpers (replaced by TS FSM stack) |
+| `ai-service/app/rules/history_contract.py`             | Python phase↔move contract (must mirror FSM)                           |
+| `ai-service/app/game_engine/__init__.py`               | Python GameEngine (parity target)                                      |
 
 ---
 

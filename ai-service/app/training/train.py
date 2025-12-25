@@ -2944,6 +2944,29 @@ def train_model(
         shutdown_handler = GracefulShutdownHandler()
         shutdown_handler.setup(_emergency_checkpoint_callback)
 
+    # Wire REGRESSION_DETECTED → automatic rollback (December 2025)
+    # This ensures that if model performance regresses during training,
+    # we can automatically roll back to the last good checkpoint.
+    rollback_handler = None
+    try:
+        from app.training.rollback_manager import wire_regression_to_rollback
+        from app.models.model_registry import get_model_registry
+
+        registry = get_model_registry()
+        rollback_handler = wire_regression_to_rollback(
+            registry=registry,
+            auto_rollback_enabled=True,  # Auto-rollback on CRITICAL regressions
+            require_approval_for_severe=True,  # Prompt for SEVERE regressions
+            subscribe_to_events=True,  # Subscribe to event bus
+        )
+        if not distributed or is_main_process():
+            logger.info("[train_model] Regression → rollback wiring activated")
+    except ImportError:
+        pass  # Rollback manager not available
+    except Exception as e:
+        if not distributed or is_main_process():
+            logger.debug(f"[train_model] Rollback wiring not available: {e}")
+
     # Aliases for backwards compatibility with existing loop code
     _last_good_checkpoint_path = training_state.last_good_checkpoint_path
     _last_good_epoch = training_state.last_good_epoch

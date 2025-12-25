@@ -531,7 +531,7 @@ Client-side hook extraction from SandboxGameHost:
 TS Engine consolidation:
 
 - [x] FSMAdapter orchestration enhancements (`determineNextPhaseFromFSM`, `attemptFSMTransition`)
-- [x] Deprecation markers on `phaseStateMachine.determineNextPhase()` pointing to FSM
+- [x] Legacy `phaseStateMachine` references explicitly marked **REMOVED** and redirected to the canonical FSM stack
 - [x] FSM shadow validation in turnOrchestrator (via `RINGRIFT_FSM_SHADOW_VALIDATION` flag)
 - [x] Module documentation updates for helper → aggregate consolidation hierarchy
 - [x] Helper files updated with deprecation/migration guidance (captureChainHelpers, lineDecisionHelpers, etc.)

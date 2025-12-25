@@ -311,7 +311,7 @@ describe('forced_elimination phase (RR-CANON-R070, R100, R204)', () => {
     it('forced_elimination is part of the canonical phase sequence', () => {
       // The FSM-based orchestration handles forced_elimination transitions.
       // When in forced_elimination, the turn orchestrator processes it and advances.
-      // This test verifies phase is valid without depending on deprecated phaseStateMachine.
+      // Phase transitions are handled by TurnStateMachine/FSMAdapter (canonical FSM).
       const state = createTestGameState();
       state.currentPhase = 'forced_elimination';
 

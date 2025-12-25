@@ -426,7 +426,7 @@ Each dashboard panel references specific runbooks for alert investigation:
 - PASS21 Assessment: [`docs/PASS21_ASSESSMENT_REPORT.md`](../../../docs/archive/assessments/PASS21_ASSESSMENT_REPORT.md) (Section 2.1)
 - Metrics Service: [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts)
 - Contract Vectors: [`docs/CONTRACT_VECTORS_DESIGN.md`](../../../docs/rules/CONTRACT_VECTORS_DESIGN.md)
-- Invariants Framework: [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../../docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)
+- Invariants Framework: [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../../docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)
 
 ## Version History
 

@@ -110,6 +110,13 @@ def _worker_init(config_dict: dict) -> None:
     import sys
     global _worker_config
 
+    # Limit thread spawning per worker to prevent fork bomb cascades
+    # Set these BEFORE importing torch to take effect
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
     # Store config in worker global
     _worker_config.clear()
     _worker_config.update(config_dict)
@@ -118,6 +125,15 @@ def _worker_init(config_dict: dict) -> None:
     ai_service_root = config_dict.get('_ai_service_root')
     if ai_service_root and ai_service_root not in sys.path:
         sys.path.insert(0, ai_service_root)
+
+    # Limit PyTorch threads if available
+    try:
+        import torch
+        torch.set_num_threads(1)
+        if hasattr(torch, 'set_num_interop_threads'):
+            torch.set_num_interop_threads(1)
+    except ImportError:
+        pass  # PyTorch not available
 
 def _get_opening_book(board_type: str, num_players: int, min_openings: int):
     """Get or initialize the worker's opening book (lazy initialization)."""
@@ -638,7 +654,20 @@ def generate_dataset_parallel(
         Total number of samples generated
     """
     if num_workers is None:
-        num_workers = max(1, mp.cpu_count() - 1)
+        # Cap default workers to prevent fork bomb on high-core systems (RunPod, Lambda, etc.)
+        # Use RINGRIFT_PARALLEL_WORKERS env var to override if needed
+        max_default_workers = int(os.environ.get("RINGRIFT_MAX_DEFAULT_WORKERS", "16"))
+        raw_workers = os.environ.get("RINGRIFT_PARALLEL_WORKERS", "").strip()
+        if raw_workers:
+            num_workers = max(1, int(raw_workers))
+        else:
+            num_workers = min(max_default_workers, max(1, mp.cpu_count() - 1))
+
+        if mp.cpu_count() > max_default_workers:
+            logger.info(
+                f"[Parallel] Capping workers to {num_workers} (cpu_count={mp.cpu_count()}). "
+                f"Set RINGRIFT_PARALLEL_WORKERS to override."
+            )
 
     # Check environment variable for opening book if not explicitly set
     if use_opening_book is None:

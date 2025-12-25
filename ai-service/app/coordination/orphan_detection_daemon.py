@@ -272,6 +272,10 @@ class OrphanDetectionDaemon:
                 except Exception as e:
                     logger.error(f"Failed to register orphan {orphan.path}: {e}")
 
+            # Emit registration event if any orphans were registered
+            if registered_count > 0:
+                await self._emit_registration_event(orphans[:registered_count])
+
         except ImportError:
             logger.debug("ClusterManifest not available for registration")
         except Exception as e:
@@ -279,28 +283,66 @@ class OrphanDetectionDaemon:
 
         return registered_count
 
+    async def _emit_registration_event(self, registered: list[OrphanInfo]) -> None:
+        """Emit ORPHAN_GAMES_REGISTERED event."""
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                return
+
+            total_games = sum(o.game_count for o in registered)
+
+            await router.publish(
+                DataEventType.ORPHAN_GAMES_REGISTERED,
+                {
+                    "registered_count": len(registered),
+                    "total_games": total_games,
+                    "registered_paths": [str(o.path) for o in registered],
+                    "timestamp": time.time(),
+                },
+            )
+            logger.info(f"Emitted ORPHAN_GAMES_REGISTERED: {len(registered)} databases")
+
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"Failed to emit registration event: {e}")
+
     async def _emit_detection_event(self, orphans: list[OrphanInfo]) -> None:
         """Emit ORPHAN_GAMES_DETECTED event."""
         try:
-            from app.coordination.event_router import emit
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.debug("Event router not available")
+                return
 
             total_games = sum(o.game_count for o in orphans)
             total_bytes = sum(o.file_size_bytes for o in orphans)
 
-            await emit(
-                "ORPHAN_GAMES_DETECTED",
+            await router.publish(
+                DataEventType.ORPHAN_GAMES_DETECTED,
                 {
                     "orphan_count": len(orphans),
                     "total_games": total_games,
                     "total_bytes": total_bytes,
                     "orphan_paths": [str(o.path) for o in orphans],
+                    "board_types": list({o.board_type for o in orphans if o.board_type}),
                     "timestamp": time.time(),
                 },
             )
-            logger.info("Emitted ORPHAN_GAMES_DETECTED event")
+            logger.info(
+                f"Emitted ORPHAN_GAMES_DETECTED: {len(orphans)} orphans, "
+                f"{total_games} total games"
+            )
 
-        except ImportError:
-            logger.debug("event_router not available, skipping event emission")
+        except ImportError as e:
+            logger.debug(f"Event system not available: {e}")
         except Exception as e:
             logger.error(f"Failed to emit event: {e}")
 

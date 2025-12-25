@@ -88,26 +88,28 @@
 
 ### 1.3 Legacy Code Status
 
-#### PhaseStateMachine (Removed from Production)
+#### PhaseStateMachine (Fully Deleted)
 
-Location: [`src/shared/engine/orchestration/phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts)
+**Status:** ✅ Completely deleted in PASS30-R1 (December 2025).
 
-**Status:** ✅ Removed from production code paths. Retained only for test backward compatibility.
+The `phaseStateMachine.ts` file has been fully removed from the codebase. All functionality has been consolidated into:
+
+- `TurnStateMachine.ts` for phase transition rules
+- `FSMAdapter.ts` for bridging FSM with game types
+- Inline `ProcessingStateContainer` in `turnOrchestrator.ts` for turn-processing state
 
 **What was done:**
 
 1. Created inline `ProcessingStateContainer` class in `turnOrchestrator.ts`
 2. Created inline `createProcessingState` factory function
 3. Replaced all `PhaseStateMachine` usage with `ProcessingStateContainer`
-4. Added strong deprecation notices to `phaseStateMachine.ts`
-5. Updated `index.ts` exports with deprecation warnings
+4. Deleted `phaseStateMachine.ts` file entirely
+5. Removed deprecated exports from `index.ts`
 
-**The `phaseStateMachine.ts` file is retained only for:**
+**Associated tests were also removed:**
 
-- `tests/unit/phaseStateMachine.shared.test.ts` - 31 direct references
-- `tests/unit/phaseStateMachine.branchCoverage.test.ts` - 31 direct references
-
-These test files validate the deprecated helper functions (which may still be useful as reference implementations). They can be deleted in a future cleanup if desired.
+- `tests/unit/phaseStateMachine.shared.test.ts` (deleted)
+- `tests/unit/phaseStateMachine.branchCoverage.test.ts` (deleted)
 
 **All production code now uses FSM exclusively:**
 
@@ -306,7 +308,6 @@ The TurnStateMachine is the canonical source of truth for phase transitions, mov
 ## References
 
 - **FSM Implementation:** [`src/shared/engine/fsm/`](../../src/shared/engine/fsm)
-- **Legacy PhaseStateMachine:** [`src/shared/engine/orchestration/phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts)
 - **Turn Orchestrator:** [`src/shared/engine/orchestration/turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts)
 - **Python FSM:** [`ai-service/app/rules/fsm.py`](../../ai-service/app/rules/fsm.py)
 - **Contract Vectors:** [`tests/fixtures/contract-vectors/v2/`](../../tests/fixtures/contract-vectors/v2)

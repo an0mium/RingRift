@@ -131,18 +131,20 @@ All rate limit configurations follow the pattern:
 
 #### Game Endpoints
 
-| Variable                               | Default | Description                |
-| -------------------------------------- | ------- | -------------------------- |
-| `RATE_LIMIT_GAME_POINTS`               | 200     | Game management operations |
-| `RATE_LIMIT_GAME_DURATION`             | 60      | Window in seconds          |
-| `RATE_LIMIT_GAME_BLOCK_DURATION`       | 300     | Block: 5 minutes           |
-| `RATE_LIMIT_GAME_MOVES_POINTS`         | 100     | Active gameplay moves      |
-| `RATE_LIMIT_GAME_MOVES_DURATION`       | 60      | Window in seconds          |
-| `RATE_LIMIT_GAME_MOVES_BLOCK_DURATION` | 60      | Block: 1 minute            |
-| `RATE_LIMIT_GAME_CREATE_USER_POINTS`   | 20      | Game creation per user     |
-| `RATE_LIMIT_GAME_CREATE_USER_DURATION` | 600     | Window: 10 minutes         |
-| `RATE_LIMIT_GAME_CREATE_IP_POINTS`     | 50      | Game creation per IP       |
-| `RATE_LIMIT_GAME_CREATE_IP_DURATION`   | 600     | Window: 10 minutes         |
+| Variable                                     | Default | Description                |
+| -------------------------------------------- | ------- | -------------------------- |
+| `RATE_LIMIT_GAME_POINTS`                     | 200     | Game management operations |
+| `RATE_LIMIT_GAME_DURATION`                   | 60      | Window in seconds          |
+| `RATE_LIMIT_GAME_BLOCK_DURATION`             | 300     | Block: 5 minutes           |
+| `RATE_LIMIT_GAME_MOVES_POINTS`               | 100     | Active gameplay moves      |
+| `RATE_LIMIT_GAME_MOVES_DURATION`             | 60      | Window in seconds          |
+| `RATE_LIMIT_GAME_MOVES_BLOCK_DURATION`       | 60      | Block: 1 minute            |
+| `RATE_LIMIT_GAME_CREATE_USER_POINTS`         | 20      | Game creation per user     |
+| `RATE_LIMIT_GAME_CREATE_USER_DURATION`       | 600     | Window: 10 minutes         |
+| `RATE_LIMIT_GAME_CREATE_USER_BLOCK_DURATION` | 600     | Block: 10 minutes          |
+| `RATE_LIMIT_GAME_CREATE_IP_POINTS`           | 50      | Game creation per IP       |
+| `RATE_LIMIT_GAME_CREATE_IP_DURATION`         | 600     | Window: 10 minutes         |
+| `RATE_LIMIT_GAME_CREATE_IP_BLOCK_DURATION`   | 600     | Block: 10 minutes          |
 
 #### WebSocket Endpoints
 
@@ -154,18 +156,32 @@ All rate limit configurations follow the pattern:
 
 #### Specialized Endpoints
 
-| Variable                              | Default | Description               |
-| ------------------------------------- | ------- | ------------------------- |
-| `RATE_LIMIT_DATA_EXPORT_POINTS`       | 1       | GDPR data export per user |
-| `RATE_LIMIT_DATA_EXPORT_DURATION`     | 3600    | Window: 1 hour            |
-| `RATE_LIMIT_TELEMETRY_POINTS`         | 100     | Client telemetry events   |
-| `RATE_LIMIT_TELEMETRY_DURATION`       | 60      | Window in seconds         |
-| `RATE_LIMIT_CLIENT_ERRORS_POINTS`     | 20      | Client error reports      |
-| `RATE_LIMIT_CLIENT_ERRORS_DURATION`   | 60      | Window in seconds         |
-| `RATE_LIMIT_INTERNAL_HEALTH_POINTS`   | 30      | Health check probes       |
-| `RATE_LIMIT_INTERNAL_HEALTH_DURATION` | 60      | Window in seconds         |
-| `RATE_LIMIT_SANDBOX_AI_POINTS`        | 1000    | Sandbox AI moves          |
-| `RATE_LIMIT_SANDBOX_AI_DURATION`      | 60      | Window in seconds         |
+| Variable                                    | Default | Description               |
+| ------------------------------------------- | ------- | ------------------------- |
+| `RATE_LIMIT_DATA_EXPORT_POINTS`             | 1       | GDPR data export per user |
+| `RATE_LIMIT_DATA_EXPORT_DURATION`           | 3600    | Window: 1 hour            |
+| `RATE_LIMIT_DATA_EXPORT_BLOCK_DURATION`     | 3600    | Block: 1 hour             |
+| `RATE_LIMIT_TELEMETRY_POINTS`               | 100     | Client telemetry events   |
+| `RATE_LIMIT_TELEMETRY_DURATION`             | 60      | Window in seconds         |
+| `RATE_LIMIT_TELEMETRY_BLOCK_DURATION`       | 300     | Block: 5 minutes          |
+| `RATE_LIMIT_CLIENT_ERRORS_POINTS`           | 20      | Client error reports      |
+| `RATE_LIMIT_CLIENT_ERRORS_DURATION`         | 60      | Window in seconds         |
+| `RATE_LIMIT_CLIENT_ERRORS_BLOCK_DURATION`   | 300     | Block: 5 minutes          |
+| `RATE_LIMIT_INTERNAL_HEALTH_POINTS`         | 30      | Health check probes       |
+| `RATE_LIMIT_INTERNAL_HEALTH_DURATION`       | 60      | Window in seconds         |
+| `RATE_LIMIT_INTERNAL_HEALTH_BLOCK_DURATION` | 60      | Block: 1 minute           |
+| `RATE_LIMIT_ALERT_WEBHOOK_POINTS`           | 10      | Alert webhooks            |
+| `RATE_LIMIT_ALERT_WEBHOOK_DURATION`         | 60      | Window in seconds         |
+| `RATE_LIMIT_ALERT_WEBHOOK_BLOCK_DURATION`   | 300     | Block: 5 minutes          |
+| `RATE_LIMIT_USER_RATING_POINTS`             | 30      | User rating lookups       |
+| `RATE_LIMIT_USER_RATING_DURATION`           | 60      | Window in seconds         |
+| `RATE_LIMIT_USER_RATING_BLOCK_DURATION`     | 120     | Block: 2 minutes          |
+| `RATE_LIMIT_USER_SEARCH_POINTS`             | 20      | User search queries       |
+| `RATE_LIMIT_USER_SEARCH_DURATION`           | 60      | Window in seconds         |
+| `RATE_LIMIT_USER_SEARCH_BLOCK_DURATION`     | 120     | Block: 2 minutes          |
+| `RATE_LIMIT_SANDBOX_AI_POINTS`              | 1000    | Sandbox AI moves          |
+| `RATE_LIMIT_SANDBOX_AI_DURATION`            | 60      | Window in seconds         |
+| `RATE_LIMIT_SANDBOX_AI_BLOCK_DURATION`      | 60      | Block: 1 minute           |
 
 #### Bypass Configuration (STAGING ONLY)
 
@@ -182,7 +198,7 @@ All rate limit configurations follow the pattern:
 
 ### Endpoint-Specific Limits
 
-The system defines 17 rate limiter configurations:
+The system defines 19 rate limiter configurations:
 
 ```typescript
 // From rateLimiter.ts

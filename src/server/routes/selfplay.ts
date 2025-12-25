@@ -187,14 +187,17 @@ router.get('/databases', (req: Request, res: Response) => {
  *           type: string
  *       - name: boardType
  *         in: query
- *         description: Filter by board type (square8, square19, hex)
+ *         description: Filter by board type (square8, square19, hex8, hexagonal)
  *         schema:
  *           type: string
+ *           enum: [square8, square19, hex8, hexagonal]
  *       - name: numPlayers
  *         in: query
- *         description: Filter by number of players
+ *         description: Filter by number of players (2-4)
  *         schema:
  *           type: integer
+ *           minimum: 2
+ *           maximum: 4
  *       - name: source
  *         in: query
  *         description: Filter by source (cmaes, selfplay, etc.)
@@ -210,12 +213,16 @@ router.get('/databases', (req: Request, res: Response) => {
  *         description: Maximum number of games to return
  *         schema:
  *           type: integer
+ *           minimum: 1
+ *           maximum: 500
  *           default: 50
  *       - name: offset
  *         in: query
  *         description: Number of games to skip
  *         schema:
  *           type: integer
+ *           minimum: 0
+ *           maximum: 100000
  *           default: 0
  *     responses:
  *       200:

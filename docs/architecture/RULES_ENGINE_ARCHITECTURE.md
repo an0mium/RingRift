@@ -73,12 +73,12 @@ important groups are:
 
 - **Turn sequencing & orchestration**
   - Shared phase/turn state machine: [`turnLogic.ts`](../../src/shared/engine/turnLogic.ts:132)
-  - Canonical phase state machine for orchestrator: [`phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts:1)
+  - Canonical FSM: [`fsm/TurnStateMachine.ts`](../../src/shared/engine/fsm/TurnStateMachine.ts:1), [`fsm/FSMAdapter.ts`](../../src/shared/engine/fsm/FSMAdapter.ts:1)
   - **Canonical Turn Orchestrator:** [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) – single entry point (`processTurn` / `processTurnAsync`) for all turn processing, delegating to domain aggregates ([`PlacementAggregate.ts`](../../src/shared/engine/aggregates/PlacementAggregate.ts:1), [`MovementAggregate.ts`](../../src/shared/engine/aggregates/MovementAggregate.ts:1), [`CaptureAggregate.ts`](../../src/shared/engine/aggregates/CaptureAggregate.ts:1), [`LineAggregate.ts`](../../src/shared/engine/aggregates/LineAggregate.ts:1), [`TerritoryAggregate.ts`](../../src/shared/engine/aggregates/TerritoryAggregate.ts:1), [`VictoryAggregate.ts`](../../src/shared/engine/aggregates/VictoryAggregate.ts:1)) in deterministic order
 
-- **Orchestration (NEW - Phases 1-4 Complete)**
+- **Orchestration (Complete)**
   - Canonical orchestrator: [`src/shared/engine/orchestration/`](../../src/shared/engine/orchestration/README.md:1)
-  - Phase state machine: [`phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts:1)
+  - FSM: [`fsm/TurnStateMachine.ts`](../../src/shared/engine/fsm/TurnStateMachine.ts:1), [`fsm/FSMAdapter.ts`](../../src/shared/engine/fsm/FSMAdapter.ts:1) (legacy `phaseStateMachine.ts` removed in PASS30-R1)
   - Orchestration types: [`types.ts`](../../src/shared/engine/orchestration/types.ts:1)
   - Backend adapter: [`TurnEngineAdapter.ts`](../../src/server/game/turn/TurnEngineAdapter.ts:1)
   - Client adapter: [`SandboxOrchestratorAdapter.ts`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts:1)
@@ -177,7 +177,8 @@ truth:
 - Victory: [`VictoryAggregate.ts`](../../src/shared/engine/aggregates/VictoryAggregate.ts:51),
   [`VictoryAggregate.ts`](../../src/shared/engine/aggregates/VictoryAggregate.ts:1).
 - Turn orchestration: [`turnLogic.ts`](../../src/shared/engine/turnLogic.ts:132),
-  [`phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts:1),
+  [`fsm/TurnStateMachine.ts`](../../src/shared/engine/fsm/TurnStateMachine.ts:1),
+  [`fsm/FSMAdapter.ts`](../../src/shared/engine/fsm/FSMAdapter.ts:1),
   [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1),
   plus the domain aggregates listed above.
 
@@ -251,7 +252,7 @@ truth:
   - `apply_move(state, move, trace_mode=False)` – move application + phase transitions, delegating phase logic to the dedicated phase machine.
 - [`ai-service/app/rules/phase_machine.py`](../../ai-service/app/rules/phase_machine.py:1): Phase/turn state machine:
   - Pure phase + turn transitions (no board/player mutation, no move fabrication).
-  - Mirrors TS `phaseStateMachine.ts` / `turnOrchestrator.processPostMovePhases` for:
+  - Mirrors TS `TurnStateMachine.ts` / `FSMAdapter.ts` / `turnOrchestrator.processPostMovePhases` for:
     - `ring_placement → movement → capture/chain_capture → line_processing → territory_processing → forced_elimination → rotation`.
     - `NO_*_ACTION` transitions between decision phases.
 - [`ai-service/app/board_manager.py`](../../ai-service/app/board_manager.py:1): Board-level utilities (hashing, S-invariant, line detection, Territory regions).

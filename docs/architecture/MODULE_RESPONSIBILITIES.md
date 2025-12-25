@@ -73,9 +73,10 @@ The `src/shared/engine/` directory contains the following **active module groups
 
 - **Turn orchestration (canonical entry point)**
   - `orchestration/turnOrchestrator.ts` – `processTurn` / `processTurnAsync` and phase-level processing.
-  - `orchestration/phaseStateMachine.ts` – phase transition logic.
   - `orchestration/types.ts` – `ProcessTurnResult`, `PendingDecision`, `DecisionType`, `VictoryState`, etc.
   - `orchestration/index.ts` – orchestration barrel.
+  - `fsm/TurnStateMachine.ts` – canonical FSM for phase transitions.
+  - `fsm/FSMAdapter.ts` – bridges FSM with game types.
 
 - **Contracts (TS↔Python parity and vectors)**
   - `contracts/schemas.ts` – contract-vector schemas.
@@ -408,11 +409,6 @@ This section focuses on **helpers + aggregates + orchestrator + contracts**. Leg
 - **Key Types:** `ProcessTurnResult`, `PendingDecision`, `DecisionType`, `VictoryState`, and related orchestration results.
 - **Concern Type:** `HELPER` (type definitions).
 
-#### [`orchestration/phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts)
-
-- **Primary Responsibility:** Canonical phase transition logic for the orchestrator.
-- **Concern Type:** `ORCHESTRATION`.
-
 #### [`orchestration/turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts)
 
 - **Primary Responsibility:** **Single canonical entry point** for rules application.
@@ -501,14 +497,14 @@ These adapters connect the shared orchestrator to the backend and sandbox host e
 
 ## 3. Concern Type Summary (Canonical View)
 
-| Concern Type      | Representative Modules                                                                                                                                                                                                     |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **HELPER**        | `core.ts`, `types.ts`, `notation.ts`, `moveActionAdapter.ts`, `rulesConfig.ts`, `territoryBorders.ts`, `territoryProcessing.ts` (query side), `contracts/*`, `orchestration/types.ts`                                      |
-| **DETECTION**     | `lineDetection.ts`, `territoryDetection.ts`                                                                                                                                                                                |
-| **QUERY**         | `movementLogic.ts`, `captureLogic.ts`, `globalActions.ts`, `territoryDecisionHelpers.ts` (enumeration side), `lineDecisionHelpers.ts` (enumeration side), `heuristicEvaluation.ts`, `localAIMoveSelection.ts`              |
-| **MUTATION**      | `movementApplication.ts`, `territoryProcessing.ts` (apply side), `territoryDecisionHelpers.ts` (apply side), `lineDecisionHelpers.ts` (apply side), `placementHelpers.ts`, `initialState.ts`                               |
-| **AGGREGATE**     | `PlacementAggregate.ts`, `MovementAggregate.ts`, `CaptureAggregate.ts`, `LineAggregate.ts`, `TerritoryAggregate.ts`, `VictoryAggregate.ts`, `EliminationAggregate.ts`, `RecoveryAggregate.ts`                              |
-| **ORCHESTRATION** | `turnLogic.ts`, `turnDelegateHelpers.ts`, `turnLifecycle.ts`, `orchestration/phaseStateMachine.ts`, `orchestration/turnOrchestrator.ts`, `TurnEngineAdapter.ts`, `SandboxOrchestratorAdapter.ts`, `index.ts` (API surface) |
+| Concern Type      | Representative Modules                                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **HELPER**        | `core.ts`, `types.ts`, `notation.ts`, `moveActionAdapter.ts`, `rulesConfig.ts`, `territoryBorders.ts`, `territoryProcessing.ts` (query side), `contracts/*`, `orchestration/types.ts`                                                |
+| **DETECTION**     | `lineDetection.ts`, `territoryDetection.ts`                                                                                                                                                                                          |
+| **QUERY**         | `movementLogic.ts`, `captureLogic.ts`, `globalActions.ts`, `territoryDecisionHelpers.ts` (enumeration side), `lineDecisionHelpers.ts` (enumeration side), `heuristicEvaluation.ts`, `localAIMoveSelection.ts`                        |
+| **MUTATION**      | `movementApplication.ts`, `territoryProcessing.ts` (apply side), `territoryDecisionHelpers.ts` (apply side), `lineDecisionHelpers.ts` (apply side), `placementHelpers.ts`, `initialState.ts`                                         |
+| **AGGREGATE**     | `PlacementAggregate.ts`, `MovementAggregate.ts`, `CaptureAggregate.ts`, `LineAggregate.ts`, `TerritoryAggregate.ts`, `VictoryAggregate.ts`, `EliminationAggregate.ts`, `RecoveryAggregate.ts`                                        |
+| **ORCHESTRATION** | `turnLogic.ts`, `turnDelegateHelpers.ts`, `turnLifecycle.ts`, `fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`, `orchestration/turnOrchestrator.ts`, `TurnEngineAdapter.ts`, `SandboxOrchestratorAdapter.ts`, `index.ts` (API surface) |
 
 Legacy validators/mutators (`validators/*`, `mutators/*`, `mutators/TurnMutator.ts`) and the shared `GameEngine.ts` sit beneath this layer and are treated as **implementation plumbing** or compatibility shims.
 
@@ -547,7 +543,8 @@ graph TD
     end
 
     subgraph Orchestrator
-        phaseSM[orchestration/phaseStateMachine.ts]
+        fsmTSM[fsm/TurnStateMachine.ts]
+        fsmAdapter[fsm/FSMAdapter.ts]
         turnOrch[orchestration/turnOrchestrator.ts]
         orchTypes[orchestration/types.ts]
     end
@@ -584,7 +581,8 @@ graph TD
     SharedHelpers --> placeAgg
 
     Aggregates --> turnOrch
-    phaseSM --> turnOrch
+    fsmTSM --> fsmAdapter
+    fsmAdapter --> turnOrch
     orchTypes --> turnOrch
 
     turnOrch --> cGen

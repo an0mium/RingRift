@@ -161,7 +161,7 @@ python scripts/generate_gumbel_selfplay.py \
 
 - 7-phase state machine spec: `docs/specs/GAME_NOTATION_SPEC.md`
 - RR-CANON compliance: FSM module is canonical
-- TS implementation: `phaseStateMachine.ts`, `turnOrchestrator.ts`
+- TS implementation: `TurnStateMachine.ts`, `FSMAdapter.ts`, `turnOrchestrator.ts` (legacy `phaseStateMachine.ts` removed in PASS30-R1)
 
 ## Success Criteria
 

@@ -467,8 +467,14 @@ Rate limit headers are included in responses:
         // ========================================
         TimeControl: {
           type: 'object',
-          required: ['initialTime', 'increment'],
+          required: ['type', 'initialTime', 'increment'],
           properties: {
+            type: {
+              type: 'string',
+              enum: ['blitz', 'rapid', 'classical'],
+              description: 'Time control category',
+              example: 'rapid',
+            },
             initialTime: {
               type: 'integer',
               minimum: 60,
@@ -510,18 +516,37 @@ Rate limit headers are included in responses:
             },
             aiType: {
               type: 'string',
-              enum: [
-                'random',
-                'heuristic',
-                'minimax',
-                'mcts',
-                'descent',
-                'policy_only',
-                'gumbel_mcts',
-                'ig_gmo',
-              ],
-              description:
-                'AI algorithm type (experimental values are not part of the difficulty ladder)',
+              enum: ['random', 'heuristic', 'minimax', 'mcts', 'descent'],
+              description: 'Single AI algorithm type (legacy)',
+            },
+            aiTypes: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['random', 'heuristic', 'minimax', 'mcts', 'descent'],
+              },
+              description: 'Per-opponent AI types (overrides aiType when provided)',
+            },
+          },
+        },
+        RulesOptions: {
+          type: 'object',
+          properties: {
+            swapRuleEnabled: {
+              type: 'boolean',
+              description: 'Enable pie rule (swap_sides) for 2-player games',
+            },
+            ringsPerPlayer: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              description: 'Override rings per player',
+            },
+            lpsRoundsRequired: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 10,
+              description: 'Override LPS victory rounds',
             },
           },
         },
@@ -558,11 +583,24 @@ Rate limit headers are included in responses:
             aiOpponents: {
               $ref: '#/components/schemas/AIOpponentsConfig',
             },
+            rulesOptions: {
+              $ref: '#/components/schemas/RulesOptions',
+            },
             seed: {
               type: 'integer',
               minimum: 0,
               maximum: 2147483647,
               description: 'RNG seed for deterministic games',
+            },
+            isCalibrationGame: {
+              type: 'boolean',
+              description: 'Marks this game as part of an AI calibration run',
+            },
+            calibrationDifficulty: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 10,
+              description: 'Primary AI difficulty tier being calibrated (1-10)',
             },
           },
         },

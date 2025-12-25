@@ -36,7 +36,7 @@ Today, the implementation sits in the following shape:
   - `aggregates/LineAggregate.ts`
   - `aggregates/TerritoryAggregate.ts`
   - `aggregates/VictoryAggregate.ts`
-- **Orchestrator** (canonical entry point): `orchestration/turnOrchestrator.ts`, `orchestration/phaseStateMachine.ts`, `orchestration/types.ts`.
+- **Orchestrator** (canonical entry point): `orchestration/turnOrchestrator.ts`, `fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`, `orchestration/types.ts`. (Legacy `orchestration/phaseStateMachine.ts` removed in PASS30-R1.)
 - **Contracts**: `contracts/schemas.ts`, `contracts/serialization.ts`, `contracts/testVectorGenerator.ts`.
 - **Legacy validators/mutators**: `validators/*.ts`, `mutators/*.ts`, `mutators/TurnMutator.ts`, and `GameEngine.ts` remain in-tree as **implementation plumbing and compatibility shims**.
 
@@ -1356,7 +1356,7 @@ export function isValidPosition(pos: Position, boardType: BoardType, size: numbe
 The aggregate design here feeds into the **canonical orchestrator layer**, which is the real public API for rules semantics:
 
 - `orchestration/turnOrchestrator.ts` – `processTurn` / `processTurnAsync`, `validateMove`, `getValidMoves`, `hasValidMoves`.
-- `orchestration/phaseStateMachine.ts` – phase transition logic.
+- `fsm/TurnStateMachine.ts` + `fsm/FSMAdapter.ts` – canonical validation + phase transition/orchestration logic (legacy `orchestration/phaseStateMachine.ts` removed in PASS30-R1).
 - `orchestration/types.ts` – `ProcessTurnResult`, `PendingDecision`, `DecisionType`, `VictoryState`, etc.
 
 Host adapters (backend `TurnEngineAdapter`, sandbox `SandboxOrchestratorAdapter`, Python `game_engine/__init__.py`) consume the orchestrator and expose **Move-centric** APIs. For the end-to-end Move/decision/WebSocket lifecycle, defer to:

@@ -48,7 +48,7 @@ Win by achieving **any one** of:
 - Non-trivial state space (up to 469 cells on hex boards, complex stack interactions)
 - Explicit decision points (no hidden auto-execution)
 - Cross-language parity (identical rules in TypeScript and Python)
-- 90 contract vectors for correctness verification
+- Contract vectors for correctness verification (see `tests/fixtures/contract-vectors/v2`)
 - AlphaZero-style training pipeline with distributed selfplay
 
 **For engineers:** A reference implementation of:
@@ -56,7 +56,7 @@ Win by achieving **any one** of:
 - Spec-driven game engine architecture (RR-CANON-RXXX formal specification)
 - Real-time multiplayer with WebSocket sync
 - Domain-driven design with 8 canonical aggregates
-- Comprehensive testing (10,000+ tests, 100% parity)
+- Comprehensive testing across unit, scenario, parity, and E2E suites (see `tests/README.md`)
 
 ---
 
@@ -142,7 +142,7 @@ uvicorn app.main:app --port 8001 --reload
 
 | Layer      | Technologies                             |
 | ---------- | ---------------------------------------- |
-| Frontend   | React 18, TypeScript, Vite, Tailwind CSS |
+| Frontend   | React 19, TypeScript, Vite, Tailwind CSS |
 | Backend    | Node.js, Express, Socket.IO, Prisma ORM  |
 | Database   | PostgreSQL, Redis                        |
 | AI Service | Python, FastAPI, PyTorch                 |
@@ -152,8 +152,8 @@ uvicorn app.main:app --port 8001 --reload
 
 The game logic lives in a canonical TypeScript engine with Python parity:
 
-- **Single Source of Truth**: `src/shared/engine/` — 77 files, 7 canonical turn phases + terminal `game_over`
-- **Cross-language Parity**: 90 contract vectors ensure TS↔Python match exactly
+- **Single Source of Truth**: `src/shared/engine/` — 7 canonical turn phases + terminal `game_over`
+- **Cross-language Parity**: Contract vectors in `tests/fixtures/contract-vectors/v2` validate TS↔Python parity
 - **Domain Aggregates**: Placement, Movement, Capture, Line, Territory, Victory
 
 ---
@@ -172,12 +172,7 @@ cd ai-service && pytest
 npm run test:orchestrator-parity
 ```
 
-| Metric           | Value               |
-| ---------------- | ------------------- |
-| TypeScript tests | 10,249 (597 suites) |
-| Python tests     | 1,824               |
-| Contract vectors | 90 (100% parity)    |
-| Line coverage    | ~69%                |
+Test counts and coverage are tracked in CI; see `tests/README.md` and `ai-service/tests/` for the current suite breakdowns.
 
 ---
 

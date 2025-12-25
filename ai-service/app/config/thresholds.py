@@ -799,6 +799,201 @@ DATA_SAMPLING_QUALITY_WEIGHT = 0.4
 
 
 # =============================================================================
+# Board-Type Specific Promotion Thresholds (December 2025)
+# =============================================================================
+# Different board types have different difficulty levels for AI training.
+# Larger boards (square19, hexagonal) are harder, so we use relaxed thresholds.
+
+PROMOTION_THRESHOLDS_BY_CONFIG: dict[str, dict[str, float]] = {
+    # Hex8 (61 cells) - smaller, easier
+    "hex8_2p": {"vs_random": 0.85, "vs_heuristic": 0.60},
+    "hex8_3p": {"vs_random": 0.55, "vs_heuristic": 0.45},
+    "hex8_4p": {"vs_random": 0.50, "vs_heuristic": 0.40},
+
+    # Square8 (64 cells) - small, moderate difficulty
+    "square8_2p": {"vs_random": 0.85, "vs_heuristic": 0.60},
+    "square8_3p": {"vs_random": 0.55, "vs_heuristic": 0.45},
+    "square8_4p": {"vs_random": 0.50, "vs_heuristic": 0.40},
+
+    # Square19 (361 cells) - large, harder
+    "square19_2p": {"vs_random": 0.80, "vs_heuristic": 0.50},
+    "square19_3p": {"vs_random": 0.50, "vs_heuristic": 0.35},
+    "square19_4p": {"vs_random": 0.45, "vs_heuristic": 0.30},
+
+    # Hexagonal (469 cells) - largest, hardest
+    "hexagonal_2p": {"vs_random": 0.75, "vs_heuristic": 0.45},
+    "hexagonal_3p": {"vs_random": 0.45, "vs_heuristic": 0.30},
+    "hexagonal_4p": {"vs_random": 0.40, "vs_heuristic": 0.25},
+}
+
+
+def get_promotion_thresholds(config_key: str) -> dict[str, float]:
+    """Get promotion thresholds for a specific board/player configuration.
+
+    Args:
+        config_key: Configuration key like 'hex8_2p', 'square19_4p'
+
+    Returns:
+        Dict with 'vs_random' and 'vs_heuristic' thresholds
+    """
+    if config_key in PROMOTION_THRESHOLDS_BY_CONFIG:
+        return PROMOTION_THRESHOLDS_BY_CONFIG[config_key]
+
+    # Parse config to get player count for fallback
+    if "_4p" in config_key:
+        return {"vs_random": 0.50, "vs_heuristic": 0.40}
+    elif "_3p" in config_key:
+        return {"vs_random": 0.55, "vs_heuristic": 0.45}
+    else:
+        return {"vs_random": 0.85, "vs_heuristic": 0.60}
+
+
+# =============================================================================
+# Resource Allocation Constants (December 2025)
+# =============================================================================
+# Node capability weighting for adaptive workload distribution.
+
+# GPU memory weights (relative to A100 40GB baseline)
+GPU_MEMORY_WEIGHTS: dict[str, float] = {
+    "GH200": 2.4,    # 96GB - 2.4x weight
+    "H200": 2.0,     # 80GB - 2x weight
+    "H100": 2.0,     # 80GB - 2x weight
+    "A100_80": 2.0,  # 80GB - 2x weight
+    "A100": 1.0,     # 40GB - baseline
+    "A10": 0.6,      # 24GB - 0.6x weight
+    "RTX_4090": 0.6, # 24GB - 0.6x weight
+    "RTX_3090": 0.6, # 24GB - 0.6x weight
+    "CPU": 0.1,      # CPU-only - minimal weight
+}
+
+# Selfplay games allocation per node type (per batch)
+SELFPLAY_GAMES_PER_NODE: dict[str, int] = {
+    "GH200": 2000,   # High memory, fast
+    "H200": 1500,
+    "H100": 1500,
+    "A100_80": 1200,
+    "A100": 800,
+    "A10": 400,
+    "RTX_4090": 400,
+    "RTX_3090": 300,
+    "CPU": 50,       # CPU selfplay is slow
+}
+
+# Training batch size by GPU type
+TRAINING_BATCH_SIZE_BY_GPU: dict[str, int] = {
+    "GH200": 2048,
+    "H200": 1536,
+    "H100": 1536,
+    "A100_80": 1024,
+    "A100": 512,
+    "A10": 256,
+    "RTX_4090": 256,
+    "RTX_3090": 256,
+    "CPU": 64,
+}
+
+# Maximum concurrent gauntlets per node type
+MAX_CONCURRENT_GAUNTLETS_BY_GPU: dict[str, int] = {
+    "GH200": 4,
+    "H200": 3,
+    "H100": 3,
+    "A100_80": 3,
+    "A100": 2,
+    "A10": 1,
+    "RTX_4090": 1,
+    "RTX_3090": 1,
+    "CPU": 1,
+}
+
+# Node roles for workload distribution
+NODE_ROLES = ["training", "selfplay", "coordinator", "ephemeral", "cpu_only"]
+
+# Ephemeral node patterns (Vast.ai, RunPod, AWS Spot)
+EPHEMERAL_NODE_PATTERNS = ["vast-", "runpod-", "spot-", "ephemeral-"]
+
+# Minimum resources for task scheduling
+MIN_MEMORY_GB_FOR_TRAINING = 32
+MIN_MEMORY_GB_FOR_SELFPLAY = 16
+MIN_MEMORY_GB_FOR_GAUNTLET = 16
+
+
+def get_gpu_weight(gpu_type: str) -> float:
+    """Get workload weight multiplier for a GPU type."""
+    return GPU_MEMORY_WEIGHTS.get(gpu_type, 1.0)
+
+
+def get_selfplay_allocation(gpu_type: str) -> int:
+    """Get recommended selfplay games per batch for a GPU type."""
+    return SELFPLAY_GAMES_PER_NODE.get(gpu_type, 500)
+
+
+def is_ephemeral_node(node_id: str) -> bool:
+    """Check if a node is ephemeral (temporary cloud instance)."""
+    return any(pattern in node_id.lower() for pattern in EPHEMERAL_NODE_PATTERNS)
+
+
+# =============================================================================
+# Quality Gating Thresholds (December 2025)
+# =============================================================================
+# Thresholds for blocking training on low-quality data.
+
+# Minimum samples required to trigger training
+MIN_SAMPLES_FOR_TRAINING = 10_000
+
+# Minimum average game length (moves) for quality games
+MIN_AVG_GAME_LENGTH = 20
+
+# Maximum draw rate - high draw rate indicates weak play
+MAX_DRAW_RATE_FOR_TRAINING = 0.25
+
+# Minimum win rate vs heuristic in recent selfplay
+MIN_SELFPLAY_WIN_RATE_VS_HEURISTIC = 0.40
+
+# Data staleness threshold (hours) - data older than this triggers warning
+DATA_STALENESS_WARNING_HOURS = 4.0
+
+# Critical staleness - data older than this blocks training
+DATA_STALENESS_CRITICAL_HOURS = 24.0
+
+
+def check_training_data_quality(
+    sample_count: int,
+    avg_game_length: float,
+    draw_rate: float,
+    win_rate_vs_heuristic: float,
+) -> tuple[bool, list[str]]:
+    """Check if training data meets quality thresholds.
+
+    Args:
+        sample_count: Number of training samples
+        avg_game_length: Average game length in moves
+        draw_rate: Fraction of games ending in draw
+        win_rate_vs_heuristic: Recent win rate vs heuristic
+
+    Returns:
+        Tuple of (passes_quality, list_of_issues)
+    """
+    issues = []
+
+    if sample_count < MIN_SAMPLES_FOR_TRAINING:
+        issues.append(f"Insufficient samples: {sample_count} < {MIN_SAMPLES_FOR_TRAINING}")
+
+    if avg_game_length < MIN_AVG_GAME_LENGTH:
+        issues.append(f"Games too short: avg {avg_game_length:.1f} < {MIN_AVG_GAME_LENGTH}")
+
+    if draw_rate > MAX_DRAW_RATE_FOR_TRAINING:
+        issues.append(f"Draw rate too high: {draw_rate:.1%} > {MAX_DRAW_RATE_FOR_TRAINING:.1%}")
+
+    if win_rate_vs_heuristic < MIN_SELFPLAY_WIN_RATE_VS_HEURISTIC:
+        issues.append(
+            f"Selfplay too weak: {win_rate_vs_heuristic:.1%} vs heuristic "
+            f"< {MIN_SELFPLAY_WIN_RATE_VS_HEURISTIC:.1%}"
+        )
+
+    return len(issues) == 0, issues
+
+
+# =============================================================================
 # Feedback Loop Thresholds (December 2025)
 # =============================================================================
 

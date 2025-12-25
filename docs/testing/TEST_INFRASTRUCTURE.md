@@ -633,7 +633,7 @@ it('should timeout decision after 30 seconds', async () => {
 ## See Also
 
 - [`docs/CONTRACT_VECTORS_DESIGN.md`](../rules/CONTRACT_VECTORS_DESIGN.md) - Contract vector design and implementation
-- [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) - Parity testing framework
+- [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) - Parity testing framework
 - [`docs/TEST_CATEGORIES.md`](TEST_CATEGORIES.md) - Test categorization guide
 - [`tests/TEST_LAYERS.md`](../../tests/TEST_LAYERS.md) - Layering, CI profiles, and example suites
 - [`tests/TEST_SUITE_PARITY_PLAN.md`](../../tests/TEST_SUITE_PARITY_PLAN.md) - Parity/diagnostic suite map and TS↔Python anchors

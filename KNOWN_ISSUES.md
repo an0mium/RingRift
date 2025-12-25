@@ -1104,10 +1104,10 @@ The parity issues were addressed through:
 
 **Component(s):** Python `game_engine.py`, TS `turnOrchestrator.ts`, `globalActions.ts`, forced elimination phase handling, ANM state tracking, `toVictoryState()`
 **Severity:** P1 (blocks square19 canonical training data at scale)
-**Status:** NOT RESOLVED – Root Cause Identified (Dec 25, 2025)
+**Status:** POST-FIX RE-VERIFIED (Dec 25, 2025) – **75% parity pass rate (3/4 games)** on `ai-service/data/canonical_square19.db`; **1 semantic divergence remains**.
 
 **Description:**
-Square19 2-player games exhibit TS↔Python parity issues with a ~70% pass rate. This blocks generation of large-scale canonical training data for the square19 board type.
+Square19 2-player games still exhibit TS↔Python parity issues on the current canonical DB snapshot.
 
 **Root Cause Analysis (Dec 25, 2025 Investigation):**
 
@@ -1186,9 +1186,9 @@ if phase == GamePhase.TERRITORY_PROCESSING:
 **Discovery Context:**
 
 - Found during PASS26-P1.1 square19 parity assessment
-- Reproduced: Dec 25, 2025 with `check_ts_python_replay_parity.py --db data/canonical_square19.db --limit 5`
-- Test result: 1/4 games had semantic divergence (25% failure rate in this sample)
-- State bundles generated at `ai-service/parity_failures/square19_bundles/`
+- **Re-verified post-fix:** Dec 25, 2025 with `python3 -m scripts.check_ts_python_replay_parity --db data/canonical_square19.db --compact` (run from `ai-service/`)
+- Test result: **3/4 games pass** (75% pass rate); **1/4** shows a semantic divergence
+- State bundles generated at `ai-service/parity_failures/square19_postfix_bundles/` (first divergence bundle: `canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json`)
 
 **Impact:**
 

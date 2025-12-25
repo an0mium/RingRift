@@ -1578,9 +1578,8 @@ export interface PhaseTransitionContext {
 /**
  * Determine the next phase using FSM transition logic.
  *
- * This is the FSM-based equivalent of `determineNextPhase()` from
- * phaseStateMachine.ts. It uses the TurnStateMachine's transition rules
- * to determine valid phase progressions.
+ * This is the FSM-based function for determining phase progressions
+ * using the TurnStateMachine's transition rules.
  *
  * @param gameState Current game state
  * @param moveType Type of move that was just processed

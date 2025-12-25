@@ -596,7 +596,7 @@ export class MetricsService {
       help: 'Total number of orchestrator-related invariant violations observed by backend hosts',
       // NOTE: `type` is a low-level violation identifier (e.g. S_INVARIANT_DECREASED),
       // while `invariant_id` is a high-level invariant from
-      // docs/INVARIANTS_AND_PARITY_FRAMEWORK.md (e.g. INV-S-MONOTONIC).
+      // docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md (e.g. INV-S-MONOTONIC).
       labelNames: ['type', 'invariant_id'] as const,
     });
 
@@ -1054,7 +1054,7 @@ export class MetricsService {
 
   /**
    * Map a low-level violation type string to a high-level invariant ID from
-   * docs/INVARIANTS_AND_PARITY_FRAMEWORK.md. This keeps metric labels stable
+   * docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md. This keeps metric labels stable
    * even if internal violation IDs evolve.
    */
   private mapInvariantTypeToId(type: string): string {

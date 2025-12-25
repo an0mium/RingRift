@@ -154,10 +154,9 @@ import { countRingsOnBoardForPlayer } from '../core';
 // ═══════════════════════════════════════════════════════════════════════════
 // Inline Processing State Container
 // ═══════════════════════════════════════════════════════════════════════════
-// The PhaseStateMachine from phaseStateMachine.ts is deprecated. This inline
-// class provides the same mutable state container functionality without the
-// external dependency. This allows phaseStateMachine.ts to be removed in
-// a future cleanup while maintaining backward compatibility.
+// This inline class provides mutable state container functionality for turn
+// processing. The legacy PhaseStateMachine was fully removed in PASS30-R1;
+// phase transition logic is now handled by the FSM (TurnStateMachine).
 
 /**
  * Mutable container for turn processing state.

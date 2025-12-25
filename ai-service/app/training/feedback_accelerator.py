@@ -301,6 +301,9 @@ class FeedbackAccelerator:
         # Per-config momentum tracking
         self._configs: dict[str, ConfigMomentum] = {}
 
+        # Track last selfplay rate recommendations for change detection (Phase 19.3)
+        self._last_rates: dict[str, float] = {}
+
         # Callbacks for training triggers
         self._training_callbacks: list[Callable[[str, TrainingDecision], None]] = []
 
@@ -751,6 +754,30 @@ class FeedbackAccelerator:
             "intensity": decision.intensity.value,
         }
 
+    def set_intensity(self, config_key: str, intensity: TrainingIntensity) -> None:
+        """Set training intensity for a configuration.
+
+        Called by FeedbackLoopController when Elo momentum changes require
+        an intensity adjustment. This is part of the Phase 22 bug fix.
+
+        Args:
+            config_key: Configuration key (e.g., "square8_2p")
+            intensity: New training intensity level
+        """
+        if config_key not in self._configs:
+            self._configs[config_key] = ConfigMomentum(config_key=config_key)
+
+        old_intensity = self._configs[config_key].intensity
+        self._configs[config_key].intensity = intensity
+
+        if old_intensity != intensity:
+            logger.info(
+                f"[FeedbackAccelerator] Intensity for {config_key}: "
+                f"{old_intensity.value} → {intensity.value}"
+            )
+
+        self._save_config(config_key)
+
     def get_selfplay_multiplier(self, config_key: str) -> float:
         """Get selfplay games multiplier based on Elo momentum (December 2025).
 
@@ -795,7 +822,79 @@ class FeedbackAccelerator:
             f"{base_multiplier:.2f} (momentum={momentum.momentum_state.value})"
         )
 
+        # Phase 19.3: Check for significant rate change and emit event
+        self._check_rate_change(config_key, base_multiplier)
+
         return base_multiplier
+
+    def _check_rate_change(self, config_key: str, new_rate: float) -> None:
+        """Check if selfplay rate recommendation changed significantly.
+
+        Phase 19.3: Emit SELFPLAY_RATE_CHANGED event when rate changes by >20%.
+        This enables monitoring dashboards and other systems to track rate changes.
+
+        Args:
+            config_key: Configuration key (e.g., "square8_2p")
+            new_rate: New selfplay rate multiplier
+        """
+        old_rate = self._last_rates.get(config_key, 1.0)
+
+        # Check for significant change (>20%)
+        if abs(new_rate - old_rate) > 0.2:
+            self._emit_rate_change_event(config_key, old_rate, new_rate)
+            self._last_rates[config_key] = new_rate
+        elif config_key not in self._last_rates:
+            # Initialize tracking for new config
+            self._last_rates[config_key] = new_rate
+
+    def _emit_rate_change_event(
+        self,
+        config_key: str,
+        old_rate: float,
+        new_rate: float,
+    ) -> None:
+        """Emit SELFPLAY_RATE_CHANGED event for monitoring.
+
+        Args:
+            config_key: Configuration key
+            old_rate: Previous rate multiplier
+            new_rate: New rate multiplier
+        """
+        momentum = self._configs.get(config_key)
+        momentum_state = momentum.momentum_state.value if momentum else "unknown"
+
+        direction = "increased" if new_rate > old_rate else "decreased"
+        change_pct = ((new_rate - old_rate) / old_rate * 100) if old_rate > 0 else 0
+
+        logger.info(
+            f"[FeedbackAccelerator] Selfplay rate {direction} for {config_key}: "
+            f"{old_rate:.2f}x → {new_rate:.2f}x ({change_pct:+.0f}%), "
+            f"momentum={momentum_state}"
+        )
+
+        try:
+            from app.coordination.event_router import get_router, DataEventType
+
+            router = get_router()
+            # Phase 22.2 fix: Use publish_sync instead of emit (which doesn't exist)
+            router.publish_sync(
+                DataEventType.SELFPLAY_RATE_CHANGED.value
+                if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED')
+                else "selfplay_rate_changed",
+                {
+                    "config": config_key,
+                    "old_rate": old_rate,
+                    "new_rate": new_rate,
+                    "change_percent": change_pct,
+                    "direction": direction,
+                    "momentum_state": momentum_state,
+                    "timestamp": time.time(),
+                },
+                source="feedback_accelerator",
+            )
+        except Exception as e:
+            # Non-fatal - event system may not be available
+            logger.debug(f"[FeedbackAccelerator] Could not publish rate change event: {e}")
 
     # =========================================================================
     # Curriculum Weight Recommendations

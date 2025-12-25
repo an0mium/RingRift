@@ -90,13 +90,27 @@ class NPZDistributionDaemon:
         # Try to subscribe to NPZ_EXPORT_COMPLETE events
         try:
             from app.coordination.event_router import subscribe
+            from app.coordination.stage_events import StageEvent
 
-            subscribe("NPZ_EXPORT_COMPLETE", self._on_npz_exported)
-            logger.info("Subscribed to NPZ_EXPORT_COMPLETE events")
-        except ImportError:
+            # Subscribe to StageEvent.NPZ_EXPORT_COMPLETE for pipeline integration
+            subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_exported)
+            logger.info("Subscribed to NPZ_EXPORT_COMPLETE events via StageEvent")
+
+            # Also try DataEventType for cross-process compatibility
+            try:
+                from app.distributed.data_events import DataEventType
+                # Use string matching for events that may come from other processes
+                subscribe("npz_export_complete", self._on_npz_exported)
+                logger.info("Also subscribed to npz_export_complete string events")
+            except ImportError:
+                pass
+
+        except ImportError as e:
             logger.warning(
-                "event_router not available, will poll for new NPZ files instead"
+                f"event_router not available ({e}), will poll for new NPZ files instead"
             )
+        except Exception as e:
+            logger.error(f"Failed to subscribe to NPZ_EXPORT_COMPLETE: {e}")
 
         # Main loop - handle pending syncs and periodic checks
         while self._running:

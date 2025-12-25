@@ -116,34 +116,30 @@ The validator consolidation is deferred until GameState type unification is addr
 
 ### Problem
 
-Two competing phase transition systems exist:
+Two competing phase transition systems existed:
 
 1. **Legacy**: `phaseStateMachine.ts` (447 LOC) + `phase_machine.py` (380 LOC)
 2. **Canonical**: `TurnStateMachine.ts` (500+ LOC) via FSM
 
-Both marked `@deprecated` but still in production paths.
+### Status: COMPLETE (PASS30-R1)
 
-### Status: DEFERRED
+**Completed:** Dec 2025
 
-This item is blocked until:
+The legacy `phaseStateMachine.ts` was fully removed in PASS30-R1. All phase transition logic now uses the canonical FSM (`TurnStateMachine.ts`, `FSMAdapter.ts`).
 
-- FSM handles all phase transitions in `turnOrchestrator`
-- Player tracking divergences resolved (formerly tracked via legacy comparison diagnostics)
+### Completed Steps
 
-### Files to Remove (When Unblocked)
+1. [x] Complete FSM migration in turnOrchestrator
+2. [x] Verify all phase transitions work through FSMAdapter
+3. [x] Remove phaseStateMachine.ts exports from engine/index.ts
+4. [x] Delete phaseStateMachine.ts (removed in PASS30-R1)
+5. [ ] Plan Python FSM equivalent (ongoing, `phase_machine.py` remains)
 
-| File                                                   | Lines | Blocked By            |
-| ------------------------------------------------------ | ----- | --------------------- |
-| `src/shared/engine/orchestration/phaseStateMachine.ts` | 447   | FSM migration         |
-| `ai-service/app/rules/phase_machine.py`                | 380   | Python FSM equivalent |
+### Remaining Work
 
-### Resolution Plan (When Unblocked)
-
-1. [ ] Complete FSM migration in turnOrchestrator
-2. [ ] Verify all phase transitions work through FSMAdapter
-3. [ ] Remove phaseStateMachine.ts exports from engine/index.ts
-4. [ ] Delete phaseStateMachine.ts
-5. [ ] Plan Python FSM migration
+| File                                    | Lines | Status                         |
+| --------------------------------------- | ----- | ------------------------------ |
+| `ai-service/app/rules/phase_machine.py` | 380   | Active - Python FSM equivalent |
 
 ---
 
@@ -198,30 +194,29 @@ Since `ORCHESTRATOR_ADAPTER_ENABLED=true` is set in `.env`, these tests ARE bein
 
 ### Status: COMPLETE (No further action needed)
 
-Several modules have `@deprecated` annotations but remain in the codebase. Analysis on Dec 11 confirmed:
+Several modules had `@deprecated` annotations. Analysis and cleanup completed:
 
-1. **phaseStateMachine.ts** (447 LOC) - Still blocked by P0.2 (FSM migration)
+1. **phaseStateMachine.ts** (447 LOC) - **REMOVED** in PASS30-R1 (Dec 2025)
 2. **hashGameState** - Not actually dead; actively used for parity validation
 3. **No-op methods in GameEngine** - Backward compat shims called by test suites
 4. **Legacy move types** - Required for historical game recordings
 
-### Candidates for Removal
+### Completed Removals
 
-| File                   | Lines | Status      | Blocked By           |
-| ---------------------- | ----- | ----------- | -------------------- |
-| `phaseStateMachine.ts` | 447   | @deprecated | P0.2 (FSM migration) |
-| `victoryLogic.ts`      | 418   | REMOVED     | ✅ Done Dec 11       |
+| File                   | Lines | Status  | Notes                                       |
+| ---------------------- | ----- | ------- | ------------------------------------------- |
+| `phaseStateMachine.ts` | 447   | REMOVED | ✅ Deleted in PASS30-R1 (FSM now canonical) |
+| `victoryLogic.ts`      | 418   | REMOVED | ✅ Done Dec 11                              |
 
-### Already Completed (Dec 11, 2025)
+### Already Completed
 
-- [x] Removed `victoryLogic.ts` (418 LOC)
+- [x] Removed `victoryLogic.ts` (418 LOC) - Dec 11, 2025
 - [x] Removed unused helpers from TurnEngine.ts (~50 LOC)
 - [x] Removed `hasAnyMovementOrCaptureForPlayer` from ClientSandboxEngine
 - [x] Removed line direction helpers from sandboxLines.ts (~100 LOC)
 - [x] Removed deprecated `RecoverySlideTarget.cost` field
-- [x] Audited remaining @deprecated code - all in use or blocked
-
-### Estimated Effort: 30 minutes (after P0.2 unblocked for phaseStateMachine)
+- [x] Removed `phaseStateMachine.ts` (447 LOC) - PASS30-R1
+- [x] Audited remaining @deprecated code - all in use
 
 ---
 

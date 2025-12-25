@@ -211,16 +211,28 @@ class ModelDistributionDaemon:
         # Register with coordinator registry
         register_coordinator(self)
 
-        # Try to subscribe to MODEL_PROMOTED events
+        # Subscribe to MODEL_PROMOTED events for automatic distribution
         try:
             from app.coordination.event_router import subscribe
+            from app.distributed.data_events import DataEventType
 
-            subscribe("MODEL_PROMOTED", self._on_model_promoted)
-            logger.info("Subscribed to MODEL_PROMOTED events")
-        except ImportError:
+            subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
+            logger.info("Subscribed to MODEL_PROMOTED events via event_router")
+
+            # Also subscribe to PROMOTION_COMPLETE for stage events compatibility
+            try:
+                from app.coordination.stage_events import StageEvent
+                subscribe(StageEvent.PROMOTION_COMPLETE, self._on_model_promoted)
+                logger.info("Also subscribed to PROMOTION_COMPLETE stage events")
+            except ImportError:
+                pass  # Stage events not available
+
+        except ImportError as e:
             logger.warning(
-                "event_router not available, will poll for new models instead"
+                f"event_router not available ({e}), will poll for new models instead"
             )
+        except Exception as e:
+            logger.error(f"Failed to subscribe to MODEL_PROMOTED: {e}")
 
         # Main loop - handle pending syncs and periodic checks
         while self._running:

@@ -1046,7 +1046,7 @@ and referenced from the rollout and alerting docs:
     (for example `S_INVARIANT_DECREASED`, `ACTIVE_NO_MOVES`,
     `NEGATIVE_STACK_HEIGHT`, `ORCHESTRATOR_VALIDATE_MOVE_FAILED`).
   - `invariant_id` is a high‑level invariant ID from
-    `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` (for example `INV-S-MONOTONIC`,
+    `docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md` (for example `INV-S-MONOTONIC`,
     `INV-ACTIVE-NO-MOVES`, `INV-STATE-STRUCTURAL`, `INV-ORCH-VALIDATION`,
     `INV-TERMINATION`), derived from `type` by `MetricsService`.  
     Violations are:
@@ -1066,7 +1066,7 @@ and referenced from the rollout and alerting docs:
   - `ringrift_rules_parity_game_status_mismatch_total`  
     the backend also exposes a unified counter:  
     `ringrift_rules_parity_mismatches_total{mismatch_type, suite}` – incremented by `RulesBackendFacade.compareTsAndPython()` via `rulesParityMetrics` / `MetricsService.recordRulesParityMismatch`.
-  - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`} and matches the parity IDs in `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.
+  - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`} and matches the parity IDs in `docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`.
   - `suite` identifies the parity harness, for example `runtime_python_mode`, `runtime_ts`, or future contract-vector suites.  
     This metric allows dashboards to aggregate and break down parity incidents across suites while keeping alert expressions focused on the per-dimension counters above.
 
@@ -1520,7 +1520,7 @@ Python runner:
 
 Together, these suites provide the **orchestrator‑centric TS↔Python parity backbone**, and should be preferred over ad‑hoc seed traces when validating cross‑language rules behaviour.
 
-> **Global legal‑actions and ANM semantics:** Per‑move contracts do not encode whether a player “has a legal action” in the broader sense (placements, movement/capture, territory decisions, or host‑level forced elimination). That surface is specified directly by `src/shared/engine/globalActions.ts` (`hasTurnMaterial`, `hasGlobalPlacementAction`, `hasPhaseLocalInteractiveMove`, `hasForcedEliminationAction`, `computeGlobalLegalActionsSummary`, `isANMState`) with structural/property tests in `tests/unit/globalActions.shared.test.ts`, and mirrored in Python by `app.rules.global_actions` with property/parity tests in `ai-service/tests/test_territory_and_forced_elimination_property.py` and `ai-service/tests/test_forced_elimination_parity.py`. Together with the `INV-ACTIVE-NO-MOVES` / `INV-ELIMINATION-MONOTONIC` invariants in `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` and the mapping in `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, these tests form the SSoT for global legal‑actions and forced‑elimination behaviour across TS and Python.
+> **Global legal‑actions and ANM semantics:** Per‑move contracts do not encode whether a player “has a legal action” in the broader sense (placements, movement/capture, territory decisions, or host‑level forced elimination). That surface is specified directly by `src/shared/engine/globalActions.ts` (`hasTurnMaterial`, `hasGlobalPlacementAction`, `hasPhaseLocalInteractiveMove`, `hasForcedEliminationAction`, `computeGlobalLegalActionsSummary`, `isANMState`) with structural/property tests in `tests/unit/globalActions.shared.test.ts`, and mirrored in Python by `app.rules.global_actions` with property/parity tests in `ai-service/tests/test_territory_and_forced_elimination_property.py` and `ai-service/tests/test_forced_elimination_parity.py`. Together with the `INV-ACTIVE-NO-MOVES` / `INV-ELIMINATION-MONOTONIC` invariants in `docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md` and the mapping in `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, these tests form the SSoT for global legal‑actions and forced‑elimination behaviour across TS and Python.
 
 ## 4. Internal vs External Boundary
 
@@ -1548,14 +1548,15 @@ The following remain internal implementation details:
 
 ### 4.3 New Modules (Implemented)
 
-| Module                               | Purpose                                | Status      |
-| ------------------------------------ | -------------------------------------- | ----------- |
-| `orchestration/turnOrchestrator.ts`  | Single entry point for turn processing | ✅ Complete |
-| `orchestration/phaseStateMachine.ts` | Phase transition logic                 | ✅ Complete |
-| `orchestration/types.ts`             | Orchestration type definitions         | ✅ Complete |
-| `contracts/schemas.ts`               | Contract test vector schemas           | ✅ Complete |
-| `contracts/serialization.ts`         | Deterministic JSON serialization       | ✅ Complete |
-| `contracts/testVectorGenerator.ts`   | Test vector generation utilities       | ✅ Complete |
+| Module                              | Purpose                                                         | Status      |
+| ----------------------------------- | --------------------------------------------------------------- | ----------- |
+| `orchestration/turnOrchestrator.ts` | Single entry point for turn processing                          | ✅ Complete |
+| `fsm/TurnStateMachine.ts`           | Canonical turn/phase FSM (states + transitions)                 | ✅ Complete |
+| `fsm/FSMAdapter.ts`                 | FSM orchestration adapter (validation + next-state computation) | ✅ Complete |
+| `orchestration/types.ts`            | Orchestration type definitions                                  | ✅ Complete |
+| `contracts/schemas.ts`              | Contract test vector schemas                                    | ✅ Complete |
+| `contracts/serialization.ts`        | Deterministic JSON serialization                                | ✅ Complete |
+| `contracts/testVectorGenerator.ts`  | Test vector generation utilities                                | ✅ Complete |
 
 ---
 

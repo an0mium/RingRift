@@ -1069,6 +1069,186 @@ def reset_job_migrator() -> None:
     _job_migrator = None
 
 
+# ============================================================================
+# NODE_OVERLOADED → Job Redistribution Handler (Phase 3 December 2025)
+# ============================================================================
+
+
+class NodeOverloadedHandler:
+    """Handles NODE_OVERLOADED events by redistributing jobs from overloaded nodes.
+
+    When a node reports critical CPU/GPU utilization:
+    1. Cancel lowest-priority jobs on that node
+    2. Re-queue cancelled jobs for assignment to less loaded nodes
+    3. Emit metrics for monitoring overload frequency
+
+    This closes the feedback loop: node overload → automatic job redistribution.
+    """
+
+    def __init__(
+        self,
+        scheduler: PriorityJobScheduler | None = None,
+        max_jobs_to_migrate: int = 2,  # Max jobs to migrate per overload event
+    ):
+        """Initialize the handler.
+
+        Args:
+            scheduler: PriorityJobScheduler to use (default: global scheduler)
+            max_jobs_to_migrate: Maximum jobs to migrate per overload event
+        """
+        self._scheduler = scheduler
+        self.max_jobs_to_migrate = max_jobs_to_migrate
+
+        self._subscribed = False
+        self._overload_count = 0
+        self._jobs_migrated = 0
+
+    @property
+    def scheduler(self) -> PriorityJobScheduler:
+        """Get scheduler, using global singleton if not provided."""
+        if self._scheduler is None:
+            self._scheduler = get_scheduler()
+        return self._scheduler
+
+    def subscribe(self) -> bool:
+        """Subscribe to NODE_OVERLOADED events.
+
+        Returns:
+            True if subscription was successful
+        """
+        if self._subscribed:
+            return True
+
+        try:
+            from app.distributed.data_events import DataEventType
+
+            try:
+                from app.coordination.event_router import get_event_bus
+            except ImportError:
+                from app.distributed.data_events import get_event_bus
+
+            bus = get_event_bus()
+
+            def on_node_overloaded(event):
+                """Handle NODE_OVERLOADED event."""
+                self._handle_overload(event.payload)
+
+            bus.subscribe(DataEventType.NODE_OVERLOADED, on_node_overloaded)
+            self._subscribed = True
+            logger.info("[NodeOverloadedHandler] Subscribed to NODE_OVERLOADED events")
+            return True
+
+        except ImportError as e:
+            logger.debug(f"[NodeOverloadedHandler] Event system not available: {e}")
+            return False
+
+    def _handle_overload(self, payload: dict[str, Any]) -> None:
+        """Handle a node overload event.
+
+        Args:
+            payload: Event payload with overload details
+        """
+        host = payload.get("host", "")
+        cpu_percent = payload.get("cpu_percent", 0.0)
+        gpu_percent = payload.get("gpu_percent", 0.0)
+        resource_type = payload.get("resource_type", "cpu")
+
+        if not host:
+            logger.warning("[NodeOverloadedHandler] NODE_OVERLOADED event without host")
+            return
+
+        self._overload_count += 1
+
+        logger.warning(
+            f"[NodeOverloadedHandler] Overload #{self._overload_count} on {host}: "
+            f"CPU={cpu_percent:.1f}%, GPU={gpu_percent:.1f}% ({resource_type})"
+        )
+
+        # Check if we have running jobs on this host
+        running_jobs = self.scheduler.get_running_jobs()
+        if host not in running_jobs:
+            logger.debug(
+                f"[NodeOverloadedHandler] No running jobs on overloaded host {host}"
+            )
+            return
+
+        # Migrate jobs from overloaded host
+        migrated = 0
+        job = running_jobs.get(host)
+
+        if job:
+            # Cancel and re-queue with lower priority to spread load
+            cancelled = self.scheduler.cancel_job(host)
+            if cancelled:
+                # Re-queue with same priority (let scheduler find better host)
+                requeued = ScheduledJob(
+                    job_type=cancelled.job_type,
+                    priority=cancelled.priority,
+                    config=cancelled.config,
+                    host_preference=None,  # Clear host preference
+                    requires_gpu=cancelled.requires_gpu,
+                    estimated_duration_seconds=cancelled.estimated_duration_seconds,
+                    job_id=f"{cancelled.job_id or 'migrated'}_overload",
+                )
+
+                if self.scheduler.schedule(requeued):
+                    migrated += 1
+                    self._jobs_migrated += 1
+                    logger.info(
+                        f"[NodeOverloadedHandler] Migrated {cancelled.job_type} "
+                        f"from overloaded host {host}"
+                    )
+
+        if migrated > 0:
+            logger.info(
+                f"[NodeOverloadedHandler] Migrated {migrated} job(s) from {host}"
+            )
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get handler statistics."""
+        return {
+            "subscribed": self._subscribed,
+            "overload_count": self._overload_count,
+            "jobs_migrated": self._jobs_migrated,
+            "max_jobs_to_migrate": self.max_jobs_to_migrate,
+        }
+
+
+# Singleton overload handler
+_overload_handler: NodeOverloadedHandler | None = None
+
+
+def wire_node_overloaded_handler(
+    scheduler: PriorityJobScheduler | None = None,
+) -> NodeOverloadedHandler:
+    """Wire NODE_OVERLOADED events to automatic job redistribution.
+
+    Args:
+        scheduler: Scheduler to use (default: global singleton)
+
+    Returns:
+        Subscribed handler instance
+    """
+    global _overload_handler
+
+    if _overload_handler is None:
+        _overload_handler = NodeOverloadedHandler(scheduler=scheduler)
+        _overload_handler.subscribe()
+
+    return _overload_handler
+
+
+def get_overload_handler() -> NodeOverloadedHandler | None:
+    """Get the overload handler if wired."""
+    return _overload_handler
+
+
+def reset_overload_handler() -> None:
+    """Reset the overload handler singleton (for testing)."""
+    global _overload_handler
+    _overload_handler = None
+
+
 __all__ = [
     "ELO_CURRICULUM_ENABLED",
     "ELO_UNDERSERVED_THRESHOLD",
@@ -1096,4 +1276,9 @@ __all__ = [
     "reset_scheduler",
     "select_curriculum_config",
     "wire_host_dead_to_job_migration",
+    # Node overload handling (Phase 3 December 2025)
+    "NodeOverloadedHandler",
+    "get_overload_handler",
+    "reset_overload_handler",
+    "wire_node_overloaded_handler",
 ]

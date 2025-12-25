@@ -1956,6 +1956,129 @@ class DataPipelineOrchestrator:
             "resource_constraints": dict(self._resource_constraints),
         }
 
+    def get_health_status(self) -> dict[str, Any]:
+        """Get pipeline health status for monitoring and alerting.
+
+        Returns a dict with:
+        - healthy: bool - overall health status
+        - issues: list[str] - any detected issues
+        - stage_health: dict - per-stage health info
+        - recommendations: list[str] - suggested actions
+
+        Stage timeout thresholds (seconds):
+        - IDLE: no timeout
+        - DATA_SYNC: 1800 (30 min)
+        - NPZ_EXPORT: 3600 (1 hour)
+        - TRAINING: 14400 (4 hours)
+        - EVALUATION: 7200 (2 hours)
+        - PROMOTION: 600 (10 min)
+        """
+        stage_timeouts = {
+            PipelineStage.IDLE: float("inf"),
+            PipelineStage.DATA_SYNC: 1800,
+            PipelineStage.NPZ_EXPORT: 3600,
+            PipelineStage.TRAINING: 14400,
+            PipelineStage.EVALUATION: 7200,
+            PipelineStage.PROMOTION: 600,
+            PipelineStage.SELFPLAY: 7200,
+            PipelineStage.COMPLETE: float("inf"),
+        }
+
+        issues: list[str] = []
+        recommendations: list[str] = []
+        now = time.time()
+
+        # Check for stuck stage
+        stage_duration = 0.0
+        if self._current_stage in self._stage_start_times:
+            stage_duration = now - self._stage_start_times[self._current_stage]
+            timeout = stage_timeouts.get(self._current_stage, 3600)
+
+            if stage_duration > timeout:
+                issues.append(
+                    f"Stage {self._current_stage.value} stuck for "
+                    f"{stage_duration / 60:.1f} min (timeout: {timeout / 60:.1f} min)"
+                )
+                recommendations.append(
+                    f"Consider restarting {self._current_stage.value} stage or checking logs"
+                )
+
+        # Check circuit breaker
+        cb_status = self.get_circuit_breaker_status()
+        if cb_status.get("state") == "open":
+            issues.append("Circuit breaker is OPEN - pipeline blocked due to failures")
+            recommendations.append(
+                f"Wait {cb_status.get('time_until_retry', 0):.0f}s for auto-recovery or reset manually"
+            )
+        elif cb_status.get("state") == "half_open":
+            issues.append("Circuit breaker is HALF_OPEN - testing recovery")
+
+        # Check error rate
+        stats = self.get_stats()
+        total_iterations = stats.iterations_completed + stats.iterations_failed
+        if total_iterations > 5:
+            error_rate = stats.iterations_failed / total_iterations
+            if error_rate > 0.3:
+                issues.append(f"High error rate: {error_rate:.0%} of iterations failed")
+                recommendations.append("Review recent failures and fix root cause")
+
+        # Check if paused
+        if self._paused:
+            issues.append(f"Pipeline paused: {self._pause_reason or 'unknown reason'}")
+            pause_duration = now - self._pause_time if self._pause_time else 0
+            if pause_duration > 600:
+                recommendations.append(
+                    f"Pipeline paused for {pause_duration / 60:.1f} min - consider resuming"
+                )
+
+        # Check backpressure
+        if self._backpressure_active:
+            issues.append("Backpressure active - pipeline is throttled")
+
+        # Determine overall health
+        healthy = len(issues) == 0
+
+        return {
+            "healthy": healthy,
+            "status": "healthy" if healthy else "degraded" if len(issues) < 3 else "unhealthy",
+            "issues": issues,
+            "recommendations": recommendations,
+            "stage_health": {
+                "current_stage": self._current_stage.value,
+                "stage_duration_seconds": round(stage_duration, 1),
+                "stage_timeout_seconds": stage_timeouts.get(self._current_stage, 3600),
+                "pct_timeout_used": round(
+                    stage_duration / stage_timeouts.get(self._current_stage, 3600) * 100, 1
+                ) if self._current_stage != PipelineStage.IDLE else 0,
+            },
+            "circuit_breaker": cb_status,
+            "stats": {
+                "iterations_completed": stats.iterations_completed,
+                "iterations_failed": stats.iterations_failed,
+                "error_rate": (
+                    stats.iterations_failed / total_iterations if total_iterations > 0 else 0
+                ),
+            },
+            "paused": self._paused,
+            "backpressure": self._backpressure_active,
+            "timestamp": now,
+        }
+
+    def check_stage_timeout(self) -> tuple[bool, str | None]:
+        """Check if current stage has timed out.
+
+        Returns:
+            Tuple of (timed_out: bool, message: str | None)
+        """
+        health = self.get_health_status()
+        stage_health = health.get("stage_health", {})
+
+        pct_used = stage_health.get("pct_timeout_used", 0)
+        if pct_used >= 100:
+            return True, health.get("issues", ["Stage timed out"])[0]
+
+        return False, None
+
     def format_pipeline_report(self) -> str:
         """Format a human-readable pipeline status report."""
         lines = ["=" * 60]
@@ -2043,6 +2166,26 @@ def get_current_pipeline_stage() -> PipelineStage:
     return get_pipeline_orchestrator().get_current_stage()
 
 
+def get_pipeline_health() -> dict[str, Any]:
+    """Convenience function to get pipeline health status.
+
+    Returns a dict with:
+    - healthy: bool - overall health
+    - status: str - "healthy", "degraded", or "unhealthy"
+    - issues: list[str] - detected problems
+    - recommendations: list[str] - suggested fixes
+    """
+    return get_pipeline_orchestrator().get_health_status()
+
+
+def is_pipeline_healthy() -> bool:
+    """Quick check if pipeline is healthy.
+
+    Returns True if no issues detected.
+    """
+    return get_pipeline_orchestrator().get_health_status().get("healthy", False)
+
+
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerState",
@@ -2052,7 +2195,9 @@ __all__ = [
     "PipelineStats",
     "StageTransition",
     "get_current_pipeline_stage",
+    "get_pipeline_health",
     "get_pipeline_orchestrator",
     "get_pipeline_status",
+    "is_pipeline_healthy",
     "wire_pipeline_events",
 ]

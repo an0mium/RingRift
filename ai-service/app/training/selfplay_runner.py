@@ -143,6 +143,11 @@ class SelfplayRunner(ABC):
         # Temperature scheduler with exploration boost (December 2025)
         self._temperature_scheduler = None  # Initialized in setup()
 
+        # Gauntlet feedback parameters (December 2025 - Phase 2.1 integration)
+        self._gauntlet_temperature_scale = 1.0  # From HYPERPARAMETER_UPDATED
+        self._gauntlet_quality_boost = 0.0  # Added to quality threshold
+        self._gauntlet_rate_multiplier = 1.0  # Selfplay rate adjustment
+
         # Setup signal handlers - only respond to first signal
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
@@ -436,18 +441,40 @@ class SelfplayRunner(ABC):
                     )
 
             def on_training_blocked_by_quality(event):
-                """Handle TRAINING_BLOCKED_BY_QUALITY events - trigger regeneration."""
+                """Handle TRAINING_BLOCKED_BY_QUALITY events - throttle and trigger regeneration.
+
+                December 2025: When training is blocked due to quality, we:
+                1. Pause current selfplay to avoid wasting compute
+                2. Request extra games for regeneration
+                3. Resume at 50% rate once regeneration starts
+                """
                 payload = event.payload if hasattr(event, "payload") else event
+                # Check both 'config' and 'board_type_num_players' formats
                 event_config = payload.get("config", "")
+                if not event_config:
+                    board_type = payload.get("board_type", "")
+                    num_players = payload.get("num_players", 0)
+                    event_config = f"{board_type}_{num_players}p" if board_type else ""
 
                 if event_config != config_key:
                     return
 
                 quality_score = payload.get("quality_score", 0.0)
                 self._regeneration_pending = True
+
+                # CRITICAL: Pause selfplay when training is blocked
+                # This prevents wasting compute on potentially problematic data
+                self._quality_paused = True
+                self._quality_throttle_factor = 0.0
+
+                # Request extra games to rebuild the training dataset
+                extra_games = payload.get("games_needed", 500)
+                self._extra_games_requested += extra_games
+
                 logger.warning(
                     f"[FeedbackLoop] Training blocked for {config_key} due to low quality "
-                    f"({quality_score:.2f}). Regeneration pending."
+                    f"({quality_score:.2f}). PAUSING selfplay. "
+                    f"Requested {extra_games} extra games for regeneration."
                 )
 
             def on_promotion_success(event):
@@ -487,12 +514,56 @@ class SelfplayRunner(ABC):
                     f"(consecutive failures: {self._consecutive_promotion_failures})"
                 )
 
+            def on_hyperparameter_updated(event):
+                """Handle HYPERPARAMETER_UPDATED events from Gauntlet feedback.
+
+                December 2025: Closes the Gauntlet→selfplay feedback loop.
+                Strong models (>80% win rate) → reduce exploration (temperature_scale < 1.0)
+                Weak models (<70% win rate) → increase quality threshold
+                """
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config_key", "")
+
+                if event_config != config_key:
+                    return
+
+                parameter = payload.get("parameter", "")
+                new_value = payload.get("new_value")
+                reason = payload.get("reason", "")
+
+                if parameter == "temperature_scale" and new_value is not None:
+                    # Adjust temperature scheduler multiplier
+                    old_scale = getattr(self, "_gauntlet_temperature_scale", 1.0)
+                    self._gauntlet_temperature_scale = float(new_value)
+                    logger.info(
+                        f"[GauntletFeedback] Temperature scale for {config_key}: "
+                        f"{old_scale:.2f} → {self._gauntlet_temperature_scale:.2f} "
+                        f"(reason: {reason})"
+                    )
+                elif parameter == "quality_threshold_boost" and new_value is not None:
+                    # Increase quality gating threshold
+                    self._gauntlet_quality_boost = float(new_value)
+                    logger.info(
+                        f"[GauntletFeedback] Quality threshold boost for {config_key}: "
+                        f"+{self._gauntlet_quality_boost:.2f} (reason: {reason})"
+                    )
+                elif parameter == "selfplay_rate_multiplier" and new_value is not None:
+                    # Adjust selfplay generation rate
+                    old_rate = getattr(self, "_gauntlet_rate_multiplier", 1.0)
+                    self._gauntlet_rate_multiplier = float(new_value)
+                    logger.info(
+                        f"[GauntletFeedback] Selfplay rate for {config_key}: "
+                        f"{old_rate:.2f}x → {self._gauntlet_rate_multiplier:.2f}x "
+                        f"(reason: {reason})"
+                    )
+
             # Subscribe to feedback events using DataEventType enums
             subscribe(DataEventType.CURRICULUM_ADVANCED, on_curriculum_advanced)
             subscribe(DataEventType.SELFPLAY_TARGET_UPDATED, on_selfplay_target_updated)
-            subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, on_training_blocked_by_quality)
+            subscribe(DataEventType.TRAINING_BLOCKED_BY_QUALITY, on_training_blocked_by_quality)
             subscribe(DataEventType.MODEL_PROMOTED, on_promotion_success)
             subscribe(DataEventType.PROMOTION_FAILED, on_promotion_failed)
+            subscribe(DataEventType.HYPERPARAMETER_UPDATED, on_hyperparameter_updated)
 
             logger.debug(f"[SelfplayRunner] Subscribed to feedback events for {config_key}")
 
@@ -772,6 +843,10 @@ class SelfplayRunner(ABC):
         wiring when available. The scheduler receives PROMOTION_FAILED and
         MODEL_PROMOTED events to automatically adjust exploration.
 
+        Gauntlet feedback (via HYPERPARAMETER_UPDATED) further modulates temperature:
+        - Strong models (>80% win rate) → temperature_scale < 1.0 (reduce exploration)
+        - Weak models (<70% win rate) → temperature_scale > 1.0 (increase exploration)
+
         Weak models (Elo < 1300) get high temperature (1.5) for exploration.
         Strong models (Elo > 1700) get low temperature (0.5) for exploitation.
 
@@ -782,9 +857,13 @@ class SelfplayRunner(ABC):
         Returns:
             Temperature value for move selection.
         """
+        # Get Gauntlet temperature scale (from HYPERPARAMETER_UPDATED events)
+        gauntlet_scale = getattr(self, "_gauntlet_temperature_scale", 1.0)
+
         # Use persistent scheduler with exploration boost (preferred)
         if self._temperature_scheduler is not None:
-            return self._temperature_scheduler.get_temperature(move_number, game_state)
+            base_temp = self._temperature_scheduler.get_temperature(move_number, game_state)
+            return base_temp * gauntlet_scale
 
         # Fallback: create one-off scheduler if model_elo is set but scheduler wasn't initialized
         if self.config.model_elo is not None:
@@ -795,7 +874,7 @@ class SelfplayRunner(ABC):
                     model_elo=self.config.model_elo,
                     exploration_moves=getattr(self.config, 'temperature_threshold', 30),
                 )
-                return scheduler.get_temperature(move_number, game_state)
+                return scheduler.get_temperature(move_number, game_state) * gauntlet_scale
             except ImportError:
                 pass  # Fall through to default logic
             except Exception as e:
@@ -806,8 +885,8 @@ class SelfplayRunner(ABC):
         opening_temp = getattr(self.config, 'opening_temperature', 1.0)
         base_temp = getattr(self.config, 'base_temperature', 0.1)
         if move_number < threshold:
-            return opening_temp
-        return base_temp
+            return opening_temp * gauntlet_scale
+        return base_temp * gauntlet_scale
 
     def run(self) -> RunStats:
         """Main run loop. Executes setup, games, teardown."""
@@ -816,7 +895,14 @@ class SelfplayRunner(ABC):
         try:
             game_idx = 0
             # Include extra games requested via feedback events (December 2025)
-            target_games = self.config.num_games + self._extra_games_requested
+            # Apply Gauntlet rate multiplier (weak model → more games, strong model → fewer)
+            base_target = int(self.config.num_games * self._gauntlet_rate_multiplier)
+            target_games = base_target + self._extra_games_requested
+            if self._gauntlet_rate_multiplier != 1.0:
+                logger.info(
+                    f"[GauntletFeedback] Adjusted target games: {self.config.num_games} × "
+                    f"{self._gauntlet_rate_multiplier:.2f} = {base_target}"
+                )
             while self.running and game_idx < target_games:
                 # Phase 3 Feedback Loop: Check quality throttle before each game
                 if self._apply_quality_throttle():

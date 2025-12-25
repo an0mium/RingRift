@@ -685,9 +685,9 @@ router.get(
  *       Creates a new game with the specified settings.
  *       The authenticated user becomes player 1 (game creator).
  *
- *       Rate limited:
- *       - 5 games per hour per user
- *       - 10 games per hour per IP address
+ *       Rate limited (defaults, configurable via RATE_LIMIT_GAME_CREATE_*):
+ *       - 20 games per 10 minutes per user
+ *       - 50 games per 10 minutes per IP address
  *
  *       AI games:
  *       - Cannot be rated (isRated must be false)

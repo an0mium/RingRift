@@ -4,7 +4,7 @@
 >
 > **Doc Status (2025-12-11): Active (with historical TypeScript implementation details)**
 >
-> - Canonical TS rules surface is the helpers + aggregates + orchestrator stack under `src/shared/engine/`: `core.ts`, movement/capture/line/territory/victory helpers, `aggregates/*Aggregate.ts`, and `orchestration/turnOrchestrator.ts` / `phaseStateMachine.ts`, plus contract vectors in `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/*.json`.
+> - Canonical TS rules surface is the helpers + aggregates + orchestrator stack under `src/shared/engine/`: `core.ts`, movement/capture/line/territory/victory helpers, `aggregates/*Aggregate.ts`, `orchestration/turnOrchestrator.ts`, and the canonical FSM stack (`fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`). (Legacy `phaseStateMachine.ts` removed.) Contract vectors live in `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/*.json`.
 > - Function and class names under `validators/*.ts` and `mutators/*.ts` in the tables below should be read as **semantic anchors**, not necessarily 1:1 concrete TS files. As of this date, only `validators/PlacementValidator.ts` and a subset of `mutators/*Mutator.ts` exist on the TS side; the rest of the semantics are expressed via helpers, aggregates, and the orchestrator and are exercised by:
 >   - TS contract tests in `tests/contracts/contractVectorRunner.test.ts`
 >   - Shared-engine parity in `tests/unit/TraceFixtures.sharedEngineParity.test.ts`

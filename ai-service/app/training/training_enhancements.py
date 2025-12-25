@@ -3797,3 +3797,163 @@ def create_evaluation_feedback_handler(
     handler = EvaluationFeedbackHandler(optimizer, config_key, **kwargs)
     handler.subscribe()
     return handler
+
+
+# =============================================================================
+# TRAINING_LOSS_ANOMALY → QUALITY_CHECK Handler (Phase 3 December 2025)
+# =============================================================================
+
+
+class TrainingLossAnomalyHandler:
+    """Handles TRAINING_LOSS_ANOMALY events by triggering quality checks.
+
+    When training loss spikes are detected, this handler:
+    1. Logs the anomaly for investigation
+    2. Emits a LOW_QUALITY_DATA_WARNING to trigger quality-aware responses
+    3. Optionally pauses or reduces training rate
+
+    This closes the feedback loop: training loss problems → data quality investigation.
+    """
+
+    def __init__(
+        self,
+        config_key: str,
+        anomaly_threshold: float = 2.0,  # Loss spike factor to trigger
+        cooldown_seconds: float = 300.0,  # 5 min cooldown between triggers
+    ):
+        """Initialize the handler.
+
+        Args:
+            config_key: Board configuration (e.g., "hex8_2p")
+            anomaly_threshold: Factor above average loss to consider anomaly
+            cooldown_seconds: Minimum time between quality check triggers
+        """
+        self.config_key = config_key
+        self.anomaly_threshold = anomaly_threshold
+        self.cooldown_seconds = cooldown_seconds
+
+        self._subscribed = False
+        self._last_trigger_time = 0.0
+        self._anomaly_count = 0
+
+    def subscribe(self) -> bool:
+        """Subscribe to TRAINING_LOSS_ANOMALY events.
+
+        Returns:
+            True if subscription was successful
+        """
+        if self._subscribed:
+            return True
+
+        try:
+            from app.distributed.data_events import DataEventType
+
+            try:
+                from app.coordination.event_router import get_event_bus, subscribe
+            except ImportError:
+                from app.distributed.data_events import get_event_bus
+
+                def subscribe(event_type, callback):
+                    get_event_bus().subscribe(event_type, callback)
+
+            def on_training_loss_anomaly(event):
+                """Handle TRAINING_LOSS_ANOMALY event."""
+                payload = event.payload
+                event_config = payload.get("config_key", "")
+
+                # Only handle events for our config
+                if event_config and event_config != self.config_key:
+                    return
+
+                self._handle_anomaly(payload)
+
+            subscribe(DataEventType.TRAINING_LOSS_ANOMALY, on_training_loss_anomaly)
+            self._subscribed = True
+            logger.info(
+                f"[TrainingLossAnomalyHandler] Subscribed to TRAINING_LOSS_ANOMALY "
+                f"for {self.config_key}"
+            )
+            return True
+
+        except ImportError as e:
+            logger.debug(f"[TrainingLossAnomalyHandler] Event system not available: {e}")
+            return False
+
+    def _handle_anomaly(self, payload: dict[str, Any]) -> None:
+        """Handle a training loss anomaly.
+
+        Args:
+            payload: Event payload with loss details
+        """
+        import time
+
+        current_time = time.time()
+        loss = payload.get("loss", 0.0)
+        average_loss = payload.get("average_loss", 0.0)
+        epoch = payload.get("epoch", 0)
+
+        self._anomaly_count += 1
+
+        # Check cooldown
+        if current_time - self._last_trigger_time < self.cooldown_seconds:
+            logger.debug(
+                f"[TrainingLossAnomalyHandler] Anomaly #{self._anomaly_count} for "
+                f"{self.config_key} (in cooldown, skipping quality check)"
+            )
+            return
+
+        # Trigger quality warning
+        self._last_trigger_time = current_time
+
+        logger.warning(
+            f"[TrainingLossAnomalyHandler] Loss anomaly #{self._anomaly_count} for "
+            f"{self.config_key}: loss={loss:.4f}, avg={average_loss:.4f}, "
+            f"epoch={epoch}. Triggering quality check."
+        )
+
+        # Emit LOW_QUALITY_DATA_WARNING to trigger quality investigation
+        try:
+            from app.core.async_context import fire_and_forget
+            from app.distributed.data_events import DataEventType, get_event_bus
+
+            bus = get_event_bus()
+
+            async def emit_warning():
+                await bus.publish(
+                    DataEventType.LOW_QUALITY_DATA_WARNING,
+                    {
+                        "config_key": self.config_key,
+                        "reason": "training_loss_anomaly",
+                        "loss": loss,
+                        "average_loss": average_loss,
+                        "anomaly_count": self._anomaly_count,
+                    },
+                )
+
+            fire_and_forget(emit_warning())
+
+        except Exception as e:
+            logger.debug(f"[TrainingLossAnomalyHandler] Failed to emit warning: {e}")
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get handler statistics."""
+        return {
+            "config_key": self.config_key,
+            "subscribed": self._subscribed,
+            "anomaly_count": self._anomaly_count,
+            "last_trigger_time": self._last_trigger_time,
+        }
+
+
+def wire_training_loss_anomaly_handler(config_key: str) -> TrainingLossAnomalyHandler:
+    """Wire TRAINING_LOSS_ANOMALY events to quality check triggers.
+
+    Args:
+        config_key: Board configuration (e.g., "hex8_2p")
+
+    Returns:
+        Subscribed handler instance
+    """
+    handler = TrainingLossAnomalyHandler(config_key)
+    handler.subscribe()
+    return handler

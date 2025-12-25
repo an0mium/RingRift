@@ -341,7 +341,7 @@ class TrainingCoordinator:
         """Subscribe to cluster health events for training decisions.
 
         December 2025: Closes the cluster→training feedback loop.
-        Training decisions now react to cluster health events.
+        Training decisions now react to cluster health events and regressions.
         """
         if not HAS_CLUSTER_EVENTS or get_event_bus is None:
             logger.debug("[TrainingCoordinator] Cluster events unavailable, skipping subscriptions")
@@ -359,7 +359,11 @@ class TrainingCoordinator:
             bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
             bus.subscribe(DataEventType.NODE_UNHEALTHY, self._on_node_unhealthy)
 
-            logger.info("[TrainingCoordinator] Subscribed to cluster health events")
+            # Subscribe to regression events (December 2025 - feedback loop strengthening)
+            bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
+            bus.subscribe(DataEventType.REGRESSION_CRITICAL, self._on_regression_critical)
+
+            logger.info("[TrainingCoordinator] Subscribed to cluster health and regression events")
         except Exception as e:
             logger.warning(f"[TrainingCoordinator] Failed to subscribe to cluster events: {e}")
 
@@ -393,6 +397,157 @@ class TrainingCoordinator:
         """Handle node unhealthy - reduce training capacity."""
         logger.warning("[TrainingCoordinator] Node unhealthy - may affect training")
         # Reduce effective capacity when nodes drop
+
+    def _on_regression_detected(self, event: Any) -> None:
+        """Handle REGRESSION_DETECTED event - consider pausing training.
+
+        December 2025: Closes the feedback loop from model evaluation.
+        When a model regresses (Elo drops), we may need to pause training
+        and investigate before wasting more compute.
+
+        Behavior:
+        - Elo drop < 30: Log warning, continue training
+        - Elo drop 30-50: Reduce cluster capacity for this config
+        - Elo drop > 50: Pause training for this config
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+
+        config_key = payload.get("config") or payload.get("config_key", "")
+        model_id = payload.get("model_id", "")
+        elo_drop = payload.get("elo_drop", 0)
+        current_elo = payload.get("current_elo", 0)
+        previous_elo = payload.get("previous_elo", 0)
+
+        if not config_key:
+            # Try to extract from model_id (format: "{board}_{n}p_...")
+            if model_id and "_" in model_id:
+                parts = model_id.split("_")
+                if len(parts) >= 2:
+                    config_key = f"{parts[0]}_{parts[1]}"
+
+        if not config_key:
+            logger.debug("[TrainingCoordinator] REGRESSION_DETECTED without config_key, ignoring")
+            return
+
+        self._events_processed += 1
+
+        if elo_drop < 30:
+            # Minor regression - just log
+            logger.info(
+                f"[TrainingCoordinator] Minor regression for {config_key}: "
+                f"{previous_elo:.0f} → {current_elo:.0f} (drop: {elo_drop:.0f})"
+            )
+        elif elo_drop < 50:
+            # Moderate regression - reduce capacity
+            old_capacity = self._cluster_capacity
+            self._cluster_capacity = max(0.5, self._cluster_capacity * 0.8)
+            logger.warning(
+                f"[TrainingCoordinator] Moderate regression for {config_key}: "
+                f"Elo drop {elo_drop:.0f}, reducing capacity {old_capacity:.1%} → {self._cluster_capacity:.1%}"
+            )
+            # Emit capacity change event
+            self._emit_training_event(
+                "capacity_reduced",
+                job_id="",
+                board_type=config_key.split("_")[0] if "_" in config_key else config_key,
+                num_players=int(config_key.split("_")[1].replace("p", "")) if "_" in config_key else 2,
+                reason="regression_detected",
+                elo_drop=elo_drop,
+            )
+        else:
+            # Severe regression - pause training for this config
+            logger.error(
+                f"[TrainingCoordinator] SEVERE regression for {config_key}: "
+                f"Elo drop {elo_drop:.0f}, pausing training"
+            )
+            self._pause_training_for_config(config_key, reason=f"severe_regression_elo_drop_{elo_drop:.0f}")
+
+    def _on_regression_critical(self, event: Any) -> None:
+        """Handle REGRESSION_CRITICAL event - immediately pause training.
+
+        December 2025: Critical regressions require immediate action.
+        This may indicate a corrupted model or training bug.
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+
+        config_key = payload.get("config") or payload.get("config_key", "")
+        model_id = payload.get("model_id", "")
+        elo_drop = payload.get("elo_drop", 0)
+
+        if not config_key and model_id and "_" in model_id:
+            parts = model_id.split("_")
+            if len(parts) >= 2:
+                config_key = f"{parts[0]}_{parts[1]}"
+
+        if not config_key:
+            logger.error("[TrainingCoordinator] REGRESSION_CRITICAL without config_key")
+            return
+
+        self._events_processed += 1
+        self._errors_count += 1
+        self._last_error = f"Critical regression: {config_key} dropped {elo_drop:.0f} Elo"
+
+        logger.critical(
+            f"[TrainingCoordinator] CRITICAL regression for {config_key}: "
+            f"Elo drop {elo_drop:.0f}, halting all training for this config"
+        )
+
+        self._pause_training_for_config(config_key, reason=f"critical_regression_elo_drop_{elo_drop:.0f}")
+
+        # Emit training paused event
+        self._emit_via_router(
+            "TRAINING_PAUSED",
+            {
+                "config_key": config_key,
+                "reason": "critical_regression",
+                "elo_drop": elo_drop,
+                "timestamp": time.time(),
+            },
+        )
+
+    def _pause_training_for_config(self, config_key: str, reason: str) -> bool:
+        """Pause training for a specific config.
+
+        Marks any active training job for this config as paused and prevents
+        new training from starting until the pause is cleared.
+
+        Args:
+            config_key: Config identifier (e.g., "hex8_2p")
+            reason: Reason for pausing
+
+        Returns:
+            True if training was paused, False if no active training
+        """
+        # Parse config_key
+        if "_" not in config_key:
+            logger.warning(f"[TrainingCoordinator] Invalid config_key format: {config_key}")
+            return False
+
+        parts = config_key.split("_")
+        board_type = parts[0]
+        num_players = int(parts[1].replace("p", ""))
+
+        # Check for active training job
+        job = self.get_job(board_type, num_players)
+        if not job:
+            logger.info(f"[TrainingCoordinator] No active training for {config_key} to pause")
+            return False
+
+        # Mark job as paused in database
+        conn = self._get_connection()
+        conn.execute(
+            '''UPDATE training_jobs
+               SET status = 'paused', metadata = json_set(metadata, '$.pause_reason', ?)
+               WHERE job_id = ? AND status = 'running' ''',
+            (reason, job.job_id)
+        )
+        conn.commit()
+
+        logger.warning(
+            f"[TrainingCoordinator] Paused training job {job.job_id} for {config_key}: {reason}"
+        )
+
+        return True
 
     @property
     def cluster_healthy(self) -> bool:

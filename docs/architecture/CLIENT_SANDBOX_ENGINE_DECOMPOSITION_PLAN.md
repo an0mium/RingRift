@@ -110,7 +110,7 @@ The [`ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts:215)
 
 - Type definitions (GameState, Move, BoardState, etc.)
 - Aggregate helpers (placement, capture, line, territory)
-- Orchestrator (turnOrchestrator, phaseStateMachine)
+- Orchestration surface (`orchestration/turnOrchestrator.ts`) + canonical FSM stack (`fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`) (legacy `phaseStateMachine.ts` removed)
 - LPS tracking helpers (lpsTracking.ts)
 
 ---

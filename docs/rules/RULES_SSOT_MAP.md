@@ -38,7 +38,7 @@ The hierarchy below orders sources by normative authority. Higher bullets win on
   - Territory: [`TerritoryAggregate.ts`](../../src/shared/engine/aggregates/TerritoryAggregate.ts:1)
   - Elimination: [`EliminationAggregate.ts`](../../src/shared/engine/aggregates/EliminationAggregate.ts:1)
   - Victory: [`VictoryAggregate.ts`](../../src/shared/engine/aggregates/VictoryAggregate.ts:1)
-- Turn orchestrator (canonical execution surface over aggregates): [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) and [`phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts:1).
+- Turn orchestrator (canonical execution surface over aggregates): [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) with phase/turn transitions owned by the canonical FSM stack ([`TurnStateMachine.ts`](../../src/shared/engine/fsm/TurnStateMachine.ts:1), [`FSMAdapter.ts`](../../src/shared/engine/fsm/FSMAdapter.ts:1)). (Legacy `phaseStateMachine.ts` removed.)
 - Cross-language contracts and vectors: [`src/shared/engine/contracts/*.ts`](../../src/shared/engine/contracts/schemas.ts:1) and v2 vectors under [`tests/fixtures/contract-vectors/v2`](../../tests/fixtures/contract-vectors/v2).
 
 **3. Lifecycle/API SSoT**
@@ -97,7 +97,7 @@ _Location_: [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOr
 
 **Execution semantics**
 
-- The orchestrator calls domain aggregates in deterministic order for a full turn (placement → movement/capture/chain_capture → line_processing → territory_processing → victory), using the shared turn/phase state machine in [`phaseStateMachine.ts`](../../src/shared/engine/orchestration/phaseStateMachine.ts:1) and [`turnLogic.ts`](../../src/shared/engine/turnLogic.ts:135).
+- The orchestrator calls domain aggregates in deterministic order for a full turn (placement → movement/capture/chain_capture → line_processing → territory_processing → victory), using the canonical FSM stack ([`FSMAdapter.ts`](../../src/shared/engine/fsm/FSMAdapter.ts:1), [`TurnStateMachine.ts`](../../src/shared/engine/fsm/TurnStateMachine.ts:1)) and shared turn helpers like [`turnLogic.ts`](../../src/shared/engine/turnLogic.ts:135).
 - All rule semantics for placement, movement, capture, lines, territory, and victory **must** flow through the aggregates listed in §1.2, not through host-specific reimplementations.
 - Aggregates may be used **directly** only in:
   - Shared engine unit tests and contract-vector generation.

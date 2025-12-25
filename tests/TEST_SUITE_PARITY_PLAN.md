@@ -6,7 +6,7 @@
 >
 > **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the shared TypeScript rules engine and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) together with the written rules and lifecycle docs (`RULES_CANONICAL_SPEC.md`, `../docs/rules/COMPLETE_RULES.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/CANONICAL_ENGINE_API.md`). When this file talks about “authority” or “canonical behaviour” it is always pointing back to those SSoTs and to specific rules-level test suites built on top of them.
 >
-> **Related docs:** `tests/README.md`, `tests/TEST_LAYERS.md`, `docs/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `tests/README.md`, `tests/TEST_LAYERS.md`, `docs/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
 >
 > **Goal:** Provide a concrete map of the existing tests so future work can systematically align **all TS + Python tests** to the **shared TypeScript rules engine** and the **rules-over-traces** strategy.
 >
@@ -24,7 +24,7 @@
 All semantic decisions should ultimately be anchored to:
 
 1. **Shared TS rules engine** – `src/shared/engine/`
-   - `core.ts`, movement/capture/line/territory/victory helpers, `aggregates/*.ts`, `orchestration/turnOrchestrator.ts`, `orchestration/phaseStateMachine.ts`, and contracts under `src/shared/engine/contracts/*`.
+   - `core.ts`, movement/capture/line/territory/victory helpers, `aggregates/*.ts`, `orchestration/turnOrchestrator.ts`, the canonical FSM stack (`fsm/TurnStateMachine.ts`, `fsm/FSMAdapter.ts`), and contracts under `src/shared/engine/contracts/*`. (Legacy `orchestration/phaseStateMachine.ts` removed.)
 2. **Written rules** – `../docs/rules/COMPLETE_RULES.md` (plus `RULES_SCENARIO_MATRIX.md`).
 3. **Contract vectors + parity harnesses** – `tests/fixtures/contract-vectors/v2/*.json`, `tests/contracts/contractVectorRunner.test.ts`, and Python counterparts under `ai-service/tests/contracts/` and `ai-service/tests/parity/`.
 

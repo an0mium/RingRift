@@ -2870,7 +2870,7 @@ def _build_healthcheck_summary(
         "parity_notes",
         (
             "PARITY-* checks are not yet wired into the ai-healthcheck "
-            "profile. See docs/INVARIANTS_AND_PARITY_FRAMEWORK.md for "
+            "profile. See docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md for "
             "future PARITY-* integration points."
         ),
     )

@@ -870,6 +870,55 @@ def register_active_scheduler(config_key: str, scheduler: "TemperatureScheduler"
     _active_schedulers[config_key] = scheduler
     logger.debug(f"[TemperatureScheduler] Registered active scheduler for {config_key}")
 
+    # December 2025: Emit event for lazy exploration boost wiring
+    # This allows FeedbackLoopController to wire schedulers that register after startup
+    _emit_scheduler_registered(config_key)
+
+
+def _emit_scheduler_registered(config_key: str) -> None:
+    """Emit SCHEDULER_REGISTERED event for lazy exploration boost wiring.
+
+    This enables the feedback loop to wire exploration boost to schedulers
+    that are created after FeedbackLoopController initializes.
+    """
+    try:
+        from app.coordination.event_router import get_event_bus, RouterEvent, EventSource
+
+        bus = get_event_bus()
+        if bus is None:
+            return
+
+        event = RouterEvent(
+            event_type="SCHEDULER_REGISTERED",
+            payload={
+                "config_key": config_key,
+                "timestamp": time.time(),
+            },
+            source="temperature_scheduling",
+            origin=EventSource.ROUTER,
+        )
+
+        # Fire-and-forget - use sync publish if available
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(bus.publish(event))
+        except RuntimeError:
+            # No event loop running - try sync publish or skip
+            if hasattr(bus, "publish_sync"):
+                bus.publish_sync(event)
+            else:
+                logger.debug(
+                    f"[TemperatureScheduler] Could not emit SCHEDULER_REGISTERED "
+                    f"for {config_key} (no event loop)"
+                )
+
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.debug(f"[TemperatureScheduler] Failed to emit SCHEDULER_REGISTERED: {e}")
+
 
 def unregister_active_scheduler(config_key: str) -> None:
     """Unregister a temperature scheduler when selfplay completes.

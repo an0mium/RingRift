@@ -93,6 +93,9 @@ class FeedbackLoopController:
         self._subscribed = False
         self._lock = threading.Lock()
 
+        # Phase 23.1: Track selfplay rate changes for monitoring
+        self._rate_history: dict[str, list[dict[str, Any]]] = {}
+
         # Configuration
         self.policy_accuracy_threshold = 0.75  # Trigger evaluation above this
         self.promotion_threshold = 0.55  # Win rate for promotion consideration
@@ -152,8 +155,14 @@ class FeedbackLoopController:
             bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
             bus.subscribe(DataEventType.PROMOTION_COMPLETE, self._on_promotion_complete)
 
+            # Phase 23.1: Subscribe to selfplay rate change events for monitoring
+            if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
+                bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
+                logger.info("[FeedbackLoopController] Subscribed to 5 event types (including SELFPLAY_RATE_CHANGED)")
+            else:
+                logger.info("[FeedbackLoopController] Subscribed to 4 event types")
+
             self._subscribed = True
-            logger.info("[FeedbackLoopController] Subscribed to 4 event types")
         except Exception as e:
             logger.warning(f"[FeedbackLoopController] Failed to subscribe: {e}")
 
@@ -170,6 +179,10 @@ class FeedbackLoopController:
             bus.unsubscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
             bus.unsubscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
             bus.unsubscribe(DataEventType.PROMOTION_COMPLETE, self._on_promotion_complete)
+
+            # Phase 23.1: Unsubscribe from rate change events
+            if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
+                bus.unsubscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
 
             self._subscribed = False
         except Exception as e:

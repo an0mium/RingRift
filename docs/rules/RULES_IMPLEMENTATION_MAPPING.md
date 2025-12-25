@@ -22,11 +22,11 @@ Canonical rule IDs of the form `RR-CANON-RXXX` always refer to entries in [`RULE
 
 ### Quick map (top surfaces)
 
-| Area                     | Primary TS surface                                                                                                     | Key tests                                                                                                                                               |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Turn/phase orchestration | `src/shared/engine/orchestration/turnOrchestrator.ts`, `phaseStateMachine.ts`                                          | `tests/contracts/contractVectorRunner.test.ts`, `tests/unit/TraceFixtures.sharedEngineParity.test.ts`                                                   |
-| Lines & territory        | `src/shared/engine/lineDetection.ts`, `lineDecisionHelpers.ts`, `territoryDetection.ts`, `territoryDecisionHelpers.ts` | `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/BoardManager.territoryDisconnection.test.ts`                                               |
-| Forced elimination / ANM | `src/shared/engine/orchestration/turnOrchestrator.ts`, `src/shared/engine/globalActions.ts`                            | `tests/unit/GameEngine.gameEndExplanation.shared.test.ts`, `ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py` |
+| Area                     | Primary TS surface                                                                                                                                         | Key tests                                                                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Turn/phase orchestration | `src/shared/engine/orchestration/turnOrchestrator.ts`, `src/shared/engine/fsm/TurnStateMachine.ts`, `src/shared/engine/fsm/FSMAdapter.ts` (legacy removed) | `tests/contracts/contractVectorRunner.test.ts`, `tests/unit/TraceFixtures.sharedEngineParity.test.ts`                                                   |
+| Lines & territory        | `src/shared/engine/lineDetection.ts`, `lineDecisionHelpers.ts`, `territoryDetection.ts`, `territoryDecisionHelpers.ts`                                     | `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/BoardManager.territoryDisconnection.test.ts`                                               |
+| Forced elimination / ANM | `src/shared/engine/orchestration/turnOrchestrator.ts`, `src/shared/engine/globalActions.ts`                                                                | `tests/unit/GameEngine.gameEndExplanation.shared.test.ts`, `ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py` |
 
 ---
 
@@ -36,7 +36,7 @@ This section exists to ensure the most cross-cutting RR-CANON rules have an
 explicit “anchor” back to concrete engine surfaces and tests. It is not a full
 catalogue.
 
-- **RR-CANON-R073** (mandatory phase transitions): TS `src/shared/engine/orchestration/turnOrchestrator.ts` + `src/shared/engine/orchestration/phaseStateMachine.ts`; Python `ai-service/app/rules/phase_machine.py`.
+- **RR-CANON-R073** (mandatory phase transitions): TS `src/shared/engine/orchestration/turnOrchestrator.ts` + canonical FSM (`src/shared/engine/fsm/TurnStateMachine.ts`, `src/shared/engine/fsm/FSMAdapter.ts`); Python `ai-service/app/rules/phase_machine.py`. (Legacy TS `orchestration/phaseStateMachine.ts` removed.)
 - **RR-CANON-R074** (record all actions/skips): TS move recording + decision moves in `src/shared/types/game.ts` and orchestrator decisions; Python canonical contract `ai-service/app/rules/history_contract.py` (write-time enforcement via `ai-service/app/db/game_replay.py`).
 - **RR-CANON-R075** (canonical replay semantics / no silent transitions): TS `src/shared/engine/phaseValidation.ts` + `tests/unit/PhaseRecording.invariant.test.ts`; Python `ai-service/app/rules/history_contract.py` + `ai-service/app/rules/history_validation.py`.
 - **RR-CANON-R076** (core rules vs host layer boundaries): see `../architecture/CANONICAL_ENGINE_API.md` + `src/shared/engine/**` vs hosts (`src/server/game/**`, `src/client/sandbox/**`, `ai-service/app/game_engine/__init__.py`).
@@ -594,7 +594,7 @@ Status legend:
 **R204 Phase-local decision exits (HC)**
 
 - **Primary implementation**
-  - Phase-exit logic in [`TypeScript.orchestration/phaseStateMachine`](../../src/shared/engine/orchestration/phaseStateMachine.ts) handles auto-exit from `line_processing` and `territory_processing` when no decisions remain.
+  - Phase-exit / transition logic now lives in the canonical FSM stack: [`TypeScript.fsm.FSMAdapter`](../../src/shared/engine/fsm/FSMAdapter.ts:1) + [`TypeScript.fsm.TurnStateMachine`](../../src/shared/engine/fsm/TurnStateMachine.ts:1). (Legacy `orchestration/phaseStateMachine.ts` removed.)
   - Backend phase advancement in [`TypeScript.advanceGameForCurrentPlayer`](../../src/server/game/turn/TurnEngine.ts:91) and sandbox equivalents.
 - **Supporting / tests**
   - Multi-phase turn tests under `tests/unit/TurnEngineAdapter.integration.test.ts`.
