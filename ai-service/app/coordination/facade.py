@@ -1,0 +1,536 @@
+"""Coordination Facade - Simplified API for Training Coordination (December 2025).
+
+This module provides a unified, simplified interface for common coordination
+operations, hiding the complexity of 75+ internal coordinator classes.
+
+Use this facade for:
+- Task spawning and status checking
+- Training job management
+- Cluster health monitoring
+- Event subscription
+
+For advanced use cases, you can still access the underlying coordinators directly.
+
+Usage:
+    from app.coordination.facade import CoordinationFacade
+
+    coord = CoordinationFacade()
+
+    # Check if we can spawn a task
+    if coord.can_spawn_task("selfplay", "lambda-h100"):
+        task_id = coord.spawn_task("selfplay", "lambda-h100", games=100)
+
+    # Start training
+    training_id = coord.start_training("hex8", 2)
+
+    # Get cluster health
+    health = coord.get_cluster_health()
+    print(f"Healthy nodes: {health['healthy_nodes']}")
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+
+class TaskStatus(str, Enum):
+    """Task execution status."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    TIMED_OUT = "timed_out"
+    CANCELLED = "cancelled"
+
+
+class TrainingStatus(str, Enum):
+    """Training job status."""
+    NOT_STARTED = "not_started"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class ClusterHealth:
+    """Summary of cluster health."""
+    total_nodes: int
+    healthy_nodes: int
+    degraded_nodes: int
+    unhealthy_nodes: int
+    evicted_nodes: int
+    available_node_ids: list[str]
+    timestamp: str
+
+
+@dataclass
+class TaskInfo:
+    """Information about a task."""
+    task_id: str
+    task_type: str
+    node_id: str
+    status: TaskStatus
+    started_at: float
+    runtime_seconds: float
+
+
+class CoordinationFacade:
+    """Simplified interface for common coordination operations.
+
+    This facade provides a stable API while internal coordinators may change.
+    It handles lazy initialization of underlying components.
+    """
+
+    def __init__(self):
+        self._task_coordinator = None
+        self._training_coordinator = None
+        self._node_monitor = None
+        self._event_router = None
+
+    # =========================================================================
+    # Task Operations
+    # =========================================================================
+
+    def can_spawn_task(self, task_type: str, node_id: str) -> bool:
+        """Check if a task can be spawned on a node.
+
+        Args:
+            task_type: Type of task (selfplay, training, export, etc.)
+            node_id: Target node identifier
+
+        Returns:
+            True if task can be spawned
+        """
+        # Check node availability
+        if not self._is_node_available(node_id):
+            return False
+
+        # Check task limits
+        coordinator = self._get_task_coordinator()
+        if coordinator is None:
+            return True  # No coordinator, allow by default
+
+        try:
+            from app.coordination.task_coordinator import TaskType
+            tt = TaskType(task_type) if task_type in [t.value for t in TaskType] else None
+            if tt:
+                return coordinator.can_spawn(tt, node_id)
+        except Exception as e:
+            logger.debug(f"Task spawn check failed: {e}")
+
+        return True
+
+    def spawn_task(
+        self,
+        task_type: str,
+        node_id: str,
+        timeout_seconds: float = 3600.0,
+        **metadata,
+    ) -> str | None:
+        """Spawn a task on a node.
+
+        Args:
+            task_type: Type of task
+            node_id: Target node
+            timeout_seconds: Maximum runtime
+            **metadata: Additional task metadata
+
+        Returns:
+            Task ID if spawned, None if failed
+        """
+        coordinator = self._get_task_coordinator()
+        if coordinator is None:
+            logger.warning("No task coordinator available")
+            return None
+
+        try:
+            from app.coordination.task_coordinator import TaskType
+            tt = TaskType(task_type) if task_type in [t.value for t in TaskType] else TaskType.SELFPLAY
+
+            metadata['timeout_seconds'] = timeout_seconds
+            task_id = coordinator.register_task(tt, node_id, metadata=metadata)
+            return task_id
+        except Exception as e:
+            logger.error(f"Failed to spawn task: {e}")
+            return None
+
+    def get_task_status(self, task_id: str) -> TaskInfo | None:
+        """Get status of a task.
+
+        Args:
+            task_id: Task identifier
+
+        Returns:
+            TaskInfo or None if not found
+        """
+        coordinator = self._get_task_coordinator()
+        if coordinator is None:
+            return None
+
+        try:
+            task = coordinator.registry.get_task(task_id)
+            if task:
+                return TaskInfo(
+                    task_id=task.task_id,
+                    task_type=task.task_type.value,
+                    node_id=task.node_id,
+                    status=TaskStatus(task.status) if task.status in [s.value for s in TaskStatus] else TaskStatus.RUNNING,
+                    started_at=task.started_at,
+                    runtime_seconds=task.runtime_seconds(),
+                )
+        except Exception as e:
+            logger.debug(f"Failed to get task status: {e}")
+
+        return None
+
+    def cancel_task(self, task_id: str) -> bool:
+        """Cancel a running task.
+
+        Args:
+            task_id: Task identifier
+
+        Returns:
+            True if cancelled
+        """
+        coordinator = self._get_task_coordinator()
+        if coordinator is None:
+            return False
+
+        try:
+            coordinator.registry.update_task_status(task_id, "cancelled")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel task: {e}")
+            return False
+
+    def get_active_tasks(self, node_id: str | None = None) -> list[TaskInfo]:
+        """Get list of active tasks.
+
+        Args:
+            node_id: Optional filter by node
+
+        Returns:
+            List of active TaskInfo objects
+        """
+        coordinator = self._get_task_coordinator()
+        if coordinator is None:
+            return []
+
+        try:
+            tasks = coordinator.registry.get_active_tasks()
+            if node_id:
+                tasks = [t for t in tasks if t.node_id == node_id]
+
+            return [
+                TaskInfo(
+                    task_id=t.task_id,
+                    task_type=t.task_type.value,
+                    node_id=t.node_id,
+                    status=TaskStatus.RUNNING,
+                    started_at=t.started_at,
+                    runtime_seconds=t.runtime_seconds(),
+                )
+                for t in tasks
+            ]
+        except Exception as e:
+            logger.debug(f"Failed to get active tasks: {e}")
+            return []
+
+    # =========================================================================
+    # Training Operations
+    # =========================================================================
+
+    def start_training(
+        self,
+        board_type: str,
+        num_players: int,
+        **kwargs,
+    ) -> str | None:
+        """Start a training job.
+
+        Args:
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players
+            **kwargs: Additional training parameters
+
+        Returns:
+            Training job ID or None if failed
+        """
+        coordinator = self._get_training_coordinator()
+        if coordinator is None:
+            logger.warning("No training coordinator available")
+            return None
+
+        try:
+            config_key = f"{board_type}_{num_players}p"
+            return coordinator.start_training(config_key, **kwargs)
+        except Exception as e:
+            logger.error(f"Failed to start training: {e}")
+            return None
+
+    def get_training_status(self, board_type: str, num_players: int) -> TrainingStatus:
+        """Get status of a training job.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            TrainingStatus
+        """
+        coordinator = self._get_training_coordinator()
+        if coordinator is None:
+            return TrainingStatus.NOT_STARTED
+
+        try:
+            config_key = f"{board_type}_{num_players}p"
+            status = coordinator.get_status(config_key)
+            if status and status.get("running"):
+                return TrainingStatus.RUNNING
+            elif status and status.get("completed"):
+                return TrainingStatus.COMPLETED
+        except Exception:
+            pass
+
+        return TrainingStatus.NOT_STARTED
+
+    def stop_training(self, board_type: str, num_players: int) -> bool:
+        """Stop a running training job.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            True if stopped
+        """
+        coordinator = self._get_training_coordinator()
+        if coordinator is None:
+            return False
+
+        try:
+            config_key = f"{board_type}_{num_players}p"
+            coordinator.stop_training(config_key)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to stop training: {e}")
+            return False
+
+    # =========================================================================
+    # Cluster Health Operations
+    # =========================================================================
+
+    def get_cluster_health(self) -> ClusterHealth:
+        """Get cluster health summary.
+
+        Returns:
+            ClusterHealth object
+        """
+        monitor = self._get_node_monitor()
+
+        if monitor is None:
+            return ClusterHealth(
+                total_nodes=0,
+                healthy_nodes=0,
+                degraded_nodes=0,
+                unhealthy_nodes=0,
+                evicted_nodes=0,
+                available_node_ids=[],
+                timestamp=datetime.now().isoformat(),
+            )
+
+        summary = monitor.get_cluster_summary()
+        return ClusterHealth(
+            total_nodes=summary["total_nodes"],
+            healthy_nodes=summary["healthy"],
+            degraded_nodes=summary["degraded"],
+            unhealthy_nodes=summary["unhealthy"],
+            evicted_nodes=summary["evicted"],
+            available_node_ids=summary["available_nodes"],
+            timestamp=summary["timestamp"],
+        )
+
+    def is_node_healthy(self, node_id: str) -> bool:
+        """Check if a specific node is healthy.
+
+        Args:
+            node_id: Node identifier
+
+        Returns:
+            True if healthy
+        """
+        return self._is_node_available(node_id)
+
+    def get_available_nodes(self) -> list[str]:
+        """Get list of nodes available for task assignment.
+
+        Returns:
+            List of node IDs
+        """
+        monitor = self._get_node_monitor()
+        if monitor is None:
+            return []
+        return monitor.get_available_nodes()
+
+    def evict_node(self, node_id: str) -> bool:
+        """Force evict a node from task assignment.
+
+        Args:
+            node_id: Node identifier
+
+        Returns:
+            True if evicted
+        """
+        monitor = self._get_node_monitor()
+        if monitor is None:
+            return False
+        return monitor.force_evict(node_id)
+
+    def recover_node(self, node_id: str) -> bool:
+        """Force recover an evicted node.
+
+        Args:
+            node_id: Node identifier
+
+        Returns:
+            True if recovered
+        """
+        monitor = self._get_node_monitor()
+        if monitor is None:
+            return False
+        return monitor.force_recover(node_id)
+
+    # =========================================================================
+    # Event Operations
+    # =========================================================================
+
+    def subscribe(self, event_type: str, callback: Callable) -> str:
+        """Subscribe to an event type.
+
+        Args:
+            event_type: Event type to subscribe to
+            callback: Callback function (sync or async)
+
+        Returns:
+            Subscription ID
+        """
+        router = self._get_event_router()
+        if router is None:
+            logger.warning("No event router available")
+            return ""
+
+        try:
+            return router.subscribe(event_type, callback)
+        except Exception as e:
+            logger.error(f"Failed to subscribe: {e}")
+            return ""
+
+    def unsubscribe(self, subscription_id: str) -> bool:
+        """Unsubscribe from events.
+
+        Args:
+            subscription_id: Subscription ID from subscribe()
+
+        Returns:
+            True if unsubscribed
+        """
+        router = self._get_event_router()
+        if router is None:
+            return False
+
+        try:
+            router.unsubscribe(subscription_id)
+            return True
+        except Exception:
+            return False
+
+    # =========================================================================
+    # Internal Helpers
+    # =========================================================================
+
+    def _is_node_available(self, node_id: str) -> bool:
+        """Check if node is available via monitor."""
+        monitor = self._get_node_monitor()
+        if monitor is None:
+            return True  # No monitor, assume available
+        return monitor.is_node_available(node_id)
+
+    def _get_task_coordinator(self):
+        """Lazy load task coordinator."""
+        if self._task_coordinator is None:
+            try:
+                from app.coordination.task_coordinator import get_task_coordinator
+                self._task_coordinator = get_task_coordinator()
+            except Exception as e:
+                logger.debug(f"Could not load task coordinator: {e}")
+        return self._task_coordinator
+
+    def _get_training_coordinator(self):
+        """Lazy load training coordinator."""
+        if self._training_coordinator is None:
+            try:
+                from app.coordination.training_coordinator import get_training_coordinator
+                self._training_coordinator = get_training_coordinator()
+            except Exception as e:
+                logger.debug(f"Could not load training coordinator: {e}")
+        return self._training_coordinator
+
+    def _get_node_monitor(self):
+        """Lazy load node health monitor."""
+        if self._node_monitor is None:
+            try:
+                from app.coordination.node_health_monitor import get_node_health_monitor
+                self._node_monitor = get_node_health_monitor()
+            except Exception as e:
+                logger.debug(f"Could not load node monitor: {e}")
+        return self._node_monitor
+
+    def _get_event_router(self):
+        """Lazy load event router."""
+        if self._event_router is None:
+            try:
+                from app.coordination.event_router import get_event_router
+                self._event_router = get_event_router()
+            except Exception as e:
+                logger.debug(f"Could not load event router: {e}")
+        return self._event_router
+
+
+# Global instance
+_facade: CoordinationFacade | None = None
+
+
+def get_coordination_facade() -> CoordinationFacade:
+    """Get the global coordination facade instance."""
+    global _facade
+    if _facade is None:
+        _facade = CoordinationFacade()
+    return _facade
+
+
+# Convenience functions for common operations
+def can_spawn_task(task_type: str, node_id: str) -> bool:
+    """Check if a task can be spawned. Uses global facade."""
+    return get_coordination_facade().can_spawn_task(task_type, node_id)
+
+
+def spawn_task(task_type: str, node_id: str, **kwargs) -> str | None:
+    """Spawn a task. Uses global facade."""
+    return get_coordination_facade().spawn_task(task_type, node_id, **kwargs)
+
+
+def get_cluster_health() -> ClusterHealth:
+    """Get cluster health. Uses global facade."""
+    return get_coordination_facade().get_cluster_health()
+
+
+def get_available_nodes() -> list[str]:
+    """Get available nodes. Uses global facade."""
+    return get_coordination_facade().get_available_nodes()

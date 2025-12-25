@@ -422,7 +422,9 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
     // Line-context eliminations belong to line_processing, territory-context to territory_processing.
     // TypeScript doesn't narrow the Move type to include eliminationContext after type check,
     // so we access it via type assertion on the object with eliminationContext property.
-    const elimContext = (hint as { eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery' }).eliminationContext;
+    const elimContext = (
+      hint as { eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery' }
+    ).eliminationContext;
     if (elimContext === 'line') {
       phase = 'line_processing';
     } else {
@@ -795,7 +797,8 @@ function deriveLineProcessingState(
   // so we access it via type assertion on the object with eliminationContext property.
   const pendingLineRewardElimination =
     moveHint?.type === 'eliminate_rings_from_stack' &&
-    (moveHint as { eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery' }).eliminationContext === 'line';
+    (moveHint as { eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery' })
+      .eliminationContext === 'line';
 
   // RR-CANON-R075: Trust recorded choose_line_option moves during replay.
   // If Python recorded these moves but TS doesn't detect lines, create placeholder line.

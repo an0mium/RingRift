@@ -65,11 +65,7 @@ import {
 } from '../../shared/types/game';
 import { useAuth } from '../contexts/AuthContext';
 import { useAccessibility } from '../contexts/AccessibilityContext';
-import {
-  useSandbox,
-  LocalConfig,
-  LocalPlayerType,
-} from '../contexts/SandboxContext';
+import { useSandbox, LocalConfig, LocalPlayerType } from '../contexts/SandboxContext';
 import { useSandboxInteractions } from '../hooks/useSandboxInteractions';
 import { useAutoMoveAnimation } from '../hooks/useMoveAnimation';
 import {

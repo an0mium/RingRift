@@ -38,7 +38,11 @@ export interface UseSandboxMoveHandlersOptions {
   setSandboxStateVersion: (fn: (v: number) => number) => void;
   maybeRunSandboxAiIfNeeded: () => void;
   requestRecoveryChoice: () => Promise<'option1' | 'option2' | null>;
-  analyzeInvalidMove: (state: GameState, pos: Position, opts: AnalyzeInvalidMoveOptions) => InvalidMoveReason;
+  analyzeInvalidMove: (
+    state: GameState,
+    pos: Position,
+    opts: AnalyzeInvalidMoveOptions
+  ) => InvalidMoveReason;
   triggerInvalidMove: (pos: Position, reason: InvalidMoveReason) => void;
 }
 

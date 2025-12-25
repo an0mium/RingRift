@@ -1,0 +1,135 @@
+# Deprecated Coordination Modules
+
+**December 2025**: This directory contains deprecated modules that have been consolidated.
+
+## Consolidation Summary
+
+The `app/coordination/` module was consolidated from 75 modules → 15 focused components organized into 4 packages:
+
+### New Package Structure
+
+```
+app/coordination/
+├── core/                    # 4 components
+│   ├── events.py            # Unified event system
+│   ├── tasks.py             # Task coordination
+│   └── pipeline.py          # Training pipeline orchestration
+├── cluster/                 # 4 components
+│   ├── health.py            # Node and host health monitoring
+│   ├── sync.py              # Data synchronization
+│   ├── transport.py         # Cluster transport layer
+│   └── p2p.py               # Peer-to-peer backend
+├── training/                # 2 components
+│   ├── orchestrator.py      # Training and selfplay orchestration
+│   └── scheduler.py         # Job and duration scheduling
+└── resources/               # 3 components
+    ├── manager.py           # Resource optimization
+    ├── bandwidth.py         # Bandwidth management
+    └── thresholds.py        # Dynamic thresholds
+```
+
+## Migration Guide
+
+### Health Modules
+
+| Old Location                         | New Location     |
+| ------------------------------------ | ---------------- |
+| `unified_health_manager.py`          | `cluster.health` |
+| `host_health_policy.py`              | `cluster.health` |
+| `node_health_monitor.py`             | `cluster.health` |
+| `resource_monitoring_coordinator.py` | `cluster.health` |
+
+```python
+# Old import
+from app.coordination.unified_health_manager import UnifiedHealthManager
+
+# New import
+from app.coordination.cluster.health import UnifiedHealthManager
+# or
+from app.coordination.cluster import UnifiedHealthManager
+```
+
+### Sync Modules
+
+| Old Location               | New Location   |
+| -------------------------- | -------------- |
+| `sync_coordinator.py`      | `cluster.sync` |
+| `sync_bandwidth.py`        | `cluster.sync` |
+| `sync_base.py`             | `cluster.sync` |
+| `sync_mutex.py`            | `cluster.sync` |
+| `transfer_verification.py` | `cluster.sync` |
+
+```python
+# Old import
+from app.coordination.sync_coordinator import SyncScheduler
+
+# New import
+from app.coordination.cluster.sync import SyncScheduler
+```
+
+### Event Modules
+
+| Old Location              | New Location  |
+| ------------------------- | ------------- |
+| `event_router.py`         | `core.events` |
+| `event_emitters.py`       | `core.events` |
+| `event_mappings.py`       | `core.events` |
+| `cross_process_events.py` | `core.events` |
+| `stage_events.py`         | `core.events` |
+
+```python
+# Old import
+from app.coordination.event_router import EventRouter, emit
+
+# New import
+from app.coordination.core.events import EventRouter, emit
+```
+
+### Task Modules
+
+| Old Location                    | New Location |
+| ------------------------------- | ------------ |
+| `task_coordinator.py`           | `core.tasks` |
+| `task_lifecycle_coordinator.py` | `core.tasks` |
+| `task_decorators.py`            | `core.tasks` |
+
+### Scheduler Modules
+
+| Old Location            | New Location         |
+| ----------------------- | -------------------- |
+| `job_scheduler.py`      | `training.scheduler` |
+| `duration_scheduler.py` | `training.scheduler` |
+| `work_distributor.py`   | `training.scheduler` |
+| `unified_scheduler.py`  | `training.scheduler` |
+
+### Resource Modules
+
+| Old Location                   | New Location           |
+| ------------------------------ | ---------------------- |
+| `resource_optimizer.py`        | `resources.manager`    |
+| `adaptive_resource_manager.py` | `resources.manager`    |
+| `resource_targets.py`          | `resources.manager`    |
+| `bandwidth_manager.py`         | `resources.bandwidth`  |
+| `dynamic_thresholds.py`        | `resources.thresholds` |
+
+## Backwards Compatibility
+
+The original module files remain in place and continue to work. The new package structure provides:
+
+1. Cleaner imports via consolidated packages
+2. Better discoverability through grouped functionality
+3. Reduced confusion from overlapping modules
+
+Eventually, deprecation warnings will be added to the original modules directing users to the new locations.
+
+## Modules Not Yet Consolidated
+
+The following modules remain at the top level for now:
+
+- `facade.py` - High-level coordination facade
+- `coordinator_base.py` - Base class for coordinators
+- `coordination_bootstrap.py` - Bootstrap utilities
+- `helpers.py` - General helper functions
+- `safeguards.py` - Safety checks and guards
+
+These may be consolidated in a future cleanup pass.
