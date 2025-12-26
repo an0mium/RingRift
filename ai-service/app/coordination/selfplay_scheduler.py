@@ -720,8 +720,10 @@ class SelfplayScheduler:
                 bus.subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded)
                 # Phase 4A.1: Subscribe to curriculum rebalancing (December 2025)
                 bus.subscribe(DataEventType.CURRICULUM_REBALANCED, self._on_curriculum_rebalanced)
+                # P0.1 (Dec 2025): Subscribe to SELFPLAY_RATE_CHANGED from FeedbackAccelerator
+                bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
                 self._subscribed = True
-                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including Phase 4A.1 curriculum)")
+                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including SELFPLAY_RATE_CHANGED)")
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Failed to subscribe: {e}")

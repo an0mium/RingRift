@@ -67,6 +67,12 @@ class MaintenanceConfig:
     dlq_cleanup_interval_hours: float = 168.0  # Weekly
     dlq_retention_days: int = 7
 
+    # Work queue cleanup (December 2025)
+    queue_cleanup_interval_hours: float = 1.0  # Hourly
+    queue_stale_pending_hours: float = 24.0  # Remove PENDING items older than this
+    queue_stale_claimed_hours: float = 1.0  # Reset CLAIMED items older than this
+    queue_cleanup_enabled: bool = True
+
     # General
     dry_run: bool = False  # If True, log actions but don't execute
 
@@ -79,10 +85,13 @@ class MaintenanceStats:
     databases_vacuumed: int = 0
     games_archived: int = 0
     dlq_entries_cleaned: int = 0
+    queue_items_cleaned: int = 0  # December 2025
+    queue_items_reset: int = 0  # December 2025
     last_log_rotation: float = 0.0
     last_db_vacuum: float = 0.0
     last_archive_run: float = 0.0
     last_dlq_cleanup: float = 0.0
+    last_queue_cleanup: float = 0.0  # December 2025
 
 
 class MaintenanceDaemon:
@@ -169,6 +178,13 @@ class MaintenanceDaemon:
         if hours_since_dlq >= self.config.dlq_cleanup_interval_hours:
             await self._cleanup_dlq()
             self._stats.last_dlq_cleanup = now
+
+        # Hourly: Work queue stale item cleanup (December 2025)
+        hours_since_queue = (now - self._stats.last_queue_cleanup) / 3600
+        if hours_since_queue >= self.config.queue_cleanup_interval_hours:
+            if self.config.queue_cleanup_enabled:
+                await self._cleanup_stale_queue_items()
+            self._stats.last_queue_cleanup = now
 
     async def _rotate_logs(self) -> None:
         """Rotate log files that exceed max size."""
