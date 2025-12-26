@@ -19,16 +19,26 @@ This directory contains operational runbooks for deploying, managing, and troubl
 
 ## Quick Reference
 
+Set base URLs based on your deployment before running runbook commands:
+
+```bash
+# App base URL (defaults to localhost:3000)
+APP_BASE=${APP_BASE:-http://localhost:3000}
+
+# Metrics base URL: set to METRICS_PORT when ENABLE_METRICS=true and METRICS_PORT != PORT
+APP_METRICS_BASE=${APP_METRICS_BASE:-$APP_BASE}
+```
+
 ### Common Operations
 
-| Task                | Command                                      |
-| ------------------- | -------------------------------------------- |
-| Check system health | `curl -s http://localhost:3000/health \| jq` |
-| Check readiness     | `curl -s http://localhost:3000/ready \| jq`  |
-| View service logs   | `docker compose logs -f app`                 |
-| View all logs       | `docker compose logs -f`                     |
-| Validate config     | `npm run validate:deployment`                |
-| Apply migrations    | `npx prisma migrate deploy`                  |
+| Task                | Command                          |
+| ------------------- | -------------------------------- |
+| Check system health | `curl -s $APP_BASE/health \| jq` |
+| Check readiness     | `curl -s $APP_BASE/ready \| jq`  |
+| View service logs   | `docker compose logs -f app`     |
+| View all logs       | `docker compose logs -f`         |
+| Validate config     | `npm run validate:deployment`    |
+| Apply migrations    | `npx prisma migrate deploy`      |
 
 ### Service Ports
 
@@ -48,10 +58,12 @@ This directory contains operational runbooks for deploying, managing, and troubl
 
 ```bash
 # Liveness probe (is the process alive?)
-curl -s http://localhost:3000/health | jq
+# Requires ENABLE_HEALTH_CHECKS=true
+curl -s $APP_BASE/health | jq
 
 # Readiness probe (can it serve traffic?)
-curl -s http://localhost:3000/ready | jq
+# Requires ENABLE_HEALTH_CHECKS=true
+curl -s $APP_BASE/ready | jq
 
 # AI service health
 curl -s http://localhost:8001/health | jq

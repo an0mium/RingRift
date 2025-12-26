@@ -509,6 +509,171 @@ class PFSPWeaknessWatcher:
 
 
 # =============================================================================
+# 2.5. QUALITY_PENALTY_APPLIED → Curriculum Weight Reduction
+# =============================================================================
+
+
+class QualityPenaltyToCurriculumWatcher:
+    """Reduces curriculum weight when quality penalties are applied.
+
+    When AdaptiveController applies a quality penalty to a config (emits
+    QUALITY_PENALTY_APPLIED), this watcher reduces that config's curriculum
+    weight proportionally. This focuses training resources away from configs
+    that are producing low-quality data.
+
+    Event flow (December 2025):
+    1. AdaptiveController detects low quality data
+    2. Emits QUALITY_PENALTY_APPLIED with rate_multiplier and penalty amount
+    3. This watcher subscribes and reduces curriculum weight
+    4. CurriculumFeedback allocates less selfplay to affected configs
+    5. Emits CURRICULUM_REBALANCED to notify downstream systems
+    """
+
+    # Weight reduction factor per penalty unit (cumulative with penalties)
+    WEIGHT_REDUCTION_PER_PENALTY = 0.15  # 15% reduction per penalty unit
+
+    def __init__(self):
+        self._subscribed = False
+        self._penalty_weights: dict[str, float] = {}  # config -> weight multiplier
+
+    def subscribe(self) -> bool:
+        """Subscribe to QUALITY_PENALTY_APPLIED events."""
+        if self._subscribed:
+            return True
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.debug("[QualityPenaltyToCurriculumWatcher] Event router not available")
+                return False
+
+            router.subscribe(DataEventType.QUALITY_PENALTY_APPLIED, self._on_quality_penalty)
+            self._subscribed = True
+            logger.info("[QualityPenaltyToCurriculumWatcher] Subscribed to QUALITY_PENALTY_APPLIED")
+            return True
+
+        except Exception as e:
+            logger.warning(f"[QualityPenaltyToCurriculumWatcher] Failed to subscribe: {e}")
+            return False
+
+    def unsubscribe(self) -> None:
+        """Unsubscribe from events."""
+        if not self._subscribed:
+            return
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router:
+                router.unsubscribe(DataEventType.QUALITY_PENALTY_APPLIED, self._on_quality_penalty)
+            self._subscribed = False
+        except Exception:
+            pass
+
+    def _on_quality_penalty(self, event) -> None:
+        """Handle QUALITY_PENALTY_APPLIED event - reduce curriculum weight.
+
+        December 2025: Closes the quality → curriculum weight feedback loop.
+        When quality penalty is applied, proportionally reduce selfplay allocation.
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+
+            config_key = payload.get("config_key", payload.get("config", ""))
+            new_penalty = payload.get("new_penalty", 0.0)
+            rate_multiplier = payload.get("rate_multiplier", 1.0)
+            reason = payload.get("reason", "")
+
+            if not config_key:
+                return
+
+            # Calculate weight reduction based on penalty severity
+            # penalty=0 → weight=1.0, penalty=1 → weight=0.85, penalty=2 → weight=0.70
+            weight_factor = max(0.3, 1.0 - (new_penalty * self.WEIGHT_REDUCTION_PER_PENALTY))
+            old_weight = self._penalty_weights.get(config_key, 1.0)
+
+            if abs(weight_factor - old_weight) > 0.02:
+                self._penalty_weights[config_key] = weight_factor
+                self._apply_curriculum_weight(config_key, weight_factor, new_penalty, reason)
+
+        except Exception as e:
+            logger.warning(f"[QualityPenaltyToCurriculumWatcher] Error handling penalty: {e}")
+
+    def _apply_curriculum_weight(
+        self,
+        config_key: str,
+        weight_factor: float,
+        penalty: float,
+        reason: str,
+    ) -> None:
+        """Apply weight reduction to CurriculumFeedback."""
+        try:
+            from app.training.curriculum_feedback import get_curriculum_feedback
+
+            feedback = get_curriculum_feedback()
+            current_weight = feedback._current_weights.get(config_key, 1.0)
+
+            # Apply the quality-based weight reduction
+            new_weight = max(feedback.weight_min, current_weight * weight_factor)
+
+            if new_weight < current_weight:
+                feedback._current_weights[config_key] = new_weight
+
+                logger.info(
+                    f"[QualityPenaltyToCurriculumWatcher] Reduced curriculum weight for {config_key}: "
+                    f"{current_weight:.2f} → {new_weight:.2f} (penalty={penalty:.2f}, reason={reason})"
+                )
+
+                # Emit CURRICULUM_REBALANCED event
+                self._emit_rebalance_event(config_key, new_weight, penalty)
+
+        except ImportError as e:
+            logger.debug(f"[QualityPenaltyToCurriculumWatcher] curriculum_feedback import error: {e}")
+        except Exception as e:
+            logger.warning(f"[QualityPenaltyToCurriculumWatcher] Error applying weight: {e}")
+
+    def _emit_rebalance_event(
+        self,
+        config_key: str,
+        new_weight: float,
+        penalty: float,
+    ) -> None:
+        """Emit CURRICULUM_REBALANCED event for downstream systems."""
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            router.publish_sync(
+                "CURRICULUM_REBALANCED",
+                {
+                    "trigger": "quality_penalty",
+                    "changed_configs": [config_key],
+                    "new_weights": {config_key: new_weight},
+                    "penalty": penalty,
+                    "timestamp": time.time(),
+                },
+                source="quality_penalty_curriculum_watcher",
+            )
+        except Exception as e:
+            logger.debug(f"Failed to emit rebalance event: {e}")
+
+    def get_penalty_weights(self) -> dict[str, float]:
+        """Get current penalty-based weight factors."""
+        return dict(self._penalty_weights)
+
+    def reset_penalty(self, config_key: str) -> None:
+        """Reset penalty weight for a config (called when quality recovers)."""
+        if config_key in self._penalty_weights:
+            del self._penalty_weights[config_key]
+            logger.info(f"[QualityPenaltyToCurriculumWatcher] Reset penalty weight for {config_key}")
+
+
+# =============================================================================
 # 3. Quality Scores → Temperature Scheduling
 # =============================================================================
 
@@ -675,6 +840,7 @@ class QualityToTemperatureWatcher:
 def wire_all_feedback_loops(
     enable_momentum_bridge: bool = True,
     enable_pfsp_weakness: bool = True,
+    enable_quality_penalty: bool = True,
     enable_quality_temperature: bool = True,
     enable_curriculum_feedback: bool = True,
 ) -> dict[str, Any]:
@@ -686,6 +852,7 @@ def wire_all_feedback_loops(
     Args:
         enable_momentum_bridge: Enable FeedbackAccelerator → CurriculumFeedback
         enable_pfsp_weakness: Enable PFSP weak opponent → CurriculumFeedback
+        enable_quality_penalty: Enable QUALITY_PENALTY_APPLIED → CurriculumFeedback
         enable_quality_temperature: Enable Quality → Temperature
         enable_curriculum_feedback: Enable all curriculum_feedback.py watchers
 
@@ -721,6 +888,17 @@ def wire_all_feedback_loops(
             except Exception as e:
                 status["pfsp_weakness_error"] = str(e)
                 logger.warning(f"Failed to start PFSP weakness watcher: {e}")
+
+        # 2.5. Quality Penalty → Curriculum Weight watcher (December 2025)
+        if enable_quality_penalty:
+            try:
+                watcher = QualityPenaltyToCurriculumWatcher()
+                watcher.subscribe()
+                _watcher_instances["quality_penalty_curriculum"] = watcher
+                status["watchers"].append("quality_penalty_curriculum")
+            except Exception as e:
+                status["quality_penalty_curriculum_error"] = str(e)
+                logger.warning(f"Failed to start quality penalty curriculum watcher: {e}")
 
         # 3. Quality → Temperature watcher
         if enable_quality_temperature:

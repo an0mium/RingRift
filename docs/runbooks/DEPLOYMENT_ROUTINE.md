@@ -256,7 +256,7 @@ echo "✅ Deployment verification complete!"
 - [ ] Can create new game
 - [ ] Can join existing game
 - [ ] Game moves execute correctly
-- [ ] Metrics endpoint accessible (`/metrics`)
+- [ ] Metrics endpoint accessible (`/metrics`, honoring ENABLE_METRICS/METRICS_PORT)
 
 ### Notify Team of Completion
 

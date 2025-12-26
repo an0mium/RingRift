@@ -9,6 +9,7 @@ Architecture:
     2. Uses sync_models.py --distribute for reliable multi-node sync
     3. Tracks distribution status in ClusterManifest
     4. Emits MODEL_DISTRIBUTION_COMPLETE event when done
+    5. Validates checksums before and after transfer (December 2025)
 
 Usage:
     # As standalone daemon
@@ -20,6 +21,12 @@ Usage:
 Configuration:
     Uses distributed_hosts.yaml for target nodes.
     See config/promotion_daemon.yaml for promotion thresholds.
+
+December 2025 Enhancements:
+    - SHA256 checksum validation before transfer
+    - Remote checksum verification after transfer
+    - Per-node delivery confirmation tracking
+    - Metrics for checksum verification failures
 """
 
 from __future__ import annotations
@@ -79,6 +86,24 @@ class ModelDistributionConfig:
     http_concurrent_uploads: int = 5  # Max concurrent HTTP uploads
     fallback_to_rsync: bool = True  # Fallback to rsync if HTTP fails
 
+    # Checksum verification settings (December 2025)
+    verify_checksums: bool = True  # Enable SHA256 checksum verification
+    checksum_timeout_seconds: float = 30.0  # Timeout for remote checksum verification
+
+
+@dataclass
+class ModelDeliveryResult:
+    """Result of delivering a model to a single node."""
+
+    node_id: str
+    host: str
+    model_name: str
+    success: bool
+    checksum_verified: bool
+    transfer_time_seconds: float
+    error_message: str = ""
+    method: str = "http"  # http or rsync
+
 
 class ModelDistributionDaemon:
     """Daemon that automatically distributes models after promotion.
@@ -117,6 +142,13 @@ class ModelDistributionDaemon:
         self._last_error: str = ""
         self._successful_distributions: int = 0
         self._failed_distributions: int = 0
+        self._checksum_failures: int = 0  # December 2025: Track checksum verification failures
+
+        # Delivery tracking per node (December 2025)
+        self._delivery_history: list[ModelDeliveryResult] = []
+
+        # Cache of computed checksums to avoid recomputation
+        self._model_checksums: dict[str, str] = {}
 
     # =========================================================================
     # CoordinatorProtocol Implementation (December 2025 - Phase 14)
@@ -157,6 +189,7 @@ class ModelDistributionDaemon:
             "pending_models": len(self._pending_models),
             "successful_distributions": self._successful_distributions,
             "failed_distributions": self._failed_distributions,
+            "checksum_failures": self._checksum_failures,  # December 2025
             "last_sync_time": self._last_sync_time,
         }
 

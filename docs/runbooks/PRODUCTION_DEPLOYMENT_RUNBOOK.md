@@ -199,14 +199,14 @@ docker compose exec app npx prisma migrate deploy
 Run these tests immediately after deployment:
 
 ```bash
-# Set base URL
-BASE_URL=http://localhost  # or your domain
+# Set base URL (include port if needed)
+BASE_URL=http://localhost:3000  # or your domain
 
-# Test 1: Health endpoint
+# Test 1: Health endpoint (requires ENABLE_HEALTH_CHECKS=true)
 curl -s $BASE_URL/health
 # Expected: {"status":"healthy",...}
 
-# Test 2: Readiness with dependency checks
+# Test 2: Readiness with dependency checks (requires ENABLE_HEALTH_CHECKS=true)
 curl -s $BASE_URL/ready
 # Expected: {"status":"healthy","checks":{"database":{"status":"healthy"},...}}
 
@@ -255,11 +255,11 @@ check() {
 
 echo "Running smoke tests against $BASE_URL..."
 
-# Health check
+# Health check (requires ENABLE_HEALTH_CHECKS=true)
 HEALTH=$(curl -s $BASE_URL/health)
 check "Health endpoint" "healthy" "$HEALTH"
 
-# Ready check
+# Ready check (requires ENABLE_HEALTH_CHECKS=true)
 READY=$(curl -s $BASE_URL/ready)
 check "Ready endpoint" "healthy" "$READY"
 check "Database healthy" "database.*healthy" "$READY"

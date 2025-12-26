@@ -75,11 +75,17 @@ Goal: Confirm the signal is real, scope it, and determine if it’s **infra/dep*
 2. **Check health and readiness endpoints** on the app host:
 
    ```bash
+   # Base URLs (adjust as needed)
+   APP_BASE=${APP_BASE:-http://localhost:3000}
+   APP_METRICS_BASE=${APP_METRICS_BASE:-$APP_BASE}
+
    # Liveness
-   curl -s http://localhost:3000/health | jq
+   # Requires ENABLE_HEALTH_CHECKS=true
+   curl -s $APP_BASE/health | jq
 
    # Readiness (includes dependency breakdown via HealthCheckService)
-   curl -s http://localhost:3000/ready | jq
+   # Requires ENABLE_HEALTH_CHECKS=true
+   curl -s $APP_BASE/ready | jq
    ```
 
    - Look for `status` and `checks.database / checks.redis / checks.aiService` fields.
@@ -119,7 +125,7 @@ Use Prometheus UI (or Grafana with Prometheus as data source).
 
    ```bash
    # From the app host
-   curl -s http://localhost:3000/metrics | grep http_requests_total | head
+   curl -s $APP_METRICS_BASE/metrics | grep http_requests_total | head
    ```
 
    If `/metrics` is not reachable, investigate **service availability** first (`AVAILABILITY.md`).

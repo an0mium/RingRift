@@ -91,8 +91,12 @@ nano .env.staging
 ### 3. Verify Deployment
 
 ```bash
+# App base URL (override if deployed elsewhere)
+APP_BASE=${APP_BASE:-http://localhost:3000}
+
 # Check application health
-curl http://localhost:3000/health
+# Requires ENABLE_HEALTH_CHECKS=true
+curl $APP_BASE/health
 
 # Check AI service health
 curl http://localhost:8001/health

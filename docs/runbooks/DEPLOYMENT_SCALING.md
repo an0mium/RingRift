@@ -529,11 +529,15 @@ fi
 ### Monitoring Commands
 
 ```bash
+# Base URLs (adjust as needed)
+APP_BASE=${APP_BASE:-http://localhost:3000}
+APP_METRICS_BASE=${APP_METRICS_BASE:-$APP_BASE}
+
 # Real-time resource monitoring
 docker stats
 
 # Application metrics (if Prometheus enabled)
-curl -s http://localhost:3000/metrics | grep -E "(request_duration|active_connections)"
+curl -s $APP_METRICS_BASE/metrics | grep -E "(request_duration|active_connections)"
 
 # Database query performance
 docker compose exec postgres psql -U ringrift -d ringrift -c "
@@ -553,10 +557,12 @@ LIMIT 10;
 # After any scaling operation:
 
 # 1. Health check
-curl -s http://localhost:3000/health | jq
+# Requires ENABLE_HEALTH_CHECKS=true
+curl -s $APP_BASE/health | jq
 
 # 2. Readiness check
-curl -s http://localhost:3000/ready | jq
+# Requires ENABLE_HEALTH_CHECKS=true
+curl -s $APP_BASE/ready | jq
 
 # 3. Load test (optional)
 # ab -n 1000 -c 50 http://localhost:3000/api/health

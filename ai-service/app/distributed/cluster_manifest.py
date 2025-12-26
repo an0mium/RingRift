@@ -1609,6 +1609,69 @@ class ClusterManifest:
                 npz_files=npz_files,
             )
 
+    def get_all_db_paths(self, node_id: str | None = None) -> set[str]:
+        """Get all tracked database paths.
+
+        Args:
+            node_id: If specified, only return paths for this node.
+                    If None, return all paths across the cluster.
+
+        Returns:
+            Set of database paths (e.g., "/data/games/selfplay_hex8_2p.db")
+        """
+        with self._db_connection() as conn:
+            cursor = conn.cursor()
+            if node_id:
+                cursor.execute(
+                    "SELECT DISTINCT db_path FROM game_locations WHERE node_id = ?",
+                    (node_id,)
+                )
+            else:
+                cursor.execute("SELECT DISTINCT db_path FROM game_locations")
+            return {row[0] for row in cursor.fetchall()}
+
+    def get_all_npz_paths(self, node_id: str | None = None) -> set[str]:
+        """Get all tracked NPZ file paths.
+
+        Args:
+            node_id: If specified, only return paths for this node.
+                    If None, return all paths across the cluster.
+
+        Returns:
+            Set of NPZ file paths (e.g., "data/training/hex8_2p.npz")
+        """
+        with self._db_connection() as conn:
+            cursor = conn.cursor()
+            if node_id:
+                cursor.execute(
+                    "SELECT DISTINCT npz_path FROM npz_locations WHERE node_id = ?",
+                    (node_id,)
+                )
+            else:
+                cursor.execute("SELECT DISTINCT npz_path FROM npz_locations")
+            return {row[0] for row in cursor.fetchall()}
+
+    def get_all_model_paths(self, node_id: str | None = None) -> set[str]:
+        """Get all tracked model file paths.
+
+        Args:
+            node_id: If specified, only return paths for this node.
+                    If None, return all paths across the cluster.
+
+        Returns:
+            Set of model file paths (e.g., "models/canonical_hex8_2p.pth")
+        """
+        with self._db_connection() as conn:
+            cursor = conn.cursor()
+            if node_id:
+                cursor.execute(
+                    "SELECT DISTINCT model_path FROM model_locations WHERE node_id = ?",
+                    (node_id,)
+                )
+            else:
+                cursor.execute("SELECT DISTINCT model_path FROM model_locations")
+            return {row[0] for row in cursor.fetchall()}
+
     # =========================================================================
     # Sync Target Selection
     # =========================================================================

@@ -69,12 +69,17 @@ If this is **not expected**, continue.
 From the app host:
 
 ```bash
+# Base URLs (adjust as needed)
+APP_BASE=${APP_BASE:-http://localhost:3000}
+APP_METRICS_BASE=${APP_METRICS_BASE:-$APP_BASE}
+
 # Check container status
 docker compose ps app
 
 # Check health endpoints locally
-curl -s http://localhost:3000/health | jq
-curl -s http://localhost:3000/ready | jq
+# Requires ENABLE_HEALTH_CHECKS=true
+curl -s $APP_BASE/health | jq
+curl -s $APP_BASE/ready | jq
 ```
 
 Interpretation:
@@ -88,7 +93,7 @@ From the app host:
 
 ```bash
 # Confirm that metrics are exposed
-curl -s http://localhost:3000/metrics | head
+curl -s $APP_METRICS_BASE/metrics | head
 ```
 
 - If `/metrics` is unreachable, treat this as an **app availability** issue.

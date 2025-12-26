@@ -431,7 +431,13 @@ class UnifiedEventRouter:
             # Content-based deduplication: catch events forwarded through different buses
             # (Dec 2025 - prevents amplification loops)
             content_hash = event.content_hash
-            if content_hash in self._seen_content_hashes:
+            content_seen = content_hash in self._seen_content_hashes
+
+            # Router-originated events are allowed to repeat (same type/payload)
+            # because publish() may legitimately emit identical events multiple
+            # times. Content dedup is intended primarily to suppress forwarded
+            # duplicates (stage/cross-process echo).
+            if content_seen and event.origin != EventSource.ROUTER:
                 self._content_duplicates_prevented += 1
                 logger.debug(
                     f"[EventRouter] Skipping content-duplicate event {event.event_type} "
@@ -446,11 +452,16 @@ class UnifiedEventRouter:
                 oldest = self._seen_events_order.pop(0)
                 self._seen_events.discard(oldest)
 
-            self._seen_content_hashes.add(content_hash)
+            if not content_seen:
+                self._seen_content_hashes.add(content_hash)
             self._seen_hashes_order.append(content_hash)
-            while len(self._seen_content_hashes) > self._max_seen_events:
+
+            # Bound the LRU list even if we allow repeated router-origin events
+            # with identical content hashes.
+            while len(self._seen_hashes_order) > self._max_seen_events:
                 oldest_hash = self._seen_hashes_order.pop(0)
-                self._seen_content_hashes.discard(oldest_hash)
+                if oldest_hash not in self._seen_hashes_order:
+                    self._seen_content_hashes.discard(oldest_hash)
 
             # Track in history
             self._event_history.append(event)
@@ -499,7 +510,10 @@ class UnifiedEventRouter:
             # Content-based deduplication: catch events forwarded through different buses
             # (Dec 2025 - prevents amplification loops)
             content_hash = event.content_hash
-            if content_hash in self._seen_content_hashes:
+            content_seen = content_hash in self._seen_content_hashes
+
+            # Router-originated events are allowed to repeat (same type/payload).
+            if content_seen and event.origin != EventSource.ROUTER:
                 self._content_duplicates_prevented += 1
                 logger.debug(
                     f"[EventRouter] Skipping content-duplicate event {event.event_type} "
@@ -514,11 +528,14 @@ class UnifiedEventRouter:
                 oldest = self._seen_events_order.pop(0)
                 self._seen_events.discard(oldest)
 
-            self._seen_content_hashes.add(content_hash)
+            if not content_seen:
+                self._seen_content_hashes.add(content_hash)
             self._seen_hashes_order.append(content_hash)
-            while len(self._seen_content_hashes) > self._max_seen_events:
+
+            while len(self._seen_hashes_order) > self._max_seen_events:
                 oldest_hash = self._seen_hashes_order.pop(0)
-                self._seen_content_hashes.discard(oldest_hash)
+                if oldest_hash not in self._seen_hashes_order:
+                    self._seen_content_hashes.discard(oldest_hash)
 
             # Track in history
             self._event_history.append(event)
