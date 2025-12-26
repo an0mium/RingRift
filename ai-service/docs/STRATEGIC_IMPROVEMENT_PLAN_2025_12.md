@@ -287,7 +287,7 @@ Selfplay → GameDB → SELFPLAY_COMPLETE → auto_export_daemon
 - [ ] Complete deprecated module migration
 - [x] Add SyncRouter capacity refresh (moved to Phase 2)
 - [ ] Create test templates for validators/mutators
-- [ ] Wire 5 orphaned events to handlers
+- [x] Wire 5 orphaned events to handlers (verified all already wired Dec 25)
 
 ### Phase 4: Optimization (Ongoing)
 
@@ -300,14 +300,15 @@ Selfplay → GameDB → SELFPLAY_COMPLETE → auto_export_daemon
 
 ## Success Metrics
 
-| Metric                     | Current    | Target |
-| -------------------------- | ---------- | ------ |
-| Training loop gaps         | 3 critical | 0      |
-| Orphaned daemons           | 21         | 0      |
-| Broad exception catches    | 358        | <50    |
-| Rules test coverage        | 5%         | >60%   |
-| Ephemeral data loss events | Unknown    | 0      |
-| Active deprecated imports  | 2          | 0      |
+| Metric                     | Initial    | Current (Dec 25) | Target |
+| -------------------------- | ---------- | ---------------- | ------ |
+| Training loop gaps         | 3 critical | 0 ✅             | 0      |
+| Orphaned events            | 5          | 0 ✅             | 0      |
+| Orphaned daemons           | 21         | 19 (documented)  | 0      |
+| Broad exception catches    | 358        | ~340             | <50    |
+| Rules test coverage        | 5%         | 5%               | >60%   |
+| Ephemeral data loss events | Unknown    | 0                | 0      |
+| Active deprecated imports  | 2          | 2                | 0      |
 
 ---
 
