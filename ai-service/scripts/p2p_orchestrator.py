@@ -7233,6 +7233,335 @@ class P2POrchestrator:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=400)
 
+    async def handle_election_reset(self, request: web.Request) -> web.Response:
+        """Reset stuck election state to allow fresh leader election.
+
+        This endpoint clears election-in-progress flags and cached leader state,
+        allowing a new election to proceed. Use when elections are deadlocked.
+
+        POST /election/reset
+        """
+        try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+
+            old_state = {
+                "election_in_progress": self.election_in_progress,
+                "role": str(self.role),
+                "leader_id": self.leader_id,
+                "leader_lease_id": getattr(self, "leader_lease_id", ""),
+                "leader_lease_expires": getattr(self, "leader_lease_expires", 0.0),
+            }
+
+            # Reset election state
+            self.election_in_progress = False
+            self.leader_id = None
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
+            self.last_lease_renewal = 0.0
+            self.last_election_attempt = 0.0
+            if self.role == NodeRole.LEADER:
+                self.role = NodeRole.FOLLOWER
+
+            # Clear voter grants if we were granting to ourselves
+            if str(getattr(self, "voter_grant_leader_id", "") or "") == self.node_id:
+                self.voter_grant_leader_id = ""
+                self.voter_grant_lease_id = ""
+                self.voter_grant_expires = 0.0
+
+            self._save_state()
+
+            logger.info(f"Election state reset on {self.node_id}: {old_state}")
+
+            return web.json_response({
+                "status": "reset",
+                "node_id": self.node_id,
+                "previous_state": old_state,
+                "message": "Election state cleared. New election will start on next heartbeat cycle.",
+            })
+        except Exception as e:
+            logger.error(f"Error resetting election: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_election_force_leader(self, request: web.Request) -> web.Response:
+        """Force a specific node to become leader (emergency override).
+
+        This bypasses normal election and directly sets leadership. Use only
+        when normal elections are persistently failing.
+
+        POST /election/force_leader
+        Body: {"leader_id": "node-id-to-become-leader"}
+        """
+        try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+
+            data = await request.json()
+            target_leader_id = str(data.get("leader_id", "")).strip()
+
+            if not target_leader_id:
+                return web.json_response({"error": "leader_id required"}, status=400)
+
+            # If we're the target, become leader
+            if target_leader_id == self.node_id:
+                import uuid
+                lease_id = f"{self.node_id}_{int(time.time())}_forced_{uuid.uuid4().hex[:8]}"
+
+                self.role = NodeRole.LEADER
+                self.leader_id = self.node_id
+                self.leader_lease_id = lease_id
+                self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
+                self.last_leader_seen = time.time()
+                self.election_in_progress = False
+
+                self._increment_cluster_epoch()
+                self._save_state()
+
+                logger.warning(f"FORCED LEADERSHIP: {self.node_id} is now leader via override")
+
+                return web.json_response({
+                    "status": "leader_forced",
+                    "node_id": self.node_id,
+                    "role": "leader",
+                    "lease_id": lease_id,
+                    "lease_expires": self.leader_lease_expires,
+                    "warning": "Leadership was forced without normal election. Use with caution.",
+                })
+            else:
+                # Store the forced leader hint so we adopt it
+                self.leader_id = target_leader_id
+                self.role = NodeRole.FOLLOWER
+                self.election_in_progress = False
+                self._save_state()
+
+                logger.info(f"Accepting forced leader {target_leader_id} on node {self.node_id}")
+
+                return web.json_response({
+                    "status": "leader_accepted",
+                    "node_id": self.node_id,
+                    "forced_leader": target_leader_id,
+                    "role": "follower",
+                })
+        except Exception as e:
+            logger.error(f"Error forcing leader: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ============================================================
+    # SERF INTEGRATION - Battle-tested membership/failure detection
+    # ============================================================
+
+    async def handle_serf_event(self, request: web.Request) -> web.Response:
+        """POST /serf/event - Receive events from Serf event handler.
+
+        SERF INTEGRATION: HashiCorp Serf provides battle-tested SWIM gossip
+        for membership and failure detection. This endpoint receives events
+        from the serf_event_handler.py script.
+
+        Event types:
+        - member-join: New node joined the cluster
+        - member-leave: Node gracefully left
+        - member-failed: Node failed (detected by SWIM)
+        - member-update: Node tags changed
+        - member-reap: Failed node was reaped from membership list
+        - user: Custom user event (training-complete, model-promoted, etc.)
+
+        Request body:
+        {
+            "event_type": "member-join",
+            "timestamp": "2025-12-26T...",
+            "payload": { event-specific data }
+        }
+        """
+        try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+
+            data = await request.json()
+            event_type = data.get("event_type", "")
+            timestamp = data.get("timestamp", "")
+            payload = data.get("payload", {})
+
+            logger.info(f"Serf event received: {event_type} at {timestamp}")
+
+            # Process based on event type
+            if event_type == "member-join":
+                await self._handle_serf_member_join(payload.get("members", []))
+            elif event_type == "member-leave":
+                await self._handle_serf_member_leave(payload.get("members", []))
+            elif event_type == "member-failed":
+                await self._handle_serf_member_failed(payload.get("members", []))
+            elif event_type == "member-update":
+                await self._handle_serf_member_update(payload.get("members", []))
+            elif event_type == "member-reap":
+                await self._handle_serf_member_reap(payload.get("members", []))
+            elif event_type == "user":
+                await self._handle_serf_user_event(payload)
+            else:
+                logger.warning(f"Unknown Serf event type: {event_type}")
+
+            return web.json_response({
+                "status": "processed",
+                "event_type": event_type,
+                "node_id": self.node_id,
+            })
+
+        except Exception as e:
+            logger.error(f"Error processing Serf event: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _handle_serf_member_join(self, members: list) -> None:
+        """Handle Serf member-join events.
+
+        When Serf detects new members, update our peer list and mark them alive.
+        This is more reliable than our custom gossip because Serf uses SWIM
+        with indirect probing.
+        """
+        for member in members:
+            node_name = member.get("name", "")
+            addr = member.get("addr", "")
+            tags = member.get("tags", {})
+
+            if not node_name or node_name == self.node_id:
+                continue
+
+            logger.info(f"Serf: member joined: {node_name} @ {addr}")
+
+            # Update peer state
+            now = time.time()
+            if node_name not in self.peers:
+                self.peers[node_name] = {
+                    "last_seen": now,
+                    "addr": addr,
+                    "state": "alive",
+                    "serf_detected": True,
+                }
+            else:
+                self.peers[node_name]["last_seen"] = now
+                self.peers[node_name]["state"] = "alive"
+                self.peers[node_name]["serf_detected"] = True
+                if addr:
+                    self.peers[node_name]["addr"] = addr
+
+            # Extract tags into peer info
+            if tags:
+                self.peers[node_name]["serf_tags"] = tags
+
+    async def _handle_serf_member_leave(self, members: list) -> None:
+        """Handle Serf member-leave events (graceful departure)."""
+        for member in members:
+            node_name = member.get("name", "")
+
+            if not node_name or node_name == self.node_id:
+                continue
+
+            logger.info(f"Serf: member left gracefully: {node_name}")
+
+            if node_name in self.peers:
+                self.peers[node_name]["state"] = "left"
+                self.peers[node_name]["left_at"] = time.time()
+
+    async def _handle_serf_member_failed(self, members: list) -> None:
+        """Handle Serf member-failed events (SWIM failure detection).
+
+        SWIM's failure detection is more reliable than our custom ping/pong
+        because it uses indirect probing through multiple peers.
+        """
+        for member in members:
+            node_name = member.get("name", "")
+            addr = member.get("addr", "")
+
+            if not node_name or node_name == self.node_id:
+                continue
+
+            logger.warning(f"Serf: member FAILED (SWIM detected): {node_name} @ {addr}")
+
+            if node_name in self.peers:
+                self.peers[node_name]["state"] = "failed"
+                self.peers[node_name]["failed_at"] = time.time()
+                self.peers[node_name]["serf_failure"] = True
+
+            # If the failed node was leader, trigger election
+            if node_name == self.leader_id:
+                logger.warning(f"Leader {node_name} failed (Serf detected) - triggering election")
+                self.leader_id = None
+                self.election_in_progress = False  # Allow new election
+                self._save_state()
+
+    async def _handle_serf_member_update(self, members: list) -> None:
+        """Handle Serf member-update events (tag changes)."""
+        for member in members:
+            node_name = member.get("name", "")
+            tags = member.get("tags", {})
+
+            if not node_name or node_name == self.node_id:
+                continue
+
+            logger.info(f"Serf: member updated: {node_name}")
+
+            if node_name in self.peers:
+                self.peers[node_name]["serf_tags"] = tags
+                self.peers[node_name]["last_seen"] = time.time()
+
+    async def _handle_serf_member_reap(self, members: list) -> None:
+        """Handle Serf member-reap events (failed nodes removed from list)."""
+        for member in members:
+            node_name = member.get("name", "")
+
+            if not node_name or node_name == self.node_id:
+                continue
+
+            logger.info(f"Serf: member reaped (final cleanup): {node_name}")
+
+            # Mark as reaped but don't delete - we may want history
+            if node_name in self.peers:
+                self.peers[node_name]["state"] = "reaped"
+                self.peers[node_name]["reaped_at"] = time.time()
+
+    async def _handle_serf_user_event(self, payload: dict) -> None:
+        """Handle Serf user events (custom RingRift events).
+
+        User events include:
+        - training-complete: Training job finished
+        - model-promoted: Model was promoted to canonical
+        - selfplay-started: Selfplay jobs started on a node
+        - node-status: Periodic node status broadcast
+        """
+        event_name = payload.get("name", "")
+        event_payload = payload.get("payload", {})
+        ltime = payload.get("ltime", "0")
+
+        logger.info(f"Serf user event: {event_name} (ltime={ltime})")
+
+        if event_name == "training-complete":
+            config_key = event_payload.get("config_key", "")
+            model_path = event_payload.get("model_path", "")
+            metrics = event_payload.get("metrics", {})
+            logger.info(f"Training complete via Serf: {config_key} -> {model_path}")
+            # Could trigger evaluation here
+
+        elif event_name == "model-promoted":
+            config_key = event_payload.get("config_key", "")
+            model_path = event_payload.get("model_path", "")
+            elo_gain = event_payload.get("elo_gain", 0)
+            logger.info(f"Model promoted via Serf: {config_key} (+{elo_gain} Elo)")
+            # Could trigger model distribution here
+
+        elif event_name == "selfplay-started":
+            node = event_payload.get("node", "")
+            config_key = event_payload.get("config_key", "")
+            job_count = event_payload.get("job_count", 1)
+            logger.info(f"Selfplay started via Serf: {node} running {config_key} x{job_count}")
+
+        elif event_name == "node-status":
+            # Status updates from nodes - could merge with gossip state
+            node_id = event_payload.get("node_id", "")
+            if node_id and node_id in self.peers:
+                # Update peer with status info
+                status_fields = ["gpu_util", "gpu_mem_used", "cpu_percent", "memory_percent"]
+                for field in status_fields:
+                    if field in event_payload:
+                        self.peers[node_id][field] = event_payload[field]
+
     async def handle_coordinator(self, request: web.Request) -> web.Response:
         """Handle coordinator announcement from new leader.
 
@@ -12172,8 +12501,16 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         jobs_to_start = self._check_training_readiness()
 
         for job_config in jobs_to_start:
-            logger.info(f"Auto-triggering {job_config['job_type']} training for {job_config['config_key']} ({job_config['total_games']} games)")
+            # PHASE 4 IDEMPOTENCY: Check for duplicate triggers
+            config_key = job_config.get("config_key", "")
+            game_count = job_config.get("total_games", 0)
+            can_proceed, trigger_hash = self._check_training_idempotency(config_key, game_count)
+            if not can_proceed:
+                continue
+
+            logger.info(f"Auto-triggering {job_config['job_type']} training for {config_key} ({game_count} games)")
             await self._dispatch_training_job(job_config)
+            self._record_training_trigger(trigger_hash)  # Record after successful dispatch
 
     async def _check_local_training_fallback(self):
         """DECENTRALIZED training trigger when cluster has no leader.
@@ -12277,6 +12614,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             board_type = parts[0]
             num_players = int(parts[1].replace("p", ""))
 
+            # PHASE 4 IDEMPOTENCY: Check for duplicate triggers
+            can_proceed, trigger_hash = self._check_training_idempotency(config_key, game_count)
+            if not can_proceed:
+                continue
+
             logger.info(f"DISTRIBUTED TRAINING: Claiming {config_key} ({game_count} local games, leaderless for {int(leaderless_duration)}s)")
             job_config = {
                 "job_type": "nnue",
@@ -12286,6 +12628,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 "total_games": game_count,
             }
             await self._dispatch_training_job(job_config)
+            self._record_training_trigger(trigger_hash)  # Record after successful dispatch
             triggered_count += 1
 
         if triggered_count > 0:
@@ -24215,6 +24558,79 @@ print(json.dumps({{
 
         return random.random() < claim_probability
 
+    # =========================================================================
+    # TRAINING TRIGGER IDEMPOTENCY (Phase 4 - Dec 2025)
+    # =========================================================================
+    # Hash-based deduplication to prevent duplicate training during leader
+    # transitions. Each training trigger is hashed and stored; subsequent
+    # triggers with the same hash within the TTL are rejected.
+    # =========================================================================
+
+    def _compute_training_trigger_hash(self, config_key: str, game_count: int) -> str:
+        """Compute a hash for training trigger deduplication.
+
+        IDEMPOTENCY: Hash is based on:
+        - config_key (board_type + num_players)
+        - game_count bucket (rounded to 1000 to allow minor variations)
+        - time bucket (15-minute windows)
+
+        This allows the same trigger to be rejected if attempted multiple times
+        within a 15-minute window for the same approximate data state.
+        """
+        import hashlib
+
+        # Round game count to nearest 1000 to tolerate minor variations
+        game_bucket = (game_count // 1000) * 1000
+
+        # Use 15-minute time buckets
+        time_bucket = int(time.time() // 900) * 900
+
+        hash_input = f"{config_key}:{game_bucket}:{time_bucket}"
+        return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+    def _is_training_trigger_duplicate(self, trigger_hash: str) -> bool:
+        """Check if a training trigger is a duplicate.
+
+        IDEMPOTENCY: Returns True if this trigger hash was seen recently.
+        """
+        if not hasattr(self, "_training_trigger_cache"):
+            self._training_trigger_cache: dict[str, float] = {}
+
+        now = time.time()
+        ttl = 900  # 15-minute TTL for trigger cache
+
+        # Cleanup old entries
+        expired = [h for h, ts in self._training_trigger_cache.items() if now - ts > ttl]
+        for h in expired:
+            del self._training_trigger_cache[h]
+
+        # Check if duplicate
+        if trigger_hash in self._training_trigger_cache:
+            return True
+
+        return False
+
+    def _record_training_trigger(self, trigger_hash: str) -> None:
+        """Record a training trigger for deduplication."""
+        if not hasattr(self, "_training_trigger_cache"):
+            self._training_trigger_cache = {}
+
+        self._training_trigger_cache[trigger_hash] = time.time()
+
+    def _check_training_idempotency(self, config_key: str, game_count: int) -> tuple[bool, str]:
+        """Check if training can proceed (idempotency check).
+
+        Returns:
+            (can_proceed, trigger_hash) - can_proceed is False if duplicate
+        """
+        trigger_hash = self._compute_training_trigger_hash(config_key, game_count)
+
+        if self._is_training_trigger_duplicate(trigger_hash):
+            logger.info(f"IDEMPOTENT: Training trigger {trigger_hash[:8]} for {config_key} is duplicate, skipping")
+            return False, trigger_hash
+
+        return True, trigger_hash
+
     def _get_distributed_training_summary(self) -> dict:
         """Get summary of distributed training state for /status endpoint."""
         cluster_configs = self._get_cluster_active_training_configs()
@@ -26023,15 +26439,18 @@ print(json.dumps({{
             return False
 
     async def _manage_local_jobs_decentralized(self) -> int:
-        """DECENTRALIZED: Each node manages its own job count without leader.
+        """DECENTRALIZED: Each node manages its own job count based on gossip state.
 
         Runs on ALL nodes to ensure selfplay continues even during leader elections.
         Each node autonomously:
         1. Checks its own resource pressure (disk, memory, CPU)
-        2. Calculates target job count based on hardware
+        2. Uses gossip state to calculate proportional job count
         3. Starts or stops local jobs as needed
 
-        This prevents the cluster from being idle during leader instability.
+        PHASE 3 DECENTRALIZATION (Dec 2025):
+        - With Serf providing reliable failure detection, we can act quickly
+        - Proportional allocation based on gossip cluster capacity
+        - 30-second timeout for faster leader-failure recovery
 
         Returns:
             Number of jobs started/stopped
@@ -26039,19 +26458,19 @@ print(json.dumps({{
         changes = 0
         now = time.time()
 
-        # Rate limit: check every 60 seconds
+        # Rate limit: check every 30 seconds (reduced from 60s for faster response)
         last_check = getattr(self, "_last_local_job_manage", 0)
-        if now - last_check < 60:
+        if now - last_check < 30:
             return 0
         self._last_local_job_manage = now
 
         # Skip if leader is managing (avoid conflicts)
-        # But continue if leaderless for > 60 seconds
+        # But continue if leaderless for > 30 seconds (reduced from 60s for Serf reliability)
         if self.role == NodeRole.LEADER:
             return 0  # Leader uses centralized management
         if self.leader_id:
             leaderless_duration = now - getattr(self, "last_leader_seen", now)
-            if leaderless_duration < 60:
+            if leaderless_duration < LEADERLESS_TRAINING_TIMEOUT:
                 return 0  # Have a leader, let them manage
 
         # Update self info
@@ -28846,6 +29265,12 @@ print(json.dumps({{
         app.router.add_post('/election', self.handle_election)
         app.router.add_post('/election/lease', self.handle_lease_request)
         app.router.add_get('/election/grant', self.handle_voter_grant_status)
+        app.router.add_post('/election/reset', self.handle_election_reset)
+        app.router.add_post('/election/force_leader', self.handle_election_force_leader)
+
+        # Serf integration routes (battle-tested SWIM gossip)
+        app.router.add_post('/serf/event', self.handle_serf_event)
+
         app.router.add_post('/coordinator', self.handle_coordinator)
         app.router.add_post('/start_job', self.handle_start_job)
         app.router.add_post('/stop_job', self.handle_stop_job)

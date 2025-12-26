@@ -43,7 +43,9 @@ LEADER_LEASE_DURATION = 180  # seconds
 LEADER_LEASE_RENEW_INTERVAL = 15  # How often leader renews lease
 
 # Leaderless fallback - trigger local training when no leader for this long
-LEADERLESS_TRAINING_TIMEOUT = 180  # 3 minutes
+# Reduced from 180s (3min) to 30s for faster decentralized operation (Dec 2025)
+# With Serf integration providing reliable failure detection, we can act quickly
+LEADERLESS_TRAINING_TIMEOUT = 30  # 30 seconds - quick fallback for resilience
 
 JOB_CHECK_INTERVAL = 60  # seconds between job status checks
 DISCOVERY_PORT = 8771  # UDP port for peer discovery
