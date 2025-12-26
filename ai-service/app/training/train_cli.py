@@ -256,8 +256,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         '--model-version', type=str, default=None,
-        choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v4'],
-        help='Model architecture version (for CNN models)'
+        choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v4', 'v5', 'v5-gnn', 'v5-heavy'],
+        help='Model architecture version (for CNN models). v5/v5-heavy use heuristic features.'
     )
     parser.add_argument(
         '--model-type', type=str, default='cnn',
