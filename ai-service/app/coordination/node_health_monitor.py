@@ -20,7 +20,7 @@ Usage:
     await monitor.start()
 
     # Check if a node is available for tasks
-    if monitor.is_node_available("lambda-h100"):
+    if monitor.is_node_available("runpod-h100"):
         # Can assign task
         pass
 
@@ -40,6 +40,7 @@ from typing import Any
 
 import aiohttp
 
+from app.config.ports import HEALTH_CHECK_PORT
 from app.core.async_context import safe_create_task
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ class NodeHealth:
     """Health state for a cluster node."""
     node_id: str
     host: str
-    port: int = 8765
+    port: int = HEALTH_CHECK_PORT
     status: NodeStatus = NodeStatus.HEALTHY
     consecutive_failures: int = 0
     last_check: float = 0.0
@@ -143,7 +144,7 @@ class NodeHealthMonitor:
             for host_config in config.get("hosts", []):
                 node_id = host_config.get("name", host_config.get("host"))
                 host = host_config.get("host")
-                port = host_config.get("port", 8765)
+                port = host_config.get("port", HEALTH_CHECK_PORT)
 
                 if node_id and host:
                     self.nodes[node_id] = NodeHealth(
@@ -157,7 +158,7 @@ class NodeHealthMonitor:
         except Exception as e:
             logger.warning(f"[NodeHealthMonitor] Could not load config: {e}")
 
-    def add_node(self, node_id: str, host: str, port: int = 8765) -> None:
+    def add_node(self, node_id: str, host: str, port: int = HEALTH_CHECK_PORT) -> None:
         """Add a node to monitor."""
         self.nodes[node_id] = NodeHealth(
             node_id=node_id,

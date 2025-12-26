@@ -24,12 +24,12 @@ Usage:
     result = await transport.transfer_file(
         local_path=Path("data/model.pth"),
         remote_path="ai-service/data/model.pth",
-        node=NodeConfig(hostname="lambda-h100"),
+        node=NodeConfig(hostname="runpod-h100"),
     )
 
     # Execute HTTP request with failover
     result = await transport.http_request(
-        node=NodeConfig(hostname="lambda-h100"),
+        node=NodeConfig(hostname="runpod-h100"),
         endpoint="/api/status",
     )
 
@@ -199,7 +199,11 @@ class ClusterTransport:
                     result.transport_used = transport_name
                     result.latency_ms = (time.time() - start_time) * 1000
                     return result
-            except Exception as e:
+            except (OSError, ValueError, TypeError, RuntimeError) as e:
+                # OSError: network/file errors
+                # ValueError: invalid path or parameters
+                # TypeError: invalid argument types
+                # RuntimeError: transfer operation failed
                 logger.debug(
                     f"Transport {transport_name} failed for {node.hostname}: {e}"
                 )
@@ -290,7 +294,10 @@ class ClusterTransport:
 
         except asyncio.TimeoutError:
             return TransportResult(success=False, error="Transfer timeout")
-        except Exception as e:
+        except (OSError, FileNotFoundError, PermissionError) as e:
+            # OSError: subprocess/network errors
+            # FileNotFoundError: rsync or file not found
+            # PermissionError: insufficient permissions
             return TransportResult(success=False, error=str(e))
 
     async def http_request(
@@ -348,7 +355,10 @@ class ClusterTransport:
                     response_data = None
                     try:
                         response_data = await resp.json()
-                    except Exception:
+                    except (ValueError, TypeError, aiohttp.ContentTypeError):
+                        # ValueError: invalid JSON
+                        # TypeError: type conversion error
+                        # ContentTypeError: invalid content type
                         response_data = await resp.text()
 
                     if resp.status >= 200 and resp.status < 300:
@@ -375,7 +385,9 @@ class ClusterTransport:
                 error="HTTP request timeout",
                 latency_ms=(time.time() - start_time) * 1000,
             )
-        except Exception as e:
+        except (aiohttp.ClientError, OSError) as e:
+            # aiohttp.ClientError: HTTP client errors (connection, request, response)
+            # OSError: network errors
             self.record_failure(http_target)
             return TransportResult(
                 success=False,
@@ -435,7 +447,10 @@ class ClusterTransport:
             )
             await asyncio.wait_for(proc.wait(), timeout=self.connect_timeout + 5)
             return proc.returncode == 0
-        except Exception as e:
+        except (asyncio.TimeoutError, OSError, FileNotFoundError) as e:
+            # asyncio.TimeoutError: SSH connection timeout
+            # OSError: subprocess/network errors
+            # FileNotFoundError: ssh command not found
             logger.debug(f"SSH reachability check failed for {node.hostname}: {e}")
             return False
 

@@ -1,26 +1,53 @@
 """SSH Connection Manager with Smart Transport Selection.
 
+.. deprecated::
+    This module is deprecated and will be removed in a future version.
+
+    MIGRATION GUIDE:
+    ================
+    For synchronous SSH operations, use hosts.py:SSHExecutor:
+        from app.distributed.hosts import SSHExecutor, load_remote_hosts
+
+        hosts = load_remote_hosts()
+        executor = SSHExecutor(hosts["runpod-h100"])
+        result = executor.run("nvidia-smi", timeout=30)
+
+    For async P2P transport operations, use ssh_transport.py:SSHTransport:
+        from app.distributed.ssh_transport import get_ssh_transport
+
+        transport = get_ssh_transport()
+        result = await transport.ssh_exec("runpod-h100", "nvidia-smi")
+
+    The canonical SSH utilities are:
+    - hosts.py:SSHExecutor - Synchronous SSH (includes transport fallback)
+    - ssh_transport.py:SSHTransport - Async P2P transport
+
+    This module provided async smart transport selection, but:
+    1. SSHExecutor already handles transport fallback (Tailscale -> direct -> Cloudflare)
+    2. SSHTransport provides async SSH for P2P communication
+    3. TransportHealthTracker can be used directly with either canonical utility
+
 Provides intelligent SSH connection management with:
 - Quick preflight TCP probe before SSH
 - Smart transport ordering based on health history
 - Automatic fallback to alternate transports
 - Integration with TransportHealthTracker
 
-Usage:
+Usage (DEPRECATED):
     from app.distributed.ssh_connection_manager import SSHConnectionManager
 
     manager = SSHConnectionManager()
 
     # Smart connection with automatic transport selection
     success, output = await manager.run_command(
-        node_id="lambda-gh200-a",
+        node_id="runpod-h100",
         command="nvidia-smi",
-        transports={"tailscale": "100.123.183.70", "direct": "192.222.51.29"},
+        transports={"tailscale": "100.123.183.70", "direct": "102.210.171.65"},
     )
 
     # With explicit transport preference
     success, output = await manager.run_command(
-        node_id="lambda-gh200-a",
+        node_id="runpod-h100",
         command="nvidia-smi",
         transports={"tailscale": "100.123.183.70"},
         prefer_transport="tailscale",
@@ -34,6 +61,7 @@ import logging
 import os
 import socket
 import time
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,6 +72,15 @@ from app.distributed.transport_health import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning on module import
+warnings.warn(
+    "ssh_connection_manager is deprecated. "
+    "Use hosts.py:SSHExecutor for sync SSH or ssh_transport.py:SSHTransport for async P2P. "
+    "See module docstring for migration guide.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 @dataclass

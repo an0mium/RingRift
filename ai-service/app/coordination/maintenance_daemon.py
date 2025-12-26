@@ -285,9 +285,9 @@ class MaintenanceDaemon:
                 # Get size before
                 size_before = db_path.stat().st_size
 
-                conn = sqlite3.connect(str(db_path))
-                conn.execute("VACUUM")
-                conn.close()
+                # Use context manager to ensure connection is always closed
+                with sqlite3.connect(str(db_path)) as conn:
+                    conn.execute("VACUUM")
 
                 # Get size after
                 size_after = db_path.stat().st_size
@@ -602,10 +602,9 @@ class MaintenanceDaemon:
                 # Count games in the database
                 game_count = 0
                 try:
-                    conn = sqlite3.connect(str(db_path), timeout=5.0)
-                    cursor = conn.execute("SELECT COUNT(*) FROM games")
-                    game_count = cursor.fetchone()[0]
-                    conn.close()
+                    with sqlite3.connect(str(db_path), timeout=5.0) as conn:
+                        cursor = conn.execute("SELECT COUNT(*) FROM games")
+                        game_count = cursor.fetchone()[0]
                 except Exception:
                     # If we can't read the database, skip it
                     logger.debug(f"[Maintenance] Couldn't read orphan DB {db_path}, skipping")

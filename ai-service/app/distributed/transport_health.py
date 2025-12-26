@@ -15,14 +15,14 @@ Usage:
     tracker = TransportHealthTracker()
 
     # Record results
-    tracker.record_success("lambda-gh200-a", "tailscale", latency_ms=45.0)
-    tracker.record_failure("lambda-gh200-a", "direct")
+    tracker.record_success("runpod-h100", "tailscale", latency_ms=45.0)
+    tracker.record_failure("runpod-h100", "direct")
 
     # Get best transport for a node
-    transport = tracker.get_best_transport("lambda-gh200-a")
+    transport = tracker.get_best_transport("runpod-h100")
 
     # Get adaptive timeout
-    timeout = tracker.get_adaptive_timeout("lambda-gh200-a", "tailscale")
+    timeout = tracker.get_adaptive_timeout("runpod-h100", "tailscale")
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 class TransportType(str, Enum):
     """Available transport types for SSH connections."""
     TAILSCALE = "tailscale"  # 100.x.x.x Tailscale mesh
-    DIRECT = "direct"        # Direct IP (192.222.x.x for Lambda)
+    DIRECT = "direct"        # Direct IP (public IP from provider)
     CLOUDFLARE = "cloudflare"  # Cloudflare Zero Trust tunnel
 
 
@@ -105,15 +105,32 @@ class TransportHealthTracker:
     _instance: TransportHealthTracker | None = None
     _lock = threading.Lock()
 
-    # Configuration (overridable via environment)
-    CONSECUTIVE_FAILURE_THRESHOLD = int(
-        os.environ.get("RINGRIFT_TRANSPORT_FAILURE_THRESHOLD", "3")
-    )
-    DISABLE_DURATION_SECONDS = float(
-        os.environ.get("RINGRIFT_TRANSPORT_DISABLE_DURATION", "300")  # 5 minutes
-    )
-    LATENCY_HISTORY_WEIGHT = 0.7  # Weight for exponential moving average
-    MIN_SAMPLES_FOR_PREFERENCE = 3  # Minimum samples before preferring a transport
+    # Configuration (December 2025: imported from centralized thresholds, overridable via environment)
+    try:
+        from app.config.thresholds import (
+            TRANSPORT_DISABLE_DURATION,
+            TRANSPORT_FAILURE_THRESHOLD,
+            TRANSPORT_LATENCY_WEIGHT,
+            TRANSPORT_MIN_SAMPLES_FOR_PREFERENCE,
+        )
+        CONSECUTIVE_FAILURE_THRESHOLD = int(
+            os.environ.get("RINGRIFT_TRANSPORT_FAILURE_THRESHOLD", str(TRANSPORT_FAILURE_THRESHOLD))
+        )
+        DISABLE_DURATION_SECONDS = float(
+            os.environ.get("RINGRIFT_TRANSPORT_DISABLE_DURATION", str(TRANSPORT_DISABLE_DURATION))
+        )
+        LATENCY_HISTORY_WEIGHT = TRANSPORT_LATENCY_WEIGHT
+        MIN_SAMPLES_FOR_PREFERENCE = TRANSPORT_MIN_SAMPLES_FOR_PREFERENCE
+    except ImportError:
+        # Fallback if thresholds not available
+        CONSECUTIVE_FAILURE_THRESHOLD = int(
+            os.environ.get("RINGRIFT_TRANSPORT_FAILURE_THRESHOLD", "3")
+        )
+        DISABLE_DURATION_SECONDS = float(
+            os.environ.get("RINGRIFT_TRANSPORT_DISABLE_DURATION", "300")  # 5 minutes
+        )
+        LATENCY_HISTORY_WEIGHT = 0.7  # Weight for exponential moving average
+        MIN_SAMPLES_FOR_PREFERENCE = 3  # Minimum samples before preferring a transport
 
     def __new__(cls) -> TransportHealthTracker:
         """Singleton pattern for global access."""
@@ -141,7 +158,7 @@ class TransportHealthTracker:
         """Record a successful connection attempt.
 
         Args:
-            node_id: Node identifier (e.g., "lambda-gh200-a")
+            node_id: Node identifier (e.g., "runpod-h100")
             transport: Transport type used
             latency_ms: Connection latency in milliseconds
         """

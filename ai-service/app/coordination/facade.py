@@ -17,8 +17,8 @@ Usage:
     coord = CoordinationFacade()
 
     # Check if we can spawn a task
-    if coord.can_spawn_task("selfplay", "lambda-h100"):
-        task_id = coord.spawn_task("selfplay", "lambda-h100", games=100)
+    if coord.can_spawn_task("selfplay", "runpod-h100"):
+        task_id = coord.spawn_task("selfplay", "runpod-h100", games=100)
 
     # Start training
     training_id = coord.start_training("hex8", 2)

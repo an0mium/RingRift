@@ -19,7 +19,7 @@ Usage:
     coordinator = get_unified_resource_coordinator()
 
     # Check if a task can spawn
-    allowed, reason = coordinator.can_spawn_task("selfplay", "lambda-gh200-a")
+    allowed, reason = coordinator.can_spawn_task("selfplay", "runpod-h100")
     if not allowed:
         print(f"Cannot spawn: {reason}")
 
@@ -28,7 +28,7 @@ Usage:
     print(f"Recommended GPU hours: {allocation.gpu_hours}")
 
     # Report resource usage
-    coordinator.report_usage("lambda-gh200-a", cpu=0.5, gpu=0.8, memory=0.6)
+    coordinator.report_usage("runpod-h100", cpu=0.5, gpu=0.8, memory=0.6)
 """
 
 from __future__ import annotations

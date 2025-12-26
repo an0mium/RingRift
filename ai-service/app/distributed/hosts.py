@@ -560,10 +560,47 @@ def clear_memory_cache() -> None:
 class SSHExecutor:
     """Execute commands on remote hosts via SSH.
 
-    Supports multiple connection methods:
-    - Direct SSH (default)
-    - Tailscale IP fallback
-    - Cloudflare Zero Trust tunnels (via cloudflared access ssh)
+    CANONICAL SSH UTILITY FOR SYNCHRONOUS OPERATIONS
+    ================================================
+    This is the single source of truth for synchronous SSH command execution
+    in the ai-service codebase. Use this class for:
+    - Remote command execution (run, run_async)
+    - File transfers (scp_from)
+    - Health checks (is_alive)
+    - Memory/process monitoring
+
+    For async P2P transport operations, use ssh_transport.py:SSHTransport instead.
+
+    Features:
+    - Multiple connection methods with automatic fallback:
+      1. Direct SSH via tailscale_ip (preferred - mesh routing)
+      2. Direct SSH via ssh_host (public IP)
+      3. Cloudflare Zero Trust tunnel (final fallback if configured)
+    - Connection failure detection with automatic retry on next target
+    - Configurable timeouts and keepalives for network stability
+    - Support for venv activation and working directory
+
+    Usage:
+        from app.distributed.hosts import SSHExecutor, load_remote_hosts
+
+        hosts = load_remote_hosts()
+        executor = SSHExecutor(hosts["runpod-h100"])
+
+        # Run command
+        result = executor.run("nvidia-smi", timeout=30)
+        if result.returncode == 0:
+            print(result.stdout)
+
+        # Copy file from remote
+        executor.scp_from("/remote/path/model.pth", "/local/path/model.pth")
+
+        # Check if host is reachable
+        if executor.is_alive():
+            print("Host is up")
+
+    See also:
+        - ssh_transport.py:SSHTransport for async P2P communication
+        - sync_utils.py for rsync-based file synchronization
     """
 
     def __init__(self, host: HostConfig):

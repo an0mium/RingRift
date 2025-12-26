@@ -791,9 +791,9 @@ class CircuitBreakerRegistry:
 
     Usage:
         registry = get_circuit_registry()
-        breaker = registry.get_breaker("lambda-h100", "ssh")
+        breaker = registry.get_breaker("runpod-h100", "ssh")
 
-        if breaker.can_execute("lambda-h100"):
+        if breaker.can_execute("runpod-h100"):
             ...
     """
 
@@ -893,7 +893,7 @@ class FallbackChain:
         chain.add_operation("p2p", p2p_sync, timeout=90.0)
         chain.add_operation("aria2", aria2_sync, timeout=90.0)
 
-        result = await chain.execute(host="lambda-h100")
+        result = await chain.execute(host="runpod-h100")
     """
 
     def __init__(self, total_timeout: float = 300.0):

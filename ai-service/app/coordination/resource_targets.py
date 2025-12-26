@@ -20,7 +20,7 @@ Usage:
     )
 
     targets = get_resource_targets()
-    if should_scale_up("lambda-h100", current_gpu=45):
+    if should_scale_up("runpod-h100", current_gpu=45):
         # Add more jobs
         pass
 """
@@ -153,8 +153,8 @@ class HostTargets:
 # Host tier classification based on known hosts
 HOST_TIER_MAP: dict[str, HostTier] = {
     # High-end (>= 80GB VRAM, modern architecture)
-    "lambda-h100": HostTier.HIGH_END,
-    "lambda-h200": HostTier.HIGH_END,
+    "runpod-h100": HostTier.HIGH_END,
+    "nebius-h100": HostTier.HIGH_END,
     "gh200": HostTier.HIGH_END,
     "mac-studio": HostTier.HIGH_END,
     "mac-studio-ultra": HostTier.HIGH_END,

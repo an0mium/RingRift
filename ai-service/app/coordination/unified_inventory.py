@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.config.ports import P2P_DEFAULT_PORT
 from app.utils.env_config import env
 from app.utils.paths import AI_SERVICE_ROOT
 from app.utils.yaml_utils import safe_load_yaml
@@ -75,7 +76,7 @@ class DiscoveredNode:
     """Node discovered from external sources."""
     node_id: str
     host: str  # IP or hostname
-    port: int = 8770  # P2P port
+    port: int = P2P_DEFAULT_PORT  # P2P port
     source: str = "unknown"  # vast, tailscale, lambda, hetzner
 
     # Connection info
@@ -267,7 +268,7 @@ class UnifiedInventory:
                 nodes.append(DiscoveredNode(
                     node_id=f"vast-{instance_id}",
                     host=inst.get("ssh_host", ""),
-                    port=8770,
+                    port=P2P_DEFAULT_PORT,
                     source="vast",
                     ssh_host=inst.get("ssh_host", ""),
                     ssh_port=inst.get("ssh_port", 22),
@@ -348,7 +349,7 @@ class UnifiedInventory:
                 nodes.append(DiscoveredNode(
                     node_id=node_id,
                     host=ts_ip,
-                    port=8770,
+                    port=P2P_DEFAULT_PORT,
                     source="tailscale",
                     tailscale_ip=ts_ip,
                     gpu_name=gpu_name,
@@ -396,7 +397,7 @@ class UnifiedInventory:
         try:
             import urllib.request
 
-            url = f"http://{host}:8770/health"
+            url = f"http://{host}:{P2P_DEFAULT_PORT}/health"
             loop = asyncio.get_event_loop()
 
             def fetch():
@@ -408,7 +409,7 @@ class UnifiedInventory:
             return DiscoveredNode(
                 node_id=node_id,
                 host=host,
-                port=8770,
+                port=P2P_DEFAULT_PORT,
                 source="lambda",
                 tailscale_ip=host if host.startswith(TAILSCALE_CGNAT_PREFIX) else "",
                 gpu_name=info.get("gpu", "") or health.get("gpu_name", ""),
@@ -460,7 +461,7 @@ class UnifiedInventory:
                 nodes.append(DiscoveredNode(
                     node_id=f"hetzner-{name}",
                     host=ipv4,
-                    port=8770,
+                    port=P2P_DEFAULT_PORT,
                     source="hetzner",
                     ssh_host=ipv4,
                     ssh_port=22,
@@ -499,19 +500,21 @@ class UnifiedInventory:
             if info.get("tailscale_ip") == ts_ip:
                 return name
 
-        # Common patterns
+        # Common patterns - map GPU names to provider prefixes
         if "gh200" in hostname:
-            # Extract gh200 letter suffix if present
+            # GH200 nodes - extract letter suffix if present
             for letter in "abcdefghijklmnop":
                 if f"gh200{letter}" in hostname or f"gh200-{letter}" in hostname:
-                    return f"lambda-gh200-{letter}"
-            return f"lambda-{hostname}"
+                    return f"gh200-{letter}"
+            return hostname
 
         if "h100" in hostname:
-            return f"lambda-{hostname}"
+            # H100 nodes typically on RunPod or Nebius
+            return hostname
 
         if "a10" in hostname:
-            return f"lambda-{hostname}"
+            # A10 nodes - return as-is
+            return hostname
 
         return hostname
 
