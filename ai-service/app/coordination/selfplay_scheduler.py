@@ -38,6 +38,32 @@ December 2025: Created as part of strategic integration plan.
 
 from __future__ import annotations
 
+__all__ = [
+    # Classes
+    "ConfigPriority",
+    "NodeCapability",
+    "SelfplayScheduler",
+    # Constants
+    "ALL_CONFIGS",
+    "CURRICULUM_WEIGHT",
+    "DATA_DEFICIT_WEIGHT",
+    "DEFAULT_GAMES_PER_CONFIG",
+    "ELO_VELOCITY_WEIGHT",
+    "EXPLORATION_BOOST_WEIGHT",
+    "FRESH_DATA_THRESHOLD",
+    "IMPROVEMENT_BOOST_WEIGHT",
+    "LARGE_BOARD_TARGET_MULTIPLIER",
+    "MAX_STALENESS_HOURS",
+    "MIN_GAMES_PER_ALLOCATION",
+    "PRIORITY_OVERRIDE_MULTIPLIERS",
+    "STALE_DATA_THRESHOLD",
+    "STALENESS_WEIGHT",
+    "TRAINING_NEED_WEIGHT",
+    # Functions
+    "get_selfplay_scheduler",
+    "reset_selfplay_scheduler",
+]
+
 import logging
 import time
 from dataclasses import dataclass, field
