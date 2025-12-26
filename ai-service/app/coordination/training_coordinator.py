@@ -641,10 +641,66 @@ class TrainingCoordinator:
             },
         )
 
+        # Phase 21.2 (December 2025): Accelerate selfplay to recover from quality block
+        # When quality gates block training, we need MORE diverse training data
+        self._emit_selfplay_acceleration_for_quality(config_key, quality_score)
+
         if paused:
             logger.warning(
                 f"[TrainingCoordinator] Halted training for {config_key} due to quality gate"
             )
+
+    def _emit_selfplay_acceleration_for_quality(
+        self, config_key: str, quality_score: float
+    ) -> None:
+        """Emit SELFPLAY_TARGET_UPDATED to accelerate data generation on quality block.
+
+        Phase 21.2 (December 2025): When quality gates block training, we need
+        more diverse training data to recover. This closes the feedback loop:
+        TRAINING_BLOCKED_BY_QUALITY → SELFPLAY_TARGET_UPDATED → more data → better quality
+
+        The boost factor is inversely proportional to quality score:
+        - quality < 0.3: 2.0x boost (severe quality issues)
+        - quality < 0.5: 1.75x boost (moderate issues)
+        - quality < 0.7: 1.5x boost (minor issues)
+        """
+        try:
+            from app.distributed.data_events import emit_selfplay_target_updated
+
+            # Calculate boost based on how bad quality is
+            if quality_score < 0.3:
+                boost_factor = 2.0
+            elif quality_score < 0.5:
+                boost_factor = 1.75
+            else:
+                boost_factor = 1.5
+
+            # Get current target or use default
+            current_target = getattr(self, '_selfplay_targets', {}).get(config_key, 1000)
+            new_target = int(current_target * boost_factor)
+
+            logger.info(
+                f"[TrainingCoordinator] Accelerating selfplay for quality recovery: "
+                f"{config_key} target={new_target} (boost={boost_factor}x, quality={quality_score:.2f})"
+            )
+
+            import asyncio
+            asyncio.create_task(
+                emit_selfplay_target_updated(
+                    config_key=config_key,
+                    target_games=new_target,
+                    reason="quality_gate_blocked",
+                    priority=1,  # High priority for quality recovery
+                    source="training_coordinator.py",
+                    exploration_boost=boost_factor,
+                    recovery_mode=True,
+                )
+            )
+
+        except ImportError:
+            logger.debug("[TrainingCoordinator] data_events not available, skipping selfplay acceleration")
+        except Exception as e:
+            logger.warning(f"[TrainingCoordinator] Failed to emit selfplay acceleration: {e}")
 
     @property
     def cluster_healthy(self) -> bool:
