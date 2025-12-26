@@ -241,8 +241,19 @@ class NPZDistributionDaemon:
 
     async def start(self) -> None:
         """Start the daemon and subscribe to events."""
+        if self._coordinator_status == CoordinatorStatus.RUNNING:
+            return  # Already running
+
         logger.info("NPZDistributionDaemon starting...")
         self._running = True
+        self._coordinator_status = CoordinatorStatus.RUNNING
+        self._start_time = time.time()
+
+        # Initialize event for immediate push-on-export
+        self._pending_event = asyncio.Event()
+
+        # Register with coordinator registry
+        register_coordinator(self)
 
         # Try to subscribe to NPZ_EXPORT_COMPLETE events
         try:
@@ -273,29 +284,54 @@ class NPZDistributionDaemon:
         while self._running:
             try:
                 # Process any pending NPZ distributions
-                if self._pending_npz:
+                with self._pending_lock:
+                    has_pending = bool(self._pending_npz)
+
+                if has_pending:
                     await self._process_pending_npz()
 
                 # Periodic sync to catch any missed exports
                 if time.time() - self._last_sync_time > self.config.poll_interval_seconds:
                     await self._periodic_sync_check()
 
-                await asyncio.sleep(5.0)
+                # Wait for event with timeout (instant wake on new NPZ)
+                if self._pending_event is not None:
+                    try:
+                        await asyncio.wait_for(self._pending_event.wait(), timeout=5.0)
+                        self._pending_event.clear()
+                    except asyncio.TimeoutError:
+                        pass
+                else:
+                    await asyncio.sleep(5.0)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in NPZ distribution daemon loop: {e}")
+                self._errors_count += 1
+                self._last_error = str(e)
                 await asyncio.sleep(10.0)
 
         logger.info("NPZDistributionDaemon stopped")
 
     async def stop(self) -> None:
         """Stop the daemon gracefully."""
+        if self._coordinator_status == CoordinatorStatus.STOPPED:
+            return  # Already stopped
+
+        self._coordinator_status = CoordinatorStatus.STOPPING
         self._running = False
 
+        # Unregister from coordinator registry
+        unregister_coordinator(self.name)
+
+        self._coordinator_status = CoordinatorStatus.STOPPED
+
     def _on_npz_exported(self, event: dict[str, Any]) -> None:
-        """Handle NPZ_EXPORT_COMPLETE event (sync callback)."""
+        """Handle NPZ_EXPORT_COMPLETE event (sync callback).
+
+        December 2025: Thread-safe with immediate wake-up for instant distribution.
+        """
         npz_info = {
             "npz_path": event.get("npz_path"),
             "board_type": event.get("board_type"),
@@ -304,17 +340,25 @@ class NPZDistributionDaemon:
             "timestamp": time.time(),
         }
         logger.info(f"Received NPZ_EXPORT_COMPLETE event: {npz_info}")
-        self._pending_npz.append(npz_info)
+
+        # Thread-safe append to pending list
+        with self._pending_lock:
+            self._pending_npz.append(npz_info)
+        self._events_processed += 1
+
+        # Immediate wake-up for instant distribution
+        if self._pending_event is not None:
+            self._pending_event.set()
 
     async def _process_pending_npz(self) -> None:
-        """Process pending NPZ distributions."""
+        """Process pending NPZ distributions with checksum validation."""
         async with self._sync_lock:
-            if not self._pending_npz:
-                return
-
-            # Take all pending NPZ files
-            npz_files = self._pending_npz.copy()
-            self._pending_npz.clear()
+            # Thread-safe extraction
+            with self._pending_lock:
+                if not self._pending_npz:
+                    return
+                npz_files = self._pending_npz.copy()
+                self._pending_npz.clear()
 
             logger.info(f"Processing {len(npz_files)} pending NPZ distributions")
 
@@ -330,28 +374,370 @@ class NPZDistributionDaemon:
                 if not npz_path:
                     continue
 
-                # Run sync with retry
+                # Compute source checksum before distribution (December 2025)
+                source_checksum = None
+                if self.config.verify_checksums:
+                    source_checksum = await self._compute_checksum(Path(npz_path))
+                    if source_checksum:
+                        logger.info(f"NPZ checksum: {source_checksum[:16]}...")
+                    else:
+                        logger.warning(f"Failed to compute checksum for {npz_path}")
+
+                # Run distribution with exponential backoff retry
                 success = False
+                delivery_results: list[NPZDeliveryResult] = []
+                current_delay = self.config.retry_delay_seconds
+
                 for attempt in range(self.config.retry_count):
                     try:
-                        success = await self._distribute_npz(npz_path, target_nodes)
+                        success, results = await self._distribute_npz_with_verification(
+                            npz_path, target_nodes, source_checksum
+                        )
+                        delivery_results = results
+
                         if success:
                             self._last_sync_time = time.time()
+                            self._successful_distributions += 1
                             logger.info(f"NPZ distribution completed: {npz_path}")
                             break
                     except Exception as e:
                         logger.error(f"Distribution attempt {attempt + 1} failed: {e}")
+                        self._errors_count += 1
+                        self._last_error = str(e)
 
                     if attempt < self.config.retry_count - 1:
-                        await asyncio.sleep(self.config.retry_delay_seconds)
+                        logger.info(f"Retrying in {current_delay:.1f}s...")
+                        await asyncio.sleep(current_delay)
+                        current_delay *= self.config.retry_backoff_multiplier
+
+                # Track delivery history
+                self._delivery_history.extend(delivery_results)
+                # Keep only last 100 results
+                if len(self._delivery_history) > 100:
+                    self._delivery_history = self._delivery_history[-100:]
 
                 if success and self.config.emit_completion_event:
-                    await self._emit_distribution_complete(npz_info, target_nodes)
+                    await self._emit_distribution_complete(
+                        npz_info, target_nodes, source_checksum, delivery_results
+                    )
 
                 if not success:
+                    self._failed_distributions += 1
                     logger.error(
                         f"NPZ distribution failed after {self.config.retry_count} attempts: {npz_path}"
                     )
+
+    # =========================================================================
+    # Checksum Utilities (December 2025)
+    # =========================================================================
+
+    async def _compute_checksum(self, path: Path) -> str | None:
+        """Compute SHA256 checksum of a local file.
+
+        Uses the centralized checksum utilities for consistency.
+
+        Args:
+            path: Path to the file
+
+        Returns:
+            SHA256 hex digest or None on error
+        """
+        if not path.exists():
+            return None
+
+        try:
+            from app.utils.checksum_utils import compute_file_checksum, LARGE_CHUNK_SIZE
+
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            checksum = await loop.run_in_executor(
+                None,
+                lambda: compute_file_checksum(path, chunk_size=LARGE_CHUNK_SIZE),
+            )
+            return checksum
+        except Exception as e:
+            logger.warning(f"Failed to compute checksum for {path}: {e}")
+            return None
+
+    async def _verify_remote_checksum(
+        self,
+        node: dict[str, Any],
+        npz_path: Path,
+        expected_checksum: str,
+    ) -> bool:
+        """Verify checksum of NPZ file on remote node via SSH.
+
+        Args:
+            node: Node configuration dict
+            npz_path: Local path to NPZ file (to get filename)
+            expected_checksum: Expected SHA256 checksum
+
+        Returns:
+            True if checksum matches, False otherwise
+        """
+        host = node.get("host")
+        user = node.get("user", "ubuntu")
+        remote_path = node.get("remote_path", "~/ringrift/ai-service")
+        ssh_key = node.get("ssh_key")
+
+        # Build remote checksum command
+        remote_file = f"{remote_path}/data/training/{npz_path.name}"
+        checksum_cmd = f"sha256sum {remote_file} 2>/dev/null | cut -d' ' -f1"
+
+        # Build SSH command
+        ssh_opts = [
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+        ]
+        if ssh_key:
+            ssh_opts.extend(["-i", ssh_key])
+
+        cmd = ["ssh"] + ssh_opts + [f"{user}@{host}", checksum_cmd]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.checksum_timeout_seconds,
+            )
+
+            if process.returncode == 0:
+                remote_checksum = stdout.decode().strip()
+                if remote_checksum == expected_checksum:
+                    logger.debug(f"Checksum verified on {host}: {remote_checksum[:16]}...")
+                    return True
+                else:
+                    logger.warning(
+                        f"Checksum mismatch on {host}: "
+                        f"expected {expected_checksum[:16]}..., "
+                        f"got {remote_checksum[:16]}..."
+                    )
+                    self._checksum_failures += 1
+                    return False
+            else:
+                logger.warning(f"Failed to get checksum from {host}: {stderr.decode()[:100]}")
+                return False
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Checksum verification timed out on {host}")
+            return False
+        except Exception as e:
+            logger.warning(f"Checksum verification failed on {host}: {e}")
+            return False
+
+    async def _distribute_npz_with_verification(
+        self,
+        npz_path: str,
+        target_nodes: list[dict[str, Any]],
+        source_checksum: str | None,
+    ) -> tuple[bool, list[NPZDeliveryResult]]:
+        """Distribute NPZ file to target nodes with checksum verification.
+
+        December 2025: Enhanced distribution with:
+        - Pre-transfer checksum computation
+        - Post-transfer checksum verification
+        - Per-node delivery tracking
+        - HTTP fallback option
+
+        Args:
+            npz_path: Path to the NPZ file
+            target_nodes: List of target node configurations
+            source_checksum: Pre-computed SHA256 checksum (or None to skip verification)
+
+        Returns:
+            Tuple of (success, list of delivery results)
+        """
+        npz_file = Path(npz_path)
+        if not npz_file.exists():
+            logger.error(f"NPZ file not found: {npz_path}")
+            return False, []
+
+        delivery_results: list[NPZDeliveryResult] = []
+        success_count = 0
+
+        for node in target_nodes:
+            node_id = node.get("node_id", node.get("host", "unknown"))
+            host = node.get("host")
+            start_time = time.time()
+
+            # Try HTTP first if enabled
+            if self.config.use_http_distribution:
+                http_success = await self._distribute_via_http(npz_file, node)
+                if http_success:
+                    # Verify checksum on remote if we have source checksum
+                    checksum_ok = True
+                    if source_checksum and self.config.verify_checksums:
+                        checksum_ok = await self._verify_remote_checksum(
+                            node, npz_file, source_checksum
+                        )
+
+                    delivery_results.append(NPZDeliveryResult(
+                        node_id=node_id,
+                        host=host,
+                        success=checksum_ok,
+                        checksum_verified=checksum_ok,
+                        transfer_time_seconds=time.time() - start_time,
+                        method="http",
+                    ))
+
+                    if checksum_ok:
+                        success_count += 1
+                        continue
+
+                    # HTTP transfer succeeded but checksum failed - try rsync
+                    if not self.config.fallback_to_rsync:
+                        continue
+
+                elif not self.config.fallback_to_rsync:
+                    delivery_results.append(NPZDeliveryResult(
+                        node_id=node_id,
+                        host=host,
+                        success=False,
+                        checksum_verified=False,
+                        transfer_time_seconds=time.time() - start_time,
+                        error_message="HTTP upload failed",
+                        method="http",
+                    ))
+                    continue
+
+            # Rsync distribution
+            rsync_success = await self._rsync_to_node(npz_file, node)
+            checksum_ok = False
+
+            if rsync_success:
+                # Verify checksum on remote
+                if source_checksum and self.config.verify_checksums:
+                    checksum_ok = await self._verify_remote_checksum(
+                        node, npz_file, source_checksum
+                    )
+                else:
+                    checksum_ok = True  # No checksum to verify
+
+                if rsync_success and checksum_ok:
+                    success_count += 1
+
+            delivery_results.append(NPZDeliveryResult(
+                node_id=node_id,
+                host=host,
+                success=rsync_success and checksum_ok,
+                checksum_verified=checksum_ok,
+                transfer_time_seconds=time.time() - start_time,
+                error_message="" if rsync_success else "rsync failed",
+                method="rsync",
+            ))
+
+        # Consider success if at least one node received and verified the file
+        return success_count > 0, delivery_results
+
+    async def _distribute_via_http(self, npz_file: Path, node: dict[str, Any]) -> bool:
+        """Distribute NPZ file to a node via HTTP upload.
+
+        Args:
+            npz_file: Path to the NPZ file
+            node: Node configuration dict
+
+        Returns:
+            True if upload succeeded, False otherwise
+        """
+        try:
+            import aiohttp
+        except ImportError:
+            return False
+
+        host = node.get("host")
+        url = f"http://{host}:{self.config.http_port}/data/upload"
+
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=self.config.http_timeout_seconds)
+            ) as session:
+                with open(npz_file, "rb") as f:
+                    file_data = f.read()
+
+                form_data = aiohttp.FormData()
+                form_data.add_field(
+                    "file",
+                    file_data,
+                    filename=npz_file.name,
+                    content_type="application/octet-stream",
+                )
+
+                async with session.post(url, data=form_data) as response:
+                    if response.status == 200:
+                        logger.debug(f"HTTP upload to {host} succeeded")
+                        return True
+                    else:
+                        logger.debug(f"HTTP upload to {host} failed: {response.status}")
+                        return False
+
+        except asyncio.TimeoutError:
+            logger.debug(f"HTTP upload to {host} timed out")
+            return False
+        except Exception as e:
+            logger.debug(f"HTTP upload to {host} failed: {e}")
+            return False
+
+    async def _rsync_to_node(self, npz_file: Path, node: dict[str, Any]) -> bool:
+        """Rsync NPZ file to a single node.
+
+        Args:
+            npz_file: Path to the NPZ file
+            node: Node configuration dict
+
+        Returns:
+            True if rsync succeeded, False otherwise
+        """
+        host = node.get("host")
+        user = node.get("user", "ubuntu")
+        remote_path = node.get("remote_path", "~/ringrift/ai-service")
+        ssh_key = node.get("ssh_key")
+
+        # Build rsync command
+        ssh_opts = f"-i {ssh_key}" if ssh_key else ""
+        remote_dest = f"{user}@{host}:{remote_path}/data/training/"
+
+        cmd = [
+            "rsync",
+            "-avz",
+            "--progress",
+            "-e", f"ssh {ssh_opts} -o StrictHostKeyChecking=no -o ConnectTimeout=10",
+            str(npz_file),
+            remote_dest,
+        ]
+
+        logger.info(f"Syncing {npz_file.name} to {host}")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.sync_timeout_seconds,
+            )
+
+            if process.returncode == 0:
+                logger.info(f"Successfully synced to {host}")
+                return True
+            else:
+                logger.error(f"rsync to {host} failed: {stderr.decode()[-200:]}")
+                return False
+
+        except asyncio.TimeoutError:
+            logger.error(f"rsync to {host} timed out")
+            return False
+        except Exception as e:
+            logger.error(f"rsync to {host} failed: {e}")
+            return False
 
     async def _get_training_nodes(self) -> list[dict[str, Any]]:
         """Get list of training-capable nodes from sync_router."""
@@ -393,65 +779,11 @@ class NPZDistributionDaemon:
             logger.error(f"Failed to load nodes from config: {e}")
             return []
 
-    async def _distribute_npz(
-        self, npz_path: str, target_nodes: list[dict[str, Any]]
-    ) -> bool:
-        """Distribute NPZ file to target nodes using rsync."""
-        npz_file = Path(npz_path)
-        if not npz_file.exists():
-            logger.error(f"NPZ file not found: {npz_path}")
-            return False
-
-        success_count = 0
-        for node in target_nodes:
-            host = node.get("host")
-            user = node.get("user", "ubuntu")
-            remote_path = node.get("remote_path", "~/ringrift/ai-service")
-            ssh_key = node.get("ssh_key")
-
-            # Build rsync command
-            ssh_opts = f"-i {ssh_key}" if ssh_key else ""
-            remote_dest = f"{user}@{host}:{remote_path}/data/training/"
-
-            cmd = [
-                "rsync",
-                "-avz",
-                "--progress",
-                "-e", f"ssh {ssh_opts} -o StrictHostKeyChecking=no -o ConnectTimeout=10",
-                str(npz_file),
-                remote_dest,
-            ]
-
-            logger.info(f"Syncing {npz_file.name} to {host}")
-
-            try:
-                process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=self.config.sync_timeout_seconds,
-                )
-
-                if process.returncode == 0:
-                    logger.info(f"Successfully synced to {host}")
-                    success_count += 1
-                else:
-                    logger.error(f"rsync to {host} failed: {stderr.decode()[-200:]}")
-
-            except asyncio.TimeoutError:
-                logger.error(f"rsync to {host} timed out")
-            except Exception as e:
-                logger.error(f"rsync to {host} failed: {e}")
-
-        # Consider success if at least one node received the file
-        return success_count > 0
-
     async def _periodic_sync_check(self) -> None:
-        """Periodic check for NPZ files that need distribution."""
+        """Periodic check for NPZ files that need distribution.
+
+        December 2025: Uses checksum verification for all syncs.
+        """
         training_dir = ROOT / self.config.training_data_dir
         if not training_dir.exists():
             return
@@ -471,13 +803,51 @@ class NPZDistributionDaemon:
                 )
                 target_nodes = await self._get_training_nodes()
                 for npz_file in recent_npz:
-                    await self._distribute_npz(str(npz_file), target_nodes)
+                    # Compute checksum and distribute with verification
+                    source_checksum = None
+                    if self.config.verify_checksums:
+                        source_checksum = await self._compute_checksum(npz_file)
+
+                    success, results = await self._distribute_npz_with_verification(
+                        str(npz_file), target_nodes, source_checksum
+                    )
+                    if success:
+                        self._successful_distributions += 1
+                    else:
+                        self._failed_distributions += 1
+
                 self._last_sync_time = time.time()
 
     async def _emit_distribution_complete(
-        self, npz_info: dict[str, Any], target_nodes: list[dict[str, Any]]
+        self,
+        npz_info: dict[str, Any],
+        target_nodes: list[dict[str, Any]],
+        source_checksum: str | None = None,
+        delivery_results: list[NPZDeliveryResult] | None = None,
     ) -> None:
-        """Emit NPZ_DISTRIBUTION_COMPLETE event."""
+        """Emit NPZ_DISTRIBUTION_COMPLETE event with delivery confirmation.
+
+        December 2025: Enhanced with checksum and per-node delivery tracking.
+        """
+        # Compute delivery statistics
+        if delivery_results:
+            successful_nodes = [r for r in delivery_results if r.success]
+            verified_nodes = [r for r in delivery_results if r.checksum_verified]
+            delivery_summary = [
+                {
+                    "node_id": r.node_id,
+                    "success": r.success,
+                    "checksum_verified": r.checksum_verified,
+                    "method": r.method,
+                    "transfer_time_seconds": round(r.transfer_time_seconds, 2),
+                }
+                for r in delivery_results
+            ]
+        else:
+            successful_nodes = []
+            verified_nodes = []
+            delivery_summary = []
+
         try:
             from app.coordination.event_router import emit
 
@@ -488,12 +858,21 @@ class NPZDistributionDaemon:
                     "board_type": npz_info.get("board_type"),
                     "num_players": npz_info.get("num_players"),
                     "sample_count": npz_info.get("sample_count"),
-                    "nodes_synced": len(target_nodes),
+                    # Enhanced delivery tracking (December 2025)
+                    "source_checksum": source_checksum[:16] + "..." if source_checksum else None,
+                    "nodes_targeted": len(target_nodes),
+                    "nodes_synced": len(successful_nodes),
+                    "nodes_verified": len(verified_nodes),
                     "node_ids": [n.get("node_id") for n in target_nodes],
+                    "delivery_summary": delivery_summary,
                     "timestamp": time.time(),
                 },
             )
-            logger.info("Emitted NPZ_DISTRIBUTION_COMPLETE event")
+            logger.info(
+                f"Emitted NPZ_DISTRIBUTION_COMPLETE event "
+                f"({len(successful_nodes)}/{len(target_nodes)} nodes, "
+                f"{len(verified_nodes)} verified)"
+            )
         except ImportError:
             logger.debug("event_router not available, skipping event emission")
         except Exception as e:

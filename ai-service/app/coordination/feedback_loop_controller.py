@@ -216,6 +216,12 @@ class FeedbackLoopController:
                 bus.subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
                 event_count += 1
 
+            # P10-LOOP-2 (Dec 2025): Subscribe to EVALUATION_FAILED for automatic retry
+            # When evaluation fails after built-in retries, attempt secondary recovery
+            if hasattr(DataEventType, 'EVALUATION_FAILED'):
+                bus.subscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
+                event_count += 1
+
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
 
             self._subscribed = True
@@ -249,6 +255,10 @@ class FeedbackLoopController:
             # P1.1: Unsubscribe from QUALITY_DEGRADED
             if hasattr(DataEventType, 'QUALITY_DEGRADED'):
                 bus.unsubscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
+
+            # P10-LOOP-2: Unsubscribe from EVALUATION_FAILED
+            if hasattr(DataEventType, 'EVALUATION_FAILED'):
+                bus.unsubscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
 
             self._subscribed = False
         except Exception as e:
@@ -908,6 +918,144 @@ class FeedbackLoopController:
 
         except Exception as e:
             logger.error(f"[FeedbackLoopController] Error handling evaluation complete: {e}")
+
+    def _on_evaluation_failed(self, event: Any) -> None:
+        """Handle evaluation failure.
+
+        P10-LOOP-2 (Dec 2025): When evaluation fails after built-in retries,
+        attempt secondary recovery:
+        1. Track failure count per config
+        2. If under threshold, re-queue evaluation with different settings
+        3. If over threshold, signal need for fresh training data
+
+        This closes the feedback loop:
+        EVALUATION_FAILED → Retry with modifications → Eventual success OR data refresh
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            config_key = payload.get("config", "") or payload.get("config_key", "")
+            model_path = payload.get("model_path", "")
+            error = payload.get("error", "unknown")
+            retry_count = payload.get("retry_count", 0)
+
+            if not config_key:
+                logger.debug("[FeedbackLoopController] EVALUATION_FAILED missing config_key")
+                return
+
+            state = self._get_or_create_state(config_key)
+            state.consecutive_failures += 1
+
+            logger.warning(
+                f"[FeedbackLoopController] Evaluation failed for {config_key}: "
+                f"error={error}, retry_count={retry_count}, "
+                f"consecutive_failures={state.consecutive_failures}"
+            )
+
+            # Decide recovery strategy based on failure count
+            max_secondary_retries = 3
+
+            if state.consecutive_failures <= max_secondary_retries:
+                # Attempt secondary retry with modified parameters
+                logger.info(
+                    f"[FeedbackLoopController] Attempting secondary evaluation retry "
+                    f"for {config_key} (attempt {state.consecutive_failures}/{max_secondary_retries})"
+                )
+                self._retry_evaluation(config_key, model_path, state.consecutive_failures)
+            else:
+                # Too many failures - signal need for fresh data
+                logger.warning(
+                    f"[FeedbackLoopController] Max retries exceeded for {config_key}. "
+                    f"Signaling need for fresh training data."
+                )
+
+                # Boost exploration to generate more diverse data
+                old_boost = state.current_exploration_boost
+                state.current_exploration_boost = min(2.0, old_boost * 1.4)
+
+                # Emit event for selfplay boost
+                try:
+                    from app.distributed.data_events import DataEventType
+                    from app.coordination.event_router import get_event_bus
+
+                    bus = get_event_bus()
+                    if bus:
+                        bus.emit(DataEventType.SELFPLAY_TARGET_UPDATED, {
+                            "config_key": config_key,
+                            "priority": "urgent",
+                            "reason": "evaluation_failures_exceeded",
+                            "exploration_boost": state.current_exploration_boost,
+                        })
+                except Exception as emit_err:
+                    logger.debug(f"Failed to emit selfplay target: {emit_err}")
+
+                # Reset failure counter after signaling
+                state.consecutive_failures = 0
+
+        except Exception as e:
+            logger.error(f"[FeedbackLoopController] Error handling evaluation failed: {e}")
+
+    def _retry_evaluation(self, config_key: str, model_path: str, attempt: int) -> None:
+        """Retry evaluation with modified parameters.
+
+        P10-LOOP-2 (Dec 2025): Secondary retry logic for failed evaluations.
+        Modifies parameters based on attempt number:
+        - Attempt 1: Increase num_games by 50%
+        - Attempt 2: Add delay and increase games by 100%
+        - Attempt 3: Maximum games, longer delay
+        """
+        try:
+            # Parse config key to get board_type and num_players
+            parts = config_key.rsplit("_", 1)
+            if len(parts) != 2 or not parts[1].endswith("p"):
+                logger.debug(f"[FeedbackLoopController] Invalid config_key format: {config_key}")
+                return
+
+            board_type = parts[0]
+            num_players = int(parts[1][:-1])
+
+            # Adjust parameters based on attempt
+            base_games = 100
+            delay = 0.0
+            if attempt == 1:
+                num_games = int(base_games * 1.5)  # 150 games
+                delay = 2.0
+            elif attempt == 2:
+                num_games = int(base_games * 2.0)  # 200 games
+                delay = 5.0
+            else:
+                num_games = int(base_games * 2.5)  # 250 games
+                delay = 10.0
+
+            async def _do_retry():
+                import asyncio
+                if delay > 0:
+                    await asyncio.sleep(delay)
+
+                from app.coordination.pipeline_actions import trigger_evaluation
+
+                logger.info(
+                    f"[FeedbackLoopController] Retrying evaluation for {config_key}: "
+                    f"num_games={num_games}, delay={delay}s"
+                )
+
+                result = await trigger_evaluation(
+                    model_path=model_path,
+                    board_type=board_type,
+                    num_players=num_players,
+                    num_games=num_games,
+                    max_retries=2,  # Reduced retries for secondary attempt
+                )
+
+                if result.success:
+                    logger.info(f"[FeedbackLoopController] Secondary eval succeeded for {config_key}")
+                else:
+                    logger.warning(f"[FeedbackLoopController] Secondary eval failed for {config_key}")
+
+            _safe_create_task(_do_retry(), f"retry_evaluation:{config_key}")
+
+        except Exception as e:
+            logger.error(f"[FeedbackLoopController] Error setting up evaluation retry: {e}")
 
     def _on_promotion_complete(self, event: Any) -> None:
         """Handle promotion completion.

@@ -108,6 +108,9 @@ except ImportError:
 # Default paths
 from app.utils.paths import CONFIG_DIR, DATA_DIR
 
+# Import canonical SyncPriority from sync_constants (consolidated December 2025)
+from app.coordination.sync_constants import SyncPriority
+
 DEFAULT_COORDINATOR_DB = DATA_DIR / "coordination" / "sync_coordinator.db"
 HOST_CONFIG_PATH = CONFIG_DIR / "remote_hosts.yaml"
 
@@ -140,13 +143,7 @@ SYNC_PRIORITY_WEIGHTS = {
 }
 
 
-class SyncPriority(Enum):
-    """Priority levels for sync operations."""
-    CRITICAL = "critical"    # Data loss imminent (ephemeral hosts)
-    HIGH = "high"            # Significant data gap
-    NORMAL = "normal"        # Regular maintenance sync
-    LOW = "low"              # Background sync
-    BACKGROUND = "background"  # Best effort
+# SyncPriority is now imported from sync_constants.py (consolidated December 2025)
 
 
 class HostType(Enum):

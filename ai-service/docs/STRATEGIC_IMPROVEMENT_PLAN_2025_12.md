@@ -317,7 +317,7 @@ Selfplay → GameDB → SELFPLAY_COMPLETE → auto_export_daemon
 - [x] Added deprecation warning to `app/training/distributed.py`
 - [x] Fixed 5 `sqlite3.Error` catches in `resource_optimizer.py`
 - [x] Created test template for `rules/test_line_generator.py`
-- [x] Updated 22/26 cluster nodes with latest code
+- [x] Updated 21/25 cluster nodes with latest code (Dec 25, 2025 refresh)
 
 ### Phase 1 Fixes Completed (Dec 25, 2025)
 

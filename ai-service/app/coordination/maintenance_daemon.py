@@ -77,6 +77,7 @@ class MaintenanceConfig:
     orphan_detection_interval_hours: float = 24.0  # Daily
     orphan_detection_enabled: bool = True
     orphan_auto_cleanup: bool = False  # If True, delete orphans; if False, just report
+    orphan_auto_recovery: bool = True  # December 2025: If True, re-register orphan DBs to manifest
 
     # General
     dry_run: bool = False  # If True, log actions but don't execute
@@ -95,6 +96,7 @@ class MaintenanceStats:
     orphan_dbs_found: int = 0  # December 2025
     orphan_npz_found: int = 0  # December 2025
     orphan_models_found: int = 0  # December 2025
+    orphan_dbs_recovered: int = 0  # December 2025: Re-registered to manifest
     last_log_rotation: float = 0.0
     last_db_vacuum: float = 0.0
     last_archive_run: float = 0.0
@@ -501,7 +503,14 @@ class MaintenanceDaemon:
                 if total_orphans > 15:
                     logger.info(f"[Maintenance] ... and {total_orphans - 15} more orphan files")
 
-                # Optional cleanup
+                # December 2025: Auto-recovery of orphan databases (preferred over cleanup)
+                if self.config.orphan_auto_recovery and not self.config.dry_run and orphan_dbs:
+                    recovered = await self._recover_orphan_databases(manifest, orphan_dbs)
+                    self._stats.orphan_dbs_recovered = recovered
+                    if recovered > 0:
+                        logger.info(f"[Maintenance] Recovered {recovered} orphan databases to manifest")
+
+                # Optional cleanup (only for NPZ files, DBs should be recovered not deleted)
                 if self.config.orphan_auto_cleanup and not self.config.dry_run:
                     await self._cleanup_orphan_files(orphan_dbs, orphan_npz, orphan_models)
             else:
@@ -539,6 +548,114 @@ class MaintenanceDaemon:
 
         if cleaned:
             logger.info(f"[Maintenance] Cleaned {cleaned} orphan NPZ files")
+
+    async def _recover_orphan_databases(self, manifest: Any, orphan_dbs: list) -> int:
+        """Recover orphan databases by re-registering them to ClusterManifest (December 2025).
+
+        This closes a critical data flow gap where games exist on disk but aren't
+        tracked in the manifest, making them invisible to training pipelines.
+
+        Args:
+            manifest: ClusterManifest instance
+            orphan_dbs: List of orphan database file paths
+
+        Returns:
+            Number of databases successfully recovered
+        """
+        recovered = 0
+
+        for db_path in orphan_dbs:
+            try:
+                # Parse board_type and num_players from filename
+                # Expected patterns: canonical_{board}_{n}p.db, {board}_{n}p.db, selfplay_{board}_{n}p.db
+                name = db_path.stem  # Remove .db extension
+
+                # Try to extract config from filename
+                board_type = None
+                num_players = None
+
+                # Try canonical pattern first
+                if name.startswith("canonical_"):
+                    name = name[len("canonical_"):]
+
+                # Try selfplay pattern
+                if name.startswith("selfplay_"):
+                    name = name[len("selfplay_"):]
+
+                # Parse board_type and num_players
+                parts = name.rsplit("_", 1)
+                if len(parts) == 2:
+                    board_type = parts[0]
+                    players_str = parts[1]
+                    if players_str.endswith("p"):
+                        try:
+                            num_players = int(players_str[:-1])
+                        except ValueError:
+                            pass
+
+                # Fallback: if we can't parse, use defaults
+                if not board_type:
+                    board_type = "unknown"
+                if not num_players:
+                    num_players = 2
+
+                # Count games in the database
+                game_count = 0
+                try:
+                    conn = sqlite3.connect(str(db_path), timeout=5.0)
+                    cursor = conn.execute("SELECT COUNT(*) FROM games")
+                    game_count = cursor.fetchone()[0]
+                    conn.close()
+                except Exception:
+                    # If we can't read the database, skip it
+                    logger.debug(f"[Maintenance] Couldn't read orphan DB {db_path}, skipping")
+                    continue
+
+                if game_count == 0:
+                    # Empty database, not worth recovering
+                    continue
+
+                # Get node_id (use local hostname)
+                import socket
+                node_id = os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+
+                # Register to manifest
+                if hasattr(manifest, 'register_games_batch'):
+                    manifest.register_games_batch(
+                        node_id=node_id,
+                        db_path=str(db_path),
+                        board_type=board_type,
+                        num_players=num_players,
+                        game_count=game_count,
+                        is_canonical="canonical" in db_path.name.lower(),
+                    )
+                    recovered += 1
+                    logger.info(
+                        f"[Maintenance] Recovered orphan DB: {db_path.name} "
+                        f"({game_count} games, {board_type}_{num_players}p)"
+                    )
+
+                    # Emit event for downstream consumers
+                    try:
+                        from app.coordination.event_router import publish
+                        await publish(
+                            event_type="ORPHAN_GAMES_REGISTERED",
+                            payload={
+                                "db_path": str(db_path),
+                                "node_id": node_id,
+                                "board_type": board_type,
+                                "num_players": num_players,
+                                "game_count": game_count,
+                            },
+                            source="maintenance_daemon",
+                        )
+                    except Exception:
+                        pass  # Event emission is optional
+
+            except Exception as e:
+                logger.warning(f"[Maintenance] Failed to recover orphan DB {db_path}: {e}")
+
+        return recovered
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""

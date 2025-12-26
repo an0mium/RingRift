@@ -785,8 +785,11 @@ class SelfplayScheduler:
                 # P1.4 (Dec 2025): Subscribe to OPPONENT_MASTERED for curriculum advancement
                 if hasattr(DataEventType, 'OPPONENT_MASTERED'):
                     bus.subscribe(DataEventType.OPPONENT_MASTERED, self._on_opponent_mastered)
+                # P10-LOOP-1 (Dec 2025): Subscribe to TRAINING_EARLY_STOPPED for selfplay boost
+                if hasattr(DataEventType, 'TRAINING_EARLY_STOPPED'):
+                    bus.subscribe(DataEventType.TRAINING_EARLY_STOPPED, self._on_training_early_stopped)
                 self._subscribed = True
-                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including OPPONENT_MASTERED)")
+                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including TRAINING_EARLY_STOPPED)")
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Failed to subscribe: {e}")
@@ -1074,6 +1077,83 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling opponent mastered: {e}")
+
+    def _on_training_early_stopped(self, event: Any) -> None:
+        """Handle training early stopped event.
+
+        P10-LOOP-1 (Dec 2025): When training early stops due to stagnation or regression,
+        aggressively boost selfplay to generate fresh, diverse training data.
+
+        This closes the feedback loop:
+        TRAINING_EARLY_STOPPED → Selfplay boost → More diverse data → Better next training run
+
+        Early stopping typically indicates:
+        - Loss plateau (need more diverse positions)
+        - Overfitting (need fresher data)
+        - Regression (need different exploration)
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "") or payload.get("config", "")
+            reason = payload.get("reason", "unknown")
+            final_loss = payload.get("final_loss", 0.0)
+            epochs_completed = payload.get("epochs_completed", 0)
+
+            if config_key in self._config_priorities:
+                priority = self._config_priorities[config_key]
+
+                # Boost exploration significantly - we need diverse data
+                old_boost = priority.exploration_boost
+                if "regression" in reason.lower():
+                    # Regression needs more aggressive exploration
+                    priority.exploration_boost = min(2.0, old_boost * 1.5)
+                elif "plateau" in reason.lower() or "stagnation" in reason.lower():
+                    # Plateau needs moderate exploration boost
+                    priority.exploration_boost = min(1.8, old_boost * 1.3)
+                else:
+                    # General early stop - moderate boost
+                    priority.exploration_boost = min(1.5, old_boost * 1.2)
+
+                # Also boost curriculum weight to prioritize this config
+                old_weight = priority.curriculum_weight
+                priority.curriculum_weight = min(2.0, old_weight * 1.3)
+
+                # Mark as needing urgent data (increases staleness factor effect)
+                priority.staleness_hours = max(priority.staleness_hours, STALE_DATA_THRESHOLD)
+
+                logger.info(
+                    f"[SelfplayScheduler] Training early stopped for {config_key} "
+                    f"(reason={reason}, epochs={epochs_completed}, loss={final_loss:.4f}). "
+                    f"Boosted exploration {old_boost:.2f} → {priority.exploration_boost:.2f}, "
+                    f"curriculum_weight {old_weight:.2f} → {priority.curriculum_weight:.2f}"
+                )
+
+                # Emit SELFPLAY_TARGET_UPDATED to trigger immediate selfplay allocation
+                try:
+                    from app.distributed.data_events import DataEventType
+                    from app.coordination.event_router import get_event_bus
+
+                    bus = get_event_bus()
+                    if bus:
+                        bus.emit(DataEventType.SELFPLAY_TARGET_UPDATED, {
+                            "config_key": config_key,
+                            "priority": "urgent",
+                            "reason": f"training_early_stopped:{reason}",
+                            "exploration_boost": priority.exploration_boost,
+                            "curriculum_weight": priority.curriculum_weight,
+                        })
+                        logger.debug(
+                            f"[SelfplayScheduler] Emitted urgent SELFPLAY_TARGET_UPDATED for {config_key}"
+                        )
+                except Exception as emit_err:
+                    logger.debug(f"[SelfplayScheduler] Failed to emit target update: {emit_err}")
+            else:
+                logger.debug(
+                    f"[SelfplayScheduler] Received training early stopped for unknown config: {config_key}"
+                )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling training early stopped: {e}")
 
     # =========================================================================
     # Status & Metrics

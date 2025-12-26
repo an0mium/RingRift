@@ -67,7 +67,7 @@ __all__ = [
     "CheckpointLocation",
     "NodeCapacity",
     "NodeInventory",
-    "SyncTarget",
+    "SyncCandidateNode",
     "DiskCleanupPolicy",
     "DiskCleanupResult",
     "CleanupCandidate",
@@ -213,8 +213,12 @@ class NodeInventory:
 
 
 @dataclass
-class SyncTarget:
-    """A potential target for syncing data."""
+class SyncCandidateNode:
+    """A potential node for syncing data.
+
+    Note: Renamed from SyncTarget (Dec 2025) to avoid collision with
+    app.coordination.sync_constants.SyncTarget which is for SSH connection specs.
+    """
     node_id: str
     priority: int = 0  # Higher = sync first
     reason: str = ""
@@ -1661,7 +1665,7 @@ class ClusterManifest:
         game_id: str,
         min_copies: int = REPLICATION_TARGET_COUNT,
         exclude_nodes: list[str] | None = None,
-    ) -> list[SyncTarget]:
+    ) -> list[SyncCandidateNode]:
         """Get candidate nodes for replicating a game.
 
         Args:
@@ -1670,7 +1674,7 @@ class ClusterManifest:
             exclude_nodes: Nodes to exclude
 
         Returns:
-            List of SyncTarget sorted by priority
+            List of SyncCandidateNode sorted by priority
         """
         exclude_nodes = set(exclude_nodes or [])
 
@@ -1684,7 +1688,7 @@ class ClusterManifest:
         if copies_needed <= 0:
             return []
 
-        targets: list[SyncTarget] = []
+        targets: list[SyncCandidateNode] = []
 
         # Find candidate nodes
         with self._connection() as conn:
@@ -1706,7 +1710,7 @@ class ClusterManifest:
 
             reason = self._get_sync_reason(node_id, capacity)
 
-            targets.append(SyncTarget(
+            targets.append(SyncCandidateNode(
                 node_id=node_id,
                 priority=priority,
                 reason=reason,

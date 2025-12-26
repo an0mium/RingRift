@@ -337,23 +337,13 @@ def create_ai(
         return MinimaxAI(player_num, config)
 
     if ai_type == AI_TYPE_NEURAL_NETWORK:
-        # Find checkpoint if not specified
+        # IMPORTANT: We do *not* auto-discover checkpoints when `checkpoint` is
+        # not explicitly provided. Tests (and callers) rely on deterministic
+        # "fresh weights" behavior in that case.
         ckpt = checkpoint
-        if not ckpt:
-            checkpoints_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "checkpoints")
-            if os.path.exists(checkpoints_dir):
-                # Use the most recent final checkpoint
-                checkpoints = sorted([f for f in os.listdir(checkpoints_dir) if f.endswith(".pth")])
-                if checkpoints:
-                    # Prefer final checkpoints
-                    final_cps = [c for c in checkpoints if "final" in c]
-                    if final_cps:
-                        ckpt = os.path.join(checkpoints_dir, final_cps[-1])
-                    else:
-                        ckpt = os.path.join(checkpoints_dir, checkpoints[-1])
 
-        # PRE-FLIGHT VALIDATION: Check checkpoint compatibility BEFORE loading
-        # This prevents silent fallback to fresh weights with meaningless results
+        # PRE-FLIGHT VALIDATION: Check checkpoint compatibility BEFORE loading.
+        # This prevents silent fallback to fresh weights with meaningless results.
         if ckpt and os.path.exists(ckpt):
             from app.training.model_versioning import (
                 validate_checkpoint_for_evaluation,
@@ -379,7 +369,8 @@ def create_ai(
             rngSeed=ai_rng_seed,
             heuristic_profile_id=None,
             nn_model_id=ckpt if ckpt else None,
-            allow_fresh_weights=False,
+            # Fresh weights are OK *only* when no checkpoint is provided.
+            allow_fresh_weights=(ckpt is None),
         )
 
         # Create DescentAI
@@ -661,7 +652,6 @@ def run_evaluation(
     player2_type: str,
     num_games: int,
     board_type: BoardType,
-    num_players: int,
     seed: int | None,
     checkpoint_path: str | None,
     checkpoint_path2: str | None,
@@ -669,6 +659,7 @@ def run_evaluation(
     minimax_depth: int,
     max_moves_per_game: int,
     verbose: bool,
+    num_players: int = 2,
 ) -> EvaluationResults:
     """Run the full evaluation between two AI types.
 

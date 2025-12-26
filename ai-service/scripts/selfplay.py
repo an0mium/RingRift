@@ -147,6 +147,29 @@ def emit_selfplay_complete_event(config: SelfplayConfig, stats: RunStats) -> Non
     """
     import socket
 
+    node_id = socket.gethostname()
+
+    # Register database in ClusterManifest for cluster-wide discovery (Dec 2025)
+    # This ensures generated game data is discoverable by export and sync daemons
+    if config.record_db:
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+            manifest.register_database(
+                db_path=str(config.record_db),
+                node_id=node_id,
+                board_type=config.board_type,
+                num_players=config.num_players,
+                config_key=config.config_key,
+                game_count=stats.games_completed,
+            )
+            logger.debug(f"[Pipeline] Registered DB in ClusterManifest: {config.record_db}")
+        except ImportError:
+            pass  # ClusterManifest not available
+        except Exception as e:
+            logger.debug(f"[Pipeline] Could not register in ClusterManifest: {e}")
+
     try:
         from app.coordination.event_router import publish_sync, StageEvent
 
@@ -162,7 +185,7 @@ def emit_selfplay_complete_event(config: SelfplayConfig, stats: RunStats) -> Non
                 "database_path": str(config.record_db) if config.record_db else None,
                 "db_path": str(config.record_db) if config.record_db else None,  # Alias
                 "duration_seconds": stats.elapsed_seconds,
-                "node_id": socket.gethostname(),
+                "node_id": node_id,
             },
             source="selfplay_cli",
         )
