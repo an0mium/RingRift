@@ -432,11 +432,11 @@ describe('HUD equivalence – movement phase (no decision)', () => {
       createSandboxHUDOptions({ currentUserId: 'user-1' })
     );
 
-    // Phase semantics should match (beginner-friendly labels from gameViewModels)
+    // Phase semantics should match (labels from gameViewModels)
     expect(backendHud.phase.phaseKey).toBe('movement');
     expect(sandboxHud.phase.phaseKey).toBe('movement');
-    expect(backendHud.phase.label).toBe('Your Move');
-    expect(sandboxHud.phase.label).toBe('Your Move');
+    expect(backendHud.phase.label).toBe('Movement Phase');
+    expect(sandboxHud.phase.label).toBe('Movement Phase');
     expect(backendHud.phase.description).toBe(sandboxHud.phase.description);
     expect(backendHud.phase.actionHint).toBe(sandboxHud.phase.actionHint);
     expect(backendHud.phase.spectatorHint).toBe(sandboxHud.phase.spectatorHint);

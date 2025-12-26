@@ -8,12 +8,12 @@ Usage:
     from app.distributed.health_registry import (
         register_health_check,
         get_health_summary,
-        HealthStatus,
+        ComponentHealthStatus,
     )
 
     # Register a custom health check
     @register_health_check("my_component")
-    def check_my_component() -> HealthStatus:
+    def check_my_component() -> ComponentHealthStatus:
         # Check component health
         if is_healthy():
             return ComponentHealthStatus.ok("Component is running")
@@ -331,7 +331,7 @@ class HealthRegistry:
     # Built-in checks
     # -------------------------------------------------------------------------
 
-    def _check_system_resources(self) -> HealthStatus:
+    def _check_system_resources(self) -> ComponentHealthStatus:
         """Check system resource usage."""
         try:
             import psutil
@@ -367,7 +367,7 @@ class HealthRegistry:
         except Exception as e:
             return ComponentHealthStatus.error(f"Resource check failed: {e}")
 
-    def _check_database(self) -> HealthStatus:
+    def _check_database(self) -> ComponentHealthStatus:
         """Check database connectivity."""
         try:
             import sqlite3
@@ -408,7 +408,7 @@ def register_health_check(name: str):
 
     Usage:
         @register_health_check("my_component")
-        def check_my_component() -> HealthStatus:
+        def check_my_component() -> ComponentHealthStatus:
             return ComponentHealthStatus.ok("All good")
     """
     def decorator(func: HealthCheckFunc) -> HealthCheckFunc:
@@ -487,7 +487,7 @@ def readiness_check() -> bool:
 # =============================================================================
 
 @register_health_check("memory")
-def check_memory() -> HealthStatus:
+def check_memory() -> ComponentHealthStatus:
     """Check system memory usage."""
     try:
         import psutil
@@ -518,7 +518,7 @@ def check_memory() -> HealthStatus:
 
 
 @register_health_check("disk")
-def check_disk() -> HealthStatus:
+def check_disk() -> ComponentHealthStatus:
     """Check disk usage for data directory."""
     try:
         import psutil
@@ -554,7 +554,7 @@ def check_disk() -> HealthStatus:
 
 
 @register_health_check("database")
-def check_database() -> HealthStatus:
+def check_database() -> ComponentHealthStatus:
     """Check SQLite database connectivity."""
     try:
         import sqlite3

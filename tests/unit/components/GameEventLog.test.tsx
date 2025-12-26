@@ -308,7 +308,7 @@ describe('GameEventLog', () => {
         }),
       ];
       render(<GameEventLog history={history} />);
-      expect(screen.getByText(/P1 moved from \(2, 2\) to \(3, 3\).*legacy/)).toBeInTheDocument();
+      expect(screen.getByText(/#1 — P1 built stack at \(3, 3\) \(Δ=2\)/)).toBeInTheDocument();
     });
 
     it('formats process_line moves correctly', () => {
@@ -338,7 +338,11 @@ describe('GameEventLog', () => {
         }),
       ];
       render(<GameEventLog history={history} />);
-      expect(screen.getByText(/Territory \/ elimination processing.*legacy/)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /Territory \/ elimination processing by P1 \(1 region, 3 rings eliminated\)/
+        )
+      ).toBeInTheDocument();
     });
   });
 
