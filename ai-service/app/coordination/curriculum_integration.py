@@ -525,9 +525,16 @@ class QualityToTemperatureWatcher:
     3. Updates temperature schedule exploration_boost
     """
 
-    # Thresholds
-    LOW_QUALITY_THRESHOLD = 0.4
     EXPLORATION_BOOST_FACTOR = 1.3  # Increase temperature by 30% on low quality
+
+    @property
+    def LOW_QUALITY_THRESHOLD(self) -> float:
+        """Get low quality threshold from centralized config."""
+        try:
+            from app.config.thresholds import LOW_QUALITY_THRESHOLD
+            return LOW_QUALITY_THRESHOLD
+        except ImportError:
+            return 0.4  # Fallback default
 
     def __init__(self):
         self._subscribed = False

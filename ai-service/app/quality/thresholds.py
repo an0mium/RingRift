@@ -29,13 +29,17 @@ from dataclasses import dataclass
 try:
     from app.config.thresholds import (
         HIGH_QUALITY_THRESHOLD,
+        LOW_QUALITY_THRESHOLD,
+        MEDIUM_QUALITY_THRESHOLD,
         MIN_QUALITY_FOR_PRIORITY_SYNC,
         MIN_QUALITY_FOR_TRAINING,
     )
 except ImportError:
     # Fallback defaults if central config not available
     MIN_QUALITY_FOR_TRAINING = 0.3
+    LOW_QUALITY_THRESHOLD = 0.4
     MIN_QUALITY_FOR_PRIORITY_SYNC = 0.5
+    MEDIUM_QUALITY_THRESHOLD = 0.6
     HIGH_QUALITY_THRESHOLD = 0.7
 
 

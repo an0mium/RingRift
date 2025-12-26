@@ -90,6 +90,9 @@ class SyncRouter:
     - Replication tracking
     """
 
+    # P2.3 Dec 2025: Capacity refresh interval (5 minutes)
+    CAPACITY_REFRESH_INTERVAL = 300.0
+
     def __init__(
         self,
         config_path: Path | None = None,
@@ -109,6 +112,9 @@ class SyncRouter:
         self._sync_routing: dict[str, Any] = {}
         self._node_capabilities: dict[str, NodeSyncCapability] = {}
         self._load_config(config_path)
+
+        # P2.3 Dec 2025: Capacity refresh tracking
+        self._last_capacity_refresh = 0.0
 
         logger.info(f"SyncRouter initialized: {len(self._node_capabilities)} nodes")
 
@@ -256,8 +262,63 @@ class SyncRouter:
         return False
 
     def _check_node_capacity(self, node_id: str) -> bool:
-        """Check if a node has capacity for more data."""
+        """Check if a node has capacity for more data.
+
+        P2.3 Dec 2025: Added capacity refresh check to avoid stale data.
+        """
+        # Refresh capacity if stale
+        self._maybe_refresh_capacity()
         return self._manifest.can_receive_data(node_id, DataType.GAME)
+
+    def _maybe_refresh_capacity(self) -> None:
+        """Refresh capacity data if stale.
+
+        P2.3 Dec 2025: Prevents routing decisions based on hours-old capacity data.
+        """
+        import time
+
+        now = time.time()
+        if now - self._last_capacity_refresh < self.CAPACITY_REFRESH_INTERVAL:
+            return
+
+        self._last_capacity_refresh = now
+
+        # Refresh local node capacity
+        try:
+            self._manifest.update_local_capacity()
+            logger.debug("[SyncRouter] Refreshed local capacity")
+        except Exception as e:
+            logger.debug(f"[SyncRouter] Failed to refresh local capacity: {e}")
+
+        # Emit capacity refresh event for cluster-wide updates
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            if bus:
+                bus.emit(DataEventType.DISK_USAGE_UPDATED, {
+                    "node_id": self.node_id,
+                    "reason": "capacity_refresh",
+                })
+        except Exception as e:
+            logger.debug(f"[SyncRouter] Failed to emit capacity event: {e}")
+
+    def refresh_all_capacity(self) -> None:
+        """Force refresh of all capacity data.
+
+        P2.3 Dec 2025: Call this when capacity data is suspected to be stale.
+        """
+        import time
+
+        self._last_capacity_refresh = time.time()
+
+        # Update local capacity
+        try:
+            self._manifest.update_local_capacity()
+            logger.info("[SyncRouter] Force refreshed local capacity")
+        except Exception as e:
+            logger.warning(f"[SyncRouter] Failed to refresh capacity: {e}")
 
     def _shares_storage_with(self, target_node: str) -> bool:
         """Check if current node shares storage with target node.

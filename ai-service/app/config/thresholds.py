@@ -708,11 +708,17 @@ POLICY_LABEL_SMOOTHING = 0.05
 # Quality Thresholds (December 2025)
 # =============================================================================
 
-# Minimum quality score for training data
+# Minimum quality score for training data (absolute floor)
 MIN_QUALITY_FOR_TRAINING = 0.3
+
+# Low quality threshold - triggers warnings and exploration boost
+LOW_QUALITY_THRESHOLD = 0.4
 
 # Minimum quality score for priority sync (higher than training minimum)
 MIN_QUALITY_FOR_PRIORITY_SYNC = 0.5
+
+# Medium quality threshold - baseline for "acceptable" quality
+MEDIUM_QUALITY_THRESHOLD = 0.6
 
 # High quality threshold (affects priority)
 HIGH_QUALITY_THRESHOLD = 0.7
