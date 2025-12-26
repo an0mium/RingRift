@@ -4,7 +4,26 @@ Training checkpoint utilities.
 Extracted from train.py (December 2025) to reduce module size.
 Provides high-level checkpoint management for training loops.
 
-Note: For low-level checkpoint operations, use checkpoint_unified.py directly.
+.. note:: December 2025
+    For new code, prefer :mod:`app.training.checkpoint_unified` which provides
+    the canonical ``UnifiedCheckpointManager`` with advanced features including:
+    - Comprehensive metadata tracking
+    - SHA256 hash verification
+    - Multiple checkpoint types
+    - Adaptive checkpoint frequency
+    - Event emission for observability
+
+    This module remains available for backward compatibility with existing
+    training code.
+
+Usage (new code):
+    from app.training.checkpoint_unified import UnifiedCheckpointManager
+    manager = UnifiedCheckpointManager(checkpoint_dir="checkpoints/")
+    manager.save_checkpoint(model=model, optimizer=optimizer, epoch=epoch, ...)
+
+Usage (legacy - this module):
+    from app.training.train_checkpointing import save_checkpoint
+    save_checkpoint(model, optimizer, epoch, ...)
 """
 
 from __future__ import annotations

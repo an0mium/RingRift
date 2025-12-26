@@ -9,7 +9,7 @@
 | ELO Tournaments     | Medium (50-80%) | Medium      | High   | `run_model_elo_tournament.py` |
 | Baseline Gauntlet   | Medium (30-60%) | Medium      | Medium | `baseline_gauntlet.py`        |
 | Hybrid Selfplay     | LOW (0-10%)     | HIGH        | Medium | P2P orchestrator              |
-| CMA-ES Optimization | LOW (0%)        | HIGH (100%) | Low    | `cmaes_distributed.py`        |
+| CMA-ES Optimization | LOW (0%)        | HIGH (100%) | Low    | `run_cmaes_optimization.py`   |
 | Data Aggregation    | LOW (0%)        | Medium      | Low    | `merge_game_dbs.py`           |
 
 ## Why Nodes Appear Idle
@@ -29,7 +29,7 @@
    */2 * * * * cd ~/ringrift/ai-service && python3 scripts/resource_aware_router.py --rebalance >> /tmp/work_rebalance.log 2>&1
    ```
 
-   Legacy note: `scripts/unified_work_orchestrator.py` is deprecated and now wraps `resource_aware_router.py`.
+   Legacy note: `scripts/unified_work_orchestrator.py` has been removed; use `resource_aware_router.py` directly.
 
 2. **Enable auto-training trigger** (already deployed):
    ```bash
@@ -56,7 +56,7 @@ python scripts/run_model_elo_tournament.py --board square8 --players 2 --games 2
 **Start CMA-ES optimization:**
 
 ```bash
-python scripts/cmaes_distributed.py --board square8 --players 2
+python scripts/run_cmaes_optimization.py --board square8 --num-players 2
 ```
 
 **Start baseline gauntlet:**
