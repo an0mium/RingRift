@@ -71,6 +71,19 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Phase 21.2 (December 2025): Runtime deprecation warning
+# The DistributedTrainer class is deprecated in favor of UnifiedDistributedTrainer.
+# Helper functions (setup_distributed, is_main_process, etc.) remain canonical.
+import warnings
+warnings.warn(
+    "app.training.distributed is deprecated for DistributedTrainer. "
+    "Use 'from app.training.distributed_unified import UnifiedDistributedTrainer' instead. "
+    "Helper functions (setup_distributed, is_main_process, get_rank, etc.) remain available here. "
+    "Removal scheduled for Q2 2026.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 # Try to import torch distributed
 try:
     import torch

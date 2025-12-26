@@ -552,13 +552,13 @@ def compute_fsm_orchestration(
     # Phase transitions based on move type (mirrors TurnStateMachine handlers)
     if current_phase == GamePhase.RING_PLACEMENT:
         if move_type == MoveType.PLACE_RING:
-            # After placement, check if movement/capture is available
-            has_moves = GameEngine._has_valid_movements(game_state, current_player)
-            has_captures = GameEngine._has_valid_captures(game_state, current_player)
-            if has_moves or has_captures:
-                next_phase = GamePhase.MOVEMENT
-            else:
-                next_phase = GamePhase.LINE_PROCESSING
+            # RR-CANON-R075: Never skip phases silently. After placement we always
+            # enter MOVEMENT; if there are no legal movement/capture actions, the
+            # host must record an explicit NO_MOVEMENT_ACTION before advancing.
+            #
+            # This matches app.rules.phase_machine.advance_phases() and the TS
+            # turn orchestrator behaviour.
+            next_phase = GamePhase.MOVEMENT
         elif move_type in (MoveType.SKIP_PLACEMENT, MoveType.NO_PLACEMENT_ACTION):
             # Skip/no-op placement always leads to movement phase
             next_phase = GamePhase.MOVEMENT

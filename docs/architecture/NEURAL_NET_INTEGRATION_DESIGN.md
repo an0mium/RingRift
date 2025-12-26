@@ -6,26 +6,26 @@ This document outlines a research-backed approach to integrating neural network 
 
 ## Difficulty Ladder
 
-The difficulty ladder maps Minimax to D3–D4, Descent to D5–D6, MCTS to D7–D8
+The difficulty ladder maps Minimax to D4–D5, Descent to D6, MCTS to D7–D8
 (heuristic then neural), and Gumbel MCTS to D9–D10.
 
-| Difficulty | AI Type     | Neural | Implementation                            |
-| ---------- | ----------- | ------ | ----------------------------------------- |
-| 1          | Random      | No     | Pure random move selection                |
-| 2          | Heuristic   | No     | Simple heuristic evaluation               |
-| 3          | Minimax     | No     | Alpha-beta + PVS + hand-crafted heuristic |
-| 4          | Minimax     | Yes    | **NNUE-style neural evaluation**          |
-| 5          | Descent     | Yes    | UBFM/Descent search with neural guidance  |
-| 6          | Descent     | Yes    | Stronger Descent configuration            |
-| 7          | MCTS        | No     | PUCT + heuristic rollouts                 |
-| 8          | MCTS        | Yes    | **Neural value/policy guidance**          |
-| 9          | Gumbel MCTS | Yes    | Gumbel MCTS + neural policy/value         |
-| 10         | Gumbel MCTS | Yes    | Strongest Gumbel MCTS configuration       |
+| Difficulty | AI Type     | Neural | Implementation                           |
+| ---------- | ----------- | ------ | ---------------------------------------- |
+| 1          | Random      | No     | Pure random move selection               |
+| 2          | Heuristic   | No     | Simple heuristic evaluation              |
+| 3          | Heuristic   | No     | CMA-ES tuned heuristic evaluation        |
+| 4          | Minimax     | Yes    | **NNUE-style neural evaluation**         |
+| 5          | Minimax     | Yes    | Higher-budget NNUE minimax               |
+| 6          | Descent     | Yes    | UBFM/Descent search with neural guidance |
+| 7          | MCTS        | No     | PUCT + heuristic rollouts                |
+| 8          | MCTS        | Yes    | **Neural value/policy guidance**         |
+| 9          | Gumbel MCTS | Yes    | Gumbel MCTS + neural policy/value        |
+| 10         | Gumbel MCTS | Yes    | Strongest Gumbel MCTS configuration      |
 
 ### Key Design Decisions
 
-- **Minimax slots (D3-4)**: D3 uses pure heuristic evaluation, D4 adds NNUE neural evaluation
-- **Descent slots (D5-6)**: Always use neural policy+value (AlphaZero-style)
+- **Minimax slots (D4-5)**: D4 adds NNUE neural evaluation, D5 increases the search budget
+- **Descent slots (D6)**: Uses neural policy+value (AlphaZero-style)
 - **MCTS slots (D7-8)**: D7 uses heuristic rollouts only, D8 adds neural value/policy
 - **Gumbel MCTS slots (D9-10)**: Always use neural policy+value
 
@@ -422,14 +422,14 @@ class AIConfig:
 
 ## Summary
 
-| Component   | Difficulty      | Approach                     | Key Benefit                                |
-| ----------- | --------------- | ---------------------------- | ------------------------------------------ |
-| Minimax     | D3 (non-neural) | Pure heuristic evaluation    | Fast, predictable baseline                 |
-| Minimax     | D4 (neural)     | NNUE-style neural eval       | Fast CPU inference, incremental updates    |
-| Descent     | D5-6 (neural)   | Neural guidance              | Strong search with moderate compute        |
-| MCTS        | D7 (heuristic)  | Heuristic rollouts           | Tree search without neural dependency      |
-| MCTS        | D8 (neural)     | Neural value + policy priors | Better search guidance, no rollouts needed |
-| Gumbel MCTS | D9-10           | Neural + Gumbel selection    | Strongest search, highest compute          |
+| Component   | Difficulty        | Approach                     | Key Benefit                                |
+| ----------- | ----------------- | ---------------------------- | ------------------------------------------ |
+| Heuristic   | D2-3 (non-neural) | CMA-ES tuned weights         | Fast, predictable baseline                 |
+| Minimax     | D4-5 (neural)     | NNUE-style neural eval       | Fast CPU inference, incremental updates    |
+| Descent     | D6 (neural)       | Neural guidance              | Strong search with moderate compute        |
+| MCTS        | D7 (heuristic)    | Heuristic rollouts           | Tree search without neural dependency      |
+| MCTS        | D8 (neural)       | Neural value + policy priors | Better search guidance, no rollouts needed |
+| Gumbel MCTS | D9-10             | Neural + Gumbel selection    | Strongest search, highest compute          |
 
 This design targets a clear progression from heuristic search to neural-guided search.
 Refer to `ai-service/app/config/ladder_config.py` for the current ladder mapping.

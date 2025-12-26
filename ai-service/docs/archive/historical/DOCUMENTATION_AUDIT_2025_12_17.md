@@ -126,7 +126,7 @@ BoardType.HEXAGONAL: BoardConfig(
 
 ### 7. Multi-Config Training Loop
 
-**Location:** `scripts/multi_config_training_loop.py` (removed; now `scripts/run_training_loop.py` / `scripts/run_multiconfig_nnue_training.py`)
+**Location:** `multi_config_training_loop.py` (removed; now `scripts/run_training_loop.py` / `scripts/run_multiconfig_nnue_training.py`)
 
 **Undocumented:**
 
@@ -447,7 +447,7 @@ Verified recently added documentation files against code:
 
 #### 1. DATA_VALIDATION.md - Non-existent Script Reference
 
-**Problem:** Referenced `scripts/replay_game.py` which doesn't exist.
+**Problem:** Referenced `replay_game.py` which doesn't exist.
 
 **Fixed:** Replaced with correct commands:
 

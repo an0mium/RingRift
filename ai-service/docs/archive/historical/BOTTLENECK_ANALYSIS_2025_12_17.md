@@ -129,7 +129,7 @@ Daemon Selfplay                    |
 
 ## Files Modified
 
-1. `scripts/multi_config_training_loop.py`:
+1. `multi_config_training_loop.py` (removed):
    - Updated `CONFIG_JSONL_DIRS` to include actual selfplay directories
    - Added `auto_discover_jsonl_dirs()` for dynamic directory discovery
    - Added `get_dynamic_jsonl_dirs()` to combine static and discovered directories
@@ -153,7 +153,7 @@ print('Square8 2p dirs:', get_dynamic_jsonl_dirs('square8', 2))
 "
 
 # Monitor training loop for new game detection
-python scripts/multi_config_training_loop.py
+# multi_config_training_loop.py (removed)
 # Should now show (+N/threshold) where N > 0
 ```
 

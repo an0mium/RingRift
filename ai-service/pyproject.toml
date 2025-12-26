@@ -128,6 +128,7 @@ select = [
     "F",      # Pyflakes
     "I",      # isort
     "B",      # flake8-bugbear
+    "BLE",    # flake8-blind-except - catch broad exception handling (Phase 21.2)
     "C4",     # flake8-comprehensions
     "UP",     # pyupgrade
     "SIM",    # flake8-simplify

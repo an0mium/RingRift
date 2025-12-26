@@ -465,17 +465,17 @@ The codebase has canonical sync scripts for different data domains. Always use t
 
 ### Canonical Sync Scripts
 
-| Domain       | Canonical Script              | Description                                                                                                       |
-| ------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Game Data    | `unified_data_sync.py`        | Rsync-based game database sync with P2P fallback                                                                  |
-| Models       | `sync_models.py`              | Hash-based model distribution with deduplication; use `--use-sync-coordinator` for aria2/SSH/P2P + NFS-aware sync |
-| ELO Ratings  | `elo_db_sync.py`              | ELO database synchronization                                                                                      |
-| Coordination | `cluster_sync_coordinator.py` | Meta-orchestrator for all sync operations                                                                         |
-| Vast.ai P2P  | `vast_p2p_sync.py`            | Specialized P2P sync for Vast.ai nodes                                                                            |
+| Domain       | Canonical Script                      | Description                                                                                                       |
+| ------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Game Data    | `unified_data_sync.py`                | Rsync-based game database sync with P2P fallback                                                                  |
+| Models       | `sync_models.py`                      | Hash-based model distribution with deduplication; use `--use-sync-coordinator` for aria2/SSH/P2P + NFS-aware sync |
+| ELO Ratings  | `elo_db_sync.py`                      | ELO database synchronization                                                                                      |
+| Coordination | `app/distributed/sync_coordinator.py` | Internal coordinator used by sync scripts                                                                         |
+| Vast.ai P2P  | `vast_p2p_sync.py`                    | Specialized P2P sync for Vast.ai nodes                                                                            |
 
 ### Deprecated Sync Scripts
 
-The following scripts are deprecated and will be removed in a future release:
+The following scripts are deprecated and have been removed from the repo:
 
 | Deprecated            | Replacement            | Migration                                                     |
 | --------------------- | ---------------------- | ------------------------------------------------------------- |
@@ -490,12 +490,12 @@ The codebase has two main evaluation patterns: **Gauntlet** (O(n) baseline testi
 
 ### Canonical Evaluation Scripts
 
-| Type          | Canonical Script         | Description                             |
-| ------------- | ------------------------ | --------------------------------------- |
-| Gauntlet      | `run_gauntlet.py`        | O(n) testing against fixed baselines    |
-| Tournament    | `run_tournament.py`      | Unified tournament dispatcher (8 modes) |
-| Monitoring    | `auto_elo_tournament.py` | Continuous Elo monitoring daemon        |
-| Data Pipeline | `gauntlet_to_elo.py`     | Convert gauntlet results to Elo ratings |
+| Type          | Canonical Script              | Description                             |
+| ------------- | ----------------------------- | --------------------------------------- |
+| Gauntlet      | `run_gauntlet.py`             | O(n) testing against fixed baselines    |
+| Tournament    | `run_tournament.py`           | Unified tournament dispatcher (8 modes) |
+| Monitoring    | `run_model_elo_tournament.py` | Scheduled Elo monitoring runs           |
+| Data Pipeline | `gauntlet_to_elo.py`          | Convert gauntlet results to Elo ratings |
 
 ### Tournament Modes (via run_tournament.py)
 
@@ -564,13 +564,13 @@ config = sync_with_unified_config(config)
 
 ### Profiling Tools
 
-| Script                         | Purpose                                        |
-| ------------------------------ | ---------------------------------------------- |
+| Script                          | Purpose                                              |
+| ------------------------------- | ---------------------------------------------------- |
 | `benchmark_move_application.py` | Move-application throughput (placement/move/capture) |
-| `quick_benchmark.py`            | Quick benchmark with all optimizations enabled |
-| `benchmark_make_unmake.py`      | State mutation performance                     |
-| `benchmark_gpu_cpu.py`          | GPU vs CPU comparison                          |
-| `benchmark_ai_memory.py`        | Memory usage analysis                          |
+| `quick_benchmark.py`            | Quick benchmark with all optimizations enabled       |
+| `benchmark_make_unmake.py`      | State mutation performance                           |
+| `benchmark_gpu_cpu.py`          | GPU vs CPU comparison                                |
+| `benchmark_ai_memory.py`        | Memory usage analysis                                |
 
 ### Running Profilers
 

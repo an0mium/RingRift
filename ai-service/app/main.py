@@ -2359,19 +2359,19 @@ _CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "use_neural_net": False,
     },
     2: {
-        # Easy: shallow heuristic play with noticeable randomness
+        # Easy: weakened heuristic play with noticeable randomness
         "ai_type": AIType.HEURISTIC,
         "randomness": 0.3,
         "think_time_ms": 200,
-        "profile_id": "v1-heuristic-2",
+        "profile_id": "heuristic_v1_weak",
         "use_neural_net": False,
     },
     3: {
-        # Lower-mid: minimax with heuristic evaluation only (no neural net)
-        "ai_type": AIType.MINIMAX,
-        "randomness": 0.15,
-        "think_time_ms": 1800,
-        "profile_id": "v1-minimax-3",
+        # Lower-mid: CMA-ES tuned heuristic evaluation with lower randomness
+        "ai_type": AIType.HEURISTIC,
+        "randomness": 0.2,
+        "think_time_ms": 2800,
+        "profile_id": "heuristic_v1_sq8_2p",
         "use_neural_net": False,
     },
     4: {
@@ -2383,11 +2383,11 @@ _CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         "use_neural_net": True,
     },
     5: {
-        # Upper-mid: Descent search with neural guidance
-        "ai_type": AIType.DESCENT,
+        # Upper-mid: minimax with NNUE evaluation (higher budget than D4)
+        "ai_type": AIType.MINIMAX,
         "randomness": 0.05,
-        "think_time_ms": 4000,
-        "profile_id": "ringrift_best_sq8_2p",
+        "think_time_ms": 5500,
+        "profile_id": "nnue_square8_2p",
         "use_neural_net": True,
     },
     6: {
@@ -2402,7 +2402,7 @@ _CANONICAL_DIFFICULTY_PROFILES: dict[int, DifficultyProfile] = {
         # Expert: MCTS with heuristic rollouts only (no neural net)
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
-        "think_time_ms": 7500,
+        "think_time_ms": 9600,
         "profile_id": "v1-mcts-7",
         "use_neural_net": False,
     },

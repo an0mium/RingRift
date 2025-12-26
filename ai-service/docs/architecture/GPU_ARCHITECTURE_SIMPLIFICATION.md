@@ -346,8 +346,8 @@ Test-only (documented):
 Deleted (2025-12-11):
 └── cuda_rules.py  # 3,613 lines removed - preserved in git history
 └── tests/test_cuda_cpu_parity.py  # Dependent on cuda_rules.py
-└── scripts/verify_cuda_parity.py  # Dependent on cuda_rules.py
-└── scripts/verify_full_fidelity.py  # Dependent on cuda_rules.py
+└── verify_cuda_parity.py (removed)  # Dependent on cuda_rules.py
+└── verify_full_fidelity.py (removed)  # Dependent on cuda_rules.py
 ```
 
 ## Appendix B: Benchmark Script Location

@@ -153,17 +153,18 @@ def _run_parity_check(
 class TestFSMParityRingPlacement:
     """Test FSM parity for ring_placement phase transitions."""
 
-    def test_place_ring_empty_board_advances_to_line_processing(self):
-        """PLACE_RING on empty board advances to LINE_PROCESSING (no movement available)."""
+    def test_place_ring_empty_board_advances_to_movement(self):
+        """PLACE_RING always advances to MOVEMENT (RR-CANON-R075: no silent skips)."""
         state = _make_game_state(GamePhase.RING_PLACEMENT, current_player=1)
         move = _make_move(MoveType.PLACE_RING, player=1, to=Position(x=3, y=3))
 
         fsm_result, legacy_phase, _legacy_player, parity_ok = _run_parity_check(state, move)
 
         assert parity_ok, f"FSM: {fsm_result.next_phase}, Legacy: {legacy_phase}"
-        # Empty board: no stacks to move → skip to LINE_PROCESSING
-        assert fsm_result.next_phase == GamePhase.LINE_PROCESSING
-        assert legacy_phase == GamePhase.LINE_PROCESSING
+        # Even if the player has no legal movement/capture, hosts must record an
+        # explicit NO_MOVEMENT_ACTION before advancing to line_processing.
+        assert fsm_result.next_phase == GamePhase.MOVEMENT
+        assert legacy_phase == GamePhase.MOVEMENT
 
     def test_skip_placement_advances_to_movement(self):
         """SKIP_PLACEMENT should advance to MOVEMENT in both FSM and legacy."""

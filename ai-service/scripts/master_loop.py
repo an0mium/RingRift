@@ -75,6 +75,10 @@ from app.config.thresholds import (
     get_gpu_weight,
 )
 
+# Import coordination bootstrap for event wiring (December 2025)
+# This is critical for feedback loops to function properly
+from app.coordination.coordination_bootstrap import bootstrap_coordination
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -349,6 +353,23 @@ class MasterLoopController:
         self._running = True
         logger.info(f"[MasterLoop] Starting with {len(self.active_configs)} configs")
         logger.info(f"[MasterLoop] Dry run: {self.dry_run}, Skip daemons: {self.skip_daemons}")
+
+        # Bootstrap coordination system - wires event subscriptions for feedback loops
+        # (December 2025: Critical for REGRESSION_DETECTED → rollback, PLATEAU_DETECTED → curriculum, etc.)
+        try:
+            bootstrap_result = bootstrap_coordination(
+                enable_integrations=True,
+                pipeline_auto_trigger=True,
+            )
+            wired = bootstrap_result.get("wired_subscriptions", {})
+            logger.info(
+                f"[MasterLoop] Coordination bootstrap complete: "
+                f"selfplay_to_sync={wired.get('selfplay_to_sync', False)}, "
+                f"regression_to_rollback={wired.get('regression_to_rollback', False)}, "
+                f"plateau_to_curriculum={wired.get('plateau_to_curriculum', False)}"
+            )
+        except Exception as e:
+            logger.error(f"[MasterLoop] Coordination bootstrap failed: {e}")
 
         # Start daemons
         if not self.skip_daemons:

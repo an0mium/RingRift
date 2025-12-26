@@ -136,6 +136,18 @@ class JobPriority(IntEnum):
     LOW = 3  # Backfill, optional data collection
 
 
+# P2.1 (Dec 2025): Fair allocation quotas - max GPU time any single config can use
+# This prevents one config (e.g., square8_2p) from monopolizing cluster resources
+DEFAULT_CONFIG_QUOTA = 0.30  # 30% max per config by default
+CONFIG_QUOTAS: dict[str, float] = {
+    # Can be overridden per config if needed
+    # "hex8_2p": 0.40,  # Example: give hex8_2p more allocation
+}
+
+# P2.2 (Dec 2025): Starvation prevention - boost priority after N hours
+STARVATION_THRESHOLD_HOURS = 4.0  # After 4 hours, boost priority
+
+
 @dataclass
 class ScheduledJob:
     """A job to be scheduled on the cluster."""
@@ -205,6 +217,15 @@ class PriorityJobScheduler:
         self._completed_jobs: list[ScheduledJob] = []
         self._max_completed_history = 100
 
+        # P2.1 (Dec 2025): Fair allocation tracking
+        # Tracks running time per config in current window (1 hour rolling)
+        self._config_allocation: dict[str, float] = {}  # config_key -> seconds
+        self._allocation_window_start: float = time.time()
+        self._allocation_window_seconds: float = 3600.0  # 1 hour window
+
+        # P2.2 (Dec 2025): Starvation tracking - jobs waiting too long
+        self._starvation_boosted: set[str] = set()  # job_ids that got boosted
+
     def schedule(self, job: ScheduledJob) -> bool:
         """Add a job to the scheduling queue.
 
@@ -227,6 +248,128 @@ class PriorityJobScheduler:
             f"queue size={len(self._queue)}"
         )
         return True
+
+    def _get_config_key(self, job: ScheduledJob) -> str:
+        """Extract config key from job for quota tracking (P2.1).
+
+        Args:
+            job: The scheduled job
+
+        Returns:
+            Config key like "hex8_2p" or "unknown"
+        """
+        board = job.config.get("board", job.config.get("board_type", "unknown"))
+        players = job.config.get("players", job.config.get("num_players", 0))
+        if board == "unknown" or players == 0:
+            return "unknown"
+        return f"{board}_{players}p"
+
+    def _reset_allocation_window_if_needed(self) -> None:
+        """Reset allocation window if it has expired (P2.1)."""
+        now = time.time()
+        if now - self._allocation_window_start > self._allocation_window_seconds:
+            logger.debug("[JobScheduler] Resetting allocation window")
+            self._config_allocation.clear()
+            self._allocation_window_start = now
+
+    def _get_total_allocation(self) -> float:
+        """Get total allocation seconds in current window."""
+        return sum(self._config_allocation.values())
+
+    def _is_over_quota(self, config_key: str) -> bool:
+        """Check if a config has exceeded its allocation quota (P2.1).
+
+        Args:
+            config_key: Config key like "hex8_2p"
+
+        Returns:
+            True if config is over quota
+        """
+        if config_key == "unknown":
+            return False  # Don't block unknown configs
+
+        self._reset_allocation_window_if_needed()
+
+        total = self._get_total_allocation()
+        if total <= 0:
+            return False  # No allocation yet
+
+        config_alloc = self._config_allocation.get(config_key, 0.0)
+        config_ratio = config_alloc / total
+
+        # Get quota for this config (default if not specified)
+        quota = CONFIG_QUOTAS.get(config_key, DEFAULT_CONFIG_QUOTA)
+
+        is_over = config_ratio > quota
+        if is_over:
+            logger.debug(
+                f"[JobScheduler] Config {config_key} over quota: "
+                f"{config_ratio:.1%} > {quota:.1%}"
+            )
+        return is_over
+
+    def _update_allocation(self, config_key: str, seconds: float) -> None:
+        """Update allocation tracking when a job completes (P2.1).
+
+        Args:
+            config_key: Config key like "hex8_2p"
+            seconds: Duration of the job in seconds
+        """
+        if config_key == "unknown":
+            return
+        self._reset_allocation_window_if_needed()
+        self._config_allocation[config_key] = (
+            self._config_allocation.get(config_key, 0.0) + seconds
+        )
+        logger.debug(
+            f"[JobScheduler] Updated allocation for {config_key}: "
+            f"{self._config_allocation[config_key]:.0f}s"
+        )
+
+    def _apply_starvation_prevention(self) -> int:
+        """Boost priority for jobs waiting too long (P2.2).
+
+        Returns:
+            Number of jobs boosted
+        """
+        now = time.time()
+        threshold_seconds = STARVATION_THRESHOLD_HOURS * 3600
+        boosted_count = 0
+
+        for job in self._queue:
+            job_id = job.job_id or str(id(job))
+
+            # Skip if already boosted
+            if job_id in self._starvation_boosted:
+                continue
+
+            # Skip if not waiting long enough
+            wait_time = now - job.created_at
+            if wait_time < threshold_seconds:
+                continue
+
+            # Skip if already high priority
+            if job.priority <= JobPriority.HIGH:
+                continue
+
+            # Boost priority by 1 level
+            old_priority = job.priority
+            new_priority_value = max(0, job.priority.value - 1)
+            job.priority = JobPriority(new_priority_value)
+            self._starvation_boosted.add(job_id)
+            boosted_count += 1
+
+            logger.info(
+                f"[JobScheduler] Starvation prevention: boosted {job.job_type} "
+                f"from {old_priority.name} to {job.priority.name} "
+                f"(waited {wait_time / 3600:.1f}h)"
+            )
+
+        if boosted_count > 0:
+            # Re-sort queue after priority changes
+            self._queue.sort()
+
+        return boosted_count
 
     def next_job(
         self,

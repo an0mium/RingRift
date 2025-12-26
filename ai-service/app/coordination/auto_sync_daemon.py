@@ -49,8 +49,8 @@ logger = logging.getLogger(__name__)
 class AutoSyncConfig:
     """Configuration for automated data sync."""
     enabled: bool = True
-    interval_seconds: int = 300
-    gossip_interval_seconds: int = 60
+    interval_seconds: int = 60  # December 2025: Reduced from 300s for faster data discovery
+    gossip_interval_seconds: int = 30  # December 2025: Reduced from 60s for faster replication
     exclude_hosts: list[str] = field(default_factory=list)
     skip_nfs_sync: bool = True
     max_concurrent_syncs: int = 4

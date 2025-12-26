@@ -19,9 +19,9 @@ RingRift v0.1.0-beta is the first public release of RingRift, an abstract strate
 ### 10-Level AI Difficulty Ladder (D1–D10)
 
 - **D1**: Random
-- **D2**: Heuristic
-- **D3-4**: Minimax (D4 uses NNUE)
-- **D5-6**: Descent (neural search)
+- **D2-3**: Heuristic (D3 uses CMA-ES tuned weights)
+- **D4-5**: Minimax (NNUE evaluation, higher budget at D5)
+- **D6**: Descent (neural search)
 - **D7**: MCTS (heuristic-only)
 - **D8**: MCTS (neural guidance)
 - **D9-10**: Gumbel MCTS (neural guidance)

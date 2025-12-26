@@ -22,10 +22,11 @@ D11: Internal benchmark tier    ← Not exposed via public API
 D9-10: Gumbel MCTS (neural)      ← Production upper tier
 D8: MCTS (neural)                ← Production strong tier
 D7: MCTS (heuristic)             ← Production expert tier
-D5-6: Descent (neural)            ← Production mid-high tier
+D6: Descent (neural)             ← Production mid-high tier
+D5: Minimax + NNUE (higher)      ← Production mid tier
 D4: Minimax + NNUE               ← Production lower tier
-D3: Minimax                      ← Production lower tier
-D2: Heuristic                    ← EBMO loses here (35%)
+D3: Heuristic (tuned)            ← Production lower tier
+D2: Heuristic (weakened)         ← EBMO loses here (35%)
     ↑ EBMO sits here (70% vs Random, 35% vs Heuristic)
 D1: Random                       ← EBMO beats this (70%)
 ```

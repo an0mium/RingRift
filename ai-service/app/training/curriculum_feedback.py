@@ -151,10 +151,11 @@ class CurriculumFeedback:
                 return
 
             router.subscribe(DataEventType.CURRICULUM_ADVANCED.value, self._on_curriculum_advanced)
+            router.subscribe(DataEventType.TRAINING_EARLY_STOPPED.value, self._on_training_early_stopped)
             self._curriculum_advanced_subscribed = True
-            logger.info("[CurriculumFeedback] Subscribed to CURRICULUM_ADVANCED events (Phase 5)")
+            logger.info("[CurriculumFeedback] Subscribed to CURRICULUM_ADVANCED + TRAINING_EARLY_STOPPED events")
         except Exception as e:
-            logger.debug(f"[CurriculumFeedback] CURRICULUM_ADVANCED subscription deferred: {e}")
+            logger.debug(f"[CurriculumFeedback] Event subscription deferred: {e}")
 
     def _on_curriculum_advanced(self, event) -> None:
         """Handle CURRICULUM_ADVANCED events from GauntletFeedbackController.

@@ -812,7 +812,7 @@ class ResourceOptimizer:
             # Migration: Add gpu_count column if it doesn't exist (for older databases)
             try:
                 conn.execute("SELECT gpu_count FROM node_resources LIMIT 1")
-            except Exception:
+            except sqlite3.OperationalError:
                 conn.execute("ALTER TABLE node_resources ADD COLUMN gpu_count INTEGER DEFAULT 0")
 
             conn.executescript("""
@@ -1527,7 +1527,7 @@ class ResourceOptimizer:
                 row = cursor.fetchone()
                 if row:
                     return row[0]
-        except Exception:
+        except sqlite3.Error:
             pass
         return 1000  # Default
 
@@ -1540,7 +1540,7 @@ class ResourceOptimizer:
                     ORDER BY timestamp DESC LIMIT ?
                 """, (limit,))
                 return [dict(row) for row in cursor]
-        except Exception:
+        except sqlite3.Error:
             return []
 
     # =========================================================================

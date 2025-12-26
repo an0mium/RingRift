@@ -207,6 +207,9 @@ class SelfplayOrchestrator:
             # Subscribe to quality events (December 2025 - closes quality → selfplay gap)
             router.subscribe(DataEventType.QUALITY_SCORE_UPDATED.value, self._on_quality_updated)
 
+            # Subscribe to idle resource detection (December 2025 - spawn selfplay on idle GPUs)
+            router.subscribe(DataEventType.IDLE_RESOURCE_DETECTED.value, self._on_idle_resource_detected)
+
             self._subscribed = True
             logger.info("[SelfplayOrchestrator] Subscribed to task lifecycle and resource events via event router")
             return True

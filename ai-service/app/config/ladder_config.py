@@ -55,10 +55,11 @@ def _build_default_square8_two_player_configs() -> dict[
 
     Difficulty mapping:
     - D1: Random
-    - D2: Heuristic
-    - D3: Minimax (non-neural, heuristic eval only)
+    - D2: Heuristic (weaker profile)
+    - D3: Heuristic (CMA-ES tuned)
     - D4: Minimax (neural/NNUE)
-    - D5-6: Descent (neural search)
+    - D5: Minimax (neural, higher budget)
+    - D6: Descent (neural search)
     - D7: MCTS (heuristic-only)
     - D8: MCTS (neural)
     - D9-10: Gumbel MCTS (neural)
@@ -89,31 +90,30 @@ def _build_default_square8_two_player_configs() -> dict[
             board_type=BoardType.SQUARE8,
             num_players=2,
             ai_type=AIType.HEURISTIC,
-            model_id="heuristic_v1_sq8_2p",
-            heuristic_profile_id="heuristic_v1_sq8_2p",
+            model_id="heuristic_v1_weak",
+            heuristic_profile_id="heuristic_v1_weak",
             randomness=0.3,
             think_time_ms=200,
             use_neural_net=False,
             notes=(
-                "Easy square8 2p tier backed by v1 2-player heuristic "
-                "weights. Intended as the first non-random production "
-                "difficulty."
+                "Easy square8 2p tier backed by weakened heuristic weights. "
+                "Intended as the first non-random production difficulty."
             ),
         ),
-        # D3 – lower-mid minimax on square8, 2-player (non-neural).
+        # D3 – CMA-ES tuned heuristic on square8, 2-player.
         (3, BoardType.SQUARE8, 2): LadderTierConfig(
             difficulty=3,
             board_type=BoardType.SQUARE8,
             num_players=2,
-            ai_type=AIType.MINIMAX,
-            model_id="v1-minimax-3",
+            ai_type=AIType.HEURISTIC,
+            model_id="heuristic_v1_sq8_2p",
             heuristic_profile_id="heuristic_v1_sq8_2p",
-            randomness=0.15,
-            think_time_ms=1800,
+            randomness=0.2,
+            think_time_ms=2800,
             use_neural_net=False,
             notes=(
-                "Lower-mid square8 2p tier using minimax with heuristic "
-                "evaluation only (no neural net)."
+                "Lower-mid square8 2p tier using CMA-ES tuned heuristic "
+                "weights with reduced randomness."
             ),
         ),
         # D4 – mid minimax on square8, 2-player (neural/NNUE).
@@ -132,20 +132,20 @@ def _build_default_square8_two_player_configs() -> dict[
                 "evaluation for stronger positional assessment."
             ),
         ),
-        # D5 – upper-mid Descent on square8, 2-player (neural).
+        # D5 – upper-mid minimax on square8, 2-player (neural/NNUE).
         (5, BoardType.SQUARE8, 2): LadderTierConfig(
             difficulty=5,
             board_type=BoardType.SQUARE8,
             num_players=2,
-            ai_type=AIType.DESCENT,
-            model_id="ringrift_best_sq8_2p",
+            ai_type=AIType.MINIMAX,
+            model_id="nnue_square8_2p",
             heuristic_profile_id="heuristic_v1_sq8_2p",
             randomness=0.05,
-            think_time_ms=4000,
+            think_time_ms=5500,
             use_neural_net=True,
             notes=(
-                "Upper-mid square8 2p tier using Descent with neural guidance. "
-                "Replaced plain MCTS as Descent + NN performs better."
+                "Upper-mid square8 2p tier using minimax with NNUE evaluation "
+                "and a higher search budget than D4."
             ),
         ),
         # D6 – high Descent on square8, 2-player (neural).
@@ -173,10 +173,11 @@ def _build_default_square8_two_player_configs() -> dict[
             model_id=None,
             heuristic_profile_id="heuristic_v1_sq8_2p",
             randomness=0.0,
-            think_time_ms=7500,
+            think_time_ms=9600,
             use_neural_net=False,
             notes=(
-                "Expert square8 2p tier using MCTS without neural guidance."
+                "Expert square8 2p tier using MCTS without neural guidance "
+                "and a larger search budget."
             ),
         ),
         # D8 – strong expert MCTS on square8, 2-player (neural).

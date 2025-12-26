@@ -65,7 +65,7 @@ class EphemeralSyncConfig:
     sync_timeout_seconds: int = 30
     # December 2025: Write-through mode for zero data loss
     write_through_enabled: bool = True  # Wait for push confirmation
-    write_through_timeout_seconds: int = 10  # Max wait for confirmation
+    write_through_timeout_seconds: int = 30  # Max wait for confirmation (increased from 10s)
     # Phase 8 Dec 2025: Write-ahead log for pending games
     wal_enabled: bool = True  # Persist pending games to survive crashes
     wal_path: Path = field(default_factory=lambda: Path("data/ephemeral_sync_wal.jsonl"))
@@ -548,6 +548,8 @@ class EphemeralSyncDaemon:
                     target_nodes=self._sync_targets[:1],
                     db_paths=list(db_paths),
                 )
+                # Clear WAL after successful sync (Phase 8)
+                self._clear_wal()
 
             return any_success
 
@@ -597,6 +599,8 @@ class EphemeralSyncDaemon:
                     target_nodes=successful_targets,
                     db_paths=list(db_paths),
                 )
+                # Clear WAL after successful sync (Phase 8)
+                self._clear_wal()
 
     async def _rsync_to_target(self, db_path: str, target_node: str) -> bool:
         """Rsync a database to a target node.

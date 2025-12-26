@@ -223,10 +223,10 @@ Iteration state is saved after each phase completion:
 
 ```bash
 # Start a long run
-python scripts/pipeline_orchestrator.py --iterations 10
+python pipeline_orchestrator.py (removed) --iterations 10
 
 # If interrupted, resume from last completed phase
-python scripts/pipeline_orchestrator.py --iterations 10 --resume
+python pipeline_orchestrator.py (removed) --iterations 10 --resume
 ```
 
 ---
@@ -349,59 +349,59 @@ Logs resource utilization and prints Elo leaderboard.
 cd ai-service
 
 # Run a single iteration
-python scripts/pipeline_orchestrator.py --iterations 1
+python pipeline_orchestrator.py (removed) --iterations 1
 
 # Run continuous improvement loop (10 iterations)
-python scripts/pipeline_orchestrator.py --iterations 10
+python pipeline_orchestrator.py (removed) --iterations 10
 
 # Resume from interrupted iteration
-python scripts/pipeline_orchestrator.py --iterations 5 --resume
+python pipeline_orchestrator.py (removed) --iterations 5 --resume
 
 # Dry run (show what would execute)
-python scripts/pipeline_orchestrator.py --dry-run
+python pipeline_orchestrator.py (removed) --dry-run
 ```
 
 ### Run Specific Phases
 
 ```bash
 # Selfplay (fast GPU/heuristic)
-python scripts/pipeline_orchestrator.py --phase selfplay
+python pipeline_orchestrator.py (removed) --phase selfplay
 
 # Canonical selfplay (CPU with full phase machine)
-python scripts/pipeline_orchestrator.py --phase canonical-selfplay
+python pipeline_orchestrator.py (removed) --phase canonical-selfplay
 
 # Sync data from workers
-python scripts/pipeline_orchestrator.py --phase sync
+python pipeline_orchestrator.py (removed) --phase sync
 
 # Parity validation gate
-python scripts/pipeline_orchestrator.py --phase parity-validation
+python pipeline_orchestrator.py (removed) --phase parity-validation
 
 # Export to NPZ format
-python scripts/pipeline_orchestrator.py --phase npz-export
+python pipeline_orchestrator.py (removed) --phase npz-export
 
 # Neural network training
-python scripts/pipeline_orchestrator.py --phase training
+python pipeline_orchestrator.py (removed) --phase training
 
 # CMA-ES heuristic optimization
-python scripts/pipeline_orchestrator.py --phase cmaes
+python pipeline_orchestrator.py (removed) --phase cmaes
 
 # Profile sync across workers
-python scripts/pipeline_orchestrator.py --phase profile-sync
+python pipeline_orchestrator.py (removed) --phase profile-sync
 
 # Evaluation tournaments
-python scripts/pipeline_orchestrator.py --phase evaluation
+python pipeline_orchestrator.py (removed) --phase evaluation
 
 # Elo calibration (all configs)
-python scripts/pipeline_orchestrator.py --phase elo-calibration
+python pipeline_orchestrator.py (removed) --phase elo-calibration
 
 # Tier gating checks
-python scripts/pipeline_orchestrator.py --phase tier-gating
+python pipeline_orchestrator.py (removed) --phase tier-gating
 
 # Resource monitoring
-python scripts/pipeline_orchestrator.py --phase resources
+python pipeline_orchestrator.py (removed) --phase resources
 
 # Refresh Vast.ai worker discovery
-python scripts/pipeline_orchestrator.py --phase refresh-workers
+python pipeline_orchestrator.py (removed) --phase refresh-workers
 ```
 
 ### CLI Options
@@ -551,7 +551,7 @@ The orchestrator supports two backend modes for job dispatch:
 Traditional SSH-based job execution:
 
 ```bash
-python scripts/pipeline_orchestrator.py \
+python pipeline_orchestrator.py (removed) \
   --iterations 5
 ```
 
@@ -560,7 +560,7 @@ python scripts/pipeline_orchestrator.py \
 Uses the P2P orchestrator REST API for job dispatch:
 
 ```bash
-python scripts/pipeline_orchestrator.py \
+python pipeline_orchestrator.py (removed) \
   --backend p2p \
   --p2p-leader http://lambda-gpu:8770 \
   --p2p-auth-token "your-cluster-token" \
@@ -597,7 +597,7 @@ See [P2P_ORCHESTRATOR_AUTH.md](P2P_ORCHESTRATOR_AUTH.md) for authentication setu
 1. Check worker status:
 
    ```bash
-   python scripts/pipeline_orchestrator.py --phase resources
+   python pipeline_orchestrator.py (removed) --phase resources
    ```
 
 2. Verify selfplay script on worker:
@@ -637,7 +637,7 @@ Reset state file and start fresh:
 
 ```bash
 rm logs/pipeline/state.json
-python scripts/pipeline_orchestrator.py --iterations 1
+python pipeline_orchestrator.py (removed) --iterations 1
 ```
 
 ---

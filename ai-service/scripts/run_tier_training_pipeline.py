@@ -14,7 +14,8 @@ For gating after training, see: python scripts/run_full_tier_gating.py --help
 Training modes by tier (configurable):
     D2-D3: heuristic_cmaes - CMA-ES optimization of heuristic weights
     D4: search_persona - search persona snapshot (minimax)
-    D5-D6: neural - Neural network training (Descent tiers)
+    D5: search_persona - search persona snapshot (minimax)
+    D6: neural - Neural network training (Descent tier)
     D7: search_persona - search persona snapshot (heuristic-only MCTS)
     D8-D10: neural - Neural network training with increasing strength
 """
@@ -183,7 +184,7 @@ def load_tier_config(
         "D2": {"training": {"mode": "heuristic_cmaes"}},
         "D3": {"training": {"mode": "heuristic_cmaes"}},
         "D4": {"training": {"mode": "search_persona"}},
-        "D5": {"training": {"mode": "neural"}},
+        "D5": {"training": {"mode": "search_persona"}},
         "D6": {"training": {"mode": "neural"}},
         "D7": {"training": {"mode": "search_persona"}},
         "D8": {"training": {"mode": "neural"}},

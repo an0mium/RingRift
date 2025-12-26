@@ -1423,12 +1423,12 @@ The tournament validates the following canonical AI configurations:
 | Tier | AI Type     | Algorithm                  | Think Time | Randomness | Neural |
 | ---- | ----------- | -------------------------- | ---------- | ---------- | ------ |
 | D1   | Random      | Uniform random             | 150ms      | 50%        | No     |
-| D2   | Heuristic   | 45-weight evaluation       | 200ms      | 30%        | No     |
-| D3   | Minimax     | Alpha-beta search          | 1.8s       | 15%        | No     |
+| D2   | Heuristic   | Weakened heuristic weights | 200ms      | 30%        | No     |
+| D3   | Heuristic   | CMA-ES tuned weights       | 2.8s       | 20%        | No     |
 | D4   | Minimax     | Alpha-beta + NNUE          | 2.8s       | 8%         | Yes    |
-| D5   | Descent     | UBFM/Descent search        | 4.0s       | 5%         | Yes    |
+| D5   | Minimax     | Alpha-beta + NNUE (higher) | 5.5s       | 5%         | Yes    |
 | D6   | Descent     | Stronger Descent search    | 5.5s       | 2%         | Yes    |
-| D7   | MCTS        | Heuristic-only MCTS        | 7.5s       | 0%         | No     |
+| D7   | MCTS        | Heuristic-only MCTS        | 9.6s       | 0%         | No     |
 | D8   | MCTS        | MCTS + neural value/policy | 9.6s       | 0%         | Yes    |
 | D9   | Gumbel MCTS | Gumbel MCTS (neural)       | 12.6s      | 0%         | Yes    |
 | D10  | Gumbel MCTS | Strongest Gumbel MCTS      | 16.0s      | 0%         | Yes    |
@@ -1442,10 +1442,10 @@ Based on architectural analysis, canonical ladder configuration, and preliminary
 | Tier | AI Type      | Algorithm           | Expected Elo Range | Key Strength Factors       |
 | ---- | ------------ | ------------------- | ------------------ | -------------------------- |
 | D1   | Random       | Uniform random      | 800-1000           | None - baseline            |
-| D2   | Heuristic    | 45-weight eval      | 1200-1400          | Tuned evaluation function  |
-| D3   | Minimax      | Alpha-beta (3-ply)  | 1350-1500          | Look-ahead search          |
+| D2   | Heuristic    | Weakened eval       | 1200-1400          | Reduced weights            |
+| D3   | Heuristic    | CMA-ES tuned eval   | 1300-1500          | Stronger evaluation        |
 | D4   | Minimax+NNUE | Alpha-beta + neural | 1450-1600          | Better position evaluation |
-| D5   | Descent      | UBFM/Descent search | 1500-1700          | Best-first search          |
+| D5   | Minimax+NNUE | Higher budget       | 1500-1700          | Deeper lookahead           |
 | D6   | Descent      | Stronger budget     | 1650-1850          | Deeper search              |
 | D7   | MCTS         | Heuristic MCTS      | 1800-2000          | Increased search budget    |
 | D8   | MCTS+Neural  | Neural value/policy | 1900-2100          | Guided search              |
@@ -1456,13 +1456,15 @@ Based on architectural analysis, canonical ladder configuration, and preliminary
 
 1. **D1 → D2 Gap (~200-400 Elo):** The largest strength gap. Any strategy beats random.
 
-2. **D2 → D3/D4 Gap (~150-200 Elo):** Minimax's lookahead provides significant advantage over pure heuristic, but only with sufficient think time.
+2. **D2 → D3 Gap (~100-200 Elo):** CMA-ES tuned heuristic weights plus lower randomness improve evaluation quality.
 
-3. **D4 NNUE Enhancement (~100-150 Elo over D3):** The NNUE neural evaluation provides more accurate position assessment than the 45-weight heuristic.
+3. **D3 → D4 Gap (~150-200 Elo):** Minimax lookahead with NNUE evaluation provides a significant jump over pure heuristic play.
 
-4. **D5 → D6 Neural Gap (~150-200 Elo):** Adding neural guidance to MCTS significantly improves move selection and value estimation.
+4. **D4 → D5 Budget Gap (~50-100 Elo):** Higher minimax budgets (same NNUE) yield incremental strength gains.
 
-5. **D7-D10 Diminishing Returns (~100-150 Elo per tier):** Higher tiers primarily differ in search budget (think time), showing diminishing returns.
+5. **D5 → D6 Algorithm Gap (~150-200 Elo):** Switching from minimax to Descent-style neural search increases strength.
+
+6. **D7-D10 Diminishing Returns (~100-150 Elo per tier):** Higher tiers primarily differ in guidance and search budget.
 
 #### Tournament Infrastructure Status
 

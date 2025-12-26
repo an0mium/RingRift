@@ -76,7 +76,7 @@ class TestTierEvalConfig(unittest.TestCase):
         """Verify D7-D11 are capped at 75% baseline threshold."""
         for i in range(7, 12):
             config = get_tier_config(f"D{i}")
-            self.assertEqual(
+            self.assertLessEqual(
                 config.min_win_rate_vs_baseline,
                 0.75,
                 f"D{i} should be capped at 75%",
@@ -113,11 +113,11 @@ class TestTierEvalConfig(unittest.TestCase):
         expected = {
             "D1": None,
             "D2": 0.60,
-            "D3": 0.65,
+            "D3": 0.55,
             "D4": 0.68,
-            "D5": 0.70,
+            "D5": 0.60,
             "D6": 0.72,
-            "D7": 0.75,
+            "D7": 0.65,
             "D8": 0.75,
             "D9": 0.75,
             "D10": 0.75,

@@ -9,7 +9,7 @@ A Python-based AI microservice that powers the intelligent opponents in RingRift
 
 ## What's Inside
 
-- **10 Difficulty Levels** — Random (D1) → Heuristic (D2) → Minimax (D3-4) → Descent (D5-6) → MCTS (D7-8) → Gumbel MCTS (D9-10)
+- **10 Difficulty Levels** — Random (D1) → Heuristic (D2-3) → Minimax (D4-5) → Descent (D6) → MCTS (D7-8) → Gumbel MCTS (D9-10)
 - **Neural Network Integration** — ResNet-style CNNs with policy/value heads for position evaluation
 - **Distributed Training** — Self-play generation, Elo tracking, and model promotion across GPU clusters
 - **P2P Orchestration** — Automatic cluster coordination with leader election and health monitoring
@@ -141,10 +141,10 @@ ai-service/
 │   ├── game_engine/         # Python rules engine (TS parity)
 │   ├── ai/                  # AI implementations
 │   │   ├── random_ai.py     # D1: Random moves
-│   │   ├── heuristic_ai.py  # D2: Weighted evaluation
-│   │   ├── minimax_ai.py    # D3-4: Alpha-beta search
+│   │   ├── heuristic_ai.py  # D2-3: Weighted evaluation
+│   │   ├── minimax_ai.py    # D4-5: Alpha-beta search
 │   │   ├── mcts_ai.py       # D7-8: Monte Carlo search
-│   │   ├── descent_ai.py    # D5-6: UBFM/Descent
+│   │   ├── descent_ai.py    # D6: UBFM/Descent
 │   │   ├── gumbel_mcts_ai.py # D9-10: Gumbel MCTS search
 │   │   ├── nnue.py          # NNUE value network
 │   │   ├── nnue_policy.py   # NNUE with policy head

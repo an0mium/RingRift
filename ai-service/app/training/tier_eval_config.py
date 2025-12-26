@@ -183,7 +183,7 @@ def _build_default_configs() -> dict[str, TierEvaluationConfig]:
         ),
         "D5": TierEvaluationConfig(
             tier_name="D5",
-            display_name="D5 – strong heuristic (square8, 2p)",
+            display_name="D5 – mid minimax (square8, 2p)",
             board_type=BoardType.SQUARE8,
             num_players=2,
             num_games=300,
@@ -215,8 +215,8 @@ def _build_default_configs() -> dict[str, TierEvaluationConfig]:
             min_win_rate_vs_baseline=0.60,
             max_regression_vs_previous_tier=0.05,
             description=(
-                "Strong heuristic tier. Must beat random and low heuristic "
-                "baselines, and outperform difficulty-4."
+                "Mid minimax tier. Must beat random and heuristic baselines, "
+                "and outperform difficulty-4."
             ),
         ),
         "D6": TierEvaluationConfig(

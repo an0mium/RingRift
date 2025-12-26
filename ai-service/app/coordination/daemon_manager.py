@@ -2865,6 +2865,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.UNIFIED_PROMOTION,  # Phase 18.4: Auto-promote models after evaluation
         DaemonType.P2P_AUTO_DEPLOY,  # Phase 21.2: Ensure P2P runs on recovered nodes
         DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
+        DaemonType.UTILIZATION_OPTIMIZER,  # Phase 4: Match GPU capabilities to workloads
         DaemonType.CURRICULUM_INTEGRATION,  # Bridges feedback loops for local self-improvement
         DaemonType.AUTO_EXPORT,  # Auto-export NPZ when game threshold met
         DaemonType.TRAINING_TRIGGER,  # Decide when to trigger training
