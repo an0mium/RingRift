@@ -164,7 +164,7 @@ class MockEventBus:
                         await handler(payload)
                     else:
                         handler(payload)
-                except Exception:
+                except (TypeError, RuntimeError, ValueError, AttributeError, TimeoutError):
                     pass
 
     def clear(self) -> None:

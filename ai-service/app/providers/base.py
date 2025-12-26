@@ -302,7 +302,7 @@ print(json.dumps({
                 import json
                 data = json.loads(stdout.strip())
                 result.update(data)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, KeyError):
                 pass
 
         # GPU (if available)
@@ -318,7 +318,7 @@ print(json.dumps({
                     mem_total = float(parts[2].strip())
                     if mem_total > 0:
                         result["gpu_memory_percent"] = (mem_used / mem_total) * 100
-            except Exception:
+            except (ValueError, TypeError, IndexError):
                 pass
 
         return result

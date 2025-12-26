@@ -765,7 +765,7 @@ class TournamentRunner:
         if isinstance(metadata, dict) and "difficulty" in metadata:
             try:
                 return int(metadata["difficulty"])
-            except Exception:
+            except (ValueError, TypeError):
                 pass
         return int(agent.search_depth + default_offset)
 
@@ -884,7 +884,7 @@ class TournamentRunner:
                                     if hasattr(mv, 'from_pos') and mv.from_pos is not None:
                                         move_key = f"{mv.from_pos.x},{mv.from_pos.y}->{move_key}"
                                     move_probs[move_key] = float(prob)
-                    except Exception:
+                    except (AttributeError, ValueError, TypeError):
                         pass  # Silently ignore if visit distribution fails
 
                 state_before = state

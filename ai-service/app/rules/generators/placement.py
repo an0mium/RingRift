@@ -176,16 +176,16 @@ class PlacementGenerator(Generator):
         board_type_str = board_type.value if hasattr(board_type, "value") else str(board_type)
 
         if "hex" in board_type_str.lower():
-            # Hexagonal grid
+            # Hexagonal grid using cube coordinates (x, y, z where x + y + z = 0)
             for q in range(-board_size, board_size + 1):
                 for r in range(-board_size, board_size + 1):
                     if abs(q + r) <= board_size:
-                        positions.append(Position(q=q, r=r))
+                        positions.append(Position(x=q, y=r, z=-q - r))
         else:
             # Square grid
-            for q in range(board_size):
-                for r in range(board_size):
-                    positions.append(Position(q=q, r=r))
+            for x in range(board_size):
+                for y in range(board_size):
+                    positions.append(Position(x=x, y=y))
 
         return positions
 

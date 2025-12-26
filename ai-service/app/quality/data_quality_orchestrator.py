@@ -189,7 +189,7 @@ class DataQualityOrchestrator:
             bus.unsubscribe(DataEventType.DATA_QUALITY_ALERT, self._on_quality_alert)
             self._subscribed = False
 
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             pass
 
     def _get_or_create_config(self, config_key: str) -> ConfigQualityState:

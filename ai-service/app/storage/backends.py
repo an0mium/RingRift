@@ -45,6 +45,14 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+# Import ClientError for S3 exception handling
+_BOTO3_AVAILABLE = True
+try:
+    from botocore.exceptions import ClientError
+except ImportError:
+    _BOTO3_AVAILABLE = False
+    ClientError = None  # type: ignore
+
 
 class StorageBackend(ABC):
     """Abstract base class for storage backends."""
@@ -275,8 +283,11 @@ class S3Storage(StorageBackend):
         try:
             self._s3.head_object(Bucket=self._bucket_name, Key=full_key)
             return True
-        except Exception:
-            return False
+        except ClientError as e:
+            # Return False if object doesn't exist (404), re-raise other errors
+            if e.response.get('Error', {}).get('Code') == '404':
+                return False
+            raise
 
     def delete(self, remote_key: str) -> None:
         """Delete file from S3."""

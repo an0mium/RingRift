@@ -524,7 +524,7 @@ def get_system_resources(data_path: Path | None = None) -> SystemResources:
                 resources.total_ram_gb = int(result.stdout.strip()) / (1024 ** 3)
                 # Estimate available as 70% of total on macOS
                 resources.available_ram_gb = resources.total_ram_gb * 0.7
-        except Exception:
+        except (subprocess.SubprocessError, ValueError):
             pass
 
     # Get disk info

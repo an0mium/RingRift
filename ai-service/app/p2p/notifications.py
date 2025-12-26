@@ -14,6 +14,7 @@ from typing import Any
 
 try:
     import aiohttp
+    from aiohttp import ClientError, ServerTimeoutError
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
@@ -202,7 +203,7 @@ class NotificationManager:
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as response:
                 return response.status < 400
-        except Exception:
+        except (ClientError, ServerTimeoutError, asyncio.TimeoutError, OSError):
             return False
 
     def send_sync(self, event: NotificationEvent) -> bool:

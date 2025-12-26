@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -481,7 +482,7 @@ print(total)
                         reliability=data.get("reliability", 0),
                         location=data.get("geolocation", ""),
                     ))
-                except Exception:
+                except (KeyError, TypeError, ValueError, ZeroDivisionError):
                     continue
 
             return offers
@@ -664,13 +665,12 @@ sleep 2 && pgrep -f generate_data | head -1
 
                 if proc.returncode == 0 and os.path.exists(local_path):
                     # Count games
-                    import sqlite3
                     try:
                         conn = sqlite3.connect(local_path)
                         count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
                         conn.close()
                         total_games += count
-                    except Exception:
+                    except (sqlite3.Error, OSError):
                         pass
 
             return total_games

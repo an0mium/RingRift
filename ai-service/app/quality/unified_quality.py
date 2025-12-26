@@ -215,7 +215,7 @@ class QualityWeights:
             try:
                 unified_config = get_config()
                 config = unified_config.quality
-            except Exception:
+            except (ImportError, AttributeError, KeyError, TypeError, ValueError):
                 pass
 
         if config is None:

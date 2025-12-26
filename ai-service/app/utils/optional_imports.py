@@ -249,7 +249,7 @@ if MATPLOTLIB_AVAILABLE:
     try:
         from matplotlib import pyplot as pyplot
         plt = pyplot  # Common alias
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         MATPLOTLIB_AVAILABLE = False
         pyplot = None
         plt = None

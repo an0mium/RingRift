@@ -66,7 +66,7 @@ def get_cpu_count() -> int:
     """Get number of CPU cores."""
     try:
         return os.cpu_count() or 1
-    except Exception:
+    except (OSError, AttributeError, TypeError):
         return 1
 
 

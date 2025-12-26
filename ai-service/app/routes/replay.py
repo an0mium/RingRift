@@ -222,7 +222,7 @@ async def list_games(
                 try:
                     decoded_val = json.loads(raw_metadata_json)
                     decoded_metadata = decoded_val if isinstance(decoded_val, dict) else None
-                except Exception:
+                except json.JSONDecodeError:
                     decoded_metadata = None
             else:
                 decoded_metadata = None
@@ -285,7 +285,7 @@ async def get_game(game_id: str):
             try:
                 decoded_val = json.loads(raw_metadata_json)
                 decoded_metadata = decoded_val if isinstance(decoded_val, dict) else None
-            except Exception:
+            except json.JSONDecodeError:
                 decoded_metadata = None
         else:
             decoded_metadata = None

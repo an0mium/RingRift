@@ -1091,6 +1091,7 @@ class P2PIntegrationManager:
 
     async def _fetch_node_elo(self, host: str, port: int) -> dict | None:
         """Fetch Elo leaderboard from a cluster node."""
+        import json
         import urllib.error
         import urllib.request
 
@@ -1098,13 +1099,13 @@ class P2PIntegrationManager:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "RingRift/1.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
-                import json
                 return json.loads(resp.read().decode())
-        except Exception:
+        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, UnicodeDecodeError, OSError):
             return None
 
     async def _check_elo_divergence(self, local_db: Path, node_elo: dict, threshold: float = 50.0) -> bool:
         """Check if node Elo ratings have diverged from local."""
+        import sqlite3
         from app.tournament import EloDatabase
 
         try:
@@ -1119,7 +1120,7 @@ class P2PIntegrationManager:
                     return True
 
             return False
-        except Exception:
+        except (ImportError, FileNotFoundError, sqlite3.Error, AttributeError, KeyError, TypeError):
             return False
 
     async def _sync_elo_to_node(self, host: str, local_db: Path) -> bool:

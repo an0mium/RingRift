@@ -126,7 +126,7 @@ def _materialize_model_output(
     try:
         if src.resolve() == dest.resolve():
             return str(dest)
-    except Exception:
+    except OSError:
         pass
 
     dest.parent.mkdir(parents=True, exist_ok=True)

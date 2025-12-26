@@ -412,7 +412,7 @@ class UnifiedLoopExtensions:
                         event_type=DataEventType.CMAES_TRIGGERED,
                         payload={'reason': 'plateau_detected', 'plateau_count': self.state.plateau_count}
                     ))
-            except Exception:
+            except (ImportError, AttributeError, asyncio.CancelledError):
                 pass
 
     async def _trigger_nas(self):
@@ -429,7 +429,7 @@ class UnifiedLoopExtensions:
                         event_type=DataEventType.NAS_TRIGGERED,
                         payload={'reason': 'severe_plateau', 'plateau_count': self.state.plateau_count}
                     ))
-            except Exception:
+            except (ImportError, AttributeError, asyncio.CancelledError):
                 pass
 
     async def _benchmark_loop(self):

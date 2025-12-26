@@ -129,23 +129,23 @@ class MovementGenerator(Generator):
         Returns True if no stacks or collapsed spaces block the path.
         The destination cell itself is not considered blocking.
         """
-        # Get direction and distance
-        dq = to_pos.q - from_pos.q
-        dr = to_pos.r - from_pos.r
+        # Get direction and distance using x,y coordinates
+        dx = to_pos.x - from_pos.x
+        dy = to_pos.y - from_pos.y
 
         # Normalize direction
-        steps = max(abs(dq), abs(dr))
+        steps = max(abs(dx), abs(dy))
         if steps <= 1:
             return True  # Adjacent cells, no path to check
 
-        step_q = dq // steps if steps > 0 else 0
-        step_r = dr // steps if steps > 0 else 0
+        step_x = dx // steps if steps > 0 else 0
+        step_y = dy // steps if steps > 0 else 0
 
         from app.models import Position
 
         # Check each intermediate cell
         for i in range(1, steps):
-            check_pos = Position(q=from_pos.q + step_q * i, r=from_pos.r + step_r * i)
+            check_pos = Position(x=from_pos.x + step_x * i, y=from_pos.y + step_y * i)
             check_key = check_pos.to_key()
 
             # Collapsed space blocks

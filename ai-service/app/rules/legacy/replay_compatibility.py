@@ -273,7 +273,7 @@ def _replay_with_legacy_engine(game_record: dict[str, Any]) -> GameState:
                 from app.rules.legacy.move_type_aliases import convert_legacy_move_type
 
                 move_type_str = convert_legacy_move_type(move_type_str, warn=False)
-            except Exception:
+            except (ValueError, KeyError):
                 # Fall back to raw move type if conversion fails
                 pass
             try:

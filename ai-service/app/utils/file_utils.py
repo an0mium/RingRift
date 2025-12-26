@@ -81,7 +81,7 @@ def atomic_write(
         # Atomic rename (same filesystem guaranteed)
         os.replace(tmp_path, path)
 
-    except Exception:
+    except (OSError, ValueError):
         # Clean up temp file on error
         with suppress(FileNotFoundError):
             os.unlink(tmp_path)

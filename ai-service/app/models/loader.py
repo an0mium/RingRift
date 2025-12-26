@@ -156,7 +156,7 @@ class ModelCache:
         """Evict a model from cache and free memory."""
         if key in cache:
             model, _ = cache.pop(key)
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(RuntimeError, AttributeError):
                 model.cpu()
             del model
             gc.collect()
@@ -172,7 +172,7 @@ class ModelCache:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(RuntimeError, AttributeError):
                     torch.mps.empty_cache()
 
             gc.collect()

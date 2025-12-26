@@ -531,7 +531,7 @@ class HierarchicalCullingController:
                             asyncio.ensure_future(coro, loop=loop)
                         except RuntimeError:
                             asyncio.run(coro)
-                    except Exception:
+                    except (RuntimeError, OSError, TypeError, ValueError):
                         pass
 
             except Exception as e:

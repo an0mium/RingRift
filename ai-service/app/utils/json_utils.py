@@ -262,7 +262,7 @@ def save_json(
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 dump(data, f, indent=indent, **kwargs)
             os.replace(tmp_path, path)
-        except Exception:
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
             # Clean up temp file on error
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)

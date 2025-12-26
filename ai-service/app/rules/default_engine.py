@@ -283,8 +283,10 @@ class DefaultRulesEngine(RulesEngine):
             try:
                 GameEngine._assert_phase_move_invariant(state, move)
                 filtered_moves.append(move)
-            except Exception:
+            except (RuntimeError, AttributeError):
                 # Skip invalid moves instead of raising; caller will continue.
+                # RuntimeError: phase/move invariant violation
+                # AttributeError: missing move or state attributes
                 continue
         moves = filtered_moves
 

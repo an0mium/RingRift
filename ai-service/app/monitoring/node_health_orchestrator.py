@@ -187,7 +187,7 @@ class NodeHealthOrchestrator:
             bus.unsubscribe(DataEventType.RECOVERY_FAILED, self._on_recovery_failed)
             self._subscribed = False
 
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             pass
 
     def _get_or_create_node(self, node_name: str, node_ip: str = "") -> NodeHealth:

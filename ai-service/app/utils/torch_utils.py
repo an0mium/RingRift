@@ -610,7 +610,7 @@ def get_device(
                     "Using CUDA device %d: %s (%.1fGB)",
                     cuda_id, props.name, props.total_memory / 1024**3
                 )
-            except Exception:
+            except RuntimeError:
                 pass  # Logging is optional
             return device
 
@@ -671,7 +671,7 @@ def get_device_info() -> dict[str, Any]:
                     "compute_capability": f"{props.major}.{props.minor}",
                     "multi_processor_count": props.multi_processor_count,
                 })
-            except Exception:
+            except RuntimeError:
                 info["cuda_devices"].append({"id": i, "name": "Unknown", "memory_gb": 0})
     elif info["mps_available"]:
         info["recommended_device"] = "mps"
