@@ -54,6 +54,10 @@ elo_sync:
 
 # P2P voter configuration - stable nodes for leader election
 # Quorum requires 3 voters.
+#
+# IMPORTANT: This list is the single source of truth for voter nodes.
+# Do NOT set p2p_voter: true on individual nodes - it will be ignored.
+# The p2p_voters list below is the authoritative voter configuration.
 p2p_voters:
   - nebius-backbone-1
   - runpod-h100
@@ -331,7 +335,6 @@ hosts:
     role: gpu_selfplay_primary
     status: ready
     runpod_id: g47o0nibwifwzw
-    p2p_voter: true
     p2p_enabled: true
 
   runpod-a100-1:
@@ -348,7 +351,6 @@ hosts:
     role: gpu_selfplay
     status: ready
     runpod_id: hl2rzjdfdrtath
-    p2p_voter: true
     p2p_enabled: true
 
   runpod-a100-2:
@@ -365,7 +367,6 @@ hosts:
     role: gpu_selfplay
     status: ready
     runpod_id: yu03gfn71vrsj7
-    p2p_voter: true
     p2p_enabled: true
 
   runpod-l40s-2:
@@ -418,7 +419,6 @@ hosts:
     status: ready
     vultr_id: 016fe347-d10d-4348-90f6-e3ad9943246a
     region: ewr
-    p2p_voter: true
     p2p_enabled: true
 
   # New Vultr A100 provisioned Dec 26, 2025
@@ -457,7 +457,6 @@ hosts:
     status: ready
     nebius_id: computeinstance-e00gyg7x6xhkc7fs5x
     region: eu-north1
-    p2p_voter: true
     p2p_enabled: true
     note: P2P backbone node for stable connectivity
 
@@ -501,7 +500,8 @@ hosts:
     p2p_enabled: true
     note: H100 80GB training (pair with nebius-h100-1)
 
-  # Nebius L40S #2 (unstable network - under investigation)
+  # Nebius L40S #2
+  # NOTE: Under investigation for unstable network connectivity
   nebius-l40s-2:
     ssh_host: 89.169.108.182
     ssh_port: 22
@@ -518,24 +518,26 @@ hosts:
     nebius_id: computeinstance-e00vjmb0t7m5ck02g1
     region: eu-north1
     p2p_enabled: true
+    note: Under investigation for unstable network
 
   # ============================================================
   # AWS NODES (proxy only, no GPU)
   # ============================================================
-  aws-proxy:
-    ssh_host: 52.15.114.79
-    ssh_port: 22
-    ssh_user: ec2-user
-    ssh_key: ~/.ssh/id_cluster
-    ringrift_path: ~/ringrift/ai-service
-    memory_gb: 1
-    cpus: 2
-    role: proxy
-    status: ready
-    aws_instance_id: i-0212fa8387ad092b9
-    selfplay_enabled: false
-    training_enabled: false
-    p2p_enabled: false
+  # Disabled: aws-proxy has no compute capabilities (selfplay/training/p2p all disabled)
+  # aws-proxy:
+  #   ssh_host: 52.15.114.79
+  #   ssh_port: 22
+  #   ssh_user: ubuntu
+  #   ssh_key: ~/.ssh/id_cluster
+  #   ringrift_path: ~/ringrift/ai-service
+  #   memory_gb: 1
+  #   cpus: 2
+  #   role: proxy
+  #   status: ready
+  #   aws_instance_id: i-0212fa8387ad092b9
+  #   selfplay_enabled: false
+  #   training_enabled: false
+  #   p2p_enabled: false
 
   # ============================================================
   # HETZNER NODES (3 running - CPU only)
