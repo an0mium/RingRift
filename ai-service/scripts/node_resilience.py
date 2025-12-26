@@ -66,10 +66,10 @@ logger = setup_script_logging("node_resilience", log_file=_log_file)
 
 # If a node reports hundreds/thousands of selfplay processes, it almost always
 # indicates job tracking was lost and stale processes are accumulating.
-# Increased from 128 to 500 (Dec 2025) to prevent false positives during
-# legitimate multi-game selfplay runs that may spawn many worker processes.
+# Dec 26 2025: Lowered from 500 to 100 for earlier intervention.
+# Process limit enforcement in IdleResourceDaemon handles soft limits at 50.
 RUNAWAY_SELFPLAY_PROCESS_THRESHOLD = int(
-    os.environ.get("RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD", "500") or 500
+    os.environ.get("RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD", "100") or 100
 )
 
 STATE_DIR = Path(__file__).parent.parent / "logs" / "node_resilience"
