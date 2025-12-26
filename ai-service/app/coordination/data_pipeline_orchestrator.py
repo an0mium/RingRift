@@ -348,6 +348,12 @@ class DataPipelineOrchestrator:
         # Callbacks for stage transitions
         self._stage_callbacks: dict[PipelineStage, list[Callable]] = {}
 
+        # Stage metadata for tracking promotion candidates, etc. (Phase 7 fix)
+        self._stage_metadata: dict[str, Any] = {
+            "candidates": 0,
+            "last_iteration": 0,
+        }
+
         # Quality distribution tracking (December 2025)
         self._quality_distribution: dict[str, float] = {}  # level -> percentage
         self._last_quality_update: float = 0.0
@@ -1197,10 +1203,16 @@ class DataPipelineOrchestrator:
             return
 
         try:
-            from app.coordination.pipeline_actions import trigger_evaluation
+            # Phase 7: Use PipelineTrigger for prerequisite validation
+            from app.coordination.pipeline_triggers import get_pipeline_trigger
 
+            trigger = get_pipeline_trigger()
             logger.info(f"[DataPipelineOrchestrator] Auto-triggering evaluation for {model_path}")
-            result = await trigger_evaluation(model_path, board_type, num_players, iteration)
+            result = await trigger.trigger_evaluation_after_training(
+                board_type=board_type,
+                num_players=num_players,
+                model_path=model_path,
+            )
 
             if result.success:
                 self._record_circuit_success("evaluation")
@@ -1270,11 +1282,22 @@ class DataPipelineOrchestrator:
             return
 
         try:
-            from app.coordination.pipeline_actions import trigger_promotion
+            # Phase 7: Use PipelineTrigger for prerequisite validation
+            from app.coordination.pipeline_triggers import get_pipeline_trigger
 
+            # Extract win rates from gauntlet_results
+            win_rates = gauntlet_results.get("win_rates", {})
+            win_rate_vs_random = win_rates.get("random", gauntlet_results.get("win_rate_vs_random", 0.0))
+            win_rate_vs_heuristic = win_rates.get("heuristic", gauntlet_results.get("win_rate_vs_heuristic", 0.0))
+
+            trigger = get_pipeline_trigger()
             logger.info(f"[DataPipelineOrchestrator] Auto-triggering promotion for {model_path}")
-            result = await trigger_promotion(
-                model_path, gauntlet_results, board_type, num_players, iteration
+            result = await trigger.trigger_promotion_after_evaluation(
+                board_type=board_type,
+                num_players=num_players,
+                model_path=model_path,
+                win_rate_vs_random=win_rate_vs_random,
+                win_rate_vs_heuristic=win_rate_vs_heuristic,
             )
 
             if result.success:

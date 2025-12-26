@@ -1077,10 +1077,60 @@ class PromotionController:
 
                 self.model_registry.promote_model(decision.model_id, target_stage)
                 logger.info(f"Promoted {decision.model_id} to {target_stage.value}")
+
+                # December 2025: Create inference symlinks for model distribution
+                # This ensures ModelDistributionDaemon can find and distribute the model
+                if target_stage == ModelStage.PRODUCTION:
+                    self._create_inference_symlinks(decision)
+
                 return True
             except Exception as e:
                 logger.error(f"Model registry promotion failed: {e}")
         return False
+
+    def _create_inference_symlinks(self, decision: PromotionDecision) -> None:
+        """Create inference symlinks after production promotion (December 2025).
+
+        Creates ringrift_best_{config}.pth -> canonical_{config}.pth symlinks
+        which ModelDistributionDaemon uses to discover and distribute models.
+
+        Args:
+            decision: The promotion decision with model info
+        """
+        try:
+            from pathlib import Path
+
+            config_key = self._extract_config_key(decision.model_id)
+            models_dir = Path(__file__).parent.parent.parent / "models"
+
+            canonical_name = f"canonical_{config_key}.pth"
+            symlink_name = f"ringrift_best_{config_key}.pth"
+
+            canonical_path = models_dir / canonical_name
+            symlink_path = models_dir / symlink_name
+
+            # Only create symlink if canonical model exists
+            if not canonical_path.exists():
+                logger.debug(
+                    f"[PromotionController] Canonical model not found: {canonical_path}, "
+                    f"skipping symlink creation"
+                )
+                return
+
+            # Remove existing symlink if present
+            if symlink_path.exists() or symlink_path.is_symlink():
+                symlink_path.unlink()
+
+            # Create new symlink (relative path for portability)
+            symlink_path.symlink_to(canonical_name)
+            logger.info(
+                f"[PromotionController] Created inference symlink: "
+                f"{symlink_name} -> {canonical_name}"
+            )
+
+        except Exception as e:
+            # Symlink creation failure shouldn't fail the promotion
+            logger.warning(f"[PromotionController] Failed to create inference symlink: {e}")
 
     def _execute_tier_promotion(self, decision: PromotionDecision) -> bool:
         """Execute tier promotion."""
