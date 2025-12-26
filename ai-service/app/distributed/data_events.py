@@ -1197,6 +1197,43 @@ async def emit_hyperparameter_updated(
     ))
 
 
+async def emit_exploration_boost(
+    config_key: str,
+    boost_factor: float,
+    reason: str,
+    anomaly_count: int = 0,
+    source: str = "feedback_loop_controller",
+) -> None:
+    """Emit an EXPLORATION_BOOST event.
+
+    P11-CRITICAL-1 (Dec 2025): Signals when exploration should be boosted due to
+    training anomalies (loss spikes, divergence, stalls). This closes the feedback
+    loop from training issues back to selfplay exploration rates.
+
+    Subscribers (e.g., SelfplayScheduler, TemperatureScheduler) should react by:
+    - Increasing MCTS exploration temperature
+    - Adding more Dirichlet noise at root
+    - Prioritizing diverse game openings
+
+    Args:
+        config_key: Configuration key (e.g., "hex8_2p")
+        boost_factor: Exploration boost multiplier (1.0 = no boost, 2.0 = double)
+        reason: Why exploration is being boosted ("loss_anomaly", "stall", "divergence")
+        anomaly_count: Number of consecutive anomalies that triggered this boost
+        source: Component emitting the event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.EXPLORATION_BOOST,
+        payload={
+            "config_key": config_key,
+            "boost_factor": boost_factor,
+            "reason": reason,
+            "anomaly_count": anomaly_count,
+        },
+        source=source,
+    ))
+
+
 # =============================================================================
 # Data Sync Events
 # =============================================================================

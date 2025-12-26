@@ -78,9 +78,9 @@ PROMOTION_COOLDOWN_SECONDS = 900  # 15 minutes
 # These are the hard gates for promoting a model to production use
 
 # Minimum ELO rating for production promotion
-# Rationale: Random=400, Heuristic=1200, so 1650 means significantly better
-# than heuristic with high confidence (450 ELO gap = ~95% expected win rate)
-PRODUCTION_ELO_THRESHOLD = 1650
+# Rationale: Random=400, Heuristic=1200, so 1800 means much stronger than heuristic
+# Target is 2000+ Elo; 1800 ensures only quality models get promoted (Dec 2025)
+PRODUCTION_ELO_THRESHOLD = 1800
 
 # Minimum games played before production promotion eligible
 # Rationale: 100 games gives ~10% confidence interval on ELO

@@ -674,6 +674,9 @@ class FeedbackLoopController:
         December 2025: Now includes fallback to store boost in FeedbackState
         even if temperature_scheduling module is not available. This ensures
         SelfplayScheduler can still use the exploration boost signal.
+
+        P11-CRITICAL-1 (Dec 2025): Now emits EXPLORATION_BOOST event to close
+        the feedback loop to selfplay exploration rates.
         """
         # Calculate boost: 15% per anomaly, up to 2.0x
         boost = min(2.0, 1.0 + 0.15 * anomaly_count)
@@ -685,6 +688,24 @@ class FeedbackLoopController:
             f"[FeedbackLoopController] Exploration boost set to {boost:.2f}x "
             f"for {config_key} (anomaly count: {anomaly_count})"
         )
+
+        # P11-CRITICAL-1: Emit EXPLORATION_BOOST event to notify selfplay/temperature schedulers
+        try:
+            import asyncio
+            from app.distributed.data_events import emit_exploration_boost
+
+            asyncio.create_task(emit_exploration_boost(
+                config_key=config_key,
+                boost_factor=boost,
+                reason="loss_anomaly",
+                anomaly_count=anomaly_count,
+                source="FeedbackLoopController",
+            ))
+            logger.debug(
+                f"[FeedbackLoopController] Emitted EXPLORATION_BOOST event for {config_key}"
+            )
+        except Exception as e:
+            logger.warning(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 
         # Try to wire to active temperature schedulers (optional, may not be running)
         try:
