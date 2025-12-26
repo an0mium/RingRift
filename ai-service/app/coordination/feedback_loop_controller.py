@@ -729,6 +729,7 @@ class FeedbackLoopController:
         """Boost exploration in response to training stall.
 
         December 2025: Now includes fallback to store boost in FeedbackState.
+        P11-CRITICAL-1 (Dec 2025): Now emits EXPLORATION_BOOST event.
         """
         # Boost by 10% per 5 epochs of stall, up to 1.5x
         boost = min(1.5, 1.0 + 0.10 * (stall_epochs // 5))
@@ -740,6 +741,21 @@ class FeedbackLoopController:
             f"[FeedbackLoopController] Exploration boost set to {boost:.2f}x "
             f"for {config_key} (stalled for {stall_epochs} epochs)"
         )
+
+        # P11-CRITICAL-1: Emit EXPLORATION_BOOST event
+        try:
+            import asyncio
+            from app.distributed.data_events import emit_exploration_boost
+
+            asyncio.create_task(emit_exploration_boost(
+                config_key=config_key,
+                boost_factor=boost,
+                reason="stall",
+                anomaly_count=stall_epochs // 5,  # Use stall count as pseudo-anomaly count
+                source="FeedbackLoopController",
+            ))
+        except Exception as e:
+            logger.warning(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 
         # Try to wire to active temperature schedulers
         try:
