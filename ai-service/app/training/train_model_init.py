@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 import torch
 import torch.nn as nn
 
+from app.utils.torch_utils import safe_load_checkpoint
+
 if TYPE_CHECKING:
     from .train_config import TrainConfig
 
@@ -263,7 +265,7 @@ def load_initial_weights(
     Returns:
         Dict with 'missing_keys' and 'unexpected_keys' lists
     """
-    state_dict = torch.load(weights_path, map_location=device, weights_only=True)
+    state_dict = safe_load_checkpoint(weights_path, map_location=device, allow_unsafe=False)
 
     # Handle wrapped state dicts (e.g., from checkpoints)
     if "model_state_dict" in state_dict:

@@ -1,6 +1,7 @@
 # Codebase Quality Assessment Report
 
 **Generated**: December 26, 2025
+**Last Updated**: December 26, 2025 (5 of 10 issues resolved)
 **Scope**: RingRift AI Service (`ai-service/`)
 **Analysis Coverage**: 350+ Python files, 1.3M lines of code
 
@@ -8,18 +9,18 @@
 
 ## Executive Summary: Top 10 Highest-Impact Improvements
 
-| #   | Issue                                                    | Impact          | Effort | Location                            |
-| --- | -------------------------------------------------------- | --------------- | ------ | ----------------------------------- |
-| 1   | **P2P port 8770 hardcoded in 20+ files**                 | High            | Small  | `app/coordination/*.py`             |
-| 2   | **15 files need torch.load migration**                   | Security        | Medium | `app/training/*.py`                 |
-| 3   | **Large files >3000 lines need decomposition**           | Maintainability | Large  | `train.py`, `gpu_parallel_games.py` |
-| 4   | **File handle leaks in cloud_storage.py**                | Reliability     | Small  | `app/training/cloud_storage.py:151` |
-| 5   | **30+ blocking time.sleep() in async code**              | Performance     | Medium | `app/coordination/*.py`             |
-| 6   | **Multiple SSH helper implementations**                  | Complexity      | Medium | 3 files with SSH classes            |
-| 7   | **Testing gap: coordination module (53 files, 5 tests)** | Quality         | Large  | `tests/unit/coordination/`          |
-| 8   | **Events defined but never subscribed**                  | Dead code       | Small  | `DataEventType` enum                |
-| 9   | **366 .item() GPU sync calls**                           | Performance     | Large  | `app/ai/*.py`                       |
-| 10  | **Timeout constants scattered**                          | Maintainability | Small  | 15+ different timeout values        |
+| #   | Issue                                                    | Impact          | Effort | Status                                           |
+| --- | -------------------------------------------------------- | --------------- | ------ | ------------------------------------------------ |
+| 1   | **P2P port 8770 hardcoded in 20+ files**                 | High            | Small  | ✅ `app/config/constants.py` created             |
+| 2   | **torch.load migration**                                 | Security        | Medium | ✅ Complete - all use safe_load_checkpoint       |
+| 3   | **Large files >3000 lines need decomposition**           | Maintainability | Large  | Pending - `train.py`, `gpu_parallel_games.py`    |
+| 4   | **File handle leaks**                                    | Reliability     | Small  | ✅ Fixed - cloud_storage.py, distributed_lock.py |
+| 5   | **Blocking time.sleep() in async code**                  | Performance     | Medium | ✅ Verified clean - no issues found              |
+| 6   | **Multiple SSH helper implementations**                  | Complexity      | Medium | Pending - 3 files with SSH classes               |
+| 7   | **Testing gap: coordination module (53 files, 5 tests)** | Quality         | Large  | Pending - `tests/unit/coordination/`             |
+| 8   | **Events defined but never subscribed**                  | Dead code       | Small  | 4 unused (API placeholders)                      |
+| 9   | **366 .item() GPU sync calls**                           | Performance     | Large  | Pending - `app/ai/*.py`                          |
+| 10  | **Timeout constants scattered**                          | Maintainability | Small  | ✅ Centralized in `app/config/constants.py`      |
 
 ---
 
@@ -123,15 +124,15 @@ Found **5 different patterns**:
 
 ### Blocking Calls in Async Code
 
-| Location                                         | Issue          | Risk   |
-| ------------------------------------------------ | -------------- | ------ |
-| `app/core/thread_spawner.py:419`                 | `time.sleep()` | Medium |
-| `app/coordination/distributed_lock.py:233`       | `time.sleep()` | High   |
-| `app/coordination/curriculum_integration.py:255` | `time.sleep()` | Medium |
-| `app/coordination/training_coordinator.py:1076`  | `time.sleep()` | High   |
-| ... 25+ more files                               |                |        |
+**Status**: ✅ Verified Clean (Dec 26)
 
-**Fix**: Replace with `await asyncio.sleep()`
+Analysis using AST parsing found **0 `time.sleep()` calls inside async functions**. All `time.sleep()` usages are in:
+
+- Synchronous thread poll loops (correct)
+- Synchronous blocking methods (correct)
+- Signal handlers and shutdown code (correct)
+
+No changes required.
 
 ### Error Handling Patterns
 
@@ -235,21 +236,21 @@ Only **2 active TODOs** found (excellent hygiene):
 
 ### Resource Leaks
 
-| File                                       | Issue                               | Severity   |
-| ------------------------------------------ | ----------------------------------- | ---------- |
-| `app/training/cloud_storage.py:151`        | File opened without context manager | **Medium** |
-| `app/coordination/distributed_lock.py:148` | `os.open()` without try/finally     | **Medium** |
-| `app/coordination/task_coordinator.py`     | Lock file fd cleanup unclear        | **Low**    |
+| File                                       | Issue                                     | Severity     |
+| ------------------------------------------ | ----------------------------------------- | ------------ |
+| `app/training/cloud_storage.py:151`        | ✅ Fixed (Dec 26) - context manager added | **Resolved** |
+| `app/coordination/distributed_lock.py:148` | ✅ Fixed (Dec 26) - try/finally added     | **Resolved** |
+| `app/coordination/task_coordinator.py`     | Lock file fd cleanup unclear              | **Low**      |
 
 ### Security Status
 
-| Item                     | Status                  |
-| ------------------------ | ----------------------- |
-| `torch.load()` migration | 15 files pending        |
-| Hardcoded secrets        | 0 (all from env vars)   |
-| Command injection        | Safe (shlex.quote used) |
-| Pickle usage             | Safe (via torch_utils)  |
-| Wildcard imports         | 3 only (minimal)        |
+| Item                     | Status                                              |
+| ------------------------ | --------------------------------------------------- |
+| `torch.load()` migration | ✅ Complete (Dec 26) - all use safe_load_checkpoint |
+| Hardcoded secrets        | 0 (all from env vars)                               |
+| Command injection        | Safe (shlex.quote used)                             |
+| Pickle usage             | Safe (via torch_utils)                              |
+| Wildcard imports         | 3 only (minimal)                                    |
 
 ---
 

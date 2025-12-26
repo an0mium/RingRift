@@ -313,6 +313,7 @@ class DistributedLock:
     def _acquire_file(self) -> bool:
         """Acquire lock using file locking."""
         lock_path = self._get_lock_path()
+        fd: int | None = None
 
         try:
             # Open or create lock file
@@ -328,27 +329,35 @@ class DistributedLock:
             os.write(fd, lock_info.encode())
 
             self._file_fd = fd
+            fd = None  # Ownership transferred to self._file_fd
             logger.debug(f"Acquired file lock: {self.name}")
             return True
 
         except (OSError, BlockingIOError):
             # Check if existing lock is expired
             if self._is_file_lock_expired():
-                # Try to take over expired lock
-                try:
-                    if 'fd' in locals():
+                # Close fd before retrying to avoid leak
+                if fd is not None:
+                    try:
                         os.close(fd)
-                    # Force remove and retry
+                    except OSError:
+                        pass
+                    fd = None
+                # Force remove and retry
+                try:
                     lock_path.unlink(missing_ok=True)
                     return self._acquire_file()
                 except Exception as e:
                     logger.debug(f"Failed to take over expired lock {self.name}: {e}")
-            try:
-                if 'fd' in locals():
-                    os.close(fd)
-            except Exception as e:
-                logger.debug(f"Error closing file descriptor for lock {self.name}: {e}")
             return False
+
+        finally:
+            # Always close fd if we still own it (wasn't transferred to _file_fd)
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError as e:
+                    logger.debug(f"Error closing file descriptor for lock {self.name}: {e}")
 
     def _release_file(self) -> None:
         """Release file lock."""
