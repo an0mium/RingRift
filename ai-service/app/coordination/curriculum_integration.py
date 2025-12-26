@@ -1015,6 +1015,25 @@ def force_momentum_sync() -> dict[str, float]:
     return {}
 
 
+def get_quality_penalty_weights() -> dict[str, float]:
+    """Get current quality penalty-based weight factors.
+
+    Returns:
+        Dict mapping config_key to weight factor (1.0 = no penalty, <1.0 = penalized)
+    """
+    watcher = _watcher_instances.get("quality_penalty_curriculum")
+    if watcher and isinstance(watcher, QualityPenaltyToCurriculumWatcher):
+        return watcher.get_penalty_weights()
+    return {}
+
+
+def reset_quality_penalty(config_key: str) -> None:
+    """Reset quality penalty for a config (when quality recovers)."""
+    watcher = _watcher_instances.get("quality_penalty_curriculum")
+    if watcher and isinstance(watcher, QualityPenaltyToCurriculumWatcher):
+        watcher.reset_penalty(config_key)
+
+
 __all__ = [
     # Main wiring functions
     "wire_all_feedback_loops",
@@ -1023,9 +1042,12 @@ __all__ = [
     # Individual components
     "MomentumToCurriculumBridge",
     "PFSPWeaknessWatcher",
+    "QualityPenaltyToCurriculumWatcher",
     "QualityToTemperatureWatcher",
     # Convenience functions
     "get_exploration_boost",
     "get_mastered_opponents",
     "force_momentum_sync",
+    "get_quality_penalty_weights",
+    "reset_quality_penalty",
 ]

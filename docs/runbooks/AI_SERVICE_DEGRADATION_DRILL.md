@@ -169,11 +169,12 @@ All shell commands below assume you are on the staging host in the RingRift depl
    From a terminal with access to the app’s `/metrics`:
 
    ```bash
+   APP_METRICS_BASE=${APP_METRICS_BASE:-${APP_BASE:-http://localhost:3000}}
    echo "== AI request duration histogram =="
-   curl -sS "${APP_BASE}/metrics" | grep ringrift_ai_request_duration_seconds || true
+   curl -sS "${APP_METRICS_BASE}/metrics" | grep ringrift_ai_request_duration_seconds || true
 
    echo "== AI request + fallback counters =="
-   curl -sS "${APP_BASE}/metrics" | grep 'ringrift_ai_\(requests_total\|fallback_total\)' || true
+   curl -sS "${APP_METRICS_BASE}/metrics" | grep 'ringrift_ai_\(requests_total\|fallback_total\)' || true
    ```
 
    In Prometheus (UI), sanity-check:

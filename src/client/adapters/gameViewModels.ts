@@ -452,7 +452,7 @@ export function getPlayerColors(playerNumber?: number) {
 // Phase Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
+export const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
   ring_placement: {
     label: 'Ring Placement',
     description: 'Place your rings on the board to build stacks',

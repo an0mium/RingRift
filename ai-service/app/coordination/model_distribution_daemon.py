@@ -229,6 +229,13 @@ class ModelDistributionDaemon:
                 pending_models=len(self._pending_models),
             )
 
+        # Check for checksum verification failures (December 2025)
+        if self._checksum_failures > 5:
+            return HealthCheckResult.degraded(
+                f"{self._checksum_failures} checksum verification failures",
+                checksum_failures=self._checksum_failures,
+            )
+
         # Healthy
         return HealthCheckResult(
             healthy=True,
@@ -237,6 +244,7 @@ class ModelDistributionDaemon:
                 "uptime_seconds": self.uptime_seconds,
                 "successful_distributions": self._successful_distributions,
                 "pending_models": len(self._pending_models),
+                "checksum_failures": self._checksum_failures,
                 "last_sync_time": self._last_sync_time,
             },
         )
@@ -631,6 +639,186 @@ class ModelDistributionDaemon:
             logger.warning(f"Failed to read distribution targets: {e}")
             return []
 
+    # =========================================================================
+    # Checksum Verification (December 2025)
+    # =========================================================================
+
+    async def _compute_model_checksum(self, model_path: Path) -> str | None:
+        """Compute SHA256 checksum of a model file.
+
+        Uses cached checksums when available to avoid recomputation.
+
+        Args:
+            model_path: Path to the model file
+
+        Returns:
+            SHA256 hex digest or None on error
+        """
+        path_key = str(model_path)
+
+        # Check cache first
+        if path_key in self._model_checksums:
+            return self._model_checksums[path_key]
+
+        if not model_path.exists():
+            return None
+
+        try:
+            from app.utils.checksum_utils import compute_file_checksum, LARGE_CHUNK_SIZE
+
+            # Run in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            checksum = await loop.run_in_executor(
+                None,
+                lambda: compute_file_checksum(model_path, chunk_size=LARGE_CHUNK_SIZE),
+            )
+
+            # Cache the result
+            self._model_checksums[path_key] = checksum
+            return checksum
+        except Exception as e:
+            logger.warning(f"Failed to compute checksum for {model_path}: {e}")
+            return None
+
+    async def _verify_model_on_remote(
+        self,
+        node: str,
+        model_name: str,
+        expected_checksum: str,
+    ) -> bool:
+        """Verify checksum of a model on a remote node via SSH.
+
+        Args:
+            node: Remote node hostname/IP
+            model_name: Name of the model file (e.g., canonical_hex8_2p.pth)
+            expected_checksum: Expected SHA256 checksum
+
+        Returns:
+            True if checksum matches, False otherwise
+        """
+        # Try to get SSH user from config
+        ssh_user = "root"  # Default for most cloud nodes
+        remote_path = "~/ringrift/ai-service"
+
+        try:
+            import yaml
+
+            config_path = ROOT / "config" / "distributed_hosts.yaml"
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+
+                for host_config in config.get("hosts", {}).values():
+                    host = (
+                        host_config.get("ssh_host")
+                        or host_config.get("tailscale_ip")
+                        or host_config.get("host")
+                    )
+                    if host == node:
+                        ssh_user = host_config.get("ssh_user", "root")
+                        remote_path = host_config.get("remote_path", remote_path)
+                        break
+        except Exception:
+            pass
+
+        # Build remote checksum command
+        remote_file = f"{remote_path}/models/{model_name}"
+        checksum_cmd = f"sha256sum {remote_file} 2>/dev/null | cut -d' ' -f1"
+
+        # Build SSH command
+        ssh_cmd = [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            f"{ssh_user}@{node}",
+            checksum_cmd,
+        ]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.checksum_timeout_seconds,
+            )
+
+            if process.returncode == 0:
+                remote_checksum = stdout.decode().strip()
+                if remote_checksum == expected_checksum:
+                    logger.debug(f"Checksum verified on {node}: {remote_checksum[:16]}...")
+                    return True
+                else:
+                    logger.warning(
+                        f"Checksum mismatch on {node}: "
+                        f"expected {expected_checksum[:16]}..., "
+                        f"got {remote_checksum[:16]}..."
+                    )
+                    self._checksum_failures += 1
+                    return False
+            else:
+                logger.warning(f"Failed to get checksum from {node}: {stderr.decode()[:100]}")
+                return False
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Checksum verification timed out on {node}")
+            return False
+        except Exception as e:
+            logger.warning(f"Checksum verification failed on {node}: {e}")
+            return False
+
+    async def _verify_all_models_on_node(
+        self,
+        node: str,
+        models: list[Path],
+    ) -> list[ModelDeliveryResult]:
+        """Verify all distributed models on a remote node.
+
+        Args:
+            node: Remote node hostname/IP
+            models: List of model paths that were distributed
+
+        Returns:
+            List of delivery results for each model
+        """
+        results = []
+        start_time = time.time()
+
+        for model_path in models:
+            expected_checksum = await self._compute_model_checksum(model_path)
+            if not expected_checksum:
+                results.append(ModelDeliveryResult(
+                    node_id=node,
+                    host=node,
+                    model_name=model_path.name,
+                    success=True,  # Transfer may have succeeded
+                    checksum_verified=False,
+                    transfer_time_seconds=time.time() - start_time,
+                    error_message="Could not compute source checksum",
+                    method="unknown",
+                ))
+                continue
+
+            verified = await self._verify_model_on_remote(
+                node, model_path.name, expected_checksum
+            )
+
+            results.append(ModelDeliveryResult(
+                node_id=node,
+                host=node,
+                model_name=model_path.name,
+                success=verified,
+                checksum_verified=verified,
+                transfer_time_seconds=time.time() - start_time,
+                method="verified",
+            ))
+
+        return results
+
     async def _run_smart_sync(self) -> bool:
         """Run model sync using best available method.
 
@@ -639,22 +827,66 @@ class ModelDistributionDaemon:
         - HTTP distribution fails
         - aiohttp is not available
 
+        December 2025: Now includes checksum verification after distribution.
+
         Returns:
             True if sync succeeded, False otherwise
         """
         # Try HTTP first if enabled
+        distribution_succeeded = False
+        method = "unknown"
+
         if self.config.use_http_distribution:
             http_success = await self._distribute_via_http()
             if http_success:
-                return True
-
-            if self.config.fallback_to_rsync:
+                distribution_succeeded = True
+                method = "http"
+            elif self.config.fallback_to_rsync:
                 logger.info("HTTP distribution failed, falling back to rsync")
+                rsync_success = await self._run_model_sync()
+                if rsync_success:
+                    distribution_succeeded = True
+                    method = "rsync"
             else:
                 return False
+        else:
+            # Rsync only
+            rsync_success = await self._run_model_sync()
+            if rsync_success:
+                distribution_succeeded = True
+                method = "rsync"
 
-        # Fallback to rsync
-        return await self._run_model_sync()
+        if not distribution_succeeded:
+            return False
+
+        # December 2025: Verify checksums on remote nodes after distribution
+        if self.config.verify_checksums:
+            models_dir = ROOT / self.config.models_dir
+            canonical_models = list(models_dir.glob("canonical_*.pth"))
+            targets = self._get_distribution_targets()
+
+            all_results: list[ModelDeliveryResult] = []
+            verified_count = 0
+
+            for node in targets:
+                results = await self._verify_all_models_on_node(node, canonical_models)
+                all_results.extend(results)
+                verified_count += sum(1 for r in results if r.checksum_verified)
+
+            # Track delivery history
+            self._delivery_history.extend(all_results)
+            if len(self._delivery_history) > 200:
+                self._delivery_history = self._delivery_history[-200:]
+
+            # Log verification summary
+            total_checks = len(all_results)
+            if total_checks > 0:
+                logger.info(
+                    f"Model distribution verification: {verified_count}/{total_checks} "
+                    f"checksums verified via {method}"
+                )
+
+        return True
 
     async def _periodic_sync_check(self) -> None:
         """Periodic check for models that need distribution."""
