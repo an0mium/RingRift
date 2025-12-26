@@ -61,9 +61,15 @@ COPY app/__init__.py ./app/
 COPY app/models/ ./app/models/
 COPY app/rules/ ./app/rules/
 COPY app/ai/ ./app/ai/
+COPY app/db/ ./app/db/
+COPY app/training/ ./app/training/
+COPY app/utils/ ./app/utils/
 COPY app/game_engine.py ./app/
 COPY app/board_manager.py ./app/
 COPY app/distributed/ ./app/distributed/
+COPY scripts/__init__.py ./scripts/
+COPY scripts/lib/ ./scripts/lib/
+COPY scripts/run_cmaes_optimization.py ./scripts/
 COPY scripts/cluster_worker.py ./scripts/
 
 # Create data directory for state pools

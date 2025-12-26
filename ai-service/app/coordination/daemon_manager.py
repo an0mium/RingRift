@@ -2982,6 +2982,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.AUTO_EXPORT,  # Auto-export NPZ when game threshold met
         DaemonType.TRAINING_TRIGGER,  # Decide when to trigger training
         DaemonType.DLQ_RETRY,  # P0.3: Dead letter queue remediation (Dec 2025)
+        DaemonType.GAUNTLET_FEEDBACK,  # Dec 2025: Process evaluation results → emit REGRESSION_CRITICAL
     ],
 
     # Training node profile - runs on GPU nodes
