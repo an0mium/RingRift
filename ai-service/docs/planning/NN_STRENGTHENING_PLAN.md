@@ -297,17 +297,16 @@ ssh ubuntu@<node-ip> "cd ~/ringrift/ai-service && source venv/bin/activate && \
 
 ```bash
 # Uses p2p orchestrator for multi-node coordination
-python scripts/p2p_orchestrator.py \
-  --board-type square19 \
-  --num-games 1000 \
-  --hosts config/distributed_hosts.yaml
+curl -X POST http://localhost:8770/jobs/selfplay \
+  -H "Content-Type: application/json" \
+  -d '{"board_type": "square19", "num_players": 2, "num_games": 1000}'
 ```
 
 **5. Monitor training jobs:**
 
 ```bash
 python scripts/gpu_cluster_manager.py jobs list
-python scripts/monitor_improvement.py --board square19 --check
+python scripts/monitor_improvement.py --watch
 ```
 
 **6. Run experimental AI tournament (D12-D19 vs production):**

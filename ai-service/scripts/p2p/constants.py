@@ -334,6 +334,83 @@ MIN_MEMORY_GB_FOR_GAUNTLET = int(os.environ.get("RINGRIFT_MIN_MEMORY_GB_FOR_GAUN
 MAX_CPU_LOAD_RATIO_FOR_GAUNTLET = float(os.environ.get("RINGRIFT_MAX_CPU_LOAD_FOR_GAUNTLET", "0.8"))
 
 # ============================================
+# Bootstrap Seeds for P2P Mesh Resilience
+# ============================================
+# Hardcoded bootstrap seeds for initial cluster discovery.
+# Nodes try these seeds when they can't find any peers, enabling
+# mesh reformation without a central coordinator.
+#
+# Priority order:
+# 1. CLI --peers (explicit, highest priority)
+# 2. Cached peers from peer_cache table (by reputation score)
+# 3. These hardcoded seeds (reliable fallback)
+# 4. Tailscale network scan (last resort)
+
+# Primary bootstrap seeds - use public IPs of P2P voter nodes
+# These are the most stable nodes marked with p2p_voter: true
+BOOTSTRAP_SEEDS: list[str] = [
+    # RunPod voters (most stable, have p2p_voter: true)
+    "102.210.171.65:8770",    # runpod-h100
+    "38.128.233.145:8770",    # runpod-a100-1
+    "104.255.9.187:8770",     # runpod-a100-2
+    # Nebius backbone (stable, role: backbone)
+    "89.169.112.47:8770",     # nebius-backbone-1
+    # RunPod additional nodes
+    "174.94.157.109:8770",    # runpod-3090ti-1
+    "193.183.22.62:8770",     # runpod-l40s-2
+    # Vultr (stable cloud GPU)
+    "208.167.249.164:8770",   # vultr-a100-20gb
+]
+
+# Minimum seeds to try before giving up in a bootstrap cycle
+MIN_BOOTSTRAP_ATTEMPTS = int(os.environ.get("RINGRIFT_P2P_MIN_BOOTSTRAP_ATTEMPTS", "5"))
+
+# Interval between continuous bootstrap attempts when isolated (seconds)
+ISOLATED_BOOTSTRAP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_ISOLATED_BOOTSTRAP_INTERVAL", "30"))
+
+# Minimum peers to consider "connected" (below this triggers bootstrap loop)
+MIN_CONNECTED_PEERS = int(os.environ.get("RINGRIFT_P2P_MIN_CONNECTED_PEERS", "2"))
+
+# ============================================
+# Gossip Protocol for Peer-of-Peer Discovery
+# ============================================
+# Gossip spreads peer topology across the mesh, enabling nodes to
+# discover peers they can't reach directly through intermediaries.
+
+# Number of random peers to gossip to per interval
+GOSSIP_FANOUT = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "3"))
+
+# Gossip interval in seconds
+GOSSIP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_GOSSIP_INTERVAL", "15"))
+
+# Maximum peers to include in gossip payload
+GOSSIP_MAX_PEER_ENDPOINTS = int(os.environ.get("RINGRIFT_P2P_GOSSIP_MAX_PEERS", "10"))
+
+# ============================================
+# Peer Cache for Persistence Across Restarts
+# ============================================
+# Peers are cached in SQLite with reputation scores for reliable
+# reconnection after restarts.
+
+# TTL for cached peers (seconds) - default 7 days
+PEER_CACHE_TTL_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_CACHE_TTL", str(7 * 24 * 3600)))
+
+# Maximum cached peers to store
+PEER_CACHE_MAX_ENTRIES = int(os.environ.get("RINGRIFT_P2P_PEER_CACHE_MAX", "200"))
+
+# Reputation EMA alpha (higher = more weight to recent interactions)
+PEER_REPUTATION_ALPHA = float(os.environ.get("RINGRIFT_P2P_REPUTATION_ALPHA", "0.1"))
+
+# ============================================
+# Cluster Epochs for Split-Brain Resolution
+# ============================================
+# Monotonic epoch counters help resolve split-brain when partitions merge.
+# Higher epoch wins, with node_id as tiebreaker.
+
+# Initial cluster epoch (incremented on each leader change)
+INITIAL_CLUSTER_EPOCH = 0
+
+# ============================================
 # State Directory
 # ============================================
 

@@ -60,24 +60,31 @@ Generate mid/late-game states for multi-start evaluation:
 ```bash
 # Square8 (fast - ~30 min)
 RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
-    --board square8 \
-    --games 200 \
-    --sample-mid-game \
-    --output data/eval_pools/square8/pool_v1.jsonl
+    --board-type square8 \
+    --num-games 200 \
+    --log-jsonl logs/eval_pools/square8/pool_v1.games.jsonl \
+    --square8-state-pool-output data/eval_pools/square8/pool_v1.jsonl \
+    --no-record-db
 
 # Square19 (slower - ~2-3 hours)
 RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
-    --board square19 \
-    --games 100 \
-    --sample-mid-game \
-    --output data/eval_pools/square19/pool_v1.jsonl
+    --board-type square19 \
+    --num-games 100 \
+    --log-jsonl logs/eval_pools/square19/pool_v1.games.jsonl \
+    --square19-state-pool-output data/eval_pools/square19/pool_v1.jsonl \
+    --square19-state-pool-max-states 200 \
+    --square19-state-pool-sampling-interval 10 \
+    --no-record-db
 
 # Hex radius-12 (moderate - ~1-2 hours)
 RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
-    --board hexagonal \
-    --games 100 \
-    --sample-mid-game \
-    --output data/eval_pools/hex/pool_v1.jsonl
+    --board-type hexagonal \
+    --num-games 100 \
+    --log-jsonl logs/eval_pools/hex/pool_v1.games.jsonl \
+    --hex-state-pool-output data/eval_pools/hex/pool_v1.jsonl \
+    --hex-state-pool-max-states 200 \
+    --hex-state-pool-sampling-interval 10 \
+    --no-record-db
 ```
 
 ---
@@ -324,9 +331,11 @@ python scripts/run_tournament.py basic \
 
 # Long-running stability test
 python scripts/run_self_play_soak.py \
-    --ai neural \
-    --games 500 \
-    --board square8
+    --engine-mode nn-only \
+    --num-games 500 \
+    --board-type square8 \
+    --log-jsonl logs/selfplay_soak/square8_nn_only.jsonl \
+    --no-record-db
 ```
 
 ---

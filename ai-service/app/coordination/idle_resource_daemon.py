@@ -913,16 +913,29 @@ class IdleResourceDaemon:
 
     def get_stats(self) -> dict[str, Any]:
         """Get daemon statistics."""
+        # Calculate success rate
+        success_rate = 0.0
+        if self._stats.total_spawns > 0:
+            success_rate = self._stats.successful_spawns / self._stats.total_spawns
+
+        # Count nodes in backoff
+        nodes_in_backoff = sum(
+            1 for n in self._node_spawn_history
+            if self._is_node_in_backoff(n)
+        )
+
         return {
             "running": self._running,
             "uptime_seconds": time.time() - self._start_time if self._start_time else 0,
             "total_spawns": self._stats.total_spawns,
             "successful_spawns": self._stats.successful_spawns,
             "failed_spawns": self._stats.failed_spawns,
+            "success_rate": round(success_rate, 3),
             "games_spawned": self._stats.games_spawned,
             "last_spawn_time": self._stats.last_spawn_time,
             "last_error": self._stats.last_error,
             "tracked_nodes": len(self._node_states),
+            "nodes_in_backoff": nodes_in_backoff,
             "errors_count": self._errors_count,
         }
 

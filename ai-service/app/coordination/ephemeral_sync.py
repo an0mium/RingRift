@@ -63,6 +63,9 @@ class EphemeralSyncConfig:
     min_games_before_push: int = 1  # Push even single games
     max_concurrent_syncs: int = 2
     sync_timeout_seconds: int = 30
+    # December 2025: Write-through mode for zero data loss
+    write_through_enabled: bool = True  # Wait for push confirmation
+    write_through_timeout_seconds: int = 10  # Max wait for confirmation
 
 
 @dataclass
@@ -76,6 +79,11 @@ class EphemeralSyncStats:
     failed_syncs: int = 0
     last_push_time: float = 0.0
     last_error: str | None = None
+    # December 2025: Write-through tracking
+    write_through_successes: int = 0
+    write_through_failures: int = 0
+    games_at_risk_on_termination: int = 0  # Games not yet synced when terminated
+    games_confirmed_synced: int = 0  # Games with confirmed push
 
 
 class EphemeralSyncDaemon:
@@ -216,6 +224,10 @@ class EphemeralSyncDaemon:
         logger.warning("Handling termination - starting final sync")
         self._stats.termination_syncs += 1
 
+        # Phase 5 (Dec 2025): Notify coordinator of impending termination
+        # so work can be migrated to other nodes
+        await self._emit_termination_event()
+
         # Run callback if provided
         if self._termination_callback:
             try:
@@ -225,6 +237,28 @@ class EphemeralSyncDaemon:
 
         # Do final sync
         await self._final_sync()
+
+    async def _emit_termination_event(self) -> None:
+        """Emit HOST_OFFLINE event to notify coordinator of termination.
+
+        Phase 5 (Dec 2025): Enables coordinator to migrate work before
+        this ephemeral node terminates, reducing job loss.
+        """
+        try:
+            from app.distributed.data_events import emit_host_offline
+
+            await emit_host_offline(
+                host=self.node_id,
+                reason=f"ephemeral_termination:pending_games={len(self._pending_games)}",
+                last_seen=time.time(),
+                source="ephemeral_sync_daemon",
+            )
+            logger.info(f"Emitted HOST_OFFLINE event for {self.node_id}")
+
+        except ImportError:
+            logger.debug("emit_host_offline not available")
+        except Exception as e:
+            logger.warning(f"Failed to emit termination event: {e}")
 
     async def _final_sync(self) -> None:
         """Perform final sync before shutdown."""
@@ -289,24 +323,120 @@ class EphemeralSyncDaemon:
         self,
         game_result: dict[str, Any],
         db_path: Path | str | None = None,
-    ) -> None:
+    ) -> bool:
         """Handle game completion - queue for immediate push.
+
+        December 2025: Enhanced with write-through mode for zero data loss.
+        When write_through_enabled=True, waits for push confirmation before
+        returning, ensuring the game is safely synced to a persistent node.
 
         Args:
             game_result: Game result dict with game_id, moves, etc.
             db_path: Path to database containing the game
+
+        Returns:
+            True if game was successfully synced (write-through mode) or queued,
+            False if write-through failed (data at risk)
         """
+        game_id = game_result.get("game_id")
+
         # Add to pending
         self._pending_games.append({
-            "game_id": game_result.get("game_id"),
+            "game_id": game_id,
             "db_path": str(db_path) if db_path else None,
             "timestamp": time.time(),
+            "synced": False,  # Track sync status
         })
 
         # Immediate push if enabled
         if self.config.immediate_push_enabled and len(self._pending_games) >= 1:
             self._stats.immediate_pushes += 1
-            await self._push_to_targets()
+
+            # December 2025: Write-through mode - wait for confirmation
+            if self.config.write_through_enabled:
+                try:
+                    success = await asyncio.wait_for(
+                        self._push_to_targets_with_confirmation(),
+                        timeout=self.config.write_through_timeout_seconds,
+                    )
+                    if success:
+                        self._stats.write_through_successes += 1
+                        self._stats.games_confirmed_synced += 1
+                        logger.debug(f"Write-through success for game {game_id}")
+                        return True
+                    else:
+                        self._stats.write_through_failures += 1
+                        logger.warning(f"Write-through push failed for game {game_id}")
+                        return False
+                except asyncio.TimeoutError:
+                    self._stats.write_through_failures += 1
+                    logger.warning(
+                        f"Write-through timeout for game {game_id} "
+                        f"(timeout={self.config.write_through_timeout_seconds}s)"
+                    )
+                    # Fall back to async push
+                    asyncio.create_task(self._push_to_targets())
+                    return False
+            else:
+                # Legacy async push (fire-and-forget)
+                await self._push_to_targets()
+                return True
+
+        return True
+
+    async def _push_to_targets_with_confirmation(self) -> bool:
+        """Push pending games and return True if at least one target succeeds.
+
+        December 2025: Write-through variant that returns sync status.
+        """
+        if not self._pending_games:
+            return True
+
+        if not self._sync_targets:
+            logger.warning("No sync targets available")
+            return False
+
+        async with self._push_lock:
+            games_to_push = self._pending_games.copy()
+            self._pending_games.clear()
+
+            logger.info(f"Write-through: pushing {len(games_to_push)} games")
+
+            # Get unique DB paths
+            db_paths = set()
+            for game in games_to_push:
+                if game.get("db_path"):
+                    db_paths.add(game["db_path"])
+
+            if not db_paths:
+                logger.warning("No database paths to push")
+                return False
+
+            # Push each DB to at least one target
+            any_success = False
+            for db_path in db_paths:
+                for target in self._sync_targets:
+                    try:
+                        success = await self._rsync_to_target(db_path, target)
+                        if success:
+                            self._stats.games_pushed += len(games_to_push)
+                            self._stats.last_push_time = time.time()
+                            any_success = True
+                            # Mark games as synced
+                            for game in games_to_push:
+                                game["synced"] = True
+                            break  # Only need one successful target
+                    except Exception as e:
+                        logger.debug(f"Push to {target} failed: {e}")
+
+            if any_success:
+                await self._emit_sync_event(
+                    games_pushed=len(games_to_push),
+                    target_nodes=self._sync_targets[:1],
+                    db_paths=list(db_paths),
+                )
+
+            return any_success
 
     async def _push_to_targets(self, force: bool = False) -> None:
         """Push pending games to sync targets."""
@@ -490,6 +620,8 @@ class EphemeralSyncDaemon:
                 "enabled": self.config.enabled,
                 "poll_interval_seconds": self.config.poll_interval_seconds,
                 "immediate_push_enabled": self.config.immediate_push_enabled,
+                "write_through_enabled": self.config.write_through_enabled,
+                "write_through_timeout_seconds": self.config.write_through_timeout_seconds,
             },
             "stats": {
                 "games_pushed": self._stats.games_pushed,
@@ -499,6 +631,11 @@ class EphemeralSyncDaemon:
                 "failed_syncs": self._stats.failed_syncs,
                 "last_push_time": self._stats.last_push_time,
                 "last_error": self._stats.last_error,
+                # December 2025: Write-through telemetry
+                "write_through_successes": self._stats.write_through_successes,
+                "write_through_failures": self._stats.write_through_failures,
+                "games_confirmed_synced": self._stats.games_confirmed_synced,
+                "games_at_risk_on_termination": self._stats.games_at_risk_on_termination,
             },
         }
 

@@ -378,6 +378,21 @@ from scripts.p2p.constants import (
     VOTER_MIN_QUORUM,
     VOTER_NAT_RECOVERY_AGGRESSIVE,
     VOTER_PROMOTION_UPTIME,
+    # Phase 26: Multi-seed bootstrap and mesh resilience
+    BOOTSTRAP_SEEDS,
+    MIN_BOOTSTRAP_ATTEMPTS,
+    ISOLATED_BOOTSTRAP_INTERVAL,
+    MIN_CONNECTED_PEERS,
+    # Phase 28: Gossip protocol
+    GOSSIP_FANOUT,
+    GOSSIP_INTERVAL,
+    GOSSIP_MAX_PEER_ENDPOINTS,
+    # Phase 27: Peer cache
+    PEER_CACHE_TTL_SECONDS,
+    PEER_CACHE_MAX_ENTRIES,
+    PEER_REPUTATION_ALPHA,
+    # Phase 29: Cluster epochs
+    INITIAL_CLUSTER_EPOCH,
 )
 from scripts.p2p.models import (
     ClusterDataManifest,
@@ -878,10 +893,33 @@ class P2POrchestrator:
         self.node_id = node_id
         self.host = host
         self.port = port
-        self.known_peers = known_peers or []
+
+        # Phase 26: Multi-seed bootstrap - merge CLI peers with hardcoded seeds
+        # Priority: CLI peers first, then hardcoded seeds
+        # Shuffle seeds to distribute load across bootstrap attempts
+        import random
+        cli_peers = known_peers or []
+        merged_seeds = list(cli_peers)  # CLI peers have highest priority
+        for seed in BOOTSTRAP_SEEDS:
+            if seed not in merged_seeds:
+                merged_seeds.append(seed)
+        # Shuffle only the hardcoded portion to avoid overloading any single seed
+        if len(merged_seeds) > len(cli_peers):
+            hardcoded_portion = merged_seeds[len(cli_peers):]
+            random.shuffle(hardcoded_portion)
+            merged_seeds = merged_seeds[:len(cli_peers)] + hardcoded_portion
+        self.known_peers = merged_seeds
+        self.bootstrap_seeds = list(BOOTSTRAP_SEEDS)  # Store original for reference
+        logger.info(f"Bootstrap seeds: {len(cli_peers)} CLI + {len(BOOTSTRAP_SEEDS)} hardcoded = {len(self.known_peers)} total")
+
         # Peers that should always receive relay heartbeats (for NAT-blocked nodes)
         self.relay_peers: set[str] = set(relay_peers or [])
         self.ringrift_path = ringrift_path or self._detect_ringrift_path()
+
+        # Phase 29: Cluster epoch tracking for split-brain resolution
+        self._cluster_epoch: int = INITIAL_CLUSTER_EPOCH
+        # Gossip-learned peer endpoints (Phase 28)
+        self._gossip_learned_endpoints: dict[str, dict[str, Any]] = {}
 
         # Storage configuration: "disk", "ramdrive", or "auto" (detected)
         self.sync_to_disk_interval = sync_to_disk_interval
@@ -1183,6 +1221,7 @@ class P2POrchestrator:
         # State persistence
         self.db_path = STATE_DIR / f"{node_id}_state.db"
         self._init_database()
+        self._load_cluster_epoch()  # Phase 29: Load persisted cluster epoch
 
         # Event flags
         self.running = True
@@ -2451,6 +2490,34 @@ class P2POrchestrator:
             ON ab_test_games(test_id, played_at)
         """)
 
+        # Phase 27: Peer cache table for persistent peer storage
+        # Peers are cached with reputation scores for reliable reconnection
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS peer_cache (
+                node_id TEXT PRIMARY KEY,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                tailscale_ip TEXT,
+                last_seen REAL,
+                success_count INTEGER DEFAULT 0,
+                failure_count INTEGER DEFAULT 0,
+                reputation_score REAL DEFAULT 0.5,
+                is_bootstrap_seed BOOLEAN DEFAULT FALSE
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_peer_cache_reputation
+            ON peer_cache(reputation_score DESC, last_seen DESC)
+        """)
+
+        # Phase 29: Config table for cluster epoch and other persistent settings
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
         conn.commit()
         conn.close()
 
@@ -2611,6 +2678,212 @@ class P2POrchestrator:
         finally:
             if conn:
                 conn.close()
+
+    # =========================================================================
+    # Phase 27: Peer Cache and Reputation Tracking
+    # =========================================================================
+
+    def _update_peer_reputation(self, peer_addr_or_node_id: str, success: bool) -> None:
+        """Update peer reputation based on interaction success.
+
+        Uses exponential moving average (EMA) for smooth reputation updates.
+        Higher reputation = more reliable peer for bootstrap.
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+            cursor = conn.cursor()
+
+            # Get current reputation
+            cursor.execute(
+                "SELECT reputation_score, success_count, failure_count FROM peer_cache WHERE node_id = ?",
+                (peer_addr_or_node_id,)
+            )
+            row = cursor.fetchone()
+
+            if row:
+                current_score = float(row[0] or 0.5)
+                success_count = int(row[1] or 0)
+                failure_count = int(row[2] or 0)
+            else:
+                current_score = 0.5
+                success_count = 0
+                failure_count = 0
+
+            # EMA update: new_score = alpha * outcome + (1-alpha) * current
+            outcome = 1.0 if success else 0.0
+            new_score = PEER_REPUTATION_ALPHA * outcome + (1 - PEER_REPUTATION_ALPHA) * current_score
+
+            # Update counts
+            if success:
+                success_count += 1
+            else:
+                failure_count += 1
+
+            # Upsert
+            cursor.execute("""
+                INSERT INTO peer_cache (node_id, host, port, reputation_score, success_count, failure_count, last_seen)
+                VALUES (?, '', 0, ?, ?, ?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    reputation_score = ?,
+                    success_count = ?,
+                    failure_count = ?,
+                    last_seen = ?
+            """, (
+                peer_addr_or_node_id,
+                new_score, success_count, failure_count, time.time(),
+                new_score, success_count, failure_count, time.time()
+            ))
+            conn.commit()
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Error updating peer reputation: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    def _save_peer_to_cache(
+        self,
+        node_id: str,
+        host: str,
+        port: int,
+        tailscale_ip: str | None = None
+    ) -> None:
+        """Save a peer to the cache for persistence across restarts."""
+        if not node_id or node_id == self.node_id:
+            return
+
+        conn = None
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+            cursor = conn.cursor()
+
+            # Check if this is a known bootstrap seed
+            is_seed = f"{host}:{port}" in self.bootstrap_seeds
+
+            cursor.execute("""
+                INSERT INTO peer_cache (node_id, host, port, tailscale_ip, last_seen, is_bootstrap_seed)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    host = COALESCE(NULLIF(?, ''), host),
+                    port = CASE WHEN ? > 0 THEN ? ELSE port END,
+                    tailscale_ip = COALESCE(NULLIF(?, ''), tailscale_ip),
+                    last_seen = ?,
+                    is_bootstrap_seed = ?
+            """, (
+                node_id, host, port, tailscale_ip or "", time.time(), is_seed,
+                host, port, port, tailscale_ip or "", time.time(), is_seed
+            ))
+            conn.commit()
+
+            # Prune old entries if needed
+            cursor.execute("SELECT COUNT(*) FROM peer_cache")
+            count = cursor.fetchone()[0]
+            if count > PEER_CACHE_MAX_ENTRIES:
+                # Delete oldest entries with lowest reputation
+                cursor.execute("""
+                    DELETE FROM peer_cache
+                    WHERE node_id IN (
+                        SELECT node_id FROM peer_cache
+                        WHERE is_bootstrap_seed = 0
+                        ORDER BY reputation_score ASC, last_seen ASC
+                        LIMIT ?
+                    )
+                """, (count - PEER_CACHE_MAX_ENTRIES,))
+                conn.commit()
+
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Error saving peer to cache: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    def _get_bootstrap_peers_by_reputation(self, limit: int = 5) -> list[str]:
+        """Get most reliable cached peers for bootstrap.
+
+        Returns list of "host:port" strings ordered by reputation.
+        Filters out peers not seen in the last 7 days.
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+            cursor = conn.cursor()
+
+            # Get peers seen recently, ordered by seed status then reputation
+            cutoff = time.time() - PEER_CACHE_TTL_SECONDS
+            cursor.execute("""
+                SELECT host, port, tailscale_ip FROM peer_cache
+                WHERE last_seen > ? AND host != '' AND port > 0
+                ORDER BY is_bootstrap_seed DESC, reputation_score DESC
+                LIMIT ?
+            """, (cutoff, limit))
+
+            result = []
+            for row in cursor.fetchall():
+                host = row[0]
+                port = row[1]
+                ts_ip = row[2]
+                # Prefer Tailscale IP if available
+                if ts_ip:
+                    result.append(f"{ts_ip}:{port}")
+                elif host:
+                    result.append(f"{host}:{port}")
+            return result
+
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Error getting cached peers: {e}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    # =========================================================================
+    # Phase 29: Cluster Epoch Persistence
+    # =========================================================================
+
+    def _load_cluster_epoch(self) -> None:
+        """Load cluster epoch from database."""
+        conn = None
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM config WHERE key = 'cluster_epoch'")
+            row = cursor.fetchone()
+            if row:
+                self._cluster_epoch = int(row[0])
+                logger.info(f"Loaded cluster epoch: {self._cluster_epoch}")
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Error loading cluster epoch: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    def _save_cluster_epoch(self) -> None:
+        """Save cluster epoch to database."""
+        conn = None
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('cluster_epoch', ?)",
+                (str(self._cluster_epoch),)
+            )
+            conn.commit()
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Error saving cluster epoch: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    def _increment_cluster_epoch(self) -> None:
+        """Increment cluster epoch (called on leader change)."""
+        self._cluster_epoch += 1
+        self._save_cluster_epoch()
+        logger.info(f"Incremented cluster epoch to {self._cluster_epoch}")
 
     # Class-level metrics buffer for batched writes (5% speedup)
     _metrics_buffer: list[tuple] = []
@@ -20792,6 +21065,16 @@ print(json.dumps({{
                         info.port = peer_port
                         # Record success with circuit breaker
                         breaker.record_success(target)
+
+                        # Phase 27: Cache peer for persistence across restarts
+                        self._save_peer_to_cache(
+                            info.node_id,
+                            peer_host,
+                            peer_port,
+                            str(getattr(info, "tailscale_ip", "") or "")
+                        )
+                        self._update_peer_reputation(info.node_id, success=True)
+
                         return info
                     else:
                         # Non-200 response is a failure
@@ -20957,6 +21240,202 @@ print(json.dumps({{
             self._maybe_adopt_leader_from_peers()
             self._save_state()
         return imported_any
+
+    async def _continuous_bootstrap_loop(self) -> None:
+        """Phase 26.3: Continuously attempt to join cluster when isolated.
+
+        This loop runs on ALL nodes (not just leader) and ensures that
+        isolated nodes can rejoin the cluster without manual intervention.
+
+        Triggers when:
+        - Less than MIN_CONNECTED_PEERS alive peers
+        - No leader known
+
+        Uses multi-seed bootstrap with:
+        1. Cached peers (highest reputation first)
+        2. CLI-provided peers
+        3. Hardcoded BOOTSTRAP_SEEDS
+        4. Tailscale network scan (fallback)
+        """
+        # Wait for initial startup before checking isolation
+        await asyncio.sleep(60)
+
+        while self.running:
+            try:
+                await asyncio.sleep(ISOLATED_BOOTSTRAP_INTERVAL)
+
+                # Count alive peers
+                with self.peers_lock:
+                    peers_alive = sum(
+                        1 for p in self.peers.values()
+                        if p.node_id != self.node_id and p.is_alive()
+                    )
+
+                # Check if we're isolated (few peers or no leader)
+                is_isolated = peers_alive < MIN_CONNECTED_PEERS
+                no_leader = self.leader_id is None or (
+                    self.leader_id != self.node_id and
+                    self.leader_id not in self.peers
+                )
+
+                if is_isolated or no_leader:
+                    if is_isolated:
+                        logger.warning(
+                            f"Isolated: only {peers_alive} alive peers "
+                            f"(need {MIN_CONNECTED_PEERS}), attempting bootstrap..."
+                        )
+                    elif no_leader:
+                        logger.warning(
+                            f"No valid leader (current: {self.leader_id}), "
+                            f"attempting bootstrap..."
+                        )
+
+                    # Try bootstrap from multiple sources
+                    bootstrapped = await self._bootstrap_from_multiple_seeds()
+
+                    if bootstrapped:
+                        logger.info(
+                            f"Bootstrap successful! "
+                            f"Now have {len([p for p in self.peers.values() if p.is_alive()])} alive peers"
+                        )
+                        # Try to adopt leader from newly discovered peers
+                        self._maybe_adopt_leader_from_peers()
+
+                        # If still no leader, start election
+                        if not self.leader_id:
+                            await self._start_election()
+                    else:
+                        # Fallback: try Tailscale peer discovery
+                        logger.info("Bootstrap from seeds failed, trying Tailscale discovery...")
+                        await self._discover_tailscale_peers()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in continuous bootstrap loop: {e}")
+                await asyncio.sleep(30)  # Back off on errors
+
+    async def _bootstrap_from_multiple_seeds(self) -> bool:
+        """Phase 26.3: Try multiple seeds until we join the cluster.
+
+        Priority order:
+        1. Cached peers with high reputation (from peer_cache table)
+        2. CLI --peers (self.known_peers)
+        3. Hardcoded BOOTSTRAP_SEEDS
+
+        Returns True if we successfully connected to any peer.
+        """
+        # Build seed list with priority ordering
+        all_seeds: list[str] = []
+        seen: set[str] = set()
+
+        # 1. First, try cached peers by reputation (if available)
+        cached_peers = self._get_bootstrap_peers_by_reputation(limit=3)
+        for seed in cached_peers:
+            if seed and seed not in seen:
+                seen.add(seed)
+                all_seeds.append(seed)
+
+        # 2. Then, CLI peers and hardcoded seeds (already merged in self.known_peers)
+        for seed in self.known_peers:
+            if seed and seed not in seen:
+                seen.add(seed)
+                all_seeds.append(seed)
+
+        if not all_seeds:
+            logger.warning("No bootstrap seeds available")
+            return False
+
+        # Limit attempts per cycle
+        max_attempts = min(MIN_BOOTSTRAP_ATTEMPTS * 2, len(all_seeds))
+        timeout = ClientTimeout(total=10)
+        success = False
+
+        async with get_client_session(timeout) as session:
+            for idx, seed_addr in enumerate(all_seeds[:max_attempts]):
+                try:
+                    scheme, host, port = self._parse_peer_address(seed_addr)
+                    scheme = (scheme or "http").lower()
+                    url = f"{scheme}://{host}:{port}/relay/peers"
+
+                    async with session.get(url, headers=self._auth_headers()) as resp:
+                        if resp.status != 200:
+                            self._update_peer_reputation(seed_addr, success=False)
+                            continue
+
+                        data = await resp.json()
+                        if not isinstance(data, dict) or not data.get("success"):
+                            self._update_peer_reputation(seed_addr, success=False)
+                            continue
+
+                    # Successfully got peer list
+                    self._update_peer_reputation(seed_addr, success=True)
+                    success = True
+
+                    # Import peers
+                    peers_data = data.get("peers") or {}
+                    if isinstance(peers_data, dict):
+                        with self.peers_lock:
+                            for node_id, peer_dict in peers_data.items():
+                                if node_id and node_id != self.node_id:
+                                    try:
+                                        info = NodeInfo.from_dict(peer_dict)
+                                        self.peers[info.node_id] = info
+                                        # Cache the peer for future restarts
+                                        self._save_peer_to_cache(
+                                            info.node_id,
+                                            str(getattr(info, "host", "") or ""),
+                                            int(getattr(info, "port", DEFAULT_PORT) or DEFAULT_PORT),
+                                            str(getattr(info, "tailscale_ip", "") or "")
+                                        )
+                                    except Exception:
+                                        continue
+
+                    # Adopt leader if provided
+                    leader_id = str(data.get("leader_id") or "").strip()
+                    if leader_id and leader_id != self.node_id:
+                        self.leader_id = leader_id
+                        if self.role == NodeRole.LEADER:
+                            logger.info(f"Stepping down for discovered leader: {leader_id}")
+                            self.role = NodeRole.FOLLOWER
+
+                    # Handle cluster epoch (Phase 29)
+                    incoming_epoch = data.get("cluster_epoch")
+                    if incoming_epoch is not None:
+                        try:
+                            epoch = int(incoming_epoch)
+                            if epoch > self._cluster_epoch:
+                                logger.info(f"Adopting higher cluster epoch: {epoch} (was {self._cluster_epoch})")
+                                self._cluster_epoch = epoch
+                                self._save_cluster_epoch()
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Import voter config if provided
+                    incoming_voters = data.get("voter_node_ids") or data.get("voters")
+                    if incoming_voters:
+                        voters_list = []
+                        if isinstance(incoming_voters, list):
+                            voters_list = [str(v).strip() for v in incoming_voters if str(v).strip()]
+                        elif isinstance(incoming_voters, str):
+                            voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
+                        if voters_list:
+                            self._maybe_adopt_voter_node_ids(voters_list, source="learned")
+
+                    self._save_state()
+                    logger.info(f"Bootstrap from {host}:{port}: imported {len(peers_data)} peers")
+                    break  # Success, no need to try more seeds
+
+                except asyncio.TimeoutError:
+                    self._update_peer_reputation(seed_addr, success=False)
+                    continue
+                except Exception as e:
+                    self._update_peer_reputation(seed_addr, success=False)
+                    if self.verbose:
+                        logger.debug(f"Bootstrap seed {seed_addr} failed: {e}")
+                    continue
+
+        return success
 
     async def _send_relay_heartbeat(self, relay_url: str) -> dict[str, Any]:
         """Send heartbeat via relay endpoint for NAT-blocked nodes.
@@ -22999,6 +23478,10 @@ print(json.dumps({{
                         "sender": self.node_id,
                         "sender_state": local_state,
                         "known_states": self._get_gossip_known_states(),
+                        # Phase 28: Peer-of-peer discovery - share peer endpoints
+                        "peer_endpoints": self._get_peer_endpoints_for_gossip(),
+                        # Phase 29: Cluster epoch for split-brain resolution
+                        "cluster_epoch": self._cluster_epoch,
                     }
 
                     # GOSSIP COMPRESSION: Compress payload with gzip to reduce network transfer
@@ -23048,6 +23531,34 @@ print(json.dumps({{
             if state.get("timestamp", 0) > cutoff:
                 known[node_id] = state
         return known
+
+    def _get_peer_endpoints_for_gossip(self) -> list[dict[str, Any]]:
+        """Phase 28: Get peer endpoints to share via gossip for peer-of-peer discovery.
+
+        Returns a list of alive peer endpoints with connection info.
+        This enables nodes to discover peers they can't reach directly.
+        """
+        endpoints = []
+        with self.peers_lock:
+            # Get alive, non-retired peers
+            alive_peers = [
+                p for p in self.peers.values()
+                if p.node_id != self.node_id and p.is_alive() and not getattr(p, "retired", False)
+            ]
+
+        # Limit to top N peers to avoid payload bloat
+        for peer in alive_peers[:GOSSIP_MAX_PEER_ENDPOINTS]:
+            endpoint = {
+                "node_id": peer.node_id,
+                "host": str(getattr(peer, "host", "") or ""),
+                "port": int(getattr(peer, "port", DEFAULT_PORT) or DEFAULT_PORT),
+                "tailscale_ip": str(getattr(peer, "tailscale_ip", "") or ""),
+                "is_alive": True,
+                "last_heartbeat": float(getattr(peer, "last_heartbeat", 0) or 0),
+            }
+            endpoints.append(endpoint)
+
+        return endpoints
 
     def _process_gossip_response(self, response: dict):
         """Process gossip response from a peer, updating our view of the cluster."""
@@ -28312,6 +28823,9 @@ print(json.dumps({{
 
         # Peer recovery loop - ensures all Tailscale nodes stay in P2P network
         tasks.append(asyncio.create_task(self._tailscale_peer_recovery_loop()))
+
+        # Phase 26: Continuous bootstrap loop - ensures isolated nodes can rejoin
+        tasks.append(asyncio.create_task(self._continuous_bootstrap_loop()))
 
         # Add automatic data management loop (export triggers, training triggers, data sync)
         tasks.append(asyncio.create_task(self._data_management_loop()))

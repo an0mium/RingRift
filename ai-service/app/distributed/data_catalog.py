@@ -1227,6 +1227,10 @@ __all__ = [
     "CatalogStats",
     "DataCatalog",
     "DataSource",
+    # NPZ discovery (December 2025)
+    "NPZDataSource",
+    "TrainingSourceRecommendation",
+    "TrainingSourceSuggestion",
     # Unified registry (December 2025)
     "UnifiedDataRegistry",
     "get_data_catalog",

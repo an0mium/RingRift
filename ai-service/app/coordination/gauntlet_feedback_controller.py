@@ -490,6 +490,14 @@ class GauntletFeedbackController:
                 actions.append(FeedbackAction.ADVANCE_CURRICULUM)
                 tracker.last_curriculum_advance_time = now
 
+                # December 2025: Emit PLATEAU_DETECTED event for feedback loop
+                # This enables AdaptiveController and other components to respond
+                await self._emit_plateau_detected(
+                    config_key=record.config_key,
+                    current_elo=record.elo,
+                    window_size=cfg.plateau_window_size,
+                )
+
         # === Phase 5: Emit consolidated ADAPTIVE_PARAMS_CHANGED event ===
         if actions and actions != [FeedbackAction.NO_ACTION]:
             await self._emit_adaptive_params_changed(
@@ -685,6 +693,47 @@ class GauntletFeedbackController:
                 )
         except Exception as e:
             logger.warning(f"[{self.name}] Failed to emit hyperparameter update: {e}")
+
+    async def _emit_plateau_detected(
+        self,
+        config_key: str,
+        current_elo: float,
+        window_size: int,
+    ) -> None:
+        """Emit PLATEAU_DETECTED event when ELO plateaus.
+
+        December 2025: This event enables components like AdaptiveController,
+        FeedbackAccelerator, and CurriculumFeedback to respond to plateaus.
+        Previously, plateau detection only logged and advanced curriculum locally.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            current_elo: Current ELO rating
+            window_size: Number of evaluations in plateau window
+        """
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            if router:
+                await router.publish(
+                    event_type=DataEventType.PLATEAU_DETECTED,
+                    payload={
+                        "config_key": config_key,
+                        "config": config_key,  # Alias for compatibility
+                        "current_elo": current_elo,
+                        "window_size": window_size,
+                        "variance_threshold": self.config.plateau_variance_threshold,
+                        "source": self.name,
+                    },
+                    source=self.name,
+                )
+                logger.info(
+                    f"[{self.name}] Emitted PLATEAU_DETECTED: "
+                    f"ELO={current_elo:.0f} for {config_key}"
+                )
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to emit plateau detected: {e}")
 
     async def _emit_adaptive_params_changed(
         self,

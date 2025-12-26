@@ -19,6 +19,56 @@ from app.training.config import TrainConfig, get_model_version_for_board
 logger = logging.getLogger(__name__)
 
 
+def _discover_best_npz_for_config(
+    board_type: str,
+    num_players: int,
+    fallback_path: str,
+) -> str:
+    """Discover the best NPZ training file for a given config.
+
+    Uses DataCatalog's NPZ discovery to find the most recent/suitable
+    training data for the specified board type and player count.
+
+    Args:
+        board_type: Board type (e.g., 'hex8', 'square8')
+        num_players: Number of players (2, 3, or 4)
+        fallback_path: Path to use if no NPZ files found
+
+    Returns:
+        Path to the best NPZ file, or fallback_path if none found
+    """
+    try:
+        from app.distributed.data_catalog import get_data_catalog
+
+        catalog = get_data_catalog()
+        best_npz = catalog.get_best_npz_for_training(
+            board_type=board_type,
+            num_players=num_players,
+            prefer_recent=True,
+        )
+
+        if best_npz is not None:
+            logger.info(
+                f"[NPZ Discovery] Found training data: {best_npz.path} "
+                f"({best_npz.sample_count:,} samples, "
+                f"{best_npz.age_hours:.1f}h old)"
+            )
+            return str(best_npz.path)
+
+        logger.info(
+            f"[NPZ Discovery] No NPZ files found for {board_type}_{num_players}p, "
+            f"using fallback: {fallback_path}"
+        )
+        return fallback_path
+
+    except ImportError as e:
+        logger.debug(f"[NPZ Discovery] DataCatalog not available: {e}")
+        return fallback_path
+    except Exception as e:
+        logger.warning(f"[NPZ Discovery] Error during discovery: {e}")
+        return fallback_path
+
+
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -586,7 +636,14 @@ def main() -> None:
         config.board_type = board_type_map[args.board_type]
 
     # Determine paths
-    data_path = args.data_path or os.path.join(config.data_dir, "dataset.npz")
+    data_path = args.data_path
+    if data_path is None:
+        # Try NPZ discovery to find best training data for this config
+        data_path = _discover_best_npz_for_config(
+            board_type=args.board_type or 'hex8',
+            num_players=args.num_players or 2,
+            fallback_path=os.path.join(config.data_dir, "dataset.npz"),
+        )
     save_path = args.save_path or os.path.join(
         config.model_dir,
         f"{config.model_id}.pth",
