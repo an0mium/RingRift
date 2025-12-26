@@ -42,7 +42,8 @@ class AutoExportConfig:
     # Minimum games before triggering export
     min_games_threshold: int = 500
     # Cooldown between exports for same config (seconds)
-    export_cooldown_seconds: int = 1800  # 30 minutes
+    # Reduced from 30 min to 5 min (Phase 1.5) to enable faster training cycles
+    export_cooldown_seconds: int = 300  # 5 minutes
     # Maximum concurrent exports
     max_concurrent_exports: int = 2
     # Timeout for export subprocess (seconds)
