@@ -601,6 +601,464 @@ class ClusterActivator:
         except Exception as e:
             logger.debug(f"Failed to emit node_activated event: {e}")
 
+    # =========================================================================
+    # NEW: Provider CLI Discovery (December 2025)
+    # =========================================================================
+
+    async def discover_vast_nodes(self) -> list[NodeConfig]:
+        """Discover Vast.ai nodes from vastai CLI.
+
+        Returns:
+            List of NodeConfig for running Vast instances
+        """
+        nodes = []
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["vastai", "show", "instances", "--raw"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            )
+            if result.returncode != 0:
+                logger.warning(f"vastai CLI failed: {result.stderr}")
+                return nodes
+
+            import json
+            instances = json.loads(result.stdout)
+            for inst in instances:
+                if inst.get("actual_status") != "running":
+                    continue
+
+                ssh_host = inst.get("ssh_host", "")
+                ssh_port = inst.get("ssh_port", 22)
+                instance_id = str(inst.get("id", ""))
+                gpu_name = inst.get("gpu_name", "Unknown GPU")
+
+                node = NodeConfig(
+                    name=f"vast-{instance_id}",
+                    ssh_host=ssh_host,
+                    ssh_port=int(ssh_port),
+                    ssh_user="root",
+                    ssh_key="~/.ssh/id_cluster",
+                    ringrift_path="~/ringrift/ai-service",
+                    provider=ProviderType.VAST,
+                    vast_instance_id=instance_id,
+                    gpu=gpu_name,
+                    status="running",
+                )
+                nodes.append(node)
+                logger.debug(f"Discovered Vast node: {node.name} ({gpu_name})")
+
+        except FileNotFoundError:
+            logger.warning("vastai CLI not found")
+        except Exception as e:
+            logger.error(f"Failed to discover Vast nodes: {e}")
+
+        return nodes
+
+    async def discover_runpod_nodes(self) -> list[NodeConfig]:
+        """Discover RunPod nodes from runpodctl CLI.
+
+        Returns:
+            List of NodeConfig for running RunPod pods
+        """
+        nodes = []
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["runpodctl", "get", "pod"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            )
+            if result.returncode != 0:
+                logger.warning(f"runpodctl CLI failed: {result.stderr}")
+                return nodes
+
+            # Parse runpodctl output (tab-separated)
+            # ID            	NAME                    	GPU          	IMAGE NAME ...
+            lines = result.stdout.strip().split("\n")
+            if len(lines) < 2:
+                return nodes
+
+            for line in lines[1:]:  # Skip header
+                parts = line.split("\t")
+                if len(parts) < 4:
+                    continue
+
+                pod_id = parts[0].strip()
+                name = parts[1].strip()
+                gpu = parts[2].strip()
+                status = parts[4].strip() if len(parts) > 4 else ""
+
+                if status != "RUNNING":
+                    continue
+
+                # RunPod SSH info needs to be fetched separately or from config
+                # For now, create placeholder that will be populated from config
+                node = NodeConfig(
+                    name=name or f"runpod-{pod_id}",
+                    ssh_host="",  # Need to get from runpodctl or config
+                    ssh_port=22,
+                    ssh_user="root",
+                    ssh_key="~/.ssh/id_ed25519",
+                    ringrift_path="/workspace/ringrift/ai-service",
+                    provider=ProviderType.UNKNOWN,  # No RUNPOD type yet
+                    gpu=gpu,
+                    status="running",
+                    raw_config={"runpod_id": pod_id},
+                )
+                nodes.append(node)
+                logger.debug(f"Discovered RunPod node: {node.name} ({gpu})")
+
+        except FileNotFoundError:
+            logger.warning("runpodctl CLI not found")
+        except Exception as e:
+            logger.error(f"Failed to discover RunPod nodes: {e}")
+
+        return nodes
+
+    async def discover_vultr_nodes(self) -> list[NodeConfig]:
+        """Discover Vultr nodes from vultr-cli.
+
+        Returns:
+            List of NodeConfig for active Vultr instances
+        """
+        nodes = []
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["vultr-cli", "instance", "list", "--output", "json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            )
+            if result.returncode != 0:
+                logger.warning(f"vultr-cli failed: {result.stderr}")
+                return nodes
+
+            import json
+            data = json.loads(result.stdout)
+            instances = data.get("instances", [])
+
+            for inst in instances:
+                if inst.get("status") != "active":
+                    continue
+
+                instance_id = inst.get("id", "")
+                label = inst.get("label", f"vultr-{instance_id}")
+                main_ip = inst.get("main_ip", "")
+
+                node = NodeConfig(
+                    name=label,
+                    ssh_host=main_ip,
+                    ssh_port=22,
+                    ssh_user="root",
+                    ssh_key="~/.ssh/id_ed25519",
+                    ringrift_path="~/ringrift/ai-service",
+                    provider=ProviderType.VULTR,
+                    vultr_id=instance_id,
+                    gpu="A100 20GB",  # Default for ringrift vultr instances
+                    status="running",
+                )
+                nodes.append(node)
+                logger.debug(f"Discovered Vultr node: {node.name} ({main_ip})")
+
+        except FileNotFoundError:
+            logger.warning("vultr-cli not found")
+        except Exception as e:
+            logger.error(f"Failed to discover Vultr nodes: {e}")
+
+        return nodes
+
+    async def discover_all_nodes(self) -> list[NodeConfig]:
+        """Discover all nodes from all provider CLIs.
+
+        Returns:
+            List of all discovered NodeConfig
+        """
+        logger.info("Discovering nodes from provider CLIs...")
+
+        # Run discovery in parallel
+        vast_task = self.discover_vast_nodes()
+        runpod_task = self.discover_runpod_nodes()
+        vultr_task = self.discover_vultr_nodes()
+
+        vast_nodes, runpod_nodes, vultr_nodes = await asyncio.gather(
+            vast_task, runpod_task, vultr_task
+        )
+
+        all_nodes = vast_nodes + runpod_nodes + vultr_nodes
+
+        logger.info(
+            f"Discovered {len(all_nodes)} nodes: "
+            f"{len(vast_nodes)} Vast, {len(runpod_nodes)} RunPod, {len(vultr_nodes)} Vultr"
+        )
+
+        # Update internal node registry
+        for node in all_nodes:
+            self._nodes[node.name] = node
+
+        return all_nodes
+
+    # =========================================================================
+    # NEW: GPU Utilization Checking (December 2025)
+    # =========================================================================
+
+    async def check_gpu_utilization(self, node: NodeConfig) -> tuple[float, int, str]:
+        """Check GPU utilization on a node via SSH.
+
+        Args:
+            node: Node configuration
+
+        Returns:
+            Tuple of (gpu_percent, python_processes, error_message)
+        """
+        if not node.ssh_host:
+            return 0.0, 0, "No SSH host"
+
+        # Build SSH command
+        ssh_key = Path(node.ssh_key).expanduser()
+        cmd = (
+            "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader 2>/dev/null | head -1 && "
+            "pgrep -c python 2>/dev/null || echo 0"
+        )
+
+        ssh_args = [
+            "ssh",
+            "-o", f"ConnectTimeout={self.ssh_timeout}",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "BatchMode=yes",
+            "-o", "LogLevel=ERROR",
+        ]
+
+        if ssh_key.exists():
+            ssh_args.extend(["-i", str(ssh_key)])
+
+        if node.ssh_port != 22:
+            ssh_args.extend(["-p", str(node.ssh_port)])
+
+        ssh_args.extend([f"{node.ssh_user}@{node.ssh_host}", cmd])
+
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ssh_args,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.ssh_timeout + 5,
+                )
+            )
+
+            if result.returncode != 0:
+                return 0.0, 0, f"SSH failed: {result.stderr.strip()}"
+
+            lines = result.stdout.strip().split("\n")
+            gpu_percent = 0.0
+            python_procs = 0
+
+            if lines:
+                # First line: GPU utilization
+                try:
+                    gpu_str = lines[0].replace("%", "").replace(" ", "").strip()
+                    gpu_percent = float(gpu_str) if gpu_str else 0.0
+                except ValueError:
+                    pass
+
+                # Second line (if present): Python process count
+                if len(lines) > 1:
+                    try:
+                        python_procs = int(lines[1].strip())
+                    except ValueError:
+                        pass
+
+            return gpu_percent, python_procs, ""
+
+        except subprocess.TimeoutExpired:
+            return 0.0, 0, "SSH timeout"
+        except Exception as e:
+            return 0.0, 0, str(e)
+
+    async def check_all_gpu_utilization(
+        self,
+        nodes: list[NodeConfig] | None = None,
+    ) -> dict[str, tuple[float, int, str]]:
+        """Check GPU utilization on all nodes.
+
+        Args:
+            nodes: Optional list of nodes (uses discovered nodes if not provided)
+
+        Returns:
+            Dict mapping node name to (gpu_percent, python_procs, error)
+        """
+        if nodes is None:
+            nodes = list(self._nodes.values())
+
+        logger.info(f"Checking GPU utilization on {len(nodes)} nodes...")
+
+        tasks = [self.check_gpu_utilization(node) for node in nodes]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        utilization = {}
+        for i, node in enumerate(nodes):
+            result = results[i]
+            if isinstance(result, Exception):
+                utilization[node.name] = (0.0, 0, str(result))
+            else:
+                utilization[node.name] = result
+
+        return utilization
+
+    # =========================================================================
+    # NEW: Selfplay Spawning (December 2025)
+    # =========================================================================
+
+    async def spawn_selfplay(
+        self,
+        node: NodeConfig,
+        board_type: str = "hex8",
+        num_players: int = 2,
+        num_games: int = 1000,
+    ) -> bool:
+        """Spawn selfplay on a node via SSH.
+
+        Args:
+            node: Node configuration
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players (2, 3, 4)
+            num_games: Number of games to run
+
+        Returns:
+            True if selfplay started successfully
+        """
+        if not node.ssh_host:
+            logger.warning(f"Cannot spawn selfplay on {node.name}: no SSH host")
+            return False
+
+        ssh_key = Path(node.ssh_key).expanduser()
+
+        # Build selfplay command
+        selfplay_cmd = (
+            f"cd {node.ringrift_path} && "
+            f"mkdir -p logs data/games && "
+            f"PYTHONPATH=. RINGRIFT_SKIP_SHADOW_CONTRACTS=true "
+            f"nohup python3 scripts/selfplay.py "
+            f"--board {board_type} --num-players {num_players} "
+            f"--engine gumbel --num-games {num_games} "
+            f"--output-dir data/games "
+            f"> logs/selfplay_{board_type}_{num_players}p.log 2>&1 &"
+        )
+
+        ssh_args = [
+            "ssh",
+            "-o", f"ConnectTimeout={self.ssh_timeout}",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "BatchMode=yes",
+        ]
+
+        if ssh_key.exists():
+            ssh_args.extend(["-i", str(ssh_key)])
+
+        if node.ssh_port != 22:
+            ssh_args.extend(["-p", str(node.ssh_port)])
+
+        ssh_args.extend([f"{node.ssh_user}@{node.ssh_host}", selfplay_cmd])
+
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ssh_args,
+                    capture_output=True,
+                    timeout=30,
+                )
+            )
+
+            if result.returncode == 0:
+                logger.info(f"Started selfplay on {node.name}: {board_type}_{num_players}p")
+                return True
+            else:
+                logger.warning(f"Failed to start selfplay on {node.name}: {result.stderr}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to spawn selfplay on {node.name}: {e}")
+            return False
+
+    async def activate_idle_nodes(
+        self,
+        min_util: float = 20.0,
+        dry_run: bool = False,
+    ) -> dict[str, bool]:
+        """Find and activate all idle nodes by spawning selfplay.
+
+        Args:
+            min_util: Minimum GPU utilization to consider "busy" (percent)
+            dry_run: If True, only log what would be done
+
+        Returns:
+            Dict mapping node name to activation success
+        """
+        # First discover all nodes
+        await self.discover_all_nodes()
+
+        nodes = list(self._nodes.values())
+        if not nodes:
+            logger.warning("No nodes discovered")
+            return {}
+
+        # Check GPU utilization
+        utilization = await self.check_all_gpu_utilization(nodes)
+
+        # Find idle nodes
+        idle_nodes = []
+        for node in nodes:
+            gpu_pct, procs, error = utilization.get(node.name, (0.0, 0, "Unknown"))
+            if error:
+                logger.warning(f"  {node.name}: ERROR - {error}")
+                continue
+
+            if gpu_pct < min_util:
+                idle_nodes.append((node, gpu_pct, procs))
+                logger.info(f"  {node.name}: IDLE ({gpu_pct:.0f}% GPU, {procs} procs)")
+            else:
+                logger.debug(f"  {node.name}: BUSY ({gpu_pct:.0f}% GPU, {procs} procs)")
+
+        if not idle_nodes:
+            logger.info("No idle nodes found")
+            return {}
+
+        logger.info(f"Found {len(idle_nodes)} idle nodes to activate")
+
+        # Spawn selfplay on idle nodes
+        # Cycle through different configs for diversity
+        configs = [
+            ("hex8", 2), ("square8", 2), ("hex8", 3), ("square8", 3),
+            ("hex8", 4), ("square8", 4), ("hexagonal", 2), ("square19", 2),
+        ]
+
+        results = {}
+        for i, (node, gpu_pct, procs) in enumerate(idle_nodes):
+            board_type, num_players = configs[i % len(configs)]
+
+            if dry_run:
+                logger.info(f"[DRY RUN] Would spawn selfplay on {node.name}: {board_type}_{num_players}p")
+                results[node.name] = True
+            else:
+                success = await self.spawn_selfplay(node, board_type, num_players)
+                results[node.name] = success
+                await asyncio.sleep(2)  # Rate limit
+
+        return results
+
     def print_status_report(self, results: list[NodeHealthResult]) -> None:
         """Print a formatted status report.
 
@@ -701,6 +1159,39 @@ async def main():
         help="Include terminated nodes in checks",
     )
 
+    # NEW: Provider CLI discovery options (December 2025)
+    parser.add_argument(
+        "--discover",
+        action="store_true",
+        help="Discover nodes from provider CLIs (vastai, runpodctl, vultr-cli)",
+    )
+    parser.add_argument(
+        "--check-gpu",
+        action="store_true",
+        help="Check GPU utilization on all discovered nodes",
+    )
+    parser.add_argument(
+        "--spawn-selfplay",
+        action="store_true",
+        help="Spawn selfplay on idle nodes (< 20% GPU util)",
+    )
+    parser.add_argument(
+        "--activate-all",
+        action="store_true",
+        help="Full activation: discover nodes + spawn selfplay on idle ones",
+    )
+    parser.add_argument(
+        "--min-util",
+        type=float,
+        default=20.0,
+        help="Minimum GPU utilization to consider 'busy' (default: 20%%)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without executing",
+    )
+
     args = parser.parse_args()
 
     # Configure logging
@@ -719,6 +1210,62 @@ async def main():
     provider_filter = None
     if args.provider:
         provider_filter = ProviderType(args.provider)
+
+    # NEW: Handle provider CLI discovery modes (December 2025)
+    if args.discover:
+        # Discover nodes from provider CLIs
+        nodes = await activator.discover_all_nodes()
+        print(f"\nDiscovered {len(nodes)} nodes:")
+        for node in sorted(nodes, key=lambda n: n.name):
+            print(f"  {node.name:30} {node.provider.value:8} {node.gpu}")
+        return
+
+    if args.check_gpu:
+        # Check GPU utilization on all nodes
+        await activator.discover_all_nodes()
+        utilization = await activator.check_all_gpu_utilization()
+
+        print("\n" + "=" * 70)
+        print("GPU UTILIZATION REPORT")
+        print("=" * 70)
+
+        idle_count = 0
+        busy_count = 0
+        error_count = 0
+
+        for name in sorted(utilization.keys()):
+            gpu_pct, procs, error = utilization[name]
+            if error:
+                print(f"  {name:30} ERROR: {error}")
+                error_count += 1
+            elif gpu_pct < args.min_util:
+                print(f"  {name:30} {gpu_pct:5.1f}% GPU  {procs:3} procs  <- IDLE")
+                idle_count += 1
+            else:
+                print(f"  {name:30} {gpu_pct:5.1f}% GPU  {procs:3} procs")
+                busy_count += 1
+
+        print("-" * 70)
+        print(f"Total: {idle_count} idle, {busy_count} busy, {error_count} errors")
+        print("=" * 70)
+        return
+
+    if args.spawn_selfplay or args.activate_all:
+        # Spawn selfplay on idle nodes
+        results = await activator.activate_idle_nodes(
+            min_util=args.min_util,
+            dry_run=args.dry_run,
+        )
+
+        if results:
+            print("\nActivation Results:")
+            for name, success in sorted(results.items()):
+                status = "SUCCESS" if success else "FAILED"
+                print(f"  {name}: {status}")
+
+            successful = sum(1 for s in results.values() if s)
+            print(f"\nActivated {successful}/{len(results)} nodes")
+        return
 
     if args.watch:
         # Continuous monitoring mode
