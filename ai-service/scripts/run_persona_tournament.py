@@ -40,7 +40,7 @@ from app.ai.heuristic_weights import (
     HEURISTIC_V1_TERRITORIAL,
     HEURISTIC_V1_DEFENSIVE,
 )
-from app._game_engine_legacy import GameEngine
+from app.game_engine import GameEngine
 from app.models import AIConfig, BoardType, BoardState, GamePhase, GameState, GameStatus, Player, TimeControl
 from app.rules.core import BOARD_CONFIGS, get_territory_victory_threshold, get_victory_threshold
 from datetime import datetime

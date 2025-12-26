@@ -927,8 +927,8 @@ class SyncOrchestrator:
                     "avg_quality": quality_status.get("avg_quality_across_configs", 0.0),
                 }
                 status["quality_priority_order"] = self.get_quality_driven_sync_priority()
-            except (AttributeError, TypeError, KeyError, ValueError):
-                pass
+            except (AttributeError, TypeError, KeyError, ValueError) as e:
+                logger.debug(f"Failed to get quality orchestrator state: {e}")
 
         return status
 

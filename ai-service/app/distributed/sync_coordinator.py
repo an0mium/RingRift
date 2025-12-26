@@ -86,10 +86,11 @@ except ImportError:
     HAS_GOSSIP = False
 
 try:
-    from .ssh_transport import SSHTransport
+    from app.core.ssh import SSHClient
     HAS_SSH = True
 except ImportError:
     HAS_SSH = False
+    SSHClient = None  # type: ignore
 
 try:
     from .sync_utils import rsync_directory
@@ -249,7 +250,7 @@ class SyncCoordinator:
         self._aria2: Aria2Transport | None = None
         self._p2p: P2PSyncClient | None = None
         self._gossip: GossipSyncDaemon | None = None
-        self._ssh: SSHTransport | None = None
+        self._ssh: SSHClient | None = None
 
         # State tracking
         self._running = False

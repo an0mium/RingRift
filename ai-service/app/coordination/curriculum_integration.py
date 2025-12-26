@@ -549,6 +549,193 @@ class PFSPWeaknessWatcher:
 # =============================================================================
 
 
+class PromotionFailedToCurriculumWatcher:
+    """Increases curriculum weight when model promotion fails.
+
+    When a model fails promotion (emits PROMOTION_FAILED), this watcher
+    increases that config's curriculum weight to generate more diverse
+    training data for the next training cycle.
+
+    Event flow (December 2025):
+    1. Promotion process fails (validation, gauntlet, etc.)
+    2. Emits PROMOTION_FAILED with config_key and error details
+    3. This watcher subscribes and increases curriculum weight
+    4. CurriculumFeedback allocates more selfplay to affected configs
+    5. Emits CURRICULUM_REBALANCED to notify downstream systems
+    """
+
+    # Weight increase factor per consecutive failure (cumulative)
+    WEIGHT_INCREASE_PER_FAILURE = 0.20  # 20% increase per failure
+
+    def __init__(self):
+        self._subscribed = False
+        self._failure_counts: dict[str, int] = {}  # config -> consecutive failures
+
+    def subscribe(self) -> bool:
+        """Subscribe to PROMOTION_FAILED events."""
+        if self._subscribed:
+            return True
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.events.types import RingRiftEventType
+
+            router = get_router()
+            if router is None:
+                logger.debug("[PromotionFailedToCurriculumWatcher] Event router not available")
+                return False
+
+            router.subscribe(RingRiftEventType.PROMOTION_FAILED, self._on_promotion_failed)
+            self._subscribed = True
+            logger.info("[PromotionFailedToCurriculumWatcher] Subscribed to PROMOTION_FAILED")
+            return True
+
+        except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+            # ImportError: event_router not available
+            # AttributeError: router method missing
+            # TypeError: invalid subscription arguments
+            # RuntimeError: subscription failed
+            logger.warning(f"[PromotionFailedToCurriculumWatcher] Failed to subscribe: {e}")
+            return False
+
+    def unsubscribe(self) -> None:
+        """Unsubscribe from events."""
+        if not self._subscribed:
+            return
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.events.types import RingRiftEventType
+
+            router = get_router()
+            if router:
+                router.unsubscribe(RingRiftEventType.PROMOTION_FAILED, self._on_promotion_failed)
+            self._subscribed = False
+        except (ImportError, AttributeError, TypeError, RuntimeError):
+            # ImportError: event_router not available
+            # AttributeError: router method missing
+            # TypeError: invalid unsubscription arguments
+            # RuntimeError: unsubscription failed
+            pass
+
+    def _on_promotion_failed(self, event) -> None:
+        """Handle PROMOTION_FAILED event - increase curriculum weight.
+
+        December 2025: Closes the promotion failure → curriculum weight feedback loop.
+        When promotion fails, increase selfplay allocation to generate more diverse data.
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+
+            config_key = payload.get("config_key", payload.get("config", ""))
+            error = payload.get("error", "unknown")
+            model_id = payload.get("model_id", "")
+
+            if not config_key:
+                return
+
+            # Track consecutive failures
+            self._failure_counts[config_key] = self._failure_counts.get(config_key, 0) + 1
+            failure_count = self._failure_counts[config_key]
+
+            logger.info(
+                f"[PromotionFailedToCurriculumWatcher] Promotion failed for {config_key}: "
+                f"model={model_id}, error={error}, consecutive_failures={failure_count}"
+            )
+
+            # Increase curriculum weight to generate more diverse training data
+            self._increase_curriculum_weight(config_key, failure_count, error)
+
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            # AttributeError: event attribute missing
+            # KeyError: missing payload field
+            # TypeError: invalid data types
+            # ValueError: invalid values
+            logger.warning(f"[PromotionFailedToCurriculumWatcher] Error handling promotion failure: {e}")
+
+    def _increase_curriculum_weight(
+        self,
+        config_key: str,
+        failure_count: int,
+        error: str,
+    ) -> None:
+        """Increase curriculum weight based on consecutive failures."""
+        try:
+            from app.training.curriculum_feedback import get_curriculum_feedback
+
+            feedback = get_curriculum_feedback()
+            current_weight = feedback._current_weights.get(config_key, 1.0)
+
+            # Increase weight: 20% per failure, up to 2.5x max
+            # failure_count=1 -> 1.2x, failure_count=2 -> 1.44x, etc.
+            weight_multiplier = min(2.5, 1.0 + (failure_count * self.WEIGHT_INCREASE_PER_FAILURE))
+            new_weight = min(feedback.weight_max, current_weight * weight_multiplier)
+
+            if new_weight > current_weight:
+                feedback._current_weights[config_key] = new_weight
+
+                logger.info(
+                    f"[PromotionFailedToCurriculumWatcher] Increased curriculum weight for {config_key}: "
+                    f"{current_weight:.2f} → {new_weight:.2f} (failures={failure_count}, error={error})"
+                )
+
+                # Emit CURRICULUM_REBALANCED event
+                self._emit_rebalance_event(config_key, new_weight, failure_count)
+
+        except ImportError as e:
+            logger.debug(f"[PromotionFailedToCurriculumWatcher] curriculum_feedback import error: {e}")
+        except (AttributeError, TypeError, ValueError, KeyError) as e:
+            # AttributeError: feedback method missing
+            # TypeError: invalid weight types
+            # ValueError: invalid weight values
+            # KeyError: unknown config_key
+            logger.warning(f"[PromotionFailedToCurriculumWatcher] Error increasing weight: {e}")
+
+    def _emit_rebalance_event(
+        self,
+        config_key: str,
+        new_weight: float,
+        failure_count: int,
+    ) -> None:
+        """Emit CURRICULUM_REBALANCED event for downstream systems."""
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            router.publish_sync(
+                "CURRICULUM_REBALANCED",
+                {
+                    "trigger": "promotion_failed",
+                    "changed_configs": [config_key],
+                    "new_weights": {config_key: new_weight},
+                    "failure_count": failure_count,
+                    "timestamp": time.time(),
+                },
+                source="promotion_failed_curriculum_watcher",
+            )
+        except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+            # ImportError: event_router not available
+            # AttributeError: router method missing
+            # TypeError: invalid event arguments
+            # RuntimeError: publish failed
+            logger.debug(f"Failed to emit rebalance event: {e}")
+
+    def reset_failure_count(self, config_key: str) -> None:
+        """Reset failure count for a config (called when promotion succeeds)."""
+        if config_key in self._failure_counts:
+            del self._failure_counts[config_key]
+            logger.info(f"[PromotionFailedToCurriculumWatcher] Reset failure count for {config_key}")
+
+    def get_failure_counts(self) -> dict[str, int]:
+        """Get current failure counts."""
+        return dict(self._failure_counts)
+
+
+# =============================================================================
+# 2.5. QUALITY_PENALTY_APPLIED → Curriculum Weight Reduction
+# =============================================================================
+
+
 class QualityPenaltyToCurriculumWatcher:
     """Reduces curriculum weight when quality penalties are applied.
 
@@ -911,6 +1098,7 @@ class QualityToTemperatureWatcher:
 def wire_all_feedback_loops(
     enable_momentum_bridge: bool = True,
     enable_pfsp_weakness: bool = True,
+    enable_promotion_failed: bool = True,
     enable_quality_penalty: bool = True,
     enable_quality_temperature: bool = True,
     enable_curriculum_feedback: bool = True,
@@ -923,6 +1111,7 @@ def wire_all_feedback_loops(
     Args:
         enable_momentum_bridge: Enable FeedbackAccelerator → CurriculumFeedback
         enable_pfsp_weakness: Enable PFSP weak opponent → CurriculumFeedback
+        enable_promotion_failed: Enable PROMOTION_FAILED → CurriculumFeedback
         enable_quality_penalty: Enable QUALITY_PENALTY_APPLIED → CurriculumFeedback
         enable_quality_temperature: Enable Quality → Temperature
         enable_curriculum_feedback: Enable all curriculum_feedback.py watchers
@@ -968,7 +1157,22 @@ def wire_all_feedback_loops(
                 status["pfsp_weakness_error"] = str(e)
                 logger.warning(f"Failed to start PFSP weakness watcher: {e}")
 
-        # 2.5. Quality Penalty → Curriculum Weight watcher (December 2025)
+        # 2.5. Promotion Failed → Curriculum Weight watcher (December 2025)
+        if enable_promotion_failed:
+            try:
+                watcher = PromotionFailedToCurriculumWatcher()
+                watcher.subscribe()
+                _watcher_instances["promotion_failed_curriculum"] = watcher
+                status["watchers"].append("promotion_failed_curriculum")
+            except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+                # ImportError: event modules not available
+                # AttributeError: watcher method missing
+                # TypeError: invalid configuration
+                # RuntimeError: watcher subscribe failed
+                status["promotion_failed_curriculum_error"] = str(e)
+                logger.warning(f"Failed to start promotion failed curriculum watcher: {e}")
+
+        # 2.6. Quality Penalty → Curriculum Weight watcher (December 2025)
         if enable_quality_penalty:
             try:
                 watcher = QualityPenaltyToCurriculumWatcher()
@@ -1128,6 +1332,25 @@ def reset_quality_penalty(config_key: str) -> None:
         watcher.reset_penalty(config_key)
 
 
+def get_promotion_failure_counts() -> dict[str, int]:
+    """Get current promotion failure counts.
+
+    Returns:
+        Dict mapping config_key to consecutive failure count
+    """
+    watcher = _watcher_instances.get("promotion_failed_curriculum")
+    if watcher and isinstance(watcher, PromotionFailedToCurriculumWatcher):
+        return watcher.get_failure_counts()
+    return {}
+
+
+def reset_promotion_failure_count(config_key: str) -> None:
+    """Reset promotion failure count for a config (when promotion succeeds)."""
+    watcher = _watcher_instances.get("promotion_failed_curriculum")
+    if watcher and isinstance(watcher, PromotionFailedToCurriculumWatcher):
+        watcher.reset_failure_count(config_key)
+
+
 __all__ = [
     # Main wiring functions
     "wire_all_feedback_loops",
@@ -1136,6 +1359,7 @@ __all__ = [
     # Individual components
     "MomentumToCurriculumBridge",
     "PFSPWeaknessWatcher",
+    "PromotionFailedToCurriculumWatcher",
     "QualityPenaltyToCurriculumWatcher",
     "QualityToTemperatureWatcher",
     # Convenience functions
@@ -1144,4 +1368,6 @@ __all__ = [
     "force_momentum_sync",
     "get_quality_penalty_weights",
     "reset_quality_penalty",
+    "get_promotion_failure_counts",
+    "reset_promotion_failure_count",
 ]

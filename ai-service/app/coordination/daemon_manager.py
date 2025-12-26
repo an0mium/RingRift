@@ -2873,6 +2873,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.AUTO_SYNC,  # Dec 2025: CRITICAL - Pull game data from remote nodes
         DaemonType.CLUSTER_DATA_SYNC,  # Dec 2025: Cluster-wide data distribution
         DaemonType.CLUSTER_WATCHDOG,  # Dec 2025: Self-healing cluster utilization
+        DaemonType.METRICS_ANALYSIS,  # Phase 21.2: Analyze training metrics for feedback
     ],
 
     # Training node profile - runs on GPU nodes

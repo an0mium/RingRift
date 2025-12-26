@@ -31,7 +31,8 @@ class TestIdleResourceConfig:
         """Test default configuration values."""
         config = IdleResourceConfig()
         assert config.enabled is True
-        assert config.check_interval_seconds == 60
+        # Reduced from 60s to 15s for faster detection (Dec 2025)
+        assert config.check_interval_seconds == 15
         assert config.idle_threshold_percent == 10.0
         assert config.idle_duration_seconds == 120
         assert config.max_concurrent_spawns == 4
@@ -131,8 +132,10 @@ class TestIdleResourceDaemon:
         return IdleResourceDaemon(config=config)
 
     def test_init_with_default_config(self):
-        """Test initialization with default config."""
-        daemon = IdleResourceDaemon()
+        """Test initialization with default config (uses from_env())."""
+        # Create explicit config to avoid env caching issues in tests
+        config = IdleResourceConfig()
+        daemon = IdleResourceDaemon(config=config)
         assert daemon.config is not None
         assert daemon.config.enabled is True
 
@@ -389,8 +392,9 @@ class TestIdleResourceDaemonAsync:
 
     @pytest.fixture
     def daemon(self):
-        """Create daemon with default config."""
-        return IdleResourceDaemon()
+        """Create daemon with explicit config to avoid env caching issues."""
+        config = IdleResourceConfig()
+        return IdleResourceDaemon(config=config)
 
     @pytest.mark.asyncio
     async def test_start_stop(self, daemon):

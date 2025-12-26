@@ -104,6 +104,10 @@ class FeedbackState:
     last_evaluation_time: float = 0.0
     last_promotion_time: float = 0.0
 
+    # Work queue metrics (December 2025)
+    work_completed_count: int = 0  # Total work items completed
+    last_work_completion_time: float = 0.0
+
     # Feedback signals applied
     current_training_intensity: str = "normal"  # normal, accelerated, hot_path, reduced
     current_exploration_boost: float = 1.0  # 1.0 = normal, >1.0 = more exploration
@@ -118,11 +122,13 @@ class FeedbackLoopController:
     - TRAINING_COMPLETE: Trigger evaluation, adjust curriculum
     - EVALUATION_COMPLETED: Consider promotion, record results
     - PROMOTION_COMPLETE: Adjust curriculum and exploration based on outcome
+    - REGRESSION_DETECTED: Boost exploration, request more selfplay (Dec 2025)
 
     Emits decisions that are consumed by:
     - FeedbackAccelerator: Training intensity signals
     - CurriculumFeedback: Curriculum weight adjustments
     - TemperatureScheduler: Exploration rate adjustments
+    - SelfplayScheduler: Target games and priorities (via SELFPLAY_TARGET_UPDATED)
     """
 
     def __init__(self):
@@ -195,6 +201,7 @@ class FeedbackLoopController:
             bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
             bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
             bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
+            bus.subscribe(DataEventType.WORK_COMPLETED, self._on_work_completed)
 
             # Phase 23.1: Subscribe to selfplay rate change events for monitoring
             if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
@@ -202,7 +209,7 @@ class FeedbackLoopController:
 
             # Phase 8: Subscribe to training loss anomaly events (December 2025)
             # Closes critical feedback loop: training loss anomaly → quality check/exploration boost
-            event_count = 5
+            event_count = 6
             if hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
                 bus.subscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_training_loss_anomaly)
                 event_count += 1
@@ -220,6 +227,12 @@ class FeedbackLoopController:
             # When evaluation fails after built-in retries, attempt secondary recovery
             if hasattr(DataEventType, 'EVALUATION_FAILED'):
                 bus.subscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
+                event_count += 1
+
+            # Dec 2025: Subscribe to REGRESSION_DETECTED for rollback + exploration boost
+            # When regression detected, trigger rollback and increase exploration
+            if hasattr(DataEventType, 'REGRESSION_DETECTED'):
+                bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
                 event_count += 1
 
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
@@ -241,6 +254,7 @@ class FeedbackLoopController:
             bus.unsubscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
             bus.unsubscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
             bus.unsubscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
+            bus.unsubscribe(DataEventType.WORK_COMPLETED, self._on_work_completed)
 
             # Phase 23.1: Unsubscribe from rate change events
             if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
@@ -259,6 +273,10 @@ class FeedbackLoopController:
             # P10-LOOP-2: Unsubscribe from EVALUATION_FAILED
             if hasattr(DataEventType, 'EVALUATION_FAILED'):
                 bus.unsubscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
+
+            # Dec 2025: Unsubscribe from REGRESSION_DETECTED
+            if hasattr(DataEventType, 'REGRESSION_DETECTED'):
+                bus.unsubscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
 
             self._subscribed = False
         except Exception as e:
@@ -1028,6 +1046,96 @@ class FeedbackLoopController:
         except Exception as e:
             logger.error(f"[FeedbackLoopController] Error handling evaluation failed: {e}")
 
+    def _on_regression_detected(self, event: Any) -> None:
+        """Handle REGRESSION_DETECTED event.
+
+        Dec 2025: When regression is detected, trigger:
+        1. Exploration boost (1.5x to generate more diverse data)
+        2. SELFPLAY_TARGET_UPDATED event to request additional games
+        3. Log the action for monitoring
+
+        This closes the feedback loop: REGRESSION_DETECTED → exploration boost →
+        more diverse selfplay → better training data → recovery.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            config_key = payload.get("config_key", payload.get("config", ""))
+            elo_drop = payload.get("elo_drop", 0.0)
+            consecutive_regressions = payload.get("consecutive_regressions", 1)
+
+            if not config_key:
+                logger.debug("[FeedbackLoopController] REGRESSION_DETECTED missing config_key")
+                return
+
+            state = self._get_or_create_state(config_key)
+            state.consecutive_failures += 1
+
+            logger.warning(
+                f"[FeedbackLoopController] Regression detected for {config_key}: "
+                f"elo_drop={elo_drop:.0f}, consecutive={consecutive_regressions}, "
+                f"total_failures={state.consecutive_failures}"
+            )
+
+            # Set exploration boost to 1.5x to generate more diverse data
+            # Use max to preserve any higher existing boost
+            exploration_boost = 1.5
+            old_boost = state.current_exploration_boost
+            new_boost = max(state.current_exploration_boost, exploration_boost)
+            state.current_exploration_boost = new_boost
+
+            logger.info(
+                f"[FeedbackLoopController] Increased exploration boost for {config_key}: "
+                f"{old_boost:.2f}x → {new_boost:.2f}x (regression response)"
+            )
+
+            # Emit SELFPLAY_TARGET_UPDATED to request more diverse selfplay games
+            if HAS_SELFPLAY_EVENTS and emit_selfplay_target_updated:
+                # Calculate target games based on regression severity
+                base_games = 500
+                target_games = int(base_games * (1 + 0.3 * consecutive_regressions))
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        task = _safe_create_task(
+                            emit_selfplay_target_updated(
+                                config_key=config_key,
+                                target_games=target_games,
+                                reason=f"regression_detected_elo_drop_{elo_drop:.0f}",
+                                priority=2,  # High priority
+                                source="feedback_loop_controller.py",
+                            ),
+                            f"emit_selfplay_target_updated_regression({config_key})",
+                        )
+                        if task:
+                            logger.info(
+                                f"[FeedbackLoopController] Emitted SELFPLAY_TARGET_UPDATED for {config_key}: "
+                                f"{target_games} games (exploration_boost={exploration_boost:.1f}x, priority=2)"
+                            )
+                except RuntimeError:
+                    logger.debug("[FeedbackLoopController] No event loop for SELFPLAY_TARGET_UPDATED")
+
+            # Emit EXPLORATION_BOOST event for temperature schedulers
+            try:
+                from app.distributed.data_events import emit_exploration_boost
+
+                _safe_create_task(emit_exploration_boost(
+                    config_key=config_key,
+                    boost_factor=new_boost,
+                    reason="regression_detected",
+                    anomaly_count=consecutive_regressions,
+                    source="FeedbackLoopController",
+                ), f"emit_exploration_boost_regression({config_key})")
+                logger.debug(
+                    f"[FeedbackLoopController] Emitted EXPLORATION_BOOST event for {config_key}"
+                )
+            except Exception as e:
+                logger.debug(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
+
+        except Exception as e:
+            logger.error(f"[FeedbackLoopController] Error handling regression detected: {e}")
+
     def _retry_evaluation(self, config_key: str, model_path: str, attempt: int) -> None:
         """Retry evaluation with modified parameters.
 
@@ -1158,6 +1266,45 @@ class FeedbackLoopController:
 
         except Exception as e:
             logger.error(f"[FeedbackLoopController] Error handling promotion complete: {e}")
+
+    def _on_work_completed(self, event: Any) -> None:
+        """Handle work completion events.
+
+        Tracks work queue completion metrics for monitoring and statistics.
+        This prevents silent failures when work completes but no handler processes it.
+
+        Actions:
+        1. Log work completion for visibility
+        2. Update completion statistics per config
+        3. Track timing for throughput monitoring
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            work_id = payload.get("work_id", "")
+            work_type = payload.get("work_type", "unknown")
+            board_type = payload.get("board_type", "")
+            num_players = payload.get("num_players", 0)
+            claimed_by = payload.get("claimed_by", "")
+
+            # Build config key if we have board type and num players
+            config_key = ""
+            if board_type and num_players:
+                config_key = f"{board_type}_{num_players}p"
+
+            logger.info(
+                f"[FeedbackLoopController] Work completed: "
+                f"id={work_id}, type={work_type}, config={config_key or 'N/A'}, node={claimed_by}"
+            )
+
+            # Update metrics if we have a config
+            if config_key:
+                state = self._get_or_create_state(config_key)
+                state.work_completed_count += 1
+                state.last_work_completion_time = time.time()
+
+        except Exception as e:
+            logger.debug(f"[FeedbackLoopController] Error handling work completed: {e}")
 
     # =========================================================================
     # Internal Actions
@@ -1627,6 +1774,8 @@ class FeedbackLoopController:
                     "last_selfplay_quality": v.last_selfplay_quality,
                     "last_training_accuracy": v.last_training_accuracy,
                     "last_evaluation_win_rate": v.last_evaluation_win_rate,
+                    "work_completed_count": v.work_completed_count,
+                    "last_work_completion_time": v.last_work_completion_time,
                 }
                 for k, v in self._states.items()
             },

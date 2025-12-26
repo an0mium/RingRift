@@ -732,13 +732,17 @@ CheckpointManager = UnifiedCheckpointManager
 
 # Re-export legacy checkpointing functions for migration
 # This allows callers to import from checkpoint_unified instead of deprecated checkpointing
+# Suppress deprecation warnings for backwards-compatible re-exports
 try:
-    from app.training.checkpointing import (
-        AsyncCheckpointer,
-        GracefulShutdownHandler,
-        load_checkpoint,
-        save_checkpoint,
-    )
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", category=DeprecationWarning)
+        from app.training.checkpointing import (
+            AsyncCheckpointer,
+            GracefulShutdownHandler,
+            load_checkpoint,
+            save_checkpoint,
+        )
     _HAS_LEGACY_CHECKPOINTING = True
 except ImportError:
     _HAS_LEGACY_CHECKPOINTING = False

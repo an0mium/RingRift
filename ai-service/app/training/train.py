@@ -3161,91 +3161,93 @@ def train_model(
             # December 2025: Training now responds to evaluation signals (promotion streaks, regressions)
             # Note: HYPERPARAMETER_UPDATED events are handled in real-time by EvaluationFeedbackHandler
             # (see subscribe() call above). This polling is a fallback for cross-process updates.
-            if epoch % 5 == 0:  # Check every 5 epochs as fallback for pending updates
-                try:
-                    from app.coordination.gauntlet_feedback_controller import get_pending_hyperparameter_updates
-                    pending_updates = get_pending_hyperparameter_updates(config_label)
-                    if pending_updates and (not distributed or is_main_process()):
-                        logger.info(f"[GauntletFeedback] Applying {len(pending_updates)} hyperparameter update(s) at epoch {epoch}")
+            # Check EVERY epoch for pending hyperparameter updates from gauntlet feedback
+            try:
+                from app.coordination.gauntlet_feedback_controller import get_pending_hyperparameter_updates
+                pending_updates = get_pending_hyperparameter_updates(config_label)
+                if pending_updates and (not distributed or is_main_process()):
+                    logger.info(f"[GauntletFeedback] Applying {len(pending_updates)} hyperparameter update(s) at epoch {epoch}")
 
-                    for param, update in pending_updates.items():
-                        value = update.get("value")
-                        reason = update.get("reason", "gauntlet_feedback")
+                for param, update in pending_updates.items():
+                    value = update.get("value")
+                    reason = update.get("reason", "gauntlet_feedback")
 
-                        # Learning rate adjustments
-                        if param == "learning_rate" and isinstance(value, (int, float)):
-                            for param_group in optimizer.param_groups:
-                                old_lr = param_group["lr"]
-                                param_group["lr"] = float(value)
-                            if not distributed or is_main_process():
-                                logger.info(
-                                    f"[GauntletFeedback] LR adjusted: {old_lr:.2e} -> {value:.2e} (reason: {reason})"
-                                )
-                        elif param == "lr_multiplier" and isinstance(value, (int, float)):
-                            for param_group in optimizer.param_groups:
-                                old_lr = param_group["lr"]
-                                param_group["lr"] = old_lr * float(value)
-                            if not distributed or is_main_process():
-                                logger.info(
-                                    f"[GauntletFeedback] LR scaled: {old_lr:.2e} * {value:.2f} (reason: {reason})"
-                                )
+                    # Learning rate adjustments
+                    if param == "learning_rate" and isinstance(value, (int, float)):
+                        for param_group in optimizer.param_groups:
+                            old_lr = param_group["lr"]
+                            param_group["lr"] = float(value)
+                        if not distributed or is_main_process():
+                            logger.info(
+                                f"[GauntletFeedback] LR adjusted: {old_lr:.2e} -> {value:.2e} (reason: {reason})"
+                            )
+                    elif param == "lr_multiplier" and isinstance(value, (int, float)):
+                        for param_group in optimizer.param_groups:
+                            old_lr = param_group["lr"]
+                            param_group["lr"] = old_lr * float(value)
+                        if not distributed or is_main_process():
+                            logger.info(
+                                f"[GauntletFeedback] LR scaled: {old_lr:.2e} * {value:.2f} (reason: {reason})"
+                            )
 
-                        # Temperature scale (exploration reduction for strong models)
-                        elif param == "temperature_scale" and isinstance(value, (int, float)):
-                            # Temperature affects selfplay, not training directly
-                            # Log the update for awareness - actual application happens in selfplay
-                            if not distributed or is_main_process():
-                                logger.info(
-                                    f"[GauntletFeedback] Temperature scale updated: {value:.2f} (reason: {reason})"
-                                )
-                                logger.info(
-                                    f"  Note: Temperature affects selfplay data generation, not training directly"
-                                )
+                    # Temperature scale (exploration reduction for strong models)
+                    elif param == "temperature_scale" and isinstance(value, (int, float)):
+                        # Temperature affects selfplay, not training directly
+                        # Log the update for awareness - actual application happens in selfplay
+                        if not distributed or is_main_process():
+                            logger.info(
+                                f"[GauntletFeedback] Temperature scale updated: {value:.2f} (reason: {reason})"
+                            )
+                            logger.info(
+                                f"  Note: Temperature affects selfplay data generation, not training directly"
+                            )
 
-                        # Quality threshold boost (raise quality bar for strong models)
-                        elif param == "quality_threshold_boost" and isinstance(value, (int, float)):
-                            # Quality threshold affects data filtering in selfplay/training data generation
-                            # Store for next training iteration
-                            if not distributed or is_main_process():
-                                logger.info(
-                                    f"[GauntletFeedback] Quality threshold boost: +{value:.3f} (reason: {reason})"
-                                )
-                                logger.info(
-                                    f"  Note: Quality threshold affects data filtering in future training iterations"
-                                )
+                    # Quality threshold boost (raise quality bar for strong models)
+                    elif param == "quality_threshold_boost" and isinstance(value, (int, float)):
+                        # Quality threshold affects data filtering in selfplay/training data generation
+                        # Store for next training iteration
+                        if not distributed or is_main_process():
+                            logger.info(
+                                f"[GauntletFeedback] Quality threshold boost: +{value:.3f} (reason: {reason})"
+                            )
+                            logger.info(
+                                f"  Note: Quality threshold affects data filtering in future training iterations"
+                            )
 
-                        # Epoch multiplier (extend training for weak models)
-                        elif param == "epoch_multiplier" and isinstance(value, (int, float)):
-                            # Calculate how many additional epochs to run
-                            multiplier = float(value)
-                            original_epochs = config.epochs_per_iter
-                            new_total_epochs = int(original_epochs * multiplier)
-                            additional_epochs = new_total_epochs - original_epochs
+                    # Epoch multiplier (extend training for weak models)
+                    elif param == "epoch_multiplier" and isinstance(value, (int, float)):
+                        # Calculate how many additional epochs to run
+                        multiplier = float(value)
+                        original_epochs = config.epochs_per_iter
+                        new_total_epochs = int(original_epochs * multiplier)
+                        additional_epochs = new_total_epochs - original_epochs
 
-                            if additional_epochs > 0 and (not distributed or is_main_process()):
-                                logger.info(
-                                    f"[GauntletFeedback] Epoch extension requested: {multiplier:.1f}x "
-                                    f"({original_epochs} -> {new_total_epochs} epochs, +{additional_epochs}) "
-                                    f"(reason: {reason})"
-                                )
-                                logger.info(
-                                    f"  Note: Epoch extension will be applied in the next training run. "
-                                    f"Current run continues to {original_epochs} epochs."
-                                )
+                        if additional_epochs > 0 and (not distributed or is_main_process()):
+                            logger.info(
+                                f"[GauntletFeedback] Epoch extension requested: {multiplier:.1f}x "
+                                f"({original_epochs} -> {new_total_epochs} epochs, +{additional_epochs}) "
+                                f"(reason: {reason})"
+                            )
+                            logger.info(
+                                f"  Note: Epoch extension will be applied in the next training run. "
+                                f"Current run continues to {original_epochs} epochs."
+                            )
 
-                        # Unknown parameter - log for debugging
-                        else:
-                            if not distributed or is_main_process():
-                                logger.debug(
-                                    f"[GauntletFeedback] Unknown parameter '{param}' = {value} (reason: {reason})"
-                                )
-                except ImportError:
-                    pass  # Gauntlet feedback not available
-                except (AttributeError, TypeError, OSError, ConnectionError) as e:
-                    # Missing attributes, type errors, file I/O, or network issues
-                    if not distributed or is_main_process():
-                        logger.debug(f"[GauntletFeedback] Failed to check updates: {e}")
+                    # Unknown parameter - log for debugging
+                    else:
+                        if not distributed or is_main_process():
+                            logger.debug(
+                                f"[GauntletFeedback] Unknown parameter '{param}' = {value} (reason: {reason})"
+                            )
+            except ImportError:
+                pass  # Gauntlet feedback not available
+            except (AttributeError, TypeError, OSError, ConnectionError) as e:
+                # Missing attributes, type errors, file I/O, or network issues
+                if not distributed or is_main_process():
+                    logger.debug(f"[GauntletFeedback] Failed to check updates: {e}")
 
+            # Check improvement optimizer every 5 epochs (less frequent than gauntlet feedback)
+            if epoch % 5 == 0:
                 try:
                     from app.training.improvement_optimizer import get_training_adjustment
 

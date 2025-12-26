@@ -165,31 +165,35 @@ from app.coordination.safeguards import (
 # Sync SCHEDULER exports (unified cluster-wide data sync SCHEDULING)
 # Note: This is the SCHEDULING layer - decides WHEN/WHAT to sync.
 # For EXECUTION (HOW to sync), use app.distributed.sync_coordinator.SyncCoordinator
-from app.coordination.sync_coordinator import (
-    ClusterDataStatus,
-    # Data types
-    HostDataState,
-    HostType,
-    SyncAction,
-    SyncPriority,
-    SyncRecommendation,
-    # Canonical class name (December 2025)
-    SyncScheduler,
-    execute_priority_sync,  # Bridge to distributed layer execution
-    # Functions
-    get_cluster_data_status,
-    get_next_sync_target,
-    get_sync_coordinator,  # Deprecated: use get_sync_scheduler
-    get_sync_recommendations,
-    get_sync_scheduler,
-    record_games_generated,
-    record_sync_complete,
-    record_sync_start,
-    register_host,
-    reset_sync_coordinator,  # Deprecated: use reset_sync_scheduler
-    reset_sync_scheduler,
-    update_host_state,
-)
+# Suppress deprecation warning when importing from package __init__ (December 2025)
+import warnings as _warnings
+with _warnings.catch_warnings():
+    _warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*app\.coordination\.sync_coordinator.*")
+    from app.coordination.sync_coordinator import (
+        ClusterDataStatus,
+        # Data types
+        HostDataState,
+        HostType,
+        SyncAction,
+        SyncPriority,
+        SyncRecommendation,
+        # Canonical class name (December 2025)
+        SyncScheduler,
+        execute_priority_sync,  # Bridge to distributed layer execution
+        # Functions
+        get_cluster_data_status,
+        get_next_sync_target,
+        get_sync_coordinator,  # Deprecated: use get_sync_scheduler
+        get_sync_recommendations,
+        get_sync_scheduler,
+        record_games_generated,
+        record_sync_complete,
+        record_sync_start,
+        register_host,
+        reset_sync_coordinator,  # Deprecated: use reset_sync_scheduler
+        reset_sync_scheduler,
+        update_host_state,
+    )
 # Backward-compatible alias for code that imported SyncCoordinator from coordination
 CoordinationSyncCoordinator = SyncScheduler
 

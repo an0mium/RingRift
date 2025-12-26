@@ -463,6 +463,16 @@ ai-service/
 │   ├── monitoring/      # Unified cluster monitoring
 │   ├── rules/           # Python rules engine (mirrors TS)
 │   ├── training/        # Training pipeline
+│   │   ├── train.py                  # Main training entry point
+│   │   ├── training_enhancements.py  # Enhanced training utilities (facade)
+│   │   ├── enhancements/             # Modular enhancement components
+│   │   │   ├── data_quality_scoring.py    # Quality-weighted sampling
+│   │   │   ├── hard_example_mining.py     # Curriculum learning
+│   │   │   ├── per_sample_loss.py         # Per-sample loss tracking
+│   │   │   ├── learning_rate_scheduling.py # Adaptive LR schedulers
+│   │   │   ├── gradient_management.py     # Gradient accumulation/clipping
+│   │   │   ├── checkpoint_averaging.py    # Checkpoint EMA
+│   │   │   └── evaluation_feedback.py     # Training feedback handlers
 │   │   ├── temperature_scheduling.py # Selfplay temperature schedules
 │   │   └── online_learning.py        # EBMO online learning
 │   └── utils/           # Utilities (game_discovery)

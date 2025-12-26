@@ -167,15 +167,19 @@ from app.ai.canonical_move_encoding import (
 # Classes and functions still in legacy module (to be migrated in later phases)
 # NOTE: Moved to archive/ December 2025 - scheduled for removal Q1 2026
 # Symlinked at app/ai/_neural_net_legacy.py for compatibility
-from app.ai._neural_net_legacy import (
-    _MODEL_CACHE,
-    # Main AI class
-    NeuralNetAI,
-    # Cache functions
-    clear_model_cache,
-    create_hex_mask,
-    get_cached_model_count,
-)
+# Suppress deprecation warning for backwards-compatible re-exports
+import warnings as _w
+with _w.catch_warnings():
+    _w.filterwarnings("ignore", category=DeprecationWarning)
+    from app.ai._neural_net_legacy import (
+        _MODEL_CACHE,
+        # Main AI class
+        NeuralNetAI,
+        # Cache functions
+        clear_model_cache,
+        create_hex_mask,
+        get_cached_model_count,
+    )
 
 __all__ = [
     "BOARD_POLICY_SIZES",

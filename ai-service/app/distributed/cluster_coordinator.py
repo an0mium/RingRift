@@ -201,8 +201,8 @@ class ClusterCoordinator:
                 content = lock_path.read_text().strip()
                 if content:
                     return int(content)
-            except (ValueError, FileNotFoundError):
-                pass
+            except (ValueError, FileNotFoundError) as e:
+                logger.debug(f"Failed to read lock file {lock_path}: {e}")
         return None
 
     @contextmanager
@@ -415,8 +415,8 @@ class ClusterCoordinator:
                 try:
                     lock_file.unlink()
                     cleaned.append(str(lock_file))
-                except (OSError, PermissionError):
-                    pass
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Could not delete stale lock {lock_file}: {e}")
         return cleaned
 
     def cleanup_stale_entries(self, max_age_hours: float = 24.0):

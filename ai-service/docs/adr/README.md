@@ -4,12 +4,14 @@ This directory contains Architecture Decision Records for the RingRift AI Servic
 
 ## Index
 
-| ADR                                               | Title                                                      | Status   |
-| ------------------------------------------------- | ---------------------------------------------------------- | -------- |
-| [ADR-001](ADR-001-event-driven-architecture.md)   | Event-Driven Architecture for Training Pipeline            | Accepted |
-| [ADR-002](ADR-002-daemon-lifecycle-management.md) | Daemon Lifecycle Management                                | Accepted |
-| [ADR-003](ADR-003-pfsp-opponent-selection.md)     | PFSP (Prioritized Fictitious Self-Play) Opponent Selection | Accepted |
-| [ADR-004](ADR-004-quality-gate-feedback-loop.md)  | Quality Gate and Feedback Loop Architecture                | Accepted |
+| ADR                                                  | Title                                                      | Status   |
+| ---------------------------------------------------- | ---------------------------------------------------------- | -------- |
+| [ADR-001](ADR-001-event-driven-architecture.md)      | Event-Driven Architecture for Training Pipeline            | Accepted |
+| [ADR-002](ADR-002-daemon-lifecycle-management.md)    | Daemon Lifecycle Management                                | Accepted |
+| [ADR-003](ADR-003-pfsp-opponent-selection.md)        | PFSP (Prioritized Fictitious Self-Play) Opponent Selection | Accepted |
+| [ADR-004](ADR-004-quality-gate-feedback-loop.md)     | Quality Gate and Feedback Loop Architecture                | Accepted |
+| [ADR-005](ADR-005-gpu-vectorized-selfplay.md)        | GPU Vectorized Self-Play Engine                            | Accepted |
+| [ADR-006](ADR-006-cluster-manifest-decomposition.md) | ClusterManifest Decomposition Plan                         | Proposed |
 
 ## ADR Format
 

@@ -443,7 +443,15 @@ class SelfplayScheduler:
         # - STABLE: 1.0x (normal rate)
         # - PLATEAU: 1.1x (slight boost to try to break plateau)
         # - REGRESSING: 0.75x (reduce noise, focus on quality)
+        score_before_momentum = score
         score *= priority.momentum_multiplier
+
+        # Log when momentum multiplier significantly affects priority (>10% change)
+        if abs(priority.momentum_multiplier - 1.0) > 0.1:
+            logger.info(
+                f"[SelfplayScheduler] Momentum multiplier applied to {priority.config_key}: "
+                f"{priority.momentum_multiplier:.2f}x (score: {score_before_momentum:.3f} → {score:.3f})"
+            )
 
         # Dec 2025: Apply priority override from config
         # Boosts critically data-starved configs (hexagonal_*, square19_3p/4p)
@@ -948,8 +956,11 @@ class SelfplayScheduler:
                 # P11-CRITICAL-1 (Dec 2025): Subscribe to EXPLORATION_BOOST for training anomaly feedback
                 if hasattr(DataEventType, 'EXPLORATION_BOOST'):
                     bus.subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost)
+                # Wire orphaned event: Subscribe to LOW_QUALITY_DATA_WARNING for selfplay throttling
+                if hasattr(DataEventType, 'LOW_QUALITY_DATA_WARNING'):
+                    bus.subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, self._on_low_quality_warning)
                 self._subscribed = True
-                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including EXPLORATION_BOOST)")
+                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including EXPLORATION_BOOST, LOW_QUALITY_DATA_WARNING)")
 
         except Exception as e:
             logger.warning(f"[SelfplayScheduler] Failed to subscribe to events (reactive scheduling disabled): {e}")
@@ -1458,6 +1469,68 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling exploration boost: {e}")
+
+    def _on_low_quality_warning(self, event: Any) -> None:
+        """Handle LOW_QUALITY_DATA_WARNING to throttle selfplay allocation.
+
+        Wire orphaned event (Dec 2025): When QualityMonitorDaemon detects quality
+        below warning threshold, reduce selfplay allocation to avoid generating
+        more low-quality data.
+
+        This closes the feedback loop:
+        Low quality detected → Throttle selfplay → Focus on training existing data
+
+        Actions:
+        - Reduce exploration_boost by 0.7x (throttle by 30%)
+        - Apply temporary quality penalty
+        - Log throttling action
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            quality_score = payload.get("quality_score", 0.0)
+            old_state = payload.get("old_state", "unknown")
+            new_state = payload.get("new_state", "unknown")
+
+            logger.warning(
+                f"[SelfplayScheduler] Low quality warning: "
+                f"score={quality_score:.2f}, state={old_state} → {new_state}"
+            )
+
+            # Throttle all configs proportionally based on quality
+            # Worse quality = more aggressive throttling
+            if quality_score < 0.4:
+                throttle_factor = 0.5  # 50% reduction for very poor quality
+            elif quality_score < 0.5:
+                throttle_factor = 0.6  # 40% reduction for poor quality
+            else:
+                throttle_factor = 0.7  # 30% reduction for marginal quality
+
+            throttled_count = 0
+            for config_key, priority in self._config_priorities.items():
+                old_boost = priority.exploration_boost
+
+                # Apply throttling to exploration boost
+                priority.exploration_boost = max(0.5, priority.exploration_boost * throttle_factor)
+
+                # Apply quality penalty
+                old_penalty = priority.quality_penalty
+                priority.quality_penalty = -0.15 * (1.0 - quality_score)  # -0.15 at quality=0, 0 at quality=1
+
+                if abs(priority.exploration_boost - old_boost) > 0.01:
+                    throttled_count += 1
+                    logger.debug(
+                        f"[SelfplayScheduler] Throttled {config_key}: "
+                        f"exploration {old_boost:.2f} → {priority.exploration_boost:.2f}, "
+                        f"quality_penalty {old_penalty:.3f} → {priority.quality_penalty:.3f}"
+                    )
+
+            logger.info(
+                f"[SelfplayScheduler] Throttled selfplay for {throttled_count} configs "
+                f"due to low quality (score={quality_score:.2f}, throttle={throttle_factor:.2f}x)"
+            )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling low quality warning: {e}")
 
     # =========================================================================
     # Status & Metrics

@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """Smart Sync Coordinator for unified cluster-wide data management.
 
+.. deprecated:: December 2025
+    This module is being consolidated into sync_core.py as part of the 67→15
+    module consolidation effort. For new code, prefer:
+
+    - For sync scheduling: Use :class:`AutoSyncDaemon` from auto_sync_daemon.py
+    - For sync execution: Use :class:`SyncCoordinator` from app.distributed.sync_coordinator
+    - For ephemeral syncs: Use :class:`EphemeralSyncDaemon` from ephemeral_sync.py
+
+    This module will be archived in Q2 2026.
+
 Architecture Note:
     This module is the SCHEDULING layer for cluster-wide sync coordination.
     It decides WHEN and WHAT to sync based on data freshness and priority.
@@ -53,6 +63,18 @@ Usage:
 """
 
 from __future__ import annotations
+
+import warnings
+
+# Emit deprecation warning at import time (December 2025)
+warnings.warn(
+    "Importing directly from app.coordination.sync_coordinator is deprecated. "
+    "Use 'from app.coordination import SyncScheduler' or "
+    "'from app.coordination.cluster.sync import SyncScheduler' instead. "
+    "This module will be archived in Q2 2026.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import json
 import logging

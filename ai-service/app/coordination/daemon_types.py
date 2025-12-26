@@ -281,14 +281,15 @@ class DaemonManagerConfig:
 
 
 # P11-HIGH-2: Daemons critical for cluster health that need faster failure detection
+# NOTE (Dec 2025): Only include daemons that are ACTUALLY used in standard profile.
+# Optional daemons like GOSSIP_SYNC, DATA_SERVER, EPHEMERAL_SYNC should not be marked
+# critical since they're not started by default.
 CRITICAL_DAEMONS: set[DaemonType] = {
-    DaemonType.SYNC_COORDINATOR,
-    DaemonType.EVENT_ROUTER,
-    DaemonType.AUTO_SYNC,
-    DaemonType.GOSSIP_SYNC,
-    DaemonType.DATA_SERVER,
-    DaemonType.REPLICATION_MONITOR,
-    DaemonType.EPHEMERAL_SYNC,  # Critical for Vast.ai data safety
+    DaemonType.EVENT_ROUTER,  # Core event bus - all coordination depends on this
+    DaemonType.AUTO_SYNC,  # Primary data sync mechanism
+    DaemonType.QUEUE_POPULATOR,  # Keeps work queue populated
+    DaemonType.IDLE_RESOURCE,  # Ensures GPUs stay utilized
+    DaemonType.FEEDBACK_LOOP,  # Coordinates training feedback signals
 }
 
 

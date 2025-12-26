@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Automated Bandwidth Management.
 
+.. deprecated:: December 2025
+    This module is superseded by :mod:`sync_bandwidth.py` which provides
+    simpler, more focused bandwidth coordination. Prefer sync_bandwidth.py
+    for new code. This module will be archived in Q2 2026.
+
 This module manages network bandwidth allocation for data sync operations.
 It prevents network congestion by coordinating transfers across hosts.
 

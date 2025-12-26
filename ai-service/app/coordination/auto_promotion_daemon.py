@@ -308,6 +308,9 @@ class AutoPromotionDaemon:
             else:
                 logger.warning(f"[AutoPromotion] Promotion failed for {config_key}")
 
+                # Emit PROMOTION_FAILED event to trigger curriculum weight increase
+                await self._emit_promotion_failed(candidate, error="Promotion validation failed")
+
         except ImportError:
             # Fallback: just emit the event
             logger.warning(
@@ -317,6 +320,9 @@ class AutoPromotionDaemon:
             await self._emit_promotion_event(candidate)
         except Exception as e:
             logger.error(f"[AutoPromotion] Promotion error for {config_key}: {e}")
+
+            # Emit PROMOTION_FAILED event on exception
+            await self._emit_promotion_failed(candidate, error=str(e))
 
     async def _emit_promotion_event(self, candidate: PromotionCandidate) -> None:
         """Emit MODEL_PROMOTED event and CURRICULUM_ADVANCED if applicable.
@@ -367,6 +373,42 @@ class AutoPromotionDaemon:
                     )
         except Exception as e:
             logger.error(f"[AutoPromotion] Failed to emit promotion event: {e}")
+
+    async def _emit_promotion_failed(
+        self,
+        candidate: PromotionCandidate,
+        error: str,
+    ) -> None:
+        """Emit PROMOTION_FAILED event to trigger curriculum weight increase.
+
+        Args:
+            candidate: PromotionCandidate that failed promotion
+            error: Error message or reason for failure
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.events.types import RingRiftEventType
+
+            router = get_router()
+            if router:
+                await router.publish(
+                    event_type=RingRiftEventType.PROMOTION_FAILED,
+                    payload={
+                        "config_key": candidate.config_key,
+                        "config": candidate.config_key,  # Alternate key for compatibility
+                        "model_id": candidate.model_path,
+                        "error": error,
+                        "vs_random": candidate.evaluation_results.get("RANDOM", 0.0),
+                        "vs_heuristic": candidate.evaluation_results.get("HEURISTIC", 0.0),
+                        "timestamp": time.time(),
+                    },
+                    source="auto_promotion_daemon",
+                )
+                logger.info(
+                    f"[AutoPromotion] Emitted PROMOTION_FAILED for {candidate.config_key}: {error}"
+                )
+        except Exception as e:
+            logger.error(f"[AutoPromotion] Failed to emit PROMOTION_FAILED event: {e}")
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""

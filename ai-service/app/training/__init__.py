@@ -361,12 +361,16 @@ except ImportError:
     HAS_PROMOTION_CONTROLLER = False
 
 # Import integrated enhancements (December 2025)
+# Suppress deprecation warnings for backwards-compatible re-exports
 try:
-    from app.training.integrated_enhancements import (
-        IntegratedEnhancementsConfig,
-        IntegratedTrainingManager,
-        create_integrated_manager,
-    )
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", category=DeprecationWarning)
+        from app.training.integrated_enhancements import (
+            IntegratedEnhancementsConfig,
+            IntegratedTrainingManager,
+            create_integrated_manager,
+        )
     HAS_INTEGRATED_ENHANCEMENTS = True
 except ImportError:
     HAS_INTEGRATED_ENHANCEMENTS = False
@@ -394,28 +398,31 @@ except ImportError:
     HAS_DISTRIBUTED_UNIFIED = False
 
 # Import distributed helper functions (December 2025)
+# Suppress deprecation warnings for backwards-compatible re-exports
 try:
-    from app.training.distributed import (
-        DistributedConfig,
-        DistributedMetrics,
-        DistributedTrainer,
-        all_gather_object,
-        broadcast_object,
-        cleanup_distributed,
-        get_device_for_rank,
-        get_distributed_sampler,
-        get_local_rank,
-        get_rank,
-        get_world_size,
-        is_distributed,
-        is_main_process,
-        reduce_tensor,
-        scale_learning_rate,
-        seed_everything,
-        setup_distributed,
-        synchronize,
-        wrap_model_ddp,
-    )
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", category=DeprecationWarning)
+        from app.training.distributed import (
+            DistributedConfig,
+            DistributedMetrics,
+            DistributedTrainer,
+            all_gather_object,
+            broadcast_object,
+            cleanup_distributed,
+            get_device_for_rank,
+            get_distributed_sampler,
+            get_local_rank,
+            get_rank,
+            get_world_size,
+            is_distributed,
+            is_main_process,
+            reduce_tensor,
+            scale_learning_rate,
+            seed_everything,
+            setup_distributed,
+            synchronize,
+            wrap_model_ddp,
+        )
     HAS_DISTRIBUTED_HELPERS = True
 except ImportError:
     HAS_DISTRIBUTED_HELPERS = False
@@ -442,13 +449,16 @@ except ImportError:
     HAS_ORCHESTRATOR = False
 
 # Import training orchestrator (December 2025)
+# Suppress deprecation warnings for backwards-compatible re-exports
 try:
-    from app.training.orchestrated_training import (
-        TrainingOrchestrator,
-        TrainingOrchestratorConfig,
-        TrainingOrchestratorState,
-        get_training_orchestrator,
-    )
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", category=DeprecationWarning)
+        from app.training.orchestrated_training import (
+            TrainingOrchestrator,
+            TrainingOrchestratorConfig,
+            TrainingOrchestratorState,
+            get_training_orchestrator,
+        )
     HAS_TRAINING_ORCHESTRATOR = True
 except ImportError:
     HAS_TRAINING_ORCHESTRATOR = False

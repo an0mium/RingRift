@@ -50,6 +50,22 @@ from app.training.enhancements.evaluation_feedback import (
 from app.training.enhancements.ewc_regularization import EWCRegularizer
 from app.training.enhancements.model_ensemble import ModelEnsemble
 
+# Phase 4 exports: Data quality, per-sample loss, hard example mining (December 2025)
+from app.training.enhancements.data_quality_scoring import (
+    DataQualityScorer,
+    GameQualityScore,
+    QualityWeightedSampler,
+)
+from app.training.enhancements.hard_example_mining import (
+    HardExample,
+    HardExampleMiner,
+)
+from app.training.enhancements.per_sample_loss import (
+    PerSampleLossRecord,
+    PerSampleLossTracker,
+    compute_per_sample_loss,
+)
+
 __all__ = [
     # Training configuration
     "TrainingConfig",
@@ -74,4 +90,15 @@ __all__ = [
     # Evaluation Feedback (Phase 3 - December 2025)
     "EvaluationFeedbackHandler",
     "create_evaluation_feedback_handler",
+    # Data quality scoring (Phase 4 - December 2025)
+    "GameQualityScore",
+    "DataQualityScorer",
+    "QualityWeightedSampler",
+    # Per-sample loss tracking (Phase 4 - December 2025)
+    "compute_per_sample_loss",
+    "PerSampleLossRecord",
+    "PerSampleLossTracker",
+    # Hard example mining (Phase 4 - December 2025)
+    "HardExample",
+    "HardExampleMiner",
 ]
