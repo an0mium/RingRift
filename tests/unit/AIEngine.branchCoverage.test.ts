@@ -114,10 +114,10 @@ describe('AIEngine branch coverage', () => {
     });
 
     it('creates AI with local mode', () => {
-      const profile: AIProfile = { difficulty: 5, mode: 'local' };
+      const profile: AIProfile = { difficulty: 5, mode: 'local_heuristic' };
       aiEngine.createAIFromProfile(1, profile);
       const config = aiEngine.getAIConfig(1);
-      expect(config?.mode).toBe('local');
+      expect(config?.mode).toBe('local_heuristic');
     });
 
     it('uses preset AI type when not specified', () => {

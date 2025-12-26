@@ -739,6 +739,65 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     return results
 
 
+def _validate_event_wiring() -> dict[str, Any]:
+    """Validate event flow to detect orphaned or misconfigured events.
+
+    Phase 21.2 (December 2025): Critical startup validation.
+    This validates the event routing system is healthy and logs any issues
+    detected. Issues could include:
+    - Events not being routed through the system
+    - Missing event buses (data, stage, cross-process)
+    - High duplicate event rate (potential loops)
+
+    Returns:
+        Dict with validation results from event_router.validate_event_flow()
+    """
+    results: dict[str, Any] = {
+        "healthy": False,
+        "issues": [],
+        "recommendations": [],
+        "validated": False,
+    }
+
+    try:
+        from app.coordination.event_router import validate_event_flow
+
+        validation = validate_event_flow()
+        results.update(validation)
+
+        # Check health status
+        issues = validation.get("issues", [])
+        recommendations = validation.get("recommendations", [])
+
+        if issues:
+            for issue in issues[:5]:
+                logger.warning(f"[Bootstrap] Event flow issue: {issue}")
+
+        if recommendations:
+            for rec in recommendations[:3]:
+                logger.info(f"[Bootstrap] Event flow recommendation: {rec}")
+
+        results["validated"] = True
+
+        if validation.get("healthy", False):
+            logger.info(
+                f"[Bootstrap] Event flow validated: healthy, "
+                f"{validation.get('total_routed', 0)} events routed"
+            )
+        else:
+            logger.warning(
+                f"[Bootstrap] Event flow validation: {len(issues)} issues detected"
+            )
+
+    except ImportError as e:
+        logger.debug(f"[Bootstrap] validate_event_flow not available: {e}")
+    except Exception as e:
+        results["issues"].append(f"Validation failed: {e}")
+        logger.warning(f"[Bootstrap] Event flow validation failed: {e}")
+
+    return results
+
+
 # =============================================================================
 # Main Bootstrap Function
 # =============================================================================
@@ -893,6 +952,9 @@ def bootstrap_coordination(
 
     # Wire missing event subscriptions (December 2025 audit findings)
     _wire_missing_event_subscriptions()
+
+    # Phase 21.2 (December 2025): Validate event flow to detect orphaned events
+    _validate_event_wiring()
 
     _state.initialized = True
     _state.completed_at = datetime.now()

@@ -260,12 +260,14 @@ describe('AIEngine service integration (profile-driven)', () => {
         stackPosition: { x: 0, y: 0 },
         capHeight: 3,
         totalHeight: 5,
+        ringsToEliminate: 3,
         moveId: 'opt-1',
       },
       {
         stackPosition: { x: 1, y: 1 },
         capHeight: 1,
         totalHeight: 4,
+        ringsToEliminate: 1,
         moveId: 'opt-2',
       },
     ];
@@ -472,12 +474,12 @@ describe('AIEngine service integration (profile-driven)', () => {
       2: { aiType: InternalAIType.HEURISTIC, randomness: 0.3, thinkTime: 200 },
       3: { aiType: InternalAIType.MINIMAX, randomness: 0.15, thinkTime: 1800 },
       4: { aiType: InternalAIType.MINIMAX, randomness: 0.08, thinkTime: 2800 },
-      5: { aiType: InternalAIType.MCTS, randomness: 0.05, thinkTime: 4000 },
-      6: { aiType: InternalAIType.MCTS, randomness: 0.02, thinkTime: 5500 },
+      5: { aiType: InternalAIType.DESCENT, randomness: 0.05, thinkTime: 4000 },
+      6: { aiType: InternalAIType.DESCENT, randomness: 0.02, thinkTime: 5500 },
       7: { aiType: InternalAIType.MCTS, randomness: 0.0, thinkTime: 7500 },
       8: { aiType: InternalAIType.MCTS, randomness: 0.0, thinkTime: 9600 },
-      9: { aiType: InternalAIType.DESCENT, randomness: 0.0, thinkTime: 12600 },
-      10: { aiType: InternalAIType.DESCENT, randomness: 0.0, thinkTime: 16000 },
+      9: { aiType: InternalAIType.GUMBEL_MCTS, randomness: 0.0, thinkTime: 12600 },
+      10: { aiType: InternalAIType.GUMBEL_MCTS, randomness: 0.0, thinkTime: 16000 },
     };
 
     for (const [key, expectedPreset] of Object.entries(expected)) {
@@ -610,11 +612,11 @@ describe('AIEngine service integration (profile-driven)', () => {
     expect(callArgs[3]).toBe(ServiceAIType.MCTS);
   });
 
-  it('getAIMove uses canonical ladder aiType and service mapping for difficulty 10 (Descent)', async () => {
+  it('getAIMove uses canonical ladder aiType and service mapping for difficulty 10 (Gumbel MCTS)', async () => {
     const mockedGetClient = getAIServiceClient as jest.MockedFunction<typeof getAIServiceClient>;
 
     const fakeMove: Move = {
-      id: 'svc-move-descent',
+      id: 'svc-move-gumbel-mcts',
       type: 'move_stack',
       player: 1,
       from: { x: 0, y: 0 },
@@ -628,7 +630,7 @@ describe('AIEngine service integration (profile-driven)', () => {
       move: fakeMove,
       evaluation: 0.0,
       thinking_time_ms: 50,
-      ai_type: 'descent',
+      ai_type: 'gumbel_mcts',
       difficulty: 10,
     };
 
@@ -643,13 +645,13 @@ describe('AIEngine service integration (profile-driven)', () => {
     const profile: AIProfile = {
       difficulty: 10,
       mode: 'service',
-      // No explicit aiType → rely on canonical ladder mapping (Descent).
+      // No explicit aiType → rely on canonical ladder mapping (Gumbel MCTS).
     };
 
     engine.createAIFromProfile(1, profile);
 
     const gameState: GameState = {
-      id: 'test-game-descent',
+      id: 'test-game-gumbel-mcts',
       boardType: 'square8',
       board: {
         type: 'square8',
@@ -698,7 +700,7 @@ describe('AIEngine service integration (profile-driven)', () => {
       fakeMove,
       {
         ...fakeMove,
-        id: 'svc-move-descent-2',
+        id: 'svc-move-gumbel-mcts-2',
         to: { x: 2, y: 0 },
         moveNumber: 2,
       },
@@ -709,6 +711,6 @@ describe('AIEngine service integration (profile-driven)', () => {
     expect(fakeClient.getAIMove).toHaveBeenCalledTimes(1);
     const callArgs = fakeClient.getAIMove.mock.calls[0];
     expect(callArgs[2]).toBe(10);
-    expect(callArgs[3]).toBe(ServiceAIType.DESCENT);
+    expect(callArgs[3]).toBe(ServiceAIType.GUMBEL_MCTS);
   });
 });

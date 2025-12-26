@@ -202,6 +202,7 @@ class DataEventType(Enum):
     WORK_RETRY = "work_retry"  # Work failed, will retry
     WORK_TIMEOUT = "work_timeout"  # Work timed out
     WORK_CANCELLED = "work_cancelled"  # Work cancelled
+    JOB_PREEMPTED = "job_preempted"  # Job preempted for higher priority work
 
     # Cluster status events
     CLUSTER_STATUS_CHANGED = "cluster_status_changed"

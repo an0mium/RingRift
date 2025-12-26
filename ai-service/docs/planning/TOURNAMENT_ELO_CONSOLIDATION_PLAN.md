@@ -36,8 +36,8 @@
 - `scripts/run_model_elo_tournament.py`
   - Model discovery, Elo matchmaking, persistent leaderboard.
   - **Training-mode** support (changes source tag).
-- `scripts/auto_elo_tournament.py`, `scripts/run_p2p_elo_tournament.py`
-  - Automated/continuous Elo flow and P2P orchestration.
+- `scripts/run_p2p_elo_tournament.py`
+  - P2P Elo orchestration; schedule `run_model_elo_tournament.py` via cron/unified loop for continuous runs.
 
 ### Evaluation + specialty tournaments
 

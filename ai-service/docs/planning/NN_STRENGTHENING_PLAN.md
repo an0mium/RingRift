@@ -254,9 +254,10 @@ Phase 3 (2-3 weeks): Automation and promotion
 2. **Train new square19 model** after data reaches target:
 
    ```bash
-   python scripts/train_distilled.py \
+   python scripts/train_nnue.py \
      --board-type square19 \
-     --training-db data/games/canonical_square19.db
+     --num-players 2 \
+     --db data/games/canonical_square19.db
    ```
 
 3. **Evaluate new model**:
@@ -325,12 +326,12 @@ ssh ubuntu@<node-ip> "cd ~/ringrift/ai-service && source venv/bin/activate && \
 **7. Enable reanalysis in training (post-model improvement):**
 
 ```bash
-# When a model shows +50 Elo improvement, reanalyze old games
+# When a model shows +50 Elo improvement, enable reanalysis via unified loop config
 ssh ubuntu@<node-ip> "cd ~/ringrift/ai-service && source venv/bin/activate && \
-  PYTHONPATH=. python scripts/train_distilled.py \
-    --board-type square8 \
-    --enable-reanalysis \
-    --reanalysis-blend-ratio 0.7"
+  # config/unified_loop.yaml (training section):
+  #   reanalysis_enabled: true
+  #   reanalysis_blend_ratio: 0.7
+  PYTHONPATH=. python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml"
 ```
 
 ### Priority Order for Data Generation
@@ -449,14 +450,13 @@ ssh ubuntu@<gpu-node> << 'EOF'
 cd ~/ringrift/ai-service && source venv/bin/activate
 
 # Train square19 model with new data
-PYTHONPATH=. python scripts/train_distilled.py \
+PYTHONPATH=. python scripts/train_nnue.py \
   --board-type square19 \
-  --training-db data/games/canonical_square19_2p.db \
+  --num-players 2 \
+  --db data/games/canonical_square19_2p.db \
   --epochs 100 \
   --batch-size 256 \
-  --enable-reanalysis \
-  --reanalysis-blend-ratio 0.7 \
-  --output-dir models/square19_2p_v2
+  --save-path models/nnue/square19_2p_v2.pt
 EOF
 ```
 
