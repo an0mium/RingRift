@@ -57,29 +57,26 @@ _WorkStatus = None
 
 
 def _get_work_queue():
-    """Lazy load WorkQueue to avoid circular imports."""
+    """Lazy load WorkQueue using the singleton to avoid database path inconsistencies."""
     global _work_queue, _WorkItem, _WorkType, _WorkStatus
 
     if _work_queue is None:
         try:
             from app.coordination.work_queue import (
                 WorkItem,
-                WorkQueue,
                 WorkStatus,
                 WorkType,
+                get_work_queue,
             )
 
             _WorkItem = WorkItem
             _WorkType = WorkType
             _WorkStatus = WorkStatus
 
-            # Use shared work queue instance
-            db_path = os.environ.get(
-                "RINGRIFT_WORK_QUEUE_DB",
-                "data/work_queue.db"
-            )
-            _work_queue = WorkQueue(db_path=db_path)
-            logger.info(f"Work distributor connected to queue at {db_path}")
+            # Use the singleton instance to ensure consistent database path
+            # The singleton respects RINGRIFT_WORK_QUEUE_DB environment variable
+            _work_queue = get_work_queue()
+            logger.info("Work distributor connected to singleton work queue")
 
         except ImportError as e:
             logger.warning(f"WorkQueue not available: {e}")

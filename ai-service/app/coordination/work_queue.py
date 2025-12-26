@@ -36,7 +36,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Default path for work queue database
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "work_queue.db"
+# Respect RINGRIFT_WORK_QUEUE_DB environment variable for consistency across all components
+_DEFAULT_DB_DIR = Path(__file__).parent.parent.parent / "data"
+DEFAULT_DB_PATH = Path(os.environ.get("RINGRIFT_WORK_QUEUE_DB", str(_DEFAULT_DB_DIR / "work_queue.db")))
 
 
 class SlackWorkQueueNotifier:
@@ -257,70 +259,91 @@ class WorkQueue:
             "total_timeout": 0,
         }
 
+        # Track initialization state
+        self._db_initialized = False
+
         # Initialize SQLite database and load existing items
         self._init_db()
-        self._load_items()
+        if self._db_initialized:
+            self._load_items()
 
     def _init_db(self) -> None:
         """Initialize SQLite database for work queue persistence."""
-        try:
-            os.makedirs(self.db_path.parent, exist_ok=True)
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+        max_retries = 3
+        retry_delay = 0.5
 
-            # Work items table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS work_items (
-                    work_id TEXT PRIMARY KEY,
-                    work_type TEXT NOT NULL,
-                    priority INTEGER NOT NULL DEFAULT 50,
-                    config TEXT NOT NULL DEFAULT '{}',
-                    created_at REAL NOT NULL,
-                    claimed_at REAL NOT NULL DEFAULT 0.0,
-                    started_at REAL NOT NULL DEFAULT 0.0,
-                    completed_at REAL NOT NULL DEFAULT 0.0,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    claimed_by TEXT NOT NULL DEFAULT '',
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    max_attempts INTEGER NOT NULL DEFAULT 3,
-                    timeout_seconds REAL NOT NULL DEFAULT 3600.0,
-                    result TEXT NOT NULL DEFAULT '{}',
-                    error TEXT NOT NULL DEFAULT '',
-                    depends_on TEXT NOT NULL DEFAULT '[]'
-                )
-            """)
-
-            # Add depends_on column if missing (migration for existing databases)
+        for attempt in range(max_retries):
             try:
-                cursor.execute("SELECT depends_on FROM work_items LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute("ALTER TABLE work_items ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'")
+                os.makedirs(self.db_path.parent, exist_ok=True)
+                conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+                cursor = conn.cursor()
 
-            # Stats table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS work_stats (
-                    key TEXT PRIMARY KEY,
-                    value INTEGER NOT NULL DEFAULT 0
-                )
-            """)
+                # Work items table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS work_items (
+                        work_id TEXT PRIMARY KEY,
+                        work_type TEXT NOT NULL,
+                        priority INTEGER NOT NULL DEFAULT 50,
+                        config TEXT NOT NULL DEFAULT '{}',
+                        created_at REAL NOT NULL,
+                        claimed_at REAL NOT NULL DEFAULT 0.0,
+                        started_at REAL NOT NULL DEFAULT 0.0,
+                        completed_at REAL NOT NULL DEFAULT 0.0,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        claimed_by TEXT NOT NULL DEFAULT '',
+                        attempts INTEGER NOT NULL DEFAULT 0,
+                        max_attempts INTEGER NOT NULL DEFAULT 3,
+                        timeout_seconds REAL NOT NULL DEFAULT 3600.0,
+                        result TEXT NOT NULL DEFAULT '{}',
+                        error TEXT NOT NULL DEFAULT '',
+                        depends_on TEXT NOT NULL DEFAULT '[]'
+                    )
+                """)
 
-            # Initialize stats if not present
-            for key in ["total_added", "total_completed", "total_failed", "total_timeout"]:
-                cursor.execute(
-                    "INSERT OR IGNORE INTO work_stats (key, value) VALUES (?, 0)",
-                    (key,)
-                )
+                # Add depends_on column if missing (migration for existing databases)
+                try:
+                    cursor.execute("SELECT depends_on FROM work_items LIMIT 1")
+                except sqlite3.OperationalError:
+                    cursor.execute("ALTER TABLE work_items ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'")
 
-            # Create indexes for common queries
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON work_items(status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_priority ON work_items(priority DESC)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_claimed_by ON work_items(claimed_by)")
+                # Stats table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS work_stats (
+                        key TEXT PRIMARY KEY,
+                        value INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
 
-            conn.commit()
-            conn.close()
-            logger.info(f"Work queue database initialized at {self.db_path}")
-        except Exception as e:
-            logger.error(f"Failed to initialize work queue database: {e}")
+                # Initialize stats if not present
+                for key in ["total_added", "total_completed", "total_failed", "total_timeout"]:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO work_stats (key, value) VALUES (?, 0)",
+                        (key,)
+                    )
+
+                # Create indexes for common queries
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON work_items(status)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_priority ON work_items(priority DESC)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_claimed_by ON work_items(claimed_by)")
+
+                conn.commit()
+                conn.close()
+                self._db_initialized = True
+                logger.info(f"Work queue database initialized at {self.db_path}")
+                return
+
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < max_retries - 1:
+                    logger.warning(f"Database locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    logger.error(f"Failed to initialize work queue database after {attempt + 1} attempts: {e}")
+            except Exception as e:
+                logger.error(f"Failed to initialize work queue database: {e}")
+                break
+
+        self._db_initialized = False
 
     def _load_items(self) -> None:
         """Load work items from database on startup."""
@@ -336,6 +359,13 @@ class WorkQueue:
             """)
 
             for row in cursor.fetchall():
+                # Parse depends_on safely (column may be missing in old databases)
+                depends_on_raw = row["depends_on"] if "depends_on" in row.keys() else "[]"
+                try:
+                    depends_on = json.loads(depends_on_raw) if depends_on_raw else []
+                except (json.JSONDecodeError, TypeError):
+                    depends_on = []
+
                 item = WorkItem(
                     work_id=row["work_id"],
                     work_type=WorkType(row["work_type"]),
@@ -352,6 +382,7 @@ class WorkQueue:
                     timeout_seconds=row["timeout_seconds"],
                     result=json.loads(row["result"]),
                     error=row["error"],
+                    depends_on=depends_on,
                 )
                 self.items[item.work_id] = item
 
@@ -557,8 +588,13 @@ class WorkQueue:
         Returns:
             True if claim succeeded, False if item was already claimed
         """
+        # Check if database is initialized
+        if not getattr(self, '_db_initialized', False):
+            logger.warning(f"Cannot claim {work_id}: database not initialized")
+            return False
+
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = sqlite3.connect(str(self.db_path), timeout=10.0)
             cursor = conn.cursor()
 
             # Use BEGIN IMMEDIATE for write intent, preventing concurrent claims
