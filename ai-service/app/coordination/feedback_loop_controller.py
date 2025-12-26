@@ -617,22 +617,41 @@ class FeedbackLoopController:
     def _trigger_quality_check(self, config_key: str, reason: str) -> None:
         """Trigger a quality check for the given config.
 
-        Emits QUALITY_CHECK_REQUESTED event to be handled by quality monitor.
+        Phase 9 (Dec 2025): Emits QUALITY_CHECK_REQUESTED event to be handled
+        by QualityMonitorDaemon, completing the feedback loop from training
+        loss anomalies to data quality verification.
         """
         try:
-            from app.coordination.event_router import DataEvent, DataEventType, get_event_bus
+            import asyncio
+            from app.distributed.data_events import emit_quality_check_requested
 
-            bus = get_event_bus()
-            if hasattr(DataEventType, 'QUALITY_CHECK_FAILED'):
-                # Emit a quality check request (using existing event infrastructure)
-                # Note: QUALITY_CHECK_REQUESTED may not exist, so we use logging for now
-                logger.info(
-                    f"[FeedbackLoopController] Triggering quality check for {config_key}: {reason}"
-                )
-                # In a full implementation, this would emit QUALITY_CHECK_REQUESTED
-                # and the QualityMonitorDaemon would handle it
+            logger.info(
+                f"[FeedbackLoopController] Triggering quality check for {config_key}: {reason}"
+            )
+
+            # Determine priority based on reason
+            priority = "high" if reason in ("training_loss_anomaly", "training_loss_degrading") else "normal"
+
+            # Emit the event (handle both sync and async contexts)
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(emit_quality_check_requested(
+                    config_key=config_key,
+                    reason=reason,
+                    source="FeedbackLoopController",
+                    priority=priority,
+                ))
+            except RuntimeError:
+                # No running event loop, run synchronously
+                asyncio.run(emit_quality_check_requested(
+                    config_key=config_key,
+                    reason=reason,
+                    source="FeedbackLoopController",
+                    priority=priority,
+                ))
+
         except Exception as e:
-            logger.debug(f"[FeedbackLoopController] Error triggering quality check: {e}")
+            logger.warning(f"[FeedbackLoopController] Error triggering quality check: {e}")
 
     def _boost_exploration_for_anomaly(self, config_key: str, anomaly_count: int) -> None:
         """Boost exploration in response to loss anomalies."""

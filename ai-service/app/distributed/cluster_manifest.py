@@ -64,6 +64,7 @@ __all__ = [
     "GameLocation",
     "ModelLocation",
     "NPZLocation",
+    "CheckpointLocation",
     "NodeCapacity",
     "NodeInventory",
     "SyncTarget",
@@ -102,6 +103,7 @@ class DataType(str, Enum):
     GAME = "game"
     MODEL = "model"
     NPZ = "npz"
+    CHECKPOINT = "checkpoint"
 
 
 class NodeRole(str, Enum):
@@ -150,6 +152,27 @@ class NPZLocation:
     file_size: int = 0
     registered_at: float = 0.0
     last_seen: float = 0.0
+
+
+@dataclass
+class CheckpointLocation:
+    """Location of a training checkpoint in the cluster.
+
+    Checkpoints include optimizer state, scheduler state, and training metadata
+    needed to resume training from a specific point.
+    """
+    checkpoint_path: str  # Relative path (e.g., "checkpoints/hex8_2p/epoch_50.pth")
+    node_id: str
+    config_key: str | None = None  # e.g., "hex8_2p"
+    board_type: str | None = None
+    num_players: int | None = None
+    epoch: int = 0
+    step: int = 0
+    loss: float = 0.0
+    file_size: int = 0
+    registered_at: float = 0.0
+    last_seen: float = 0.0
+    is_best: bool = False  # Whether this is the best checkpoint for this config
 
 
 @dataclass
@@ -582,6 +605,24 @@ class ClusterManifest:
                 PRIMARY KEY (db_path, node_id)
             );
 
+            -- Checkpoint locations table (December 2025)
+            -- Tracks training checkpoints for distributed training resume/failover
+            CREATE TABLE IF NOT EXISTS checkpoint_locations (
+                checkpoint_path TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                config_key TEXT,
+                board_type TEXT,
+                num_players INTEGER,
+                epoch INTEGER DEFAULT 0,
+                step INTEGER DEFAULT 0,
+                loss REAL DEFAULT 0.0,
+                file_size INTEGER DEFAULT 0,
+                is_best INTEGER DEFAULT 0,
+                registered_at REAL NOT NULL,
+                last_seen REAL NOT NULL,
+                PRIMARY KEY (checkpoint_path, node_id)
+            );
+
             -- Node capacity table
             CREATE TABLE IF NOT EXISTS node_capacity (
                 node_id TEXT PRIMARY KEY,
@@ -618,6 +659,12 @@ class ClusterManifest:
                 ON database_locations(config_key);
             CREATE INDEX IF NOT EXISTS idx_database_locations_board
                 ON database_locations(board_type, num_players);
+            CREATE INDEX IF NOT EXISTS idx_checkpoint_locations_node
+                ON checkpoint_locations(node_id);
+            CREATE INDEX IF NOT EXISTS idx_checkpoint_locations_config
+                ON checkpoint_locations(config_key);
+            CREATE INDEX IF NOT EXISTS idx_checkpoint_locations_best
+                ON checkpoint_locations(config_key, is_best);
 
             -- Initialize metadata
             INSERT OR IGNORE INTO manifest_metadata (key, value, updated_at)

@@ -144,6 +144,7 @@ class DataEventType(Enum):
 
     # Data quality events
     DATA_QUALITY_ALERT = "data_quality_alert"
+    QUALITY_CHECK_REQUESTED = "quality_check_requested"  # Phase 9: Request on-demand quality check
     QUALITY_CHECK_FAILED = "quality_check_failed"
     QUALITY_SCORE_UPDATED = "quality_score_updated"  # Game quality recalculated
     QUALITY_DISTRIBUTION_CHANGED = "quality_distribution_changed"  # Significant shift
@@ -984,6 +985,35 @@ async def emit_quality_degraded(
             "threshold": threshold,
             "previous_score": previous_score,
             "degradation_delta": previous_score - quality_score if previous_score else 0.0,
+        },
+        source=source,
+    ))
+
+
+async def emit_quality_check_requested(
+    config_key: str,
+    reason: str,
+    source: str = "feedback_loop_controller",
+    priority: str = "normal",
+) -> None:
+    """Emit a QUALITY_CHECK_REQUESTED event to trigger on-demand quality check.
+
+    Phase 9 (Dec 2025): Closes the feedback loop between training loss anomalies
+    and data quality verification. When training loss spikes, this requests the
+    QualityMonitorDaemon to perform an immediate quality check.
+
+    Args:
+        config_key: Board configuration (e.g., "hex8_2p")
+        reason: Reason for the quality check request
+        source: Component requesting the check
+        priority: Priority level ("normal", "high", "urgent")
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.QUALITY_CHECK_REQUESTED,
+        payload={
+            "config_key": config_key,
+            "reason": reason,
+            "priority": priority,
         },
         source=source,
     ))
