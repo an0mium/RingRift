@@ -344,6 +344,10 @@ class ModelDistributionDaemon:
                         self._last_sync_time = time.time()
                         logger.info("Model distribution completed successfully")
 
+                        # Create symlinks for distributed models (Dec 2025)
+                        # Selfplay engines look for ringrift_best_*.pth, but we sync canonical_*.pth
+                        await self._create_model_symlinks()
+
                         # Emit completion event
                         if self.config.emit_completion_event:
                             await self._emit_distribution_complete(models)
@@ -642,6 +646,162 @@ class ModelDistributionDaemon:
                 # Use smart sync (HTTP first, fallback to rsync)
                 await self._run_smart_sync()
                 self._last_sync_time = time.time()
+
+    async def _create_model_symlinks(self) -> None:
+        """Create ringrift_best_*.pth symlinks pointing to canonical_*.pth models.
+
+        December 2025: This ensures selfplay engines can find promoted models.
+        Selfplay looks for 'ringrift_best_{board}_{n}p.pth' but we distribute
+        'canonical_{board}_{n}p.pth'. Symlinks bridge this gap.
+
+        Creates symlinks locally and on all cluster nodes via SSH.
+        """
+        models_dir = ROOT / self.config.models_dir
+
+        # Find all canonical models
+        canonical_models = list(models_dir.glob("canonical_*.pth"))
+        if not canonical_models:
+            logger.debug("No canonical models found for symlink creation")
+            return
+
+        created_count = 0
+        for canonical_path in canonical_models:
+            # Extract config from canonical_hex8_2p.pth -> hex8_2p
+            name = canonical_path.stem  # canonical_hex8_2p
+            if not name.startswith("canonical_"):
+                continue
+
+            config_key = name[len("canonical_"):]  # hex8_2p
+            symlink_name = f"ringrift_best_{config_key}.pth"
+            symlink_path = models_dir / symlink_name
+
+            try:
+                # Remove existing file/symlink if present
+                if symlink_path.exists() or symlink_path.is_symlink():
+                    symlink_path.unlink()
+
+                # Create relative symlink (canonical_hex8_2p.pth, not absolute path)
+                symlink_path.symlink_to(canonical_path.name)
+                created_count += 1
+                logger.debug(f"Created symlink: {symlink_name} -> {canonical_path.name}")
+            except OSError as e:
+                logger.warning(f"Failed to create symlink {symlink_name}: {e}")
+
+        if created_count > 0:
+            logger.info(f"Created {created_count} model symlinks locally")
+
+        # Also create symlinks on cluster nodes via SSH
+        await self._create_remote_symlinks(canonical_models)
+
+    async def _create_remote_symlinks(self, canonical_models: list[Path]) -> None:
+        """Create symlinks on remote cluster nodes.
+
+        Args:
+            canonical_models: List of canonical model paths to create symlinks for
+        """
+        # Get target nodes
+        target_nodes = self._get_distribution_targets()
+        if not target_nodes:
+            return
+
+        # Build symlink commands
+        symlink_commands = []
+        for canonical_path in canonical_models:
+            name = canonical_path.stem
+            if not name.startswith("canonical_"):
+                continue
+
+            config_key = name[len("canonical_"):]
+            # Remote command: cd models && ln -sf canonical_X.pth ringrift_best_X.pth
+            cmd = (
+                f"cd ~/ringrift/ai-service/models 2>/dev/null || "
+                f"cd ~/RingRift/ai-service/models 2>/dev/null && "
+                f"ln -sf {canonical_path.name} ringrift_best_{config_key}.pth"
+            )
+            symlink_commands.append(cmd)
+
+        if not symlink_commands:
+            return
+
+        # Combine all symlink commands
+        combined_cmd = " && ".join(symlink_commands)
+
+        # Run on all nodes in parallel
+        success_count = 0
+        tasks = []
+
+        for node in target_nodes:
+            task = self._run_remote_command(node, combined_cmd)
+            tasks.append((node, task))
+
+        for node, task in tasks:
+            try:
+                result = await task
+                if result:
+                    success_count += 1
+            except Exception as e:
+                logger.debug(f"Failed to create symlinks on {node}: {e}")
+
+        if success_count > 0:
+            logger.info(
+                f"Created model symlinks on {success_count}/{len(target_nodes)} cluster nodes"
+            )
+
+    async def _run_remote_command(self, node: str, command: str) -> bool:
+        """Run a command on a remote node via SSH.
+
+        Args:
+            node: Node hostname/IP
+            command: Command to run
+
+        Returns:
+            True if command succeeded, False otherwise
+        """
+        try:
+            # Try to get SSH user from config
+            ssh_user = "root"  # Default for most cloud nodes
+            try:
+                import yaml
+
+                config_path = ROOT / "config" / "distributed_hosts.yaml"
+                if config_path.exists():
+                    with open(config_path) as f:
+                        config = yaml.safe_load(f)
+
+                    for host_config in config.get("hosts", {}).values():
+                        host = (
+                            host_config.get("ssh_host")
+                            or host_config.get("tailscale_ip")
+                            or host_config.get("host")
+                        )
+                        if host == node:
+                            ssh_user = host_config.get("ssh_user", "root")
+                            break
+            except Exception:
+                pass
+
+            ssh_cmd = [
+                "ssh",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=10",
+                "-o", "BatchMode=yes",
+                f"{ssh_user}@{node}",
+                command,
+            ]
+
+            process = await asyncio.create_subprocess_exec(
+                *ssh_cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+
+            await asyncio.wait_for(process.wait(), timeout=30.0)
+            return process.returncode == 0
+
+        except asyncio.TimeoutError:
+            return False
+        except Exception:
+            return False
 
     async def _emit_distribution_complete(
         self, models: list[dict[str, Any]]

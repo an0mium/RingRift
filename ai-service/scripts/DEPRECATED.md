@@ -63,19 +63,19 @@ These scripts are actively called by `p2p_orchestrator.py`:
 
 All superseded by `p2p_orchestrator.py`:
 
-| Script                        | Replacement      |
-| ----------------------------- | ---------------- |
-| `cluster_automation.py`       | P2P orchestrator |
-| `cluster_control.py`          | P2P orchestrator |
-| `cluster_manager.py`          | P2P orchestrator |
-| `cluster_monitor.py`          | P2P orchestrator |
-| `cluster_health_check.py`     | P2P orchestrator |
-| `cluster_health_monitor.py`   | P2P orchestrator |
-| `cluster_auto_recovery.py`    | P2P orchestrator |
-| `cluster_file_sync.py`        | P2P orchestrator |
-| `cluster_sync_coordinator.py` | P2P orchestrator |
-| `cluster_ssh_init.py`         | P2P orchestrator |
-| `cluster_*.sh` (all)          | P2P orchestrator |
+| Script                                                                  | Replacement      |
+| ----------------------------------------------------------------------- | ---------------- |
+| `cluster_automation.py`                                                 | P2P orchestrator |
+| `cluster_control.py`                                                    | P2P orchestrator |
+| `cluster_manager.py`                                                    | P2P orchestrator |
+| `cluster_monitor.py`                                                    | P2P orchestrator |
+| `cluster_health_check.py`                                               | P2P orchestrator |
+| `cluster_health_monitor.py`                                             | P2P orchestrator |
+| `cluster_auto_recovery.py`                                              | P2P orchestrator |
+| `cluster_file_sync.py`                                                  | P2P orchestrator |
+| `cluster_sync_coordinator.py`                                           | P2P orchestrator |
+| `cluster_ssh_init.py`                                                   | P2P orchestrator |
+| `cluster_*.sh` (legacy management scripts; excludes `cluster_setup.sh`) | P2P orchestrator |
 
 ### Monitoring (24 scripts -> P2P status endpoint)
 

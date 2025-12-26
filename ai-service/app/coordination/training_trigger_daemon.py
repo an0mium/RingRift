@@ -262,6 +262,13 @@ class TrainingTriggerDaemon:
             unsub = bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_completed)
             self._event_subscriptions.append(unsub)
             logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_COMPLETED events")
+
+            # December 2025: Subscribe to EVALUATION_COMPLETED for gauntlet → training feedback
+            # This closes the critical feedback loop: model performance → training parameters
+            if hasattr(DataEventType, 'EVALUATION_COMPLETED'):
+                unsub = bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_completed)
+                self._event_subscriptions.append(unsub)
+                logger.info("[TrainingTriggerDaemon] Subscribed to EVALUATION_COMPLETED events")
         except ImportError:
             logger.warning("[TrainingTriggerDaemon] Data events not available")
 
@@ -322,6 +329,165 @@ class TrainingTriggerDaemon:
 
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training completion: {e}")
+
+    async def _on_evaluation_completed(self, event: Any) -> None:
+        """Handle gauntlet evaluation completion - adjust training parameters (Dec 2025).
+
+        This closes the critical feedback loop: gauntlet performance → training parameters.
+
+        Adjustments based on win rate:
+        - Win rate < 40%: Boost training intensity, increase epochs, trigger extra selfplay
+        - Win rate 40-60%: Increase training to "accelerated" mode
+        - Win rate 60-75%: Normal training, model is improving
+        - Win rate > 75%: Reduce intensity, model is strong
+
+        Expected improvement: 50-100 Elo by closing the feedback loop.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+
+            config_key = payload.get("config", "") or payload.get("config_key", "")
+            win_rate = payload.get("win_rate", 0.5)
+            elo = payload.get("elo", 1500.0)
+            games_played = payload.get("games_played", 0)
+
+            # Try to parse config_key from model_id if not provided
+            if not config_key:
+                model_id = payload.get("model_id", "")
+                if model_id:
+                    # Extract config from model_id like "canonical_hex8_2p" -> "hex8_2p"
+                    parts = model_id.replace("canonical_", "").rsplit("_", 1)
+                    if len(parts) == 2 and parts[1].endswith("p"):
+                        config_key = f"{parts[0]}_{parts[1]}"
+
+            if not config_key:
+                logger.debug("[TrainingTriggerDaemon] No config_key in evaluation event")
+                return
+
+            state = self._get_or_create_state(config_key)
+
+            # Calculate Elo change if we have previous Elo
+            elo_delta = elo - state.last_elo if state.last_elo > 0 else 0.0
+            state.elo_trend = elo_delta
+            old_elo = state.last_elo
+            state.last_elo = elo
+
+            logger.info(
+                f"[TrainingTriggerDaemon] Evaluation complete for {config_key}: "
+                f"win_rate={win_rate:.1%}, elo={elo:.0f} (delta={elo_delta:+.0f}), "
+                f"games={games_played}"
+            )
+
+            # Determine new training intensity based on win rate
+            old_intensity = state.training_intensity
+
+            if win_rate < 0.40:
+                # Struggling model - aggressive training boost
+                state.training_intensity = "accelerated"
+                logger.warning(
+                    f"[TrainingTriggerDaemon] {config_key} struggling (win_rate={win_rate:.1%}), "
+                    f"boosting training intensity to 'accelerated'"
+                )
+                # Trigger extra selfplay to generate more training data
+                await self._trigger_selfplay_boost(config_key, multiplier=1.5)
+
+            elif win_rate < 0.60:
+                # Below target but not terrible - increase training
+                state.training_intensity = "accelerated"
+                logger.info(
+                    f"[TrainingTriggerDaemon] {config_key} below target (win_rate={win_rate:.1%}), "
+                    f"setting intensity to 'accelerated'"
+                )
+
+            elif win_rate < 0.75:
+                # Reasonable performance - normal training
+                state.training_intensity = "normal"
+                if old_intensity != "normal":
+                    logger.info(
+                        f"[TrainingTriggerDaemon] {config_key} recovering (win_rate={win_rate:.1%}), "
+                        f"returning to 'normal' intensity"
+                    )
+
+            else:
+                # Strong model - can reduce training intensity
+                if state.training_intensity != "reduced":
+                    state.training_intensity = "reduced"
+                    logger.info(
+                        f"[TrainingTriggerDaemon] {config_key} strong (win_rate={win_rate:.1%}), "
+                        f"reducing training intensity"
+                    )
+
+            # Check for Elo plateau (no improvement over multiple evaluations)
+            if elo_delta <= 5 and old_elo > 0:
+                state.consecutive_failures += 1
+                if state.consecutive_failures >= 3:
+                    logger.warning(
+                        f"[TrainingTriggerDaemon] {config_key} Elo plateau detected "
+                        f"({state.consecutive_failures} evals with minimal improvement), "
+                        f"consider curriculum advancement"
+                    )
+                    await self._signal_curriculum_advancement(config_key)
+            else:
+                # Elo improved - reset failure counter
+                state.consecutive_failures = 0
+
+            # Record to FeedbackAccelerator for Elo momentum tracking
+            await self._record_to_feedback_accelerator(config_key, elo, elo_delta)
+
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling evaluation: {e}")
+
+    async def _trigger_selfplay_boost(self, config_key: str, multiplier: float = 1.5) -> None:
+        """Trigger additional selfplay for struggling configurations."""
+        try:
+            from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+            scheduler = get_selfplay_scheduler()
+            if scheduler:
+                # Boost allocation for this config
+                scheduler.boost_config_allocation(config_key, multiplier)
+                logger.info(
+                    f"[TrainingTriggerDaemon] Boosted selfplay for {config_key} by {multiplier}x"
+                )
+        except Exception as e:
+            logger.debug(f"[TrainingTriggerDaemon] Could not boost selfplay: {e}")
+
+    async def _signal_curriculum_advancement(self, config_key: str) -> None:
+        """Signal that curriculum should advance for a stagnant configuration."""
+        try:
+            from app.coordination.event_router import publish
+
+            await publish(
+                event_type="CURRICULUM_ADVANCEMENT_NEEDED",
+                payload={
+                    "config_key": config_key,
+                    "reason": "elo_plateau",
+                    "timestamp": time.time(),
+                },
+                source="training_trigger_daemon",
+            )
+            logger.info(
+                f"[TrainingTriggerDaemon] Signaled curriculum advancement for {config_key}"
+            )
+        except Exception as e:
+            logger.debug(f"[TrainingTriggerDaemon] Could not signal curriculum: {e}")
+
+    async def _record_to_feedback_accelerator(
+        self, config_key: str, elo: float, elo_delta: float
+    ) -> None:
+        """Record Elo update to FeedbackAccelerator for momentum tracking."""
+        try:
+            from app.training.feedback_accelerator import get_feedback_accelerator
+
+            accelerator = get_feedback_accelerator()
+            if accelerator:
+                accelerator.record_elo_update(config_key, elo, elo_delta)
+                logger.debug(
+                    f"[TrainingTriggerDaemon] Recorded Elo to FeedbackAccelerator: "
+                    f"{config_key}={elo:.0f} (delta={elo_delta:+.0f})"
+                )
+        except Exception as e:
+            logger.debug(f"[TrainingTriggerDaemon] Could not record to accelerator: {e}")
 
     def _get_or_create_state(
         self, config_key: str, board_type: str | None = None, num_players: int | None = None
