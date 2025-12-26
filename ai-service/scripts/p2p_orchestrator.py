@@ -5088,9 +5088,20 @@ class P2POrchestrator:
             try:
                 await asyncio.sleep(120)  # Every 2 minutes
 
-                # Skip if not leader (only leader needs full mesh)
-                if self.role != "leader":
-                    continue
+                # Phase 30: All nodes participate in discovery (not just leader)
+                # This ensures isolated nodes can rejoin the cluster
+                # Rate limit non-leaders to every 5 minutes (3 loops)
+                is_leader = self.role == NodeRole.LEADER
+                if not is_leader:
+                    # Non-leaders do discovery less frequently
+                    loop_count = getattr(self, "_ts_recovery_loop_count", 0) + 1
+                    self._ts_recovery_loop_count = loop_count
+                    if loop_count % 3 != 0:  # Every 3rd iteration = 6 minutes
+                        # Unless we're isolated (few peers)
+                        with self.peers_lock:
+                            alive_count = sum(1 for p in self.peers.values() if p.is_alive())
+                        if alive_count >= MIN_CONNECTED_PEERS:
+                            continue  # Skip if we have enough peers
 
                 # Get current peer node_ids
                 current_peers = set()
@@ -21437,6 +21448,71 @@ print(json.dumps({{
 
         return success
 
+    async def _follower_discovery_loop(self) -> None:
+        """Phase 30.2: Background discovery for non-leader nodes.
+
+        This loop ensures followers actively discover peers, not just the leader.
+        It probes gossip-learned endpoints and cached peers that we haven't
+        connected to yet.
+        """
+        # Wait for initial startup
+        await asyncio.sleep(90)
+
+        while self.running:
+            try:
+                await asyncio.sleep(300)  # Every 5 minutes
+
+                # Skip if we're the leader (leader has its own discovery loops)
+                if self.role == NodeRole.LEADER:
+                    continue
+
+                # Check if we have enough peers
+                with self.peers_lock:
+                    alive_count = sum(1 for p in self.peers.values() if p.is_alive())
+
+                if alive_count >= MIN_CONNECTED_PEERS * 2:
+                    # We have plenty of peers, less aggressive discovery
+                    continue
+
+                # 1. Probe gossip-learned endpoints we haven't connected to
+                endpoints_to_try = []
+                now = time.time()
+                for node_id, endpoint in list(self._gossip_learned_endpoints.items()):
+                    if node_id == self.node_id:
+                        continue
+                    if node_id in self.peers and self.peers[node_id].is_alive():
+                        continue
+
+                    # Only try endpoints learned in the last hour
+                    if now - endpoint.get("learned_at", 0) > 3600:
+                        continue
+
+                    endpoints_to_try.append((node_id, endpoint))
+
+                # Limit attempts per cycle
+                for node_id, endpoint in endpoints_to_try[:5]:
+                    host = endpoint.get("host")
+                    port = endpoint.get("port", DEFAULT_PORT)
+                    if host and port:
+                        try:
+                            logger.debug(f"Follower discovery: trying {node_id} at {host}:{port}")
+                            info = await self._send_heartbeat_to_peer(host, port)
+                            if info:
+                                with self.peers_lock:
+                                    self.peers[info.node_id] = info
+                                logger.info(f"Follower discovery: connected to {info.node_id}")
+                        except Exception:
+                            pass
+
+                # 2. Bootstrap from any reachable cached peer
+                await self._bootstrap_from_known_peers()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in follower discovery loop: {e}")
+                await asyncio.sleep(60)
+
     async def _send_relay_heartbeat(self, relay_url: str) -> dict[str, Any]:
         """Send heartbeat via relay endpoint for NAT-blocked nodes.
 
@@ -22758,6 +22834,10 @@ print(json.dumps({{
         self.leader_id = self.node_id
         self.last_leader_seen = time.time()  # Track when we last had a functioning leader
 
+        # Phase 29: Increment cluster epoch on leadership change
+        # This helps resolve split-brain when partitions merge
+        self._increment_cluster_epoch()
+
         # Lease-based leadership (voter-backed when enabled).
         self.leader_lease_id = lease_id
         self.leader_lease_expires = float(lease_expires or (time.time() + LEADER_LEASE_DURATION))
@@ -23617,6 +23697,91 @@ print(json.dumps({{
         # Check for tournament consensus after processing gossip
         with contextlib.suppress(Exception):
             self._check_tournament_consensus()
+
+        # Phase 28: Process peer endpoints for peer-of-peer discovery
+        peer_endpoints = response.get("peer_endpoints") or []
+        if peer_endpoints:
+            self._process_gossip_peer_endpoints(peer_endpoints)
+
+        # Phase 29: Process cluster epoch for split-brain resolution
+        incoming_epoch = response.get("cluster_epoch")
+        if incoming_epoch is not None:
+            self._handle_incoming_cluster_epoch(incoming_epoch, response)
+
+    def _process_gossip_peer_endpoints(self, peer_endpoints: list[dict]) -> None:
+        """Phase 28: Process peer endpoints learned via gossip.
+
+        Enables discovery of peers we can't reach directly through intermediaries.
+        """
+        for endpoint in peer_endpoints:
+            node_id = endpoint.get("node_id")
+            if not node_id or node_id == self.node_id:
+                continue
+
+            # Store in gossip-learned endpoints for later connection attempts
+            host = endpoint.get("tailscale_ip") or endpoint.get("host")
+            port = endpoint.get("port", DEFAULT_PORT)
+
+            if host and port:
+                self._gossip_learned_endpoints[node_id] = {
+                    "host": host,
+                    "port": port,
+                    "tailscale_ip": endpoint.get("tailscale_ip", ""),
+                    "last_heartbeat": endpoint.get("last_heartbeat", 0),
+                    "learned_at": time.time(),
+                }
+
+                # If this is an unknown peer, try to connect
+                if node_id not in self.peers:
+                    # Queue for async connection attempt
+                    asyncio.create_task(self._try_connect_gossip_peer(node_id, host, port))
+
+    async def _try_connect_gossip_peer(self, node_id: str, host: str, port: int) -> None:
+        """Phase 28: Attempt to connect to a peer learned via gossip."""
+        try:
+            # Check if already connected
+            if node_id in self.peers and self.peers[node_id].is_alive():
+                return
+
+            logger.info(f"Attempting connection to gossip-learned peer: {node_id} at {host}:{port}")
+
+            # Try to send heartbeat
+            info = await self._send_heartbeat_to_peer(host, port)
+            if info:
+                with self.peers_lock:
+                    self.peers[info.node_id] = info
+                logger.info(f"Successfully connected to gossip-learned peer: {info.node_id}")
+
+                # Save to cache for future restarts
+                self._save_peer_to_cache(
+                    info.node_id, host, port,
+                    str(getattr(info, "tailscale_ip", "") or "")
+                )
+        except Exception as e:
+            if self.verbose:
+                logger.debug(f"Failed to connect to gossip-learned peer {node_id}: {e}")
+
+    def _handle_incoming_cluster_epoch(self, incoming_epoch: Any, response: dict) -> None:
+        """Phase 29: Handle incoming cluster epoch for split-brain resolution."""
+        try:
+            epoch = int(incoming_epoch)
+        except (ValueError, TypeError):
+            return
+
+        if epoch > self._cluster_epoch:
+            # Accept higher epoch - this cluster partition is more authoritative
+            logger.info(f"Adopting higher cluster epoch: {epoch} (was {self._cluster_epoch})")
+            self._cluster_epoch = epoch
+            self._save_cluster_epoch()
+
+            # If response includes a leader, adopt it
+            sender_state = response.get("sender_state", {})
+            incoming_leader = sender_state.get("leader_id")
+            if incoming_leader and incoming_leader != self.node_id:
+                if self.role == NodeRole.LEADER:
+                    logger.info(f"Stepping down: higher epoch cluster has leader {incoming_leader}")
+                    self.role = NodeRole.FOLLOWER
+                self.leader_id = incoming_leader
 
     def _record_gossip_metrics(self, event: str, peer_id: str | None = None, latency_ms: float = 0):
         """Record gossip protocol metrics for monitoring.
@@ -28826,6 +28991,9 @@ print(json.dumps({{
 
         # Phase 26: Continuous bootstrap loop - ensures isolated nodes can rejoin
         tasks.append(asyncio.create_task(self._continuous_bootstrap_loop()))
+
+        # Phase 30: Follower discovery loop - non-leaders actively discover peers
+        tasks.append(asyncio.create_task(self._follower_discovery_loop()))
 
         # Add automatic data management loop (export triggers, training triggers, data sync)
         tasks.append(asyncio.create_task(self._data_management_loop()))
