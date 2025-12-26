@@ -48,6 +48,8 @@ class ConfigTarget:
     last_updated: float = field(default_factory=time.time)
     # Elo history for velocity tracking: list of (timestamp, elo) tuples
     elo_history: list[tuple] = field(default_factory=list)
+    # P10-LOOP-3: Track previous velocity for change detection
+    _previous_velocity: float = 0.0
 
     @property
     def target_met(self) -> bool:
@@ -113,13 +115,62 @@ class ConfigTarget:
         return self.elo_gap / velocity
 
     def record_elo(self, elo: float, timestamp: float | None = None) -> None:
-        """Record an Elo measurement for velocity tracking."""
+        """Record an Elo measurement for velocity tracking.
+
+        P10-LOOP-3 (Dec 2025): Also emits ELO_VELOCITY_CHANGED event if
+        velocity changes significantly (>10 Elo/day difference).
+        """
         ts = timestamp or time.time()
         self.elo_history.append((ts, elo))
 
         # Keep only last 30 days of history to prevent unbounded growth
         cutoff = ts - (30 * 24 * 3600)
         self.elo_history = [(t, e) for t, e in self.elo_history if t >= cutoff]
+
+        # P10-LOOP-3: Check for significant velocity change
+        new_velocity = self.elo_velocity
+        velocity_change = abs(new_velocity - self._previous_velocity)
+
+        # Only emit if velocity change is significant (>10 Elo/day)
+        if velocity_change > 10.0:
+            # Determine trend
+            if new_velocity > self._previous_velocity + 5:
+                trend = "accelerating"
+            elif new_velocity < self._previous_velocity - 5:
+                trend = "decelerating"
+            else:
+                trend = "stable"
+
+            # Emit event asynchronously
+            try:
+                import asyncio
+                from app.distributed.data_events import emit_elo_velocity_changed
+
+                async def _emit():
+                    await emit_elo_velocity_changed(
+                        config_key=self.config_key,
+                        velocity=new_velocity,
+                        previous_velocity=self._previous_velocity,
+                        trend=trend,
+                    )
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(_emit())
+                    else:
+                        asyncio.run(_emit())
+                except RuntimeError:
+                    pass  # No event loop available
+
+                logger.debug(
+                    f"[ConfigTarget] Velocity changed for {self.config_key}: "
+                    f"{self._previous_velocity:.1f} → {new_velocity:.1f} Elo/day ({trend})"
+                )
+            except ImportError:
+                pass  # data_events not available
+
+            self._previous_velocity = new_velocity
 
 
 @dataclass

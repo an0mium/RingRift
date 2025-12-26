@@ -788,8 +788,11 @@ class SelfplayScheduler:
                 # P10-LOOP-1 (Dec 2025): Subscribe to TRAINING_EARLY_STOPPED for selfplay boost
                 if hasattr(DataEventType, 'TRAINING_EARLY_STOPPED'):
                     bus.subscribe(DataEventType.TRAINING_EARLY_STOPPED, self._on_training_early_stopped)
+                # P10-LOOP-3 (Dec 2025): Subscribe to ELO_VELOCITY_CHANGED for selfplay rate adjustment
+                if hasattr(DataEventType, 'ELO_VELOCITY_CHANGED'):
+                    bus.subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
                 self._subscribed = True
-                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including TRAINING_EARLY_STOPPED)")
+                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including ELO_VELOCITY_CHANGED)")
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Failed to subscribe: {e}")
@@ -1154,6 +1157,90 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling training early stopped: {e}")
+
+    def _on_elo_velocity_changed(self, event: Any) -> None:
+        """Handle Elo velocity change event.
+
+        P10-LOOP-3 (Dec 2025): Adjusts selfplay rate based on Elo velocity trends.
+
+        This closes the feedback loop:
+        ELO_VELOCITY_CHANGED → Selfplay rate adjustment → Optimal resource allocation
+
+        Actions based on trend:
+        - accelerating: Increase selfplay to capitalize on momentum
+        - decelerating: Reduce selfplay, shift focus to training quality
+        - stable: Maintain current allocation
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            velocity = payload.get("velocity", 0.0)
+            previous_velocity = payload.get("previous_velocity", 0.0)
+            trend = payload.get("trend", "stable")
+
+            if config_key not in self._config_priorities:
+                logger.debug(
+                    f"[SelfplayScheduler] Received velocity change for unknown config: {config_key}"
+                )
+                return
+
+            priority = self._config_priorities[config_key]
+
+            # Update elo_velocity tracking
+            priority.elo_velocity = velocity
+
+            # Adjust momentum multiplier based on trend
+            old_momentum = priority.momentum_multiplier
+
+            if trend == "accelerating":
+                # Capitalize on positive momentum - increase selfplay rate
+                priority.momentum_multiplier = min(1.5, old_momentum * 1.2)
+                logger.info(
+                    f"[SelfplayScheduler] Accelerating velocity for {config_key}: "
+                    f"{velocity:.1f} Elo/day. Boosted momentum {old_momentum:.2f} → {priority.momentum_multiplier:.2f}"
+                )
+            elif trend == "decelerating":
+                # Slow down and focus on quality
+                priority.momentum_multiplier = max(0.6, old_momentum * 0.85)
+                logger.info(
+                    f"[SelfplayScheduler] Decelerating velocity for {config_key}: "
+                    f"{velocity:.1f} Elo/day. Reduced momentum {old_momentum:.2f} → {priority.momentum_multiplier:.2f}"
+                )
+            else:  # stable
+                # Slight adjustment toward 1.0
+                if old_momentum > 1.0:
+                    priority.momentum_multiplier = max(1.0, old_momentum * 0.95)
+                elif old_momentum < 1.0:
+                    priority.momentum_multiplier = min(1.0, old_momentum * 1.05)
+
+            # If velocity is negative, also boost exploration
+            if velocity < 0:
+                old_boost = priority.exploration_boost
+                priority.exploration_boost = min(1.8, old_boost * 1.15)
+                logger.info(
+                    f"[SelfplayScheduler] Negative velocity for {config_key}: "
+                    f"Boosted exploration {old_boost:.2f} → {priority.exploration_boost:.2f}"
+                )
+
+            # Emit SELFPLAY_TARGET_UPDATED for downstream consumers
+            try:
+                from app.distributed.data_events import DataEventType
+                from app.coordination.event_router import get_event_bus
+
+                bus = get_event_bus()
+                if bus:
+                    bus.emit(DataEventType.SELFPLAY_TARGET_UPDATED, {
+                        "config_key": config_key,
+                        "priority": "normal",
+                        "reason": f"velocity_changed:{trend}",
+                        "momentum_multiplier": priority.momentum_multiplier,
+                        "exploration_boost": priority.exploration_boost,
+                    })
+            except Exception as emit_err:
+                logger.debug(f"[SelfplayScheduler] Failed to emit target update: {emit_err}")
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling elo velocity changed: {e}")
 
     # =========================================================================
     # Status & Metrics
