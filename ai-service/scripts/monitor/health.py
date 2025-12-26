@@ -14,8 +14,12 @@ from scripts.p2p.cluster_config import get_cluster_config
 from .dashboard import NodeStatus, get_cluster_status
 
 
-class HealthStatus(Enum):
-    """Health check result status."""
+class MonitorHealthStatus(Enum):
+    """Health check result status.
+
+    Note: This is script-local for the monitor module.
+    For canonical health states, use app.core.health.HealthState.
+    """
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     CRITICAL = "critical"
@@ -25,7 +29,7 @@ class HealthStatus(Enum):
 @dataclass
 class HealthCheckResult:
     """Result of a health check."""
-    status: HealthStatus
+    status: MonitorHealthStatus
     message: str
     details: str | None = None
 
@@ -33,7 +37,7 @@ class HealthCheckResult:
 @dataclass
 class ClusterHealth:
     """Overall cluster health assessment."""
-    status: HealthStatus
+    status: MonitorHealthStatus
     checks: list[HealthCheckResult]
     summary: str
 
@@ -45,7 +49,7 @@ def check_node_health(node: NodeStatus) -> HealthCheckResult:
 
     if not node.online:
         return HealthCheckResult(
-            status=HealthStatus.CRITICAL,
+            status=MonitorHealthStatus.CRITICAL,
             message=f"{node.node_id} is offline",
         )
 
@@ -70,7 +74,7 @@ def check_node_health(node: NodeStatus) -> HealthCheckResult:
 
     if not issues:
         return HealthCheckResult(
-            status=HealthStatus.HEALTHY,
+            status=MonitorHealthStatus.HEALTHY,
             message=f"{node.node_id} healthy",
         )
 
@@ -79,7 +83,7 @@ def check_node_health(node: NodeStatus) -> HealthCheckResult:
     is_critical = any(kw in " ".join(issues) for kw in critical_keywords)
 
     return HealthCheckResult(
-        status=HealthStatus.CRITICAL if is_critical else HealthStatus.DEGRADED,
+        status=MonitorHealthStatus.CRITICAL if is_critical else MonitorHealthStatus.DEGRADED,
         message=f"{node.node_id}: {', '.join(issues)}",
     )
 
@@ -97,7 +101,7 @@ def check_cluster_health(entry_point: str = "localhost:8770") -> ClusterHealth:
 
     if cluster.total_nodes == 0:
         return ClusterHealth(
-            status=HealthStatus.UNKNOWN,
+            status=MonitorHealthStatus.UNKNOWN,
             checks=[],
             summary="Cannot reach cluster",
         )
@@ -111,42 +115,42 @@ def check_cluster_health(entry_point: str = "localhost:8770") -> ClusterHealth:
     # Check cluster-level issues
     if cluster.online_nodes == 0:
         checks.append(HealthCheckResult(
-            status=HealthStatus.CRITICAL,
+            status=MonitorHealthStatus.CRITICAL,
             message="No nodes online",
         ))
     elif cluster.online_nodes < cluster.total_nodes * 0.5:
         checks.append(HealthCheckResult(
-            status=HealthStatus.CRITICAL,
+            status=MonitorHealthStatus.CRITICAL,
             message=f"Less than 50% nodes online ({cluster.online_nodes}/{cluster.total_nodes})",
         ))
 
     if not cluster.leader:
         checks.append(HealthCheckResult(
-            status=HealthStatus.DEGRADED,
+            status=MonitorHealthStatus.DEGRADED,
             message="No cluster leader elected",
         ))
 
     if cluster.avg_gpu_util < 20 and cluster.total_selfplay_jobs > 0:
         checks.append(HealthCheckResult(
-            status=HealthStatus.DEGRADED,
+            status=MonitorHealthStatus.DEGRADED,
             message=f"Low average GPU utilization ({cluster.avg_gpu_util:.0f}%) with active jobs",
         ))
 
     # Determine overall status
-    has_critical = any(c.status == HealthStatus.CRITICAL for c in checks)
-    has_degraded = any(c.status == HealthStatus.DEGRADED for c in checks)
+    has_critical = any(c.status == MonitorHealthStatus.CRITICAL for c in checks)
+    has_degraded = any(c.status == MonitorHealthStatus.DEGRADED for c in checks)
 
     if has_critical:
-        overall_status = HealthStatus.CRITICAL
+        overall_status = MonitorHealthStatus.CRITICAL
     elif has_degraded:
-        overall_status = HealthStatus.DEGRADED
+        overall_status = MonitorHealthStatus.DEGRADED
     else:
-        overall_status = HealthStatus.HEALTHY
+        overall_status = MonitorHealthStatus.HEALTHY
 
     # Generate summary
-    critical_count = sum(1 for c in checks if c.status == HealthStatus.CRITICAL)
-    degraded_count = sum(1 for c in checks if c.status == HealthStatus.DEGRADED)
-    healthy_count = sum(1 for c in checks if c.status == HealthStatus.HEALTHY)
+    critical_count = sum(1 for c in checks if c.status == MonitorHealthStatus.CRITICAL)
+    degraded_count = sum(1 for c in checks if c.status == MonitorHealthStatus.DEGRADED)
+    healthy_count = sum(1 for c in checks if c.status == MonitorHealthStatus.HEALTHY)
 
     summary = f"{healthy_count} healthy, {degraded_count} degraded, {critical_count} critical"
 
@@ -160,10 +164,10 @@ def check_cluster_health(entry_point: str = "localhost:8770") -> ClusterHealth:
 def print_health_report(health: ClusterHealth) -> None:
     """Print health report in readable format."""
     status_icon = {
-        HealthStatus.HEALTHY: "[OK]",
-        HealthStatus.DEGRADED: "[WARN]",
-        HealthStatus.CRITICAL: "[CRIT]",
-        HealthStatus.UNKNOWN: "[???]",
+        MonitorHealthStatus.HEALTHY: "[OK]",
+        MonitorHealthStatus.DEGRADED: "[WARN]",
+        MonitorHealthStatus.CRITICAL: "[CRIT]",
+        MonitorHealthStatus.UNKNOWN: "[???]",
     }
 
     print(f"\n{'='*60}")
@@ -173,7 +177,7 @@ def print_health_report(health: ClusterHealth) -> None:
     print(f"{'='*60}\n")
 
     # Group by status
-    for status in [HealthStatus.CRITICAL, HealthStatus.DEGRADED, HealthStatus.HEALTHY]:
+    for status in [MonitorHealthStatus.CRITICAL, MonitorHealthStatus.DEGRADED, MonitorHealthStatus.HEALTHY]:
         checks = [c for c in health.checks if c.status == status]
         if checks:
             print(f"{status.value.upper()}:")
@@ -198,9 +202,9 @@ def main():
     print_health_report(health)
 
     if args.exit_code:
-        if health.status == HealthStatus.CRITICAL:
+        if health.status == MonitorHealthStatus.CRITICAL:
             exit(2)
-        elif health.status == HealthStatus.DEGRADED:
+        elif health.status == MonitorHealthStatus.DEGRADED:
             exit(1)
         else:
             exit(0)

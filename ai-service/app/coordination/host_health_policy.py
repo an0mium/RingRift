@@ -95,6 +95,11 @@ class HostHealthStatus:
         }
 
 
+# Backward-compatible alias (many callers import HealthStatus from this module)
+# Keep the canonical dataclass name HostHealthStatus for clarity.
+HealthStatus = HostHealthStatus
+
+
 # Global health cache
 _health_cache: dict[str, HostHealthStatus] = {}
 _cache_lock = threading.RLock()
@@ -670,6 +675,7 @@ if __name__ == "__main__":
 __all__ = [
     # Data classes
     "HostHealthStatus",
+    "HealthStatus",
     "check_cluster_health",
     # Functions
     "check_host_health",

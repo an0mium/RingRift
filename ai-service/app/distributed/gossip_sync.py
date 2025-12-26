@@ -76,6 +76,10 @@ class GossipSyncState:
     sync_cycles: int = 0
 
 
+# Backward-compatible alias (tests and older callers import SyncState)
+SyncState = GossipSyncState
+
+
 class BloomFilter:
     """Simple bloom filter for efficient set membership testing."""
 

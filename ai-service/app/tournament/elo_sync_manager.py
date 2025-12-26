@@ -85,6 +85,10 @@ class EloManagerSyncState:
     successful_syncs: int = 0
 
 
+# Backward-compatible alias (tests and older callers import SyncState)
+SyncState = EloManagerSyncState
+
+
 @dataclass
 class NodeInfo:
     """Information about a cluster node for syncing."""

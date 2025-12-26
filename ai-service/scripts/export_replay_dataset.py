@@ -912,27 +912,24 @@ def export_replay_dataset_multi(
           f"({games_deduplicated} deduplicated) into {output_path}")
     print(f"Engine modes: {dict(mode_counts)} | Gumbel/MCTS: {gumbel_pct:.1f}% (3x weight in training)")
 
-    # Register NPZ file with ClusterManifest for cluster-wide tracking
+    # Phase 4A.4: Register NPZ file with ClusterManifest for cluster-wide discovery
     try:
-        from app.distributed.cluster_manifest import get_cluster_manifest, DataType
+        import socket
+        from app.distributed.cluster_manifest import get_cluster_manifest
 
         manifest = get_cluster_manifest()
         file_size = os.path.getsize(output_path)
-        manifest.register_data(
-            data_type=DataType.NPZ,
-            path=output_path,
-            metadata={
-                "board_type": board_type.value,
-                "num_players": num_players,
-                "samples": int(features_arr.shape[0]),
-                "games": games_processed,
-                "gumbel_pct": gumbel_pct,
-                "encoder_version": effective_encoder,
-                "policy_encoding": "board_aware" if use_board_aware_encoding else "legacy_max_n",
-            },
-            size_bytes=file_size,
+        node_id = socket.gethostname()
+
+        manifest.register_npz(
+            npz_path=str(output_path),
+            node_id=node_id,
+            board_type=board_type.value,
+            num_players=num_players,
+            sample_count=int(features_arr.shape[0]),
+            file_size=file_size,
         )
-        print(f"[ClusterManifest] Registered NPZ: {output_path} ({file_size // 1024 // 1024}MB)")
+        print(f"[ClusterManifest] Registered NPZ: {output_path} ({file_size // 1024 // 1024}MB, {features_arr.shape[0]} samples)")
     except Exception as e:
         # Don't fail export if manifest registration fails
         print(f"[ClusterManifest] Warning: Failed to register NPZ: {e}")
