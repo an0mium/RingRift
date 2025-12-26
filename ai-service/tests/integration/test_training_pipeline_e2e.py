@@ -596,7 +596,7 @@ class TestTrainingPipelineIntegration:
             mock_tournament.run.side_effect = mock_run
             # Use property-like access for ratings
             type(mock_tournament).ratings = property(lambda self: mock_ratings)
-            mock_tournament.victory_reasons = {"elimination": 50}
+            mock_tournament.victory_reasons = {"ring_elimination": 50}
             mock_tournament_cls.return_value = mock_tournament
 
             result = pipeline.evaluate_challenger(v2_path, games=50)
@@ -895,7 +895,7 @@ class TestComponentInteractions:
         mock_tournament = MagicMock()
         mock_tournament.run.side_effect = mock_run
         type(mock_tournament).ratings = property(lambda self: mock_ratings)
-        mock_tournament.victory_reasons = {"elimination": 10}
+        mock_tournament.victory_reasons = {"ring_elimination": 10}
         mock_tournament_cls.return_value = mock_tournament
 
         # Run tournament
