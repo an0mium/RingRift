@@ -216,14 +216,14 @@ rsync -avz ai-service/data/games/merged_training.db /Volumes/RingRift-Data/db_ba
 
 ```bash
 cd ai-service
-./scripts/cluster_alert.sh
+python scripts/health_alerting.py --check
 ```
 
 ### Run as Daemon
 
 ```bash
-RINGRIFT_WEBHOOK_URL="https://your-webhook-url" \
-./scripts/cluster_alert.sh --cron
+SLACK_WEBHOOK_URL="https://your-webhook-url" \
+python scripts/health_alerting.py --daemon
 ```
 
 ## Logs

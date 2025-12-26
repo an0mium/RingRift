@@ -126,7 +126,7 @@ BoardType.HEXAGONAL: BoardConfig(
 
 ### 7. Multi-Config Training Loop
 
-**Location:** `scripts/multi_config_training_loop.py`
+**Location:** `scripts/multi_config_training_loop.py` (removed; now `scripts/run_training_loop.py` / `scripts/run_multiconfig_nnue_training.py`)
 
 **Undocumented:**
 
@@ -283,7 +283,7 @@ Added missing parameters:
 **Fixed:**
 
 - Removed deprecated `cluster_orchestrator.py` reference
-- Updated decision tree to include `multi_config_training_loop.py`
+- Updated decision tree to include `run_training_loop.py` / `run_multiconfig_nnue_training.py`
 - Fixed config file mappings (all now use `unified_loop.yaml`)
 
 #### 3. scripts/README.md - Missing Scripts

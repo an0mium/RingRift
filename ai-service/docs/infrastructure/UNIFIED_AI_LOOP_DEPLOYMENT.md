@@ -356,10 +356,9 @@ The regression gate prevents promoting models that regress on key metrics.
 ### Manual Testing
 
 ```bash
-python scripts/regression_gate.py \
-  --model models/square8_2p/best.pt \
-  --config square8_2p \
-  --verbose
+python scripts/run_strength_regression_gate.py \
+  --mode ci \
+  --output-json logs/regression_gate.json
 ```
 
 ### Configure Thresholds
@@ -643,7 +642,7 @@ status = get_utilization_status()
 | ---------------------------------------------------- | ----------------------------------- |
 | `scripts/unified_ai_loop.py`                         | Main daemon coordinator             |
 | `scripts/deploy_unified_loop.sh`                     | Cluster deployment script           |
-| `scripts/regression_gate.py`                         | Pre-promotion regression tests      |
+| `scripts/run_strength_regression_gate.py`            | Pre-promotion regression tests      |
 | `config/unified_loop.yaml`                           | Main configuration                  |
 | `config/distributed_hosts.yaml`                      | Cluster host inventory (canonical)  |
 | `config/remote_hosts.yaml`                           | Data sync host definitions (legacy) |
@@ -674,7 +673,7 @@ python3 scripts/unified_ai_loop.py --status
 ./scripts/deploy_unified_loop.sh --install-systemd --restart
 
 # Run regression tests
-python3 scripts/regression_gate.py --model <path> --config <config> -v
+python3 scripts/run_strength_regression_gate.py --mode ci --output-json logs/regression_gate.json
 
 # Check metrics
 curl http://<primary-gpu-ip>:9090/metrics | grep ringrift

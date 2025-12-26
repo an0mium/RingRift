@@ -48,6 +48,9 @@ class TrainingTriggerConfig:
     enabled: bool = True
     # Data freshness
     max_data_age_hours: float = 1.0
+    # December 2025: Use training_freshness to trigger sync when data is stale
+    enforce_freshness_with_sync: bool = True  # If True, trigger sync instead of just rejecting
+    freshness_sync_timeout_seconds: float = 300.0  # Wait up to 5 min for sync
     # Minimum samples to trigger training
     min_samples_threshold: int = 10000
     # Cooldown between training runs for same config
@@ -376,10 +379,20 @@ class TrainingTriggerDaemon:
             remaining = (cooldown_seconds - time_since_training) / 3600
             return False, f"cooldown active ({remaining:.1f}h remaining)"
 
-        # 3. Check data freshness
+        # 3. Check data freshness (December 2025: use training_freshness for sync)
         data_age_hours = (time.time() - state.last_npz_update) / 3600
         if data_age_hours > self.config.max_data_age_hours:
-            return False, f"data too old ({data_age_hours:.1f}h)"
+            if self.config.enforce_freshness_with_sync:
+                # Try to sync and wait for fresh data
+                fresh = await self._ensure_fresh_data(state.board_type, state.num_players)
+                if not fresh:
+                    return False, f"data too old ({data_age_hours:.1f}h), sync failed"
+                # Sync succeeded, continue with training check
+                logger.info(
+                    f"[TrainingTriggerDaemon] {config_key}: data refreshed via sync"
+                )
+            else:
+                return False, f"data too old ({data_age_hours:.1f}h)"
 
         # 4. Check minimum samples
         # Phase 5 (Dec 2025): Use dynamic threshold from ImprovementOptimizer
@@ -432,6 +445,57 @@ class TrainingTriggerDaemon:
 
         # Assume GPU available if we can't check
         return True
+
+    async def _ensure_fresh_data(self, board_type: str, num_players: int) -> bool:
+        """Ensure training data is fresh, triggering sync if needed (December 2025).
+
+        Uses training_freshness module to check data age and trigger sync
+        if data is stale. This closes the data freshness feedback loop.
+
+        Args:
+            board_type: Board type for training
+            num_players: Number of players
+
+        Returns:
+            True if data is now fresh, False if sync failed or timed out
+        """
+        try:
+            from app.coordination.training_freshness import (
+                DataFreshnessChecker,
+                FreshnessConfig,
+            )
+
+            config = FreshnessConfig(
+                max_age_hours=self.config.max_data_age_hours,
+                trigger_sync=True,
+                wait_for_sync=True,
+                sync_timeout_seconds=self.config.freshness_sync_timeout_seconds,
+            )
+
+            checker = DataFreshnessChecker(config)
+            result = await checker.ensure_fresh_data(board_type, num_players)
+
+            if result.is_fresh:
+                # Update local state with fresh data info
+                config_key = f"{board_type}_{num_players}p"
+                if config_key in self._training_states:
+                    self._training_states[config_key].last_npz_update = time.time()
+                    if result.games_available:
+                        self._training_states[config_key].npz_sample_count = result.games_available
+                return True
+
+            logger.warning(
+                f"[TrainingTriggerDaemon] Data freshness check failed for "
+                f"{board_type}_{num_players}p: {result.error}"
+            )
+            return False
+
+        except ImportError:
+            logger.debug("[TrainingTriggerDaemon] training_freshness module not available")
+            return False
+        except Exception as e:
+            logger.warning(f"[TrainingTriggerDaemon] ensure_fresh_data failed: {e}")
+            return False
 
     async def _run_training(self, config_key: str) -> bool:
         """Run training subprocess for a configuration."""

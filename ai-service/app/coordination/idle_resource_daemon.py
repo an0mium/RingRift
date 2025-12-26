@@ -53,6 +53,15 @@ except ImportError:
     ScheduledJob = None
     JobPriority = None
 
+# Circuit breaker integration (Phase 4 - December 2025)
+# Prevents cascading failures when cluster operations are failing
+try:
+    from app.distributed.circuit_breaker import get_operation_breaker
+    HAS_CIRCUIT_BREAKER = True
+except ImportError:
+    HAS_CIRCUIT_BREAKER = False
+    get_operation_breaker = None
+
 
 @dataclass
 class IdleResourceConfig:
@@ -792,6 +801,17 @@ class IdleResourceDaemon:
             games = self.config.default_games_per_spawn
 
             try:
+                # Phase 4: Check circuit breaker before spawning
+                # Prevents cascading failures when cluster operations are failing
+                if HAS_CIRCUIT_BREAKER and get_operation_breaker:
+                    breaker = get_operation_breaker()
+                    if not breaker.can_execute("selfplay_spawn"):
+                        logger.debug(
+                            f"[IdleResourceDaemon] Circuit open for selfplay_spawn, "
+                            f"skipping {node.node_id}"
+                        )
+                        return False
+
                 config_key = self._select_config_for_gpu(node.gpu_memory_total_gb)
 
                 # Get multiplier from FeedbackAccelerator
@@ -857,6 +877,10 @@ class IdleResourceDaemon:
                         duration=duration,
                     )
 
+                    # Phase 4: Record circuit breaker success
+                    if HAS_CIRCUIT_BREAKER and get_operation_breaker:
+                        get_operation_breaker().record_success("selfplay_spawn")
+
                     # Emit event
                     self._emit_spawn_event(node, config_key, games)
 
@@ -876,6 +900,9 @@ class IdleResourceDaemon:
                         error="P2P job distribution returned failure",
                         duration=duration,
                     )
+                    # Phase 4: Record circuit breaker failure
+                    if HAS_CIRCUIT_BREAKER and get_operation_breaker:
+                        get_operation_breaker().record_failure("selfplay_spawn")
                     return False
 
             except Exception as e:
@@ -891,6 +918,9 @@ class IdleResourceDaemon:
                     error=str(e),
                     duration=duration,
                 )
+                # Phase 4: Record circuit breaker failure on exception
+                if HAS_CIRCUIT_BREAKER and get_operation_breaker:
+                    get_operation_breaker().record_failure("selfplay_spawn")
                 logger.error(f"Failed to spawn selfplay on {node.node_id}: {e}")
                 return False
 

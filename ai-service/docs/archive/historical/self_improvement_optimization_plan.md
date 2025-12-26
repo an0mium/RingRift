@@ -7,7 +7,7 @@
 > loop implementation. See [ORCHESTRATOR_SELECTION.md](ORCHESTRATOR_SELECTION.md) for
 > current script guidance.
 >
-> The `continuous_improvement_daemon.py` referenced below is DEPRECATED.
+> The `continuous_improvement_daemon.py` referenced below is deprecated and has been removed (see git history).
 
 ## Current State Analysis
 

@@ -55,6 +55,9 @@ class AutoExportConfig:
     min_moves: int = 10
     # Output directory for NPZ files
     output_dir: Path = field(default_factory=lambda: Path("data/training"))
+    # State persistence (Phase 8 Dec 2025)
+    state_db_path: Path = field(default_factory=lambda: Path("data/export_daemon_state.db"))
+    persist_state: bool = True  # Enable state persistence to recover on crash
 
 
 @dataclass
@@ -82,6 +85,7 @@ class AutoExportDaemon:
         self._export_states: dict[str, ConfigExportState] = {}
         self._export_semaphore = asyncio.Semaphore(self.config.max_concurrent_exports)
         self._event_subscriptions: list[Any] = []
+        self._state_db_initialized = False
 
     async def start(self) -> None:
         """Start the auto export daemon."""
@@ -91,6 +95,11 @@ class AutoExportDaemon:
 
         self._running = True
         logger.info("[AutoExportDaemon] Starting auto export daemon")
+
+        # Initialize state persistence and load previous state (Phase 8)
+        if self.config.persist_state:
+            self._init_state_db()
+            self._load_state()
 
         # Subscribe to selfplay events
         await self._subscribe_to_events()
@@ -130,6 +139,135 @@ class AutoExportDaemon:
             pass
         except asyncio.InvalidStateError:
             pass
+
+    # ========== State Persistence (Phase 8 Dec 2025) ==========
+
+    def _init_state_db(self) -> None:
+        """Initialize SQLite database for state persistence.
+
+        Phase 8 Dec 2025: Persists export state to survive daemon restarts.
+        This prevents data loss when pending export counts are lost on crash.
+        """
+        import sqlite3
+
+        try:
+            db_path = self.config.state_db_path
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS export_state (
+                    config_key TEXT PRIMARY KEY,
+                    board_type TEXT NOT NULL,
+                    num_players INTEGER NOT NULL,
+                    games_since_last_export INTEGER DEFAULT 0,
+                    last_export_time REAL DEFAULT 0,
+                    last_export_games INTEGER DEFAULT 0,
+                    total_exported_samples INTEGER DEFAULT 0,
+                    consecutive_failures INTEGER DEFAULT 0,
+                    updated_at REAL DEFAULT 0
+                )
+            """)
+
+            conn.commit()
+            conn.close()
+            self._state_db_initialized = True
+
+            logger.info(f"[AutoExportDaemon] State database initialized: {db_path}")
+
+        except Exception as e:
+            logger.error(f"[AutoExportDaemon] Failed to initialize state DB: {e}")
+            self._state_db_initialized = False
+
+    def _load_state(self) -> None:
+        """Load persisted state from SQLite on startup.
+
+        Recovers pending export counts and last export times that would
+        otherwise be lost on daemon restart.
+        """
+        if not self._state_db_initialized:
+            return
+
+        import sqlite3
+
+        try:
+            conn = sqlite3.connect(self.config.state_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT * FROM export_state")
+            rows = cursor.fetchall()
+
+            loaded_count = 0
+            for row in rows:
+                config_key = row["config_key"]
+                self._export_states[config_key] = ConfigExportState(
+                    config_key=config_key,
+                    board_type=row["board_type"],
+                    num_players=row["num_players"],
+                    games_since_last_export=row["games_since_last_export"],
+                    last_export_time=row["last_export_time"],
+                    last_export_games=row["last_export_games"],
+                    total_exported_samples=row["total_exported_samples"],
+                    consecutive_failures=row["consecutive_failures"],
+                )
+                loaded_count += 1
+
+            conn.close()
+
+            if loaded_count > 0:
+                logger.info(
+                    f"[AutoExportDaemon] Loaded {loaded_count} config states from persistence"
+                )
+
+        except Exception as e:
+            logger.error(f"[AutoExportDaemon] Failed to load state: {e}")
+
+    def _save_state(self, config_key: str) -> None:
+        """Persist state for a single config to SQLite.
+
+        Called after any state change to ensure durability.
+        """
+        if not self._state_db_initialized or not self.config.persist_state:
+            return
+
+        state = self._export_states.get(config_key)
+        if not state:
+            return
+
+        import sqlite3
+
+        try:
+            conn = sqlite3.connect(self.config.state_db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO export_state
+                (config_key, board_type, num_players, games_since_last_export,
+                 last_export_time, last_export_games, total_exported_samples,
+                 consecutive_failures, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                config_key,
+                state.board_type,
+                state.num_players,
+                state.games_since_last_export,
+                state.last_export_time,
+                state.last_export_games,
+                state.total_exported_samples,
+                state.consecutive_failures,
+                time.time(),
+            ))
+
+            conn.commit()
+            conn.close()
+
+        except Exception as e:
+            logger.debug(f"[AutoExportDaemon] Failed to save state for {config_key}: {e}")
+
+    # ========== Event Subscriptions ==========
 
     async def _subscribe_to_events(self) -> None:
         """Subscribe to relevant events.
@@ -249,6 +387,9 @@ class AutoExportDaemon:
         state = self._export_states[config_key]
         state.games_since_last_export += games
 
+        # Persist state to survive daemon restarts (Phase 8)
+        self._save_state(config_key)
+
         logger.debug(
             f"[AutoExportDaemon] {config_key}: +{games} games, "
             f"total pending: {state.games_since_last_export}"
@@ -342,6 +483,7 @@ class AutoExportDaemon:
                     process.kill()
                     logger.error(f"[AutoExportDaemon] Export timed out for {config_key}")
                     state.consecutive_failures += 1
+                    self._save_state(config_key)  # Persist failure count (Phase 8)
                     return False
 
                 duration = time.time() - start_time
@@ -385,6 +527,8 @@ class AutoExportDaemon:
 
             finally:
                 state.export_in_progress = False
+                # Persist updated state (Phase 8)
+                self._save_state(config_key)
 
     def _parse_sample_count(self, output: str) -> int | None:
         """Parse sample count from export script output."""

@@ -335,11 +335,13 @@ python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml
 Progressive training from simple to complex:
 
 ```bash
-python scripts/curriculum_training.py \
-  --auto-progress \
-  --board square8 --num-players 2 \
-  --db data/games/selfplay.db
+python scripts/train_nnue_policy.py \
+  --board-type square8 --num-players 2 \
+  --db data/games/selfplay.db \
+  --min-move-number 0 --max-move-number 40
 ```
+
+Adjust `--min-move-number` / `--max-move-number` for later curriculum stages.
 
 ## See Also
 

@@ -210,6 +210,12 @@ class FeedbackLoopController:
                 bus.subscribe(DataEventType.TRAINING_LOSS_TREND, self._on_training_loss_trend)
                 event_count += 1
 
+            # P1.1 (Dec 2025): Subscribe to QUALITY_DEGRADED to reduce training thresholds
+            # When quality degrades, trigger more frequent training to improve quality
+            if hasattr(DataEventType, 'QUALITY_DEGRADED'):
+                bus.subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
+                event_count += 1
+
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
 
             self._subscribed = True
@@ -239,6 +245,10 @@ class FeedbackLoopController:
                 bus.unsubscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_training_loss_anomaly)
             if hasattr(DataEventType, 'TRAINING_LOSS_TREND'):
                 bus.unsubscribe(DataEventType.TRAINING_LOSS_TREND, self._on_training_loss_trend)
+
+            # P1.1: Unsubscribe from QUALITY_DEGRADED
+            if hasattr(DataEventType, 'QUALITY_DEGRADED'):
+                bus.unsubscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
 
             self._subscribed = False
         except Exception as e:
@@ -550,6 +560,57 @@ class FeedbackLoopController:
 
         except Exception as e:
             logger.error(f"[FeedbackLoopController] Error handling loss trend: {e}")
+
+    def _on_quality_degraded_for_training(self, event: Any) -> None:
+        """Handle QUALITY_DEGRADED events to adjust training thresholds (P1.1).
+
+        When quality degrades, we want to train MORE to fix the problem.
+        This reduces the training threshold via ImprovementOptimizer.
+
+        Actions:
+        - Record low data quality score in ImprovementOptimizer
+        - This triggers faster training cycles (lower threshold)
+        - Also boost exploration to gather more diverse data
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            config_key = payload.get("config_key", "")
+            quality_score = payload.get("quality_score", 0.5)
+            threshold = payload.get("threshold", 0.6)
+
+            if not config_key:
+                return
+
+            logger.info(
+                f"[FeedbackLoopController] Quality degraded for {config_key}: "
+                f"score={quality_score:.2f} < threshold={threshold:.2f}, "
+                f"triggering training acceleration"
+            )
+
+            # Update ImprovementOptimizer to reduce training threshold
+            try:
+                from app.training.improvement_optimizer import ImprovementOptimizer
+
+                optimizer = ImprovementOptimizer.get_instance()
+                # Record low data quality - this reduces threshold_multiplier
+                optimizer.record_data_quality(
+                    config_key=config_key,
+                    data_quality_score=quality_score,
+                    parity_success_rate=quality_score,  # Use quality as proxy
+                )
+                logger.info(
+                    f"[FeedbackLoopController] Updated ImprovementOptimizer for {config_key}: "
+                    f"quality={quality_score:.2f}"
+                )
+            except ImportError:
+                logger.debug("[FeedbackLoopController] ImprovementOptimizer not available")
+
+            # Also boost exploration for this config
+            self._boost_exploration_for_stall(config_key, trend_duration_epochs=3)
+
+        except Exception as e:
+            logger.error(f"[FeedbackLoopController] Error handling quality degraded: {e}")
 
     def _trigger_quality_check(self, config_key: str, reason: str) -> None:
         """Trigger a quality check for the given config.

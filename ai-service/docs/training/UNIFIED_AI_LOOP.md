@@ -185,7 +185,7 @@ The unified loop can also be run as separate services if needed:
 | Shadow Tournament (embedded) | `scripts/unified_ai_loop.py`         | `ringrift-ai-loop.service`  |
 | Model Promoter               | `scripts/model_promotion_manager.py` | `model-promoter.service`    |
 
-> **Note:** `scripts/streaming_data_collector.py` is deprecated. Use `scripts/unified_data_sync.py` instead.
+> **Note:** `streaming_data_collector.py` was removed. Use `scripts/unified_data_sync.py` instead.
 
 ## Prometheus Metrics
 

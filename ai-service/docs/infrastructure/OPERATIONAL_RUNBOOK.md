@@ -18,7 +18,7 @@ python scripts/health_alerting.py --check
 python scripts/vast_p2p_sync.py --sync-code
 
 # Monitor cluster (live)
-./scripts/cluster_monitoring.sh --loop
+watch -n 30 ./scripts/monitoring/cluster_health_check.sh --verbose
 ```
 
 ### Emergency Commands
@@ -154,10 +154,10 @@ vastai stop instance INSTANCE_ID
 
 ```bash
 # 1. Check model status
-python scripts/model_sync_aria2.py --status
+python scripts/sync_models.py --discover
 
 # 2. Sync to all nodes
-python scripts/model_sync_aria2.py --sync-to-all
+python scripts/sync_models.py --sync
 
 # 3. Manual rsync fallback (replace GPU_NODE_IP with target node's Tailscale IP)
 rsync -avz --progress data/models/latest.pth ubuntu@GPU_NODE_IP:~/ringrift/ai-service/data/models/
@@ -375,11 +375,15 @@ For issues not covered in this runbook:
 --no-alerts     Suppress alert sending
 ```
 
-### model_sync_aria2.py
+### sync_models.py
 
 ```
---status        Show sync status
---sync-to-all   Sync to all nodes
---sync-from     Pull from source
---serve         Start model server
+--discover      Discover models on all hosts
+--collect       Collect models from cluster to local
+--distribute    Distribute local models to cluster
+--sync          Full sync (collect + distribute)
+--daemon        Run as daemon, syncing periodically
+--interval N    Sync interval in minutes (daemon)
+--dry-run       Preview without changes
+--use-sync-coordinator  Route sync through SyncCoordinator
 ```

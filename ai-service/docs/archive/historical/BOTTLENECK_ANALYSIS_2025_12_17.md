@@ -4,6 +4,9 @@
 
 Analysis of the training pipeline identified a **CRITICAL data flow mismatch** that was causing training to see 0 new games despite active selfplay generating hundreds of games. This has been fixed.
 
+> **Note:** `multi_config_training_loop.py` was later removed. Current entry points are
+> `scripts/run_training_loop.py` and `scripts/run_multiconfig_nnue_training.py`.
+
 ## Bottlenecks Identified
 
 ### 1. DATA FLOW MISMATCH (CRITICAL - FIXED)

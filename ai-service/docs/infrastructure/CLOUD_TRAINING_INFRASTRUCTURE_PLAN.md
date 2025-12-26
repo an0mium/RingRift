@@ -7,20 +7,27 @@
 
 ## Implementation Status
 
-| Component                 | Status      | Notes                                           |
-| ------------------------- | ----------- | ----------------------------------------------- |
-| Local Mac Cluster         | Implemented | See `DISTRIBUTED_SELFPLAY.md`                   |
-| `--mode` argument         | Implemented | Supports `local`, `lan`, `aws`, `hybrid`        |
-| Host configuration        | Implemented | `config/distributed_hosts.yaml`                 |
-| Memory-based filtering    | Implemented | Auto-filters hosts by board memory requirements |
-| CMA-ES distributed        | Implemented | `run_cmaes_optimization.py --distributed`       |
-| Iterative CMA-ES          | Implemented | `run_iterative_cmaes.py --distributed --mode`   |
-| Self-play distributed     | Implemented | `run_distributed_selfplay_soak.py --mode`       |
-| NNUE training distributed | Implemented | `run_distributed_nnue_training.py --mode`       |
-| Cloud auto-scaling        | Planned     | Terraform/CDK for dynamic scaling               |
-| GPU training              | Planned     | See Part 3 below                                |
+| Component                 | Status      | Notes                                                              |
+| ------------------------- | ----------- | ------------------------------------------------------------------ |
+| Local Mac Cluster         | Implemented | See `DISTRIBUTED_SELFPLAY.md`                                      |
+| `--mode` argument         | Implemented | Supports `local`, `lan`, `aws`, `hybrid`                           |
+| Host configuration        | Implemented | `config/distributed_hosts.yaml`                                    |
+| Memory-based filtering    | Implemented | Auto-filters hosts by board memory requirements                    |
+| CMA-ES distributed        | Implemented | `run_cmaes_optimization.py --distributed`                          |
+| Iterative CMA-ES          | Implemented | `run_iterative_cmaes.py --distributed --mode`                      |
+| Self-play distributed     | Implemented | `run_distributed_selfplay_soak.py --mode`                          |
+| NNUE training distributed | Partial     | `run_multiconfig_nnue_training.py --parallel` (local multi-config) |
+| Cloud auto-scaling        | Planned     | Terraform/CDK for dynamic scaling                                  |
+| GPU training              | Planned     | See Part 3 below                                                   |
 
 ---
+
+> **Note:** This plan includes design sketches for components not currently in the repo
+> (`cluster_worker.py`, `register_worker.py`, `run_full_training_matrix.py`,
+> `generate_data_distributed.py`, `run_training_pipeline.py`). Current equivalents are
+> `cmaes_cloud_worker.py` (queue-based workers), `run_cmaes_optimization.py` (HTTP/queue CMA-ES),
+> `run_multiconfig_nnue_training.py --parallel`, `run_training_loop.py`, and
+> `run_distributed_selfplay_soak.py`.
 
 ## Executive Summary
 
@@ -120,14 +127,18 @@ This section covers setting up a local training cluster using underutilized MacB
    - Either assign static IPs in router settings
    - Or use `.local` hostnames (e.g., `my-macbook.local`)
 
-### 0.3 Implementation: HTTP-based Worker System
+### 0.3 Design Sketch: HTTP-based Worker System (Not Implemented)
 
 **Priority: HIGH** - Simplest approach, no additional infrastructure
+
+> **Note:** The HTTP worker service below is a design sketch. The repo does **not**
+> include `cluster_worker.py`. For current distributed CMA-ES, use queue-based
+> workers via `scripts/cmaes_cloud_worker.py` + `run_cmaes_optimization.py --queue-backend`.
 
 #### Worker API Server
 
 ```python
-# ai-service/scripts/cluster_worker.py
+# Design sketch: cluster_worker.py (not in repo)
 """
 Lightweight HTTP worker for local Mac cluster.
 Run on each worker Mac to accept evaluation tasks.
@@ -404,7 +415,7 @@ print(f"Found {len(workers)} workers: {workers}")
 #### Worker Registration (Alternative)
 
 ```python
-# ai-service/scripts/register_worker.py
+# Design sketch: register_worker.py (not in repo; see scripts/register_node.py for P2P registration)
 """
 Register this Mac as a worker with the coordinator.
 """
@@ -452,7 +463,7 @@ git pull origin state-pools
 # Coordinator serves state pools via HTTP
 # Workers download on startup
 
-# In cluster_worker.py
+# In worker service (design sketch)
 def download_state_pool(coordinator_url: str, pool_id: str):
     response = requests.get(f"http://{coordinator_url}/state-pool/{pool_id}")
     # Cache locally
@@ -478,7 +489,7 @@ ln -s /Volumes/Shared/eval_pools data/eval_pools
 cd RingRift/ai-service
 source .venv/bin/activate
 
-# Start CMA-ES in distributed mode (replace with your worker IPs)
+# Start CMA-ES in distributed mode (HTTP workers; design sketch)
 python scripts/run_cmaes_optimization.py \
     --distributed \
     --workers "10.0.0.2:8765,10.0.0.3:8765" \
@@ -487,6 +498,13 @@ python scripts/run_cmaes_optimization.py \
     --games-per-eval 24 \
     --board square8 \
     --output logs/cmaes/distributed_run_001
+
+# Queue-based distributed mode (current implementation)
+python scripts/run_cmaes_optimization.py \
+    --queue-backend redis \
+    --queue-timeout 600 \
+    --board square8 \
+    --output logs/cmaes/queue_run_001
 ```
 
 **2. On Each Worker Mac:**
@@ -495,8 +513,12 @@ python scripts/run_cmaes_optimization.py \
 cd RingRift/ai-service
 source .venv/bin/activate
 
-# Start worker
-python scripts/cluster_worker.py --port 8765
+# HTTP worker (design sketch; not in repo)
+# python scripts/cluster_worker.py --port 8765
+
+# Queue-based worker (current implementation)
+QUEUE_BACKEND=redis REDIS_URL=redis://<coordinator-ip>:6379 \
+  python scripts/cmaes_cloud_worker.py
 ```
 
 **3. Monitor Progress:**
@@ -798,7 +820,7 @@ _Assumes M1/M2 MacBook Pro, square8 board, 2 players_
 1. **Standalone worker script**
 
    ```python
-   # ai-service/scripts/cmaes_worker.py
+   # ai-service/scripts/cmaes_cloud_worker.py
    def main():
        queue = get_queue_backend()
        storage = get_storage_backend()
@@ -1028,7 +1050,7 @@ _Assumes M1/M2 MacBook Pro, square8 board, 2 players_
 ### 2.5.4 Architecture for Full Matrix Training
 
 ```python
-# ai-service/scripts/run_full_training_matrix.py
+# Design sketch: run_full_training_matrix.py (not in repo)
 """
 Launch full CMA-ES training across all configurations in parallel.
 """
@@ -1296,19 +1318,18 @@ resource "aws_appautoscaling_target" "workers" {
 ### 2.5.9 Quick Launch Command
 
 ```bash
-# Full matrix training in <1 hour
-python scripts/run_full_training_matrix.py \
-    --workers-per-config 150 \
-    --iterations 10 \
-    --generations-per-iter 30 \
+# Planned full-matrix runner (not in repo)
+# run_full_training_matrix.py --workers-per-config 150 --iterations 10 ...
+
+# Current: run a single config with distributed CMA-ES
+python scripts/run_cmaes_optimization.py \
+    --distributed \
+    --board square8 \
+    --num-players 2 \
+    --generations 30 \
     --population-size 30 \
     --games-per-eval 40 \
-    --max-duration 3600  # 1 hour timeout
-
-# Or with cost limits
-python scripts/run_full_training_matrix.py \
-    --budget-limit 100  # Stop if projected cost exceeds $100
-    --stagger-configs   # Run sequentially to reduce spot pressure
+    --output logs/cmaes/square8_2p_distributed
 ```
 
 ---
@@ -1334,7 +1355,7 @@ python scripts/run_full_training_matrix.py \
 1. **Parallel game generation**
 
    ```python
-   # ai-service/scripts/generate_data_distributed.py
+   # Design sketch: generate_data_distributed.py (not in repo; use run_distributed_selfplay_soak.py)
    @ray.remote
    def play_game_worker(game_id: int, config: GameConfig) -> GameRecord:
        engine = GameEngine()
@@ -1567,7 +1588,7 @@ python scripts/run_full_training_matrix.py \
 1. **Pipeline definition script**
 
    ```python
-   # ai-service/scripts/run_training_pipeline.py
+   # Design sketch: run_training_pipeline.py (not in repo; use run_training_loop.py or unified_ai_loop.py)
 
    @dataclass
    class PipelineConfig:
@@ -1746,9 +1767,9 @@ ai-service/
 │   └── config/
 │       └── training_config.py
 ├── scripts/
-│   ├── cmaes_worker.py       # Standalone worker
-│   ├── generate_data_distributed.py
-│   └── run_training_pipeline.py
+│   ├── cmaes_cloud_worker.py       # Queue-based worker (implemented)
+│   ├── run_distributed_selfplay_soak.py  # Distributed data generation (implemented)
+│   └── run_training_loop.py        # Training pipeline entry point (implemented)
 ├── docker/
 │   ├── Dockerfile.training   # GPU-enabled
 │   ├── Dockerfile.worker     # CMA-ES worker

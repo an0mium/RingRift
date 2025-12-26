@@ -34,11 +34,12 @@ from typing import Final
 
 # Map StageEvent values to DataEventType values
 # Used by UnifiedEventRouter to forward stage events to the data bus
+# P0.2 Dec 2025: Updated to emit selfplay_complete directly instead of just new_games
 STAGE_TO_DATA_EVENT_MAP: Final[dict[str, str]] = {
-    # Selfplay events
-    "selfplay_complete": "new_games",
-    "canonical_selfplay_complete": "new_games",
-    "gpu_selfplay_complete": "new_games",
+    # Selfplay events (P0.2: now emits selfplay_complete for feedback loop)
+    "selfplay_complete": "selfplay_complete",
+    "canonical_selfplay_complete": "selfplay_complete",
+    "gpu_selfplay_complete": "selfplay_complete",
     # Sync events
     "sync_complete": "sync_completed",
     "cluster_sync_complete": "sync_completed",
@@ -63,6 +64,7 @@ STAGE_TO_DATA_EVENT_MAP: Final[dict[str, str]] = {
 # Reverse mapping: DataEventType → StageEvent
 # Note: This is a many-to-one mapping reversed, so we pick representative stage event
 DATA_TO_STAGE_EVENT_MAP: Final[dict[str, str]] = {
+    "selfplay_complete": "selfplay_complete",  # P0.2 Dec 2025
     "new_games": "selfplay_complete",
     "sync_completed": "sync_complete",
     "p2p_model_synced": "model_sync_complete",

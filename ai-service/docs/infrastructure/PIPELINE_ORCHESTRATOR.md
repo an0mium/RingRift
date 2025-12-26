@@ -1,13 +1,16 @@
 # Pipeline Orchestrator
 
-> ⚠️ **DEPRECATED:** This document describes the legacy pipeline orchestrator which has been archived.
+> ⚠️ **DEPRECATED:** This document describes the legacy pipeline orchestrator which has been removed.
 > **Replacement:** Use the [Unified AI Loop](../training/UNIFIED_AI_LOOP.md) instead (`scripts/unified_ai_loop.py`).
-> **Archive Location:** `scripts/archive/pipeline_orchestrator.py`
+> **Archive Location:** Removed (see git history)
 >
 > _The unified loop integrates all pipeline phases into a single daemon with better coordination, P2P support, and adaptive scheduling._
 
 > **Status:** ~~Production-ready~~ Archived as of 2025-12-16
-> **Location:** ~~`ai-service/scripts/pipeline_orchestrator.py`~~ `scripts/archive/pipeline_orchestrator.py`
+> **Location:** Removed (see git history)
+
+> **Note:** The CLI examples below are historical references only. The
+> `pipeline_orchestrator.py` script no longer exists in the repo.
 
 The pipeline orchestrator provides unified coordination for the complete AI training pipeline across distributed compute resources including local Mac clusters, AWS, Lambda Labs, and Vast.ai instances.
 

@@ -73,6 +73,11 @@ class MaintenanceConfig:
     queue_stale_claimed_hours: float = 1.0  # Reset CLAIMED items older than this
     queue_cleanup_enabled: bool = True
 
+    # Orphan file detection (December 2025)
+    orphan_detection_interval_hours: float = 24.0  # Daily
+    orphan_detection_enabled: bool = True
+    orphan_auto_cleanup: bool = False  # If True, delete orphans; if False, just report
+
     # General
     dry_run: bool = False  # If True, log actions but don't execute
 
@@ -87,11 +92,15 @@ class MaintenanceStats:
     dlq_entries_cleaned: int = 0
     queue_items_cleaned: int = 0  # December 2025
     queue_items_reset: int = 0  # December 2025
+    orphan_dbs_found: int = 0  # December 2025
+    orphan_npz_found: int = 0  # December 2025
+    orphan_models_found: int = 0  # December 2025
     last_log_rotation: float = 0.0
     last_db_vacuum: float = 0.0
     last_archive_run: float = 0.0
     last_dlq_cleanup: float = 0.0
     last_queue_cleanup: float = 0.0  # December 2025
+    last_orphan_detection: float = 0.0  # December 2025
 
 
 class MaintenanceDaemon:
@@ -185,6 +194,13 @@ class MaintenanceDaemon:
             if self.config.queue_cleanup_enabled:
                 await self._cleanup_stale_queue_items()
             self._stats.last_queue_cleanup = now
+
+        # Daily: Orphan file detection (December 2025)
+        hours_since_orphan = (now - self._stats.last_orphan_detection) / 3600
+        if hours_since_orphan >= self.config.orphan_detection_interval_hours:
+            if self.config.orphan_detection_enabled:
+                await self._detect_orphan_files()
+            self._stats.last_orphan_detection = now
 
     async def _rotate_logs(self) -> None:
         """Rotate log files that exceed max size."""
@@ -410,6 +426,120 @@ class MaintenanceDaemon:
         except Exception as e:
             logger.warning(f"[Maintenance] Queue cleanup error: {e}")
 
+    async def _detect_orphan_files(self) -> None:
+        """Detect files on disk that aren't tracked in ClusterManifest (December 2025).
+
+        Orphan files can accumulate when:
+        - Manifest wasn't updated after file creation
+        - Files were manually copied
+        - Sync completed but manifest update failed
+
+        Reports orphans for investigation; optionally cleans them up.
+        """
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+        except ImportError:
+            logger.debug("[Maintenance] ClusterManifest not available for orphan detection")
+            return
+
+        try:
+            manifest = get_cluster_manifest()
+
+            # Scan directories
+            games_dir = self._ai_service_dir / "data" / "games"
+            training_dir = self._ai_service_dir / "data" / "training"
+            models_dir = self._ai_service_dir / "models"
+
+            orphan_dbs = []
+            orphan_npz = []
+            orphan_models = []
+
+            # Check game databases
+            if games_dir.exists():
+                tracked_dbs = set(manifest.get_all_db_paths())
+                for db_file in games_dir.glob("**/*.db"):
+                    if str(db_file) not in tracked_dbs and db_file.name not in tracked_dbs:
+                        orphan_dbs.append(db_file)
+
+            # Check NPZ files
+            if training_dir.exists():
+                tracked_npz = set(manifest.get_all_npz_paths())
+                for npz_file in training_dir.glob("**/*.npz"):
+                    if str(npz_file) not in tracked_npz and npz_file.name not in tracked_npz:
+                        orphan_npz.append(npz_file)
+
+            # Check model files (skip symlinks)
+            if models_dir.exists():
+                tracked_models = set(manifest.get_all_model_paths())
+                for model_file in models_dir.glob("**/*.pth"):
+                    if model_file.is_symlink():
+                        continue  # Skip symlinks
+                    if str(model_file) not in tracked_models and model_file.name not in tracked_models:
+                        orphan_models.append(model_file)
+
+            # Update stats
+            self._stats.orphan_dbs_found = len(orphan_dbs)
+            self._stats.orphan_npz_found = len(orphan_npz)
+            self._stats.orphan_models_found = len(orphan_models)
+
+            total_orphans = len(orphan_dbs) + len(orphan_npz) + len(orphan_models)
+
+            if total_orphans > 0:
+                logger.warning(
+                    f"[Maintenance] Found {total_orphans} orphan files: "
+                    f"{len(orphan_dbs)} DBs, {len(orphan_npz)} NPZ, {len(orphan_models)} models"
+                )
+
+                # Log details for investigation
+                for db in orphan_dbs[:5]:  # Limit to first 5
+                    logger.info(f"[Maintenance] Orphan DB: {db}")
+                for npz in orphan_npz[:5]:
+                    logger.info(f"[Maintenance] Orphan NPZ: {npz}")
+                for model in orphan_models[:5]:
+                    logger.info(f"[Maintenance] Orphan model: {model}")
+
+                if total_orphans > 15:
+                    logger.info(f"[Maintenance] ... and {total_orphans - 15} more orphan files")
+
+                # Optional cleanup
+                if self.config.orphan_auto_cleanup and not self.config.dry_run:
+                    await self._cleanup_orphan_files(orphan_dbs, orphan_npz, orphan_models)
+            else:
+                logger.debug("[Maintenance] No orphan files detected")
+
+        except Exception as e:
+            logger.warning(f"[Maintenance] Orphan detection error: {e}")
+
+    async def _cleanup_orphan_files(
+        self,
+        orphan_dbs: list,
+        orphan_npz: list,
+        orphan_models: list,
+    ) -> None:
+        """Cleanup orphan files (only called if orphan_auto_cleanup is True).
+
+        Note: This is DANGEROUS - only enable if you're sure files are truly orphaned.
+        Default is to just report, not delete.
+
+        Args:
+            orphan_dbs: List of orphan database files
+            orphan_npz: List of orphan NPZ files
+            orphan_models: List of orphan model files
+        """
+        cleaned = 0
+
+        # Only cleanup NPZ files - DBs and models are more valuable
+        for npz_file in orphan_npz:
+            try:
+                npz_file.unlink()
+                cleaned += 1
+                logger.info(f"[Maintenance] Deleted orphan NPZ: {npz_file}")
+            except Exception as e:
+                logger.warning(f"[Maintenance] Failed to delete {npz_file}: {e}")
+
+        if cleaned:
+            logger.info(f"[Maintenance] Cleaned {cleaned} orphan NPZ files")
+
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""
         return {
@@ -424,6 +554,9 @@ class MaintenanceDaemon:
                 "dlq_entries_cleaned": self._stats.dlq_entries_cleaned,
                 "queue_items_cleaned": self._stats.queue_items_cleaned,  # December 2025
                 "queue_items_reset": self._stats.queue_items_reset,  # December 2025
+                "orphan_dbs_found": self._stats.orphan_dbs_found,  # December 2025
+                "orphan_npz_found": self._stats.orphan_npz_found,  # December 2025
+                "orphan_models_found": self._stats.orphan_models_found,  # December 2025
             },
             "last_runs": {
                 "log_rotation": self._stats.last_log_rotation,
@@ -431,6 +564,7 @@ class MaintenanceDaemon:
                 "archive": self._stats.last_archive_run,
                 "dlq_cleanup": self._stats.last_dlq_cleanup,
                 "queue_cleanup": self._stats.last_queue_cleanup,  # December 2025
+                "orphan_detection": self._stats.last_orphan_detection,  # December 2025
             },
             "config": {
                 "log_max_size_mb": self.config.log_max_size_mb,
@@ -438,6 +572,7 @@ class MaintenanceDaemon:
                 "db_vacuum_interval_hours": self.config.db_vacuum_interval_hours,
                 "archive_days_threshold": self.config.archive_games_older_than_days,
                 "queue_cleanup_interval_hours": self.config.queue_cleanup_interval_hours,  # December 2025
+                "orphan_detection_interval_hours": self.config.orphan_detection_interval_hours,  # December 2025
             },
         }
 
