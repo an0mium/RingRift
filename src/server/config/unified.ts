@@ -178,6 +178,9 @@ const websocketOrigin =
   env.CORS_ORIGIN?.trim() ||
   (allowedOrigins[0] ?? 'http://localhost:5173');
 
+const logFormatExplicit = Object.prototype.hasOwnProperty.call(process.env, 'LOG_FORMAT');
+const resolvedLogFormat = logFormatExplicit ? env.LOG_FORMAT : isProduction ? 'json' : 'pretty';
+
 const metricsPortExplicit = Object.prototype.hasOwnProperty.call(process.env, 'METRICS_PORT');
 const metricsPort = env.METRICS_PORT;
 const metricsExposeOnMain = !metricsPortExplicit || metricsPort === env.PORT;
@@ -363,7 +366,7 @@ const preliminaryConfig = {
   },
   logging: {
     level: env.LOG_LEVEL,
-    format: env.LOG_FORMAT,
+    format: resolvedLogFormat,
     file: env.LOG_FILE,
   },
   rules: {

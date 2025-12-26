@@ -545,12 +545,12 @@ Application log level.
 
 ### `LOG_FORMAT`
 
-| Property | Value            |
-| -------- | ---------------- |
-| Type     | `enum`           |
-| Values   | `json`, `pretty` |
-| Default  | `json`           |
-| Required | No               |
+| Property | Value                                                       |
+| -------- | ----------------------------------------------------------- |
+| Type     | `enum`                                                      |
+| Values   | `json`, `pretty`                                            |
+| Default  | `json` (production), `pretty` (development/test when unset) |
+| Required | No                                                          |
 
 Log output format. Use `json` in production, `pretty` for development.
 
