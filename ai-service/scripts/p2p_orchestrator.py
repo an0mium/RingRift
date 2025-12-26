@@ -28616,12 +28616,13 @@ print(json.dumps({{
                 return job
 
             elif job_type == JobType.HYBRID_SELFPLAY:
-                # Hybrid CPU/GPU selfplay using run_hybrid_selfplay.py
+                # Hybrid CPU/GPU selfplay using run_self_play_soak.py
                 # Uses CPU for game rules (100% canonical) but GPU for heuristic evaluation
                 # This is the recommended default for GPU nodes
+                # NOTE: run_hybrid_selfplay.py doesn't exist, use run_self_play_soak.py instead
 
                 # Normalize engine_mode
-                # run_hybrid_selfplay.py supports: random-only, heuristic-only, mixed, nnue-guided, mcts
+                # run_self_play_soak.py supports: random-only, heuristic-only, mixed, nnue-guided, mcts, gumbel-mcts-only
                 # Map NN-based modes to nnue-guided for neural network evaluation
                 hybrid_engine_modes = {"random-only", "heuristic-only", "mixed", "nnue-guided", "mcts"}
                 nn_modes = {"nn-only", "best-vs-pool", "nn-vs-mcts", "nn-vs-minimax", "nn-vs-descent", "tournament-varied"}
@@ -28663,15 +28664,17 @@ print(json.dumps({{
 
                 cmd = [
                     python_exec,
-                    f"{self.ringrift_path}/ai-service/scripts/run_hybrid_selfplay.py",
+                    f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
                     "--board-type", board_arg,
                     "--num-players", str(num_players),
                     "--num-games", str(num_games),
-                    "--output-dir", str(output_dir),
+                    "--log-jsonl", str(output_dir / "games.jsonl"),
+                    "--summary-json", str(output_dir / "summary.json"),
                     "--record-db", str(output_dir / "games.db"),
                     "--lean-db",
                     "--engine-mode", engine_mode_norm,
-                    "--seed", str(int(time.time() * 1000) % 2**31),
+                    "--max-moves", "10000",
+                    "--verbose", "0",
                 ]
 
                 # Start process with GPU environment
