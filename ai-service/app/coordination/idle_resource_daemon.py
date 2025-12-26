@@ -1507,7 +1507,7 @@ class IdleResourceDaemon:
                 f"cd {ringrift_path} && "
                 f"PYTHONPATH=. nohup python scripts/selfplay.py "
                 f"--board {board_type} --num-players {num_players} "
-                f"--num-games {games} --engine gumbel "
+                f"--num-games {games} --engine gumbel-mcts "
                 f"> /tmp/selfplay_{board_type}_{num_players}p_{int(time.time())}.log 2>&1 &"
             )
 

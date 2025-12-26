@@ -263,7 +263,7 @@ class EloService:
         try:
             yield conn
             conn.commit()
-        except Exception:
+        except sqlite3.Error:
             conn.rollback()
             raise
 
@@ -697,7 +697,7 @@ class EloService:
                     # No running loop - create one for sync context
                     # This is less efficient but ensures events are emitted
                     pass  # Skip in pure sync context to avoid blocking
-            except Exception:
+            except (RuntimeError, AttributeError, TypeError, ValueError):
                 pass  # Don't let event emission break match recording
 
         # Emit composite ELO events for composite participants (Sprint 5)
@@ -722,7 +722,7 @@ class EloService:
                                 board_type=board_type,
                                 num_players=num_players,
                             )
-                    except Exception:
+                    except (RuntimeError, AttributeError, TypeError, ValueError, KeyError):
                         pass  # Don't let event emission break match recording
 
         return MatchResult(

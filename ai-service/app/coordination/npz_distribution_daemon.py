@@ -327,16 +327,18 @@ class NPZDistributionDaemon:
 
         self._coordinator_status = CoordinatorStatus.STOPPED
 
-    def _on_npz_exported(self, event: dict[str, Any]) -> None:
+    def _on_npz_exported(self, event: dict[str, Any] | Any) -> None:
         """Handle NPZ_EXPORT_COMPLETE event (sync callback).
 
         December 2025: Thread-safe with immediate wake-up for instant distribution.
         """
+        # Handle both RouterEvent and dict payloads
+        payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
         npz_info = {
-            "npz_path": event.get("npz_path"),
-            "board_type": event.get("board_type"),
-            "num_players": event.get("num_players"),
-            "sample_count": event.get("sample_count"),
+            "npz_path": payload.get("npz_path"),
+            "board_type": payload.get("board_type"),
+            "num_players": payload.get("num_players"),
+            "sample_count": payload.get("sample_count"),
             "timestamp": time.time(),
         }
         logger.info(f"Received NPZ_EXPORT_COMPLETE event: {npz_info}")

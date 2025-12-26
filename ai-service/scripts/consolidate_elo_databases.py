@@ -105,7 +105,7 @@ def import_from_old_db(db: EloDatabase, old_db_path: Path) -> int:
                     duration_sec=duration_sec,
                 )
                 imported += 1
-            except Exception:
+            except (ValueError, TypeError, KeyError, IndexError, sqlite3.Error):
                 continue
 
     except Exception as e:
@@ -130,7 +130,7 @@ def import_from_jsonl(db: EloDatabase, jsonl_path: Path, tournament_id: str | No
             f = gzip.open(jsonl_path, "rt", encoding="utf-8")
         else:
             f = open(jsonl_path, encoding="utf-8")
-    except Exception:
+    except (OSError, PermissionError):
         return 0
 
     try:
@@ -182,7 +182,7 @@ def import_from_jsonl(db: EloDatabase, jsonl_path: Path, tournament_id: str | No
                     game_id=game_id,
                 )
                 imported += 1
-            except Exception:
+            except (ValueError, TypeError, sqlite3.Error):
                 continue
     finally:
         f.close()

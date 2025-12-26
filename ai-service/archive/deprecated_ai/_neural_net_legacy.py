@@ -62,7 +62,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ..models import (
+from app.models import (
     BoardState,
     BoardType,
     GamePhase,
@@ -71,11 +71,11 @@ from ..models import (
     MoveType,
     Position,
 )
-from ..rules.geometry import BoardGeometry
-from ..rules.legacy.move_type_aliases import convert_legacy_move_type
-from ..utils.torch_utils import safe_load_checkpoint
-from .base import BaseAI
-from .game_state_utils import (
+from app.rules.geometry import BoardGeometry
+from app.rules.legacy.move_type_aliases import convert_legacy_move_type
+from app.utils.torch_utils import safe_load_checkpoint
+from app.ai.base import BaseAI
+from app.ai.game_state_utils import (
     infer_num_players,
     infer_rings_per_player,
     select_threat_opponent,

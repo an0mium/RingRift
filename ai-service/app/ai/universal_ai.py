@@ -137,7 +137,7 @@ class UniversalAI(BaseAI):
         except Exception as e:
             logger.warning(f"Failed to get encoder: {e}, using NeuralNetAI fallback")
             # Fallback to NeuralNetAI which has built-in encoding
-            from app.ai._neural_net_legacy import NeuralNetAI
+            from archive.deprecated_ai._neural_net_legacy import NeuralNetAI
 
             # Create a minimal NeuralNetAI just for encoding
             self._encoder = NeuralNetAI(
@@ -211,7 +211,7 @@ class UniversalAI(BaseAI):
                     value = model(features_tensor)
                     # Scale to centipawn range
                     return float(value.item()) * 10000
-            except Exception:
+            except (RuntimeError, ValueError, TypeError, ImportError):
                 return original_evaluate(state)
 
         minimax._evaluate_mutable = custom_evaluate
@@ -367,7 +367,7 @@ class UniversalAI(BaseAI):
             elif hasattr(move, "position"):
                 idx = self._pos_to_idx(move.position)
                 return idx, idx
-        except Exception:
+        except AttributeError:
             pass
         return -1, -1
 
@@ -385,7 +385,7 @@ class UniversalAI(BaseAI):
                 return encoder.encode_move(move)
             elif hasattr(encoder, "move_to_index"):
                 return encoder.move_to_index(move)
-        except Exception:
+        except AttributeError:
             pass
         return -1
 

@@ -93,8 +93,8 @@ class AutoSyncConfig:
                 # Get auto_sync settings
                 auto_sync = data.get("auto_sync", {})
                 config.enabled = auto_sync.get("enabled", True)
-                config.interval_seconds = auto_sync.get("interval_seconds", 300)
-                config.gossip_interval_seconds = auto_sync.get("gossip_interval_seconds", 60)
+                config.interval_seconds = auto_sync.get("interval_seconds", 60)  # Dec 2025: Match dataclass
+                config.gossip_interval_seconds = auto_sync.get("gossip_interval_seconds", 30)  # Dec 2025: Match
                 config.exclude_hosts = auto_sync.get("exclude_hosts", [])
                 config.skip_nfs_sync = auto_sync.get("skip_nfs_sync", True)
                 config.max_concurrent_syncs = auto_sync.get("max_concurrent_syncs", 4)

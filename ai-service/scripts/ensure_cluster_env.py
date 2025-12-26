@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 import time
 from collections.abc import Sequence
@@ -248,7 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             _v_rc, v_out, v_err = _run_remote(host, "python -V", timeout=15)
             python_version = (v_out or v_err).strip().splitlines()[-1] if (v_out or v_err) else ""
-        except Exception:
+        except (OSError, subprocess.SubprocessError, IndexError, AttributeError):
             python_version = ""
 
         report = HostEnvReport(

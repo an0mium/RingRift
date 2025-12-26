@@ -414,7 +414,7 @@ class MonitoringManager:
                 return True
             logger.warning("[Monitoring] Grafana not running and systemd start failed")
             return False
-        except Exception:
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
     async def stop(self):
@@ -464,7 +464,7 @@ class MonitoringManager:
                     if resp.status == 200:
                         logger.info("[Monitoring] Prometheus config reloaded via API")
                         return
-        except Exception:
+        except (aiohttp.ClientError, asyncio.TimeoutError):
             pass
 
         # Try systemd reload
@@ -475,7 +475,7 @@ class MonitoringManager:
                 timeout=10,
             )
             logger.info("[Monitoring] Prometheus config reloaded via systemd")
-        except Exception:
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError):
             # Send SIGHUP to process
             if self._prometheus_process:
                 self._prometheus_process.send_signal(1)  # SIGHUP

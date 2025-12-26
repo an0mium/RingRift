@@ -80,7 +80,7 @@ def _get_db_stats(db_path: str) -> dict[str, Any]:
         cursor.execute("SELECT COUNT(*) FROM games")
         stats["game_count"] = cursor.fetchone()[0]
         conn.close()
-    except Exception:
+    except (sqlite3.Error, OSError, TypeError, IndexError):
         stats["game_count"] = -1
 
     return stats
@@ -130,7 +130,7 @@ class ExportCache:
             with open(cache_file) as f:
                 data = json.load(f)
             return ExportCacheEntry.from_dict(data)
-        except Exception:
+        except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, KeyError):
             return None
 
     def _save_cache_entry(self, cache_key: str, entry: ExportCacheEntry) -> None:
@@ -331,7 +331,7 @@ class ExportCache:
                 if cache_file.stat().st_mtime < cutoff:
                     cache_file.unlink()
                     removed += 1
-            except Exception:
+            except (OSError, FileNotFoundError, PermissionError):
                 pass
 
         return removed

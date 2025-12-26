@@ -478,7 +478,7 @@ def augment_data(
         if len(indices) == 0:
             return indices, values
 
-        from app.ai._neural_net_legacy import transform_policy_index_square
+        from archive.deprecated_ai._neural_net_legacy import transform_policy_index_square
 
         new_indices = []
         new_values = []

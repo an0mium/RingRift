@@ -79,7 +79,7 @@ def get_game_counts() -> dict[str, int]:
             FROM games GROUP BY board_type, num_players
         """).fetchall()
         return {f"{b}_{p}p": c for b, p, c in rows}
-    except Exception:
+    except (sqlite3.Error, ValueError, TypeError, KeyError):
         return {}
     finally:
         conn.close()
@@ -110,7 +110,7 @@ def get_elo_top_models(limit: int = 10) -> list[dict[str, Any]]:
             }
             for row in rows
         ]
-    except Exception:
+    except (sqlite3.Error, ValueError, TypeError, IndexError):
         return []
     finally:
         conn.close()
@@ -175,7 +175,7 @@ def get_quality_stats() -> dict[str, Any]:
             "high_quality_count": rows[2] or 0,
             "low_quality_count": rows[3] or 0,
         }
-    except Exception:
+    except (sqlite3.Error, ValueError, TypeError, IndexError):
         return {}
     finally:
         conn.close()

@@ -109,7 +109,7 @@ class SingletonMeta(type):
                 if hasattr(instance, "_cleanup"):
                     try:
                         instance._cleanup()
-                    except Exception:
+                    except (AttributeError, RuntimeError):
                         pass  # Don't fail reset on cleanup errors
                 del cls._instances[cls]
 
@@ -178,13 +178,13 @@ class SingletonMixin:
                 if hasattr(cls._instance, "_cleanup"):
                     try:
                         cls._instance._cleanup()
-                    except Exception:
+                    except (AttributeError, RuntimeError):
                         pass
                 # Allow state saving (for coordinators)
                 if hasattr(cls._instance, "_save_state"):
                     try:
                         cls._instance._save_state()
-                    except Exception:
+                    except (AttributeError, RuntimeError, OSError):
                         pass
                 cls._instance = None
 

@@ -80,7 +80,7 @@ def get_disk_usage(path: str = "/") -> tuple[int, int, float]:
             total = int(total_gb * 1024**3)
             used = int(total * percent / 100)
             return used, total, percent
-        except Exception:
+        except (OSError, ValueError, TypeError, AttributeError):
             pass  # Fall through to original implementation
 
     # Fallback to original implementation
@@ -358,7 +358,7 @@ def _dir_size_bytes(path: Path) -> int:
         if result.returncode == 0 and (result.stdout or "").strip():
             kb = int((result.stdout or "").strip().split()[0])
             return kb * 1024
-    except Exception:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, ValueError, IndexError):
         pass
 
     total = 0
@@ -383,7 +383,7 @@ def _get_game_ids_from_db(db_path: Path) -> set:
         ids = {row[0] for row in cur.fetchall()}
         conn.close()
         return ids
-    except Exception:
+    except (sqlite3.Error, OSError):
         return set()
 
 

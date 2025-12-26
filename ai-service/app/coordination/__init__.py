@@ -981,7 +981,7 @@ def initialize_all_coordinators(
             if dlq and hasattr(instance, "_bus"):
                 try:
                     enable_dead_letter_queue(dlq, instance._bus)
-                except Exception:
+                except (ImportError, AttributeError, TypeError):
                     pass
         if error:
             errors[name] = error
@@ -1046,7 +1046,7 @@ def initialize_all_coordinators(
                     )
                 except RuntimeError:
                     asyncio.run(bus.publish(event))
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass
 
     # Log summary
@@ -1225,7 +1225,7 @@ def get_system_health() -> dict:
         if handler_health["unhealthy_handlers"]:
             for handler in handler_health["unhealthy_handlers"]:
                 issues.append(f"handler: {handler} has consecutive failures")
-    except Exception:
+    except (ImportError, AttributeError, KeyError):
         pass
 
     return {

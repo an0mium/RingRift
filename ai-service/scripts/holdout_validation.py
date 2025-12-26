@@ -298,7 +298,7 @@ def reserve_games_from_db(
                             "board_type": row["board_type"],
                             "num_players": row["num_players"],
                         })
-                    except Exception:
+                    except (json.JSONDecodeError, sqlite3.Error, KeyError, IndexError):
                         # If reconstruction fails, still reserve but without game_data
                         pass
 
@@ -481,7 +481,7 @@ def extract_positions_for_config(
                     features_list.append(features)
                     values_list.append(value)
 
-            except Exception:
+            except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                 continue
 
         if not features_list:
@@ -645,7 +645,7 @@ def evaluate_model_stratified(
                     phase_features[phase].append(features)
                     phase_values[phase].append(value)
 
-            except Exception:
+            except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                 continue
 
         # Load model

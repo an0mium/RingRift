@@ -752,7 +752,7 @@ class ClusterMonitor:
 
         # Node table
         print(f"\nNode Status:")
-        print(f"{'Host':<25} {'Status':<10} {'Games':<12} {'Training':<12} {'Disk':<15} {'Response':<12}")
+        print(f"{'Host':<25} {'Status':<10} {'Games':<12} {'GPU':<18} {'Training':<10} {'Disk':<15}")
         print("-" * 100)
 
         for host in sorted(status.nodes.keys()):
@@ -767,6 +767,14 @@ class ClusterMonitor:
             # Games
             games_str = f"{node.total_games:,}" if node.total_games > 0 else "-"
 
+            # GPU utilization
+            if node.gpu and node.gpu_utilization_percent > 0:
+                gpu_str = f"{node.gpu_utilization_percent:.0f}% ({node.gpu_memory_used_gb:.0f}/{node.gpu_memory_total_gb:.0f}GB)"
+            elif node.gpu:
+                gpu_str = f"0% (idle)"
+            else:
+                gpu_str = "-"
+
             # Training
             if node.training_active:
                 training_str = f"YES ({len(node.training_processes)})"
@@ -775,14 +783,11 @@ class ClusterMonitor:
 
             # Disk
             if node.disk_total_gb > 0:
-                disk_str = f"{node.disk_usage_percent:.1f}% ({node.disk_free_gb:.0f}GB free)"
+                disk_str = f"{node.disk_usage_percent:.1f}% ({node.disk_free_gb:.0f}GB)"
             else:
                 disk_str = "-"
 
-            # Response time
-            response_str = f"{node.response_time_ms:.0f}ms" if node.reachable else "-"
-
-            print(f"{host:<25} {status_str:<10} {games_str:<12} {training_str:<12} {disk_str:<15} {response_str:<12}")
+            print(f"{host:<25} {status_str:<10} {games_str:<12} {gpu_str:<18} {training_str:<10} {disk_str:<15}")
 
         # Errors
         if status.errors:

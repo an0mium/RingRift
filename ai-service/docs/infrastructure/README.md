@@ -2,8 +2,8 @@
 
 Cluster setup, operations, and cloud infrastructure.
 
-> **Note (Dec 2025):** Lambda Labs account terminated. All Lambda-specific docs archived to `docs/archive/lambda/`.
-> Current providers: Nebius, RunPod, Vast.ai, Vultr, Hetzner.
+> **Note (Dec 2025):** Lambda Labs account suspended pending support ticket resolution.
+> Current active providers: Nebius, RunPod, Vast.ai, Vultr, Hetzner.
 
 ## Contents
 

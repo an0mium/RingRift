@@ -204,14 +204,16 @@ class S3BackupDaemon:
             )
             await self._run_backup()
 
-    def _on_model_promoted(self, event: dict[str, Any]) -> None:
+    def _on_model_promoted(self, event: dict[str, Any] | Any) -> None:
         """Handle MODEL_PROMOTED event (sync callback)."""
+        # Handle both RouterEvent and dict payloads
+        payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
         promotion_info = {
-            "model_path": event.get("model_path"),
-            "model_id": event.get("model_id"),
-            "board_type": event.get("board_type"),
-            "num_players": event.get("num_players"),
-            "elo": event.get("elo"),
+            "model_path": payload.get("model_path"),
+            "model_id": payload.get("model_id"),
+            "board_type": payload.get("board_type"),
+            "num_players": payload.get("num_players"),
+            "elo": payload.get("elo"),
             "timestamp": time.time(),
         }
         logger.info(f"Received MODEL_PROMOTED event for S3 backup: {promotion_info}")

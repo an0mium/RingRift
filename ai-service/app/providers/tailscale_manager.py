@@ -101,7 +101,7 @@ class TailscaleManager:
                 if ls := peer_data.get("LastSeen"):
                     try:
                         last_seen = datetime.fromisoformat(ls.replace("Z", "+00:00"))
-                    except Exception:
+                    except ValueError:
                         pass
 
                 peers.append(TailscalePeer(
@@ -160,7 +160,7 @@ class TailscaleManager:
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 5)
             return proc.returncode == 0
-        except Exception:
+        except (asyncio.TimeoutError, OSError):
             return False
 
     async def get_remote_status(
@@ -236,7 +236,7 @@ class TailscaleManager:
                 if ip.startswith("100."):
                     return ip
             return None
-        except Exception:
+        except (asyncio.TimeoutError, OSError):
             return None
 
     async def restart_remote_tailscale(

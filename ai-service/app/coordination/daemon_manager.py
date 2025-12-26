@@ -75,7 +75,6 @@ logger = logging.getLogger(__name__)
 _DEPRECATED_DAEMON_TYPES: dict[str, tuple[str, str]] = {
     "sync_coordinator": ("AUTO_SYNC", "Q2 2026"),
     "health_check": ("NODE_HEALTH_MONITOR", "Q2 2026"),
-    "lambda_idle": ("IDLE_RESOURCE or UTILIZATION_OPTIMIZER", "Q2 2026 - Lambda account terminated Dec 2025"),
 }
 
 
@@ -2742,11 +2741,6 @@ class DaemonManager:
     async def _create_lambda_idle(self) -> None:
         """Create and run Lambda idle shutdown daemon (December 2025).
 
-        DEPRECATED: Lambda account terminated December 2025.
-        This daemon is archived and will be removed in Q2 2026.
-
-        Use IDLE_RESOURCE or UTILIZATION_OPTIMIZER for generic idle node management.
-
         Monitors Lambda Labs GPU nodes for idle detection and automatically
         terminates them to reduce costs. Features:
         - 30-minute idle threshold
@@ -2755,20 +2749,11 @@ class DaemonManager:
         - Graceful shutdown with drain period
 
         This daemon should only run on the coordinator node.
-        """
-        logger.warning(
-            "DaemonType.LAMBDA_IDLE is deprecated (Lambda account terminated Dec 2025). "
-            "Use IDLE_RESOURCE or UTILIZATION_OPTIMIZER instead. "
-            "This daemon will be removed in Q2 2026."
-        )
-        try:
-            # Import from archived location
-            import sys
-            from pathlib import Path
-            archive_path = Path(__file__).parent.parent.parent / "archive" / "deprecated_coordination"
-            sys.path.insert(0, str(archive_path))
 
-            from lambda_idle_daemon import (
+        NOTE: Lambda account currently suspended pending support ticket resolution.
+        """
+        try:
+            from app.coordination.lambda_idle_daemon import (
                 LambdaIdleDaemon,
                 LambdaIdleConfig,
             )
@@ -2777,14 +2762,14 @@ class DaemonManager:
             daemon = LambdaIdleDaemon(config=config)
             await daemon.start()
 
-            logger.info("[LambdaIdleDaemon] Started (DEPRECATED), monitoring for idle nodes")
+            logger.info("[LambdaIdleDaemon] Started, monitoring for idle Lambda nodes")
 
             # Keep daemon running until cancelled
             while True:
                 await asyncio.sleep(3600)
 
         except ImportError as e:
-            logger.warning(f"LambdaIdleDaemon dependencies not available (archived): {e}")
+            logger.warning(f"LambdaIdleDaemon dependencies not available: {e}")
         except Exception as e:
             logger.error(f"LambdaIdleDaemon failed: {e}")
 

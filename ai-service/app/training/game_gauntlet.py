@@ -107,7 +107,7 @@ def get_adaptive_max_workers(requested: int = 4) -> int:
         else:
             # Normal load: use requested workers
             return requested
-    except Exception:
+    except (OSError, AttributeError):
         # If we can't check load, use conservative default
         return min(requested, 2)
 
@@ -719,7 +719,7 @@ def _evaluate_single_opponent(
                         },
                         source="game_gauntlet",
                     ))
-            except Exception:
+            except (ImportError, AttributeError, RuntimeError):
                 pass  # Silent fail - progress events are optional
 
             # Check for early stopping
@@ -821,7 +821,7 @@ def run_baseline_gauntlet(
                     f"[gauntlet] {board_type.name} {version}: expects {config.in_channels} channels "
                     f"({config.base_channels} base × {config.frames} frames)"
                 )
-        except Exception:
+        except (ImportError, AttributeError, KeyError):
             pass  # Registry not available, continue without
 
     if opponents is None:

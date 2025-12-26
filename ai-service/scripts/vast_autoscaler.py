@@ -49,8 +49,9 @@ logger = setup_script_logging("vast_autoscaler")
 # Configuration
 # =============================================================================
 
-# SAFETY: Disable automatic instance termination to prevent data loss
-SCALE_DOWN_DISABLED = True
+# SAFETY: Enable scale-down now that AutoSyncDaemon is running in master_loop
+# This syncs data before termination. Set to True to disable auto-termination.
+SCALE_DOWN_DISABLED = False
 
 @dataclass
 class ScalingConfig:

@@ -45,7 +45,7 @@ def _infer_board_type(state: Any) -> BoardType | None:
             return raw
         try:
             return BoardType(str(getattr(raw, "value", raw)))
-        except Exception:
+        except (ValueError, TypeError):
             return None
 
     board = getattr(state, "board", getattr(state, "_board", None))
@@ -59,7 +59,7 @@ def _infer_board_type(state: Any) -> BoardType | None:
         return raw
     try:
         return BoardType(str(getattr(raw, "value", raw)))
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -113,7 +113,7 @@ def victory_progress_for_player(state: Any, player_number: int) -> float:
                 if raw_rings_override is not None
                 else None
             )
-        except Exception:
+        except (ValueError, TypeError):
             rings_override = None
 
     victory_threshold = getattr(
@@ -204,7 +204,7 @@ def infer_rings_per_player(state: Any) -> int:
         raw = rules_options.get("ringsPerPlayer")
         try:
             override = int(raw) if raw is not None else None
-        except Exception:
+        except (ValueError, TypeError):
             override = None
 
     return get_rings_per_player(board_type, override=override)

@@ -378,7 +378,7 @@ def safe_transaction(
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         conn.rollback()
         raise
     finally:
@@ -410,7 +410,7 @@ def exclusive_db_lock(
         conn.execute("BEGIN EXCLUSIVE")
         yield conn
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         conn.rollback()
         raise
     finally:
@@ -749,7 +749,7 @@ class DatabaseRegistry:
             try:
                 yield conn
                 conn.commit()
-            except Exception:
+            except sqlite3.Error:
                 conn.rollback()
                 raise
             finally:
@@ -759,7 +759,7 @@ class DatabaseRegistry:
             try:
                 yield conn
                 conn.commit()
-            except Exception:
+            except sqlite3.Error:
                 conn.rollback()
                 raise
 

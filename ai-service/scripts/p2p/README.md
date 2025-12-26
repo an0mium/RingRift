@@ -34,12 +34,12 @@ Extract handlers into `scripts/p2p/handlers/`:
 | `relay.py`      | 368   | 4       | ✅ Extracted          |
 | `gauntlet.py`   | 382   | 6       | ✅ Extracted          |
 | `gossip.py`     | 226   | 2       | ✅ Extracted          |
+| `admin.py`      | 131   | 3       | ✅ Extracted          |
 | `data_sync.py`  | ~1000 | 12      | Pending (interleaved) |
 | `dashboard.py`  | ~2000 | 20      | Pending               |
 | `api.py`        | ~2500 | 25      | Pending (scattered)   |
-| `admin.py`      | ~800  | 12      | Pending               |
 
-**Progress: 29,767 → 28,406 lines (-1,361 lines, ~4.6% reduction)**
+**Progress: 29,767 → 28,325 lines (-1,442 lines, ~4.8% reduction)**
 
 ### Phase 2: Core Logic Extraction (TARGET: ~10,000 lines)
 

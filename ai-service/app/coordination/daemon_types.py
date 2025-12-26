@@ -41,7 +41,6 @@ __all__ = [
 _DEPRECATED_DAEMON_TYPES: dict[str, tuple[str, str]] = {
     "sync_coordinator": ("AUTO_SYNC", "Q2 2026"),
     "health_check": ("NODE_HEALTH_MONITOR", "Q2 2026"),
-    "lambda_idle": ("IDLE_RESOURCE or UTILIZATION_OPTIMIZER", "Q2 2026 - Lambda account terminated Dec 2025"),
 }
 
 
@@ -200,8 +199,7 @@ class DaemonType(Enum):
     UTILIZATION_OPTIMIZER = "utilization_optimizer"
 
     # Lambda idle shutdown (December 2025) - terminates idle Lambda nodes to save costs
-    # DEPRECATED (Dec 2025): Lambda account terminated - removal Q2 2026
-    # Use IDLE_RESOURCE or UTILIZATION_OPTIMIZER for generic idle node management
+    # NOTE: Lambda account suspended pending support ticket resolution
     LAMBDA_IDLE = "lambda_idle"
 
     # Cluster watchdog (December 2025) - self-healing cluster utilization monitor

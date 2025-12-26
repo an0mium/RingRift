@@ -354,7 +354,7 @@ def benchmark_on_database(
         try:
             state_dict = json.loads(initial_json)
             state = GameState(**state_dict)
-        except Exception:
+        except (json.JSONDecodeError, ValueError, TypeError, KeyError, OSError):
             continue
 
         # Get moves
@@ -382,7 +382,7 @@ def benchmark_on_database(
                     move_dict = json.loads(move_json_str)
                     move = Move(**move_dict)
                     state = engine.apply_move(state, move)
-                except Exception:
+                except (json.JSONDecodeError, ValueError, TypeError, KeyError, RuntimeError):
                     break
                 continue
 
@@ -441,7 +441,7 @@ def benchmark_on_database(
                     move_dict = json.loads(move_json_str)
                     move = Move(**move_dict)
                     state = engine.apply_move(state, move)
-                except Exception:
+                except (json.JSONDecodeError, ValueError, TypeError, KeyError, RuntimeError):
                     break
 
     conn.close()

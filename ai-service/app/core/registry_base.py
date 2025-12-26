@@ -304,7 +304,7 @@ class UnifiedRegistryBase(ABC, Generic[T]):
                 bus = get_event_bus()
                 bus.publish_sync(event)
 
-        except Exception:
+        except (ImportError, ModuleNotFoundError, AttributeError, KeyError):
             pass  # Event bus not available
 
     def on_change(self, callback: Callable[[str, Any], None]) -> None:
@@ -349,7 +349,7 @@ class UnifiedRegistryBase(ABC, Generic[T]):
                 conn = self._get_connection()
                 conn.execute("SELECT 1")
                 return True
-        except Exception:
+        except (sqlite3.Error, OSError):
             return False
 
     def vacuum(self) -> bool:
@@ -485,7 +485,7 @@ class SingletonMixin:
             if hasattr(cls._instance, "close"):
                 try:
                     cls._instance.close()
-                except Exception:
+                except (sqlite3.Error, OSError, RuntimeError):
                     pass
             cls._instance = None
 

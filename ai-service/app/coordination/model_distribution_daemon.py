@@ -345,12 +345,14 @@ class ModelDistributionDaemon:
         December 2025: Uses thread lock to prevent race condition with
         _process_pending_models which runs in the main async loop.
         """
+        # Handle both RouterEvent and dict payloads
+        payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
         model_info = {
-            "model_path": event.get("model_path"),
-            "model_id": event.get("model_id"),
-            "board_type": event.get("board_type"),
-            "num_players": event.get("num_players"),
-            "elo": event.get("elo"),
+            "model_path": payload.get("model_path"),
+            "model_id": payload.get("model_id"),
+            "board_type": payload.get("board_type"),
+            "num_players": payload.get("num_players"),
+            "elo": payload.get("elo"),
             "timestamp": time.time(),
         }
         logger.info(f"Received MODEL_PROMOTED event: {model_info}")
@@ -722,7 +724,8 @@ class ModelDistributionDaemon:
                         ssh_user = host_config.get("ssh_user", "root")
                         remote_path = host_config.get("remote_path", remote_path)
                         break
-        except Exception:
+        except (OSError, KeyError) as e:
+            logger.debug(f"Could not read SSH config for node {node}: {e}")
             pass
 
         # Build remote checksum command
@@ -1046,7 +1049,8 @@ class ModelDistributionDaemon:
                         if host == node:
                             ssh_user = host_config.get("ssh_user", "root")
                             break
-            except Exception:
+            except (OSError, KeyError) as e:
+                logger.debug(f"Could not read SSH config for remote command on {node}: {e}")
                 pass
 
             ssh_cmd = [
@@ -1069,7 +1073,7 @@ class ModelDistributionDaemon:
 
         except asyncio.TimeoutError:
             return False
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             return False
 
     async def _emit_distribution_complete(

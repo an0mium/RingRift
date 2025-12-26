@@ -330,7 +330,7 @@ def get_local_memory_gb() -> tuple[int, int]:
 
         return total_gb, available_gb
 
-    except Exception:
+    except (subprocess.SubprocessError, ValueError, IndexError, KeyError, AttributeError):
         pass
 
     try:
@@ -344,7 +344,7 @@ def get_local_memory_gb() -> tuple[int, int]:
                     kb = int(line.split()[1])
                     available_gb = kb // (1024 * 1024)
         return total_gb, available_gb
-    except Exception:
+    except (FileNotFoundError, OSError, PermissionError, ValueError, IndexError):
         pass
 
     logger.warning("Could not detect local memory, assuming 8GB total, 4GB available")
@@ -936,7 +936,7 @@ class SSHExecutor:
         try:
             result = self.run("echo ok", timeout=10)
             return result.returncode == 0 and "ok" in result.stdout
-        except Exception:
+        except (subprocess.SubprocessError, OSError, TimeoutError):
             return False
 
 

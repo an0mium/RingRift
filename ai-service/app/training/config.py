@@ -131,7 +131,7 @@ def _get_gpu_memory_gb() -> float:
         if torch.cuda.is_available():
             props = torch.cuda.get_device_properties(0)
             return props.total_memory / (1024 ** 3)
-    except Exception:
+    except (ImportError, AttributeError, RuntimeError):
         pass
     return 0.0
 
@@ -187,7 +187,7 @@ def get_selfplay_batch_size_for_gpu(gpu_type: str | None = None) -> int:
                     gpu_type = 'rtx_3060'
                 else:
                     gpu_type = 'default'
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             gpu_type = 'default'
 
     # Try to load from unified_loop.yaml
@@ -213,7 +213,7 @@ def get_selfplay_batch_size_for_gpu(gpu_type: str | None = None) -> int:
                 # Fallback to base batch_size
                 return gpu_mcts.get("batch_size", default_batch)
 
-            except Exception:
+            except (FileNotFoundError, OSError, PermissionError, yaml.YAMLError, KeyError, AttributeError):
                 pass
 
     return default_batch

@@ -320,24 +320,34 @@ def wire_pipeline_feedback_events(
         controller._emit_signal = wrapped_emit  # type: ignore[attr-defined]
 
     # Subscribe to stage completion events
+    # Note: on_stage_complete is async, so we schedule it on the event loop
+    def _schedule_async(coro):
+        """Schedule an async coroutine from a sync callback."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            # No running loop - run directly (blocking)
+            asyncio.run(coro)
+
     def on_training_completed(event: RouterEvent) -> None:
         if event.payload:
             try:
-                controller.on_stage_complete("training", event.payload)
+                _schedule_async(controller.on_stage_complete("training", event.payload))
             except Exception as e:
                 logger.error(f"[IntegrationBridge] Error handling training complete: {e}")
 
     def on_evaluation_complete(event: RouterEvent) -> None:
         if event.payload:
             try:
-                controller.on_stage_complete("evaluation", event.payload)
+                _schedule_async(controller.on_stage_complete("evaluation", event.payload))
             except Exception as e:
                 logger.error(f"[IntegrationBridge] Error handling evaluation complete: {e}")
 
     def on_parity_complete(event: RouterEvent) -> None:
         if event.payload:
             try:
-                controller.on_stage_complete("parity_validation", event.payload)
+                _schedule_async(controller.on_stage_complete("parity_validation", event.payload))
             except Exception as e:
                 logger.error(f"[IntegrationBridge] Error handling parity complete: {e}")
 

@@ -38,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -457,7 +458,7 @@ def record_completed_game_with_parity_check(
         # allowing long soak runs to continue.
         try:
             db.delete_game(gid)
-        except Exception:
+        except sqlite3.Error:
             # Best-effort cleanup; swallow any deletion failure.
             pass
         # Re-raise so callers can decide whether to halt or skip.
@@ -554,14 +555,14 @@ def cache_nnue_features_for_game(
                         value,
                         board_type,
                     ))
-                except Exception:
+                except (ValueError, TypeError, KeyError, IndexError, AttributeError):
                     # Skip positions that fail feature extraction
                     continue
 
         # Apply the move
         try:
             engine.apply_move(move)
-        except Exception:
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             # Stop if replay fails
             break
 
@@ -686,7 +687,7 @@ def record_completed_game_with_nnue_cache(
                 sample_every_n_moves=sample_every_n_moves,
                 skip_if_cached=False,  # Just recorded, so no cache yet
             )
-        except Exception:
+        except (sqlite3.Error, ValueError, TypeError, KeyError, IndexError, AttributeError):
             # Don't fail the recording if feature caching fails
             pass
 

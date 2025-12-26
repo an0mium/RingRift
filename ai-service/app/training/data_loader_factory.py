@@ -571,19 +571,19 @@ def validate_dataset_metadata(
             if "policy_encoding" in d:
                 try:
                     metadata['policy_encoding'] = str(np.asarray(d["policy_encoding"]).item())
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     pass
 
             if "history_length" in d:
                 try:
                     metadata['history_length'] = int(np.asarray(d["history_length"]).item())
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     pass
 
             if "feature_version" in d:
                 try:
                     metadata['feature_version'] = int(np.asarray(d["feature_version"]).item())
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     pass
 
             if "policy_indices" in d:

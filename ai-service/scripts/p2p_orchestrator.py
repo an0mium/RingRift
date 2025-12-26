@@ -243,6 +243,7 @@ from scripts.p2p.cluster_config import (
 from scripts.p2p.handlers import (
     AdminHandlersMixin,
     ElectionHandlersMixin,
+    EloSyncHandlersMixin,
     GauntletHandlersMixin,
     GossipHandlersMixin,
     RelayHandlersMixin,
@@ -887,6 +888,7 @@ class P2POrchestrator(
     GauntletHandlersMixin,
     GossipHandlersMixin,
     AdminHandlersMixin,
+    EloSyncHandlersMixin,
 ):
     """Main P2P orchestrator class that runs on each node.
 
@@ -897,6 +899,7 @@ class P2POrchestrator(
     - GauntletHandlersMixin: Gauntlet evaluation handlers (handle_gauntlet_*)
     - GossipHandlersMixin: Gossip protocol handlers (handle_gossip*)
     - AdminHandlersMixin: Admin and git handlers (handle_git_*, handle_admin_*)
+    - EloSyncHandlersMixin: Elo sync handlers (handle_elo_sync_*)
     """
 
     def __init__(
@@ -8084,90 +8087,8 @@ class P2POrchestrator(
     # handle_gauntlet_quick_eval, _execute_gauntlet_batch, _execute_single_gauntlet_game,
     # _run_gauntlet_game_sync
 
-    async def handle_git_status(self, request: web.Request) -> web.Response:
-        """Get git status for this node.
-
-        Returns local/remote commit info and whether updates are available.
-        """
-        try:
-            local_commit = self._get_local_git_commit()
-            local_branch = self._get_local_git_branch()
-            has_local_changes = self._check_local_changes()
-
-            # Check for remote updates (this does a git fetch)
-            has_updates, _, remote_commit = self._check_for_updates()
-            commits_behind = 0
-            if has_updates and local_commit and remote_commit:
-                commits_behind = self._get_commits_behind(local_commit, remote_commit)
-
-            return web.json_response({
-                "local_commit": local_commit[:8] if local_commit else None,
-                "local_commit_full": local_commit,
-                "local_branch": local_branch,
-                "remote_commit": remote_commit[:8] if remote_commit else None,
-                "remote_commit_full": remote_commit,
-                "has_updates": has_updates,
-                "commits_behind": commits_behind,
-                "has_local_changes": has_local_changes,
-                "auto_update_enabled": AUTO_UPDATE_ENABLED,
-                "ringrift_path": self.ringrift_path,
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_git_update(self, request: web.Request) -> web.Response:
-        """Manually trigger a git update on this node.
-
-        This will stop jobs, pull updates, and restart the orchestrator.
-        """
-        try:
-            # Check for updates first
-            has_updates, local_commit, remote_commit = self._check_for_updates()
-
-            if not has_updates:
-                return web.json_response({
-                    "success": True,
-                    "message": "Already up to date",
-                    "local_commit": local_commit[:8] if local_commit else None,
-                })
-
-            # Perform the update
-            success, message = await self._perform_git_update()
-
-            if success:
-                # Schedule restart
-                asyncio.create_task(self._restart_orchestrator())
-                return web.json_response({
-                    "success": True,
-                    "message": "Update successful, restarting...",
-                    "old_commit": local_commit[:8] if local_commit else None,
-                    "new_commit": remote_commit[:8] if remote_commit else None,
-                })
-            else:
-                return web.json_response({
-                    "success": False,
-                    "message": message,
-                }, status=400)
-
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_admin_restart(self, request: web.Request) -> web.Response:
-        """Force restart the orchestrator process.
-
-        Useful after code updates when /git/update shows "already up to date"
-        but the running process hasn't picked up the changes.
-        """
-        try:
-            logger.info("Admin restart requested via API")
-            # Schedule restart (gives time to return response)
-            asyncio.create_task(self._restart_orchestrator())
-            return web.json_response({
-                "success": True,
-                "message": "Restart scheduled, process will restart in 2 seconds",
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+    # Admin/Git Handlers moved to scripts/p2p/handlers/admin.py
+    # Inherited from AdminHandlersMixin: handle_git_status, handle_git_update, handle_admin_restart
 
     # ============================================
     # Phase 2: Distributed Data Manifest Handlers
@@ -16430,147 +16351,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             return web.json_response([{"error": str(e)}])
 
-    # === Elo Sync Endpoints ===
-
-    async def handle_elo_sync_status(self, request: web.Request) -> web.Response:
-        """GET /elo/sync/status - Get Elo database sync status."""
-        try:
-            if not self.elo_sync_manager:
-                return web.json_response({
-                    "enabled": False,
-                    "error": "EloSyncManager not initialized"
-                })
-
-            status = self.elo_sync_manager.get_status()
-            status["enabled"] = True
-            status["node_id"] = self.node_id
-
-            return web.json_response(status)
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_elo_sync_trigger(self, request: web.Request) -> web.Response:
-        """POST /elo/sync/trigger - Manually trigger Elo database sync."""
-        try:
-            if not self.elo_sync_manager:
-                return web.json_response({
-                    "success": False,
-                    "error": "EloSyncManager not initialized"
-                }, status=503)
-
-            # Trigger sync
-            success = await self.elo_sync_manager.sync_with_cluster()
-
-            return web.json_response({
-                "success": success,
-                "status": self.elo_sync_manager.get_status()
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_elo_sync_download(self, request: web.Request) -> web.Response:
-        """GET /elo/sync/db - Download unified_elo.db for cluster sync."""
-        try:
-            ai_root = Path(self.ringrift_path) / "ai-service"
-            db_path = ai_root / "data" / "unified_elo.db"
-
-            if not db_path.exists():
-                return web.json_response({"error": "Database not found"}, status=404)
-
-            # Read and return the database file
-            with open(db_path, 'rb') as f:
-                data = f.read()
-
-            return web.Response(
-                body=data,
-                content_type='application/octet-stream',
-                headers={
-                    'Content-Disposition': 'attachment; filename="unified_elo.db"',
-                    'Content-Length': str(len(data))
-                }
-            )
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_elo_sync_upload(self, request: web.Request) -> web.Response:
-        """POST /elo/sync/upload - Upload/merge unified_elo.db from another node."""
-        try:
-            if not self.elo_sync_manager:
-                return web.json_response({
-                    "success": False,
-                    "error": "EloSyncManager not initialized"
-                }, status=503)
-
-            # Read uploaded database
-            data = await request.read()
-            if not data:
-                return web.json_response({"error": "No data received"}, status=400)
-
-            # Save to temp file and merge
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as f:
-                f.write(data)
-                temp_path = Path(f.name)
-
-            try:
-                # Use merge if enabled
-                if self.elo_sync_manager.enable_merge:
-                    success = await self.elo_sync_manager._merge_databases(temp_path)
-                else:
-                    # Simple replace
-                    shutil.copy(temp_path, self.elo_sync_manager.db_path)
-                    success = True
-
-                self.elo_sync_manager._update_local_stats()
-
-                return web.json_response({
-                    "success": success,
-                    "match_count": self.elo_sync_manager.state.local_match_count
-                })
-            finally:
-                temp_path.unlink(missing_ok=True)
-
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def _trigger_elo_sync_after_matches(self, num_matches: int = 1):
-        """Trigger Elo sync after recording new matches.
-
-        This is called after recording match results to ensure cluster-wide
-        consistency. It debounces sync requests to avoid overwhelming the
-        network with syncs after every individual match.
-        """
-        if not self.elo_sync_manager:
-            return
-
-        # Debounce: only sync if enough new matches or enough time has passed
-        # This prevents sync storms when processing many matches in quick succession
-        MIN_MATCHES_FOR_IMMEDIATE_SYNC = 10
-        MIN_INTERVAL_BETWEEN_SYNCS = 30  # seconds
-
-        try:
-            last_sync = getattr(self, '_last_elo_sync_trigger', 0)
-            now = time.time()
-
-            # Accumulate pending matches
-            pending = getattr(self, '_pending_sync_matches', 0) + num_matches
-            self._pending_sync_matches = pending
-
-            # Check if we should sync now
-            should_sync = (
-                pending >= MIN_MATCHES_FOR_IMMEDIATE_SYNC or
-                (now - last_sync) >= MIN_INTERVAL_BETWEEN_SYNCS
-            )
-
-            if should_sync and not self.sync_in_progress:
-                self._last_elo_sync_trigger = now
-                self._pending_sync_matches = 0
-                success = await self.elo_sync_manager.sync_with_cluster()
-                if success:
-                    logger.info(f"Elo sync triggered after {pending} matches: "
-                          f"{self.elo_sync_manager.state.local_match_count} total")
-        except Exception as e:
-            logger.info(f"Elo sync trigger error: {e}")
+    # Elo Sync Handlers moved to scripts/p2p/handlers/elo_sync.py
+    # Inherited from EloSyncHandlersMixin:
+    # - handle_elo_sync_status, handle_elo_sync_trigger
+    # - handle_elo_sync_download, handle_elo_sync_upload
+    # - _trigger_elo_sync_after_matches
 
     async def _elo_sync_loop(self):
         """Background loop for periodic Elo database synchronization."""

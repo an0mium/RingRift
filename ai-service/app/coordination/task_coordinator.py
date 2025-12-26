@@ -1373,7 +1373,7 @@ class TaskCoordinator:
             monitor = get_queue_monitor()
             level = monitor.check_backpressure(queue_type)
             return level.value
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             return None
 
     def get_throttle_factor_for_task(self, task_type: TaskType) -> float:
@@ -1390,7 +1390,7 @@ class TaskCoordinator:
 
         try:
             return get_throttle_factor(queue_type)
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError):
             return 1.0
 
     def _fire_limit_reached(self, limit_name: str, current: int, max_val: int) -> None:
@@ -1698,7 +1698,7 @@ class TaskCoordinator:
             try:
                 from app.coordination.queue_monitor import get_queue_stats
                 stats["queue_backpressure"] = get_queue_stats()
-            except Exception:
+            except (ImportError, AttributeError):
                 pass
 
         return stats

@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 from pathlib import Path
 from typing import Any, Optional
 
@@ -140,7 +141,7 @@ def get_tailscale_ip() -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip().split('\n')[0]
-    except Exception:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return None
 
@@ -429,7 +430,7 @@ def sync_between_nodes(
             with urllib.request.urlopen(url, timeout=5) as response:
                 if response.status == 200:
                     nodes_with_models.append(node)
-        except Exception:
+        except (urllib.error.URLError, TimeoutError, OSError):
             pass
 
     if not nodes_with_models:
@@ -483,7 +484,7 @@ def sync_between_nodes(
                 urllib.request.urlretrieve(torrent_url, torrent_file)
                 print(f"Downloaded torrent from {node}")
                 break
-            except Exception:
+            except (urllib.error.URLError, OSError):
                 continue
         else:
             # Fall back to HTTP download if no torrent available

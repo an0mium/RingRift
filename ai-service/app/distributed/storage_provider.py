@@ -271,7 +271,7 @@ class LambdaNFSProvider(StorageProvider):
             logger.error(f"NFS verification failed (OS error): {e}")
             self._nfs_verified = False
             return False
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"NFS verification failed (unexpected): {e}")
             self._nfs_verified = False
             return False
@@ -618,14 +618,14 @@ def get_aria2_sources(exclude_self: bool = True) -> list[str]:
     try:
         from app.sync.cluster_hosts import get_data_sync_urls
         return get_data_sync_urls(exclude_self=exclude_self, reachable_only=False)
-    except Exception:
+    except (ImportError, AttributeError):
         pass
 
     try:
         from app.config.unified_config import get_config
         from app.distributed.hosts import load_remote_hosts
         port = get_config().distributed.data_server_port
-    except Exception:
+    except (ImportError, AttributeError, KeyError):
         port = 8766
 
     sources = []
@@ -633,7 +633,7 @@ def get_aria2_sources(exclude_self: bool = True) -> list[str]:
 
     try:
         hosts = load_remote_hosts()
-    except Exception:
+    except (FileNotFoundError, OSError, ValueError, KeyError):
         hosts = {}
 
     for name, host in hosts.items():

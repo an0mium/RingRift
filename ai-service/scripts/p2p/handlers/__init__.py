@@ -22,6 +22,7 @@ Usage:
 
 from .admin import AdminHandlersMixin
 from .election import ElectionHandlersMixin
+from .elo_sync import EloSyncHandlersMixin
 from .gauntlet import GauntletHandlersMixin
 from .gossip import GossipHandlersMixin
 from .relay import RelayHandlersMixin
@@ -30,6 +31,7 @@ from .work_queue import WorkQueueHandlersMixin
 __all__ = [
     "AdminHandlersMixin",
     "ElectionHandlersMixin",
+    "EloSyncHandlersMixin",
     "GauntletHandlersMixin",
     "GossipHandlersMixin",
     "RelayHandlersMixin",

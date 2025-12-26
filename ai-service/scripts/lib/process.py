@@ -168,7 +168,7 @@ class SingletonLock:
             try:
                 fcntl.flock(self._file_handle.fileno(), fcntl.LOCK_UN)
                 self._file_handle.close()
-            except Exception:
+            except (OSError, ValueError):
                 pass
             self._file_handle = None
         self._acquired = False
@@ -626,7 +626,7 @@ def get_process_start_time(pid: int) -> float | None:
                 boot_time = time.time() - uptime
                 clock_ticks = os.sysconf(os.sysconf_names.get("SC_CLK_TCK", 2))
                 return boot_time + (starttime / clock_ticks)
-    except Exception:
+    except (OSError, FileNotFoundError, ValueError, IndexError, KeyError, AttributeError):
         pass
 
     # macOS: use ps
@@ -645,7 +645,7 @@ def get_process_start_time(pid: int) -> float | None:
                 "%a %b %d %H:%M:%S %Y"
             )
             return dt.timestamp()
-    except Exception:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, ValueError):
         pass
 
     return None

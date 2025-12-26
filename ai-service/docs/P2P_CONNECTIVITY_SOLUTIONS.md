@@ -9,9 +9,9 @@ Vast.ai containers cannot connect to cluster nodes for P2P orchestration:
 - Cannot reach some public IPs on port 8770 (firewall blocks)
 - Result: P2P mesh is fragmented, Vast nodes isolated
 
-**Status (2025-12):** Lambda Labs cluster is terminated. Use Runpod/Vast/Vultr
-hosts listed in `ai-service/config/distributed_hosts.yaml` as the source of
-truth for active nodes.
+**Status (2025-12):** Lambda Labs account suspended pending support ticket resolution.
+Use Runpod/Vast/Vultr hosts listed in `ai-service/config/distributed_hosts.yaml` as
+the source of truth for currently active nodes.
 
 ## Solution Options
 

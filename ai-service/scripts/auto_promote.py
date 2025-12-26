@@ -136,7 +136,7 @@ def load_promotion_history() -> dict:
     if PROMOTION_LOG.exists():
         try:
             return json.loads(PROMOTION_LOG.read_text())
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             pass
     return {"promoted": [], "last_check": None}
 
@@ -417,7 +417,7 @@ def detect_model_type(model_path: Path) -> str:
             state_dict = ckpt.get("model_state_dict", ckpt.get("state_dict", {}))
             if any("sage" in k or "gat" in k or "message" in k for k in state_dict.keys()):
                 return "gnn"
-    except Exception:
+    except (RuntimeError, OSError, KeyError, AttributeError):
         pass
 
     return "cnn"
@@ -722,7 +722,7 @@ def count_gauntlet_processes() -> int:
                     count += 1
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-    except Exception:
+    except (RuntimeError, OSError):
         pass
 
     return count

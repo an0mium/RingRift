@@ -454,7 +454,7 @@ def dump_divergence_bundle(
         if state is not None:
             try:
                 py_states[ts_k] = serialize_game_state(state)
-            except Exception:
+            except (TypeError, ValueError, AttributeError):
                 continue
 
     # Collect TS states by invoking replay with dump
@@ -531,7 +531,7 @@ def dump_divergence_bundle(
                     move_dict = json.loads(move.model_dump_json(by_alias=True))
                     move_dict["_index"] = i
                     moves_window.append(move_dict)
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
                     continue
     except Exception as e:
         logger.warning(f"Failed to get moves window: {e}")
@@ -734,7 +734,7 @@ def validate_game_parity(
                     if moves and py_move_index < len(moves):
                         move = moves[py_move_index]
                         move_dict = json.loads(move.model_dump_json(by_alias=True))
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
                     pass
 
                 divergence = ParityDivergence(

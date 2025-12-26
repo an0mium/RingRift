@@ -1202,10 +1202,17 @@ class SelfplayRunner(ABC):
         # Get Gauntlet temperature scale (from HYPERPARAMETER_UPDATED events)
         gauntlet_scale = getattr(self, "_gauntlet_temperature_scale", 1.0)
 
+        # Get adaptive temperature multiplier (from ADAPTIVE_PARAMS_CHANGED events)
+        # Phase 4.1 Dec 2025: Closes feedback loop from GauntletFeedbackController
+        adaptive_multiplier = getattr(self, "_adaptive_temperature_multiplier", 1.0)
+
+        # Combined scale factor
+        combined_scale = gauntlet_scale * adaptive_multiplier
+
         # Use persistent scheduler with exploration boost (preferred)
         if self._temperature_scheduler is not None:
             base_temp = self._temperature_scheduler.get_temperature(move_number, game_state)
-            return base_temp * gauntlet_scale
+            return base_temp * combined_scale
 
         # Fallback: create one-off scheduler if model_elo is set but scheduler wasn't initialized
         if self.config.model_elo is not None:
@@ -1216,7 +1223,7 @@ class SelfplayRunner(ABC):
                     model_elo=self.config.model_elo,
                     exploration_moves=getattr(self.config, 'temperature_threshold', 30),
                 )
-                return scheduler.get_temperature(move_number, game_state) * gauntlet_scale
+                return scheduler.get_temperature(move_number, game_state) * combined_scale
             except ImportError:
                 pass  # Fall through to default logic
             except Exception as e:
@@ -1227,8 +1234,8 @@ class SelfplayRunner(ABC):
         opening_temp = getattr(self.config, 'opening_temperature', 1.0)
         base_temp = getattr(self.config, 'base_temperature', 0.1)
         if move_number < threshold:
-            return opening_temp * gauntlet_scale
-        return base_temp * gauntlet_scale
+            return opening_temp * combined_scale
+        return base_temp * combined_scale
 
     def run(self) -> RunStats:
         """Main run loop. Executes setup, games, teardown."""
