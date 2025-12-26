@@ -173,6 +173,9 @@ class DaemonType(Enum):
     # Multi-provider orchestrator (December 2025) - coordinates across Lambda/Vast/etc
     MULTI_PROVIDER = "multi_provider"
 
+    # System health monitor (December 2025) - global system health with pipeline pause
+    SYSTEM_HEALTH_MONITOR = "system_health_monitor"
+
     # Health server (December 2025) - exposes /health, /ready, /metrics HTTP endpoints
     HEALTH_SERVER = "health_server"
 
@@ -536,6 +539,13 @@ class DaemonManager:
             DaemonType.HEALTH_SERVER,
             self._create_health_server,
             depends_on=[],  # No dependencies - should start early
+        )
+
+        # System health monitor (December 2025) - global system health with pipeline pause
+        self.register_factory(
+            DaemonType.SYSTEM_HEALTH_MONITOR,
+            self._create_system_health_monitor,
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.NODE_HEALTH_MONITOR],
         )
 
     def register_factory(
@@ -2403,6 +2413,53 @@ class DaemonManager:
         except Exception as e:
             logger.error(f"Health server failed: {e}")
 
+    async def _create_system_health_monitor(self) -> None:
+        """Create and run system health monitor (December 2025).
+
+        Provides global system health monitoring with automatic pipeline pause
+        when critical thresholds are breached:
+        - Health score < 40
+        - >50% nodes offline
+        - Critical circuits (training, evaluation, promotion) broken
+        - Error burst detected (>10 in 5 minutes)
+        """
+        try:
+            from app.coordination.system_health_monitor import (
+                SystemHealthMonitorDaemon,
+                get_system_health,
+            )
+
+            monitor = get_system_health()
+
+            # Register pause callback to emit event
+            async def on_pause(health):
+                logger.warning(
+                    f"[SystemHealthMonitor] Pipeline PAUSED - score={health.score}, "
+                    f"triggers={health.pause_triggers}"
+                )
+
+            async def on_resume(health):
+                logger.info(
+                    f"[SystemHealthMonitor] Pipeline RESUMED - score={health.score}"
+                )
+
+            monitor.on_pause(on_pause)
+            monitor.on_resume(on_resume)
+
+            await monitor.start()
+
+            # Keep daemon alive
+            while True:
+                await asyncio.sleep(60)
+                # Check if still running
+                if not monitor._running:
+                    break
+
+        except ImportError as e:
+            logger.warning(f"SystemHealthMonitor not available: {e}")
+        except Exception as e:
+            logger.error(f"SystemHealthMonitor failed: {e}")
+
     async def _create_dlq_retry(self) -> None:
         """Create and run dead-letter queue retry daemon.
 
@@ -2486,6 +2543,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.NPZ_DISTRIBUTION,  # Distribute training data after export
         DaemonType.ORPHAN_DETECTION,  # Detect unregistered game databases
         DaemonType.NODE_HEALTH_MONITOR,  # Unified cluster health maintenance
+        DaemonType.SYSTEM_HEALTH_MONITOR,  # Global system health with pipeline pause
         DaemonType.UNIFIED_PROMOTION,  # Phase 18.4: Auto-promote models after evaluation
         DaemonType.JOB_SCHEDULER,  # Phase 3: Centralized job scheduling with PID-based allocation
         DaemonType.IDLE_RESOURCE,  # Phase 20: Monitor idle GPUs and spawn selfplay
