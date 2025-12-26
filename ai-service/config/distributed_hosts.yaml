@@ -370,7 +370,7 @@ hosts:
 
   runpod-l40s-2:
     ssh_host: 193.183.22.62
-    ssh_port: 1630
+    ssh_port: 1182
     ssh_user: root
     ssh_key: ~/.runpod/ssh/RunPod-Key-Go
     ringrift_path: /workspace/ringrift/ai-service

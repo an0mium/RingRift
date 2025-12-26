@@ -1339,17 +1339,20 @@ def train_model(
                         if "policy_encoding" in d:
                             try:
                                 policy_encoding = str(np.asarray(d["policy_encoding"]).item())
-                            except Exception:
+                            except (ValueError, TypeError, AttributeError):
+                                # Metadata field missing, wrong type, or empty array
                                 policy_encoding = None
                         if "history_length" in d:
                             try:
                                 dataset_history_length = int(np.asarray(d["history_length"]).item())
-                            except Exception:
+                            except (ValueError, TypeError, AttributeError):
+                                # Metadata field missing, wrong type, or empty array
                                 dataset_history_length = None
                         if "feature_version" in d:
                             try:
                                 dataset_feature_version = int(np.asarray(d["feature_version"]).item())
-                            except Exception:
+                            except (ValueError, TypeError, AttributeError):
+                                # Metadata field missing, wrong type, or empty array
                                 dataset_feature_version = None
                         if "policy_indices" in d:
                             pi = d["policy_indices"]
@@ -1526,17 +1529,20 @@ def train_model(
                             if "policy_encoding" in d:
                                 try:
                                     policy_encoding = str(np.asarray(d["policy_encoding"]).item())
-                                except Exception:
+                                except (ValueError, TypeError, AttributeError):
+                                    # Metadata field missing, wrong type, or empty array
                                     policy_encoding = None
                             if "history_length" in d:
                                 try:
                                     dataset_history_length = int(np.asarray(d["history_length"]).item())
-                                except Exception:
+                                except (ValueError, TypeError, AttributeError):
+                                    # Metadata field missing, wrong type, or empty array
                                     dataset_history_length = None
                             if "feature_version" in d:
                                 try:
                                     dataset_feature_version = int(np.asarray(d["feature_version"]).item())
-                                except Exception:
+                                except (ValueError, TypeError, AttributeError):
+                                    # Metadata field missing, wrong type, or empty array
                                     dataset_feature_version = None
                             if "policy_indices" in d:
                                 pi = d["policy_indices"]

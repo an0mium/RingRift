@@ -448,11 +448,16 @@ Self-play (Python/TS) -> GameReplayDB (.db)
 ai-service/
 ├── app/
 │   ├── ai/              # AI implementations (neural net, MCTS, heuristics)
+│   ├── config/          # Centralized configuration
+│   │   └── env.py                    # Typed environment variable config
 │   ├── coordination/    # Training pipeline orchestration
 │   │   ├── event_router.py           # Unified event system
 │   │   ├── pipeline_actions.py       # Stage action invokers
 │   │   ├── daemon_manager.py         # Daemon lifecycle management
 │   │   └── sync_bandwidth.py         # Bandwidth-coordinated transfers
+│   ├── core/            # Core shared utilities
+│   │   ├── ssh.py                    # Unified SSH client
+│   │   └── node.py                   # Unified NodeInfo dataclass
 │   ├── db/              # Database utilities (GameReplayDB)
 │   ├── distributed/     # Cluster tools (cluster_monitor, data_catalog)
 │   ├── monitoring/      # Unified cluster monitoring

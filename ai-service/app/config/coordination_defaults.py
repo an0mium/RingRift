@@ -301,8 +301,8 @@ class UtilizationDefaults:
     # Utilization update interval (seconds)
     UPDATE_INTERVAL: int = _env_int("RINGRIFT_UTILIZATION_UPDATE_INTERVAL", 10)
 
-    # Optimization interval (seconds)
-    OPTIMIZATION_INTERVAL: int = _env_int("RINGRIFT_OPTIMIZATION_INTERVAL", 30)
+    # Optimization interval (Dec 2025: 30s → 15s for faster response)
+    OPTIMIZATION_INTERVAL: int = _env_int("RINGRIFT_OPTIMIZATION_INTERVAL", 15)
 
 
 # =============================================================================
@@ -352,12 +352,17 @@ class PIDDefaults:
     """Default values for PID controller tuning.
 
     Used by: app/coordination/resource_optimizer.py
-    """
-    # Proportional gain
-    KP: float = _env_float("RINGRIFT_PID_KP", 0.3)
 
-    # Integral gain
-    KI: float = _env_float("RINGRIFT_PID_KI", 0.05)
+    Dec 2025: Increased gains for faster responsiveness:
+    - KP: 0.3 → 0.5 (faster error correction)
+    - KI: 0.05 → 0.1 (faster steady-state convergence)
+    - KD unchanged (0.1 provides good damping)
+    """
+    # Proportional gain (Dec 2025: 0.3 → 0.5 for faster response)
+    KP: float = _env_float("RINGRIFT_PID_KP", 0.5)
+
+    # Integral gain (Dec 2025: 0.05 → 0.1 for faster convergence)
+    KI: float = _env_float("RINGRIFT_PID_KI", 0.1)
 
     # Derivative gain
     KD: float = _env_float("RINGRIFT_PID_KD", 0.1)
