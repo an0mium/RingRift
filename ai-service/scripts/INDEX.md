@@ -35,10 +35,10 @@ python scripts/export_replay_dataset.py --use-discovery --output data/training/h
 
 ```bash
 # Unified selfplay entry point
-python scripts/selfplay.py --board hex8 --num-players 2 --engine gumbel
+python scripts/selfplay.py --board hex8 --num-players 2 --engine-mode gumbel-mcts
 
 # GPU selfplay
-python scripts/run_gpu_selfplay.py --board-type hex8 --num-players 2
+python scripts/run_gpu_selfplay.py --board hex8 --num-players 2
 ```
 
 ### Evaluation

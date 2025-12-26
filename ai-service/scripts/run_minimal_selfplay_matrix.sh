@@ -2,7 +2,7 @@
 #
 # Sequential minimal self-play matrix (RandomAI only).
 #
-# Uses scripts/run_minimal_selfplay.py (RandomAI, no neural net) to generate
+# Uses scripts/run_self_play_soak.py (RandomAI, no neural net) to generate
 # replay DBs for all combinations of:
 #   - board_type ∈ {square8, square19, hexagonal}
 #   - num_players ∈ {2, 3, 4}
@@ -102,12 +102,13 @@ for board in "${BOARD_TYPES[@]}"; do
     echo "=== ${board} ${players}p (${num_games} games, max_moves=${max_moves}, seed=${seed}) ==="
 
     PYTHONPATH=. \
-      python scripts/run_minimal_selfplay.py \
+      python scripts/run_self_play_soak.py \
         --board-type "${board}" \
         --num-players "${players}" \
         --num-games "${num_games}" \
         --max-moves "${max_moves}" \
         --seed "${seed}" \
+        --engine-mode random-only \
         --record-db "${db_path}"
 
     echo
@@ -116,4 +117,3 @@ for board in "${BOARD_TYPES[@]}"; do
 done
 
 echo "Minimal self-play matrix complete."
-

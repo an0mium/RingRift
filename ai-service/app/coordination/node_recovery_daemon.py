@@ -629,7 +629,13 @@ class NodeRecoveryDaemon:
             return False
 
     async def _restart_runpod_node(self, node: NodeInfo) -> bool:
-        """Restart a RunPod instance."""
+        """Restart a RunPod instance.
+
+        December 2025: Implements RunPod API integration for node recovery.
+        Uses the RunPod REST API to stop and start pods.
+
+        API Reference: https://docs.runpod.io/reference/api-reference
+        """
         if not self.config.runpod_api_key:
             logger.warning(
                 f"[NodeRecoveryDaemon] Cannot restart RunPod node {node.node_id}: "
@@ -637,9 +643,104 @@ class NodeRecoveryDaemon:
             )
             return False
 
-        # TODO: Implement RunPod API restart
-        logger.info(f"[NodeRecoveryDaemon] RunPod restart not yet implemented for {node.node_id}")
-        return False
+        try:
+            import aiohttp
+
+            # Extract pod ID from node metadata or node_id
+            # RunPod pod IDs are typically in format like "abc123xyz"
+            pod_id = node.metadata.get("pod_id") or node.metadata.get("runpod_id")
+
+            if not pod_id:
+                # Try to extract from node_id if it contains runpod pattern
+                if "runpod-" in node.node_id.lower():
+                    # Format: runpod-abc123xyz or similar
+                    pod_id = node.node_id.lower().replace("runpod-", "").split("-")[0]
+                else:
+                    pod_id = node.node_id
+
+            logger.info(
+                f"[NodeRecoveryDaemon] Attempting to restart RunPod pod {pod_id} "
+                f"for node {node.node_id}"
+            )
+
+            headers = {
+                "Authorization": f"Bearer {self.config.runpod_api_key}",
+                "Content-Type": "application/json",
+            }
+
+            base_url = "https://api.runpod.io/v2"
+
+            async with aiohttp.ClientSession() as session:
+                # First, check pod status
+                async with session.get(
+                    f"{base_url}/pods/{pod_id}",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status == 404:
+                        logger.warning(
+                            f"[NodeRecoveryDaemon] RunPod pod {pod_id} not found"
+                        )
+                        return False
+                    elif resp.status != 200:
+                        error_text = await resp.text()
+                        logger.warning(
+                            f"[NodeRecoveryDaemon] RunPod API error: {resp.status} - {error_text}"
+                        )
+                        return False
+
+                    pod_data = await resp.json()
+                    current_status = pod_data.get("status", "unknown")
+                    logger.debug(f"[NodeRecoveryDaemon] Pod {pod_id} status: {current_status}")
+
+                # Stop the pod
+                async with session.post(
+                    f"{base_url}/pods/{pod_id}/stop",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status not in (200, 202, 204):
+                        error_text = await resp.text()
+                        logger.warning(
+                            f"[NodeRecoveryDaemon] Failed to stop RunPod pod: "
+                            f"{resp.status} - {error_text}"
+                        )
+                        # Continue anyway - pod might already be stopped
+
+                # Wait for stop to complete
+                logger.debug(f"[NodeRecoveryDaemon] Waiting for pod {pod_id} to stop...")
+                await asyncio.sleep(10)
+
+                # Start the pod
+                async with session.post(
+                    f"{base_url}/pods/{pod_id}/start",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status in (200, 202):
+                        logger.info(
+                            f"[NodeRecoveryDaemon] Successfully restarted RunPod pod {pod_id}"
+                        )
+                        return True
+                    else:
+                        error_text = await resp.text()
+                        logger.error(
+                            f"[NodeRecoveryDaemon] Failed to start RunPod pod: "
+                            f"{resp.status} - {error_text}"
+                        )
+                        return False
+
+        except ImportError:
+            logger.warning(
+                "[NodeRecoveryDaemon] aiohttp not available for RunPod API calls"
+            )
+            return False
+        except asyncio.TimeoutError:
+            logger.error(f"[NodeRecoveryDaemon] RunPod API timeout for pod {pod_id}")
+            return False
+        except Exception as e:
+            logger.error(f"[NodeRecoveryDaemon] RunPod restart error: {e}")
+            return False
 
     def _emit_recovery_event(
         self,

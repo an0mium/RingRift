@@ -149,7 +149,7 @@ python scripts/cli.py health
   - Dry run: `./scripts/retrain_d10_fresh.sh --dry-run`
   - Skip stages: `./scripts/retrain_d10_fresh.sh --skip-convert --skip-train`
 - `run_self_play_soak.py` - Self-play data generation (158KB)
-- `run_hybrid_selfplay.py` - Hybrid self-play modes (67KB)
+- `archive/selfplay/run_hybrid_selfplay.py` - _(ARCHIVED)_ Hybrid self-play modes (67KB)
 - `hex8_training_pipeline.py` - **Hex8-specific pipeline** (19KB)
   - Optimized for hex8 board training
 
@@ -170,9 +170,10 @@ python scripts/cli.py health
   - 10-100x speedup via parallel game simulation
   - Supports all board types: `square8`, `hex8`, `square19`, `hexagonal`
   - Start: `python scripts/run_gpu_selfplay.py --board hex8 --num-games 1000 --output-dir data/selfplay/gpu_hex8`
-- `run_hybrid_selfplay.py` - **Hybrid CPU/GPU selfplay** (67KB)
-  - Mixed MCTS and neural network modes
-  - Start: `python scripts/run_hybrid_selfplay.py --board-type hex8 --engine-mode gumbel-mcts`
+- `archive/selfplay/run_hybrid_selfplay.py` - _(ARCHIVED)_ Hybrid CPU/GPU selfplay (67KB)
+  - Mixed MCTS and neural network modes (legacy)
+  - Start: `python scripts/archive/selfplay/run_hybrid_selfplay.py --board-type hex8 --engine-mode gumbel-mcts`
+  - Replacement: `python scripts/selfplay.py --board hex8 --num-players 2 --engine-mode gumbel-mcts`
 - Cluster selfplay is orchestrated via `p2p_orchestrator.py`
   (see P2P Cluster Orchestration above).
 

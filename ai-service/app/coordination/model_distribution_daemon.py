@@ -99,6 +99,9 @@ class ModelDistributionDaemon:
         self._pending_models: list[dict[str, Any]] = []
         self._sync_lock = asyncio.Lock()
 
+        # Phase 5 (Dec 2025): Event-based wake-up for immediate push-on-promotion
+        self._pending_event: asyncio.Event | None = None
+
         # CoordinatorProtocol state (December 2025 - Phase 14)
         self._coordinator_status = CoordinatorStatus.INITIALIZING
         self._start_time: float = 0.0
@@ -208,6 +211,9 @@ class ModelDistributionDaemon:
         self._coordinator_status = CoordinatorStatus.RUNNING
         self._start_time = time.time()
 
+        # Phase 5 (Dec 2025): Initialize event for immediate push-on-promotion
+        self._pending_event = asyncio.Event()
+
         # Register with coordinator registry
         register_coordinator(self)
 
@@ -235,6 +241,7 @@ class ModelDistributionDaemon:
             logger.error(f"Failed to subscribe to MODEL_PROMOTED: {e}")
 
         # Main loop - handle pending syncs and periodic checks
+        # Phase 5 (Dec 2025): Use event-based wake-up for immediate push-on-promotion
         while self._running:
             try:
                 # Process any pending model distributions
@@ -245,7 +252,16 @@ class ModelDistributionDaemon:
                 if time.time() - self._last_sync_time > self.config.poll_interval_seconds:
                     await self._periodic_sync_check()
 
-                await asyncio.sleep(5.0)
+                # Phase 5: Wait for event with timeout (instant wake on promotion)
+                # Instead of fixed 5s sleep, we wake immediately when event is set
+                if self._pending_event is not None:
+                    try:
+                        await asyncio.wait_for(self._pending_event.wait(), timeout=5.0)
+                        self._pending_event.clear()  # Reset for next event
+                    except asyncio.TimeoutError:
+                        pass  # Normal timeout, continue loop
+                else:
+                    await asyncio.sleep(5.0)
 
             except asyncio.CancelledError:
                 break
@@ -269,7 +285,11 @@ class ModelDistributionDaemon:
         self._coordinator_status = CoordinatorStatus.STOPPED
 
     def _on_model_promoted(self, event: dict[str, Any]) -> None:
-        """Handle MODEL_PROMOTED event (sync callback)."""
+        """Handle MODEL_PROMOTED event (sync callback).
+
+        Phase 5 (Dec 2025): Immediately signals the main loop to process
+        the new model, reducing distribution delay from 5s to near-instant.
+        """
         model_info = {
             "model_path": event.get("model_path"),
             "model_id": event.get("model_id"),
@@ -280,6 +300,11 @@ class ModelDistributionDaemon:
         }
         logger.info(f"Received MODEL_PROMOTED event: {model_info}")
         self._pending_models.append(model_info)
+        self._events_processed += 1
+
+        # Phase 5: Immediate wake-up for push-on-promotion (no 5s wait)
+        if self._pending_event is not None:
+            self._pending_event.set()
 
     async def _process_pending_models(self) -> None:
         """Process pending model distributions."""

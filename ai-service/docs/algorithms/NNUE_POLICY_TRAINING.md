@@ -400,11 +400,12 @@ policy_training:
 Generate MCTS data for KL loss training:
 
 ```bash
-# Run MCTS selfplay
-python scripts/run_mcts_balanced_selfplay.py \
-    --board-type square8 \
+# Run Gumbel MCTS selfplay (JSONL with visit distributions)
+python scripts/generate_gumbel_selfplay.py \
+    --board square8 \
     --num-players 2 \
-    --mcts-sims 800 \
+    --num-games 100 \
+    --simulation-budget 800 \
     --output data/selfplay/mcts_square8_2p/games.jsonl
 
 # Reanalyze existing games with MCTS

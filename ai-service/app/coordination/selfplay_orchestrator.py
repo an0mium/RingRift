@@ -164,6 +164,13 @@ class SelfplayOrchestrator:
         self._curriculum_weights: dict[str, float] = {}
         self._curriculum_weights_updated_at: float = 0.0
 
+        # Quality-based budget multipliers (December 2025 - closes quality feedback gap)
+        # Maps config_key to budget multiplier (0.8 to 1.5)
+        # Low quality → higher multiplier (more exploration needed)
+        # High quality → lower multiplier (model already performing well)
+        self._quality_budget_multipliers: dict[str, float] = {}
+        self._quality_scores: dict[str, float] = {}  # Track current quality scores
+
     def subscribe_to_events(self) -> bool:
         """Subscribe to selfplay-related events from the event router.
 
@@ -196,6 +203,9 @@ class SelfplayOrchestrator:
 
             # Subscribe to curriculum events (December 2025 - Phase 1 feedback loop)
             router.subscribe(DataEventType.CURRICULUM_REBALANCED.value, self._on_curriculum_rebalanced)
+
+            # Subscribe to quality events (December 2025 - closes quality → selfplay gap)
+            router.subscribe(DataEventType.QUALITY_SCORE_UPDATED.value, self._on_quality_updated)
 
             self._subscribed = True
             logger.info("[SelfplayOrchestrator] Subscribed to task lifecycle and resource events via event router")
@@ -608,6 +618,74 @@ class SelfplayOrchestrator:
                     f"{old_weight:.2f}→{new_weight:.2f} (trigger={trigger})"
                 )
 
+    async def _on_quality_updated(self, event) -> None:
+        """Handle QUALITY_SCORE_UPDATED - adjust selfplay budget based on quality.
+
+        December 2025: Closes the quality → selfplay feedback gap.
+        Low quality data triggers higher exploration budgets.
+        High quality data allows lower budgets for efficiency.
+
+        Budget multiplier range:
+        - quality < 0.3: 1.5x budget (needs much more exploration)
+        - quality 0.3-0.5: 1.3x budget (needs more exploration)
+        - quality 0.5-0.7: 1.0x budget (normal)
+        - quality > 0.7: 0.9x budget (already exploring well)
+        """
+        payload = event.payload
+        config_key = payload.get("config_key") or payload.get("config", "")
+        quality_score = payload.get("quality_score", 0.5)
+
+        if not config_key:
+            return
+
+        # Store quality score for tracking
+        old_quality = self._quality_scores.get(config_key, 0.5)
+        self._quality_scores[config_key] = quality_score
+
+        # Compute budget multiplier based on quality
+        if quality_score < 0.3:
+            multiplier = 1.5  # Very low quality - needs aggressive exploration
+        elif quality_score < 0.5:
+            multiplier = 1.3  # Low quality - needs more exploration
+        elif quality_score < 0.7:
+            multiplier = 1.0  # Normal quality - standard budget
+        else:
+            multiplier = 0.9  # High quality - can reduce budget for efficiency
+
+        old_multiplier = self._quality_budget_multipliers.get(config_key, 1.0)
+        self._quality_budget_multipliers[config_key] = multiplier
+
+        # Log significant changes
+        if abs(multiplier - old_multiplier) >= 0.1:
+            logger.info(
+                f"[SelfplayOrchestrator] Quality-based budget for {config_key}: "
+                f"{old_multiplier:.1f}x→{multiplier:.1f}x (quality={quality_score:.2f})"
+            )
+
+    def get_quality_budget_multiplier(self, config_key: str) -> float:
+        """Get the quality-based budget multiplier for a config.
+
+        Args:
+            config_key: Config identifier (e.g., "square8_2p")
+
+        Returns:
+            Budget multiplier (0.9 to 1.5), defaults to 1.0
+        """
+        return self._quality_budget_multipliers.get(config_key, 1.0)
+
+    def get_effective_budget(self, config_key: str, base_budget: int) -> int:
+        """Get the effective budget considering quality adjustments.
+
+        Args:
+            config_key: Config identifier
+            base_budget: Base simulation budget
+
+        Returns:
+            Adjusted budget based on quality feedback
+        """
+        multiplier = self.get_quality_budget_multiplier(config_key)
+        return max(16, int(base_budget * multiplier))
+
     def is_node_under_backpressure(self, node_id: str) -> bool:
         """Check if a node is under backpressure.
 
@@ -944,6 +1022,9 @@ class SelfplayOrchestrator:
             # Curriculum weights (December 2025 - Phase 1 feedback loop)
             "curriculum_weights": dict(self._curriculum_weights),
             "curriculum_weights_updated_at": self._curriculum_weights_updated_at,
+            # Quality-based budget multipliers (December 2025)
+            "quality_scores": dict(self._quality_scores),
+            "quality_budget_multipliers": dict(self._quality_budget_multipliers),
         }
 
     def clear_history(self) -> int:

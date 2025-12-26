@@ -50,49 +50,115 @@ class MomentumToCurriculumBridge:
     this bridge pushes updated weights to CurriculumFeedback to increase
     training resources for that config.
 
-    Event flow:
-    1. FeedbackAccelerator.record_elo_update() updates momentum
-    2. This bridge polls momentum state or subscribes to events
+    Event flow (Phase 5 - December 2025):
+    1. EVALUATION_COMPLETED triggers FeedbackAccelerator.record_elo_update()
+    2. This bridge subscribes to EVALUATION_COMPLETED and syncs immediately
     3. CurriculumFeedback._current_weights updated
     4. CURRICULUM_REBALANCED event emitted
+
+    Note: Converted from 60-second polling to event-driven in Phase 5.
     """
 
     def __init__(
         self,
-        poll_interval_seconds: float = 60.0,
+        poll_interval_seconds: float = 60.0,  # Kept for fallback compatibility
         momentum_weight_boost: float = 0.3,
     ):
         self.poll_interval_seconds = poll_interval_seconds
         self.momentum_weight_boost = momentum_weight_boost
 
         self._running = False
-        self._poll_thread: threading.Thread | None = None
+        self._event_subscribed = False
+        self._fallback_thread: threading.Thread | None = None
         self._last_weights: dict[str, float] = {}
 
     def start(self) -> None:
-        """Start the momentum-to-curriculum bridge."""
+        """Start the momentum-to-curriculum bridge.
+
+        Phase 5: Prefer event-driven, fallback to polling if events unavailable.
+        """
         if self._running:
             return
 
         self._running = True
-        self._poll_thread = threading.Thread(
-            target=self._poll_loop,
-            name="MomentumCurriculumBridge",
-            daemon=True,
-        )
-        self._poll_thread.start()
-        logger.info("[MomentumToCurriculumBridge] Started")
+
+        # Try event-driven first (Phase 5)
+        if self._subscribe_to_events():
+            logger.info("[MomentumToCurriculumBridge] Started (event-driven mode)")
+        else:
+            # Fallback to polling if event subscription fails
+            self._fallback_thread = threading.Thread(
+                target=self._poll_loop,
+                name="MomentumCurriculumBridge",
+                daemon=True,
+            )
+            self._fallback_thread.start()
+            logger.info("[MomentumToCurriculumBridge] Started (polling fallback mode)")
 
     def stop(self) -> None:
         """Stop the bridge."""
         self._running = False
-        if self._poll_thread:
-            self._poll_thread.join(timeout=5.0)
-            self._poll_thread = None
+        self._unsubscribe_from_events()
+        if self._fallback_thread:
+            self._fallback_thread.join(timeout=5.0)
+            self._fallback_thread = None
         logger.info("[MomentumToCurriculumBridge] Stopped")
 
+    def _subscribe_to_events(self) -> bool:
+        """Subscribe to EVALUATION_COMPLETED events for reactive weight sync.
+
+        Phase 5 (December 2025): Event-driven replaces polling for sub-second latency.
+        """
+        if self._event_subscribed:
+            return True
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.debug("[MomentumToCurriculumBridge] Event router not available")
+                return False
+
+            router.subscribe(DataEventType.EVALUATION_COMPLETED.value, self._on_evaluation_completed)
+            self._event_subscribed = True
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED (Phase 5)")
+            return True
+
+        except Exception as e:
+            logger.debug(f"[MomentumToCurriculumBridge] Event subscription failed: {e}")
+            return False
+
+    def _unsubscribe_from_events(self) -> None:
+        """Unsubscribe from events."""
+        if not self._event_subscribed:
+            return
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router:
+                router.unsubscribe(DataEventType.EVALUATION_COMPLETED.value, self._on_evaluation_completed)
+            self._event_subscribed = False
+        except Exception:
+            pass
+
+    def _on_evaluation_completed(self, event) -> None:
+        """Handle EVALUATION_COMPLETED event - sync weights immediately.
+
+        Phase 5 (December 2025): Reactive weight sync replaces polling.
+        This runs within ~1 second of evaluation completing, vs 60 second polling.
+        """
+        try:
+            self._sync_weights()
+        except Exception as e:
+            logger.warning(f"[MomentumToCurriculumBridge] Error syncing on event: {e}")
+
     def _poll_loop(self) -> None:
-        """Poll FeedbackAccelerator and update CurriculumFeedback."""
+        """Fallback poll loop - used only if event subscription fails."""
         while self._running:
             try:
                 self._sync_weights()

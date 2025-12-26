@@ -609,23 +609,25 @@ GMO is fully integrated into the RingRift training infrastructure:
 
 ### Self-Play Generation
 
-GMO is available as an engine mode for self-play data generation:
+GMO is deprecated in the unified selfplay CLI. The engine mode is still accepted
+for legacy runs but falls back to heuristic. For current pipelines, prefer
+`gnn` or `hybrid`.
 
 ```bash
-# Generate self-play games using GMO
-python -m app.training.generate_data \
-    --engine gmo \
-    --num-games 1000 \
+# Legacy GMO mode (deprecated; falls back to heuristic)
+python scripts/selfplay.py \
     --board square8 \
-    --num-players 2
+    --num-players 2 \
+    --num-games 100 \
+    --engine-mode gmo
 ```
 
-GMO can also be mixed with other engines:
+GMO can still be referenced in selfplay configs (deprecated):
 
 ```python
 from app.training.selfplay_config import EngineMode
 
-# GMO is available as an engine mode
+# Deprecated: GMO falls back to heuristic in selfplay runner
 config = SelfplayConfig(
     engine_mode=EngineMode.GMO,
     num_games=100,

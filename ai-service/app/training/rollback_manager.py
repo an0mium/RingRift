@@ -843,3 +843,268 @@ def wire_regression_to_rollback(
 def get_auto_rollback_handler() -> AutoRollbackHandler | None:
     """Get the global auto-rollback handler if configured."""
     return _auto_handler
+
+
+# =============================================================================
+# Quality-to-Rollback Wiring (December 2025)
+# =============================================================================
+
+class QualityRollbackWatcher:
+    """Watches for low quality events and triggers model rollback.
+
+    Subscribes to LOW_QUALITY_DATA_WARNING events and triggers automatic
+    rollback when data quality drops below critical threshold.
+
+    This prevents training on poisoned data from degraded selfplay.
+    """
+
+    # Quality thresholds
+    CRITICAL_QUALITY_THRESHOLD = 0.3  # Below this triggers rollback
+    WARNING_QUALITY_THRESHOLD = 0.5  # Below this triggers warning
+    SUSTAINED_LOW_QUALITY_MINUTES = 30  # Must be low for this long
+
+    def __init__(
+        self,
+        rollback_manager: RollbackManager,
+        critical_threshold: float = CRITICAL_QUALITY_THRESHOLD,
+        sustained_minutes: float = SUSTAINED_LOW_QUALITY_MINUTES,
+    ):
+        """Initialize the quality rollback watcher.
+
+        Args:
+            rollback_manager: RollbackManager instance for rollback execution
+            critical_threshold: Quality score below which triggers rollback
+            sustained_minutes: Minutes quality must be low before rollback
+        """
+        self.rollback_manager = rollback_manager
+        self.critical_threshold = critical_threshold
+        self.sustained_minutes = sustained_minutes
+
+        # Track low quality duration per config
+        self._low_quality_start: dict[str, float] = {}
+        self._subscribed = False
+        self._rollbacks_triggered = 0
+
+    def subscribe_to_quality_events(self) -> bool:
+        """Subscribe to LOW_QUALITY_DATA_WARNING events.
+
+        Returns:
+            True if subscription succeeded
+        """
+        try:
+            from app.coordination.event_router import get_event_bus
+            from app.distributed.data_events import DataEventType
+
+            bus = get_event_bus()
+            if bus is None:
+                logger.debug("[QualityRollbackWatcher] Event bus not available")
+                return False
+
+            bus.subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, self._on_low_quality)
+            bus.subscribe(DataEventType.HIGH_QUALITY_DATA_AVAILABLE, self._on_quality_recovered)
+            self._subscribed = True
+            logger.info("[QualityRollbackWatcher] Subscribed to quality events")
+            return True
+
+        except ImportError as e:
+            logger.debug(f"[QualityRollbackWatcher] Import failed: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"[QualityRollbackWatcher] Failed to subscribe: {e}")
+            return False
+
+    def _on_low_quality(self, event) -> None:
+        """Handle LOW_QUALITY_DATA_WARNING event."""
+        try:
+            # Extract event data
+            if hasattr(event, 'payload'):
+                data = event.payload
+            elif isinstance(event, dict):
+                data = event
+            else:
+                data = {}
+
+            quality_score = data.get("quality_score", 1.0)
+            config_key = data.get("config_key", "all")  # May be per-config or global
+            timestamp = data.get("timestamp", time.time())
+
+            logger.warning(
+                f"[QualityRollbackWatcher] Low quality detected: {quality_score:.3f} for {config_key}"
+            )
+
+            # Check if critically low
+            if quality_score < self.critical_threshold:
+                # Start or update tracking
+                if config_key not in self._low_quality_start:
+                    self._low_quality_start[config_key] = timestamp
+                    logger.warning(
+                        f"[QualityRollbackWatcher] Critical quality {quality_score:.3f} - "
+                        f"monitoring for {self.sustained_minutes} minutes before rollback"
+                    )
+                else:
+                    # Check if sustained long enough
+                    start_time = self._low_quality_start[config_key]
+                    duration_minutes = (timestamp - start_time) / 60.0
+
+                    if duration_minutes >= self.sustained_minutes:
+                        # Trigger rollback
+                        self._trigger_quality_rollback(config_key, quality_score, duration_minutes)
+
+        except Exception as e:
+            logger.error(f"[QualityRollbackWatcher] Error handling low quality event: {e}")
+
+    def _on_quality_recovered(self, event) -> None:
+        """Handle HIGH_QUALITY_DATA_AVAILABLE event."""
+        try:
+            if hasattr(event, 'payload'):
+                data = event.payload
+            elif isinstance(event, dict):
+                data = event
+            else:
+                data = {}
+
+            config_key = data.get("config_key", "all")
+
+            # Clear low quality tracking
+            if config_key in self._low_quality_start:
+                del self._low_quality_start[config_key]
+                logger.info(f"[QualityRollbackWatcher] Quality recovered for {config_key}")
+
+        except Exception as e:
+            logger.debug(f"[QualityRollbackWatcher] Error handling quality recovery: {e}")
+
+    def _trigger_quality_rollback(
+        self,
+        config_key: str,
+        quality_score: float,
+        duration_minutes: float,
+    ) -> None:
+        """Trigger model rollback due to sustained low quality.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            quality_score: Current quality score
+            duration_minutes: How long quality has been low
+        """
+        logger.warning(
+            f"[QualityRollbackWatcher] Triggering rollback for {config_key}: "
+            f"quality={quality_score:.3f} sustained for {duration_minutes:.1f} minutes"
+        )
+
+        try:
+            # Trigger rollback via RollbackManager
+            result = self.rollback_manager.rollback_model(
+                model_id=config_key,
+                reason=f"Sustained low quality ({quality_score:.3f}) for {duration_minutes:.1f} minutes",
+            )
+
+            if result.success:
+                logger.info(
+                    f"[QualityRollbackWatcher] Rollback succeeded: {config_key} "
+                    f"v{result.from_version} -> v{result.to_version}"
+                )
+                self._rollbacks_triggered += 1
+            else:
+                logger.error(
+                    f"[QualityRollbackWatcher] Rollback failed: {result.error_message}"
+                )
+
+            # Clear tracking
+            if config_key in self._low_quality_start:
+                del self._low_quality_start[config_key]
+
+            # Emit rollback event
+            self._emit_rollback_event(config_key, quality_score, result)
+
+        except Exception as e:
+            logger.error(f"[QualityRollbackWatcher] Rollback execution failed: {e}")
+
+    def _emit_rollback_event(self, config_key: str, quality_score: float, result) -> None:
+        """Emit a quality-triggered rollback event."""
+        try:
+            from app.coordination.event_router import get_event_bus
+            from app.distributed.data_events import DataEventType, DataEvent
+
+            bus = get_event_bus()
+            if bus:
+                event = DataEvent(
+                    event_type=DataEventType.PROMOTION_ROLLED_BACK,
+                    payload={
+                        "model_id": config_key,
+                        "reason": "quality_degradation",
+                        "quality_score": quality_score,
+                        "from_version": getattr(result, "from_version", None),
+                        "to_version": getattr(result, "to_version", None),
+                        "success": getattr(result, "success", False),
+                    },
+                    source="quality_rollback_watcher",
+                )
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.ensure_future(bus.publish(event))
+                except RuntimeError:
+                    pass
+        except Exception as e:
+            logger.debug(f"Failed to emit rollback event: {e}")
+
+    def get_stats(self) -> dict:
+        """Get watcher statistics."""
+        return {
+            "subscribed": self._subscribed,
+            "rollbacks_triggered": self._rollbacks_triggered,
+            "configs_being_monitored": list(self._low_quality_start.keys()),
+            "critical_threshold": self.critical_threshold,
+            "sustained_minutes": self.sustained_minutes,
+        }
+
+
+# Singleton for quality watcher
+_quality_rollback_watcher: QualityRollbackWatcher | None = None
+
+
+def wire_quality_to_rollback(
+    registry,
+    critical_threshold: float = 0.3,
+    sustained_minutes: float = 30.0,
+) -> QualityRollbackWatcher:
+    """Wire quality events to automatic rollback.
+
+    Subscribes to LOW_QUALITY_DATA_WARNING events and triggers model
+    rollback when data quality is critically low for sustained period.
+
+    Args:
+        registry: ModelRegistry instance
+        critical_threshold: Quality score below which triggers rollback
+        sustained_minutes: Minutes quality must be low before rollback
+
+    Returns:
+        QualityRollbackWatcher instance
+
+    Usage:
+        from app.training.rollback_manager import wire_quality_to_rollback
+
+        watcher = wire_quality_to_rollback(registry)
+    """
+    global _quality_rollback_watcher
+
+    rollback_mgr = RollbackManager(registry)
+    _quality_rollback_watcher = QualityRollbackWatcher(
+        rollback_manager=rollback_mgr,
+        critical_threshold=critical_threshold,
+        sustained_minutes=sustained_minutes,
+    )
+    _quality_rollback_watcher.subscribe_to_quality_events()
+
+    logger.info(
+        f"[wire_quality_to_rollback] Quality events wired to rollback "
+        f"(threshold={critical_threshold}, sustained={sustained_minutes}min)"
+    )
+
+    return _quality_rollback_watcher
+
+
+def get_quality_rollback_watcher() -> QualityRollbackWatcher | None:
+    """Get the global quality rollback watcher if configured."""
+    return _quality_rollback_watcher

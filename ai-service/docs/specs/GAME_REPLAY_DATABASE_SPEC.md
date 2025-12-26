@@ -512,22 +512,22 @@ scripts that help maintain it.
 
 For basic structural validation (schema correctness, TS↔Python replay parity,
 invariant checks) we maintain a light-weight set of RandomAI games across all
-board/player combinations using `scripts/run_minimal_selfplay.py` and the
-matrix wrapper `scripts/run_minimal_selfplay_matrix.sh`.
+board/player combinations using `scripts/run_self_play_soak.py` in
+`random-only` mode.
 
 Target baseline (per DB path):
 
-| Board     | Players | Min finished games | Source             | DB path                               |
-| --------- | ------- | ------------------ | ------------------ | ------------------------------------- |
-| square8   | 2       | 20+                | `minimal_selfplay` | `data/games/selfplay_square8_2p.db`   |
-| square8   | 3       | 15+                | `minimal_selfplay` | `data/games/selfplay_square8_3p.db`   |
-| square8   | 4       | 10+                | `minimal_selfplay` | `data/games/selfplay_square8_4p.db`   |
-| square19  | 2       | 15+                | `minimal_selfplay` | `data/games/selfplay_square19_2p.db`  |
-| square19  | 3       | 10+                | `minimal_selfplay` | `data/games/selfplay_square19_3p.db`  |
-| square19  | 4       | 10+                | `minimal_selfplay` | `data/games/selfplay_square19_4p.db`  |
-| hexagonal | 2       | 15+                | `minimal_selfplay` | `data/games/selfplay_hexagonal_2p.db` |
-| hexagonal | 3       | 10+                | `minimal_selfplay` | `data/games/selfplay_hexagonal_3p.db` |
-| hexagonal | 4       | 10+                | `minimal_selfplay` | `data/games/selfplay_hexagonal_4p.db` |
+| Board     | Players | Min finished games | Source            | DB path                               |
+| --------- | ------- | ------------------ | ----------------- | ------------------------------------- |
+| square8   | 2       | 20+                | `random_selfplay` | `data/games/selfplay_square8_2p.db`   |
+| square8   | 3       | 15+                | `random_selfplay` | `data/games/selfplay_square8_3p.db`   |
+| square8   | 4       | 10+                | `random_selfplay` | `data/games/selfplay_square8_4p.db`   |
+| square19  | 2       | 15+                | `random_selfplay` | `data/games/selfplay_square19_2p.db`  |
+| square19  | 3       | 10+                | `random_selfplay` | `data/games/selfplay_square19_3p.db`  |
+| square19  | 4       | 10+                | `random_selfplay` | `data/games/selfplay_square19_4p.db`  |
+| hexagonal | 2       | 15+                | `random_selfplay` | `data/games/selfplay_hexagonal_2p.db` |
+| hexagonal | 3       | 10+                | `random_selfplay` | `data/games/selfplay_hexagonal_3p.db` |
+| hexagonal | 4       | 10+                | `random_selfplay` | `data/games/selfplay_hexagonal_4p.db` |
 
 These numbers are deliberately modest so they can be regenerated quickly on a
 developer laptop while still providing coverage of:
@@ -539,15 +539,23 @@ To (re)generate this structural baseline in one shot:
 
 ```bash
 cd ai-service
-chmod +x scripts/run_minimal_selfplay_matrix.sh  # once
 
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  scripts/run_minimal_selfplay_matrix.sh
+  bash -c 'for board in square8 square19 hexagonal; do \
+    for players in 2 3 4; do \
+      python scripts/run_self_play_soak.py \
+        --board-type "$board" \
+        --num-players "$players" \
+        --num-games 10 \
+        --engine-mode random-only \
+        --record-db "data/games/selfplay_${board}_${players}p.db"; \
+    done; \
+  done'
 ```
 
-This script calls `run_minimal_selfplay.py` for each `(board_type, num_players)`
+This loop calls `run_self_play_soak.py` for each `(board_type, num_players)`
 pair using `RandomAI` only, so it avoids neural-network/MPS issues and remains
-CPU‑friendly.
+CPU-friendly.
 
 ### Training / Parity Coverage (mixed engine, CMA-ES)
 
@@ -602,7 +610,7 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
 The resulting `db_health.current.json` summarises, per DB:
 
 - `total_games`, `board_type_counts`, `num_players_counts`
-- `source_counts` (e.g. `minimal_selfplay`, `selfplay_soak`, `cmaes`)
+- `source_counts` (e.g. `random_selfplay`, `selfplay_soak`, `cmaes`)
 - `structure_counts` (`good`, `internal_inconsistent`, etc.)
 - `termination_reason_counts`
 
@@ -610,7 +618,9 @@ Databases with **zero good games** or structurally inconsistent games are
 reported as “useless” and can be safely regenerated. When promoting a replay
 set to “golden”, we typically:
 
-1. Regenerate the RandomAI matrix (`run_minimal_selfplay_matrix.sh`),
+1. Regenerate the RandomAI matrix (run `scripts/run_self_play_soak.py` in
+   `random-only` mode for each board/player pair, as in the structural
+   coverage loop above),
 2. Run a small mixed/CMA‑ES matrix (`run_selfplay_matrix.sh`,
    `run_cmaes_matrix.sh`) if needed,
 3. Capture a snapshot as `db_health.golden.json` under version control.

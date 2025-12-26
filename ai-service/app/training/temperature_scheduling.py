@@ -715,8 +715,38 @@ class DirichletNoiseTemperature:
         return self.apply_temperature(policy, move_number)
 
 
-def create_scheduler(preset: str = "default", **kwargs) -> TemperatureScheduler:
-    """Create a temperature scheduler from a preset."""
+def create_scheduler(
+    preset: str = "default",
+    config_key: str | None = None,
+    auto_wire: bool = True,
+    **kwargs,
+) -> TemperatureScheduler:
+    """Create a temperature scheduler from a preset.
+
+    Args:
+        preset: Preset name (default, alphazero, adaptive, curriculum, etc.)
+        config_key: Optional config key for auto-registration and wiring.
+            If provided, the scheduler will be registered and wired to
+            receive exploration boost signals from FeedbackLoopController.
+        auto_wire: If True and config_key is provided, automatically wire
+            exploration boost subscription. Default True.
+        **kwargs: Override any config attributes
+
+    Returns:
+        Configured TemperatureScheduler instance
+
+    Example:
+        >>> # Without auto-registration (legacy behavior)
+        >>> scheduler = create_scheduler("adaptive")
+
+        >>> # With auto-registration (recommended for selfplay)
+        >>> scheduler = create_scheduler("adaptive", config_key="hex8_2p")
+        >>> # Now automatically receives exploration boost from feedback loop
+
+    December 2025: Added auto-registration to close the feedback loop gap.
+    Previously, selfplay had to manually call register_active_scheduler()
+    and wire_exploration_boost() which was often forgotten.
+    """
     presets = {
         "default": TemperatureConfig(
             schedule_type=ScheduleType.LINEAR_DECAY,
@@ -792,12 +822,26 @@ def create_scheduler(preset: str = "default", **kwargs) -> TemperatureScheduler:
         if hasattr(config, key):
             setattr(config, key, value)
 
-    return TemperatureScheduler(config)
+    scheduler = TemperatureScheduler(config)
+
+    # December 2025: Auto-register and wire if config_key provided
+    if config_key:
+        register_active_scheduler(config_key, scheduler)
+        if auto_wire:
+            wired = wire_exploration_boost(scheduler, config_key)
+            if wired:
+                logger.debug(
+                    f"[create_scheduler] Auto-wired {preset} scheduler for {config_key}"
+                )
+
+    return scheduler
 
 
 def create_elo_adaptive_scheduler(
     model_elo: float,
     exploration_moves: int = 30,
+    config_key: str | None = None,
+    auto_wire: bool = True,
 ) -> TemperatureScheduler:
     """Create an Elo-adaptive temperature scheduler for a specific model Elo.
 
@@ -812,22 +856,47 @@ def create_elo_adaptive_scheduler(
     Args:
         model_elo: Current model Elo rating
         exploration_moves: Number of moves before temperature decay
+        config_key: Optional config key for auto-registration and wiring.
+            If provided, the scheduler will be registered and wired to
+            receive exploration boost signals from FeedbackLoopController.
+        auto_wire: If True and config_key is provided, automatically wire
+            exploration boost subscription. Default True.
 
     Returns:
         TemperatureScheduler configured for Elo-adaptive temperature
 
     Example:
+        >>> # Without auto-registration (legacy behavior)
         >>> scheduler = create_elo_adaptive_scheduler(model_elo=1450)
         >>> temp = scheduler.get_temperature(move_number=15)
         >>> print(f"Temperature: {temp:.2f}")
         Temperature: 1.25
+
+        >>> # With auto-registration (recommended)
+        >>> scheduler = create_elo_adaptive_scheduler(
+        ...     model_elo=1450, config_key="hex8_2p"
+        ... )
+        >>> # Now automatically receives exploration boost from feedback loop
     """
     config = TemperatureConfig(
         schedule_type=ScheduleType.ELO_ADAPTIVE,
         exploration_moves=exploration_moves,
         adaptive_config={'model_elo': model_elo},
     )
-    return TemperatureScheduler(config)
+    scheduler = TemperatureScheduler(config)
+
+    # December 2025: Auto-register and wire if config_key provided
+    if config_key:
+        register_active_scheduler(config_key, scheduler)
+        if auto_wire:
+            wired = wire_exploration_boost(scheduler, config_key)
+            if wired:
+                logger.debug(
+                    f"[create_elo_adaptive_scheduler] Auto-wired scheduler for "
+                    f"{config_key} (Elo={model_elo:.0f})"
+                )
+
+    return scheduler
 
 
 # =============================================================================

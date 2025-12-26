@@ -174,13 +174,13 @@ Start components individually:
 # Start selfplay on worker nodes
 ssh gpu-worker-1 'cd ~/RingRift/ai-service && source venv/bin/activate && \
   nohup python scripts/run_gpu_selfplay.py \
-    --board-type square8 --num-players 2 --num-games 10000 \
+    --board square8 --num-players 2 --num-games 10000 \
     --output-dir data/selfplay/worker1 > logs/selfplay.log 2>&1 &'
 
 # Start training on primary node
 ssh gpu-primary 'cd ~/RingRift/ai-service && source venv/bin/activate && \
   python scripts/train_nnue_policy.py \
-    --db data/games/selfplay.db --board square8 --num-players 2 \
+    --db data/games/selfplay.db --board-type square8 --num-players 2 \
     --epochs 50 --auto-kl-loss'
 ```
 

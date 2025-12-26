@@ -608,6 +608,131 @@ def _emit_gauntlet_result_event(
         logger.warning(f"[gauntlet] Failed to emit EVALUATION_COMPLETED: {e}")
 
 
+def _evaluate_single_opponent(
+    baseline: "BaselineOpponent",
+    model_path: str | Path | None,
+    board_type: Any,
+    games_per_opponent: int,
+    num_players: int,
+    verbose: bool,
+    model_getter: Callable[[], Any] | None,
+    model_type: str,
+    early_stopping: bool,
+    early_stopping_confidence: float,
+    early_stopping_min_games: int,
+) -> dict[str, Any]:
+    """Evaluate a model against a single baseline opponent.
+
+    Returns:
+        Dict with keys: baseline_name, wins, games, losses, draws, win_rate,
+        early_stopped, games_saved
+    """
+    baseline_name = baseline.value
+    result = {
+        "baseline_name": baseline_name,
+        "wins": 0,
+        "games": 0,
+        "losses": 0,
+        "draws": 0,
+        "win_rate": 0.0,
+        "early_stopped": False,
+        "games_saved": 0,
+    }
+
+    for game_num in range(games_per_opponent):
+        # Rotate which player the candidate plays as
+        candidate_player = (game_num % num_players) + 1
+
+        # Derive unique seed per game for varied behavior
+        game_seed = random.randint(0, 0xFFFFFFFF)
+
+        try:
+            candidate_ai = create_neural_ai(
+                candidate_player, board_type,
+                model_path=model_path,
+                model_getter=model_getter,
+                game_seed=game_seed,
+                num_players=num_players,
+                model_type=model_type,
+            )
+
+            # Create baseline AIs for all other players
+            opponent_ais: dict[int, Any] = {}
+            for p in range(1, num_players + 1):
+                if p != candidate_player:
+                    opponent_ais[p] = create_baseline_ai(
+                        baseline, p, board_type,
+                        game_seed=game_seed,
+                    )
+
+            # For backwards compatibility, also pass opponent_ai (player after candidate)
+            first_opponent = (candidate_player % num_players) + 1
+            opponent_ai = opponent_ais.get(first_opponent, list(opponent_ais.values())[0])
+
+            game_result = play_single_game(
+                candidate_ai=candidate_ai,
+                opponent_ai=opponent_ai,
+                board_type=board_type,
+                num_players=num_players,
+                candidate_player=candidate_player,
+                opponent_ais=opponent_ais,
+            )
+
+            result["games"] += 1
+
+            if game_result.candidate_won:
+                result["wins"] += 1
+            elif game_result.winner is not None:
+                result["losses"] += 1
+            else:
+                result["draws"] += 1
+
+            if verbose:
+                outcome = "WIN" if game_result.candidate_won else "LOSS"
+                logger.info(
+                    f"[gauntlet] Game {game_num+1}/{games_per_opponent} vs {baseline_name}: "
+                    f"{outcome} ({game_result.victory_reason}, {game_result.move_count} moves)"
+                )
+
+            # Check for early stopping
+            if early_stopping:
+                # Get the threshold for this baseline
+                if baseline == BaselineOpponent.RANDOM:
+                    threshold = get_min_win_rate_vs_random(num_players)
+                elif baseline == BaselineOpponent.HEURISTIC:
+                    threshold = get_min_win_rate_vs_heuristic(num_players)
+                else:
+                    threshold = MIN_WIN_RATES.get(baseline, 0.5)
+
+                stop, reason = should_early_stop(
+                    wins=result["wins"],
+                    losses=result["losses"],
+                    threshold=threshold,
+                    confidence=early_stopping_confidence,
+                    min_games=early_stopping_min_games,
+                )
+
+                if stop:
+                    games_remaining = games_per_opponent - (game_num + 1)
+                    result["early_stopped"] = True
+                    result["games_saved"] = games_remaining
+                    logger.info(
+                        f"[gauntlet] Early stopping vs {baseline_name} at game {game_num+1}: {reason} "
+                        f"(saved {games_remaining} games)"
+                    )
+                    break
+
+        except Exception as e:
+            logger.error(f"Error in game {game_num} vs {baseline_name}: {e}")
+            continue
+
+    # Calculate win rate for this opponent
+    if result["games"] > 0:
+        result["win_rate"] = result["wins"] / result["games"]
+
+    return result
+
+
 def run_baseline_gauntlet(
     model_path: str | Path | None = None,
     board_type: Any = None,  # BoardType
@@ -625,6 +750,8 @@ def run_baseline_gauntlet(
     early_stopping_min_games: int = 10,
     elo_adaptive_thresholds: bool = False,
     model_elo: float | None = None,
+    parallel_opponents: bool = True,
+    max_parallel_workers: int = 2,
 ) -> GauntletResult:
     """Run a gauntlet evaluation against baseline opponents.
 
@@ -645,6 +772,9 @@ def run_baseline_gauntlet(
         early_stopping_min_games: Minimum games before early stopping (default: 10)
         elo_adaptive_thresholds: Scale thresholds based on model Elo (default: False)
         model_elo: Model's current Elo rating (required if elo_adaptive_thresholds=True)
+        parallel_opponents: Run evaluations against different opponents in parallel (default: True)
+            Phase 5 optimization: ~2x speedup when testing vs RANDOM + HEURISTIC concurrently
+        max_parallel_workers: Maximum number of parallel opponent evaluations (default: 2)
 
     Returns:
         GauntletResult with aggregated statistics
@@ -671,104 +801,90 @@ def run_baseline_gauntlet(
 
     result = GauntletResult()
 
-    for baseline in opponents:
-        baseline_name = baseline.value
-        opponent_stats = {"wins": 0, "games": 0, "win_rate": 0.0}
+    # Evaluate opponents (parallel or sequential)
+    # Phase 5: Parallel evaluation for ~2x speedup with multiple opponents
+    opponent_eval_results: list[dict[str, Any]] = []
 
-        for game_num in range(games_per_opponent):
-            # Rotate which player the candidate plays as
-            candidate_player = (game_num % num_players) + 1
+    if parallel_opponents and len(opponents) > 1:
+        # Parallel evaluation using ThreadPoolExecutor
+        logger.info(f"[gauntlet] Running parallel evaluation vs {len(opponents)} opponents")
+        with ThreadPoolExecutor(max_workers=min(max_parallel_workers, len(opponents))) as executor:
+            futures = {
+                executor.submit(
+                    _evaluate_single_opponent,
+                    baseline,
+                    model_path,
+                    board_type,
+                    games_per_opponent,
+                    num_players,
+                    verbose,
+                    model_getter,
+                    model_type,
+                    early_stopping,
+                    early_stopping_confidence,
+                    early_stopping_min_games,
+                ): baseline
+                for baseline in opponents
+            }
 
-            # Derive unique seed per game for varied behavior
-            game_seed = random.randint(0, 0xFFFFFFFF)
+            for future in as_completed(futures):
+                baseline = futures[future]
+                try:
+                    eval_result = future.result()
+                    opponent_eval_results.append(eval_result)
+                except Exception as e:
+                    logger.error(f"[gauntlet] Error evaluating vs {baseline.value}: {e}")
+                    # Add empty result for this baseline
+                    opponent_eval_results.append({
+                        "baseline_name": baseline.value,
+                        "wins": 0,
+                        "games": 0,
+                        "losses": 0,
+                        "draws": 0,
+                        "win_rate": 0.0,
+                        "early_stopped": False,
+                        "games_saved": 0,
+                    })
+    else:
+        # Sequential evaluation (fallback or single opponent)
+        for baseline in opponents:
+            eval_result = _evaluate_single_opponent(
+                baseline,
+                model_path,
+                board_type,
+                games_per_opponent,
+                num_players,
+                verbose,
+                model_getter,
+                model_type,
+                early_stopping,
+                early_stopping_confidence,
+                early_stopping_min_games,
+            )
+            opponent_eval_results.append(eval_result)
 
-            try:
-                candidate_ai = create_neural_ai(
-                    candidate_player, board_type,
-                    model_path=model_path,
-                    model_getter=model_getter,
-                    game_seed=game_seed,
-                    num_players=num_players,
-                    model_type=model_type,
-                )
+    # Aggregate results from all opponent evaluations
+    for eval_result in opponent_eval_results:
+        baseline_name = eval_result["baseline_name"]
+        baseline = BaselineOpponent(baseline_name)
 
-                # Create baseline AIs for all other players
-                opponent_ais: dict[int, Any] = {}
-                for p in range(1, num_players + 1):
-                    if p != candidate_player:
-                        opponent_ais[p] = create_baseline_ai(
-                            baseline, p, board_type,
-                            game_seed=game_seed,
-                        )
+        # Update totals
+        result.total_games += eval_result["games"]
+        result.total_wins += eval_result["wins"]
+        result.total_losses += eval_result["losses"]
+        result.total_draws += eval_result["draws"]
 
-                # For backwards compatibility, also pass opponent_ai (player after candidate)
-                first_opponent = (candidate_player % num_players) + 1
-                opponent_ai = opponent_ais.get(first_opponent, list(opponent_ais.values())[0])
+        # Track early stopping
+        if eval_result["early_stopped"]:
+            result.early_stopped_baselines.append(baseline_name)
+            result.games_saved_by_early_stopping += eval_result["games_saved"]
 
-                game_result = play_single_game(
-                    candidate_ai=candidate_ai,
-                    opponent_ai=opponent_ai,
-                    board_type=board_type,
-                    num_players=num_players,
-                    candidate_player=candidate_player,
-                    opponent_ais=opponent_ais,
-                )
-
-                result.total_games += 1
-                opponent_stats["games"] += 1
-
-                if game_result.candidate_won:
-                    result.total_wins += 1
-                    opponent_stats["wins"] += 1
-                elif game_result.winner is not None:
-                    result.total_losses += 1
-                else:
-                    result.total_draws += 1
-
-                if verbose:
-                    outcome = "WIN" if game_result.candidate_won else "LOSS"
-                    logger.info(
-                        f"[gauntlet] Game {game_num+1}/{games_per_opponent} vs {baseline_name}: "
-                        f"{outcome} ({game_result.victory_reason}, {game_result.move_count} moves)"
-                    )
-
-                # Check for early stopping (December 2025)
-                if early_stopping:
-                    # Get the threshold for this baseline
-                    if baseline == BaselineOpponent.RANDOM:
-                        threshold = get_min_win_rate_vs_random(num_players)
-                    elif baseline == BaselineOpponent.HEURISTIC:
-                        threshold = get_min_win_rate_vs_heuristic(num_players)
-                    else:
-                        threshold = MIN_WIN_RATES.get(baseline, 0.5)
-
-                    losses = opponent_stats["games"] - opponent_stats["wins"]
-                    stop, reason = should_early_stop(
-                        wins=opponent_stats["wins"],
-                        losses=losses,
-                        threshold=threshold,
-                        confidence=early_stopping_confidence,
-                        min_games=early_stopping_min_games,
-                    )
-
-                    if stop:
-                        games_remaining = games_per_opponent - (game_num + 1)
-                        result.early_stopped_baselines.append(baseline_name)
-                        result.games_saved_by_early_stopping += games_remaining
-                        logger.info(
-                            f"[gauntlet] Early stopping vs {baseline_name} at game {game_num+1}: {reason} "
-                            f"(saved {games_remaining} games)"
-                        )
-                        break
-
-            except Exception as e:
-                logger.error(f"Error in game {game_num} vs {baseline_name}: {e}")
-                continue
-
-        # Calculate win rate for this opponent
-        if opponent_stats["games"] > 0:
-            opponent_stats["win_rate"] = opponent_stats["wins"] / opponent_stats["games"]
-
+        # Store opponent-specific stats
+        opponent_stats = {
+            "wins": eval_result["wins"],
+            "games": eval_result["games"],
+            "win_rate": eval_result["win_rate"],
+        }
         result.opponent_results[baseline_name] = opponent_stats
 
         # Check baseline gating (use player-aware or Elo-adaptive thresholds)

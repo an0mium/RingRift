@@ -17,10 +17,10 @@ First, generate training games using self-play:
 ```bash
 # Generate 1000 games for square8 2-player
 python scripts/run_gpu_selfplay.py \
-  --board-type square8 \
+  --board square8 \
   --num-players 2 \
   --num-games 1000 \
-  --engine-mode mixed \
+  --engine-mode nnue-guided \
   --output-dir data/selfplay/example_run
 ```
 
@@ -28,13 +28,13 @@ python scripts/run_gpu_selfplay.py \
 
 ```
 [2025-01-15 10:00:00] Starting selfplay: square8_2p, 1000 games
-[2025-01-15 10:00:01] Using engine mode: mixed (heuristic + NNUE)
+[2025-01-15 10:00:01] Engine mode: nnue-guided
 [2025-01-15 10:00:05] Game 1/1000 complete (87 moves, P1 wins)
 [2025-01-15 10:00:09] Game 2/1000 complete (124 moves, P2 wins)
 ...
 [2025-01-15 10:45:00] Completed 1000 games
 [2025-01-15 10:45:00] Results: P1=487 wins, P2=513 wins, draws=0
-[2025-01-15 10:45:00] Saved to: data/selfplay/example_run/games.db
+[2025-01-15 10:45:00] Output: data/selfplay/example_run
 ```
 
 ## Step 2: Train the Model
@@ -43,9 +43,9 @@ Train an NNUE policy model on the generated data:
 
 ```bash
 python scripts/train_nnue_policy.py \
-  --board square8 \
+  --board-type square8 \
   --num-players 2 \
-  --db data/selfplay/example_run/games.db \
+  --jsonl data/selfplay/example_run/games_square8_2p_*.jsonl \
   --epochs 50 \
   --batch-size 1024 \
   --lr 0.001 \
@@ -55,7 +55,7 @@ python scripts/train_nnue_policy.py \
 **Expected output:**
 
 ```
-[2025-01-15 11:00:00] Loading training data from data/selfplay/example_run/games.db
+[2025-01-15 11:00:00] Loading training data from data/selfplay/example_run/games_square8_2p_*.jsonl
 [2025-01-15 11:00:02] Loaded 1000 games, 87,432 positions
 [2025-01-15 11:00:02] Model: NNUEPolicyNet(square8_2p), params=861,088
 [2025-01-15 11:00:02] Training config: epochs=50, batch=1024, lr=0.001
@@ -131,8 +131,8 @@ The model will now be used automatically by the AI service.
 
 | Task              | Command                                                                               |
 | ----------------- | ------------------------------------------------------------------------------------- |
-| Generate data     | `python scripts/run_gpu_selfplay.py --board-type square8 --num-games 1000`            |
-| Train model       | `python scripts/train_nnue_policy.py --board square8 --epochs 50`                     |
+| Generate data     | `python scripts/run_gpu_selfplay.py --board square8 --num-games 1000`                 |
+| Train model       | `python scripts/train_nnue_policy.py --board-type square8 --epochs 50`                |
 | Evaluate          | `python scripts/run_model_elo_tournament.py --board square8`                          |
 | Transfer learning | `python scripts/train_nnue_policy.py --pretrained models/nnue/base.pt --freeze-value` |
 
@@ -173,7 +173,7 @@ python scripts/train_nnue_policy.py --gradient-checkpointing
 
 1. **Scale up**: Generate 10K-100K games for better models
 2. **Multi-config**: Train models for different board types
-3. **Distributed**: Use multiple GPUs with `--distributed` flag
+3. **Distributed**: Use `torchrun` for multi-GPU training (see `NNUE_POLICY_TRAINING.md`)
 4. **Continuous**: Set up unified AI loop for automated improvement
 
 See [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) for advanced training options.

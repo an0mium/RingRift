@@ -703,13 +703,27 @@ async def on_plateau_detected(
     except Exception as e:
         logger.warning(f"[PlateauDetection] Curriculum advance failed: {e}")
 
+    # AGGRESSIVE INTERVENTION: Boost exploration temperature (December 2025)
+    # Higher temperature encourages more diverse move selection during selfplay
+    try:
+        await _boost_exploration_on_plateau(config_key, plateau_details)
+    except Exception as e:
+        logger.debug(f"[PlateauDetection] Exploration boost failed: {e}")
+
+    # AGGRESSIVE INTERVENTION: Request extra high-quality selfplay (December 2025)
+    # More games with diverse openings help break out of local optima
+    try:
+        await _request_extra_selfplay(config_key, plateau_details)
+    except Exception as e:
+        logger.debug(f"[PlateauDetection] Extra selfplay request failed: {e}")
+
     # Emit plateau detected event
     if HAS_EVENT_SYSTEM:
         await emit_plateau_detected(
             config=config_key,
             iterations_without_improvement=plateau_details.get("window_size", 0),
             avg_win_rate=0.0,  # Not available from Elo history
-            recommended_action="Curriculum advanced automatically",
+            recommended_action="Curriculum advanced + exploration boosted + extra selfplay",
             source="elo_plateau_detection",
         )
 
@@ -749,3 +763,76 @@ async def _force_curriculum_advance(config_key: str, plateau_details: dict) -> N
         logger.debug(f"[PlateauAction] Event system not available: {e}")
     except Exception as e:
         logger.warning(f"[PlateauAction] Failed to advance curriculum: {e}")
+
+
+async def _boost_exploration_on_plateau(config_key: str, plateau_details: dict) -> None:
+    """Boost exploration temperature when plateau is detected.
+
+    December 2025: Aggressive intervention for breaking plateaus.
+    Emits HYPERPARAMETER_UPDATED with temperature_scale boost to increase
+    exploration during selfplay.
+    """
+    try:
+        from app.coordination.event_router import get_router
+        from app.distributed.data_events import DataEventType
+
+        router = get_router()
+        if router is None:
+            return
+
+        # Calculate boost factor based on plateau severity
+        # More severe plateau = more aggressive exploration boost
+        plateau_confidence = plateau_details.get("confidence", 0.5)
+        boost_factor = 1.0 + (0.5 * plateau_confidence)  # 1.0 to 1.5
+        boost_factor = min(1.5, max(1.1, boost_factor))  # Clamp to [1.1, 1.5]
+
+        # Emit HYPERPARAMETER_UPDATED for temperature_scale
+        await router.publish(
+            DataEventType.HYPERPARAMETER_UPDATED,
+            {
+                "config": config_key,
+                "parameter": "temperature_scale",
+                "new_value": boost_factor,
+                "reason": f"plateau_detected (confidence={plateau_confidence:.2f})",
+                "source": "plateau_intervention",
+            },
+        )
+        logger.info(
+            f"[PlateauIntervention] Boosted exploration for {config_key}: "
+            f"temperature_scale={boost_factor:.2f}"
+        )
+
+    except ImportError:
+        logger.debug("[PlateauIntervention] Event system not available for exploration boost")
+    except Exception as e:
+        logger.debug(f"[PlateauIntervention] Exploration boost failed: {e}")
+
+
+async def _request_extra_selfplay(config_key: str, plateau_details: dict) -> None:
+    """Request extra high-quality selfplay when plateau is detected.
+
+    December 2025: Aggressive intervention for breaking plateaus.
+    Emits SELFPLAY_TARGET_UPDATED to request additional diverse games.
+    """
+    try:
+        from app.distributed.data_events import emit_selfplay_target_updated
+
+        # Calculate extra games based on plateau severity
+        plateau_window = plateau_details.get("window_size", 100)
+        extra_games = min(1000, max(200, plateau_window * 2))  # 200-1000 extra games
+
+        await emit_selfplay_target_updated(
+            config=config_key,
+            target_games=extra_games,
+            quality_mode="high",  # Request high-quality games
+            reason=f"plateau_intervention (stalled for {plateau_window} games)",
+        )
+        logger.info(
+            f"[PlateauIntervention] Requested extra selfplay for {config_key}: "
+            f"{extra_games} high-quality games"
+        )
+
+    except ImportError:
+        logger.debug("[PlateauIntervention] Selfplay target emission not available")
+    except Exception as e:
+        logger.debug(f"[PlateauIntervention] Extra selfplay request failed: {e}")

@@ -97,12 +97,12 @@ python -m app.training.train \
     --save-path models/square8_2p.pt
 
 # With Gumbel MCTS self-play data generation
-python scripts/generate_policy_selfplay.py \
-    --engine gumbel \
-    --board-type square8 \
+python scripts/generate_gumbel_selfplay.py \
+    --board square8 \
     --num-players 2 \
     --num-games 100 \
-    --exploration-moves 30
+    --simulation-budget 200 \
+    --output data/selfplay/gumbel_square8_2p.jsonl
 ```
 
 ---

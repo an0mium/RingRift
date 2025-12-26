@@ -1102,119 +1102,72 @@ The parity issues were addressed through:
 
 ### INV-003 / SQUARE19-PARITY-01 – Square19 2P TS↔Python Parity Issues (Dec 2025)
 
-**Component(s):** Python `game_engine.py`, TS `turnOrchestrator.ts`, `globalActions.ts`, forced elimination phase handling, ANM state tracking, `toVictoryState()`
+**Component(s):** TS `turnOrchestrator.ts` (territory end / forced elimination / victory timing), parity harness state bundles
 **Severity:** P1 (blocks square19 canonical training data at scale)
-**Status:** POST-FIX RE-VERIFIED (Dec 25, 2025) – **75% parity pass rate (3/4 games)** on `ai-service/data/canonical_square19.db`; **1 semantic divergence remains**.
+**Status:** STILL OPEN (Dec 26, 2025) – **75% parity pass rate (3/4 games)** on `ai-service/data/canonical_square19.db`; **1 semantic divergence remains**.
 
-**Description:**
-Square19 2-player games still exhibit TS↔Python parity issues on the current canonical DB snapshot.
+**Symptom (remaining failing game):**
 
-**Root Cause Analysis (Dec 25, 2025 Investigation):**
+- Game: `915ab7de-ef80-47cd-820d-e9798dd85fdc`
+- Bundle: [`canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json`](ai-service/parity_failures/square19_postfix_bundles/canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json:1)
+- Parity divergence at **ts_k=695** (TS applied 695 moves, Python applied 696 moves)
+  - Python: `forced_elimination`, `active`, currentPlayer=1
+  - TS: `game_over`, `completed`, currentPlayer=2, winner=null
 
-Detailed parity check on `canonical_square19.db` with state bundle generation revealed a critical divergence pattern:
+**What the bundle/diff shows (Dec 26):**
 
-**Divergence Example (Game 915ab7de-ef80-47cd-820d-e9798dd85fdc):**
+- Running [`diff_state_bundle.py`](ai-service/scripts/diff_state_bundle.py:1) at `--k 694` shows both sides aligned in `territory_processing` before the transition.
+- At `--k 695`, Python advances to `forced_elimination` while TS advances to `game_over`.
+- The last TS-applied move is `skip_territory_processing` (player 1).
 
-- Divergence occurs at move index k=695
-- **Python at k=695:** `forced_elimination` phase, player 1, `active` status, 696 total moves
-- **TypeScript at k=695:** `game_over` phase, player 2, `completed` status, 695 total moves
-- **Critical observation:** TS terminates one move earlier than Python expects
+**Move serialization check (DB + bundle):**
 
-**Transition Sequence Analysis:**
-At k=694 (before divergence):
+- The canonical DB stores **camelCase** move payloads.
+- For this game’s end, the recorded move JSON includes `disconnectedRegions: null` (not an array) and does **not** include `disconnected_regions`.
+  - This means the divergence is **not** explained by a snake_case vs camelCase mismatch; it is a rules/orchestration timing issue.
 
-- Both engines: `territory_processing` phase, player 1, `active` status
-- Board state: 8 stacks remaining (4 each), player 1 eliminated 54 rings, player 2 eliminated 63 rings
+**Most likely root cause (TS-side):**
 
-What happens next:
+The TS replay path treats `skip_territory_processing` as a **turn-ending territory move** and therefore bypasses the canonical “territory-complete → maybe forced elimination” transition logic.
 
-- **Python:** Records `skip_territory_processing` → advances to `forced_elimination` → expects FE move at k=695
-- **TypeScript:** Calls `toVictoryState()` → detects game_over → terminates at k=695 without FE move
+Concrete mechanics:
 
-**Identified Code Divergence in `hasPhaseLocalInteractiveMove`:**
+1. In [`processTurn()`](src/shared/engine/orchestration/turnOrchestrator.ts:1418), `skip_territory_processing` is classified as a “turn-ending territory move” (`isTurnEndingTerritoryMove`) and therefore does **not** call [`processPostMovePhases()`](src/shared/engine/orchestration/turnOrchestrator.ts:2648).
+2. The replay therefore relies on the inline handler in [`applyMoveWithChainInfo()`](src/shared/engine/orchestration/turnOrchestrator.ts:2000), specifically [`case 'skip_territory_processing'`](src/shared/engine/orchestration/turnOrchestrator.ts:2411).
+3. That handler currently:
+   - calls [`toVictoryState()`](src/shared/engine/orchestration/turnOrchestrator.ts:411) **immediately**, and can set `game_over` **before** a forced-elimination phase/move is applied;
+   - otherwise rotates straight to the next player (`ring_placement`).
+4. In this failing game, TS hits the “victory” branch and ends the game with `winner=null` before consuming the next recorded move (a `forced_elimination` move), producing the observed **off-by-one move count** and phase mismatch.
 
-**TypeScript** (`src/shared/engine/globalActions.ts` lines 275-279):
+**Why the INV-003 `hasPhaseLocalInteractiveMove()` fix is not helping here:**
 
-```typescript
-case 'territory_processing': {
-  const regionMoves = enumerateProcessTerritoryRegionMoves(state, player);
-  const elimMoves = enumerateTerritoryEliminationMoves(state, player);
-  return regionMoves.length > 0 || elimMoves.length > 0;
-}
-```
+The `hasPhaseLocalInteractiveMove()`/ANM logic is simply not reached in this path because `skip_territory_processing` short-circuits turn completion and forces a phase change (or termination) inline. The mismatch is in the `skip_territory_processing` territory-exit orchestration, not in territory move enumeration.
 
-**Python** (`ai-service/app/rules/global_actions.py` lines 174-210):
+**Recommended fix (next step):**
 
-```python
-if phase == GamePhase.TERRITORY_PROCESSING:
-    # Check for pending territory self-elimination (RR-CANON-R145)
-    last_move = state.move_history[-1] if state.move_history else None
-    if last_move is not None and last_move.player == player:
-        if last_move.type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION):
-            # Check if the move has region data (required for pending elimination)
-            regions = getattr(last_move, "disconnected_regions", None)
-            if regions:
-                # Pending self-elimination logic...
-                return has_eligible_elimination_target(...)
-    # No pending elimination: check for region processing moves
-    moves = GameEngine._get_territory_processing_moves(state, player)
-    return len(moves) > 0
-```
+Align the `skip_territory_processing` handler with the `no_territory_action` handler:
 
-**Key Difference:** Python has special handling for pending territory self-elimination after `choose_territory_option` moves (RR-CANON-R145). This affects ANM calculation which in turn affects the game_over vs forced_elimination decision.
+- In [`case 'skip_territory_processing'`](src/shared/engine/orchestration/turnOrchestrator.ts:2411), add the same forced-elimination gating used in [`case 'no_territory_action'`](src/shared/engine/orchestration/turnOrchestrator.ts:2330):
+  - Compute `hadAnyActionThisTurn` via [`computeHadAnyActionThisTurn()`](src/shared/engine/orchestration/turnOrchestrator.ts:3798) (note: skips are intentionally treated as “no action”).
+  - Compute `hasStacks` via `playerHasStacksOnBoard`.
+  - If `!hadAnyActionThisTurn && hasStacks`, transition to `forced_elimination` and return a `PendingDecision` created by `createForcedEliminationDecision`.
+- Only run `toVictoryState()` and/or rotate to the next player **after** the forced-elimination phase has been resolved (i.e., after applying the explicit `forced_elimination` move).
 
-**Chain of Impact:**
+**Suggested instrumentation to validate before changing semantics:**
 
-1. `hasPhaseLocalInteractiveMove` returns different results for `territory_processing`
-2. This affects `isANMState()` calculation
-3. Different ANM states trigger different phase transitions in `resolveANMForCurrentPlayer()`
-4. TS calls `toVictoryState()` and ends game when it detects no valid moves
-5. Python continues to `forced_elimination` phase expecting one more move
+Add a temporary `RINGRIFT_TRACE_DEBUG` log branch inside the `skip_territory_processing` handler to print:
 
-**Divergence Types Found:**
-
-1. **Premature Game Termination (Primary Issue):**
-   - TS ends with `game_over` phase when Python expects `forced_elimination`
-   - Move count differs by 1 (TS: 695, Python: 696)
-   - Caused by `resolveANMForCurrentPlayer` calling `toVictoryState()` before forced elimination
-
-2. **ANM State Mismatch (Secondary):**
-   - Same state hash but `is_anm` differs (Python: `true`, TS: `false`)
-   - Occurs in `territory_processing` phase due to different `hasPhaseLocalInteractiveMove` logic
-   - State hashes match, indicating board state is identical
-
-**Discovery Context:**
-
-- Found during PASS26-P1.1 square19 parity assessment
-- **Re-verified post-fix:** Dec 25, 2025 with `python3 -m scripts.check_ts_python_replay_parity --db data/canonical_square19.db --compact` (run from `ai-service/`)
-- Test result: **3/4 games pass** (75% pass rate); **1/4** shows a semantic divergence
-- State bundles generated at `ai-service/parity_failures/square19_postfix_bundles/` (first divergence bundle: `canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json`)
+- `hadAnyActionThisTurn`, `hasStacks`
+- `toVictoryState().isGameOver`, `winner`, `reason`
+- `forcedDecision?.options.length`
 
 **Impact:**
 
-- Square19 training data cannot be generated at scale with confidence
-- Limits model training to square8 and hexagonal board types
-- Does NOT affect square8 2P (100% parity pass rate confirmed)
+Until fixed, square19 canonical DBs remain blocked for training at scale because TS will fail to replay Python’s canonical forced-elimination tail in at least one observed game.
 
-**Workaround:**
-Use square8 2P for canonical training data generation, which has 100% parity pass rate.
+**Related issues:**
 
-**Fix Path (Recommended):**
-
-1. **Option A (Align TS to Python):** Update `hasPhaseLocalInteractiveMove` in `globalActions.ts` to include Python's pending territory self-elimination check for `territory_processing` phase
-2. **Option B (Align timing of game_over):** Modify `resolveANMForCurrentPlayer` in `turnOrchestrator.ts` to not call `toVictoryState()` prematurely when forced elimination is still available
-
-3. **Verification:** After fix, regenerate `canonical_square19.db` and run parity check expecting 100% pass rate
-
-**Files to Modify:**
-
-- `src/shared/engine/globalActions.ts` (lines 275-279) - Add pending territory self-elimination check
-- `src/shared/engine/orchestration/turnOrchestrator.ts` (lines 334-399) - Review `resolveANMForCurrentPlayer` victory detection timing
-
-**Related Issues:**
-
-- INV-002 / HEX-PARITY-02 – Similar ANM divergence pattern on hex boards (RESOLVED via FSMAdapter hex phase coercion)
-- P0.1 – Forced Elimination Choice Divergence (historical, mostly resolved)
+- The “winner=null in game_over” shape is consistent with earlier ANM/victory timing problems; this specific instance is triggered by the `skip_territory_processing` early-victory check.
 
 ---
 

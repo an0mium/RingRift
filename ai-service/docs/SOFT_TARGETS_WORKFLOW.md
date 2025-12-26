@@ -31,10 +31,11 @@ PYTHONPATH=. python3 -m app.training.gpu_mcts_selfplay \
 #### Option B: Gumbel MCTS Selfplay
 
 ```bash
-PYTHONPATH=. python3 scripts/run_gumbel_mcts_selfplay.py \
-  --board-type square8 \
+PYTHONPATH=. python3 scripts/generate_gumbel_selfplay.py \
+  --board square8 \
   --num-players 2 \
   --num-games 100 \
+  --simulation-budget 150 \
   --output data/selfplay/gumbel_sq8_2p.jsonl
 ```
 

@@ -357,22 +357,9 @@ class BandwidthManager:
         }
 
 
-@dataclass
-class SyncResult:
-    """Result of a bandwidth-coordinated sync operation."""
-
-    success: bool
-    source: str
-    dest: str
-    host: str
-    bytes_transferred: int = 0
-    duration_seconds: float = 0.0
-    bwlimit_kbps: int = 0
-    effective_rate_kbps: float = 0.0
-    exit_code: int = 0
-    error: str | None = None
-    stdout: str = ""
-    stderr: str = ""
+# Phase 5 (Dec 2025): Use canonical SyncResult from sync_constants
+# The shared version is a superset with additional fields for metadata/state tracking
+from app.coordination.sync_constants import SyncResult
 
 
 class BandwidthCoordinatedRsync:

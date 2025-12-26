@@ -131,6 +131,114 @@ class CurriculumFeedback:
         self._opponent_tracker = tracker
         logger.info("CurriculumFeedback: OpponentWinRateTracker integrated")
 
+    def _auto_wire_curriculum_advanced(self) -> None:
+        """Auto-wire to CURRICULUM_ADVANCED events for closed-loop feedback.
+
+        Phase 5 (December 2025): Subscribe to CURRICULUM_ADVANCED events
+        emitted by GauntletFeedbackController to synchronize curriculum
+        stage tracking and weight adjustments.
+        """
+        if self._curriculum_advanced_subscribed:
+            return
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.debug("[CurriculumFeedback] Event router not available, deferring subscription")
+                return
+
+            router.subscribe(DataEventType.CURRICULUM_ADVANCED.value, self._on_curriculum_advanced)
+            self._curriculum_advanced_subscribed = True
+            logger.info("[CurriculumFeedback] Subscribed to CURRICULUM_ADVANCED events (Phase 5)")
+        except Exception as e:
+            logger.debug(f"[CurriculumFeedback] CURRICULUM_ADVANCED subscription deferred: {e}")
+
+    def _on_curriculum_advanced(self, event) -> None:
+        """Handle CURRICULUM_ADVANCED events from GauntletFeedbackController.
+
+        When curriculum advances (model is performing well), this:
+        1. Tracks the new curriculum stage
+        2. Adjusts weights to maintain training focus
+        3. Emits CURRICULUM_REBALANCED for downstream listeners
+
+        Phase 5 (December 2025): Close the feedback loop from gauntlet to curriculum.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config", payload.get("config_key", ""))
+            new_stage = payload.get("new_stage", payload.get("stage", 0))
+            reason = payload.get("reason", "gauntlet_feedback")
+
+            if not config_key:
+                return
+
+            # Update internal stage tracking
+            old_stage = self._curriculum_stages.get(config_key, 0)
+            self._curriculum_stages[config_key] = new_stage
+
+            logger.info(
+                f"[CurriculumFeedback] Curriculum advanced for {config_key}: "
+                f"stage {old_stage} → {new_stage} (reason: {reason})"
+            )
+
+            # Adjust weight based on curriculum advancement
+            # Higher stages indicate stronger model, slightly reduce training priority
+            # but maintain enough weight to continue challenging the model
+            current_weight = self._current_weights.get(config_key, 1.0)
+            stage_adjustment = -0.05 * (new_stage - old_stage)  # Reduce by 5% per stage
+            new_weight = max(self.weight_min, min(self.weight_max, current_weight + stage_adjustment))
+
+            if abs(new_weight - current_weight) > 0.01:
+                self._current_weights[config_key] = new_weight
+                logger.info(
+                    f"[CurriculumFeedback] Weight adjusted for {config_key}: "
+                    f"{current_weight:.2f} → {new_weight:.2f} (curriculum stage {new_stage})"
+                )
+
+                # Emit curriculum rebalanced event
+                self._emit_curriculum_updated(config_key, new_weight, f"curriculum_advanced_stage_{new_stage}")
+
+            self._last_update_time = time.time()
+
+        except Exception as e:
+            logger.warning(f"[CurriculumFeedback] Failed to handle CURRICULUM_ADVANCED: {e}")
+
+    def advance_stage(self, config_key: str, new_stage: int) -> None:
+        """Manually advance curriculum stage for a config.
+
+        Args:
+            config_key: Config identifier (e.g., "hex8_2p")
+            new_stage: New curriculum stage number
+        """
+        old_stage = self._curriculum_stages.get(config_key, 0)
+        self._curriculum_stages[config_key] = new_stage
+
+        if new_stage != old_stage:
+            logger.info(f"[CurriculumFeedback] Manual stage advance: {config_key} {old_stage} → {new_stage}")
+            self._last_update_time = time.time()
+
+    def get_curriculum_stage(self, config_key: str) -> int:
+        """Get the current curriculum stage for a config.
+
+        Args:
+            config_key: Config identifier (e.g., "hex8_2p")
+
+        Returns:
+            Current curriculum stage (0 = initial, higher = more advanced)
+        """
+        return self._curriculum_stages.get(config_key, 0)
+
+    def get_all_curriculum_stages(self) -> dict[str, int]:
+        """Get curriculum stages for all configs.
+
+        Returns:
+            Dict mapping config_key → curriculum stage
+        """
+        return dict(self._curriculum_stages)
+
     def record_game(
         self,
         config_key: str,
@@ -1955,11 +2063,173 @@ def wire_all_curriculum_feedback(
     except Exception as e:
         logger.warning(f"Failed to wire epoch to curriculum: {e}")
 
+    # Wire opponent tracker for weak opponent detection (December 2025)
+    # This enables +50-150 ELO gain through targeted weakness exploitation
+    try:
+        wire_opponent_tracker_to_curriculum()
+        watchers["opponent"] = True  # Boolean since it doesn't return a watcher object
+        logger.info("[wire_all_curriculum_feedback] Wired opponent tracker to curriculum")
+    except Exception as e:
+        logger.warning(f"Failed to wire opponent tracker to curriculum: {e}")
+
+    # Wire early stopping events to curriculum boost (December 2025)
+    try:
+        watchers["early_stop"] = wire_early_stop_to_curriculum(auto_export=auto_export)
+    except Exception as e:
+        logger.warning(f"Failed to wire early stop to curriculum: {e}")
+
     logger.info(
         f"[wire_all_curriculum_feedback] Wired {len(watchers)} curriculum feedback integrations"
     )
 
     return watchers
+
+
+# =============================================================================
+# TRAINING_EARLY_STOPPED → Curriculum Boost (December 2025)
+# =============================================================================
+
+
+class EarlyStopToCurriculumWatcher:
+    """Watches for early stopping events and boosts curriculum weight.
+
+    When training early-stops due to loss stagnation, the config needs more/better
+    training data. This watcher increases the curriculum weight to allocate more
+    selfplay resources to that config.
+
+    Boost amounts:
+    - loss_stagnation: +0.3 weight boost
+    - elo_stagnation: +0.4 weight boost (Elo stagnation is harder to fix)
+    - regression: +0.5 weight boost (regression needs aggressive correction)
+    """
+
+    def __init__(
+        self,
+        feedback: CurriculumFeedback | None = None,
+        auto_export: bool = True,
+        export_path: str = "data/curriculum_weights.json",
+    ):
+        self.feedback = feedback or get_curriculum_feedback()
+        self.auto_export = auto_export
+        self.export_path = export_path
+        self._events_processed = 0
+        self._subscribed = False
+
+        # Boost amounts by reason
+        self._boost_by_reason = {
+            "loss_stagnation": 0.3,
+            "elo_stagnation": 0.4,
+            "regression": 0.5,
+        }
+
+    def subscribe(self) -> bool:
+        """Subscribe to TRAINING_EARLY_STOPPED events."""
+        if self._subscribed:
+            return True
+
+        try:
+            from app.coordination.event_router import DataEventType, get_router
+
+            router = get_router()
+            router.subscribe(
+                DataEventType.TRAINING_EARLY_STOPPED.value,
+                self._on_early_stopped,
+            )
+            self._subscribed = True
+            logger.info("[EarlyStopToCurriculumWatcher] Subscribed to TRAINING_EARLY_STOPPED events")
+            return True
+        except ImportError:
+            logger.warning("[EarlyStopToCurriculumWatcher] event_router not available")
+            return False
+        except Exception as e:
+            logger.warning(f"[EarlyStopToCurriculumWatcher] Failed to subscribe: {e}")
+            return False
+
+    async def _on_early_stopped(self, event) -> None:
+        """Handle TRAINING_EARLY_STOPPED - boost curriculum weight for stuck config."""
+        payload = event.payload
+        config_key = payload.get("config_key", "")
+        reason = payload.get("reason", "loss_stagnation")
+        epoch = payload.get("epoch", 0)
+        epochs_without_improvement = payload.get("epochs_without_improvement", 0)
+
+        if not config_key:
+            return
+
+        self._events_processed += 1
+
+        # Get boost amount based on reason
+        boost = self._boost_by_reason.get(reason, 0.3)
+
+        # Scale boost by stagnation severity
+        if epochs_without_improvement > 10:
+            boost *= 1.2  # Longer stagnation = bigger boost
+        elif epochs_without_improvement > 5:
+            boost *= 1.1
+
+        # Apply boost
+        current_weight = self.feedback.get_weight(config_key)
+        new_weight = min(2.0, current_weight + boost)  # Cap at 2.0
+
+        self.feedback.set_weight(config_key, new_weight)
+
+        logger.info(
+            f"[EarlyStopToCurriculumWatcher] Boosted {config_key} weight: "
+            f"{current_weight:.2f}→{new_weight:.2f} (reason={reason}, epoch={epoch})"
+        )
+
+        # Auto-export if enabled
+        if self.auto_export:
+            try:
+                self.feedback.export_weights_json(self.export_path)
+                sync_curriculum_weights_to_p2p()
+            except Exception as e:
+                logger.warning(f"Failed to export weights: {e}")
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get watcher statistics."""
+        return {
+            "events_processed": self._events_processed,
+            "subscribed": self._subscribed,
+            "boost_amounts": dict(self._boost_by_reason),
+        }
+
+
+# Singleton early stop watcher
+_early_stop_watcher: EarlyStopToCurriculumWatcher | None = None
+
+
+def wire_early_stop_to_curriculum(
+    auto_export: bool = True,
+) -> EarlyStopToCurriculumWatcher:
+    """Wire early stopping events to curriculum weight boost.
+
+    When training early-stops, this boosts the curriculum weight for that config
+    to allocate more training resources.
+
+    Args:
+        auto_export: Whether to auto-export weights after boost
+
+    Returns:
+        EarlyStopToCurriculumWatcher instance
+    """
+    global _early_stop_watcher
+
+    _early_stop_watcher = EarlyStopToCurriculumWatcher(
+        auto_export=auto_export,
+    )
+    _early_stop_watcher.subscribe()
+
+    logger.info(
+        "[wire_early_stop_to_curriculum] TRAINING_EARLY_STOPPED events wired to curriculum boost"
+    )
+
+    return _early_stop_watcher
+
+
+def get_early_stop_watcher() -> EarlyStopToCurriculumWatcher | None:
+    """Get the singleton early stop watcher."""
+    return _early_stop_watcher
 
 
 # =============================================================================

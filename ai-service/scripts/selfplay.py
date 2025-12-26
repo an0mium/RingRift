@@ -6,32 +6,32 @@ the SelfplayRunner base class and SelfplayConfig for all selfplay needs.
 
 Usage:
     # Quick heuristic selfplay (fast, for data bootstrapping)
-    python scripts/selfplay.py --board square8 --num-players 2 --engine heuristic
+    python scripts/selfplay.py --board square8 --num-players 2 --engine-mode heuristic-only
 
     # GPU Gumbel MCTS selfplay (high quality training data)
-    python scripts/selfplay.py --board hex8 --num-players 2 --engine gumbel --num-games 500
+    python scripts/selfplay.py --board hex8 --num-players 2 --engine-mode gumbel-mcts --num-games 500
 
     # Full options
     python scripts/selfplay.py \
         --board square8 \
         --num-players 4 \
         --num-games 1000 \
-        --engine nnue-guided \
+        --engine-mode nnue-guided \
         --output-dir data/games/selfplay_sq8_4p \
         --batch-size 256 \
         --use-gpu
 
 Engine Modes:
-    heuristic     Fast heuristic AI (good for bootstrap)
-    gumbel        Gumbel MCTS (best quality, slower)
-    mcts          Standard MCTS
-    nnue-guided   NNUE evaluation with search
-    policy-only   Direct policy network
-    nn-descent    Neural descent search
-    mixed         Mix of engines for diversity
-    random        Random moves (baseline)
-    gnn           Pure GNN policy network (requires PyTorch Geometric)
-    hybrid        CNN-GNN hybrid model (requires PyTorch Geometric)
+    heuristic-only  Fast heuristic AI (good for bootstrap)
+    gumbel-mcts     Gumbel MCTS (best quality, slower)
+    mcts            Standard MCTS
+    nnue-guided     NNUE evaluation with search
+    policy-only     Direct policy network
+    nn-descent      Neural descent search
+    mixed           Mix of engines for diversity
+    random          Random moves (baseline)
+    gnn             Pure GNN policy network (requires PyTorch Geometric)
+    hybrid          CNN-GNN hybrid model (requires PyTorch Geometric)
 """
 
 from __future__ import annotations

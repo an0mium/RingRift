@@ -490,6 +490,16 @@ class GauntletFeedbackController:
                 actions.append(FeedbackAction.ADVANCE_CURRICULUM)
                 tracker.last_curriculum_advance_time = now
 
+        # === Phase 5: Emit consolidated ADAPTIVE_PARAMS_CHANGED event ===
+        if actions and actions != [FeedbackAction.NO_ACTION]:
+            await self._emit_adaptive_params_changed(
+                config_key=record.config_key,
+                board_type=record.board_type,
+                num_players=record.num_players,
+                actions_taken=actions,
+                reason=f"gauntlet_eval_elo_{record.elo:.0f}",
+            )
+
         return actions if actions else [FeedbackAction.NO_ACTION]
 
     # =========================================================================
@@ -675,6 +685,76 @@ class GauntletFeedbackController:
                 )
         except Exception as e:
             logger.warning(f"[{self.name}] Failed to emit hyperparameter update: {e}")
+
+    async def _emit_adaptive_params_changed(
+        self,
+        config_key: str,
+        board_type: str,
+        num_players: int,
+        actions_taken: list[FeedbackAction],
+        reason: str = "gauntlet_feedback",
+    ) -> None:
+        """Emit ADAPTIVE_PARAMS_CHANGED event with bundled selfplay adjustments.
+
+        Phase 5 (December 2025): Emit a consolidated event for selfplay to consume.
+        This carries multiple related parameters in a single event for efficiency.
+
+        Args:
+            config_key: Config identifier
+            board_type: Board type
+            num_players: Number of players
+            actions_taken: List of feedback actions that were taken
+            reason: Reason for the adjustments
+        """
+        try:
+            from app.distributed.data_events import DataEventType, DataEvent
+            from app.coordination.event_router import get_router
+
+            # Build payload based on actions taken
+            payload = {
+                "config_key": config_key,
+                "config": config_key,  # Alias for compatibility
+                "board_type": board_type,
+                "num_players": num_players,
+                "reason": reason,
+                "actions": [a.value for a in actions_taken if hasattr(a, "value")],
+            }
+
+            # Add specific multipliers based on actions
+            if FeedbackAction.REDUCE_EXPLORATION in actions_taken:
+                # Strong model - reduce exploration
+                payload["temperature_multiplier"] = 0.8
+                payload["search_budget_multiplier"] = 0.9  # Slightly less search needed
+            elif FeedbackAction.TRIGGER_EXTRA_SELFPLAY in actions_taken:
+                # Weak model - increase exploration and search
+                payload["temperature_multiplier"] = 1.2
+                payload["search_budget_multiplier"] = 1.3
+                payload["exploration_boost"] = 0.1
+
+            if FeedbackAction.ADVANCE_CURRICULUM in actions_taken:
+                # Curriculum advanced - increase opponent strength
+                payload["opponent_strength_multiplier"] = 1.15
+
+            if not payload.get("temperature_multiplier"):
+                # No adjustments needed
+                return
+
+            router = get_router()
+            if router:
+                event = DataEvent(
+                    event_type=DataEventType.ADAPTIVE_PARAMS_CHANGED,
+                    payload=payload,
+                    source=self.name,
+                )
+                await router.publish_async(DataEventType.ADAPTIVE_PARAMS_CHANGED.value, event)
+                logger.info(
+                    f"[{self.name}] Emitted ADAPTIVE_PARAMS_CHANGED for {config_key}: "
+                    f"temp={payload.get('temperature_multiplier', 1.0):.2f}, "
+                    f"budget={payload.get('search_budget_multiplier', 1.0):.2f}"
+                )
+
+        except Exception as e:
+            logger.debug(f"[{self.name}] Failed to emit ADAPTIVE_PARAMS_CHANGED: {e}")
 
     async def _detect_elo_plateau(self, tracker: ConfigTracker) -> bool:
         """Detect if ELO has plateaued.

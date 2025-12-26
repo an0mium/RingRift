@@ -44,9 +44,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import signal
+import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field
@@ -100,6 +102,10 @@ ALLOCATION_CHECK_INTERVAL = 600  # Rebalance allocations every 10 minutes
 # Thresholds
 MIN_GAMES_FOR_EXPORT = 1000  # Minimum new games before triggering export
 MAX_DATA_STALENESS_HOURS = 4.0  # Trigger sync if data older than this
+
+# State persistence path (Gap 3 fix: Dec 2025)
+STATE_DB_PATH = Path(__file__).parent.parent / "data" / "coordination" / "master_loop_state.db"
+STATE_SAVE_INTERVAL_SECONDS = 300  # Save state every 5 minutes
 
 
 @dataclass
@@ -201,6 +207,11 @@ class MasterLoopController:
         self._feedback_controller = None
         self._pipeline_orchestrator = None
 
+        # State persistence (Gap 3 fix: Dec 2025)
+        self._db_path = STATE_DB_PATH
+        self._last_state_save = 0.0
+        self._init_state_db()
+
     # =========================================================================
     # Lazy-loaded dependencies
     # =========================================================================
@@ -246,6 +257,86 @@ class MasterLoopController:
         return self._pipeline_orchestrator
 
     # =========================================================================
+    # State Persistence (Gap 3 fix: Dec 2025)
+    # =========================================================================
+
+    def _init_state_db(self) -> None:
+        """Initialize the state persistence database."""
+        try:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(self._db_path)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS config_state (
+                    config_key TEXT PRIMARY KEY,
+                    exploration_boost REAL NOT NULL DEFAULT 1.0,
+                    training_intensity TEXT NOT NULL DEFAULT 'normal',
+                    last_quality_score REAL NOT NULL DEFAULT 0.0,
+                    updated_at REAL NOT NULL
+                )
+            """)
+            conn.commit()
+            conn.close()
+            logger.debug(f"[MasterLoop] State DB initialized at {self._db_path}")
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Failed to init state DB: {e}")
+
+    def _load_persisted_state(self) -> None:
+        """Load exploration_boost and other state from database on startup."""
+        try:
+            conn = sqlite3.connect(self._db_path)
+            rows = conn.execute("""
+                SELECT config_key, exploration_boost, training_intensity, last_quality_score
+                FROM config_state
+            """).fetchall()
+            conn.close()
+
+            restored_count = 0
+            for config_key, boost, intensity, quality_score in rows:
+                if config_key in self._states:
+                    self._states[config_key].exploration_boost = boost
+                    self._states[config_key].training_intensity = intensity
+                    self._states[config_key].last_quality_score = quality_score
+                    restored_count += 1
+
+            if restored_count > 0:
+                logger.info(f"[MasterLoop] Restored persisted state for {restored_count} configs")
+
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Failed to load persisted state: {e}")
+
+    def _save_persisted_state(self) -> None:
+        """Save exploration_boost and other state to database."""
+        try:
+            conn = sqlite3.connect(self._db_path)
+            now = time.time()
+
+            for config_key, state in self._states.items():
+                conn.execute("""
+                    INSERT OR REPLACE INTO config_state
+                    (config_key, exploration_boost, training_intensity, last_quality_score, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    config_key,
+                    state.exploration_boost,
+                    state.training_intensity,
+                    state.last_quality_score,
+                    now,
+                ))
+
+            conn.commit()
+            conn.close()
+            self._last_state_save = now
+            logger.debug(f"[MasterLoop] Persisted state for {len(self._states)} configs")
+
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Failed to save persisted state: {e}")
+
+    def _maybe_save_state(self) -> None:
+        """Save state if enough time has passed since last save."""
+        if time.time() - self._last_state_save >= STATE_SAVE_INTERVAL_SECONDS:
+            self._save_persisted_state()
+
+    # =========================================================================
     # Lifecycle
     # =========================================================================
 
@@ -266,6 +357,9 @@ class MasterLoopController:
         # Subscribe to events
         self._subscribe_to_events()
 
+        # Restore persisted state (exploration_boost, etc.) - Gap 3 fix
+        self._load_persisted_state()
+
         # Initialize state from current data
         await self._initialize_state()
 
@@ -276,6 +370,9 @@ class MasterLoopController:
         logger.info("[MasterLoop] Stopping...")
         self._running = False
         self._shutdown_event.set()
+
+        # Save state before shutdown - Gap 3 fix
+        self._save_persisted_state()
 
         # Stop daemons
         if not self.skip_daemons and self._daemon_manager is not None:
@@ -314,6 +411,9 @@ class MasterLoopController:
 
                     # 5. Log status
                     self._log_status(health)
+
+                    # 6. Periodically save state - Gap 3 fix
+                    self._maybe_save_state()
 
                 except Exception as e:
                     logger.error(f"[MasterLoop] Error in loop iteration: {e}")
@@ -385,8 +485,9 @@ class MasterLoopController:
             bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
             bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
             bus.subscribe(DataEventType.PROMOTION_COMPLETE, self._on_promotion_complete)
+            bus.subscribe(DataEventType.DATA_QUALITY_ASSESSED, self._on_quality_assessed)
 
-            logger.info("[MasterLoop] Subscribed to pipeline events")
+            logger.info("[MasterLoop] Subscribed to pipeline events (including quality)")
         except Exception as e:
             logger.warning(f"[MasterLoop] Failed to subscribe to events: {e}")
 
@@ -459,6 +560,56 @@ class MasterLoopController:
                     logger.info(f"[MasterLoop] {config_key}: Promotion failed, exploration boost: {state.exploration_boost:.2f}")
         except Exception as e:
             logger.debug(f"[MasterLoop] Error handling promotion event: {e}")
+
+    def _on_quality_assessed(self, event: Any) -> None:
+        """Handle data quality assessment event.
+
+        December 2025: Fixes Gap 1 - quality score was never tracked in master loop.
+        Now captures quality scores from FeedbackLoopController for training decisions.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", ""))
+            quality_score = payload.get("quality_score", 0.0)
+            ready_for_training = payload.get("ready_for_training", False)
+
+            if config_key in self._states:
+                state = self._states[config_key]
+                state.last_quality_score = quality_score
+
+                # Compute training intensity from quality
+                if quality_score >= 0.90:
+                    state.training_intensity = "hot_path"
+                elif quality_score >= 0.80:
+                    state.training_intensity = "accelerated"
+                elif quality_score >= 0.65:
+                    state.training_intensity = "normal"
+                elif quality_score >= 0.50:
+                    state.training_intensity = "reduced"
+                else:
+                    state.training_intensity = "paused"
+
+                logger.debug(
+                    f"[MasterLoop] {config_key}: Quality={quality_score:.2f}, "
+                    f"intensity={state.training_intensity}, ready={ready_for_training}"
+                )
+
+                # Sync intensity to TrainingTriggerDaemon (Gap 2 fix: Dec 2025)
+                # This ensures the training subprocess uses the correct parameters
+                try:
+                    from app.coordination.training_trigger_daemon import (
+                        get_training_trigger_daemon,
+                    )
+                    trigger_daemon = get_training_trigger_daemon()
+                    if config_key in trigger_daemon._training_states:
+                        trigger_daemon._training_states[config_key].training_intensity = (
+                            state.training_intensity
+                        )
+                except ImportError:
+                    pass  # Daemon not available
+
+        except Exception as e:
+            logger.debug(f"[MasterLoop] Error handling quality event: {e}")
 
     # =========================================================================
     # State initialization

@@ -221,12 +221,14 @@ Backend `/sandbox/ai/config` endpoint to set mode.
 ### Cluster Selfplay (GH200/H100 nodes)
 
 ```bash
-# Use MultiTreeMCTS with max batch size
-PYTHONPATH=. python scripts/run_gpu_mcts_selfplay.py \
-    --device cuda \
+# Use GPU parallel selfplay (bulk tier) with max batch size
+PYTHONPATH=. python scripts/run_gpu_selfplay.py \
+    --board square8 \
+    --num-players 2 \
+    --num-games 1000 \
     --batch-size 64 \
-    --budget 64 \
-    --eval-mode heuristic
+    --engine-mode nnue-guided \
+    --output-dir data/selfplay/gpu_square8_2p
 ```
 
 ### Production Server (human games)

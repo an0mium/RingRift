@@ -10841,6 +10841,91 @@ print(json.dumps(result))
             logger.error(f"in handle_sync_status: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_subscriptions(self, request: web.Request) -> web.Response:
+        """GET /subscriptions - Get event subscription dashboard.
+
+        Phase 5 (December 2025): Visibility into feedback loop event wiring.
+
+        Returns list of events and their subscribers to verify the feedback
+        loop is properly wired. Critical for debugging dead-end events.
+
+        Returns:
+            JSON with event types and their subscriber counts/names
+        """
+        try:
+            from app.distributed.data_events import DataEventType
+
+            subscriptions: dict[str, dict] = {}
+            router_info: dict = {"available": False, "type": "unknown"}
+
+            try:
+                from app.coordination.event_router import get_router
+
+                router = get_router()
+                if router is not None:
+                    router_info["available"] = True
+                    router_info["type"] = type(router).__name__
+
+                    # Get all subscriptions from router
+                    if hasattr(router, '_subscribers'):
+                        for event_key, handlers in router._subscribers.items():
+                            handler_names = []
+                            for handler in handlers:
+                                if hasattr(handler, '__name__'):
+                                    handler_names.append(handler.__name__)
+                                elif hasattr(handler, '__class__'):
+                                    handler_names.append(handler.__class__.__name__)
+                                else:
+                                    handler_names.append(str(type(handler)))
+
+                            subscriptions[event_key] = {
+                                "count": len(handlers),
+                                "handlers": handler_names[:10],  # Limit to first 10
+                            }
+            except Exception as e:
+                router_info["error"] = str(e)
+
+            # Define critical events for feedback loop
+            critical_events = [
+                "hyperparameter_updated",
+                "curriculum_advanced",
+                "adaptive_params_changed",
+                "regression_critical",
+                "evaluation_completed",
+                "model_promoted",
+                "training_complete",
+                "selfplay_complete",
+            ]
+
+            critical_status: dict[str, dict] = {}
+            for event in critical_events:
+                if event in subscriptions:
+                    critical_status[event] = {
+                        "status": "active",
+                        "subscribers": subscriptions[event]["count"],
+                    }
+                else:
+                    critical_status[event] = {
+                        "status": "missing",
+                        "subscribers": 0,
+                    }
+
+            missing_count = sum(1 for e in critical_status.values() if e["status"] == "missing")
+
+            return web.json_response({
+                "node_id": self.node_id,
+                "router": router_info,
+                "feedback_loop_health": "healthy" if missing_count == 0 else f"{missing_count} missing",
+                "critical_events": critical_status,
+                "all_subscriptions": subscriptions,
+                "total_event_types": len(subscriptions),
+                "phase": "Phase 5 - December 2025",
+            })
+
+        except Exception as e:
+            logger.error(f"in handle_subscriptions: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_sync_pull(self, request: web.Request) -> web.Response:
         """POST /sync/pull - Handle incoming request to pull files from a source node.
 
@@ -28081,6 +28166,9 @@ print(json.dumps({{
         app.router.add_get('/admin/purge_stale', self.handle_purge_stale_peers)      # Purge stale peers by heartbeat age
         app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
         app.router.add_post('/admin/restart', self.handle_admin_restart)             # Force restart orchestrator
+
+        # Phase 5: Event subscription visibility (December 2025)
+        app.router.add_get('/subscriptions', self.handle_subscriptions)              # Show event subscriptions
 
         # Phase 3: Training pipeline routes
         app.router.add_post('/training/start', self.handle_training_start)

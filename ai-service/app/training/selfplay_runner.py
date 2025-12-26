@@ -583,6 +583,55 @@ class SelfplayRunner(ABC):
                     f"{rate_multiplier:.2f}x (penalty={new_penalty:.2f}, reason: {reason})"
                 )
 
+            def on_adaptive_params_changed(event):
+                """Handle ADAPTIVE_PARAMS_CHANGED events from GauntletFeedbackController.
+
+                Phase 5 (December 2025): Close the feedback loop for adaptive selfplay params.
+                This event carries multiple runtime adjustments:
+                - temperature_multiplier: Adjust exploration temperature
+                - search_budget_multiplier: Adjust MCTS search depth
+                - exploration_boost: Increase root exploration noise
+                - opponent_strength_multiplier: Adjust opponent model strength
+                """
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config_key", payload.get("config", ""))
+
+                if event_config != config_key:
+                    return
+
+                applied_changes = []
+
+                # Temperature multiplier adjustment
+                if "temperature_multiplier" in payload:
+                    old_val = getattr(self, "_adaptive_temperature_multiplier", 1.0)
+                    self._adaptive_temperature_multiplier = float(payload["temperature_multiplier"])
+                    applied_changes.append(f"temp={old_val:.2f}→{self._adaptive_temperature_multiplier:.2f}")
+
+                # Search budget multiplier adjustment
+                if "search_budget_multiplier" in payload:
+                    old_val = getattr(self, "_adaptive_search_budget_multiplier", 1.0)
+                    self._adaptive_search_budget_multiplier = float(payload["search_budget_multiplier"])
+                    applied_changes.append(f"budget={old_val:.2f}→{self._adaptive_search_budget_multiplier:.2f}")
+
+                # Exploration boost adjustment
+                if "exploration_boost" in payload:
+                    old_val = getattr(self, "_adaptive_exploration_boost", 0.0)
+                    self._adaptive_exploration_boost = float(payload["exploration_boost"])
+                    applied_changes.append(f"explore_boost={old_val:.2f}→{self._adaptive_exploration_boost:.2f}")
+
+                # Opponent strength multiplier
+                if "opponent_strength_multiplier" in payload:
+                    old_val = getattr(self, "_adaptive_opponent_strength", 1.0)
+                    self._adaptive_opponent_strength = float(payload["opponent_strength_multiplier"])
+                    applied_changes.append(f"opp_str={old_val:.2f}→{self._adaptive_opponent_strength:.2f}")
+
+                if applied_changes:
+                    reason = payload.get("reason", "adaptive_feedback")
+                    logger.info(
+                        f"[AdaptiveParams] {config_key}: {', '.join(applied_changes)} "
+                        f"(reason: {reason})"
+                    )
+
             # Subscribe to feedback events using DataEventType enums
             subscribe(DataEventType.CURRICULUM_ADVANCED, on_curriculum_advanced)
             subscribe(DataEventType.SELFPLAY_TARGET_UPDATED, on_selfplay_target_updated)
@@ -591,6 +640,7 @@ class SelfplayRunner(ABC):
             subscribe(DataEventType.PROMOTION_FAILED, on_promotion_failed)
             subscribe(DataEventType.HYPERPARAMETER_UPDATED, on_hyperparameter_updated)
             subscribe(DataEventType.QUALITY_PENALTY_APPLIED, on_quality_penalty_applied)
+            subscribe(DataEventType.ADAPTIVE_PARAMS_CHANGED, on_adaptive_params_changed)  # Phase 5
 
             logger.debug(f"[SelfplayRunner] Subscribed to feedback events for {config_key}")
 
@@ -639,35 +689,30 @@ class SelfplayRunner(ABC):
 
         The scheduler is created once and reused for all games, preserving
         the exploration boost state across games.
+
+        Uses auto-registration feature (December 2025) to automatically
+        register and wire the scheduler when config_key is provided.
         """
         try:
-            from app.training.temperature_scheduling import (
-                create_elo_adaptive_scheduler,
-                wire_exploration_boost,
-            )
+            from app.training.temperature_scheduling import create_elo_adaptive_scheduler
 
             model_elo = getattr(self.config, 'model_elo', None) or 1500.0
             exploration_moves = getattr(self.config, 'temperature_threshold', 30)
+            config_key = f"{self.config.board_type}_{self.config.num_players}p"
 
+            # December 2025: Use auto-registration feature - no need to manually
+            # call wire_exploration_boost() anymore
             self._temperature_scheduler = create_elo_adaptive_scheduler(
                 model_elo=model_elo,
                 exploration_moves=exploration_moves,
+                config_key=config_key,  # Auto-registers and wires
+                auto_wire=True,
             )
 
-            # Wire to exploration boost events (PROMOTION_FAILED, MODEL_PROMOTED)
-            config_key = f"{self.config.board_type}_{self.config.num_players}p"
-            wired = wire_exploration_boost(self._temperature_scheduler, config_key)
-
-            if wired:
-                logger.info(
-                    f"[TemperatureScheduler] Initialized with exploration boost wiring "
-                    f"(Elo={model_elo:.0f}, config={config_key})"
-                )
-            else:
-                logger.info(
-                    f"[TemperatureScheduler] Initialized without event wiring "
-                    f"(Elo={model_elo:.0f})"
-                )
+            logger.info(
+                f"[TemperatureScheduler] Initialized with auto-registration "
+                f"(Elo={model_elo:.0f}, config={config_key})"
+            )
 
         except ImportError as e:
             logger.debug(f"[TemperatureScheduler] Module not available: {e}")

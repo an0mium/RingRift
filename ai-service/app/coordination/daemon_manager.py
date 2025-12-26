@@ -42,6 +42,7 @@ import asyncio
 import atexit
 import contextlib
 import logging
+import os
 import signal
 import time
 from collections.abc import Callable, Coroutine
@@ -153,6 +154,27 @@ class DaemonType(Enum):
 
     # Training trigger (December 2025) - decides WHEN to trigger training automatically
     TRAINING_TRIGGER = "training_trigger"
+
+    # Gauntlet feedback controller (December 2025) - bridges gauntlet evaluation to training feedback
+    GAUNTLET_FEEDBACK = "gauntlet_feedback"
+
+    # Recovery orchestrator (December 2025) - handles model/training state recovery
+    RECOVERY_ORCHESTRATOR = "recovery_orchestrator"
+
+    # Cache coordination (December 2025) - coordinates model caching across cluster
+    CACHE_COORDINATION = "cache_coordination"
+
+    # Metrics analysis (December 2025) - continuous metrics monitoring and plateau detection
+    METRICS_ANALYSIS = "metrics_analysis"
+
+    # Adaptive resource manager (December 2025) - dynamic resource scaling based on workload
+    ADAPTIVE_RESOURCES = "adaptive_resources"
+
+    # Multi-provider orchestrator (December 2025) - coordinates across Lambda/Vast/etc
+    MULTI_PROVIDER = "multi_provider"
+
+    # Health server (December 2025) - exposes /health, /ready, /metrics HTTP endpoints
+    HEALTH_SERVER = "health_server"
 
 
 class DaemonState(Enum):
@@ -467,6 +489,55 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER, DaemonType.AUTO_EXPORT],
         )
 
+        # Gauntlet feedback controller - bridges gauntlet evaluation to training feedback (December 2025)
+        self.register_factory(
+            DaemonType.GAUNTLET_FEEDBACK,
+            self._create_gauntlet_feedback,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Recovery orchestrator - handles model/training state recovery (December 2025)
+        self.register_factory(
+            DaemonType.RECOVERY_ORCHESTRATOR,
+            self._create_recovery_orchestrator,
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.NODE_HEALTH_MONITOR],
+        )
+
+        # Cache coordination - coordinates model caching across cluster (December 2025)
+        self.register_factory(
+            DaemonType.CACHE_COORDINATION,
+            self._create_cache_coordination,
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.CLUSTER_MONITOR],
+        )
+
+        # Metrics analysis - continuous metrics monitoring and plateau detection (December 2025)
+        self.register_factory(
+            DaemonType.METRICS_ANALYSIS,
+            self._create_metrics_analysis,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Adaptive resource manager - dynamic resource scaling based on workload (December 2025)
+        self.register_factory(
+            DaemonType.ADAPTIVE_RESOURCES,
+            self._create_adaptive_resources,
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.CLUSTER_MONITOR],
+        )
+
+        # Multi-provider orchestrator - coordinates across Lambda/Vast/etc (December 2025)
+        self.register_factory(
+            DaemonType.MULTI_PROVIDER,
+            self._create_multi_provider,
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.CLUSTER_MONITOR],
+        )
+
+        # Health server - exposes /health, /ready, /metrics HTTP endpoints (December 2025)
+        self.register_factory(
+            DaemonType.HEALTH_SERVER,
+            self._create_health_server,
+            depends_on=[],  # No dependencies - should start early
+        )
+
     def register_factory(
         self,
         daemon_type: DaemonType,
@@ -734,7 +805,162 @@ class DaemonManager:
         except Exception as e:
             logger.warning(f"Failed to start daemon watchdog: {e}")
 
+        # Phase 5: Subscribe to REGRESSION_CRITICAL events for centralized handling
+        await self._subscribe_to_critical_events()
+
+        # Phase 5: Verify critical subscriptions are active
+        await self._verify_subscriptions()
+
         return results
+
+    async def _subscribe_to_critical_events(self) -> None:
+        """Subscribe to REGRESSION_CRITICAL and other critical events.
+
+        Phase 5 (December 2025): Centralized handling of critical events
+        that require daemon-level coordination response.
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.debug("[DaemonManager] Event router not available for critical event subscription")
+                return
+
+            # Subscribe to critical events
+            router.subscribe(DataEventType.REGRESSION_CRITICAL.value, self._on_regression_critical)
+
+            logger.info("[DaemonManager] Subscribed to REGRESSION_CRITICAL events (Phase 5)")
+
+        except Exception as e:
+            logger.warning(f"[DaemonManager] Failed to subscribe to critical events: {e}")
+
+    async def _on_regression_critical(self, event) -> None:
+        """Handle REGRESSION_CRITICAL event - centralized response.
+
+        Phase 5 (December 2025): When a critical regression is detected,
+        coordinate daemon-level response:
+        1. Log the critical event prominently
+        2. Pause selfplay for the affected config to prevent bad data
+        3. Alert cluster nodes via P2P
+        4. Trigger model rollback if configured
+
+        Args:
+            event: The REGRESSION_CRITICAL event
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", "unknown"))
+            model_id = payload.get("model_id", "unknown")
+            elo_drop = payload.get("elo_drop", 0)
+            current_elo = payload.get("current_elo", 0)
+            previous_elo = payload.get("previous_elo", 0)
+
+            # Prominent logging - this is critical
+            logger.critical(
+                f"[REGRESSION_CRITICAL] Model regression detected!\n"
+                f"  Config: {config_key}\n"
+                f"  Model: {model_id}\n"
+                f"  ELO: {previous_elo:.0f} → {current_elo:.0f} (drop: {elo_drop:.0f})"
+            )
+
+            # Emit to P2P for cluster-wide awareness
+            try:
+                from app.coordination.event_router import get_router
+                from app.distributed.data_events import DataEventType, DataEvent
+
+                router = get_router()
+                if router:
+                    # Emit an alert event for monitoring/dashboards
+                    alert_event = DataEvent(
+                        event_type=DataEventType.CLUSTER_ALERT,
+                        payload={
+                            "alert_type": "regression_critical",
+                            "config_key": config_key,
+                            "model_id": model_id,
+                            "message": f"Critical model regression: {config_key} dropped {elo_drop:.0f} ELO",
+                            "severity": "critical",
+                        },
+                        source="DaemonManager",
+                    )
+                    await router.publish_async(DataEventType.CLUSTER_ALERT.value, alert_event)
+            except Exception as alert_err:
+                logger.debug(f"[DaemonManager] Failed to emit cluster alert: {alert_err}")
+
+            # Check if rollback daemon is running and healthy
+            if DaemonType.MODEL_DISTRIBUTION in self._daemons:
+                info = self._daemons[DaemonType.MODEL_DISTRIBUTION]
+                if info.status == DaemonStatus.RUNNING:
+                    logger.info(
+                        f"[DaemonManager] Model distribution daemon running - "
+                        f"rollback should be handled by RollbackManager"
+                    )
+
+        except Exception as e:
+            logger.error(f"[DaemonManager] Error handling REGRESSION_CRITICAL: {e}")
+
+    async def _verify_subscriptions(self) -> None:
+        """Verify that critical event subscriptions are active.
+
+        Phase 5 (December 2025): Startup verification catches missing wiring early.
+        Logs warnings for any critical events that have no subscribers.
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router is None:
+                logger.warning("[DaemonManager] Event router not available for subscription verification")
+                return
+
+            # Critical events that should have subscribers for feedback loop to work
+            critical_events = [
+                (DataEventType.HYPERPARAMETER_UPDATED, "FeedbackAccelerator"),
+                (DataEventType.CURRICULUM_ADVANCED, "CurriculumFeedback, SelfplayRunner"),
+                (DataEventType.ADAPTIVE_PARAMS_CHANGED, "SelfplayRunner"),
+                (DataEventType.REGRESSION_CRITICAL, "DaemonManager, TrainingCoordinator"),
+                (DataEventType.EVALUATION_COMPLETED, "FeedbackAccelerator, MomentumBridge"),
+                (DataEventType.MODEL_PROMOTED, "SelfplayRunner, ModelDistribution"),
+            ]
+
+            missing = []
+            active = []
+
+            for event_type, expected_subscribers in critical_events:
+                event_key = event_type.value if hasattr(event_type, 'value') else str(event_type)
+
+                # Check if router has subscribers for this event
+                subscriber_count = 0
+                if hasattr(router, '_subscribers'):
+                    subscriber_count = len(router._subscribers.get(event_key, []))
+                elif hasattr(router, 'get_subscriber_count'):
+                    subscriber_count = router.get_subscriber_count(event_key)
+
+                if subscriber_count == 0:
+                    missing.append(f"{event_key} (expected: {expected_subscribers})")
+                else:
+                    active.append(f"{event_key}: {subscriber_count} subscribers")
+
+            if missing:
+                logger.warning(
+                    f"[DaemonManager] Missing critical event subscribers:\n"
+                    f"  {chr(10).join('- ' + m for m in missing)}"
+                )
+            else:
+                logger.info(
+                    f"[DaemonManager] All {len(critical_events)} critical events have subscribers"
+                )
+
+            if active:
+                logger.debug(
+                    f"[DaemonManager] Active subscriptions:\n"
+                    f"  {chr(10).join('- ' + a for a in active)}"
+                )
+
+        except Exception as e:
+            logger.warning(f"[DaemonManager] Subscription verification failed: {e}")
 
     async def stop_all(self) -> dict[DaemonType, bool]:
         """Stop all running daemons.
@@ -1943,6 +2169,240 @@ class DaemonManager:
         except Exception as e:
             logger.error(f"TrainingTriggerDaemon failed: {e}")
 
+    async def _create_gauntlet_feedback(self) -> None:
+        """Create and run gauntlet feedback controller (December 2025).
+
+        Bridges gauntlet evaluation results to training feedback signals.
+        Monitors EVALUATION_COMPLETED events and emits HYPERPARAMETER_UPDATED.
+        """
+        try:
+            from app.coordination.gauntlet_feedback_controller import (
+                GauntletFeedbackController,
+            )
+
+            controller = GauntletFeedbackController()
+            await controller.start()
+
+            # Keep running while controller is active
+            while True:
+                await asyncio.sleep(60)
+                if not getattr(controller, "_running", True):
+                    break
+
+        except ImportError as e:
+            logger.warning(f"GauntletFeedbackController dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"GauntletFeedbackController failed: {e}")
+
+    async def _create_recovery_orchestrator(self) -> None:
+        """Create and run recovery orchestrator (December 2025).
+
+        Handles model and training state recovery after failures.
+        Subscribes to NODE_FAILED and TRAINING_FAILED events.
+        """
+        try:
+            from app.coordination.recovery_orchestrator import RecoveryOrchestrator
+
+            orchestrator = RecoveryOrchestrator()
+            await orchestrator.start()
+
+            while True:
+                await asyncio.sleep(60)
+                if not getattr(orchestrator, "_running", True):
+                    break
+
+        except ImportError as e:
+            logger.warning(f"RecoveryOrchestrator dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"RecoveryOrchestrator failed: {e}")
+
+    async def _create_cache_coordination(self) -> None:
+        """Create and run cache coordination orchestrator (December 2025).
+
+        Coordinates model caching across cluster nodes.
+        Ensures models are preloaded on nodes that need them.
+        """
+        try:
+            from app.coordination.cache_coordination_orchestrator import (
+                CacheCoordinationOrchestrator,
+            )
+
+            orchestrator = CacheCoordinationOrchestrator()
+            await orchestrator.start()
+
+            while True:
+                await asyncio.sleep(60)
+                if not getattr(orchestrator, "_running", True):
+                    break
+
+        except ImportError as e:
+            logger.warning(f"CacheCoordinationOrchestrator dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"CacheCoordinationOrchestrator failed: {e}")
+
+    async def _create_metrics_analysis(self) -> None:
+        """Create and run metrics analysis orchestrator (December 2025).
+
+        Continuously monitors training metrics and detects plateaus.
+        Emits PLATEAU_DETECTED and other metrics events.
+        """
+        try:
+            from app.coordination.metrics_analysis_orchestrator import (
+                MetricsAnalysisOrchestrator,
+            )
+
+            orchestrator = MetricsAnalysisOrchestrator()
+            await orchestrator.start()
+
+            while True:
+                await asyncio.sleep(60)
+                if not getattr(orchestrator, "_running", True):
+                    break
+
+        except ImportError as e:
+            logger.warning(f"MetricsAnalysisOrchestrator dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"MetricsAnalysisOrchestrator failed: {e}")
+
+    async def _create_adaptive_resources(self) -> None:
+        """Create and run adaptive resource manager (December 2025).
+
+        Dynamically scales resources based on workload and cluster health.
+        Monitors RESOURCE_PRESSURE and IDLE_GPU events.
+        """
+        try:
+            from app.coordination.adaptive_resource_manager import (
+                AdaptiveResourceManager,
+            )
+
+            manager = AdaptiveResourceManager()
+            await manager.start()
+
+            while True:
+                await asyncio.sleep(60)
+                if not getattr(manager, "_running", True):
+                    break
+
+        except ImportError as e:
+            logger.warning(f"AdaptiveResourceManager dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"AdaptiveResourceManager failed: {e}")
+
+    async def _create_multi_provider(self) -> None:
+        """Create and run multi-provider orchestrator (December 2025).
+
+        Coordinates workloads across multiple cloud providers (Lambda, Vast, etc).
+        Handles provider-specific optimizations and failover.
+        """
+        try:
+            from app.coordination.multi_provider_orchestrator import (
+                MultiProviderOrchestrator,
+            )
+
+            orchestrator = MultiProviderOrchestrator()
+            await orchestrator.start()
+
+            while True:
+                await asyncio.sleep(60)
+                if not getattr(orchestrator, "_running", True):
+                    break
+
+        except ImportError as e:
+            logger.warning(f"MultiProviderOrchestrator dependencies not available: {e}")
+        except Exception as e:
+            logger.error(f"MultiProviderOrchestrator failed: {e}")
+
+    async def _create_health_server(self) -> None:
+        """Create and run HTTP health server (December 2025).
+
+        Exposes health check endpoints for monitoring:
+        - GET /health: Liveness probe
+        - GET /ready: Readiness probe
+        - GET /metrics: Prometheus-style metrics
+        - GET /status: Detailed daemon status
+
+        Default port: 8790 (configurable via RINGRIFT_HEALTH_PORT env var)
+        """
+        try:
+            from aiohttp import web
+        except ImportError:
+            logger.warning("aiohttp not available for health server: pip install aiohttp")
+            return
+
+        port = int(os.environ.get("RINGRIFT_HEALTH_PORT", "8790"))
+
+        async def handle_health(request):
+            """Liveness probe - returns 200 if alive."""
+            probe = self.liveness_probe()
+            return web.json_response(probe)
+
+        async def handle_ready(request):
+            """Readiness probe - returns 200 if ready to serve."""
+            probe = self.readiness_probe()
+            status = 200 if probe.get("ready", False) else 503
+            return web.json_response(probe, status=status)
+
+        async def handle_metrics(request):
+            """Prometheus-style metrics."""
+            summary = self.health_summary()
+
+            # Format as Prometheus metrics
+            lines = [
+                f'# HELP daemon_count Number of daemons',
+                f'# TYPE daemon_count gauge',
+                f'daemon_count{{state="running"}} {summary.get("running", 0)}',
+                f'daemon_count{{state="stopped"}} {summary.get("stopped", 0)}',
+                f'daemon_count{{state="failed"}} {summary.get("failed", 0)}',
+                f'',
+                f'# HELP daemon_health_score Overall health score (0-1)',
+                f'# TYPE daemon_health_score gauge',
+                f'daemon_health_score {summary.get("health_score", 0.0)}',
+                f'',
+                f'# HELP daemon_uptime_seconds Daemon manager uptime',
+                f'# TYPE daemon_uptime_seconds counter',
+                f'daemon_uptime_seconds {summary.get("liveness", {}).get("uptime_seconds", 0)}',
+            ]
+            return web.Response(text='\n'.join(lines), content_type='text/plain')
+
+        async def handle_status(request):
+            """Detailed daemon status."""
+            summary = self.health_summary()
+            # Add per-daemon status
+            summary["daemons"] = {}
+            for daemon_type, info in self._factories.items():
+                state = self._daemon_states.get(daemon_type, DaemonState.STOPPED)
+                summary["daemons"][daemon_type.value] = {
+                    "state": state.value,
+                    "auto_restart": info.get("auto_restart", True),
+                }
+            return web.json_response(summary)
+
+        try:
+            app = web.Application()
+            app.router.add_get('/health', handle_health)
+            app.router.add_get('/ready', handle_ready)
+            app.router.add_get('/metrics', handle_metrics)
+            app.router.add_get('/status', handle_status)
+
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', port)
+            await site.start()
+
+            logger.info(f"Health server listening on http://0.0.0.0:{port}")
+
+            # Keep running
+            while True:
+                await asyncio.sleep(3600)
+
+        except OSError as e:
+            if "Address already in use" in str(e):
+                logger.warning(f"Health server port {port} already in use, skipping")
+            else:
+                logger.error(f"Health server failed: {e}")
+        except Exception as e:
+            logger.error(f"Health server failed: {e}")
+
     async def _create_dlq_retry(self) -> None:
         """Create and run dead-letter queue retry daemon.
 
@@ -2014,6 +2474,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
     # Coordinator node profile - runs on central MacBook
     "coordinator": [
         DaemonType.EVENT_ROUTER,
+        DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
         DaemonType.P2P_BACKEND,
         DaemonType.TOURNAMENT_DAEMON,
         DaemonType.MODEL_DISTRIBUTION,
@@ -2038,6 +2499,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
     # Training node profile - runs on GPU nodes
     "training_node": [
         DaemonType.EVENT_ROUTER,
+        DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
         DaemonType.DATA_PIPELINE,
         DaemonType.CONTINUOUS_TRAINING_LOOP,
         DaemonType.AUTO_SYNC,

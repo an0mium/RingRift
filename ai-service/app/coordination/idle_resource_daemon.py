@@ -118,6 +118,58 @@ class NodeStatus:
 
 
 @dataclass
+class SpawnAttempt:
+    """Record of a single spawn attempt (December 2025 - spawn tracking)."""
+    node_id: str
+    config_key: str
+    games: int
+    timestamp: float
+    success: bool
+    error: str | None = None
+    duration_seconds: float = 0.0
+
+
+@dataclass
+class NodeSpawnHistory:
+    """Per-node spawn history for failure tracking (December 2025)."""
+    node_id: str
+    total_attempts: int = 0
+    successful_attempts: int = 0
+    failed_attempts: int = 0
+    consecutive_failures: int = 0
+    last_attempt_time: float = 0.0
+    last_success_time: float = 0.0
+    last_failure_time: float = 0.0
+    backoff_until: float = 0.0  # Skip spawning until this time
+    last_error: str | None = None
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate (0.0 to 1.0)."""
+        if self.total_attempts == 0:
+            return 1.0  # No history = optimistic
+        return self.successful_attempts / self.total_attempts
+
+
+@dataclass
+class ConfigSpawnHistory:
+    """Per-config spawn history (December 2025)."""
+    config_key: str
+    total_attempts: int = 0
+    successful_attempts: int = 0
+    failed_attempts: int = 0
+    games_spawned: int = 0
+    last_success_time: float = 0.0
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate (0.0 to 1.0)."""
+        if self.total_attempts == 0:
+            return 1.0
+        return self.successful_attempts / self.total_attempts
+
+
+@dataclass
 class SpawnStats:
     """Statistics for spawn operations."""
     total_spawns: int = 0
@@ -145,6 +197,17 @@ class IdleResourceDaemon:
 
         # Track node states
         self._node_states: dict[str, NodeStatus] = {}
+
+        # Spawn tracking (December 2025)
+        self._node_spawn_history: dict[str, NodeSpawnHistory] = {}
+        self._config_spawn_history: dict[str, ConfigSpawnHistory] = {}
+        self._recent_spawn_attempts: list[SpawnAttempt] = []  # Last 100 attempts
+        self._max_recent_attempts: int = 100
+
+        # Backoff configuration
+        self._base_backoff_seconds: float = 60.0  # 1 minute initial backoff
+        self._max_backoff_seconds: float = 1800.0  # 30 minutes max backoff
+        self._max_consecutive_failures: int = 5  # Cap for exponential backoff
 
         # CoordinatorProtocol state
         self._coordinator_status = CoordinatorStatus.INITIALIZING
@@ -189,6 +252,154 @@ class IdleResourceDaemon:
     def is_running(self) -> bool:
         """Check if the daemon is running."""
         return self._running
+
+    def _is_node_in_backoff(self, node_id: str) -> bool:
+        """Check if node is currently in backoff period (December 2025)."""
+        history = self._node_spawn_history.get(node_id)
+        if not history:
+            return False
+        return time.time() < history.backoff_until
+
+    def _get_node_backoff_remaining(self, node_id: str) -> float:
+        """Get remaining backoff seconds for a node."""
+        history = self._node_spawn_history.get(node_id)
+        if not history:
+            return 0.0
+        remaining = history.backoff_until - time.time()
+        return max(0.0, remaining)
+
+    def _calculate_backoff(self, consecutive_failures: int) -> float:
+        """Calculate exponential backoff with cap (December 2025).
+
+        Backoff = base * 2^(failures-1), capped at max_backoff.
+        """
+        capped_failures = min(consecutive_failures, self._max_consecutive_failures)
+        backoff = self._base_backoff_seconds * (2 ** max(0, capped_failures - 1))
+        return min(backoff, self._max_backoff_seconds)
+
+    def _record_spawn_attempt(
+        self,
+        node_id: str,
+        config_key: str,
+        games: int,
+        success: bool,
+        error: str | None = None,
+        duration: float = 0.0,
+    ) -> None:
+        """Record a spawn attempt for tracking (December 2025)."""
+        now = time.time()
+
+        # Record in recent attempts (ring buffer)
+        attempt = SpawnAttempt(
+            node_id=node_id,
+            config_key=config_key,
+            games=games,
+            timestamp=now,
+            success=success,
+            error=error,
+            duration_seconds=duration,
+        )
+        self._recent_spawn_attempts.append(attempt)
+        if len(self._recent_spawn_attempts) > self._max_recent_attempts:
+            self._recent_spawn_attempts.pop(0)
+
+        # Update node history
+        if node_id not in self._node_spawn_history:
+            self._node_spawn_history[node_id] = NodeSpawnHistory(node_id=node_id)
+
+        node_history = self._node_spawn_history[node_id]
+        node_history.total_attempts += 1
+        node_history.last_attempt_time = now
+
+        if success:
+            node_history.successful_attempts += 1
+            node_history.last_success_time = now
+            node_history.consecutive_failures = 0  # Reset on success
+            node_history.backoff_until = 0.0  # Clear backoff
+        else:
+            node_history.failed_attempts += 1
+            node_history.last_failure_time = now
+            node_history.consecutive_failures += 1
+            node_history.last_error = error
+            # Apply exponential backoff
+            backoff = self._calculate_backoff(node_history.consecutive_failures)
+            node_history.backoff_until = now + backoff
+            logger.warning(
+                f"[IdleResourceDaemon] Node {node_id} spawn failed "
+                f"(consecutive: {node_history.consecutive_failures}), "
+                f"backoff for {backoff:.0f}s"
+            )
+
+        # Update config history
+        if config_key not in self._config_spawn_history:
+            self._config_spawn_history[config_key] = ConfigSpawnHistory(config_key=config_key)
+
+        config_history = self._config_spawn_history[config_key]
+        config_history.total_attempts += 1
+
+        if success:
+            config_history.successful_attempts += 1
+            config_history.last_success_time = now
+            config_history.games_spawned += games
+        else:
+            config_history.failed_attempts += 1
+
+    def get_spawn_history(self) -> dict[str, Any]:
+        """Get comprehensive spawn history (December 2025)."""
+        now = time.time()
+
+        # Aggregate node stats
+        node_stats = {}
+        for node_id, history in self._node_spawn_history.items():
+            node_stats[node_id] = {
+                "total_attempts": history.total_attempts,
+                "success_rate": round(history.success_rate, 3),
+                "consecutive_failures": history.consecutive_failures,
+                "in_backoff": self._is_node_in_backoff(node_id),
+                "backoff_remaining_seconds": round(self._get_node_backoff_remaining(node_id), 0),
+                "last_error": history.last_error,
+            }
+
+        # Aggregate config stats
+        config_stats = {}
+        for config_key, history in self._config_spawn_history.items():
+            config_stats[config_key] = {
+                "total_attempts": history.total_attempts,
+                "success_rate": round(history.success_rate, 3),
+                "games_spawned": history.games_spawned,
+            }
+
+        # Recent attempt summary
+        recent_window = 300  # Last 5 minutes
+        recent_attempts = [
+            a for a in self._recent_spawn_attempts
+            if now - a.timestamp < recent_window
+        ]
+        recent_success = sum(1 for a in recent_attempts if a.success)
+        recent_failed = len(recent_attempts) - recent_success
+
+        return {
+            "overall": {
+                "total_spawns": self._stats.total_spawns,
+                "successful_spawns": self._stats.successful_spawns,
+                "failed_spawns": self._stats.failed_spawns,
+                "success_rate": round(
+                    self._stats.successful_spawns / max(1, self._stats.total_spawns), 3
+                ),
+                "games_spawned": self._stats.games_spawned,
+            },
+            "recent_5min": {
+                "attempts": len(recent_attempts),
+                "successful": recent_success,
+                "failed": recent_failed,
+            },
+            "nodes_in_backoff": sum(
+                1 for n in self._node_spawn_history
+                if self._is_node_in_backoff(n)
+            ),
+            "nodes": node_stats,
+            "configs": config_stats,
+        }
 
     async def start(self) -> None:
         """Start the idle resource daemon."""
@@ -421,6 +632,15 @@ class IdleResourceDaemon:
         """Decide whether to spawn selfplay on a node."""
         now = time.time()
 
+        # Check if node is in backoff from previous failures (December 2025)
+        if self._is_node_in_backoff(node.node_id):
+            remaining = self._get_node_backoff_remaining(node.node_id)
+            logger.debug(
+                f"[IdleResourceDaemon] Skipping {node.node_id}: "
+                f"in backoff for {remaining:.0f}s more"
+            )
+            return False
+
         # Check if node is idle long enough
         if node.idle_since <= 0:
             return False
@@ -512,12 +732,14 @@ class IdleResourceDaemon:
         """Spawn a selfplay job on the given node."""
         async with self._semaphore:
             self._stats.total_spawns += 1
+            start_time = time.time()
+            config_key = "unknown"
+            games = self.config.default_games_per_spawn
 
             try:
                 config_key = self._select_config_for_gpu(node.gpu_memory_total_gb)
 
                 # Get multiplier from FeedbackAccelerator
-                games = self.config.default_games_per_spawn
                 try:
                     from app.training.feedback_accelerator import get_selfplay_multiplier
                     multiplier = get_selfplay_multiplier(config_key)
@@ -564,11 +786,21 @@ class IdleResourceDaemon:
 
                 # Spawn via P2P job distribution
                 success = await self._distribute_job(node, config_key, games)
+                duration = time.time() - start_time
 
                 if success:
                     self._stats.successful_spawns += 1
                     self._stats.games_spawned += games
                     self._stats.last_spawn_time = time.time()
+
+                    # Record successful attempt (December 2025)
+                    self._record_spawn_attempt(
+                        node_id=node.node_id,
+                        config_key=config_key,
+                        games=games,
+                        success=True,
+                        duration=duration,
+                    )
 
                     # Emit event
                     self._emit_spawn_event(node, config_key, games)
@@ -580,11 +812,30 @@ class IdleResourceDaemon:
                     return True
                 else:
                     self._stats.failed_spawns += 1
+                    # Record failed attempt (December 2025)
+                    self._record_spawn_attempt(
+                        node_id=node.node_id,
+                        config_key=config_key,
+                        games=games,
+                        success=False,
+                        error="P2P job distribution returned failure",
+                        duration=duration,
+                    )
                     return False
 
             except Exception as e:
                 self._stats.failed_spawns += 1
                 self._stats.last_error = str(e)
+                duration = time.time() - start_time
+                # Record failed attempt with exception details (December 2025)
+                self._record_spawn_attempt(
+                    node_id=node.node_id,
+                    config_key=config_key,
+                    games=games,
+                    success=False,
+                    error=str(e),
+                    duration=duration,
+                )
                 logger.error(f"Failed to spawn selfplay on {node.node_id}: {e}")
                 return False
 

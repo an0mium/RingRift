@@ -154,7 +154,7 @@ See [NNUE_POLICY_TRAINING.md](NNUE_POLICY_TRAINING.md) for full KL loss document
 ```bash
 # Standard MCTS selfplay
 python scripts/selfplay.py \
-    --board-type square8 \
+    --board square8 \
     --num-players 2 \
     --num-games 1000 \
     --engine-mode mcts \

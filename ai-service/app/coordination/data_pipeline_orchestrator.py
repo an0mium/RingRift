@@ -791,7 +791,7 @@ class DataPipelineOrchestrator:
             )
 
     async def _auto_trigger_sync(self, iteration: int) -> None:
-        """Auto-trigger data synchronization."""
+        """Auto-trigger data synchronization with prerequisite validation."""
         if not self._can_auto_trigger():
             return
 
@@ -801,15 +801,17 @@ class DataPipelineOrchestrator:
             return
 
         try:
-            from app.coordination.pipeline_actions import trigger_data_sync
-
-            logger.info(f"[DataPipelineOrchestrator] Auto-triggering sync for {board_type}_{num_players}p")
-            result = await trigger_data_sync(board_type, num_players, iteration)
+            # Use PipelineTrigger for prerequisite validation (December 2025)
+            from app.coordination.pipeline_triggers import PipelineTrigger
+            trigger = PipelineTrigger()
+            result = await trigger.trigger_sync_after_selfplay(board_type, num_players)
 
             if result.success:
                 self._record_circuit_success("data_sync")
+                logger.info(f"[DataPipelineOrchestrator] Sync triggered successfully: {result.message}")
             else:
-                self._record_circuit_failure("data_sync", result.error or "Unknown error")
+                self._record_circuit_failure("data_sync", result.error or "Prerequisite check failed")
+                logger.warning(f"[DataPipelineOrchestrator] Sync trigger failed: {result.message}")
         except Exception as e:
             logger.error(f"[DataPipelineOrchestrator] Auto-trigger sync failed: {e}")
             self._record_circuit_failure("data_sync", str(e))
@@ -837,7 +839,7 @@ class DataPipelineOrchestrator:
             )
 
     async def _auto_trigger_export(self, iteration: int) -> None:
-        """Auto-trigger NPZ export."""
+        """Auto-trigger NPZ export with prerequisite validation."""
         if not self._can_auto_trigger():
             return
 
@@ -847,10 +849,10 @@ class DataPipelineOrchestrator:
             return
 
         try:
-            from app.coordination.pipeline_actions import trigger_npz_export
-
-            logger.info(f"[DataPipelineOrchestrator] Auto-triggering export for {board_type}_{num_players}p")
-            result = await trigger_npz_export(board_type, num_players, iteration)
+            # Use PipelineTrigger for prerequisite validation (December 2025)
+            from app.coordination.pipeline_triggers import PipelineTrigger
+            trigger = PipelineTrigger()
+            result = await trigger.trigger_export_after_sync(board_type, num_players)
 
             if result.success:
                 self._record_circuit_success("npz_export")
@@ -858,8 +860,10 @@ class DataPipelineOrchestrator:
                 self._iteration_records[iteration].metadata = {
                     "npz_path": result.output_path
                 }
+                logger.info(f"[DataPipelineOrchestrator] Export triggered successfully: {result.message}")
             else:
-                self._record_circuit_failure("npz_export", result.error or "Unknown error")
+                self._record_circuit_failure("npz_export", result.error or "Prerequisite check failed")
+                logger.warning(f"[DataPipelineOrchestrator] Export trigger failed: {result.message}")
         except Exception as e:
             logger.error(f"[DataPipelineOrchestrator] Auto-trigger export failed: {e}")
             self._record_circuit_failure("npz_export", str(e))
@@ -901,7 +905,7 @@ class DataPipelineOrchestrator:
             )
 
     async def _auto_trigger_training(self, iteration: int, npz_path: str) -> None:
-        """Auto-trigger neural network training."""
+        """Auto-trigger neural network training with prerequisite validation."""
         if not self._can_auto_trigger():
             return
 
@@ -911,29 +915,20 @@ class DataPipelineOrchestrator:
             return
 
         try:
-            from app.coordination.pipeline_actions import trigger_training
-
-            # Get training config from pipeline config (December 2025)
-            training_epochs = getattr(self._config, "training_epochs", 50)
-            training_batch_size = getattr(self._config, "training_batch_size", 512)
-
-            logger.info(
-                f"[DataPipelineOrchestrator] Auto-triggering training for {board_type}_{num_players}p "
-                f"(epochs={training_epochs}, batch_size={training_batch_size})"
-            )
-            result = await trigger_training(
-                board_type, num_players, npz_path, iteration,
-                batch_size=training_batch_size,
-                epochs=training_epochs,
-            )
+            # Use PipelineTrigger for prerequisite validation (December 2025)
+            from app.coordination.pipeline_triggers import PipelineTrigger
+            trigger = PipelineTrigger()
+            result = await trigger.trigger_training_after_export(board_type, num_players)
 
             if result.success:
                 self._record_circuit_success("training")
                 # Store model path for evaluation stage
                 if iteration in self._iteration_records:
                     self._iteration_records[iteration].model_id = result.metadata.get("model_id")
+                logger.info(f"[DataPipelineOrchestrator] Training triggered successfully: {result.message}")
             else:
-                self._record_circuit_failure("training", result.error or "Unknown error")
+                self._record_circuit_failure("training", result.error or "Prerequisite check failed")
+                logger.warning(f"[DataPipelineOrchestrator] Training trigger failed: {result.message}")
         except Exception as e:
             logger.error(f"[DataPipelineOrchestrator] Auto-trigger training failed: {e}")
             self._record_circuit_failure("training", str(e))

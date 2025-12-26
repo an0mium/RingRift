@@ -47,6 +47,22 @@ describe('turnOrchestrator – skip_territory_processing', () => {
 
     const state = initialState as GameState;
 
+    // Simulate that the player already took a real action earlier this turn.
+    // This ensures skip_territory_processing is treated as a normal turn-ending
+    // skip rather than triggering forced_elimination gating.
+    state.moveHistory = [
+      {
+        id: 'prev-real-action',
+        type: 'move_stack',
+        player: state.currentPlayer,
+        from: { x: 0, y: 0 },
+        to: { x: 0, y: 0 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 0,
+      } as Move,
+    ];
+
     const skipMove: Move = {
       id: 'skip-territory-test',
       type: 'skip_territory_processing',
@@ -72,5 +88,35 @@ describe('turnOrchestrator – skip_territory_processing', () => {
 
     expect(after.currentPlayer).not.toBe(beforePlayer);
     expect(after.currentPhase).not.toBe(beforePhase);
+  });
+
+  it('processTurn with skip_territory_processing enters forced_elimination when the player had no actions but still has stacks', () => {
+    const { initialState } = createSquareTerritoryRegionScenario(
+      'territory-skip-orchestrator-forced-elim'
+    );
+
+    const state = initialState as GameState;
+
+    // No prior real actions recorded for this turn (moveHistory empty) and player
+    // controls at least one stack on the board (outsideStackPosition).
+    const skipMove: Move = {
+      id: 'skip-territory-forced-elim',
+      type: 'skip_territory_processing',
+      player: state.currentPlayer,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    } as Move;
+
+    const result = processTurn(state, skipMove);
+
+    expect(result.status).toBe('awaiting_decision');
+    expect(result.pendingDecision).toBeDefined();
+    expect(result.pendingDecision!.type).toBe('elimination_target');
+
+    expect(result.nextState.currentPlayer).toBe(state.currentPlayer);
+    expect(result.nextState.currentPhase).toBe('forced_elimination');
+    expect(result.nextState.gameStatus).toBe('active');
   });
 });

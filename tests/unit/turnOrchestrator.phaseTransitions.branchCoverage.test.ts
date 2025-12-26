@@ -1113,6 +1113,19 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
 
+      // Ensure the player has taken a real action earlier in the turn so that
+      // skip_territory_processing is treated as a normal turn-ending skip (and
+      // does not trigger forced_elimination gating).
+      const previousRealAction: Move = {
+        id: 'move-0',
+        type: 'move_stack',
+        player: 1,
+        from: { x: 3, y: 3 },
+        to: { x: 3, y: 3 },
+        timestamp: Date.now() - 1000,
+        moveNumber: 0,
+      };
+
       const state = createBaseState('territory_processing', {
         board,
         players: [
@@ -1120,6 +1133,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
           createPlayer(2, { ringsInHand: 0, territorySpaces: 5 }),
         ],
         territoryVictoryThreshold: 33,
+        moveHistory: [previousRealAction],
       });
 
       const move: Move = {

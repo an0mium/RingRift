@@ -674,6 +674,66 @@ class UnifiedEventRouter:
             "max_seen_events": self._max_seen_events,
         }
 
+    def validate_event_flow(self) -> dict[str, Any]:
+        """Validate event flow health and return diagnostics (December 2025).
+
+        This method checks:
+        1. Whether events are being routed through all buses
+        2. If there are any stuck or missing events
+        3. Recent event activity patterns
+
+        Returns:
+            Dictionary with validation results and recommendations
+        """
+        stats = self.get_stats()
+        issues: list[str] = []
+        recommendations: list[str] = []
+
+        # Check if events are being routed
+        total_routed = stats["total_events_routed"]
+        if total_routed == 0:
+            issues.append("No events have been routed - pipeline may not be active")
+            recommendations.append("Start the pipeline with: python scripts/run_training_loop.py")
+
+        # Check bus availability
+        if not stats["has_data_events"]:
+            issues.append("DataEventBus not available")
+        if not stats["has_stage_events"]:
+            issues.append("StageEventBus not available")
+        if not stats["has_cross_process"]:
+            issues.append("CrossProcessEventQueue not available")
+
+        # Check for high duplicate rate (potential event loop)
+        if total_routed > 100:
+            dup_rate = stats["total_duplicates_prevented"] / (total_routed + stats["total_duplicates_prevented"])
+            if dup_rate > 0.3:
+                issues.append(f"High duplicate rate: {dup_rate:.1%} - possible event loop")
+                recommendations.append("Check for circular event subscriptions")
+
+        # Check subscriber count
+        if stats["subscriber_count"] == 0 and stats["global_subscriber_count"] == 0:
+            issues.append("No event subscribers registered")
+            recommendations.append("Ensure pipeline components are initialized with wire_pipeline_events()")
+
+        # Get recent event types
+        recent_events = [e.event_type for e in self._event_history[-20:]] if self._event_history else []
+        recent_event_types = list(set(recent_events))
+
+        return {
+            "healthy": len(issues) == 0,
+            "issues": issues,
+            "recommendations": recommendations,
+            "total_events_routed": total_routed,
+            "subscriber_count": stats["subscriber_count"] + stats["global_subscriber_count"],
+            "recent_event_types": recent_event_types,
+            "buses_available": {
+                "data_events": stats["has_data_events"],
+                "stage_events": stats["has_stage_events"],
+                "cross_process": stats["has_cross_process"],
+            },
+            "duplicates_prevented": stats["total_duplicates_prevented"],
+        }
+
     def stop(self) -> None:
         """Stop the router (cleanup cross-process poller)."""
         if self._cp_poller:
@@ -741,6 +801,29 @@ def unsubscribe(
     return get_router().unsubscribe(event_type, callback)
 
 
+def validate_event_flow() -> dict[str, Any]:
+    """Validate event flow health (December 2025).
+
+    Returns diagnostics about the event system including:
+    - Whether events are being routed
+    - Bus availability
+    - Recent event types
+    - Any issues detected
+
+    Usage:
+        from app.coordination.event_router import validate_event_flow
+        result = validate_event_flow()
+        if not result["healthy"]:
+            print("Issues:", result["issues"])
+    """
+    return get_router().validate_event_flow()
+
+
+def get_event_stats() -> dict[str, Any]:
+    """Get event router statistics."""
+    return get_router().get_stats()
+
+
 __all__ = [
     "DATA_TO_STAGE_EVENT_MAP",
     # Event type mappings
@@ -757,6 +840,8 @@ __all__ = [
     "reset_router",
     "subscribe",
     "unsubscribe",
+    "validate_event_flow",
+    "get_event_stats",
     # Re-exports from data_events for backward compatibility
     "DataEvent",
     "DataEventType",

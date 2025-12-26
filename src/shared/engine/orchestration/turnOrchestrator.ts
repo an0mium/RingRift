@@ -2410,11 +2410,48 @@ function applyMoveWithChainInfo(
 
     case 'skip_territory_processing': {
       // Explicit skip in territory_processing phase when player opts out of
-      // processing available regions. Rotate to next player and start their
-      // turn. Per RR-CANON-R073: ALL players start in ring_placement without exception.
-      // Clear mustMoveFromStackKey for new turn.
+      // processing available regions.
+      //
+      // IMPORTANT (RR-CANON-R070/R075/R206): This may still require transitioning
+      // to forced_elimination before the turn can end. In particular, if the
+      // player had no real actions this turn but still controls stacks, we must:
+      //   1) enter forced_elimination, and
+      //   2) surface an explicit forced_elimination decision.
+      //
+      // Defer any victory evaluation until after forced_elimination is resolved
+      // via an explicit forced_elimination move.
 
-      // RR-PARITY-FIX-2025-12-21: Check victory BEFORE rotating to next player.
+      // RR-REPLAY-COMPAT: If already in forced_elimination, skip the check and rotate.
+      const alreadyInForcedElimination = state.currentPhase === 'forced_elimination';
+
+      if (!alreadyInForcedElimination) {
+        // Mirror the no_territory_action forced-elimination gating.
+        const hadAnyAction = computeHadAnyActionThisTurn(
+          state,
+          move,
+          options?.turnSequenceRealMoves
+        );
+        const hasStacks = playerHasStacksOnBoard(state, move.player);
+
+        if (!hadAnyAction && hasStacks) {
+          // Transition to forced_elimination and surface the pending decision.
+          const nextState = {
+            ...state,
+            currentPlayer: move.player,
+            currentPhase: 'forced_elimination' as GamePhase,
+          };
+          const forcedDecision = createForcedEliminationDecision(nextState);
+          if (forcedDecision && forcedDecision.options.length > 0) {
+            return {
+              nextState,
+              pendingDecision: forcedDecision,
+            };
+          }
+          // No valid forced elimination options - fall through to victory/rotation.
+        }
+      }
+
+      // No forced elimination needed (or already was in FE) - check victory then rotate.
       const skipTerritoryVictory = toVictoryState(state);
       if (skipTerritoryVictory.isGameOver) {
         return {
@@ -2433,7 +2470,7 @@ function applyMoveWithChainInfo(
       // no_placement_action which transitions to movement, but they MUST enter
       // ring_placement first.
       const players = state.players;
-      const currentPlayerIndex = players.findIndex((p) => p.playerNumber === state.currentPlayer);
+      const currentPlayerIndex = players.findIndex((p) => p.playerNumber === move.player);
       const { nextPlayer } = computeNextNonEliminatedPlayer(state, currentPlayerIndex, players);
 
       return {

@@ -48,6 +48,23 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
     expect(state.currentPhase).toBe('territory_processing');
     const currentPlayer = state.currentPlayer;
 
+    // The orchestrator's forced-elimination gating for skip_territory_processing
+    // triggers only when the player had no real actions recorded this turn.
+    // This fixture starts directly in territory_processing, so we add a synthetic
+    // prior real move to reflect a typical end-of-turn skip.
+    state.moveHistory = [
+      {
+        id: 'prev-real-action',
+        type: 'move_stack',
+        player: currentPlayer,
+        from: { x: 0, y: 0 },
+        to: { x: 0, y: 0 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 0,
+      } as Move,
+    ];
+
     const config: SandboxConfig = {
       boardType: state.board.type,
       numPlayers: state.players.length,
@@ -196,6 +213,11 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
       ...helperOutcome.nextState,
       currentPhase: 'territory_processing',
     };
+
+    // In real hosts, the applied choose_territory_option move would be appended
+    // to moveHistory before the player can issue a follow-up skip. Mirror that
+    // so skip_territory_processing is treated as a normal turn-ending skip.
+    postRegionState.moveHistory = [...(postRegionState.moveHistory ?? []), regionMoveA];
 
     for (const pos of regionA.spaces) {
       const key = `${pos.x},${pos.y}`;

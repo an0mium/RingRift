@@ -609,7 +609,7 @@ Bootstrap weak configs from strong models:
 
 ```bash
 python scripts/train_nnue_policy.py \
-  --board hexagonal --num-players 3 \
+  --board-type hexagonal --num-players 3 \
   --db data/games/jsonl_aggregated.db \
   --pretrained models/nnue/nnue_policy_square8_2p.pt \
   --freeze-value \

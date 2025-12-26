@@ -51,12 +51,22 @@ logger = logging.getLogger(__name__)
 # Event emission for quality updates (optional integration)
 try:
     import asyncio
+    from collections import deque
 
     from app.coordination.event_emitters import emit_game_quality_score
     HAS_QUALITY_EVENTS = True
 except ImportError:
     HAS_QUALITY_EVENTS = False
     emit_game_quality_score = None
+    deque = None  # type: ignore
+
+# Event emission for quality distribution changes (Phase 5, December 2025)
+try:
+    from app.distributed.event_helpers import emit_quality_distribution_changed_safe
+    HAS_DISTRIBUTION_EVENTS = True
+except ImportError:
+    HAS_DISTRIBUTION_EVENTS = False
+    emit_quality_distribution_changed_safe = None  # type: ignore
 
 
 class QualityCategory(str, Enum):
@@ -262,6 +272,13 @@ class UnifiedQualityScorer:
         self.weights = weights or QualityWeights.from_config()
         self.elo_lookup = elo_lookup
 
+        # Phase 5: Distribution tracking for QUALITY_DISTRIBUTION_CHANGED events
+        # Track recent quality scores per config to detect distribution shifts
+        self._quality_history: dict[str, deque] = {} if deque else {}
+        self._last_distribution: dict[str, dict[str, float]] = {}
+        self._distribution_window: int = 100  # Games to track per config
+        self._distribution_shift_threshold: float = 0.1  # 10% shift triggers event
+
     @classmethod
     def get_instance(
         cls,
@@ -409,6 +426,14 @@ class UnifiedQualityScorer:
                 ))
             except RuntimeError:
                 pass  # No running loop - skip event emission
+
+        # Phase 5: Track quality distribution for feedback loop
+        # Build config key from board_type and num_players
+        board_type = game_data.get("board_type", "")
+        num_players = game_data.get("num_players", 0)
+        if board_type and num_players:
+            config_key = f"{board_type}_{num_players}p"
+            self._track_quality_distribution(config_key, quality.quality_score)
 
         return quality
 
@@ -593,6 +618,77 @@ class UnifiedQualityScorer:
     def is_priority_sync_worthy(self, quality: GameQuality) -> bool:
         """Check if a game should be priority synced."""
         return quality.quality_score >= self.weights.min_quality_for_priority_sync
+
+    def _track_quality_distribution(
+        self,
+        config_key: str,
+        quality_score: float,
+    ) -> None:
+        """Track quality distribution and emit events when it shifts.
+
+        Phase 5: Enables selfplay to adapt when quality distribution changes
+        significantly (e.g., model getting stronger -> more high-quality games).
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            quality_score: Quality score for this game (0-1)
+        """
+        if not HAS_DISTRIBUTION_EVENTS or deque is None:
+            return
+
+        # Initialize history for this config if needed
+        if config_key not in self._quality_history:
+            self._quality_history[config_key] = deque(maxlen=self._distribution_window)
+
+        history = self._quality_history[config_key]
+        history.append(quality_score)
+
+        # Need at least half window to compute meaningful distribution
+        if len(history) < self._distribution_window // 2:
+            return
+
+        # Compute current distribution
+        scores = list(history)
+        avg_quality = sum(scores) / len(scores)
+        high_quality_ratio = sum(1 for s in scores if s >= self.weights.high_quality_threshold) / len(scores)
+        low_quality_ratio = sum(1 for s in scores if s < self.weights.min_quality_for_training) / len(scores)
+
+        current_dist = {
+            "avg_quality": avg_quality,
+            "high_quality_ratio": high_quality_ratio,
+            "low_quality_ratio": low_quality_ratio,
+        }
+
+        # Check for significant shift
+        last_dist = self._last_distribution.get(config_key)
+        if last_dist is not None:
+            avg_shift = abs(current_dist["avg_quality"] - last_dist["avg_quality"])
+            high_shift = abs(current_dist["high_quality_ratio"] - last_dist["high_quality_ratio"])
+
+            # Only emit if shift exceeds threshold
+            if avg_shift < self._distribution_shift_threshold and high_shift < self._distribution_shift_threshold:
+                return
+
+        # Update last distribution
+        self._last_distribution[config_key] = current_dist
+
+        # Emit event asynchronously
+        try:
+            asyncio.get_running_loop()  # Check if loop is running
+            asyncio.ensure_future(emit_quality_distribution_changed_safe(
+                config=config_key,
+                avg_quality=avg_quality,
+                high_quality_ratio=high_quality_ratio,
+                low_quality_ratio=low_quality_ratio,
+                total_games=len(scores),
+                source="unified_quality",
+            ))
+            logger.debug(
+                f"[UnifiedQuality] Distribution changed for {config_key}: "
+                f"avg={avg_quality:.3f}, high={high_quality_ratio:.2%}, low={low_quality_ratio:.2%}"
+            )
+        except RuntimeError:
+            pass  # No running loop - skip event emission
 
     def compute_freshness_score(
         self,

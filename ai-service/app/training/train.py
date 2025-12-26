@@ -2019,6 +2019,7 @@ def train_model(
             eval_feedback_handler = None
 
     # Early stopping (supports both loss-based and Elo-based criteria)
+    # Also emits PLATEAU_DETECTED events for curriculum feedback
     early_stopper: EarlyStopping | None = None
     if early_stopping_patience > 0 or elo_early_stopping_patience > 0:
         early_stopper = EarlyStopping(
@@ -2026,6 +2027,7 @@ def train_model(
             min_delta=0.0001,
             elo_patience=elo_early_stopping_patience if elo_early_stopping_patience > 0 else None,
             elo_min_improvement=elo_min_improvement,
+            config_name=config_key,  # For PLATEAU_DETECTED event emission
         )
 
     # Track starting epoch for resume
@@ -2970,7 +2972,7 @@ def train_model(
     rollback_handler = None
     try:
         from app.training.rollback_manager import wire_regression_to_rollback
-        from app.models.model_registry import get_model_registry
+        from app.training.model_registry import get_model_registry
 
         registry = get_model_registry()
         rollback_handler = wire_regression_to_rollback(
@@ -4267,6 +4269,44 @@ def train_model(
                             f"Early stopping triggered at epoch {epoch+1} "
                             f"(best loss: {early_stopper.best_loss:.4f}{elo_info})"
                         )
+
+                        # Emit TRAINING_EARLY_STOPPED event (December 2025 - feedback loop)
+                        # This triggers curriculum boost for this config
+                        try:
+                            import asyncio
+                            from app.distributed.data_events import emit_training_early_stopped
+
+                            config_key = f"{config.board_type}_{num_players}p"
+                            best_elo = early_stopper.best_elo if early_stopper.best_elo > float('-inf') else None
+                            epochs_without_improvement = early_stopper.counter if hasattr(early_stopper, 'counter') else 0
+
+                            # Use fire-and-forget emit via event loop
+                            try:
+                                loop = asyncio.get_running_loop()
+                                loop.create_task(emit_training_early_stopped(
+                                    config_key=config_key,
+                                    epoch=epoch + 1,
+                                    best_loss=float(early_stopper.best_loss),
+                                    final_loss=float(avg_val_loss),
+                                    best_elo=best_elo,
+                                    reason="loss_stagnation",
+                                    epochs_without_improvement=epochs_without_improvement,
+                                ))
+                            except RuntimeError:
+                                # No running loop - create one for sync emit
+                                asyncio.run(emit_training_early_stopped(
+                                    config_key=config_key,
+                                    epoch=epoch + 1,
+                                    best_loss=float(early_stopper.best_loss),
+                                    final_loss=float(avg_val_loss),
+                                    best_elo=best_elo,
+                                    reason="loss_stagnation",
+                                    epochs_without_improvement=epochs_without_improvement,
+                                ))
+
+                            logger.info(f"[train] Emitted TRAINING_EARLY_STOPPED for {config_key}")
+                        except Exception as e:
+                            logger.warning(f"Failed to emit TRAINING_EARLY_STOPPED: {e}")
                         # Restore best weights
                         early_stopper.restore_best_weights(model_to_save)
                         # Save final checkpoint with best weights

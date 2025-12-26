@@ -53,22 +53,8 @@ __all__ = [
 ]
 
 
-class SyncPriority(Enum):
-    """Priority levels for sync operations."""
-    CRITICAL = 100  # Training about to start
-    HIGH = 75       # Training node needs data
-    NORMAL = 50     # Regular replication
-    LOW = 25        # Background replication
-    BACKGROUND = 10 # Opportunistic sync
-
-
-class SyncState(Enum):
-    """State of a sync operation."""
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+# Phase 5 (Dec 2025): Use canonical definitions from sync_constants
+from app.coordination.sync_constants import SyncPriority, SyncState
 
 
 @dataclass

@@ -2580,6 +2580,9 @@ class EnhancedEarlyStopping:
         mode: str = 'min',
         restore_best: bool = True,
         min_epochs: int = 3,
+        emit_events: bool = True,
+        plateau_warning_threshold: float = 0.5,
+        config_name: str = "unknown",
     ):
         """
         Args:
@@ -2590,6 +2593,10 @@ class EnhancedEarlyStopping:
             mode: 'min' for loss, 'max' for accuracy
             restore_best: Whether to restore best model on stop
             min_epochs: Minimum epochs before early stopping can trigger
+            emit_events: Whether to emit PLATEAU_DETECTED events (default True)
+            plateau_warning_threshold: Emit warning when counter reaches this
+                fraction of patience (default 0.5 = 50%)
+            config_name: Config name for event emission (e.g., "hex8_2p")
         """
         self.patience = patience
         self.min_delta = min_delta
@@ -2598,6 +2605,9 @@ class EnhancedEarlyStopping:
         self.mode = mode
         self.restore_best = restore_best
         self.min_epochs = min_epochs
+        self.emit_events = emit_events
+        self.plateau_warning_threshold = plateau_warning_threshold
+        self.config_name = config_name
 
         self.best_loss = float('inf') if mode == 'min' else float('-inf')
         self.best_elo = float('-inf')
@@ -2607,6 +2617,8 @@ class EnhancedEarlyStopping:
         self.best_epoch = 0
         self._stopped = False
         self._call_epoch = 0  # Epoch counter for __call__ legacy interface
+        self._loss_plateau_emitted = False  # Track if loss plateau warning emitted
+        self._elo_plateau_emitted = False   # Track if elo plateau warning emitted
 
     def should_stop(
         self,
@@ -2651,6 +2663,12 @@ class EnhancedEarlyStopping:
         if improved and model is not None:
             self.best_state = copy.deepcopy(model.state_dict())
             self.best_epoch = epoch
+            # Reset plateau warning flags on improvement
+            self._loss_plateau_emitted = False
+            self._elo_plateau_emitted = False
+
+        # Check and emit plateau warnings (emit even during min_epochs for feedback)
+        self._check_and_emit_plateau_warnings(val_loss, current_elo)
 
         # Don't allow early stopping before min_epochs
         # (but we still track improvements above)
@@ -2684,6 +2702,79 @@ class EnhancedEarlyStopping:
             return current < best - self.min_delta
         return current > best + self.min_delta
 
+    def _emit_plateau_event(
+        self,
+        plateau_type: str,
+        current_value: float,
+        best_value: float,
+        epochs_since_improvement: int,
+    ) -> None:
+        """Emit PLATEAU_DETECTED event for curriculum feedback.
+
+        Args:
+            plateau_type: "loss" or "elo"
+            current_value: Current metric value
+            best_value: Best value seen
+            epochs_since_improvement: How many epochs without improvement
+        """
+        if not self.emit_events:
+            return
+
+        try:
+            from app.coordination.event_emitters import emit_plateau_detected
+            from app.utils.async_utils import fire_and_forget
+
+            # Fire and forget the async event emission
+            fire_and_forget(
+                emit_plateau_detected(
+                    metric_name=f"{self.config_name}_{plateau_type}",
+                    current_value=current_value,
+                    best_value=best_value,
+                    epochs_since_improvement=epochs_since_improvement,
+                    plateau_type=plateau_type,
+                    config_key=self.config_name,
+                    patience=self.patience if plateau_type == "loss" else self.elo_patience,
+                    threshold_pct=self.plateau_warning_threshold,
+                ),
+                name=f"plateau_{plateau_type}_{self.config_name}",
+            )
+            logger.info(
+                f"[EnhancedEarlyStopping] Emitted PLATEAU_DETECTED for {plateau_type} "
+                f"(epochs={epochs_since_improvement}, config={self.config_name})"
+            )
+        except Exception as e:
+            logger.debug(f"[EnhancedEarlyStopping] Event emission failed: {e}")
+
+    def _check_and_emit_plateau_warnings(
+        self,
+        val_loss: float | None,
+        current_elo: float | None,
+    ) -> None:
+        """Check if plateau warning threshold reached and emit events."""
+        # Loss plateau warning
+        if val_loss is not None and not self._loss_plateau_emitted:
+            warning_threshold = int(self.patience * self.plateau_warning_threshold)
+            if self.loss_counter >= warning_threshold and warning_threshold > 0:
+                self._emit_plateau_event(
+                    plateau_type="loss",
+                    current_value=val_loss,
+                    best_value=self.best_loss,
+                    epochs_since_improvement=self.loss_counter,
+                )
+                self._loss_plateau_emitted = True
+
+        # Elo plateau warning
+        if current_elo is not None and not self._elo_plateau_emitted:
+            warning_threshold = int(self.elo_patience * self.plateau_warning_threshold)
+            if self.elo_counter >= warning_threshold and warning_threshold > 0:
+                self._emit_plateau_event(
+                    plateau_type="elo",
+                    current_value=current_elo,
+                    best_value=self.best_elo,
+                    epochs_since_improvement=self.elo_counter,
+                )
+                self._elo_plateau_emitted = True
+
     def restore_best_model(self, model: nn.Module) -> bool:
         """
         Restore model to best state.
@@ -2707,6 +2798,8 @@ class EnhancedEarlyStopping:
         self.best_epoch = 0
         self._stopped = False
         self._call_epoch = 0  # Reset epoch counter for legacy interface
+        self._loss_plateau_emitted = False
+        self._elo_plateau_emitted = False
 
     # =========================================================================
     # Backwards Compatibility Methods (for drop-in replacement of basic EarlyStopping)
@@ -3661,10 +3754,45 @@ class EvaluationFeedbackHandler:
                 self._record_elo(elo)
 
             subscribe(DataEventType.EVALUATION_COMPLETED, on_evaluation_completed)
+
+            # Also subscribe to HYPERPARAMETER_UPDATED for runtime LR updates (December 2025)
+            # This closes the feedback loop: GauntletFeedbackController -> HYPERPARAMETER_UPDATED -> runtime LR change
+            def on_hyperparameter_updated(event):
+                """Handle HYPERPARAMETER_UPDATED for runtime hyperparameter changes."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config", "")
+
+                # Only respond to our config's events
+                if event_config != self.config_key:
+                    return
+
+                parameter = payload.get("parameter", "")
+                new_value = payload.get("new_value", None)
+                reason = payload.get("reason", "unknown")
+
+                if parameter == "learning_rate" and new_value is not None:
+                    try:
+                        new_lr = float(new_value)
+                        # Clamp to valid range
+                        new_lr = max(self.min_lr, min(self.max_lr, new_lr))
+                        old_lr = self.optimizer.param_groups[0]["lr"]
+
+                        # Apply immediately to optimizer
+                        for param_group in self.optimizer.param_groups:
+                            param_group["lr"] = new_lr
+
+                        logger.info(
+                            f"[EvaluationFeedbackHandler] Runtime LR update for {self.config_key}: "
+                            f"{old_lr:.2e} -> {new_lr:.2e} (reason: {reason})"
+                        )
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"[EvaluationFeedbackHandler] Invalid LR value: {new_value} ({e})")
+
+            subscribe(DataEventType.HYPERPARAMETER_UPDATED, on_hyperparameter_updated)
             self._subscribed = True
 
             logger.info(
-                f"[EvaluationFeedbackHandler] Subscribed to EVALUATION_COMPLETED "
+                f"[EvaluationFeedbackHandler] Subscribed to EVALUATION_COMPLETED + HYPERPARAMETER_UPDATED "
                 f"for {self.config_key}"
             )
             return True

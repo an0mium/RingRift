@@ -51,13 +51,13 @@ Supported board types: `square8`, `hex8`, `square19`, `hexagonal`
 # Start on a node (square8)
 ssh gpu-worker-1 'cd ~/ringrift/ai-service && \
   nohup venv/bin/python scripts/run_gpu_selfplay.py \
-    --board-type square8 --num-players 2 --num-games 1000 \
+    --board square8 --num-players 2 --num-games 1000 \
     --output-dir data/selfplay/gpu_square8_2p > /tmp/gpu_selfplay.log 2>&1 &'
 
 # Start hex8 selfplay (radius-4 hexagonal, 61 cells)
 ssh gpu-worker-1 'cd ~/ringrift/ai-service && \
   nohup venv/bin/python scripts/run_gpu_selfplay.py \
-    --board-type hex8 --num-players 2 --num-games 1000 \
+    --board hex8 --num-players 2 --num-games 1000 \
     --output-dir data/selfplay/gpu_hex8_2p > /tmp/gpu_selfplay_hex8.log 2>&1 &'
 
 # Stop workers on a node

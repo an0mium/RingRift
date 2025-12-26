@@ -131,6 +131,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Filter out samples with empty policy targets'
     )
     parser.add_argument(
+        '--min-quality-score', type=float, default=0.0,
+        help='Minimum quality score for training samples (0.0-1.0). '
+             'Samples below this threshold will be excluded from training. '
+             'Requires NPZ file with quality_score field. (December 2025)'
+    )
+    parser.add_argument(
         '--feature-version', type=int, default=None,
         help='Feature encoding version (1=legacy, 2=enhanced features)'
     )
@@ -812,6 +818,8 @@ def main() -> None:
         check_data_freshness=getattr(args, 'check_data_freshness', False),
         max_data_age_hours=getattr(args, 'max_data_age_hours', 1.0),
         fail_on_stale_data=getattr(args, 'fail_on_stale_data', False),
+        # Quality-aware sample filtering (December 2025)
+        min_quality_score=getattr(args, 'min_quality_score', 0.0),
     )
 
 
