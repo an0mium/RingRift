@@ -83,7 +83,7 @@ HTTP server port for the main API.
 | Default  | `0.0.0.0` |
 | Required | No        |
 
-Server bind address. Use `0.0.0.0` to listen on all interfaces.
+Server bind address for the main API (and the optional metrics server when enabled). Use `0.0.0.0` to listen on all interfaces.
 
 ### `npm_package_version`
 
@@ -554,6 +554,8 @@ Application log level.
 
 Log output format. Use `json` in production, `pretty` for development.
 
+`LOG_FORMAT` controls **console** formatting. File transports (`logs/error.log` and the combined log file) always emit structured JSON.
+
 ### `LOG_FILE`
 
 | Property | Value           |
@@ -563,6 +565,8 @@ Log output format. Use `json` in production, `pretty` for development.
 | Required | No              |
 
 Log file path. Logs also go to stdout.
+
+When set, this overrides the combined log file path (default: `logs/combined.log`). The error log remains at `logs/error.log`.
 
 **Log fields and runbook alignment**
 
@@ -743,6 +747,8 @@ Optional app version string used in telemetry/debugging.
 
 Enable Prometheus metrics endpoint.
 
+When `false`, the `/metrics` endpoint is not exposed and HTTP metrics middleware is disabled.
+
 ### `ENABLE_HEALTH_CHECKS`
 
 | Property | Value     |
@@ -752,6 +758,8 @@ Enable Prometheus metrics endpoint.
 | Required | No        |
 
 Enable health check endpoints.
+
+When `false`, `/health`, `/ready`, and `/api/internal/health/*` are not registered.
 
 ### `METRICS_PORT`
 
@@ -763,6 +771,8 @@ Enable health check endpoints.
 | Required | No       |
 
 Prometheus metrics server port.
+
+If `METRICS_PORT` is **explicitly set** and differs from `PORT`, the `/metrics` endpoint is served on that port instead of the main API port. When `METRICS_PORT` is unset, `/metrics` is served on the main port.
 
 ### `METRICS_API_KEY`
 

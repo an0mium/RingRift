@@ -923,6 +923,29 @@ def train_model(
                             "Consider running data sync: python scripts/run_training_loop.py --sync-only"
                         )
                     else:
+                        # P1.1 (Dec 2025): Emit TRAINING_BLOCKED_BY_QUALITY to trigger selfplay acceleration
+                        # This closes the critical feedback loop: stale data → more selfplay → fresh data
+                        try:
+                            from app.distributed.data_events import DataEventType
+                            from app.coordination.event_router import get_event_bus
+
+                            config_key = f"{config.board_type.value}_{num_players}p"
+                            bus = get_event_bus()
+                            if bus:
+                                bus.emit(DataEventType.TRAINING_BLOCKED_BY_QUALITY, {
+                                    "config_key": config_key,
+                                    "reason": "stale_data",
+                                    "data_age_hours": freshness_result.data_age_hours,
+                                    "threshold_hours": max_data_age_hours,
+                                    "games_available": freshness_result.games_available,
+                                })
+                                logger.info(
+                                    f"Emitted TRAINING_BLOCKED_BY_QUALITY for {config_key} "
+                                    f"(age={freshness_result.data_age_hours:.1f}h)"
+                                )
+                        except Exception as emit_err:
+                            logger.debug(f"Failed to emit training blocked event: {emit_err}")
+
                         # Default: fail on stale data to prevent training on outdated samples
                         raise ValueError(
                             f"{msg}. Use --allow-stale-data to proceed anyway, or "
