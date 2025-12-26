@@ -860,7 +860,17 @@ class UnifiedConfig:
 
         # Load sub-configurations
         if "data_ingestion" in data:
-            config.data_ingestion = DataIngestionConfig(**data["data_ingestion"])
+            data_ingestion = dict(data["data_ingestion"])
+            if "sync_interval_seconds" in data_ingestion:
+                if "poll_interval_seconds" not in data_ingestion:
+                    data_ingestion["poll_interval_seconds"] = data_ingestion["sync_interval_seconds"]
+                else:
+                    logger.warning(
+                        "data_ingestion.sync_interval_seconds is deprecated; "
+                        "use data_ingestion.poll_interval_seconds instead."
+                    )
+                data_ingestion.pop("sync_interval_seconds", None)
+            config.data_ingestion = DataIngestionConfig(**data_ingestion)
 
         if "training" in data:
             training_data = data["training"]

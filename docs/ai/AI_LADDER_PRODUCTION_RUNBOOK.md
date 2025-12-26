@@ -46,7 +46,7 @@ Full training runs require GPU for D6–D10 neural tiers (plus D5 if retraining 
 - `ai-service/config/selfplay_workers.example.yaml` – template (copy to `selfplay_workers.yaml` if needed)
 - `ai-service/config/unified_loop.yaml` – unified loop config
 - `ai-service/config/tier_training_pipeline.square8_2p.json` – tier training defaults
-- `ai-service/config/pipeline.json` – legacy pipeline config (not used by unified loop)
+- `ai-service/archive/deprecated_config/pipeline.json.bak` – legacy pipeline config (archived; not used by unified loop)
 
 ---
 
