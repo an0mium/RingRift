@@ -457,6 +457,7 @@ class MasterLoopController:
             DaemonType.QUEUE_POPULATOR,      # Maintain work queue depth
             DaemonType.AUTO_EXPORT,          # Trigger NPZ export after sync
             DaemonType.EVALUATION,           # Auto-gauntlet after training
+            DaemonType.AUTO_PROMOTION,       # Auto-promote models passing evaluation
             DaemonType.CLUSTER_MONITOR,      # Track cluster utilization
             DaemonType.NODE_RECOVERY,        # Auto-recover failed nodes
             DaemonType.CURRICULUM_INTEGRATION,  # Feedback-driven curriculum
