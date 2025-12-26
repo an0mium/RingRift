@@ -1699,14 +1699,21 @@ class P2POrchestrator(
         return voters
 
     def _maybe_adopt_voter_node_ids(self, voter_node_ids: list[str], *, source: str) -> bool:
-        """Adopt/override the voter set when it's not explicitly configured via env.
+        """Adopt/override the voter set when it's not explicitly configured.
 
         This is a convergence mechanism: some nodes may boot without local
         config (or with stale config), which would disable quorum gating and
         allow non-voter nodes to become leaders. Leaders propagate the stable
         voter set via `/coordinator` so the cluster converges.
+
+        Dec 2025: Don't override if config source is 'env' or 'config' (YAML).
         """
+        # If explicitly configured via env var, never override
         if (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip():
+            return False
+
+        # If explicitly configured via YAML, never override from gossip
+        if getattr(self, "voter_config_source", "") == "config":
             return False
 
         normalized = sorted({str(v).strip() for v in (voter_node_ids or []) if str(v).strip()})
