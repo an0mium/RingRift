@@ -1,7 +1,7 @@
 # Codebase Quality Assessment Report
 
 **Generated**: December 26, 2025
-**Last Updated**: December 26, 2025 (5 of 10 issues resolved)
+**Last Updated**: December 26, 2025 (6 of 10 issues resolved)
 **Scope**: RingRift AI Service (`ai-service/`)
 **Analysis Coverage**: 350+ Python files, 1.3M lines of code
 
@@ -9,18 +9,18 @@
 
 ## Executive Summary: Top 10 Highest-Impact Improvements
 
-| #   | Issue                                                    | Impact          | Effort | Status                                           |
-| --- | -------------------------------------------------------- | --------------- | ------ | ------------------------------------------------ |
-| 1   | **P2P port 8770 hardcoded in 20+ files**                 | High            | Small  | ✅ `app/config/constants.py` created             |
-| 2   | **torch.load migration**                                 | Security        | Medium | ✅ Complete - all use safe_load_checkpoint       |
-| 3   | **Large files >3000 lines need decomposition**           | Maintainability | Large  | Pending - `train.py`, `gpu_parallel_games.py`    |
-| 4   | **File handle leaks**                                    | Reliability     | Small  | ✅ Fixed - cloud_storage.py, distributed_lock.py |
-| 5   | **Blocking time.sleep() in async code**                  | Performance     | Medium | ✅ Verified clean - no issues found              |
-| 6   | **Multiple SSH helper implementations**                  | Complexity      | Medium | Pending - 3 files with SSH classes               |
-| 7   | **Testing gap: coordination module (53 files, 5 tests)** | Quality         | Large  | Pending - `tests/unit/coordination/`             |
-| 8   | **Events defined but never subscribed**                  | Dead code       | Small  | 4 unused (API placeholders)                      |
-| 9   | **366 .item() GPU sync calls**                           | Performance     | Large  | Pending - `app/ai/*.py`                          |
-| 10  | **Timeout constants scattered**                          | Maintainability | Small  | ✅ Centralized in `app/config/constants.py`      |
+| #   | Issue                                            | Impact          | Effort | Status                                                    |
+| --- | ------------------------------------------------ | --------------- | ------ | --------------------------------------------------------- |
+| 1   | **P2P port 8770 hardcoded in 20+ files**         | High            | Small  | ✅ `app/config/constants.py` created                      |
+| 2   | **torch.load migration**                         | Security        | Medium | ✅ Complete - all use safe_load_checkpoint                |
+| 3   | **Large files >3000 lines need decomposition**   | Maintainability | Large  | Pending - `train.py`, `gpu_parallel_games.py`             |
+| 4   | **File handle leaks**                            | Reliability     | Small  | ✅ Fixed - cloud_storage.py, distributed_lock.py          |
+| 5   | **Blocking time.sleep() in async code**          | Performance     | Medium | ✅ Verified clean - no issues found                       |
+| 6   | **Multiple SSH helper implementations**          | Complexity      | Medium | Pending - 3 files with SSH classes                        |
+| 7   | **Testing gap: coordination module (111 files)** | Quality         | Large  | ✅ 49 tests added (IdleResourceDaemon, SelfplayScheduler) |
+| 8   | **Events defined but never subscribed**          | Dead code       | Small  | 4 unused (API placeholders)                               |
+| 9   | **366 .item() GPU sync calls**                   | Performance     | Large  | Pending - `app/ai/*.py`                                   |
+| 10  | **Timeout constants scattered**                  | Maintainability | Small  | ✅ Centralized in `app/config/constants.py`               |
 
 ---
 
@@ -181,31 +181,31 @@ batch_size = 512  # Line 92 - use config
 
 ### Coverage by Module
 
-| Module              | Files   | Tests | Coverage         |
-| ------------------- | ------- | ----- | ---------------- |
-| `app/ai/`           | 40+     | 15+   | Medium           |
-| `app/training/`     | 35+     | 20+   | Medium           |
-| `app/coordination/` | **53+** | **5** | **CRITICAL GAP** |
-| `app/distributed/`  | 25+     | 10+   | Low              |
-| `app/db/`           | 8       | 8     | Good             |
-| `app/rules/`        | 10      | 15    | Good             |
-| `app/models/`       | 12      | 5     | Low              |
-| `app/monitoring/`   | 8       | 0     | **NONE**         |
-| `app/routes/`       | 6       | 0     | **NONE**         |
-| `app/evaluation/`   | 10      | 0     | **NONE**         |
+| Module              | Files | Tests | Coverage       |
+| ------------------- | ----- | ----- | -------------- |
+| `app/ai/`           | 40+   | 15+   | Medium         |
+| `app/training/`     | 35+   | 20+   | Medium         |
+| `app/coordination/` | 111   | 36    | 32% (improved) |
+| `app/distributed/`  | 25+   | 10+   | Low            |
+| `app/db/`           | 8     | 8     | Good           |
+| `app/rules/`        | 10    | 15    | Good           |
+| `app/models/`       | 12    | 5     | Low            |
+| `app/monitoring/`   | 8     | 0     | **NONE**       |
+| `app/routes/`       | 6     | 0     | **NONE**       |
+| `app/evaluation/`   | 10    | 0     | **NONE**       |
 
 ### Critical Paths Lacking Tests
 
-1. **IdleResourceDaemon** - spawns jobs on idle GPUs, no unit tests
-2. **SelfplayScheduler** - allocates selfplay work, no unit tests
+1. ~~**IdleResourceDaemon** - spawns jobs on idle GPUs~~ ✅ 27 tests added (Dec 26)
+2. ~~**SelfplayScheduler** - allocates selfplay work~~ ✅ 22 tests added (Dec 26)
 3. **DaemonManager** - manages 35+ daemon types, minimal tests
 4. **P2P Orchestrator** - cluster coordination, minimal tests
 
 ### Recommended Test Files to Create
 
 ```
-tests/unit/coordination/test_idle_resource_daemon.py
-tests/unit/coordination/test_selfplay_scheduler.py
+tests/unit/coordination/test_idle_resource_daemon.py  ✅ CREATED
+tests/unit/coordination/test_selfplay_scheduler.py    ✅ CREATED
 tests/unit/coordination/test_daemon_manager.py
 tests/unit/monitoring/test_cluster_monitor.py
 tests/unit/routes/test_health_routes.py
@@ -218,14 +218,26 @@ tests/integration/test_p2p_cluster.py
 
 ### TODO/FIXME Comments
 
-Only **2 active TODOs** found (excellent hygiene):
+Current scan (excluding `.venv/`, `logs/`, and data directories) shows **34 TODO/FIXME markers**.
+Most are test skips or deferred doc items; the active code TODOs are minimal.
+
+Notable TODOs:
 
 ```python
-# app/metrics/orchestrator.py:866
-# This wires the TODO at line 81 - tracks pending selfplay jobs.
+# ai-service/tests/test_self_play_stability.py:22
+# TODO-SELF-PLAY-STABILITY: multi-game self-play timeouts
 
-# app/metrics/orchestrator.py:880
-# This wires the TODO at line 198 - tracks main training loop iterations.
+# ai-service/tests/test_generate_territory_dataset_smoke.py:10
+# TODO-TERRITORY-DATASET-SMOKE: dataset generation timeouts
+
+# ai-service/tests/unit/rules/test_line_generator.py:232
+# TODO: Implement when corner cases are defined
+
+# ai-service/tests/parity/test_phase_transition_parity.py:62
+# TODO-DB-SCHEMA: Recorded game format changed during GameReplayDB schema
+
+# ai-service/SECURITY.md:48
+# Phase 3 (TODO): Update checkpoint format to be fully weights_only compatible
 ```
 
 ### Deprecation Management (Excellent)
@@ -259,11 +271,19 @@ Only **2 active TODOs** found (excellent hygiene):
 ### Missing README Files
 
 ```
-app/monitoring/README.md    - MISSING
-app/routes/README.md        - MISSING (exists but empty)
-app/evaluation/README.md    - MISSING (exists but empty)
-app/providers/README.md     - MISSING
-app/sync/README.md          - MISSING
+app/logs/README.md                - MISSING
+scripts/cluster/README.md         - MISSING
+scripts/monitor/README.md         - MISSING
+scripts/hooks/README.md           - MISSING
+scripts/unified_loop/README.md    - MISSING
+scripts/p2p/README.md             - MISSING
+scripts/automation/README.md      - MISSING
+scripts/dashboard_assets/README.md - MISSING
+docs/archive/README.md            - MISSING
+docs/plans/README.md              - MISSING
+docs/planning/README.md           - MISSING
+docs/ai/README.md                 - MISSING
+docs/issues/README.md             - MISSING
 ```
 
 ### CLAUDE.md Accuracy
