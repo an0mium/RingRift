@@ -2398,15 +2398,8 @@ class DaemonManager:
         try:
             from app.coordination.curriculum_integration import wire_all_feedback_loops
 
-            components = wire_all_feedback_loops(
-                poll_interval_seconds=60.0,
-                momentum_weight_boost=0.3,
-                min_games_for_mastery=20,
-                mastery_threshold=0.85,
-                quality_poll_interval=30.0,
-                low_quality_threshold=0.4,
-                exploration_boost_factor=1.3,
-            )
+            # Use defaults - configuration is handled internally by the feedback loop components
+            components = wire_all_feedback_loops()
 
             logger.info(
                 f"Curriculum integration started: "
