@@ -902,7 +902,7 @@ async def emit_elo_updated(
         threshold = config_obj.curriculum.elo_change_threshold
         should_rebalance = config_obj.curriculum.rebalance_on_elo_change
     except ImportError:
-        threshold = 50  # Default if config not available
+        threshold = 20  # December 2025: Lowered from 50 to enable faster curriculum adaptation
         should_rebalance = True
 
     if should_rebalance and abs(elo_change) >= threshold:

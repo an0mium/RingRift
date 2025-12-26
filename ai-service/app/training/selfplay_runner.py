@@ -1343,6 +1343,9 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         start_time = time.time()
         game_id = str(uuid.uuid4())
 
+        # PFSP opponent selection (Phase 7 - December 2025)
+        current_model, pfsp_opponent = self._get_pfsp_context()
+
         board_type = BoardType(self.config.board_type)
         initial_state = create_initial_state(board_type, self.config.num_players)
         state = initial_state
@@ -1397,10 +1400,17 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
             move_objects.append(move)
 
         duration_ms = (time.time() - start_time) * 1000
+        winner = getattr(state, "winner", None)
+
+        # Record PFSP result (Phase 7 - December 2025)
+        if pfsp_opponent is not None:
+            current_model_won = winner == 0
+            is_draw = winner is None or winner < 0
+            self.record_pfsp_result(current_model, pfsp_opponent, current_model_won, is_draw)
 
         return GameResult(
             game_id=game_id,
-            winner=getattr(state, "winner", None),
+            winner=winner,
             num_moves=len(moves),
             duration_ms=duration_ms,
             moves=moves,
@@ -1413,6 +1423,7 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                 "difficulty": self.config.difficulty,
                 "source": self.config.source,
                 "simulation_budget": self.config.simulation_budget,
+                "pfsp_opponent": pfsp_opponent,  # Phase 7: Track PFSP opponent
             },
             initial_state=initial_state,
             final_state=state,
@@ -1503,6 +1514,9 @@ class GNNSelfplayRunner(SelfplayRunner):
         start_time = time.time()
         game_id = str(uuid.uuid4())
 
+        # PFSP opponent selection (Phase 7 - December 2025)
+        current_model, pfsp_opponent = self._get_pfsp_context()
+
         board_type = BoardType(self.config.board_type)
         initial_state = create_initial_state(board_type, self.config.num_players)
         state = initial_state
@@ -1574,10 +1588,17 @@ class GNNSelfplayRunner(SelfplayRunner):
             move_objects.append(move)
 
         duration_ms = (time.time() - start_time) * 1000
+        winner = getattr(state, "winner", None)
+
+        # Record PFSP result (Phase 7 - December 2025)
+        if pfsp_opponent is not None:
+            current_model_won = winner == 0
+            is_draw = winner is None or winner < 0
+            self.record_pfsp_result(current_model, pfsp_opponent, current_model_won, is_draw)
 
         return GameResult(
             game_id=game_id,
-            winner=getattr(state, "winner", None),
+            winner=winner,
             num_moves=len(moves),
             duration_ms=duration_ms,
             moves=moves,
@@ -1590,6 +1611,7 @@ class GNNSelfplayRunner(SelfplayRunner):
                 "difficulty": self.config.difficulty,
                 "source": self.config.source,
                 "model_tier": self._model_tier,
+                "pfsp_opponent": pfsp_opponent,  # Phase 7: Track PFSP opponent
             },
             initial_state=initial_state,
             final_state=state,
