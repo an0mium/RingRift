@@ -50,6 +50,7 @@ def run_game(
     baseline_factory: Callable[[int], "BaseAI"],
     board_type: BoardType,
     num_players: int,
+    game_idx: int = 0,
 ) -> int | None:
     """Run a single game: model AI vs baseline opponents.
 
@@ -58,6 +59,7 @@ def run_game(
         baseline_factory: Function(player_num) -> BaseAI for creating opponents
         board_type: Board type for the game
         num_players: Number of players (2, 3, or 4)
+        game_idx: Game index for unique RNG seeding
 
     Returns:
         Winner (1-num_players) or None for draw/timeout
@@ -69,6 +71,11 @@ def run_game(
     ais = {1: model_ai}
     for p in range(2, num_players + 1):
         ais[p] = baseline_factory(p)
+
+    # Reset all AIs with unique seeds per game for variety
+    for p, ai in ais.items():
+        if hasattr(ai, 'reset_for_new_game'):
+            ai.reset_for_new_game(rng_seed=game_idx * 1000 + p)
 
     max_moves = 500
     move_count = 0
@@ -229,7 +236,7 @@ def run_gauntlet_for_model(
     logger.info(f"  [vs Random] Starting {num_games} games ({game_players}p)...")
     wins_vs_random = 0
     for i in range(num_games):
-        winner = run_game(model_ai, random_factory, board_type, game_players)
+        winner = run_game(model_ai, random_factory, board_type, game_players, game_idx=i)
         if winner == 1:
             wins_vs_random += 1
         games_played += 1
@@ -242,7 +249,8 @@ def run_gauntlet_for_model(
     logger.info(f"  [vs Heuristic] Starting {num_games} games ({game_players}p)...")
     wins_vs_heuristic = 0
     for i in range(num_games):
-        winner = run_game(model_ai, heuristic_factory, board_type, game_players)
+        # Offset game_idx to ensure unique seeds from Random phase
+        winner = run_game(model_ai, heuristic_factory, board_type, game_players, game_idx=num_games + i)
         if winner == 1:
             wins_vs_heuristic += 1
         games_played += 1

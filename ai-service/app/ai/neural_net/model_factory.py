@@ -32,6 +32,7 @@ from .hex_architectures import (
     HexNeuralNet_v2_Lite,
     HexNeuralNet_v3,
     HexNeuralNet_v3_Lite,
+    HexNeuralNet_v4,
 )
 from .square_architectures import (
     RingRiftCNN_v2,
@@ -39,6 +40,10 @@ from .square_architectures import (
     RingRiftCNN_v3,
     RingRiftCNN_v3_Lite,
     RingRiftCNN_v4,
+)
+from .v5_heavy import (
+    RingRiftCNN_v5_Heavy,
+    HexNeuralNet_v5_Heavy,
 )
 
 # GNN imports (optional - requires PyTorch Geometric)
@@ -60,7 +65,7 @@ __all__ = [
 ]
 
 # Valid memory tier options
-VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "gnn", "hybrid")
+VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "gnn", "hybrid")
 
 
 def get_memory_tier() -> str:
@@ -71,12 +76,14 @@ def get_memory_tier() -> str:
     - "low" (48GB target): Memory-efficient v2-lite models
     - "v3-high": V3 models with spatial policy heads
     - "v3-low": V3-lite models with spatial policy heads
-    - "v4": V4 NAS-optimized models with attention (square boards only)
+    - "v4": V4 NAS-optimized models with attention
+    - "v5": V5 Heavy models with all features (SE+attention+heuristics)
+    - "v5-gnn": V5 Heavy with GNN refinement layer
     - "gnn": Pure Graph Neural Network (GNNPolicyNet, ~255K params)
     - "hybrid": CNN-GNN hybrid architecture (HybridPolicyNet, ~15.5M params)
 
     Returns:
-        One of "high", "low", "v3-high", "v3-low", "v4", "gnn", or "hybrid".
+        One of "high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "gnn", or "hybrid".
     """
     tier = os.environ.get("RINGRIFT_NN_MEMORY_TIER", "high").lower()
     if tier not in VALID_MEMORY_TIERS:
@@ -123,7 +130,7 @@ def create_model_for_board(
         - "low" (48GB target): V2-lite models with reduced capacity
         - "v3-high": V3 models with spatial policy heads
         - "v3-low": V3-lite models with spatial policy heads
-        - "v4": V4 NAS-optimized architecture with attention (square boards only)
+        - "v4": V4 NAS-optimized architecture with attention
         - "gnn": Pure Graph Neural Network (requires PyTorch Geometric)
         - "hybrid": CNN-GNN hybrid architecture (requires PyTorch Geometric)
         If None, reads from RINGRIFT_NN_MEMORY_TIER environment variable.
@@ -189,6 +196,7 @@ def create_model_for_board(
             num_filters=num_filters,
             history_length=history_length,
             policy_size=policy_size,
+            num_players=num_players,
         )
 
 
@@ -206,7 +214,7 @@ def _create_hex_model(
     """Create a hexagonal board model based on memory tier.
 
     Args:
-        tier: Memory tier (v3-high, v3-low, high, low)
+        tier: Memory tier (v5, v5-gnn, v4, v3-high, v3-low, high, low)
         in_channels: Number of input channels
         global_features: Number of global feature dimensions
         num_res_blocks: Number of residual blocks (or None for default)
@@ -216,10 +224,31 @@ def _create_hex_model(
         policy_size: Size of the policy output
         num_players: Number of players
     """
+    if tier in ("v5", "v5-gnn"):
+        return HexNeuralNet_v5_Heavy(
+            board_size=board_size,
+            hex_radius=hex_radius,
+            in_channels=in_channels // 4,  # Base channels (history handled internally)
+            global_features=global_features,
+            num_filters=num_filters or 160,
+            policy_size=policy_size,
+            num_players=num_players,
+            use_gnn=(tier == "v5-gnn"),
+        )
+
     if tier == "v4":
-        raise ValueError(
-            "V4 architecture is not yet available for hexagonal boards. "
-            "Use 'v3-high', 'v3-low', 'high', or 'low' instead."
+        return HexNeuralNet_v4(
+            in_channels=in_channels,
+            global_features=global_features,
+            num_res_blocks=num_res_blocks or 13,  # NAS optimal
+            num_filters=num_filters or 128,  # NAS optimal
+            board_size=board_size,
+            hex_radius=hex_radius,
+            policy_size=policy_size,
+            num_players=num_players,
+            num_attention_heads=4,  # NAS optimal
+            dropout=0.08,  # NAS optimal
+            initial_kernel_size=5,  # NAS optimal
         )
 
     if tier == "v3-high":
@@ -334,8 +363,21 @@ def _create_square_model(
     num_filters: int | None,
     history_length: int,
     policy_size: int,
+    num_players: int = 4,
 ) -> nn.Module:
     """Create a square board model based on memory tier."""
+    if tier in ("v5", "v5-gnn"):
+        return RingRiftCNN_v5_Heavy(
+            board_size=board_size,
+            in_channels=in_channels,
+            global_features=global_features,
+            num_filters=num_filters or 160,
+            history_length=history_length,
+            policy_size=policy_size,
+            num_players=num_players,
+            use_gnn=(tier == "v5-gnn"),
+        )
+
     if tier == "v4":
         return RingRiftCNN_v4(
             board_size=board_size,
@@ -475,9 +517,24 @@ def _get_tier_config(board_type: BoardType, tier: str) -> dict[str, Any]:
         "v4": {
             "num_res_blocks": 13,
             "num_filters": 128,
-            "estimated_params_m": 8.5,
-            "recommended_model": "RingRiftCNN_v4",
-            "description": "V4 NAS-optimized model with attention (~8.5M params)",
+            "estimated_params_m": 5.5 if is_hex8 else 6.2 if is_hex else 5.1,
+            "recommended_model": "HexNeuralNet_v4" if is_hex else "RingRiftCNN_v4",
+            "description": f"V4 NAS-optimized model with attention (~{5.5 if is_hex8 else 6.2 if is_hex else 5.1}M params)",
+        },
+        "v5": {
+            "num_res_blocks": 11,  # 6 SE + 5 attention
+            "num_filters": 160,
+            "estimated_params_m": 20.0 if is_hex8 else 22.0 if is_hex else 18.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy" if is_hex else "RingRiftCNN_v5_Heavy",
+            "description": "V5 Heavy: Maximum strength with SE+attention+heuristics (~18-22M params)",
+        },
+        "v5-gnn": {
+            "num_res_blocks": 11,
+            "num_filters": 160,
+            "estimated_params_m": 24.0 if is_hex8 else 26.0 if is_hex else 22.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy" if is_hex else "RingRiftCNN_v5_Heavy",
+            "description": "V5 Heavy + GNN refinement (~22-26M params, requires PyTorch Geometric)",
+            "requires_pyg": True,
         },
         "gnn": {
             "num_res_blocks": 0,  # Not applicable for GNN

@@ -2555,7 +2555,7 @@ class ClusterScaler:
             self.provider.remove_nodes(decision.count)
 ```
 
-3. **Integrate with Vast.ai/Lambda APIs** (4 hours)
+3. **Integrate with Vast.ai/Runpod APIs** (4 hours)
 4. **Add monitoring and alerts** (2 hours)
 
 ### Verification Checklist (3.2.x)

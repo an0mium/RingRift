@@ -320,30 +320,37 @@ class PositionalEvaluator:
         state: "GameState",
         player_idx: int,
     ) -> float:
-        """Evaluate control of center positions.
-        
+        """Evaluate control of center positions (symmetric).
+
         Center positions are strategically valuable. We gain points for
         controlling them and lose points when opponents control them.
-        
+
+        Made symmetric by computing (my_center_count - opponent_center_count)
+        to ensure P1+P2 evaluations sum to 0.
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
-            Center control score.
+            Center control score (symmetric).
         """
-        score = 0.0
         center_positions = self._get_center_positions(state)
-        
+
+        my_center_count = 0
+        opp_center_count = 0
+
         for pos_key in center_positions:
             if pos_key in state.board.stacks:
                 stack = state.board.stacks[pos_key]
                 if stack.controlling_player == player_idx:
-                    score += self.weights.center_control
+                    my_center_count += 1
                 else:
-                    score -= self.weights.center_control * 0.5
-        
-        return score
+                    opp_center_count += 1
+
+        # Symmetric: advantage over opponents
+        advantage = my_center_count - opp_center_count
+        return advantage * self.weights.center_control
     
     def _get_center_positions(self, state: "GameState") -> frozenset:
         """Get center position keys for the board using FastGeometry cache.
@@ -361,40 +368,69 @@ class PositionalEvaluator:
         state: "GameState",
         player_idx: int,
     ) -> float:
-        """Evaluate how close we are to enclosing a territory.
-        
+        """Evaluate how close we are to enclosing a territory (symmetric).
+
         Uses a simplified metric based on marker clustering. Closer markers
         (lower average distance) indicate potential for territory enclosure.
         Also rewards having more markers as a prerequisite for territory.
-        
+
+        Made symmetric by computing (my_closure - max_opponent_closure) to
+        ensure P1+P2 evaluations sum to 0.
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
-            Territory closure score.
+            Territory closure score (symmetric).
+        """
+        my_closure = self._compute_closure_score_for_player(state, player_idx)
+
+        # Compute max opponent closure for symmetric evaluation
+        opp_closures = [
+            self._compute_closure_score_for_player(state, p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_closure = max(opp_closures) if opp_closures else 0.0
+
+        # Symmetric: advantage over best opponent
+        advantage = my_closure - max_opp_closure
+        return advantage * self.weights.territory_closure
+
+    def _compute_closure_score_for_player(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute raw territory closure score for a specific player.
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Raw closure score (before applying weight).
         """
         # Get markers for this player
-        my_markers = [
+        markers = [
             m for m in state.board.markers.values()
-            if m.player == player_idx
+            if m.player == player_num
         ]
-        
-        if not my_markers:
+
+        if not markers:
             return 0.0
-        
+
         # Calculate "clustering" - average distance between markers
-        # Closer markers are more likely to form a closed loop
         total_dist = 0.0
         count = 0
-        
+
         # Sample a few pairs to estimate density if too many markers
-        # Deterministic subsampling: take first 10
-        if len(my_markers) < 10:
-            markers_to_check = my_markers
+        if len(markers) < 10:
+            markers_to_check = markers
         else:
-            markers_to_check = my_markers[:10]
-        
+            markers_to_check = markers[:10]
+
         for i, m1 in enumerate(markers_to_check):
             for m2 in markers_to_check[i + 1:]:
                 dist = (
@@ -403,61 +439,88 @@ class PositionalEvaluator:
                 )
                 if m1.position.z is not None and m2.position.z is not None:
                     dist += abs(m1.position.z - m2.position.z)
-                
+
                 total_dist += dist
                 count += 1
-        
+
         if count == 0:
             return 0.0
-        
+
         avg_dist = total_dist / count
-        
+
         # Lower average distance is better (more clustered)
-        # We invert it for the score
         clustering_score = 10.0 / max(1.0, avg_dist)
-        
+
         # Also reward total number of markers as a prerequisite for territory
-        marker_count_score = len(my_markers) * 0.5
-        
-        return (
-            (clustering_score + marker_count_score) *
-            self.weights.territory_closure
-        )
+        marker_count_score = len(markers) * 0.5
+
+        return clustering_score + marker_count_score
     
     def _evaluate_territory_safety(
         self,
         state: "GameState",
         player_idx: int,
     ) -> float:
-        """Evaluate safety of potential territories.
-        
+        """Evaluate safety of potential territories (symmetric).
+
         Penalizes positions where opponent stacks are near our marker clusters,
         as they could disrupt our territory formation.
-        
+
+        Made symmetric by computing (my_safety - max_opponent_safety) to ensure
+        P1+P2 evaluations sum to 0.
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
-            Territory safety score (negative for unsafe positions).
+            Territory safety score (symmetric).
         """
-        score = 0.0
+        my_safety = self._compute_safety_score_for_player(state, player_idx)
+
+        # Compute max opponent safety for symmetric evaluation
+        opp_safeties = [
+            self._compute_safety_score_for_player(state, p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_safety = max(opp_safeties) if opp_safeties else 0.0
+
+        # Symmetric: advantage over best opponent
+        advantage = my_safety - max_opp_safety
+        return advantage * self.weights.territory_safety
+
+    def _compute_safety_score_for_player(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute raw territory safety score for a player.
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Raw safety score (0 = safe, negative = threatened).
+        """
         board = state.board
-        
-        # Get my markers and opponent stacks
-        my_markers = [
+
+        # Get player's markers and opponent stacks
+        player_markers = [
             m for m in board.markers.values()
-            if m.player == player_idx
+            if m.player == player_num
         ]
         opponent_stacks = [
             s for s in board.stacks.values()
-            if s.controlling_player != player_idx
+            if s.controlling_player != player_num
         ]
-        
-        if not my_markers or not opponent_stacks:
+
+        if not player_markers or not opponent_stacks:
             return 0.0
-        
-        for marker in my_markers:
+
+        score = 0.0
+        for marker in player_markers:
             min_dist = float('inf')
             for stack in opponent_stacks:
                 # Manhattan distance approximation
@@ -469,12 +532,12 @@ class PositionalEvaluator:
                         stack.position.z is not None):
                     dist += abs(marker.position.z - stack.position.z)
                 min_dist = min(min_dist, dist)
-            
+
             # If opponent is very close (dist 1 or 2), penalty
             if min_dist <= 2:
                 score -= (3.0 - min_dist)  # -2 for dist 1, -1 for dist 2
-        
-        return score * self.weights.territory_safety
+
+        return score
     
     # === Compatibility methods for HeuristicAI delegation ===
     # These methods match the original HeuristicAI method signatures

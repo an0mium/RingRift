@@ -65,7 +65,7 @@ python scripts/unified_ai_loop.py --resume
 - Self-healing compute cluster with leader election
 - Peer discovery and resource monitoring
 - Auto-starts selfplay/training jobs across nodes
-- Vast.ai and Lambda Labs instance integration
+- Vast.ai and Runpod instance integration
 - Supports all board types: square8, hex8, square19, hexagonal
 - Keepalive and unretire management for cloud instances
 
@@ -82,7 +82,7 @@ curl http://localhost:8770/status
 **When to use**:
 
 - Production distributed training across 3+ nodes
-- Vast.ai or Lambda Labs GPU instances
+- Vast.ai or Runpod GPU instances
 - Self-healing cluster with automatic recovery
 
 ---

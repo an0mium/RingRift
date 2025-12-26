@@ -19,43 +19,43 @@
 standard_hosts:
   # AWS/Cloud instances with persistent disk storage
   aws_staging:
-    ssh_host: "ubuntu@your-staging-server.compute.amazonaws.com"
-    ssh_key: "~/.ssh/your-key.pem"  # Optional if using ssh-agent
-    remote_path: "~/ringrift/ai-service/data/games"
-    role: "selfplay,cmaes"  # What this host runs
+    ssh_host: 'ubuntu@your-staging-server.compute.amazonaws.com'
+    ssh_key: '~/.ssh/your-key.pem' # Optional if using ssh-agent
+    remote_path: '~/ringrift/ai-service/data/games'
+    role: 'selfplay,cmaes' # What this host runs
     cpus: 16
     memory_gb: 32
 
   aws_extra:
-    ssh_host: "ubuntu@your-extra-server.compute.amazonaws.com"
-    ssh_key: "~/.ssh/your-key.pem"
-    remote_path: "~/ringrift/ai-service/data/games"
-    role: "selfplay"
+    ssh_host: 'ubuntu@your-extra-server.compute.amazonaws.com'
+    ssh_key: '~/.ssh/your-key.pem'
+    remote_path: '~/ringrift/ai-service/data/games'
+    role: 'selfplay'
     cpus: 4
     memory_gb: 8
 
-  # Lambda Labs GPU instance
-  lambda_gpu:
-    ssh_host: "ubuntu@your-lambda-instance.cloud.lambdalabs.com"
-    remote_path: "~/ringrift/ai-service/data/games"
-    role: "selfplay,training,tournament"
+  # RunPod GPU instance
+  runpod_gpu:
+    ssh_host: 'root@your-runpod-instance'
+    remote_path: '~/ringrift/ai-service/data/games'
+    role: 'selfplay,training,tournament'
     cpus: 30
     memory_gb: 200
     has_gpu: true
 
   # Local network machines (SSH config alias)
   mac_studio:
-    ssh_host: "mac-studio"  # From ~/.ssh/config
-    remote_path: "~/Development/RingRift/ai-service/data/games"
-    role: "training,nnue"
+    ssh_host: 'mac-studio' # From ~/.ssh/config
+    remote_path: '~/Development/RingRift/ai-service/data/games'
+    role: 'training,nnue'
     cpus: 24
     memory_gb: 192
-    has_gpu: true  # MPS
+    has_gpu: true # MPS
 
   m1_pro:
-    ssh_host: "m1-pro"  # From ~/.ssh/config
-    remote_path: "~/Development/RingRift/ai-service/data/games"
-    role: "selfplay"
+    ssh_host: 'm1-pro' # From ~/.ssh/config
+    remote_path: '~/Development/RingRift/ai-service/data/games'
+    role: 'selfplay'
     cpus: 10
     memory_gb: 64
 
@@ -64,46 +64,46 @@ standard_hosts:
 # IMPORTANT: Sync frequently and before terminating instances
 vast_hosts:
   vast_4x5090:
-    host: "your-vast-ip-1"
+    host: 'your-vast-ip-1'
     port: 12345
-    user: "root"
+    user: 'root'
     # Vast instances typically use RAM-backed /dev/shm for fast I/O
-    remote_path: "/dev/shm/games"
-    role: "selfplay"
+    remote_path: '/dev/shm/games'
+    role: 'selfplay'
     cpus: 192
     memory_gb: 1000
     has_gpu: true
-    storage_type: "ram"  # Ephemeral! Sync before termination
+    storage_type: 'ram' # Ephemeral! Sync before termination
 
   vast_2x5090:
-    host: "your-vast-ip-2"
+    host: 'your-vast-ip-2'
     port: 22345
-    user: "root"
-    remote_path: "/dev/shm/games"
-    role: "selfplay"
+    user: 'root'
+    remote_path: '/dev/shm/games'
+    role: 'selfplay'
     cpus: 384
     memory_gb: 1000
     has_gpu: true
-    storage_type: "ram"
+    storage_type: 'ram'
 
   vast_1x3090:
-    host: "your-vast-ip-3"
+    host: 'your-vast-ip-3'
     port: 32345
-    user: "root"
-    remote_path: "/dev/shm/games"
-    role: "selfplay"
+    user: 'root'
+    remote_path: '/dev/shm/games'
+    role: 'selfplay'
     cpus: 384
     memory_gb: 600
     has_gpu: true
-    storage_type: "ram"
+    storage_type: 'ram'
 
 # Sync configuration
 sync:
   # Local directory to sync data to
-  local_data_dir: "data/games"
+  local_data_dir: 'data/games'
 
   # Where to store synced data subdirectories
-  sync_subdir: "synced"
+  sync_subdir: 'synced'
 
   # Timeout for SSH connections (seconds)
   ssh_timeout: 15
@@ -139,21 +139,21 @@ worker_defaults:
 # CMA-ES optimization settings
 cmaes:
   # Which host runs CMA-ES (should have moderate CPU, persistent storage)
-  primary_host: "aws_staging"
+  primary_host: 'aws_staging'
 
   # Optimization parameters
   population_size: 12
   generations_per_iter: 10
   games_per_eval: 8
-  max_workers: 2  # Limit to avoid memory pressure
+  max_workers: 2 # Limit to avoid memory pressure
 
 # Training configuration
 training:
   # Which host runs NN training
-  nn_host: "mac_studio"  # Or "lambda_gpu" for faster training
+  nn_host: 'mac_studio' # Or "runpod_gpu" for faster training
 
   # Which host runs NNUE training
-  nnue_host: "mac_studio"
+  nnue_host: 'mac_studio'
 
   # Merged database location (on training host)
-  merged_db_path: "data/games/merged_latest.db"
+  merged_db_path: 'data/games/merged_latest.db'

@@ -503,6 +503,18 @@ class DataPipelineOrchestrator:
         self._coordinator_status = CoordinatorStatus.STOPPED
         logger.info(f"[{self.name}] Stopped")
 
+    async def run_forever(self) -> None:
+        """Run the orchestrator forever (for DaemonManager compatibility).
+
+        Starts the orchestrator and loops until stopped.
+        """
+        await self.start()
+        try:
+            while self._coordinator_status == CoordinatorStatus.RUNNING:
+                await asyncio.sleep(10)
+        finally:
+            await self.stop()
+
     def get_metrics(self) -> dict[str, Any]:
         """Get orchestrator metrics in protocol-compliant format.
 

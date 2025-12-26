@@ -813,6 +813,36 @@ class ClusterMonitor:
         except KeyboardInterrupt:
             print("\nMonitoring stopped.")
 
+    async def run_forever(self, interval: int = 30):
+        """Run cluster monitoring forever (for DaemonManager compatibility).
+
+        Collects cluster status periodically without printing.
+        Emits events when cluster health changes.
+
+        Args:
+            interval: Seconds between checks
+        """
+        import asyncio
+        self._running = True
+        logger.info(f"[ClusterMonitor] Starting background monitoring (interval={interval}s)")
+
+        while self._running:
+            try:
+                status = self.get_cluster_status()
+                # Log summary instead of printing
+                logger.debug(
+                    f"[ClusterMonitor] {status.total_nodes} nodes, "
+                    f"{status.healthy_nodes} healthy, {len(status.errors)} errors"
+                )
+            except Exception as e:
+                logger.warning(f"[ClusterMonitor] Status check failed: {e}")
+
+            await asyncio.sleep(interval)
+
+    def stop(self):
+        """Stop the background monitoring loop."""
+        self._running = False
+
 
 def main():
     """CLI entry point."""

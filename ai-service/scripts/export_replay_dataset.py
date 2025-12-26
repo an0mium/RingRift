@@ -104,6 +104,19 @@ except ImportError:
     HAS_QUALITY_SCORER = False
     compute_game_quality_from_params = None
 
+# Fast heuristic feature extraction for v5 training (December 2025)
+# Uses efficient O(1) component scores instead of 50x linear decomposition
+try:
+    from app.training.fast_heuristic_features import (
+        extract_heuristic_features,
+        HEURISTIC_FEATURE_NAMES,
+        NUM_HEURISTIC_FEATURES,
+    )
+    HAS_HEURISTIC_EXTRACTOR = True
+except ImportError:
+    HAS_HEURISTIC_EXTRACTOR = False
+    NUM_HEURISTIC_FEATURES = 21  # Fallback value (21 component scores)
+
 
 def _normalize_hex_board_size(board: "BoardState") -> "BoardState":
     """Normalize hex board size from legacy Convention A to Convention B.
@@ -320,6 +333,7 @@ def export_replay_dataset_multi(
     encoder_version: str = "default",
     require_moves: bool = True,
     min_quality: float | None = None,  # December 2025: Quality filtering
+    include_heuristics: bool = False,  # December 2025: Extract heuristic features for v5
 ) -> None:
     """
     Export training samples from multiple GameReplayDB files into an NPZ dataset
@@ -368,6 +382,12 @@ def export_replay_dataset_multi(
     move_types_list: list[str] = []  # For chain-aware sample weighting
     opponent_elo_list: list[float] = []  # For ELO-weighted training (December 2025)
     quality_score_list: list[float] = []  # For quality-weighted training (December 2025)
+    heuristics_list: list[np.ndarray] = []  # For v5 heavy training (December 2025)
+
+    # Validate heuristic extraction availability
+    if include_heuristics and not HAS_HEURISTIC_EXTRACTOR:
+        print("Warning: --include-heuristics requested but heuristic extractor not available")
+        include_heuristics = False
 
     # Track seen game_ids for deduplication across databases
     seen_game_ids: set = set()
@@ -626,9 +646,26 @@ def export_replay_dataset_multi(
                     move_type_str = str(move_type_raw.value)
                 else:
                     move_type_str = str(move_type_raw) if move_type_raw else "unknown"
+
+                # Extract heuristic features for v5 training (if enabled)
+                # Uses fast O(1) component scores (21 features) instead of slow decomposition
+                heuristic_vec = None
+                if include_heuristics:
+                    try:
+                        heuristic_vec = extract_heuristic_features(
+                            state_before,
+                            player_number=state_before.current_player,
+                            eval_mode="full",
+                            normalize=True,
+                        )  # Returns np.ndarray of shape (21,)
+                    except Exception as e:
+                        # Fallback to zeros if extraction fails
+                        heuristic_vec = np.zeros(NUM_HEURISTIC_FEATURES, dtype=np.float32)
+                        logger.debug(f"Heuristic extraction failed at move {move_index}: {e}")
+
                 game_samples.append((
                     stacked, globals_vec, idx, state_before.current_player,
-                    move_index, phase_str, move_type_str
+                    move_index, phase_str, move_type_str, heuristic_vec
                 ))
 
             # Skip this game if replay failed
@@ -664,7 +701,7 @@ def export_replay_dataset_multi(
             # and the inference code (which expects current player's value and
             # flips it if needed, see gumbel_mcts_ai.py lines 790-791).
             # For multi-player training, values_mp provides per-player values.
-            for stacked, globals_vec, idx, perspective, move_index, phase_str, move_type_str in game_samples:
+            for stacked, globals_vec, idx, perspective, move_index, phase_str, move_type_str, heuristic_vec in game_samples:
                 # Use current player's perspective (stored in 'perspective' variable)
                 if use_rank_aware_values:
                     value = value_from_final_ranking(
@@ -724,6 +761,13 @@ def export_replay_dataset_multi(
                 move_types_list.append(move_type_str)
                 opponent_elo_list.append(opponent_elo)
                 quality_score_list.append(game_quality_score)
+
+                # Add heuristic features if extracted
+                if include_heuristics:
+                    if heuristic_vec is not None:
+                        heuristics_list.append(heuristic_vec)
+                    else:
+                        heuristics_list.append(np.zeros(NUM_HEURISTIC_FEATURES, dtype=np.float32))
 
             samples_added = len(features_list) - samples_before
             if samples_added > 0:
@@ -859,6 +903,17 @@ def export_replay_dataset_multi(
         "move_types": move_types_arr,  # For chain-aware sample weighting
         "opponent_elo": opponent_elo_arr,  # For ELO-weighted training (December 2025)
         "quality_score": quality_score_arr,  # For quality-weighted training (December 2025)
+    }
+
+    # Add heuristic features if extracted (December 2025, v5 training)
+    if include_heuristics and heuristics_list:
+        heuristics_arr = np.stack(heuristics_list, axis=0).astype(np.float32)
+        save_kwargs["heuristics"] = heuristics_arr
+        save_kwargs["num_heuristic_features"] = np.asarray(int(NUM_HEURISTIC_FEATURES))
+        print(f"Including heuristic features: {heuristics_arr.shape} ({NUM_HEURISTIC_FEATURES} features per sample)")
+
+    # Phase 5 Metadata
+    save_kwargs.update({
         # Phase 5 Metadata: Additional fields for training compatibility validation
         "encoder_type": np.asarray(encoder_type_str),
         "encoder_version": np.asarray(effective_encoder),  # v2 or v3 - for model selection
@@ -867,7 +922,7 @@ def export_replay_dataset_multi(
         "max_policy_index": np.asarray(int(max_policy_index)),
         "policies_normalized": np.asarray(True),  # All policy values sum to 1.0
         "export_version": np.asarray("2.1"),  # Mark as having V3 encoder metadata
-    }
+    })
     if write_mp:
         save_kwargs.update({"values_mp": values_mp_arr, "num_players": num_players_arr})
 
@@ -1230,6 +1285,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Path to TRAINING_DATA_REGISTRY.md (default: repo root)",
     )
+    parser.add_argument(
+        "--include-heuristics",
+        action="store_true",
+        help=(
+            "Include heuristic features for v5/v5-heavy model training. "
+            "Extracts 21 component scores per state from the heuristic AI "
+            "(territory, threats, connectivity, mobility, etc). Fast O(1) extraction. "
+            "Adds 'heuristics' array to NPZ output. Only for single-threaded mode."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1325,6 +1390,11 @@ def main(argv: list[str] | None = None) -> int:
     # Determine parallelism: default is parallel unless --single-threaded or --workers=1
     use_parallel = not args.single_threaded and (args.workers is None or args.workers > 1)
 
+    # Force single-threaded mode for heuristic extraction (not yet parallelized)
+    if args.include_heuristics and use_parallel:
+        print("[HEURISTICS] --include-heuristics requires single-threaded mode, switching...")
+        use_parallel = False
+
     # Use parallel export by default (10-20x faster on multi-core systems)
     if use_parallel:
         from scripts.export_replay_dataset_parallel import export_parallel
@@ -1406,6 +1476,7 @@ def main(argv: list[str] | None = None) -> int:
         encoder_version=args.encoder_version,
         require_moves=not args.no_require_moves,
         min_quality=args.min_quality,
+        include_heuristics=args.include_heuristics,
     )
 
     # Update cache if enabled

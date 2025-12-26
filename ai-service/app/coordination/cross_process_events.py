@@ -281,17 +281,26 @@ class CrossProcessEventQueue:
         self,
         process_name: str,
         event_types: list[str] | None = None,
+        stable: bool = False,
     ) -> str:
         """Register a subscriber for polling events.
 
         Args:
             process_name: Name of the subscribing process
             event_types: Optional list of event types to filter (None = all)
+            stable: If True, use a stable subscriber ID without PID.
+                    This allows a process to resume from where it left off
+                    after restart. Use for singleton processes like event_router.
 
         Returns:
             Subscriber ID for use in poll() and ack()
         """
-        subscriber_id = f"{socket.gethostname()}:{os.getpid()}:{process_name}"
+        if stable:
+            # Stable ID: persists across restarts, inherits acks from previous runs
+            subscriber_id = f"{socket.gethostname()}:stable:{process_name}"
+        else:
+            # Per-instance ID: each process instance gets its own ack tracking
+            subscriber_id = f"{socket.gethostname()}:{os.getpid()}:{process_name}"
         conn = self._get_connection()
 
         conn.execute(
@@ -431,6 +440,22 @@ class CrossProcessEventQueue:
 
         cursor = conn.execute(query, params)
         return cursor.fetchone()[0]
+
+    def get_last_acked_event_id(self, subscriber_id: str) -> int:
+        """Get the highest event_id that was acked by this subscriber.
+
+        This allows resuming from where we left off after a restart.
+
+        Returns:
+            The last acked event_id, or 0 if no events have been acked.
+        """
+        conn = self._get_connection()
+        cursor = conn.execute(
+            'SELECT MAX(event_id) FROM acks WHERE subscriber_id = ?',
+            (subscriber_id,)
+        )
+        result = cursor.fetchone()[0]
+        return result if result is not None else 0
 
     def cleanup(self) -> tuple[int, int, int]:
         """Clean up old events and dead subscribers.
@@ -607,11 +632,23 @@ class CrossProcessEventPoller:
         event_types: list[str] | None = None,
         poll_interval: float = 1.0,
         db_path: Path | None = None,
+        stable: bool = False,
     ):
+        """Initialize the poller.
+
+        Args:
+            process_name: Name of the subscribing process
+            event_types: Event types to filter (None = all)
+            poll_interval: Seconds between polls
+            db_path: Optional custom database path
+            stable: If True, use stable subscriber ID that persists across restarts.
+                    This allows resuming from the last acked event after restart.
+        """
         self.process_name = process_name
         self.event_types = event_types
         self.poll_interval = poll_interval
         self.db_path = db_path
+        self.stable = stable
         self._handlers: dict[str, list[Callable[[CrossProcessEvent], None]]] = {}
         self._global_handlers: list[Callable[[CrossProcessEvent], None]] = []
         self._running = False
@@ -643,7 +680,16 @@ class CrossProcessEventPoller:
 
         self._running = True
         queue = get_event_queue(self.db_path)
-        self._subscriber_id = queue.subscribe(self.process_name, self.event_types)
+        self._subscriber_id = queue.subscribe(
+            self.process_name, self.event_types, stable=self.stable
+        )
+
+        # Get the last acked event ID to resume from (for stable subscribers)
+        self._last_acked_event_id = queue.get_last_acked_event_id(self._subscriber_id)
+        if self._last_acked_event_id > 0:
+            logger.info(
+                f"[CrossProcessEventPoller] Resuming from event_id {self._last_acked_event_id}"
+            )
 
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
@@ -658,7 +704,8 @@ class CrossProcessEventPoller:
     def _poll_loop(self) -> None:
         """Internal polling loop."""
         queue = get_event_queue(self.db_path)
-        last_event_id = 0
+        # Resume from last acked event (set in start() method)
+        last_event_id = getattr(self, '_last_acked_event_id', 0)
 
         while self._running:
             try:

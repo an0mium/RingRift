@@ -14,7 +14,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .blocks import SEResidualBlock, create_hex_mask
+from .blocks import AttentionResidualBlock, SEResidualBlock, create_hex_mask
 from .constants import (
     HEX_BOARD_SIZE,
     HEX_MAX_DIST,
@@ -865,6 +865,312 @@ class HexNeuralNet_v3_Lite(nn.Module):
         if return_features:
             # Return backbone features (pooled), not value head features (v_cat)
             # out_pooled has shape [B, num_filters] which is expected by auxiliary tasks
+            return v_out, policy_logits, out_pooled
+
+        return v_out, policy_logits
+
+
+class HexNeuralNet_v4(nn.Module):
+    """
+    V4 architecture with NAS-optimized attention for hexagonal boards.
+
+    This architecture applies the NAS-discovered improvements from RingRiftCNN_v4
+    to the hexagonal board architecture, combining the spatial policy heads
+    from V3 with the optimal structural choices found by evolutionary NAS.
+
+    NAS-Discovered Improvements:
+    - Multi-head self-attention (4 heads) instead of SE blocks
+    - 13 residual blocks (vs 12 in v3)
+    - 128 filters (vs 192 in v3, more efficient)
+    - 5x5 initial kernel (vs 3x3, better spatial coverage)
+    - Deeper value head (3 layers vs 2)
+    - Lower dropout (0.08 vs 0.3)
+    - Rank distribution head for multi-player games
+
+    Preserved from V3:
+    - Spatial policy heads (placement, movement, special)
+    - Hex-specific masking and pooling
+    - Game-specific action encoding
+
+    Architecture Version:
+        v4.0.0 - NAS-optimized attention architecture for hex boards.
+
+    Performance Characteristics:
+    - Slightly fewer parameters than v3 (128 vs 192 filters)
+    - Better long-range pattern recognition (attention)
+    - Improved training efficiency (deeper value head)
+    """
+
+    ARCHITECTURE_VERSION = "v4.0.0"
+
+    def __init__(
+        self,
+        in_channels: int = 64,  # 16 base × 4 frames for V3 encoder
+        global_features: int = 20,  # V3 encoder provides 20 global features
+        num_res_blocks: int = 13,  # NAS optimal
+        num_filters: int = 128,  # NAS optimal
+        board_size: int = HEX_BOARD_SIZE,
+        policy_size: int = P_HEX,
+        value_intermediate: int = 256,  # NAS optimal
+        value_hidden: int = 256,  # NAS: deeper value head
+        num_players: int = 4,
+        num_attention_heads: int = 4,  # NAS optimal
+        dropout: float = 0.08,  # NAS optimal
+        initial_kernel_size: int = 5,  # NAS optimal
+        hex_radius: int = 12,
+        num_ring_counts: int = 3,  # Ring count options (1, 2, 3)
+        num_directions: int = NUM_HEX_DIRS,  # 6 hex directions
+        max_distance: int | None = None,  # Auto-detect based on board_size
+    ) -> None:
+        super().__init__()
+        self.in_channels = in_channels
+        self.global_features = global_features
+        self.num_res_blocks = num_res_blocks
+        self.num_filters = num_filters
+        self.board_size = board_size
+        self.policy_size = policy_size
+        self.num_players = num_players
+        self.dropout_rate = dropout
+
+        # Auto-detect max_distance based on board size:
+        # - hex8 (board_size=9): max_distance = 8
+        # - hexagonal (board_size=25): max_distance = 24
+        if max_distance is None:
+            max_distance = board_size - 1
+        self.max_distance = max_distance
+
+        # Spatial policy dimensions
+        self.num_ring_counts = num_ring_counts
+        self.num_directions = num_directions
+        self.movement_channels = num_directions * max_distance
+
+        # Pre-compute hex validity mask
+        self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
+
+        # Pre-compute index scatter tensors for policy assembly
+        self._register_policy_indices(board_size)
+
+        # Initial convolution with larger kernel (NAS optimal: 5x5)
+        self.conv1 = nn.Conv2d(
+            in_channels,
+            num_filters,
+            kernel_size=initial_kernel_size,
+            padding=initial_kernel_size // 2,
+        )
+        self.bn1 = nn.BatchNorm2d(num_filters)
+        self.relu = nn.ReLU()
+
+        # Attention-enhanced residual blocks (NAS optimal)
+        self.res_blocks = nn.ModuleList([
+            AttentionResidualBlock(
+                num_filters,
+                num_heads=num_attention_heads,
+                dropout=dropout,
+            )
+            for _ in range(num_res_blocks)
+        ])
+
+        # === Deeper Value Head (NAS optimal: 3 layers) ===
+        self.value_fc1 = nn.Linear(num_filters + global_features, value_intermediate)
+        self.value_fc2 = nn.Linear(value_intermediate, value_hidden)
+        self.value_fc3 = nn.Linear(value_hidden, num_players)
+        self.tanh = nn.Tanh()
+        self.dropout = nn.Dropout(dropout)
+
+        # === Rank Distribution Head ===
+        rank_dist_intermediate = value_intermediate
+        self.rank_dist_fc1 = nn.Linear(num_filters + global_features, rank_dist_intermediate)
+        self.rank_dist_fc2 = nn.Linear(rank_dist_intermediate, value_hidden)
+        self.rank_dist_fc3 = nn.Linear(value_hidden, num_players * num_players)
+        self.rank_softmax = nn.Softmax(dim=-1)
+
+        # === V3 Spatial Policy Heads ===
+        self.placement_conv = nn.Conv2d(num_filters, num_ring_counts, kernel_size=1)
+        self.movement_conv = nn.Conv2d(num_filters, self.movement_channels, kernel_size=1)
+        self.special_fc = nn.Linear(num_filters + global_features, 1)
+
+    def _register_policy_indices(self, board_size: int) -> None:
+        """
+        Pre-compute index tensors for scattering spatial logits into flat policy.
+
+        Hex8 (board_size=9):
+          - Placement: 9 × 9 × 3 = 243
+          - Movement base: 243
+          - Movement: 9 × 9 × 6 × 8 = 3888
+        Hexagonal (board_size=25):
+          - Placement: 25 × 25 × 3 = 1875
+          - Movement base: 1875 (HEX_MOVEMENT_BASE)
+          - Movement: 25 × 25 × 6 × 24 = 90000
+        """
+        H, W = board_size, board_size
+
+        # Compute placement span based on actual board size
+        placement_span = H * W * self.num_ring_counts
+
+        # Placement indices: [3, H, W] → flat index in [0, placement_span-1]
+        placement_idx = torch.zeros(self.num_ring_counts, H, W, dtype=torch.long)
+        for y in range(H):
+            for x in range(W):
+                for r in range(self.num_ring_counts):
+                    placement_idx[r, y, x] = y * W * self.num_ring_counts + x * self.num_ring_counts + r
+        self.register_buffer("placement_idx", placement_idx)
+
+        # Movement indices: [movement_channels, H, W] → flat index in [placement_span, ...]
+        movement_idx = torch.zeros(self.movement_channels, H, W, dtype=torch.long)
+        for y in range(H):
+            for x in range(W):
+                for d in range(self.num_directions):
+                    for dist_minus_1 in range(self.max_distance):
+                        channel = d * self.max_distance + dist_minus_1
+                        flat_idx = (
+                            placement_span  # Movement base = after placements
+                            + y * W * self.num_directions * self.max_distance
+                            + x * self.num_directions * self.max_distance
+                            + d * self.max_distance
+                            + dist_minus_1
+                        )
+                        movement_idx[channel, y, x] = flat_idx
+        self.register_buffer("movement_idx", movement_idx)
+
+        # Store special base index for use in forward pass
+        movement_span = H * W * self.num_directions * self.max_distance
+        self.special_base = placement_span + movement_span
+
+    def _masked_global_avg_pool(
+        self,
+        x: torch.Tensor,
+        hex_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Perform masked global average pooling over [H, W] for hex grid."""
+        mask = hex_mask if hex_mask is not None else self.hex_mask
+        if mask is None:
+            return x.mean(dim=(2, 3))
+        mask = mask.to(dtype=x.dtype, device=x.device)
+        masked = x * mask
+        num = masked.sum(dim=(2, 3))
+        denom = mask.sum(dim=(2, 3)).clamp_min(1.0)
+        return num / denom
+
+    def _scatter_policy_logits(
+        self,
+        placement_logits: torch.Tensor,
+        movement_logits: torch.Tensor,
+        special_logits: torch.Tensor,
+        hex_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """
+        Scatter spatial logits into flat policy vector using pre-computed indices.
+
+        Args:
+            placement_logits: [B, 3, H, W] placement logits
+            movement_logits: [B, movement_channels, H, W] movement logits
+            special_logits: [B, 1] special action logits
+            hex_mask: [1, 1, H, W] hex validity mask
+
+        Returns:
+            policy: [B, P_HEX] flat policy logits
+        """
+        B = placement_logits.size(0)
+        device = placement_logits.device
+        dtype = placement_logits.dtype
+
+        # Initialize policy with large negative (masked out)
+        policy = torch.full((B, self.policy_size), -1e9, device=device, dtype=dtype)
+
+        # Scatter placement logits: [B, 3, H, W] → [B, placement_span]
+        pl_flat = placement_logits.view(B, self.num_ring_counts, -1)  # [B, 3, H*W]
+        pl_idx = self.placement_idx.view(self.num_ring_counts, -1)  # [3, H*W]
+
+        # Apply hex mask to placement indices (only scatter valid cells)
+        if hex_mask is not None:
+            hex_flat = hex_mask.squeeze(0).squeeze(0).view(-1)  # [H*W]
+            valid_cells = hex_flat > 0.5  # Boolean mask for valid cells
+
+        for r in range(self.num_ring_counts):
+            for b in range(B):
+                if hex_mask is not None:
+                    valid_idx = pl_idx[r, valid_cells]
+                    valid_logits = pl_flat[b, r, valid_cells]
+                    policy[b].scatter_(0, valid_idx, valid_logits)
+                else:
+                    policy[b].scatter_(0, pl_idx[r], pl_flat[b, r])
+
+        # Scatter movement logits: [B, movement_channels, H, W] → [B, movement_span]
+        mv_flat = movement_logits.view(B, self.movement_channels, -1)  # [B, C, H*W]
+        mv_idx = self.movement_idx.view(self.movement_channels, -1)  # [C, H*W]
+
+        for c in range(self.movement_channels):
+            for b in range(B):
+                if hex_mask is not None:
+                    valid_idx = mv_idx[c, valid_cells]
+                    valid_logits = mv_flat[b, c, valid_cells]
+                    policy[b].scatter_(0, valid_idx, valid_logits)
+                else:
+                    policy[b].scatter_(0, mv_idx[c], mv_flat[b, c])
+
+        # Add special action logit at the computed special_base index
+        policy[:, self.special_base] = special_logits.squeeze(-1)
+
+        return policy
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        globals: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        return_features: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward pass with spatial policy heads and NAS-optimized backbone.
+
+        Args:
+            x: [B, C, H, W] spatial features
+            globals: [B, G] global features
+            mask: [B, 1, H, W] optional action mask (for masking invalid cells)
+            return_features: if True, also return intermediate features for auxiliary tasks
+
+        Returns:
+            v_out: [B, num_players] value predictions
+            policy_logits: [B, P_HEX] policy logits
+            features: (optional) [B, num_filters] intermediate features if return_features=True
+        """
+        hex_mask = self.hex_mask if mask is None else mask
+
+        # Initial convolution with 5x5 kernel
+        out = self.conv1(x)
+        out = self.relu(self.bn1(out))
+
+        # Attention residual blocks
+        for block in self.res_blocks:
+            out = block(out)
+
+        # Global pooled features for heads
+        out_pooled = self._masked_global_avg_pool(out, hex_mask)
+        combined = torch.cat([out_pooled, globals], dim=1)
+
+        # Deeper value head (3 layers)
+        v_hidden = self.relu(self.value_fc1(combined))
+        v_hidden = self.dropout(v_hidden)
+        v_hidden = self.relu(self.value_fc2(v_hidden))
+        v_hidden = self.dropout(v_hidden)
+        v_out = self.tanh(self.value_fc3(v_hidden))
+
+        # Spatial policy heads
+        placement_logits = self.placement_conv(out)
+        movement_logits = self.movement_conv(out)
+
+        # Apply hex mask to policy heads
+        if mask is not None:
+            mask_expanded = mask.to(dtype=out.dtype, device=out.device)
+            placement_logits = placement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
+            movement_logits = movement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
+
+        special_input = torch.cat([out_pooled, globals], dim=1)
+        special_logits = self.special_fc(special_input)
+
+        policy_logits = self._scatter_policy_logits(placement_logits, movement_logits, special_logits, hex_mask)
+
+        if return_features:
             return v_out, policy_logits, out_pooled
 
         return v_out, policy_logits

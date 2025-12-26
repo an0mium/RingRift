@@ -63,10 +63,6 @@
             "legendFormat": "Vast Peers"
           },
           {
-            "expr": "ringrift_p2p_lambda_peers",
-            "legendFormat": "Lambda Peers"
-          },
-          {
             "expr": "ringrift_p2p_retired_peers",
             "legendFormat": "Retired"
           }
@@ -95,10 +91,6 @@
           {
             "expr": "ringrift_selfplay_jobs_vast",
             "legendFormat": "Vast Jobs"
-          },
-          {
-            "expr": "ringrift_selfplay_jobs_lambda",
-            "legendFormat": "Lambda Jobs"
           }
         ],
         "fieldConfig": {

@@ -441,8 +441,7 @@ class EndgameEvaluator:
         state: "GameState",
         player_idx: int,
     ) -> float:
-        """
-        Evaluate recovery potential for all players.
+        """Evaluate recovery potential (symmetric).
 
         Recovery (RR-CANON-R110–R115) allows temporarily eliminated players to
         slide markers to form lines, paying costs with buried ring extraction.
@@ -452,49 +451,63 @@ class EndgameEvaluator:
         2. Threat from opponents who have recovery potential
         3. Value of buried rings as recovery resources
 
+        Made symmetric by computing (my_recovery_value - max_opponent_value)
+        to ensure P1+P2 evaluations sum to 0.
+
         Args:
             state: Current game state.
             player_idx: Player number.
 
         Returns:
-            Score representing recovery strategic value (positive = good)
+            Score representing recovery strategic value (symmetric).
+        """
+        my_recovery = self._compute_recovery_score_for_player(state, player_idx)
+
+        # Compute max opponent recovery for symmetric evaluation
+        opp_scores = [
+            self._compute_recovery_score_for_player(state, p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_recovery = max(opp_scores) if opp_scores else 0.0
+
+        # Symmetric: advantage over best opponent
+        return my_recovery - max_opp_recovery
+
+    def _compute_recovery_score_for_player(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute raw recovery value for a player.
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Raw recovery score (before symmetry adjustment).
         """
         # Import here to avoid circular imports
         from ...rules.core import count_buried_rings, is_eligible_for_recovery
         from ...rules.recovery import has_any_recovery_move
-        
+
         score = 0.0
 
-        # Check our recovery status
-        my_eligible = is_eligible_for_recovery(state, player_idx)
-        my_buried = count_buried_rings(state.board, player_idx)
+        eligible = is_eligible_for_recovery(state, player_num)
+        buried = count_buried_rings(state.board, player_num)
 
-        if my_eligible:
+        if eligible:
             # Bonus for having recovery available
             score += self.weights.recovery_eligibility
 
             # Additional bonus if we actually have recovery moves
-            if has_any_recovery_move(state, player_idx):
+            if has_any_recovery_move(state, player_num):
                 score += self.weights.recovery_potential
         else:
             # Small bonus for buried rings even if not currently eligible
             # (potential future recovery resource)
-            score += my_buried * self.weights.buried_ring_value * 0.3
-
-        # Evaluate opponent recovery threats
-        for player in state.players:
-            if player.player_number == player_idx:
-                continue
-
-            opp_num = player.player_number
-            opp_eligible = is_eligible_for_recovery(state, opp_num)
-            if opp_eligible:
-                # Penalty for opponent having recovery potential
-                score -= self.weights.recovery_eligibility * 0.5
-
-                # Extra penalty if opponent actually has recovery moves
-                if has_any_recovery_move(state, player.player_number):
-                    score -= self.weights.recovery_threat
+            score += buried * self.weights.buried_ring_value * 0.3
 
         return score
     

@@ -17,7 +17,7 @@ groups:
         annotations:
           summary: 'RingRift AI Loop is down'
           description: 'The unified AI loop on {{ $labels.instance }} has been down for more than 5 minutes.'
-          runbook: "Check if the process crashed. Run: ssh lambda_h100 'systemctl status ringrift-ai-loop'"
+          runbook: "Check if the process crashed. Run: ssh <orchestrator-host> 'systemctl status ringrift-ai-loop'"
 
       - alert: NoGamesSynced
         expr: increase(ringrift_games_synced_total[30m]) == 0

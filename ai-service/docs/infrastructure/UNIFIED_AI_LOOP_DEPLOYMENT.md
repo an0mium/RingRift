@@ -159,7 +159,7 @@ curriculum:
 
 ```yaml
 hosts:
-  lambda-h100:
+  runpod-h100:
     ssh_host: '<primary-gpu-ip>'
     ssh_user: 'ubuntu'
     role: 'training,tournament'
@@ -259,7 +259,7 @@ Dashboard panels:
 The main cluster dashboard at `/monitoring/grafana/dashboards/ai-cluster.json` requires:
 
 - Infinity datasource plugin installed in Grafana
-- Orchestrator host variable set to `<primary-gpu-ip>` (lambda_h100)
+- Orchestrator host variable set to `<primary-gpu-ip>` (primary_gpu)
 - P2P Orchestrator running on port 8770
 
 **Fixing "No data" in Elo Leaderboard or Node Status Table:**
@@ -444,7 +444,7 @@ ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && python3 scripts/unified
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    lambda_h100 (Primary)                        │
+│                    primary_gpu (Primary)                        │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │              Unified AI Loop Daemon                      │   │
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │   │

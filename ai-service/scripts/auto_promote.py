@@ -48,6 +48,7 @@ from app.config.thresholds import (
     get_min_win_rate_vs_random,
     get_min_win_rate_vs_heuristic,
 )
+from app.utils.name_generator import generate_model_name, name_from_checkpoint_hash
 
 # Import gauntlet resource limits (Dec 2025)
 try:
@@ -218,7 +219,9 @@ def promote_model(model_id: str, rating: float, dry_run: bool = False) -> bool:
             break
     
     dest_dir = PRODUCTION_DIR / config
-    dest_path = dest_dir / f"model_elo{int(rating)}.pt"
+    # Use unique name instead of ELO (ELO can change over time)
+    unique_name = generate_model_name(include_timestamp=True)
+    dest_path = dest_dir / f"{unique_name}.pt"
     
     if dry_run:
         print(f"  [DRY-RUN] Would copy {model_path} -> {dest_path}")
@@ -553,11 +556,15 @@ def promote_after_gauntlet(
     config = f"{board_type}_{num_players}p"
     dest_dir = PRODUCTION_DIR / config
 
-    # Use estimated ELO in filename
-    elo = int(gauntlet_results.get("estimated_elo", 1500))
+    # Use unique memorable name instead of ELO (ELO can change over time)
+    # Generate deterministic name from model content for reproducibility
+    unique_name = name_from_checkpoint_hash(str(model_path))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest_filename = f"model_elo{elo}_{timestamp}.pth"
+    dest_filename = f"{unique_name}_{timestamp}.pth"
     dest_path = dest_dir / dest_filename
+
+    # Store ELO in metadata file alongside model for reference
+    elo = int(gauntlet_results.get("estimated_elo", 1500))
 
     if dry_run:
         print(f"\n[DRY-RUN] Would promote:")
@@ -571,6 +578,20 @@ def promote_after_gauntlet(
     # Copy model file
     shutil.copy2(model_path, dest_path)
     print(f"  ✓ Copied to {dest_path}")
+
+    # Save metadata alongside model (ELO, gauntlet results, etc.)
+    metadata_path = dest_path.with_suffix(".json")
+    metadata = {
+        "name": unique_name,
+        "config": config,
+        "estimated_elo": elo,
+        "timestamp": timestamp,
+        "source_model": str(model_path.name),
+        "gauntlet_results": gauntlet_results,
+    }
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"  ✓ Saved metadata to {metadata_path.name}")
 
     # Update latest symlink
     latest_link = dest_dir / "latest.pth"

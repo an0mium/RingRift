@@ -113,6 +113,7 @@ from app.ai.neural_net.square_architectures import (
     RingRiftCNN_v3,
     RingRiftCNN_v3_Lite,
     RingRiftCNN_v4,
+    RingRiftCNN_v5,
 )
 
 # Hex architectures - migrated to hex_architectures.py (Phase 2)
@@ -121,10 +122,17 @@ from app.ai.neural_net.hex_architectures import (
     HexNeuralNet_v2_Lite,
     HexNeuralNet_v3,
     HexNeuralNet_v3_Lite,
+    HexNeuralNet_v4,
 )
 
-# HexNeuralNet_v4 - NAS-optimized attention architecture (pending migration)
-from app.ai._neural_net_legacy import HexNeuralNet_v4
+# V5 Heavy architectures - Maximum strength with all features (December 2025)
+from app.ai.neural_net.v5_heavy import (
+    HeuristicEncoder,
+    HexNeuralNet_v5_Heavy,
+    RingRiftCNN_v5_Heavy,
+    create_v5_heavy_model,
+    NUM_HEURISTIC_FEATURES,
+)
 
 # Graph encoding - extracted from archive/cage_network.py (December 2025)
 # Enables GNN-based position evaluation
@@ -222,7 +230,10 @@ __all__ = [
     "HexNeuralNet_v3",
     "HexNeuralNet_v3_Lite",
     "HexNeuralNet_v4",
+    "HexNeuralNet_v5_Heavy",
+    "HeuristicEncoder",
     "NeuralNetAI",
+    "NUM_HEURISTIC_FEATURES",
     "POLICY_SIZE_8x8",
     "POLICY_SIZE_19x19",
     "ResidualBlock",
@@ -231,7 +242,10 @@ __all__ = [
     "RingRiftCNN_v3",
     "RingRiftCNN_v3_Lite",
     "RingRiftCNN_v4",
+    "RingRiftCNN_v5",
+    "RingRiftCNN_v5_Heavy",
     "SEResidualBlock",
+    "create_v5_heavy_model",
     "_decode_move_square8",
     "_decode_move_square19",
     "_encode_move_square8",

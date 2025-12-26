@@ -27,9 +27,6 @@ default:
 # GPU-heavy nodes (GH200, H100, A100) - prioritize GPU work
 gpu_heavy:
   patterns:
-    - 'lambda-gh200-*'
-    - 'lambda-h100*'
-    - 'lambda-*h100*'
     - '*-gh200-*'
     - '*-h100*'
     - '*-a100*'
@@ -51,10 +48,10 @@ gpu_heavy:
 # GPU-medium nodes (A10, consumer GPUs)
 gpu_medium:
   patterns:
-    - 'lambda-a10*'
     - '*-3090*'
     - '*-4080*'
     - '*-4090*'
+    - '*-l40s*'
   allowed:
     - training
     - gpu_cmaes

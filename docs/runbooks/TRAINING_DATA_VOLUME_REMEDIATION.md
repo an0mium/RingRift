@@ -30,7 +30,7 @@ This runbook provides step-by-step instructions for executing training data gene
 
 ### 1. Cluster Access Requirements
 
-- SSH access to target cluster nodes (Lambda/VAST/etc.)
+- SSH access to target cluster nodes (Runpod/Vast/etc.)
 - Sufficient disk space (>50GB recommended)
 - Python 3.11+ installed
 - Node.js 18+ installed (for TS↔Python parity checks)

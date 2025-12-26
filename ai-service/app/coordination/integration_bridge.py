@@ -536,8 +536,9 @@ async def wire_all_integrations() -> dict[str, bool]:
             create_feedback_controller,
             create_feedback_router,
         )
+        from app.utils.paths import AI_SERVICE_ROOT
 
-        controller = create_feedback_controller()
+        controller = create_feedback_controller(AI_SERVICE_ROOT)
         router = create_feedback_router()
         wire_pipeline_feedback_events(controller, router)
         results["pipeline_feedback"] = True

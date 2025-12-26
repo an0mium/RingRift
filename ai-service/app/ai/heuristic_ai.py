@@ -1371,43 +1371,60 @@ class HeuristicAI(BaseAI):
         )
 
     def _evaluate_line_potential(self, game_state: GameState) -> float:
-        """Evaluate potential to form lines (2, 3, 4 in a row).
+        """Evaluate potential to form lines (2, 3, 4 in a row) - symmetric.
 
         Weights used:
         - WEIGHT_TWO_IN_ROW: Adjacent marker pairs in line directions
         - WEIGHT_THREE_IN_ROW: Three consecutive markers
         - WEIGHT_FOUR_IN_ROW: Four consecutive markers (almost a winning line)
 
-        Note: WEIGHT_TWO_IN_ROW is redundant with WEIGHT_CONNECTED_NEIGHBOR in
-        _evaluate_line_connectivity - both count the same adjacent marker pairs.
-        See module docstring "Known Weight Redundancies" for details.
+        Made symmetric by computing (my_line_potential - max_opponent_potential)
+        to ensure P1+P2 evaluations sum to 0.
+        """
+        my_potential = self._compute_line_potential_for_player(
+            game_state, self.player_number
+        )
 
-        Uses Numba JIT-compiled evaluation when available for ~10x speedup.
-        Falls back to FastGeometry pre-computed offset tables for O(1) lookups.
+        # Compute max opponent potential for symmetric evaluation
+        opp_potentials = [
+            self._compute_line_potential_for_player(game_state, p.player_number)
+            for p in game_state.players
+            if p.player_number != self.player_number
+        ]
+        max_opp_potential = max(opp_potentials) if opp_potentials else 0.0
+
+        # Symmetric: advantage over best opponent
+        advantage = my_potential - max_opp_potential
+        return advantage * self.WEIGHT_LINE_POTENTIAL
+
+    def _compute_line_potential_for_player(
+        self, game_state: GameState, player_num: int
+    ) -> float:
+        """Compute raw line potential score for a specific player.
+
+        Args:
+            game_state: Current game state.
+            player_num: Player number to compute for.
+
+        Returns:
+            Raw line potential score (before applying weight).
         """
         board = game_state.board
         board_type = board.type
         markers = board.markers
 
-        # Numba JIT path disabled by default - benchmarks show data conversion
-        # overhead negates JIT gains for typical marker counts (10-50).
-        # Enable via environment variable for experimentation on larger boards.
-        # if NUMBA_AVAILABLE and os.getenv('RINGRIFT_USE_NUMBA_EVAL') and len(markers) > 0:
-        #     return self._evaluate_line_potential_numba(game_state)
-
-        # Fallback: Pure Python with FastGeometry optimizations
         score = 0.0
 
         # Get number of directions for this board type
         num_directions = 8 if board_type != BoardType.HEXAGONAL else 6
 
         # Iterate through all markers of the player
-        my_markers = [
+        player_markers = [
             m for m in markers.values()
-            if m.player == self.player_number
+            if m.player == player_num
         ]
 
-        for marker in my_markers:
+        for marker in player_markers:
             start_key = marker.position.to_key()
 
             for dir_idx in range(num_directions):
@@ -1419,8 +1436,7 @@ class HeuristicAI(BaseAI):
                 if key2 is None:
                     continue
 
-                if (key2 in markers and
-                        markers[key2].player == self.player_number):
+                if key2 in markers and markers[key2].player == player_num:
                     score += self.WEIGHT_TWO_IN_ROW  # 2 in a row
 
                     # Check length 3
@@ -1428,8 +1444,7 @@ class HeuristicAI(BaseAI):
                     if key3 is None:
                         continue
 
-                    if (key3 in markers and
-                            markers[key3].player == self.player_number):
+                    if key3 in markers and markers[key3].player == player_num:
                         score += self.WEIGHT_THREE_IN_ROW  # 3 in a row (cumulative)
 
                         # Check length 4 (almost a line)
@@ -1439,12 +1454,10 @@ class HeuristicAI(BaseAI):
                         if key4 is None:
                             continue
 
-                        if (key4 in markers and
-                                markers[key4].player ==
-                                self.player_number):
+                        if key4 in markers and markers[key4].player == player_num:
                             score += self.WEIGHT_FOUR_IN_ROW  # 4 in a row
 
-        return score * self.WEIGHT_LINE_POTENTIAL
+        return score
 
     def _evaluate_line_potential_numba(self, game_state: GameState) -> float:
         """Numba JIT-compiled line potential evaluation."""
@@ -1642,21 +1655,42 @@ class HeuristicAI(BaseAI):
         return self._fast_geo.get_center_positions(game_state.board.type)
 
     def _evaluate_line_connectivity(self, game_state: GameState) -> float:
-        """Evaluate connectivity of markers and gap potential.
+        """Evaluate connectivity of markers and gap potential - symmetric.
 
         Weights used:
         - WEIGHT_CONNECTED_NEIGHBOR: Adjacent marker pairs in line directions
         - WEIGHT_GAP_POTENTIAL: Markers at distance 2 with empty gap between
 
-        Note: WEIGHT_CONNECTED_NEIGHBOR is redundant with WEIGHT_TWO_IN_ROW in
-        _evaluate_line_potential - both count the same adjacent marker pairs.
-        See module docstring "Known Weight Redundancies" for details.
+        Made symmetric by computing (my_connectivity - max_opponent_connectivity)
+        to ensure P1+P2 evaluations sum to 0.
+        """
+        my_connectivity = self._compute_connectivity_for_player(
+            game_state, self.player_number
+        )
 
-        Important: The original "connectivity = harder to capture" rationale
-        is incorrect. RingRift has no Go-style capture mechanics. Markers
-        cannot be surrounded/captured - only flipped by passing stacks.
+        # Compute max opponent connectivity for symmetric evaluation
+        opp_connectivities = [
+            self._compute_connectivity_for_player(game_state, p.player_number)
+            for p in game_state.players
+            if p.player_number != self.player_number
+        ]
+        max_opp_connectivity = max(opp_connectivities) if opp_connectivities else 0.0
 
-        Optimized to use FastGeometry pre-computed offset tables.
+        # Symmetric: advantage over best opponent
+        advantage = my_connectivity - max_opp_connectivity
+        return advantage * self.WEIGHT_LINE_CONNECTIVITY
+
+    def _compute_connectivity_for_player(
+        self, game_state: GameState, player_num: int
+    ) -> float:
+        """Compute raw line connectivity score for a specific player.
+
+        Args:
+            game_state: Current game state.
+            player_num: Player number to compute for.
+
+        Returns:
+            Raw connectivity score (before applying weight).
         """
         score = 0.0
         board = game_state.board
@@ -1668,12 +1702,12 @@ class HeuristicAI(BaseAI):
         # Get number of directions for this board type
         num_directions = 8 if board_type != BoardType.HEXAGONAL else 6
 
-        my_markers = [
+        player_markers = [
             m for m in markers.values()
-            if m.player == self.player_number
+            if m.player == player_num
         ]
 
-        for marker in my_markers:
+        for marker in player_markers:
             start_key = marker.position.to_key()
             for dir_idx in range(num_directions):
                 # Use ultra-fast pre-computed offset lookup
@@ -1685,12 +1719,12 @@ class HeuristicAI(BaseAI):
 
                 has_m1 = (
                     key1 in markers and
-                    markers[key1].player == self.player_number
+                    markers[key1].player == player_num
                 )
                 has_m2 = (
                     key2 is not None and
                     key2 in markers and
-                    markers[key2].player == self.player_number
+                    markers[key2].player == player_num
                 )
 
                 if has_m1:
@@ -1700,7 +1734,7 @@ class HeuristicAI(BaseAI):
                         and key1 not in collapsed and key1 not in stacks):
                     score += self.WEIGHT_GAP_POTENTIAL
 
-        return score * self.WEIGHT_LINE_CONNECTIVITY
+        return score
 
     def _evaluate_territory_safety(self, game_state: GameState) -> float:
         """Evaluate safety of potential territories.

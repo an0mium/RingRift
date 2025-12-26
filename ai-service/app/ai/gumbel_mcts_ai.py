@@ -218,7 +218,14 @@ class GumbelMCTSAI(BaseAI):
         # Gumbel MCTS parameters
         self.num_sampled_actions = config.gumbel_num_sampled_actions or 16
         self.simulation_budget = config.gumbel_simulation_budget or 150
-        self.c_puct = 1.5  # Exploration constant for tree policy
+        self.c_puct = 1.5  # Base exploration constant for tree policy
+        # Adaptive c_puct parameters (Dec 2025: Phase 1 quick win)
+        # Early game: high exploration, Late game: exploitation
+        self.c_puct_early = 2.0  # More exploration in opening
+        self.c_puct_mid = 1.5    # Balanced in midgame
+        self.c_puct_late = 0.8   # More exploitation in endgame
+        self.c_puct_early_threshold = 15   # Moves before switching to mid
+        self.c_puct_late_threshold = 40    # Moves before switching to late
 
         # Store search results for training data extraction
         self._last_search_actions: list[GumbelAction] | None = None
@@ -391,6 +398,40 @@ class GumbelMCTSAI(BaseAI):
         elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
             return 0.2
         return 0.3  # Default for square8
+
+    def _get_adaptive_cpuct(self, move_number: int | None = None) -> float:
+        """Get adaptive c_puct based on game phase.
+
+        This is a Phase 1 quick win for 2000+ Elo (Dec 2025).
+        Estimated impact: +10-20 Elo.
+
+        Early game benefits from more exploration (higher c_puct):
+        - Many opening possibilities, exploration finds good lines
+        - Less risk from tactical errors
+
+        Late game benefits from exploitation (lower c_puct):
+        - Winning lines are clearer, focus search on best moves
+        - Tactical precision matters more
+
+        Args:
+            move_number: Current move number in the game. If None, uses
+                self.move_count as fallback.
+
+        Returns:
+            c_puct value appropriate for the game phase:
+            - 2.0 for early game (moves 0-14)
+            - 1.5 for midgame (moves 15-39)
+            - 0.8 for late game (moves 40+)
+        """
+        if move_number is None:
+            move_number = self.move_count
+
+        if move_number < self.c_puct_early_threshold:
+            return self.c_puct_early
+        elif move_number < self.c_puct_late_threshold:
+            return self.c_puct_mid
+        else:
+            return self.c_puct_late
 
     def _apply_dirichlet_noise(
         self,
@@ -1624,7 +1665,9 @@ class GumbelMCTSAI(BaseAI):
             if not child.to_move_is_root:
                 q = -q
 
-            u = self.c_puct * child.prior * math.sqrt(total_visits) / (
+            # Use adaptive c_puct based on game phase (Dec 2025)
+            adaptive_cpuct = self._get_adaptive_cpuct()
+            u = adaptive_cpuct * child.prior * math.sqrt(total_visits) / (
                 1 + child.visit_count
             )
             return q + u

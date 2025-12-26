@@ -926,8 +926,9 @@ def run_baseline_gauntlet(
 
     # Emit EVALUATION_COMPLETED event for curriculum feedback (December 2025)
     # This closes the eval→curriculum feedback loop
+    board_type_str = board_type.value if hasattr(board_type, "value") else str(board_type)
     _emit_gauntlet_result_event(
-        config_key=f"{board_type.value}_{num_players}p",
+        config_key=f"{board_type_str}_{num_players}p",
         elo=result.estimated_elo,
         win_rate=result.win_rate,
         games=result.total_games,

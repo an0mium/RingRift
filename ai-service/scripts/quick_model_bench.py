@@ -16,13 +16,18 @@ from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
 
 
-def run_game(ai1, ai2, board_type, num_players):
+def run_game(ai1, ai2, board_type, num_players, game_idx: int = 0):
     """Run a single game between two AIs. Returns winner (1 or 2) or None for draw.
     ai1 plays as player 1, ai2 plays as player 2 (1-based).
     """
     state = create_initial_state(board_type=board_type, num_players=num_players)
     engine = DefaultRulesEngine()
     ais = {1: ai1, 2: ai2}
+
+    # Reset AIs with unique seeds per game for variety
+    for p, ai in ais.items():
+        if hasattr(ai, 'reset_for_new_game'):
+            ai.reset_for_new_game(rng_seed=game_idx * 1000 + p)
 
     max_moves = 500
     move_count = 0
@@ -62,7 +67,7 @@ def benchmark_gmo(model_path: Path, num_games: int = 20):
     # Test vs Random
     wins_vs_random = 0
     for i in range(num_games):
-        winner = run_game(gmo_ai, random_ai, BoardType.SQUARE8, 2)
+        winner = run_game(gmo_ai, random_ai, BoardType.SQUARE8, 2, game_idx=i)
         if winner == 1:  # GMO is player 1
             wins_vs_random += 1
         print(f"\rGMO vs Random: {i+1}/{num_games}", end="")
@@ -71,7 +76,7 @@ def benchmark_gmo(model_path: Path, num_games: int = 20):
     # Test vs Heuristic
     wins_vs_heur = 0
     for i in range(num_games):
-        winner = run_game(gmo_ai, heuristic_ai, BoardType.SQUARE8, 2)
+        winner = run_game(gmo_ai, heuristic_ai, BoardType.SQUARE8, 2, game_idx=num_games + i)
         if winner == 1:  # GMO is player 1
             wins_vs_heur += 1
         print(f"\rGMO vs Heuristic: {i+1}/{num_games}", end="")

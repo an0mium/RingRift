@@ -129,17 +129,17 @@ slurm:
 Example config:
 
 - `config/unified_loop.slurm.example.yaml`
-- `config/slurm/slurm.conf.lambda.example`
-- `config/slurm/gres.conf.lambda.example`
+- `archive/deprecated_config/slurm/slurm.conf.lambda.example`
+- `archive/deprecated_config/slurm/gres.conf.lambda.example`
 
 Preflight and smoke test helpers:
 
 - `scripts/slurm_preflight_check.py`
 - `scripts/slurm_smoke_test.py`
 
-Lambda cluster playbook:
+Legacy Lambda cluster playbook (archived):
 
-- `docs/infrastructure/LAMBDA_SLURM_SETUP.md`
+- `docs/archive/lambda/LAMBDA_SLURM_SETUP.md`
 
 ### Job Wrapper Template (Draft)
 
@@ -170,9 +170,9 @@ python scripts/run_nn_training_baseline.py \
 - Retry logic should remain in the unified loop, not inside Slurm.
 - Timeouts should map to Slurm `--time` and/or local monitoring with `scancel`.
 
-## Lambda Nodes: Transition to a Stable HPC Cluster
+## GPU Nodes: Transition to a Stable HPC Cluster
 
-Lambda nodes with a shared filesystem are not an HPC cluster by default. They
+GPU nodes with a shared filesystem are not an HPC cluster by default. They
 become HPC-like once you add a scheduler and enforce stable allocations.
 
 Classification:
@@ -186,7 +186,7 @@ Classification:
 
 1. **Shared filesystem**: NFS/FSx/Lustre mounted on all nodes.
 2. **Slurm controller**: One stable head node (slurmctld).
-3. **Slurm compute nodes**: slurmd on every Lambda node.
+3. **Slurm compute nodes**: slurmd on every GPU node.
 4. **GPU resource config**: `gres.conf` per node.
 5. **Accounting (optional but recommended)**: slurmdbd for usage tracking.
 
@@ -194,8 +194,8 @@ Classification:
 
 1. Standardize OS, CUDA, and driver versions across nodes.
 2. Mount the shared filesystem to the same path on every node.
-3. Deploy Slurm controller on the primary Lambda node.
-4. Add all Lambda nodes to `slurm.conf` with stable hostnames.
+3. Deploy Slurm controller on the primary controller node.
+4. Add all GPU nodes to `slurm.conf` with stable hostnames.
 5. Create partitions for:
    - training (GPU-heavy)
    - selfplay (GPU/CPU mixed)

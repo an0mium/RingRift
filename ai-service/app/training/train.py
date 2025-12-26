@@ -101,6 +101,7 @@ from app.ai.neural_net import (
     HexNeuralNet_v2,
     HexNeuralNet_v3,
     HexNeuralNet_v4,
+    HexNeuralNet_v5_Heavy,
     RingRiftCNN_v2,
     RingRiftCNN_v3,
     get_policy_size_for_board,
@@ -1696,8 +1697,9 @@ def train_model(
     hex_num_players = num_players
     # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
     hex_radius = 4 if config.board_type == BoardType.HEX8 else 12
-    # HexNeuralNet_v3 and v4 use spatial policy heads that assume board-aware (P_HEX)
-    # indices. Enforce board-aware encoding for v3/v4 via dataset metadata checks.
+    # HexNeuralNet_v3, v4, v5 use spatial policy heads that assume board-aware (P_HEX)
+    # indices. Enforce board-aware encoding for v3/v4/v5 via dataset metadata checks.
+    use_hex_v5 = bool(use_hex_model and model_version in ('v5', 'v5-gnn', 'v5-heavy'))
     use_hex_v4 = bool(use_hex_model and model_version == 'v4')
     use_hex_v3 = bool(use_hex_model and model_version == 'v3')
     if use_hex_model:
@@ -1766,7 +1768,9 @@ def train_model(
 
     if not distributed or is_main_process():
         if use_hex_model:
-            if use_hex_v4:
+            if use_hex_v5:
+                hex_model_name = "HexNeuralNet_v5_Heavy"
+            elif use_hex_v4:
                 hex_model_name = "HexNeuralNet_v4"
             elif use_hex_v3:
                 hex_model_name = "HexNeuralNet_v3"
@@ -1784,8 +1788,12 @@ def train_model(
             )
 
     # Determine model architecture size (allow CLI override for scaling up)
-    # Default: 13 blocks / 128 filters for v4, 12 blocks / 192 filters for v3/hex, 6 blocks / 96 filters for v2
-    if use_hex_v4 or model_version == 'v4':
+    # Default: 11 blocks / 160 filters for v5, 13 blocks / 128 filters for v4,
+    # 12 blocks / 192 filters for v3/hex, 6 blocks / 96 filters for v2
+    if use_hex_v5 or model_version in ('v5', 'v5-gnn', 'v5-heavy'):
+        effective_blocks = num_res_blocks if num_res_blocks is not None else 11  # 6 SE + 5 attention
+        effective_filters = num_filters if num_filters is not None else 160  # v5 default
+    elif use_hex_v4 or model_version == 'v4':
         effective_blocks = num_res_blocks if num_res_blocks is not None else 13  # NAS optimal
         effective_filters = num_filters if num_filters is not None else 128  # NAS optimal
     elif model_version == 'v3' or use_hex_model:
@@ -1823,6 +1831,22 @@ def train_model(
                 f"Initialized {model_type.upper()} model for {config.board_type.name}: "
                 f"{param_count:,} parameters"
             )
+    elif use_hex_v5:
+        # HexNeuralNet_v5_Heavy for hexagonal boards with all features
+        # V5 uses 16 base channels * (history_length + 1) frames = 64 channels
+        v5_filters = num_filters if num_filters is not None else 160
+        use_gnn = model_version in ('v5-gnn',)
+        model = HexNeuralNet_v5_Heavy(
+            board_size=board_size,
+            hex_radius=hex_radius,
+            in_channels=hex_in_channels,
+            global_features=20,
+            num_filters=v5_filters,
+            policy_size=policy_size,
+            num_players=hex_num_players,
+            use_gnn=use_gnn,
+            dropout=dropout,
+        )
     elif use_hex_v4:
         # HexNeuralNet_v4 for hexagonal boards with NAS-optimized attention
         # V4 uses 16 base channels * (history_length + 1) frames = 64 channels
@@ -1906,6 +1930,30 @@ def train_model(
                 f"Initializing RingRiftCNN_v4 (NAS) with board_size={board_size}, "
                 f"policy_size={policy_size}, num_players={v4_num_players}, "
                 f"blocks={v4_blocks}, filters={v4_filters}, attention_heads=4"
+            )
+    elif model_version in ('v5', 'v5-gnn', 'v5-heavy'):
+        # V5 Heavy architecture with all features (December 2025)
+        # Combines SE blocks + attention + heuristic features + optional GNN
+        from app.ai.neural_net import RingRiftCNN_v5_Heavy
+        v5_num_players = MAX_PLAYERS if multi_player else num_players
+        v5_filters = num_filters if num_filters is not None else 160
+        use_gnn = model_version in ('v5-gnn',)
+        model = RingRiftCNN_v5_Heavy(
+            board_size=board_size,
+            in_channels=14,  # 14 spatial feature channels per frame
+            global_features=20,  # Must match _extract_features() which returns 20 globals
+            history_length=config.history_length,
+            policy_size=policy_size,
+            num_players=v5_num_players,
+            num_filters=v5_filters,
+            use_gnn=use_gnn,
+            dropout=dropout,
+        )
+        if not distributed or is_main_process():
+            logger.info(
+                f"Initializing RingRiftCNN_v5_Heavy with board_size={board_size}, "
+                f"policy_size={policy_size}, num_players={v5_num_players}, "
+                f"filters={v5_filters}, use_gnn={use_gnn}"
             )
     elif multi_player:
         # Multi-player mode: RingRiftCNN_v2 with per-player value head + multi_player_value_loss
@@ -2649,6 +2697,8 @@ def train_model(
         else:
             data_path_str = data_path
 
+        # V5-heavy models use heuristic features if available in the data
+        use_heuristics = model_version in ('v5', 'v5-gnn', 'v5-heavy')
         if sampling_weights == 'uniform':
             full_dataset = RingRiftDataset(
                 data_path_str,
@@ -2657,6 +2707,7 @@ def train_model(
                 use_multi_player_values=multi_player,
                 filter_empty_policies=filter_empty_policies,
                 return_num_players=multi_player,
+                return_heuristics=use_heuristics,
             )
             use_weighted_sampling = False
         else:
@@ -2668,6 +2719,7 @@ def train_model(
                 use_multi_player_values=multi_player,
                 filter_empty_policies=filter_empty_policies,
                 return_num_players=multi_player,
+                return_heuristics=use_heuristics,
             )
             use_weighted_sampling = True
 
@@ -3370,6 +3422,7 @@ def train_model(
 
                 # Handle streaming, streaming with multi-player, and legacy batch formats
                 batch_num_players = None  # Per-sample num_players or None
+                batch_heuristics = None  # Heuristic features for v5 (if available)
                 if use_streaming:
                     if use_multi_player_loss and train_streaming_loader.has_multi_player_values:
                         # Streaming with multi-player values
@@ -3388,14 +3441,41 @@ def train_model(
                             (value_targets, policy_targets),
                         ) = batch_data
                 else:
-                    if isinstance(batch_data, (list, tuple)) and len(batch_data) == 5:
+                    # Non-streaming mode: batch structure varies based on dataset config
+                    # 4 elems: (features, globals, value, policy)
+                    # 5 elems: (features, globals, value, policy, num_players) OR (... , heuristics)
+                    # 6 elems: (features, globals, value, policy, num_players, heuristics)
+                    batch_len = len(batch_data) if isinstance(batch_data, (list, tuple)) else 0
+                    if batch_len == 6:
+                        # Full: with num_players and heuristics
                         (
                             features,
                             globals_vec,
                             value_targets,
                             policy_targets,
                             batch_num_players,
+                            batch_heuristics,
                         ) = batch_data
+                    elif batch_len == 5:
+                        # Check if 5th element is num_players (int/long tensor) or heuristics (float)
+                        fifth_elem = batch_data[4]
+                        if fifth_elem.dtype in (torch.int64, torch.int32, torch.long):
+                            (
+                                features,
+                                globals_vec,
+                                value_targets,
+                                policy_targets,
+                                batch_num_players,
+                            ) = batch_data
+                        else:
+                            # Heuristics without num_players
+                            (
+                                features,
+                                globals_vec,
+                                value_targets,
+                                policy_targets,
+                                batch_heuristics,
+                            ) = batch_data
                     else:
                         (
                             features,
@@ -3436,6 +3516,8 @@ def train_model(
                     policy_targets = policy_targets.to(device, non_blocking=True)
                 if batch_num_players is not None and batch_num_players.device != device:
                     batch_num_players = batch_num_players.to(device, non_blocking=True)
+                if batch_heuristics is not None and batch_heuristics.device != device:
+                    batch_heuristics = batch_heuristics.to(device, non_blocking=True)
 
                 # Hot data buffer mixing: replace portion of batch with hot buffer samples (2025-12)
                 if hot_buffer is not None and hot_buffer.total_samples >= config.batch_size:
@@ -3546,9 +3628,15 @@ def train_model(
                         and enhancements_manager._auxiliary_module is not None
                     )
 
+                    # V5 models accept heuristics parameter
+                    model_accepts_heuristics = model_version in ('v5', 'v5-gnn', 'v5-heavy')
+
                     # Forward pass with optional backbone feature extraction
                     if use_aux_tasks:
-                        out = model(features, globals_vec, return_features=True)
+                        if model_accepts_heuristics:
+                            out = model(features, globals_vec, heuristics=batch_heuristics, return_features=True)
+                        else:
+                            out = model(features, globals_vec, return_features=True)
                         # V3+ models with features return (values, policy, rank_dist, features)
                         if isinstance(out, tuple) and len(out) == 4:
                             value_pred, policy_pred, rank_dist_pred, backbone_features = out
@@ -3563,7 +3651,10 @@ def train_model(
                             backbone_features = None
                             use_aux_tasks = False
                     else:
-                        out = model(features, globals_vec)
+                        if model_accepts_heuristics:
+                            out = model(features, globals_vec, heuristics=batch_heuristics)
+                        else:
+                            out = model(features, globals_vec)
                         # V3 models return (values, policy_logits, rank_dist). We
                         # ignore the rank distribution for v1/v2 training losses.
                         if isinstance(out, tuple) and len(out) == 3:
@@ -3918,6 +4009,7 @@ def train_model(
 
                     # Handle streaming, streaming with multi-player, and legacy batch formats
                     val_batch_num_players = None
+                    val_batch_heuristics = None
                     if use_streaming:
                         if use_multi_player_loss and val_streaming_loader.has_multi_player_values:
                             (
@@ -3934,14 +4026,35 @@ def train_model(
                                 (value_targets, policy_targets),
                             ) = val_batch
                     else:
-                        if isinstance(val_batch, (list, tuple)) and len(val_batch) == 5:
+                        # Non-streaming: batch structure varies based on dataset config
+                        val_batch_len = len(val_batch) if isinstance(val_batch, (list, tuple)) else 0
+                        if val_batch_len == 6:
                             (
                                 features,
                                 globals_vec,
                                 value_targets,
                                 policy_targets,
                                 val_batch_num_players,
+                                val_batch_heuristics,
                             ) = val_batch
+                        elif val_batch_len == 5:
+                            fifth_elem = val_batch[4]
+                            if fifth_elem.dtype in (torch.int64, torch.int32, torch.long):
+                                (
+                                    features,
+                                    globals_vec,
+                                    value_targets,
+                                    policy_targets,
+                                    val_batch_num_players,
+                                ) = val_batch
+                            else:
+                                (
+                                    features,
+                                    globals_vec,
+                                    value_targets,
+                                    policy_targets,
+                                    val_batch_heuristics,
+                                ) = val_batch
                         else:
                             (
                                 features,
@@ -3958,6 +4071,8 @@ def train_model(
                         policy_targets = policy_targets.to(device, non_blocking=True)
                     if val_batch_num_players is not None and val_batch_num_players.device != device:
                         val_batch_num_players = val_batch_num_players.to(device, non_blocking=True)
+                    if val_batch_heuristics is not None and val_batch_heuristics.device != device:
+                        val_batch_heuristics = val_batch_heuristics.to(device, non_blocking=True)
 
                     # Pad policy targets if smaller than model policy_size
                     if hasattr(model, 'policy_size') and policy_targets.size(1) < model.policy_size:
@@ -3969,7 +4084,11 @@ def train_model(
                     # Autocast for mixed precision validation (matches training)
                     with torch.amp.autocast('cuda', enabled=amp_enabled, dtype=amp_torch_dtype):
                         # For DDP, forward through the wrapped model
-                        out = model(features, globals_vec)
+                        # V5 models accept heuristics parameter
+                        if model_version in ('v5', 'v5-gnn', 'v5-heavy'):
+                            out = model(features, globals_vec, heuristics=val_batch_heuristics)
+                        else:
+                            out = model(features, globals_vec)
                         if isinstance(out, tuple) and len(out) == 3:
                             value_pred, policy_pred, rank_dist_pred = out
                         else:

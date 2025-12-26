@@ -223,11 +223,13 @@ class UnifiedEventRouter:
                 stage_bus.subscribe(event, self._on_stage_event)
 
         # Bridge: CrossProcessEventQueue -> Router (via poller)
+        # Use stable=True to resume from last acked event on restart
         if HAS_CROSS_PROCESS and self._enable_cp_polling:
             self._cp_poller = CrossProcessEventPoller(
                 process_name="event_router",
                 event_types=None,  # All events
                 poll_interval=self._poll_interval,
+                stable=True,  # Persist acks across restarts to reduce duplicates
             )
             self._cp_poller.register_handler(None, self._on_cross_process_event)
             self._cp_poller.start()

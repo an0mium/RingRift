@@ -1,26 +1,30 @@
-# P2P Connectivity Solutions for Vast.ai ↔ Lambda
+# P2P Connectivity Solutions for Vast.ai ↔ Cluster
 
 ## Problem Statement
 
-Vast.ai containers cannot connect to Lambda Labs nodes for P2P orchestration:
+Vast.ai containers cannot connect to cluster nodes for P2P orchestration:
 
 - Vast containers are behind NAT (no inbound connections)
-- Cannot reach Lambda's Tailscale IPs (100.x.x.x) - no Tailscale installed
-- Cannot reach Lambda's public IPs on port 8770 (firewall blocks)
+- Cannot reach Tailscale-only IPs (100.x.x.x) without Tailscale installed
+- Cannot reach some public IPs on port 8770 (firewall blocks)
 - Result: P2P mesh is fragmented, Vast nodes isolated
+
+**Status (2025-12):** Lambda Labs cluster is terminated. Use Runpod/Vast/Vultr
+hosts listed in `ai-service/config/distributed_hosts.yaml` as the source of
+truth for active nodes.
 
 ## Solution Options
 
 ### Option 1: Tailscale in Vast Containers (RECOMMENDED)
 
-**How it works:** Install Tailscale in each Vast container to join the same tailnet as Lambda nodes.
+**How it works:** Install Tailscale in each Vast container to join the same tailnet as cluster nodes.
 
 **Pros:**
 
 - Direct P2P connectivity (lowest latency)
 - End-to-end encryption via WireGuard
 - NAT traversal built-in
-- Same network as Lambda nodes
+- Same network as cluster nodes
 
 **Cons:**
 
@@ -93,8 +97,8 @@ tunnel: <TUNNEL_UUID>
 credentials-file: /root/.cloudflared/<TUNNEL_UUID>.json
 
 ingress:
-  # Lambda nodes expose their P2P via subdomains
-  - hostname: lambda-h100.ringrift.example.com
+  # Cluster nodes expose their P2P via subdomains
+  - hostname: runpod-h100.ringrift.example.com
     service: http://localhost:8770
   - hostname: vast-29128352.ringrift.example.com
     service: http://localhost:8770
@@ -104,7 +108,7 @@ ingress:
 3. **Run on each node:**
 
 ```bash
-# Lambda side
+# Cluster side
 cloudflared tunnel run ringrift-p2p
 
 # Vast side
@@ -115,8 +119,8 @@ cloudflared tunnel run ringrift-p2p
 
 ```yaml
 # distributed_hosts.yaml
-lambda-h100:
-  p2p_url: https://lambda-h100.ringrift.example.com
+runpod-h100:
+  p2p_url: https://runpod-h100.ringrift.example.com
   # or use Cloudflare Access with WARP
 ```
 
@@ -124,9 +128,9 @@ lambda-h100:
 
 ---
 
-### Option 3: Open Firewall on Lambda
+### Option 3: Open Firewall on Coordinator
 
-**How it works:** Configure Lambda's firewall to allow inbound connections on port 8770 from Vast's egress IPs.
+**How it works:** Configure the coordinator firewall to allow inbound connections on port 8770 from Vast's egress IPs.
 
 **Pros:**
 
@@ -138,26 +142,26 @@ lambda-h100:
 
 - Exposes P2P API to internet
 - Vast IPs are dynamic (containers can get new IPs)
-- Requires firewall access on Lambda (may not be available)
+- Requires firewall access on the provider nodes (may not be available)
 - Security risk if P2P has vulnerabilities
 
 **Implementation:**
 
 ```bash
-# On Lambda nodes (requires root):
+# On provider nodes (requires root):
 sudo iptables -A INPUT -p tcp --dport 8770 -j ACCEPT
 
 # Or restrict to Vast IP ranges (if known):
 sudo iptables -A INPUT -p tcp --dport 8770 -s 93.91.0.0/16 -j ACCEPT
 ```
 
-**Note:** Lambda Labs may not provide firewall access.
+**Note:** Some providers may not provide firewall access.
 
 ---
 
 ### Option 4: Relay/Proxy Server
 
-**How it works:** Set up a relay server that both Lambda and Vast can reach, acting as a message broker.
+**How it works:** Set up a relay server that both Runpod and Vast can reach, acting as a message broker.
 
 **Pros:**
 
@@ -205,7 +209,7 @@ async def forward(request):
 
 ### Option 5: Hybrid Approach (RECOMMENDED FOR PRODUCTION)
 
-**How it works:** Combine Tailscale for Lambda nodes + Cloudflare Access for Vast nodes.
+**How it works:** Combine Tailscale for Runpod/self-hosted nodes + Cloudflare Access for Vast nodes.
 
 **Architecture:**
 
@@ -213,7 +217,7 @@ async def forward(request):
 ┌─────────────────────────────────────────────────────────────┐
 │                      Tailscale Network                       │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │lambda-h100│  │gh200-a   │  │gh200-b   │  │gh200-c   │    │
+│  │runpod-h100│  │gh200-a   │  │gh200-b   │  │gh200-c   │    │
 │  │100.78.x.x │  │100.83.x.x│  │100.88.x.x│  │100.x.x.x │    │
 │  └─────┬─────┘  └─────┬────┘  └─────┬────┘  └─────┬────┘    │
 │        │              │             │             │          │
@@ -240,7 +244,7 @@ async def forward(request):
 
 **Benefits:**
 
-- Lambda nodes communicate directly via Tailscale (low latency)
+- Runpod/self-hosted nodes communicate directly via Tailscale (low latency)
 - Vast nodes connect through Cloudflare (works through NAT)
 - Single tunnel endpoint simplifies Vast configuration
 - Graceful degradation if Cloudflare unavailable

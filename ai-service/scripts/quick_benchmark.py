@@ -116,15 +116,15 @@ def create_starting_state(board_type: BoardType, board_size: int) -> GameState:
 
 def run_benchmark(board_type, board_size, num_games=3, max_moves=30):
     """Run self-play benchmark and return stats."""
-    config1 = AIConfig(difficulty=5, rng_seed=42)
-    config2 = AIConfig(difficulty=5, rng_seed=43)
-
     total_moves = 0
     total_time = 0.0
 
-    for _game_idx in range(num_games):
+    for game_idx in range(num_games):
         state = create_starting_state(board_type, board_size)
 
+        # Use unique seeds per game to ensure variety
+        config1 = AIConfig(difficulty=5, rng_seed=game_idx * 1000 + 1)
+        config2 = AIConfig(difficulty=5, rng_seed=game_idx * 1000 + 2)
         ai1 = HeuristicAI(1, config1)
         ai2 = HeuristicAI(2, config2)
 

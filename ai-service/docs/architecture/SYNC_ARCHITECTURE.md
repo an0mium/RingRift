@@ -118,7 +118,7 @@ targets = router.get_sync_targets(data_type="games", size_mb=100)
 
 **Key Features**:
 
-- Host-specific bandwidth limits (Lambda: 100MB/s, Vast: 50MB/s)
+- Host-specific bandwidth limits (Runpod: 100MB/s, Vast: 50MB/s)
 - Concurrent transfer limiting
 - Graceful degradation under load
 

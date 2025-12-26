@@ -565,40 +565,71 @@ class StrategicEvaluator:
         state: "GameState",
         player_idx: int,
     ) -> float:
-        """
+        """Evaluate forced elimination risk (symmetric).
+
         Penalise positions where we control many stacks but have very few
         real actions (moves or placements), indicating forced-elimination risk.
-        
+
+        Made symmetric by computing (my_risk - max_opponent_risk) to ensure
+        P1+P2 evaluations sum to 0.
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
-            Forced elimination risk penalty (negative when at risk).
+            Forced elimination risk penalty (symmetric).
+        """
+        my_risk = self._compute_fe_risk_for_player(state, player_idx)
+
+        # Compute max opponent risk for symmetric evaluation
+        opp_risks = [
+            self._compute_fe_risk_for_player(state, p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_risk = max(opp_risks) if opp_risks else 0.0
+
+        # Symmetric: my risk minus opponent risk
+        # If I'm at more risk than opponent, this is negative (bad for me)
+        relative_risk = my_risk - max_opp_risk
+        return -relative_risk * self.weights.forced_elimination_risk
+
+    def _compute_fe_risk_for_player(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute raw forced elimination risk factor for a player.
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Risk factor (0 = no risk, higher = more risk).
         """
         board = state.board
-        my_stacks = [
+        player_stacks = [
             s for s in board.stacks.values()
-            if s.controlling_player == player_idx
+            if s.controlling_player == player_num
         ]
-        controlled_stacks = len(my_stacks)
+        controlled_stacks = len(player_stacks)
         if controlled_stacks == 0:
             return 0.0
 
         approx_actions = self._approx_real_actions_for_player(
             state,
-            player_idx,
+            player_num,
         )
         ratio = approx_actions / max(1, controlled_stacks)
 
         if ratio >= 2.0:
-            risk_factor = 0.0
+            return 0.0
         elif ratio >= 1.0:
-            risk_factor = 2.0 - ratio
+            return 2.0 - ratio
         else:
-            risk_factor = 1.0 + (1.0 - ratio)
-
-        return -risk_factor * self.weights.forced_elimination_risk
+            return 1.0 + (1.0 - ratio)
     
     def _evaluate_lps_action_advantage(
         self,

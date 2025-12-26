@@ -369,7 +369,7 @@ transport = get_cluster_transport()
 result = await transport.transfer_file(
     local_path=Path("data/model.pth"),
     remote_path="models/latest.pth",
-    node=NodeConfig(hostname="lambda-h100"),
+    node=NodeConfig(hostname="runpod-h100"),
 )
 ```
 

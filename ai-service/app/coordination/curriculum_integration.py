@@ -61,7 +61,7 @@ class MomentumToCurriculumBridge:
 
     def __init__(
         self,
-        poll_interval_seconds: float = 60.0,  # Kept for fallback compatibility
+        poll_interval_seconds: float = 10.0,  # Dec 2025: Reduced from 60s for faster feedback
         momentum_weight_boost: float = 0.3,
     ):
         self.poll_interval_seconds = poll_interval_seconds

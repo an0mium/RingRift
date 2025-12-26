@@ -69,7 +69,7 @@ Events related to data collection, sync, and freshness.
     "event_type": "sync_completed",
     "source": "auto_sync_daemon",
     "payload": {
-        "host": "lambda-gh200-a",
+        "host": "runpod-h100",
         "games_synced": 150,
         "bytes_transferred": 52428800,
         "duration_seconds": 12.5

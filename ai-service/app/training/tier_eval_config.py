@@ -35,7 +35,12 @@ class TierOpponentConfig:
 
 @dataclass(frozen=True)
 class TierEvaluationConfig:
-    """Evaluation profile for a single difficulty tier."""
+    """Evaluation profile for a single difficulty tier.
+
+    Promotion Requirement (Dec 2025):
+    D(n) must beat D(n-1) at 55%+ win rate in 2-player matches on BOTH
+    square8 and hex8 boards. This is enforced via min_win_rate_vs_previous_tier.
+    """
 
     tier_name: str
     display_name: str
@@ -46,7 +51,8 @@ class TierEvaluationConfig:
     time_budget_ms: int | None
     opponents: list[TierOpponentConfig] = field(default_factory=list)
     min_win_rate_vs_baseline: float | None = None
-    min_win_rate_vs_previous_tier: float = 0.50
+    # Canonical threshold: D(n) must beat D(n-1) at 55%+ in 2p matches
+    min_win_rate_vs_previous_tier: float = 0.55
     max_regression_vs_previous_tier: float | None = None
     # Confidence level used for Wilson lower-bound gating against baseline.
     # When set, min_win_rate_vs_baseline is applied to the lower bound of the
@@ -523,7 +529,193 @@ def _build_default_configs() -> dict[str, TierEvaluationConfig]:
                     "relative to the square19 difficulty-2 tier."
                 ),
             ),
-            # Hexagonal, 2-player tiers (easy heuristic / mid minimax).
+            # =================================================================
+            # Hex8 (61 cells) 2-player tiers - REQUIRED for ladder validation
+            # D(n) must beat D(n-1) at 55%+ on BOTH square8 and hex8
+            # =================================================================
+            "D2_HEX8_2P": TierEvaluationConfig(
+                tier_name="D2_HEX8_2P",
+                display_name="D2 – easy heuristic (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=2,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d1_hex8",
+                        description="D1 random baseline (hex8, 2p)",
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D2 must beat D1 at 55%+ on hex8 2p.",
+            ),
+            "D3_HEX8_2P": TierEvaluationConfig(
+                tier_name="D3_HEX8_2P",
+                display_name="D3 – low heuristic (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=3,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d2_hex8",
+                        description="D2 previous tier (hex8, 2p)",
+                        difficulty=2,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D3 must beat D2 at 55%+ on hex8 2p.",
+            ),
+            "D4_HEX8_2P": TierEvaluationConfig(
+                tier_name="D4_HEX8_2P",
+                display_name="D4 – mid heuristic (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=4,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d3_hex8",
+                        description="D3 previous tier (hex8, 2p)",
+                        difficulty=3,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D4 must beat D3 at 55%+ on hex8 2p.",
+            ),
+            "D5_HEX8_2P": TierEvaluationConfig(
+                tier_name="D5_HEX8_2P",
+                display_name="D5 – mid minimax (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=5,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d4_hex8",
+                        description="D4 previous tier (hex8, 2p)",
+                        difficulty=4,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D5 must beat D4 at 55%+ on hex8 2p.",
+            ),
+            "D6_HEX8_2P": TierEvaluationConfig(
+                tier_name="D6_HEX8_2P",
+                display_name="D6 – high heuristic (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=6,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d5_hex8",
+                        description="D5 previous tier (hex8, 2p)",
+                        difficulty=5,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D6 must beat D5 at 55%+ on hex8 2p.",
+            ),
+            "D7_HEX8_2P": TierEvaluationConfig(
+                tier_name="D7_HEX8_2P",
+                display_name="D7 – low MCTS (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=7,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d6_hex8",
+                        description="D6 previous tier (hex8, 2p)",
+                        difficulty=6,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D7 must beat D6 at 55%+ on hex8 2p.",
+            ),
+            "D8_HEX8_2P": TierEvaluationConfig(
+                tier_name="D8_HEX8_2P",
+                display_name="D8 – strong MCTS (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=8,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d7_hex8",
+                        description="D7 previous tier (hex8, 2p)",
+                        difficulty=7,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D8 must beat D7 at 55%+ on hex8 2p.",
+            ),
+            "D9_HEX8_2P": TierEvaluationConfig(
+                tier_name="D9_HEX8_2P",
+                display_name="D9 – master Gumbel MCTS (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=9,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d8_hex8",
+                        description="D8 previous tier (hex8, 2p)",
+                        difficulty=8,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D9 must beat D8 at 55%+ on hex8 2p.",
+            ),
+            "D10_HEX8_2P": TierEvaluationConfig(
+                tier_name="D10_HEX8_2P",
+                display_name="D10 – grandmaster Gumbel MCTS (hex8, 2p)",
+                board_type=BoardType.HEX8,
+                num_players=2,
+                num_games=100,
+                candidate_difficulty=10,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="tier_d9_hex8",
+                        description="D9 previous tier (hex8, 2p)",
+                        difficulty=9,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=None,
+                description="D10 must beat D9 at 55%+ on hex8 2p.",
+            ),
+            # =================================================================
+            # Legacy hexagonal (469 cells) tiers - kept for compatibility
+            # =================================================================
             "D2_HEX_2P": TierEvaluationConfig(
                 tier_name="D2_HEX_2P",
                 display_name="D2 – easy heuristic (hexagonal, 2p)",

@@ -419,14 +419,19 @@ class MobilityEvaluator:
             return mobility
         
         my_mobility = compute_mobility_for_player(player_idx)
-        
+
         # Find max opponent mobility for symmetric evaluation
-        max_opp_mobility = 0.0
-        for p in state.players:
-            if p.player_number != player_idx:
-                opp_mobility = compute_mobility_for_player(p.player_number)
-                max_opp_mobility = max(max_opp_mobility, opp_mobility)
-        
+        # NOTE: We use float('-inf') as initial value to correctly handle
+        # negative opponent mobilities (e.g., when opponent has only blocked
+        # stacks). This ensures P1+P2 evals sum to 0 for true symmetry.
+        opp_mobilities = [
+            compute_mobility_for_player(p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        # If opponents have no stacks, their mobility is 0
+        max_opp_mobility = max(opp_mobilities) if opp_mobilities else 0.0
+
         # Symmetric: advantage over best opponent
         advantage = my_mobility - max_opp_mobility
         return advantage * self.weights.stack_mobility

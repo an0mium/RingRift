@@ -90,14 +90,14 @@ def _build_default_square8_two_player_configs() -> dict[
             board_type=BoardType.SQUARE8,
             num_players=2,
             ai_type=AIType.HEURISTIC,
-            model_id="heuristic_v1_weak",
-            heuristic_profile_id="heuristic_v1_weak",
-            randomness=0.3,
-            think_time_ms=200,
+            model_id="heuristic_v1_medium",
+            heuristic_profile_id="heuristic_v1_medium",
+            randomness=0.1,
+            think_time_ms=500,
             use_neural_net=False,
             notes=(
-                "Easy square8 2p tier backed by weakened heuristic weights. "
-                "Intended as the first non-random production difficulty."
+                "Easy square8 2p tier backed by medium-strength heuristic weights. "
+                "Must beat D1 (random) at 55%+ win rate."
             ),
         ),
         # D3 – CMA-ES tuned heuristic on square8, 2-player.
@@ -108,12 +108,12 @@ def _build_default_square8_two_player_configs() -> dict[
             ai_type=AIType.HEURISTIC,
             model_id="heuristic_v1_sq8_2p",
             heuristic_profile_id="heuristic_v1_sq8_2p",
-            randomness=0.2,
-            think_time_ms=2800,
+            randomness=0.05,  # Reduced from 0.2 to beat D2
+            think_time_ms=3500,  # Increased for stronger play
             use_neural_net=False,
             notes=(
                 "Lower-mid square8 2p tier using CMA-ES tuned heuristic "
-                "weights with reduced randomness."
+                "weights. Must beat D2 at 55%+ win rate."
             ),
         ),
         # D4 – mid minimax on square8, 2-player (neural/NNUE).

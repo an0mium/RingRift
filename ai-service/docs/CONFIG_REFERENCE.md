@@ -327,23 +327,23 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 
 #### Distributed execution and storage
 
-| Variable                         | Description                                           | Default                             |
-| -------------------------------- | ----------------------------------------------------- | ----------------------------------- |
-| `RINGRIFT_COORDINATOR_DIR`       | Coordinator state dir                                 | `/tmp/ringrift_coordinator`         |
-| `RINGRIFT_WORK_QUEUE_DB`         | Work queue DB path                                    | `data/work_queue.db`                |
-| `RINGRIFT_NFS_COORDINATION_PATH` | NFS coordination path                                 | `/lambda/nfs/RingRift/coordination` |
-| `RINGRIFT_NFS_PATH`              | NFS data root                                         | `/mnt/nfs/ringrift`                 |
-| `RINGRIFT_AI_SERVICE_DIR`        | AI service working dir                                | `.`                                 |
-| `RINGRIFT_AI_SERVICE_PATH`       | AI service root override                              | `repo auto-detect`                  |
-| `RINGRIFT_P2P_PORT`              | P2P SSH port                                          | `8770`                              |
-| `RINGRIFT_VAST_SSH_USER`         | Vast.ai SSH user                                      | `root`                              |
-| `RINGRIFT_STORAGE_PROVIDER`      | Storage provider override (`lambda`, `vast`, `local`) | `auto`                              |
-| `RINGRIFT_TARGET_UTIL_MIN`       | Utilization target min (%)                            | `60`                                |
-| `RINGRIFT_TARGET_UTIL_MAX`       | Utilization target max (%)                            | `80`                                |
-| `RINGRIFT_SCALE_UP_THRESHOLD`    | Scale-up threshold (%)                                | `55`                                |
-| `RINGRIFT_SCALE_DOWN_THRESHOLD`  | Scale-down threshold (%)                              | `85`                                |
-| `RINGRIFT_NODE_ID`               | Node id override (default hostname)                   | `auto`                              |
-| `RINGRIFT_ORCHESTRATOR`          | Orchestrator id                                       | `unknown`                           |
+| Variable                         | Description                                                    | Default                             |
+| -------------------------------- | -------------------------------------------------------------- | ----------------------------------- |
+| `RINGRIFT_COORDINATOR_DIR`       | Coordinator state dir                                          | `/tmp/ringrift_coordinator`         |
+| `RINGRIFT_WORK_QUEUE_DB`         | Work queue DB path                                             | `data/work_queue.db`                |
+| `RINGRIFT_NFS_COORDINATION_PATH` | NFS coordination path (legacy Lambda path; override as needed) | `/lambda/nfs/RingRift/coordination` |
+| `RINGRIFT_NFS_PATH`              | NFS data root                                                  | `/mnt/nfs/ringrift`                 |
+| `RINGRIFT_AI_SERVICE_DIR`        | AI service working dir                                         | `.`                                 |
+| `RINGRIFT_AI_SERVICE_PATH`       | AI service root override                                       | `repo auto-detect`                  |
+| `RINGRIFT_P2P_PORT`              | P2P SSH port                                                   | `8770`                              |
+| `RINGRIFT_VAST_SSH_USER`         | Vast.ai SSH user                                               | `root`                              |
+| `RINGRIFT_STORAGE_PROVIDER`      | Storage provider override (`lambda` legacy, `vast`, `local`)   | `auto`                              |
+| `RINGRIFT_TARGET_UTIL_MIN`       | Utilization target min (%)                                     | `60`                                |
+| `RINGRIFT_TARGET_UTIL_MAX`       | Utilization target max (%)                                     | `80`                                |
+| `RINGRIFT_SCALE_UP_THRESHOLD`    | Scale-up threshold (%)                                         | `55`                                |
+| `RINGRIFT_SCALE_DOWN_THRESHOLD`  | Scale-down threshold (%)                                       | `85`                                |
+| `RINGRIFT_NODE_ID`               | Node id override (default hostname)                            | `auto`                              |
+| `RINGRIFT_ORCHESTRATOR`          | Orchestrator id                                                | `unknown`                           |
 
 #### Coordination defaults (advanced)
 
@@ -631,20 +631,20 @@ Configuration for adaptive curriculum (Elo-weighted training).
 
 Process safeguards to prevent uncoordinated process sprawl.
 
-| Option                          | Type | Default       | Description                      |
-| ------------------------------- | ---- | ------------- | -------------------------------- |
-| `max_python_processes_per_host` | int  | 20            | Max Python processes per host    |
-| `max_selfplay_processes`        | int  | 2             | Max selfplay processes           |
-| `max_tournament_processes`      | int  | 1             | Max tournament processes         |
-| `max_training_processes`        | int  | 1             | Max training processes           |
-| `single_orchestrator`           | bool | True          | Enforce single orchestrator      |
-| `orchestrator_host`             | str  | "lambda-h100" | Designated orchestrator host     |
-| `kill_orphans_on_start`         | bool | True          | Kill orphan processes on startup |
-| `process_watchdog`              | bool | True          | Enable process watchdog          |
-| `watchdog_interval_seconds`     | int  | 60            | Watchdog check interval          |
-| `max_process_age_hours`         | int  | 4             | Maximum process age before kill  |
-| `max_subprocess_depth`          | int  | 2             | Maximum subprocess nesting depth |
-| `subprocess_timeout_seconds`    | int  | 3600          | Subprocess timeout (1 hour)      |
+| Option                          | Type | Default             | Description                      |
+| ------------------------------- | ---- | ------------------- | -------------------------------- |
+| `max_python_processes_per_host` | int  | 20                  | Max Python processes per host    |
+| `max_selfplay_processes`        | int  | 2                   | Max selfplay processes           |
+| `max_tournament_processes`      | int  | 1                   | Max tournament processes         |
+| `max_training_processes`        | int  | 1                   | Max training processes           |
+| `single_orchestrator`           | bool | True                | Enforce single orchestrator      |
+| `orchestrator_host`             | str  | "nebius-backbone-1" | Designated orchestrator host     |
+| `kill_orphans_on_start`         | bool | True                | Kill orphan processes on startup |
+| `process_watchdog`              | bool | True                | Enable process watchdog          |
+| `watchdog_interval_seconds`     | int  | 60                  | Watchdog check interval          |
+| `max_process_age_hours`         | int  | 4                   | Maximum process age before kill  |
+| `max_subprocess_depth`          | int  | 2                   | Maximum subprocess nesting depth |
+| `subprocess_timeout_seconds`    | int  | 3600                | Subprocess timeout (1 hour)      |
 
 ---
 

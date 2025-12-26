@@ -604,6 +604,10 @@ class IdleResourceDaemon:
             if not spawn_candidates:
                 return
 
+            # Emit IDLE_RESOURCE_DETECTED events for each candidate (Dec 2025 Phase 2)
+            # This allows SelfplayOrchestrator and other components to react
+            await self._emit_idle_resource_events(spawn_candidates)
+
             # Log scaling decision
             logger.info(
                 f"[IdleResourceDaemon] Spawn check: {len(spawn_candidates)} candidates, "
@@ -709,6 +713,65 @@ class IdleResourceDaemon:
                 node.idle_since = now
 
         self._node_states[node.node_id] = node
+
+    async def _emit_idle_resource_events(self, idle_nodes: list[NodeStatus]) -> None:
+        """Emit IDLE_RESOURCE_DETECTED events for idle nodes.
+
+        December 2025 - Phase 2: Wire orphaned event handler.
+        This enables SelfplayOrchestrator and other components to react
+        to idle resources for better cluster utilization.
+
+        Args:
+            idle_nodes: List of nodes with idle GPU resources.
+        """
+        try:
+            from app.distributed.data_events import emit_idle_resource_detected
+        except ImportError:
+            logger.debug("[IdleResourceDaemon] data_events not available for emit")
+            return
+
+        now = time.time()
+        for node in idle_nodes:
+            try:
+                # Calculate idle duration
+                idle_duration = now - node.idle_since if node.idle_since > 0 else 0.0
+
+                # Determine recommended config based on GPU memory
+                recommended_config = self._get_recommended_config(node)
+
+                await emit_idle_resource_detected(
+                    node_id=node.node_id,
+                    host=node.host,
+                    gpu_utilization=node.gpu_utilization,
+                    gpu_memory_gb=node.gpu_memory_total_gb - node.gpu_memory_used_gb,
+                    idle_duration_seconds=idle_duration,
+                    recommended_config=recommended_config,
+                    source="idle_resource_daemon",
+                )
+            except Exception as e:
+                logger.debug(f"[IdleResourceDaemon] Failed to emit event for {node.node_id}: {e}")
+
+    def _get_recommended_config(self, node: NodeStatus) -> str:
+        """Get recommended board config based on GPU memory.
+
+        Args:
+            node: Node status with GPU memory info.
+
+        Returns:
+            Recommended config key (e.g., 'hex8_2p') or empty string.
+        """
+        available_gb = node.gpu_memory_total_gb - node.gpu_memory_used_gb
+
+        # Match GPU memory to largest board it can handle
+        for config, required_gb in sorted(
+            self.config.gpu_memory_thresholds.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        ):
+            if available_gb >= required_gb + self.config.min_free_gpu_memory_buffer_gb:
+                return config
+
+        return "hex8_2p"  # Default to smallest config
 
     async def _get_queue_depth(self) -> int:
         """Get current queue depth for scaling decisions."""

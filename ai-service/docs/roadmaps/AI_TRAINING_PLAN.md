@@ -515,15 +515,15 @@ With checkpointing, memory is cleared after each chunk save.
 
 | Alias                     | Hardware | Primary Use                     |
 | ------------------------- | -------- | ------------------------------- |
-| `lambda-gpu`              | H100     | Training, large model inference |
+| `runpod-h100`             | H100     | Training, large model inference |
 | `ringrift-staging`        | CPU      | Staging, API testing            |
 | `ringrift-selfplay-extra` | CPU      | Additional selfplay capacity    |
 
 ### Syncing Code to Instances
 
 ```bash
-# Lambda H100
-ssh lambda-gpu "cd /home/ubuntu/ringrift && git pull"
+# Runpod H100
+ssh runpod-h100 "cd /home/ubuntu/ringrift && git pull"
 
 # Staging
 ssh ringrift-staging "cd ~/RingRift && git pull"
@@ -535,7 +535,7 @@ Use `nohup` and background processes for long-running tasks:
 
 ```bash
 # NPZ export with checkpointing
-ssh lambda-gpu "cd /home/ubuntu/ringrift/ai-service && \
+ssh runpod-h100 "cd /home/ubuntu/ringrift/ai-service && \
     source venv/bin/activate && \
     nohup python -u scripts/jsonl_to_npz.py \
         --input-dir data/selfplay/ \
@@ -547,13 +547,13 @@ ssh lambda-gpu "cd /home/ubuntu/ringrift/ai-service && \
         > /tmp/npz_export.log 2>&1 &"
 
 # Monitor progress
-ssh lambda-gpu "tail -f /tmp/npz_export.log"
+ssh runpod-h100 "tail -f /tmp/npz_export.log"
 ```
 
 ### Training on GPU
 
 ```bash
-ssh lambda-gpu "cd /home/ubuntu/ringrift/ai-service && \
+ssh runpod-h100 "cd /home/ubuntu/ringrift/ai-service && \
     source venv/bin/activate && \
     nohup python -u -m app.training.train \
         --data-path data/training/square8_2p.npz \
@@ -571,13 +571,13 @@ ssh lambda-gpu "cd /home/ubuntu/ringrift/ai-service && \
 
 ```bash
 # Check for running training/export processes
-ssh lambda-gpu "ps aux | grep -E 'train|jsonl_to_npz' | grep python"
+ssh runpod-h100 "ps aux | grep -E 'train|jsonl_to_npz' | grep python"
 
 # Check GPU utilization
-ssh lambda-gpu "nvidia-smi"
+ssh runpod-h100 "nvidia-smi"
 
 # Check memory usage
-ssh lambda-gpu "free -h"
+ssh runpod-h100 "free -h"
 ```
 
 ---

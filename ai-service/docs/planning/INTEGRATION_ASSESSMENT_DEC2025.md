@@ -272,7 +272,7 @@ def add_db_args(parser):
 
 ### Cluster Overview
 
-- **70+ nodes** across Lambda, Vast.ai, Hetzner
+- **70+ nodes** across Runpod, Vast.ai, Hetzner
 - **35 distributed modules** (27K+ lines)
 - **Multi-protocol networking** (HTTP → Tailscale → SSH)
 

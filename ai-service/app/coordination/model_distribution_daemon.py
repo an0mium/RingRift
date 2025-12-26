@@ -75,7 +75,7 @@ class ModelDistributionConfig:
     emit_completion_event: bool = True
 
     # Polling (if no event system)
-    poll_interval_seconds: float = 60.0
+    poll_interval_seconds: float = 10.0  # Dec 2025: Reduced from 60s for faster model distribution
     models_dir: str = "models"
 
     # HTTP distribution settings (December 2025 - Phase 14)
@@ -170,6 +170,10 @@ class ModelDistributionDaemon:
         if self._start_time <= 0:
             return 0.0
         return time.time() - self._start_time
+
+    def is_running(self) -> bool:
+        """Check if the daemon is currently running."""
+        return self._running
 
     def get_metrics(self) -> dict[str, Any]:
         """Get daemon metrics in protocol-compliant format.

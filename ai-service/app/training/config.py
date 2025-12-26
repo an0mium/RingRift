@@ -711,12 +711,28 @@ def get_model_version_for_board(board_type: BoardType) -> str:
     Returns
     -------
     str
-        Model version string: 'v3' for hex boards and square8, 'v2' otherwise.
+        Model version string: always 'v4' (NAS-optimized attention architecture)
+
+    Notes
+    -----
+    As of December 2025, v4 is now the universal default for all board types:
+
+    **v4 (all boards)**: Best theoretical architecture
+    - Multi-head self-attention captures long-range dependencies
+    - Spatial policy heads (position-aware, better gradients)
+    - NAS-optimized hyperparameters
+    - 13 attention blocks with 4 heads each
+    - 3-layer value head with rank distribution output
+    - ~50% fewer params than v3 while being more capable
+
+    For square boards: 5.1M params (square8/square19)
+    For hex boards: 5.5-6.2M params (hex8/hexagonal)
+
+    Both square and hex v4 architectures preserve spatial awareness through
+    Conv1x1 policy heads, providing better gradient flow than v2's
+    global-pooling approach.
     """
-    if board_type in (BoardType.HEXAGONAL, BoardType.HEX8) or board_type == BoardType.SQUARE8:
-        return "v3"
-    else:
-        return "v2"
+    return "v4"  # NAS-optimized attention + spatial policy heads (universal default)
 
 
 # =============================================================================

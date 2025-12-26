@@ -389,7 +389,7 @@ For dedicated selfplay generation:
 
 #### MULTI_PROVIDER
 
-- **Purpose:** Coordinate across Lambda/Vast/RunPod
+- **Purpose:** Coordinate across Runpod/Vast
 - **Depends on:** CLUSTER_MONITOR
 
 #### HEALTH_SERVER

@@ -203,7 +203,7 @@ python scripts/cluster_submit.py gpu-selfplay --board hex8 --players 2 --games 5
 **Solution**: New data aggregation architecture:
 
 ```
-    Cluster Nodes (GH200, Vast.ai, Lambda, AWS)
+    Cluster Nodes (GH200, Runpod, Vast.ai, AWS)
                     |
                     v (rsync/P2P)
     Mac Studio (Data Aggregator)

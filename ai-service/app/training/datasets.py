@@ -60,6 +60,7 @@ class RingRiftDataset(Dataset):
         filter_empty_policies: bool = True,
         return_num_players: bool = False,
         return_auxiliary_targets: bool = False,
+        return_heuristics: bool = False,
     ):
         self.data_path = data_path
         self.board_type = board_type
@@ -73,6 +74,9 @@ class RingRiftDataset(Dataset):
         # When True, includes auxiliary targets (game_length, piece_count, outcome)
         # for multi-task learning if available in the data.
         self.return_auxiliary_targets = return_auxiliary_targets
+        # When True and 'heuristics' array exists, includes heuristic features
+        # for v5-heavy model training (49 hand-crafted features per state).
+        self.return_heuristics = return_heuristics
         self.hex_transform: HexSymmetryTransform | None = None
 
         # Initialize hex transform if augmentation enabled
@@ -104,6 +108,10 @@ class RingRiftDataset(Dataset):
         self.game_lengths_arr: np.ndarray | None = None
         self.piece_counts_arr: np.ndarray | None = None
         self.outcomes_arr: np.ndarray | None = None
+        # Heuristic features for v5-heavy training (December 2025)
+        self.has_heuristics = False
+        self.heuristics_arr: np.ndarray | None = None
+        self.num_heuristic_features: int = 0
 
         if os.path.exists(data_path):
             try:
@@ -319,6 +327,25 @@ class RingRiftDataset(Dataset):
                     elif self.return_auxiliary_targets:
                         logger.info(
                             "Auxiliary targets not found in %s; will derive from values",
+                            data_path,
+                        )
+
+                    # Heuristic features for v5-heavy training (December 2025)
+                    if "heuristics" in available_keys:
+                        self.has_heuristics = True
+                        self.heuristics_arr = np.asarray(
+                            self.data["heuristics"], dtype=np.float32
+                        )
+                        self.num_heuristic_features = self.heuristics_arr.shape[1]
+                        logger.info(
+                            "Heuristic features available in %s: %d features per sample",
+                            data_path,
+                            self.num_heuristic_features,
+                        )
+                    elif self.return_heuristics:
+                        logger.warning(
+                            "Heuristics requested but not found in %s; "
+                            "will return zeros. Re-export with --include-heuristics.",
                             data_path,
                         )
 
@@ -577,6 +604,19 @@ class RingRiftDataset(Dataset):
                     outcome = 1  # Draw
                 aux_targets["outcome"] = torch.tensor(outcome, dtype=torch.long)
 
+        # Build heuristic tensor if requested (for v5-heavy training)
+        heuristic_tensor = None
+        if self.return_heuristics:
+            if self.has_heuristics and self.heuristics_arr is not None:
+                heuristic_tensor = torch.from_numpy(
+                    self.heuristics_arr[actual_idx].astype(np.float32)
+                )
+            else:
+                # Return zeros if heuristics not available in data
+                # Use 21 as default (fast_heuristic_features component scores)
+                num_features = self.num_heuristic_features if self.num_heuristic_features > 0 else 21
+                heuristic_tensor = torch.zeros(num_features, dtype=torch.float32)
+
         if self.return_num_players:
             num_players_val = 0
             if self.num_players_arr is not None:
@@ -585,7 +625,7 @@ class RingRiftDataset(Dataset):
                 except Exception:
                     num_players_val = 0
             if self.return_auxiliary_targets:
-                return (
+                result = (
                     torch.from_numpy(features),
                     torch.from_numpy(globals_vec),
                     value_tensor,
@@ -593,29 +633,41 @@ class RingRiftDataset(Dataset):
                     torch.tensor(num_players_val, dtype=torch.int64),
                     aux_targets,
                 )
-            return (
+                if self.return_heuristics:
+                    result = result + (heuristic_tensor,)
+                return result
+            result = (
                 torch.from_numpy(features),
                 torch.from_numpy(globals_vec),
                 value_tensor,
                 policy_vector,
                 torch.tensor(num_players_val, dtype=torch.int64),
             )
+            if self.return_heuristics:
+                result = result + (heuristic_tensor,)
+            return result
 
         if self.return_auxiliary_targets:
-            return (
+            result = (
                 torch.from_numpy(features),
                 torch.from_numpy(globals_vec),
                 value_tensor,
                 policy_vector,
                 aux_targets,
             )
+            if self.return_heuristics:
+                result = result + (heuristic_tensor,)
+            return result
 
-        return (
+        result = (
             torch.from_numpy(features),
             torch.from_numpy(globals_vec),
             value_tensor,
             policy_vector,
         )
+        if self.return_heuristics:
+            result = result + (heuristic_tensor,)
+        return result
 
 
 class WeightedRingRiftDataset(RingRiftDataset):

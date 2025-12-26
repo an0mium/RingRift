@@ -21,11 +21,11 @@ slurm:
   gpus_tournament: 0
   cpus_tournament: 8
   mem_tournament: '16G'
-  shared_root: '/lambda/nfs/RingRift'
+  shared_root: '/mnt/ringrift'
   repo_subdir: 'ai-service'
-  venv_activate: '/lambda/nfs/RingRift/ai-service/venv/bin/activate'
+  venv_activate: '/mnt/ringrift/ai-service/venv/bin/activate'
   venv_activate_arm64: '/home/ubuntu/venv-arm64-local/bin/activate'
   job_dir: 'data/slurm/jobs'
   log_dir: 'data/slurm/logs'
   setup_commands:
-    - 'export PYTHONPATH=/lambda/nfs/RingRift/ai-service'
+    - 'export PYTHONPATH=/mnt/ringrift/ai-service'

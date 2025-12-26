@@ -35,6 +35,10 @@ def test_heuristic_batch_eval_handles_swap_sides(monkeypatch):
     monkeypatch.setattr(heuristic_ai, "BATCH_EVAL_THRESHOLD", 1)
 
     state = create_initial_state(BoardType.SQUARE8, num_players=2)
+    # Explicitly enable swap rule for this regression test.
+    # create_initial_state() is used by training harnesses and may default
+    # swapRuleEnabled to False to reduce self-play bias.
+    state.rules_options = {"swapRuleEnabled": True}
     state = _advance_p1_first_turn(state)
 
     assert state.current_player == 2

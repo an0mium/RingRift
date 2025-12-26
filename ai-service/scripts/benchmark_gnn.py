@@ -82,6 +82,12 @@ def play_gnn_vs_opponent(
     for game_idx in range(num_games):
         state = create_initial_state(board_type, num_players)
 
+        # Reset AIs with unique seeds per game for variety
+        if hasattr(gnn_ai, 'reset_for_new_game'):
+            gnn_ai.reset_for_new_game(rng_seed=game_idx * 1000)
+        if hasattr(opponent_ai, 'reset_for_new_game'):
+            opponent_ai.reset_for_new_game(rng_seed=game_idx * 1000 + 1)
+
         # Alternate who plays first
         if game_idx % 2 == 0:
             players = {1: gnn_ai, 2: opponent_ai}

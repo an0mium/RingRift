@@ -5,12 +5,12 @@
 
 ## Current State Scores
 
-| Dimension                 | Score  | Status                            |
-| ------------------------- | ------ | --------------------------------- |
-| Feedback Loop Integration | 6/10   | Ghost events, weak coupling       |
-| Cluster Utilization       | 50-60% | Lambda offline, 38 daemons active |
-| Data Flow                 | 8.5/10 | Strong write-through, P2P sync    |
-| Code Quality              | 7/10   | 27.5% test coverage               |
+| Dimension                 | Score  | Status                                         |
+| ------------------------- | ------ | ---------------------------------------------- |
+| Feedback Loop Integration | 6/10   | Ghost events, weak coupling                    |
+| Cluster Utilization       | 50-60% | Primary GH200 fleet offline, 38 daemons active |
+| Data Flow                 | 8.5/10 | Strong write-through, P2P sync                 |
+| Code Quality              | 7/10   | 27.5% test coverage                            |
 
 ## Priority 0: Critical Fixes (This Session)
 
@@ -76,7 +76,7 @@
 ### P2.4: Optimize Ephemeral Node Job Allocation
 
 **Current**: Same timeout for ephemeral and persistent nodes
-**Fix**: Shorter jobs on Vast.ai, longer on Lambda
+**Fix**: Shorter jobs on Vast.ai, longer on Runpod
 **Improvement**: Reduced data loss risk
 
 ---
@@ -150,7 +150,7 @@
 2. **Add train.py hyperparameter query** (30 min)
 3. **Create DLQMonitorDaemon** (1-2 hours)
 4. **Commit and push** (5 min)
-5. **Deploy when Lambda nodes come back online**
+5. **Deploy when the suspended GH200 fleet comes back online**
 
 ---
 

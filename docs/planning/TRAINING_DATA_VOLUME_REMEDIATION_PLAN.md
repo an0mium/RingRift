@@ -120,7 +120,7 @@ From AI-07 observations, approximately **5% of generated games** encounter edge-
 | Disk Space    | 359GB available       | ✅ No constraint                         |
 | Memory        | Adequate              | ✅ No constraint                         |
 | CPU           | Single-host limited   | ⚠️ Multi-host preferred for large boards |
-| Cluster Nodes | Lambda/VAST available | ✅ Can distribute                        |
+| Cluster Nodes | Runpod/VAST available | ✅ Can distribute                        |
 
 ---
 
@@ -321,7 +321,7 @@ These tasks leverage cluster nodes for faster throughput.
 | Attribute       | Value                                                 |
 | --------------- | ----------------------------------------------------- |
 | **Task ID**     | VOL-06                                                |
-| **Title**       | Run distributed self-play on Lambda/VAST cluster      |
+| **Title**       | Run distributed self-play on Runpod/VAST cluster      |
 | **Description** | Use SSH-based distributed generation for large boards |
 | **Depends On**  | VOL-04, VOL-05 (if still below targets)               |
 

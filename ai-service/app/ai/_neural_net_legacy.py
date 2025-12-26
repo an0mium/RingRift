@@ -6744,6 +6744,16 @@ class HexNeuralNet_v4(nn.Module):
     """
     V4 architecture with NAS-optimized attention for hexagonal boards.
 
+    .. deprecated:: 2025-12
+        This class has been migrated to ``app.ai.neural_net.hex_architectures``.
+        Import from the new location instead::
+
+            # Old (deprecated):
+            from app.ai._neural_net_legacy import HexNeuralNet_v4
+
+            # New:
+            from app.ai.neural_net import HexNeuralNet_v4
+
     This architecture applies the NAS-discovered improvements from RingRiftCNN_v4
     to the hexagonal board architecture, combining the spatial policy heads
     from V3 with the optimal structural choices found by evolutionary NAS.

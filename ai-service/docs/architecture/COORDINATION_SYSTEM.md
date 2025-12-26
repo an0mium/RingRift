@@ -382,16 +382,16 @@ from app.coordination.bandwidth_manager import BandwidthManager
 bw_mgr = BandwidthManager()
 
 # Check bandwidth availability
-if bw_mgr.can_transfer("lambda-a100", "models"):
-    bw_mgr.start_transfer("lambda-a100", transfer_id, "models")
+if bw_mgr.can_transfer("runpod-a100-1", "models"):
+    bw_mgr.start_transfer("runpod-a100-1", transfer_id, "models")
     # ... transfer data ...
-    bw_mgr.end_transfer("lambda-a100", transfer_id, bytes_transferred)
+    bw_mgr.end_transfer("runpod-a100-1", transfer_id, bytes_transferred)
 ```
 
 **Bandwidth Limits:**
 | Host Type | Bandwidth |
 |------------|------------|
-| Lambda | 1 Gbps |
+| Runpod | 1 Gbps |
 | GH200 | 2.5 Gbps |
 | AWS | 500 Mbps |
 | Default | 100 Mbps |

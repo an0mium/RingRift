@@ -118,9 +118,9 @@ def evaluate_against_baseline(
     logger.info(f"  Playing as P1 ({games_per_side} games)...")
     for i in range(games_per_side):
         if baseline == "random":
-            opponent = RandomAI(player_number=2, config=AIConfig(difficulty=1))
+            opponent = RandomAI(player_number=2, config=AIConfig(difficulty=1, rng_seed=i))
         else:
-            opponent = HeuristicAI(player_number=2, config=AIConfig(difficulty=3))
+            opponent = HeuristicAI(player_number=2, config=AIConfig(difficulty=3, rng_seed=i))
 
         winner, moves = play_game(gnn_p1, opponent, f"gnn_p1_{i}", board_type, max_moves=max_moves)
         if winner == 1:
@@ -130,9 +130,9 @@ def evaluate_against_baseline(
     logger.info(f"  Playing as P2 ({games_per_side} games)...")
     for i in range(games_per_side):
         if baseline == "random":
-            opponent = RandomAI(player_number=1, config=AIConfig(difficulty=1))
+            opponent = RandomAI(player_number=1, config=AIConfig(difficulty=1, rng_seed=i + 10000))
         else:
-            opponent = HeuristicAI(player_number=1, config=AIConfig(difficulty=3))
+            opponent = HeuristicAI(player_number=1, config=AIConfig(difficulty=3, rng_seed=i + 10000))
 
         winner, moves = play_game(opponent, gnn_p2, f"gnn_p2_{i}", board_type, max_moves=max_moves)
         if winner == 2:

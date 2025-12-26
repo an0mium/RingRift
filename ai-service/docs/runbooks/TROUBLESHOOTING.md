@@ -29,7 +29,7 @@ Quick reference for diagnosing and resolving common issues in the RingRift AI Se
 python -c "
 from app.coordination.node_health_monitor import get_node_health_monitor
 monitor = get_node_health_monitor()
-node = monitor.get_node_health('lambda-h100')
+node = monitor.get_node_health('<node-id>')
 print(f'Status: {node.status}')
 print(f'Consecutive failures: {node.consecutive_failures}')
 print(f'Last error: {node.last_error}')
@@ -65,7 +65,7 @@ curl -s --connect-timeout 5 http://<node-ip>:8765/health
    ```python
    from app.coordination.node_health_monitor import get_node_health_monitor
    monitor = get_node_health_monitor()
-   monitor.force_recover("lambda-h100")
+   monitor.force_recover("<node-id>")
    ```
 
 ---
@@ -276,7 +276,7 @@ for t in timed_out:
 
    ```python
    # When spawning task
-   facade.spawn_task("training", "lambda-h100", timeout_seconds=7200)  # 2 hours
+   facade.spawn_task("training", "<node-id>", timeout_seconds=7200)  # 2 hours
    ```
 
 2. **Check why task is slow:**

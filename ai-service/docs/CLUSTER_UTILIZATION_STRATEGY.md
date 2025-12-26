@@ -213,10 +213,10 @@ provider_preferences:
 
 ### 3. Elastic Scaling
 
-When Lambda nodes return:
+When additional GH200 nodes return:
 
 - Add 19x GH200 (96GB each) = +1.8TB VRAM
-- Shift training primary to Lambda
+- Shift training primary to the expanded GH200 fleet
 - Use current nodes for increased selfplay
 
 ---

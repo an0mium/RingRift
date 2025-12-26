@@ -789,7 +789,7 @@ This section provides concrete commands for running full AI ladder calibration o
 ### A.1 Prerequisites
 
 1. **GPU Access**: D6–D10 neural tiers require GPU (D6, D8–D10). D5 is minimax+NNUE (CPU OK for sq8), and D7 is heuristic MCTS but still CPU-intensive. Available hosts in `config/distributed_hosts.yaml`:
-   - Lambda Cloud: GH200 (96GB), H100 (80GB), A10 (23GB)
+   - Runpod: H100 (80GB), A100 (80GB), L40S (48GB)
    - Vast.ai: Various RTX cards for selfplay
 
 2. **Environment Check**:

@@ -519,21 +519,36 @@ class MaterialEvaluator:
         return my_player.eliminated_rings * self.weights.eliminated_rings
     
     def evaluate_marker_count(
-        self, 
-        state: "GameState", 
+        self,
+        state: "GameState",
         player_idx: int,
     ) -> float:
-        """Evaluate marker count feature only.
-        
+        """Evaluate marker count (symmetric).
+
+        Made symmetric by computing (my_markers - max_opponent_markers)
+        to ensure P1+P2 evaluations sum to 0.
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
-            Marker count score.
+            Marker count score (symmetric).
         """
         my_markers = sum(
             1 for m in state.board.markers.values()
             if m.player == player_idx
         )
-        return my_markers * self.weights.marker_count
+
+        # Compute max opponent markers for symmetric evaluation
+        opp_marker_counts = [
+            sum(1 for m in state.board.markers.values()
+                if m.player == p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_markers = max(opp_marker_counts) if opp_marker_counts else 0
+
+        # Symmetric: advantage over best opponent
+        advantage = my_markers - max_opp_markers
+        return advantage * self.weights.marker_count

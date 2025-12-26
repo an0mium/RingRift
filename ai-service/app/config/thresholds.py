@@ -69,6 +69,24 @@ MIN_WIN_RATE_PROMOTE = 0.45
 # (candidate must demonstrate superiority with >55% decisive wins)
 WIN_RATE_BEAT_BEST = 0.55
 
+# =============================================================================
+# Tier Ladder Evaluation Thresholds (December 2025)
+# =============================================================================
+# D(n) must beat D(n-1) at this win rate on BOTH sq8 and hex8 2p matches
+
+# Canonical tier-vs-tier threshold for ladder promotion
+# D(n) must beat D(n-1) at 55%+ in 2-player matches
+TIER_VS_PREVIOUS_MIN_WIN_RATE = 0.55
+
+# Board types required for tier validation (must pass on ALL)
+TIER_VALIDATION_BOARD_TYPES = ["square8", "hex8"]
+
+# Number of players for tier validation
+TIER_VALIDATION_NUM_PLAYERS = 2
+
+# Games per board type for tier evaluation
+TIER_VALIDATION_GAMES_PER_BOARD = 100
+
 # Cooldown between promotion attempts (seconds)
 PROMOTION_COOLDOWN_SECONDS = 900  # 15 minutes
 

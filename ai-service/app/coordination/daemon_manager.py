@@ -1580,10 +1580,10 @@ class DaemonManager:
     async def _create_elo_sync(self) -> None:
         """Create and run ELO sync daemon."""
         try:
-            from app.tournament.elo_sync_manager import EloSyncManager
+            from app.tournament.elo_sync_manager import get_elo_sync_manager
 
-            manager = EloSyncManager.get_instance()
-            await manager.start_sync_daemon(interval_seconds=60)
+            manager = get_elo_sync_manager()
+            await manager.start_background_sync()
         except ImportError as e:
             logger.error(f"EloSyncManager not available: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
@@ -2371,7 +2371,7 @@ class DaemonManager:
             while True:
                 try:
                     # Populate queue based on cluster needs
-                    added = await populator.populate_queue()
+                    added = populator.populate()  # sync method
                     if added:
                         logger.debug(f"Queue populator added {added} work items")
                 except Exception as e:

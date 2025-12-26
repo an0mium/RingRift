@@ -12,7 +12,7 @@
 > **Note:** The CLI examples below are historical references only. The
 > `pipeline_orchestrator.py` script no longer exists in the repo.
 
-The pipeline orchestrator provides unified coordination for the complete AI training pipeline across distributed compute resources including local Mac clusters, AWS, Lambda Labs, and Vast.ai instances.
+The pipeline orchestrator provides unified coordination for the complete AI training pipeline across distributed compute resources including local Mac clusters, AWS, Runpod, and Vast.ai instances.
 
 ## Table of Contents
 
@@ -80,7 +80,7 @@ Workers are defined in `config/distributed_hosts.yaml`:
 | ------------------------ | --------------- | ---------------------- |
 | Mac Cluster (Tailscale)  | selfplay, cmaes | All board types        |
 | AWS Staging (r5.4xlarge) | selfplay, cmaes | All boards (128GB RAM) |
-| Lambda Labs (A10, H100)  | nn_training     | GPU training           |
+| Runpod (L40S, H100)      | nn_training     | GPU training           |
 | Vast.ai (RTX 3090, 5090) | nn_training     | GPU training           |
 
 ### Selfplay Job Distribution
@@ -203,7 +203,7 @@ Tracks resource utilization across all workers:
 ```
 === Resource Usage ===
   mac-studio: CPU=45%, MEM=67%, DISK=34%, GPU=0%
-  lambda-h100: CPU=12%, MEM=23%, DISK=15%, GPU=89%
+  runpod-h100: CPU=12%, MEM=23%, DISK=15%, GPU=89%
   vast-5090-quad: CPU=78%, MEM=45%, DISK=22%, GPU=95%
 ```
 
@@ -537,7 +537,7 @@ Promotions:  {'square8_2p': 'D6'}
 
 === Resource Usage ===
   mac-studio: CPU=45%, MEM=67%, DISK=34%, GPU=0%
-  lambda-h100: CPU=12%, MEM=23%, DISK=15%, GPU=89%
+  runpod-h100: CPU=12%, MEM=23%, DISK=15%, GPU=89%
 ```
 
 ---
@@ -562,7 +562,7 @@ Uses the P2P orchestrator REST API for job dispatch:
 ```bash
 python pipeline_orchestrator.py (removed) \
   --backend p2p \
-  --p2p-leader http://lambda-gpu:8770 \
+  --p2p-leader http://<p2p-leader-host>:8770 \
   --p2p-auth-token "your-cluster-token" \
   --iterations 5
 ```

@@ -82,12 +82,17 @@ from app.coordination.protocols import (
 logger = logging.getLogger(__name__)
 
 # Coordinator registration (December 2025)
+# Note: protocols.register_coordinator takes (coordinator), while
+# orchestrator_registry.register_coordinator takes (name, coordinator, ...)
+# We import the registry version under a different name to avoid shadowing
 try:
-    from app.coordination.orchestrator_registry import register_coordinator
+    from app.coordination.orchestrator_registry import (
+        register_coordinator as registry_register,
+    )
     HAS_COORDINATOR_REGISTRY = True
 except ImportError:
     HAS_COORDINATOR_REGISTRY = False
-    register_coordinator = None  # type: ignore
+    registry_register = None  # type: ignore
 
 # Cluster event integration (December 2025)
 # Subscribe to cluster health events for training decisions
@@ -211,8 +216,19 @@ class TrainingCoordinator:
         self._last_error: str = ""
         self._events_processed: int = 0
 
-        # Register with coordinator registry
+        # Register with coordinator registries
+        # 1. Protocol-level registration (for runtime discovery)
         register_coordinator(self)
+
+        # 2. Orchestrator registry (for lifecycle management, if available)
+        if HAS_COORDINATOR_REGISTRY and registry_register is not None:
+            registry_register(
+                name=self.name,
+                coordinator=self,
+                health_callback=lambda: self._status == CoordinatorStatus.RUNNING,
+                shutdown_callback=self.close,
+                metadata={"type": "training", "db_path": str(self._db_path)},
+            )
 
     def _get_db_path(self) -> Path:
         """Determine the best database path."""

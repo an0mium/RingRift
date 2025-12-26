@@ -227,16 +227,18 @@ def play_single_game(
     difficulty: int,
     board_type: str,
     max_moves: int = 300,
+    game_index: int = 0,
 ) -> int:
     """Run one game and return the winner (1 or 2) or 0 for draw."""
 
+    # Use unique seeds per game to ensure variety
     ai1 = HeuristicAI(
         1,
         AIConfig(
             difficulty=difficulty,
             think_time=0,
             randomness=0.0,
-            rngSeed=None,
+            rng_seed=game_index * 1000 + 1,
             heuristic_profile_id=profile_p1,
         ),
     )
@@ -246,7 +248,7 @@ def play_single_game(
             difficulty=difficulty,
             think_time=0,
             randomness=0.0,
-            rngSeed=None,
+            rng_seed=game_index * 1000 + 2,
             heuristic_profile_id=profile_p2,
         ),
     )
@@ -326,6 +328,7 @@ def run_match(
                 profile_b_id,
                 difficulty,
                 board,
+                game_index=i,
             )
             if winner == 1:
                 wins_a += 1
@@ -340,6 +343,7 @@ def run_match(
                 profile_a_id,
                 difficulty,
                 board,
+                game_index=i,
             )
             if winner == 1:
                 wins_b += 1

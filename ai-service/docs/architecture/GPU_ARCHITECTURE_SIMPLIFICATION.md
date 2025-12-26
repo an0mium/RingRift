@@ -32,7 +32,7 @@ This document analyzes the current GPU codebase and provides a roadmap for archi
 
 ### 1.1 CPU vs Hybrid GPU Evaluation (NVIDIA A10 CUDA)
 
-Benchmark run on 2025-12-11 with PyTorch on Lambda Labs NVIDIA A10 GPU (23GB VRAM).
+Benchmark run on 2025-12-11 with PyTorch on legacy Lambda Labs NVIDIA A10 GPU (23GB VRAM).
 
 | Batch Size | CPU (ms) | Hybrid CUDA (ms) | Speedup   | Winner |
 | ---------- | -------- | ---------------- | --------- | ------ |
@@ -65,7 +65,7 @@ Benchmark run on 2025-12-11 with PyTorch 2.6.0 on Apple Silicon (MPS).
 2. **MPS break-even**: ~200-250 positions (significant overhead)
 3. **Peak speedup**: 6.56x on CUDA at batch 500
 4. **Sweet spot**: Batch 200-500 for best speedup-to-overhead ratio
-5. **CPU throughput**: ~21,000 evals/sec on M-series, slower on Lambda (x86_64)
+5. **CPU throughput**: ~21,000 evals/sec on M-series, slower on legacy Lambda (x86_64)
 
 ### 1.4 Implications for Use Cases
 

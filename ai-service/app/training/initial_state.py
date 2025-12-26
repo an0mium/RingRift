@@ -6,6 +6,7 @@ imported without loading neural network libraries. Use this module when
 you only need to create game states, not for full training data generation.
 """
 
+import logging
 import os
 from datetime import datetime
 
@@ -18,6 +19,8 @@ from app.models import (
     Player,
     TimeControl,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_initial_state(
@@ -43,7 +46,7 @@ def create_initial_state(
         If None, uses the default from BOARD_CONFIGS.
     lps_rounds_required:
         Number of consecutive exclusive rounds required for LPS victory.
-        Default is 2 (traditional rule).
+        Default is 3 for training (stricter than the historical 2-round rule).
     """
     # Clamp to a sensible range to avoid constructing degenerate states.
     if num_players < 2:
@@ -51,7 +54,8 @@ def create_initial_state(
     if num_players > 4:
         num_players = 4
 
-    # Use centralized BOARD_CONFIGS from app.rules.core (mirrors TS BOARD_CONFIGS)
+    # Use centralized BOARD_CONFIGS from app.rules.core
+    # (mirrors TS BOARD_CONFIGS)
     from app.rules.core import (
         BOARD_CONFIGS,
         get_territory_victory_threshold,
@@ -70,7 +74,9 @@ def create_initial_state(
     # Victory thresholds per RR-CANON-R061 and RR-CANON-R062
     total_rings = rings_per_player * num_players
     victory_threshold = get_victory_threshold(
-        board_type, num_players, rings_per_player_override=rings_per_player_override
+        board_type,
+        num_players,
+        rings_per_player_override=rings_per_player_override,
     )
     territory_threshold = get_territory_victory_threshold(board_type)
 
@@ -92,25 +98,39 @@ def create_initial_state(
 
     # Training-time pie rule configuration.
     #
-    # Canonical training defaults now mirror production: in **2-player** games,
-    # the pie rule is enabled by default so `swap_sides` is offered to P2 after
-    # P1's first completed turn. Multi-player games ignore this and never expose
-    # swap_sides.
+    # For training we default to **disabling** the 2-player swap rule
+    # (pie rule) because enabling it by default was observed to introduce
+    # a strong P2 bias
+    # in self-play runs. Multi-player games ignore this and never expose
+    # `swap_sides`.
     #
-    # Opt-out for experiments/ablations:
+    # Opt-in for experiments/ablations:
+    #   RINGRIFT_TRAINING_ENABLE_SWAP_RULE=1 (or "true"/"yes"/"on")
+    #
+    # Hard override (wins over enable):
     #   RINGRIFT_TRAINING_DISABLE_SWAP_RULE=1 (or "true"/"yes"/"on")
-    #
-    # Backwards compatibility: we still read the legacy opt-in flag
-    # RINGRIFT_TRAINING_ENABLE_SWAP_RULE, but it no longer needs to be set.
     rules_options = None
     if num_players == 2:
-        disable_flag = os.getenv("RINGRIFT_TRAINING_DISABLE_SWAP_RULE", "").lower()
-        swap_enabled = disable_flag not in {"1", "true", "yes", "on"}
-        # Legacy opt-in flag: treat explicit falsy values as an override.
-        legacy_flag = os.getenv("RINGRIFT_TRAINING_ENABLE_SWAP_RULE", "").lower()
-        if legacy_flag in {"0", "false", "no", "off"}:
+        enable_flag = os.getenv(
+            "RINGRIFT_TRAINING_ENABLE_SWAP_RULE",
+            "",
+        ).lower()
+        disable_flag = os.getenv(
+            "RINGRIFT_TRAINING_DISABLE_SWAP_RULE",
+            "",
+        ).lower()
+
+        swap_enabled = enable_flag in {"1", "true", "yes", "on"}
+        if disable_flag in {"1", "true", "yes", "on"}:
             swap_enabled = False
+
         rules_options = {"swapRuleEnabled": swap_enabled}
+        logger.debug(
+            "create_initial_state: swapRuleEnabled=%s (enable=%r disable=%r)",
+            swap_enabled,
+            enable_flag,
+            disable_flag,
+        )
 
     return GameState(
         id="self-play",

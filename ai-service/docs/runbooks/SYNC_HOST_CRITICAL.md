@@ -157,7 +157,7 @@ Before retiring a host with potential data:
 If multiple hosts are critical simultaneously:
 
 1. Check for cluster-wide network issues
-2. Check cloud provider status (Vast.ai, Lambda, etc.)
+2. Check cloud provider status (Vast.ai, Runpod, etc.)
 3. Page on-call team if data loss is imminent
 4. Consider pausing selfplay on affected hosts
 

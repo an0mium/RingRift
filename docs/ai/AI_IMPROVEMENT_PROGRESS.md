@@ -30,9 +30,9 @@ Status tags:
 
 ## GPU Cluster Operations (2025-12-12)
 
-- **done** Lambda H100 instance configured for training and large model inference.
+- **done** Runpod H100 instance configured for training and large model inference.
 - **done** Quality games synced across instances via rsync.
-- **done** SSH config aliases for cluster access (`lambda-gpu`, `ringrift-staging`).
+- **done** SSH config aliases for cluster access (`runpod-h100`, `ringrift-staging`).
 - **done** Documentation updated with cluster operations guide in `AI_TRAINING_PLAN.md`.
 
 ---

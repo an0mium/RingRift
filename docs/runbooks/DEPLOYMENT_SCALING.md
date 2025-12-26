@@ -270,7 +270,7 @@ For staging environments without GPU (e.g., AWS r5.xlarge), proxy AI requests to
 
 ```
 ┌──────────────────────┐        ┌───────────────────────────┐
-│  Staging Server      │        │  Lambda GPU Cluster       │
+│  Staging Server      │        │  Runpod GPU Cluster       │
 │  (CPU only)          │        │  (GH200 with 96GB GPU)    │
 │                      │        │                           │
 │  ┌────────────────┐  │        │  ┌─────────────────────┐  │

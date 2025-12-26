@@ -1578,7 +1578,13 @@ class SquareStateEncoder:
             globals_vec[18] = 1.0 if getattr(state, 'chain_capture_in_progress', False) else 0.0
             globals_vec[19] = 1.0 if phase == GamePhase.FORCED_ELIMINATION else 0.0
         else:
-            globals_vec[18] = min(state.move_number / 200.0, 1.0)
+            # Safely get move number with fallback (same logic as HexStateEncoder)
+            move_number = getattr(state, 'move_number', 0)
+            if move_number == 0:
+                move_number = getattr(state, 'turn_number', 0)
+            if move_number == 0 and hasattr(state, 'move_history'):
+                move_number = len(state.move_history) if state.move_history else 0
+            globals_vec[18] = min(move_number / 200.0, 1.0)
             globals_vec[19] = 0.0
 
         return globals_vec

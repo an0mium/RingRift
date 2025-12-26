@@ -247,11 +247,15 @@ def benchmark_search(
     Returns:
         BenchmarkResult with timing and memory statistics.
     """
+    # Use a small/default search budget for benchmarks and tests.
+    # The search depth is controlled separately via `_get_max_depth`.
     config = AIConfig(
         difficulty=5,
-        think_time=30000,  # 30 second timeout to avoid hanging
+        think_time=0,
         randomness=None,
         rngSeed=None,
+        use_neural_net=False,
+        use_policy_ordering=False,
         use_incremental_search=use_incremental,
     )
 
@@ -319,16 +323,20 @@ def validate_correctness(
     # Create configs for both modes
     legacy_config = AIConfig(
         difficulty=5,
-        think_time=30000,
+        think_time=0,
         randomness=None,
         rngSeed=None,
+        use_neural_net=False,
+        use_policy_ordering=False,
         use_incremental_search=False,
     )
     incremental_config = AIConfig(
         difficulty=5,
-        think_time=30000,
+        think_time=0,
         randomness=None,
         rngSeed=None,
+        use_neural_net=False,
+        use_policy_ordering=False,
         use_incremental_search=True,
     )
 

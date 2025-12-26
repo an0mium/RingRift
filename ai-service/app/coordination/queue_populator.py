@@ -708,6 +708,10 @@ class QueuePopulator:
 
         return added
 
+    def populate_queue(self) -> int:
+        """Backward-compatible alias for populate()."""
+        return self.populate()
+
     def get_status(self) -> dict[str, Any]:
         """Get populator status for monitoring."""
         unmet = self.get_unmet_targets()

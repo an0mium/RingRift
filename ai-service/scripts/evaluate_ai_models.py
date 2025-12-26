@@ -243,6 +243,54 @@ def load_cmaes_weights(path: str = "heuristic_weights_optimized.json") -> dict[s
     raise FileNotFoundError(f"Could not find CMA-ES weights file. Tried: {paths_to_try}")
 
 
+def _evaluation_heuristic_speed_knobs(
+    board_type: BoardType,
+) -> tuple[str, int | None]:
+    """Return (heuristic_eval_mode, training_move_sample_limit) for eval runs.
+
+    The evaluation harness is used heavily in tests; by default we run heuristic
+    AIs in a faster configuration while keeping *rules semantics* unchanged.
+
+    Overrides:
+      - RINGRIFT_EVAL_HEURISTIC_EVAL_MODE: "light" | "full" (default: "light")
+      - RINGRIFT_EVAL_MOVE_SAMPLE_LIMIT: int (0 disables sampling)
+
+    Notes:
+      - sampling is deterministic when rngSeed is set.
+      - this affects only HeuristicAI evaluation cost/strength, not legality.
+    """
+    mode = os.getenv("RINGRIFT_EVAL_HEURISTIC_EVAL_MODE", "light").strip() or "light"
+
+    # Board-aware default: square8 has modest move counts (often 50-70), but
+    # full evaluation still deep-copies state per candidate. Sampling keeps test
+    # matches comfortably under pytest-timeout.
+    if board_type == BoardType.SQUARE8:
+        default_limit = 32
+    elif board_type == BoardType.HEX8:
+        default_limit = 48
+    elif board_type == BoardType.SQUARE19:
+        default_limit = 128
+    else:  # HEXAGONAL / FULL_HEX
+        default_limit = 128
+
+    env_limit = os.getenv("RINGRIFT_EVAL_MOVE_SAMPLE_LIMIT")
+    if env_limit is not None:
+        try:
+            parsed = int(env_limit)
+        except Exception:
+            parsed = default_limit
+    else:
+        parsed = default_limit
+
+    limit: int | None
+    if parsed <= 0:
+        limit = None
+    else:
+        limit = parsed
+
+    return mode, limit
+
+
 def create_ai(
     ai_type: str,
     player_num: int,
@@ -297,12 +345,15 @@ def create_ai(
             profile = BASE_V1_BALANCED_WEIGHTS
             HEURISTIC_WEIGHT_PROFILES["baseline_v1_balanced"] = profile
 
+        eval_mode, sample_limit = _evaluation_heuristic_speed_knobs(board_type)
         config = AIConfig(
             difficulty=5,
             think_time=0,
             randomness=0.0,
             rngSeed=ai_rng_seed,
             heuristic_profile_id="baseline_v1_balanced",
+            heuristic_eval_mode=eval_mode,
+            training_move_sample_limit=sample_limit,
         )
         return HeuristicAI(player_num, config)
 
@@ -314,12 +365,15 @@ def create_ai(
         profile_id = "cmaes_optimized"
         HEURISTIC_WEIGHT_PROFILES[profile_id] = cmaes_weights
 
+        eval_mode, sample_limit = _evaluation_heuristic_speed_knobs(board_type)
         config = AIConfig(
             difficulty=5,
             think_time=0,
             randomness=0.0,
             rngSeed=ai_rng_seed,
             heuristic_profile_id=profile_id,
+            heuristic_eval_mode=eval_mode,
+            training_move_sample_limit=sample_limit,
         )
         return HeuristicAI(player_num, config)
 
