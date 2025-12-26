@@ -171,16 +171,25 @@ class AutoEvaluationDaemon:
         except ImportError:
             logger.debug("[AutoEvaluation] Stage events not available")
 
-        # Also subscribe to direct model events
+        # Also subscribe to direct data events (Phase 1.3)
+        # This ensures we receive TRAINING_COMPLETED from train.py
         try:
             from app.distributed.data_events import DataEventType, get_event_bus
 
             bus = get_event_bus()
+            # Subscribe to MODEL_UPDATED
             unsub = bus.subscribe(
                 DataEventType.MODEL_UPDATED, self._on_model_updated
             )
             self._event_subscriptions.append(unsub)
             logger.info("[AutoEvaluation] Subscribed to MODEL_UPDATED events")
+
+            # Subscribe to TRAINING_COMPLETED (Phase 1.3: bridge to evaluation)
+            unsub = bus.subscribe(
+                DataEventType.TRAINING_COMPLETED, self._on_training_completed_data_event
+            )
+            self._event_subscriptions.append(unsub)
+            logger.info("[AutoEvaluation] Subscribed to TRAINING_COMPLETED events")
         except ImportError:
             pass
 
