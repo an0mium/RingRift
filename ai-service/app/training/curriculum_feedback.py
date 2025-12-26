@@ -207,6 +207,50 @@ class CurriculumFeedback:
         except Exception as e:
             logger.warning(f"[CurriculumFeedback] Failed to handle CURRICULUM_ADVANCED: {e}")
 
+    def _on_training_early_stopped(self, event) -> None:
+        """Handle TRAINING_EARLY_STOPPED - boost curriculum weight for stalled configs.
+
+        December 2025: Closes the training → curriculum feedback loop.
+        When training early stops (stagnation or regression), this handler
+        boosts the curriculum weight for that config to prioritize more
+        training data generation.
+
+        This helps recover from training plateaus by:
+        1. Increasing selfplay priority for the config
+        2. Triggering more diverse exploration
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", ""))
+            reason = payload.get("reason", "unknown")
+            epoch = payload.get("epoch", 0)
+            final_loss = payload.get("final_loss", 0.0)
+
+            if not config_key:
+                return
+
+            # Boost curriculum weight when training stalls
+            current_weight = self._current_weights.get(config_key, 1.0)
+
+            # Boost weight by 30% for early stopping (helps generate more diverse data)
+            boost_factor = 1.3
+            new_weight = min(self.weight_max, current_weight * boost_factor)
+
+            if new_weight > current_weight:
+                self._current_weights[config_key] = new_weight
+                logger.info(
+                    f"[CurriculumFeedback] Boosted weight for {config_key}: "
+                    f"{current_weight:.2f} → {new_weight:.2f} (training early stopped at epoch {epoch}, reason: {reason})"
+                )
+
+                # Emit curriculum rebalanced event
+                self._emit_curriculum_updated(config_key, new_weight, f"early_stopped_{reason}")
+
+            self._last_update_time = time.time()
+
+        except Exception as e:
+            logger.warning(f"[CurriculumFeedback] Failed to handle TRAINING_EARLY_STOPPED: {e}")
+
     def advance_stage(self, config_key: str, new_stage: int) -> None:
         """Manually advance curriculum stage for a config.
 

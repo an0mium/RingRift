@@ -1621,7 +1621,7 @@ class ResourceOptimizer:
             with self._get_connection() as conn:
                 cursor = conn.execute("SELECT config_key, weight FROM config_weights")
                 return {row["config_key"]: row["weight"] for row in cursor}
-        except Exception:
+        except sqlite3.Error:
             return {}
 
     def get_config_weight_details(self) -> list[dict[str, Any]]:
@@ -1632,7 +1632,7 @@ class ResourceOptimizer:
                     SELECT * FROM config_weights ORDER BY weight DESC
                 """)
                 return [dict(row) for row in cursor]
-        except Exception:
+        except sqlite3.Error:
             return []
 
     # =========================================================================

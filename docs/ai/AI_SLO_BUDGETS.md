@@ -30,11 +30,11 @@ Think times are search budgets passed to the AI service, not artificial delays. 
 | ---------- | ------------ | ---------- | ---------------- | ---------- |
 | D1         | Random       | 150ms      | ~100ms           | 165ms      |
 | D2         | Heuristic    | 200ms      | ~150ms           | 220ms      |
-| D3         | Minimax      | 1800ms     | ~1200ms          | 1980ms     |
+| D3         | Heuristic    | 2800ms     | ~2000ms          | 3080ms     |
 | D4         | Minimax+NNUE | 2800ms     | ~2000ms          | 3080ms     |
-| D5         | Descent      | 4000ms     | ~3000ms          | 4400ms     |
+| D5         | Minimax+NNUE | 5500ms     | ~4000ms          | 6050ms     |
 | D6         | Descent      | 5500ms     | ~4000ms          | 6050ms     |
-| D7         | MCTS         | 7500ms     | ~5500ms          | 8250ms     |
+| D7         | MCTS         | 9600ms     | ~7000ms          | 10560ms    |
 | D8         | MCTS+Neural  | 9600ms     | ~7000ms          | 10560ms    |
 | D9         | Gumbel MCTS  | 12600ms    | ~9000ms          | 13860ms    |
 | D10        | Gumbel MCTS  | 16000ms    | ~12000ms         | 17600ms    |

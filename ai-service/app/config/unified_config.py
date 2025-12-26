@@ -190,7 +190,7 @@ class SafeguardsConfig:
     max_tournament_processes: int = 1
     max_training_processes: int = 1
     single_orchestrator: bool = True
-    # Default changed from lambda-h100 while Lambda nodes are offline (Dec 2025)
+    # Lambda Labs account terminated Dec 2025, now using nebius-backbone-1
     orchestrator_host: str = "nebius-backbone-1"
     kill_orphans_on_start: bool = True
     process_watchdog: bool = True

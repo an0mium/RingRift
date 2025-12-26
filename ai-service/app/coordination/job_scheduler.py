@@ -617,6 +617,35 @@ class PriorityJobScheduler:
                 stats["low"] += 1
         return stats
 
+    def get_allocation_stats(self) -> dict[str, Any]:
+        """Get allocation statistics for fair quota monitoring (P2.1).
+
+        Returns:
+            Dict with allocation per config and quota status
+        """
+        self._reset_allocation_window_if_needed()
+        total = self._get_total_allocation()
+
+        stats: dict[str, Any] = {
+            "window_start": self._allocation_window_start,
+            "window_seconds": self._allocation_window_seconds,
+            "total_allocation_seconds": total,
+            "configs": {},
+            "starvation_boosted_count": len(self._starvation_boosted),
+        }
+
+        for config_key, seconds in self._config_allocation.items():
+            ratio = seconds / total if total > 0 else 0.0
+            quota = CONFIG_QUOTAS.get(config_key, DEFAULT_CONFIG_QUOTA)
+            stats["configs"][config_key] = {
+                "seconds": seconds,
+                "ratio": ratio,
+                "quota": quota,
+                "over_quota": ratio > quota,
+            }
+
+        return stats
+
     def has_critical_pending(self) -> bool:
         """Check if any critical priority jobs are pending."""
         return any(j.priority == JobPriority.CRITICAL for j in self._queue)

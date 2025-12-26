@@ -150,7 +150,7 @@ class EloSyncManager:
     def __init__(
         self,
         db_path: Path = DEFAULT_DB_PATH,
-        # Default changed from lambda-h100 while Lambda nodes are offline (Dec 2025)
+        # Lambda Labs account terminated Dec 2025
         coordinator_host: str = "nebius-backbone-1",
         sync_interval: int = 300,
         p2p_url: str | None = None,
@@ -1084,7 +1084,7 @@ _sync_manager: EloSyncManager | None = None
 
 def get_elo_sync_manager(
     db_path: Path | None = None,
-    # Default changed from lambda-h100 while Lambda nodes are offline (Dec 2025)
+    # Lambda Labs account terminated Dec 2025
     coordinator_host: str = "nebius-backbone-1"
 ) -> EloSyncManager:
     """Get or create the singleton EloSyncManager instance."""
