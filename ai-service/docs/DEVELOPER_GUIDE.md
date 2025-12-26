@@ -564,22 +564,19 @@ config = sync_with_unified_config(config)
 
 ### Profiling Tools
 
-| Script                            | Purpose                                        |
-| --------------------------------- | ---------------------------------------------- |
-| `profile_selfplay_bottlenecks.py` | Detailed timing breakdown for self-play        |
-| `quick_benchmark.py`              | Quick benchmark with all optimizations enabled |
-| `benchmark_make_unmake.py`        | State mutation performance                     |
-| `benchmark_gpu_cpu.py`            | GPU vs CPU comparison                          |
-| `benchmark_ai_memory.py`          | Memory usage analysis                          |
+| Script                         | Purpose                                        |
+| ------------------------------ | ---------------------------------------------- |
+| `benchmark_move_application.py` | Move-application throughput (placement/move/capture) |
+| `quick_benchmark.py`            | Quick benchmark with all optimizations enabled |
+| `benchmark_make_unmake.py`      | State mutation performance                     |
+| `benchmark_gpu_cpu.py`          | GPU vs CPU comparison                          |
+| `benchmark_ai_memory.py`        | Memory usage analysis                          |
 
 ### Running Profilers
 
 ```bash
-# Detailed self-play profiling
-python scripts/profile_selfplay_bottlenecks.py --board square8 --games 5
-
-# With cProfile function-level analysis
-python scripts/profile_selfplay_bottlenecks.py --board square8 --games 3 --cprofile
+# Move-application profiling
+python scripts/benchmark_move_application.py --board-size 8 --batch-size 64 --iterations 50
 
 # Quick benchmark with optimizations
 python scripts/quick_benchmark.py

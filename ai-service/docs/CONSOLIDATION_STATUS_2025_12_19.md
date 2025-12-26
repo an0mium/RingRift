@@ -11,8 +11,9 @@
 
 - Removed legacy cluster monitor/control/sync scripts in favor of:
   - `scripts/p2p_orchestrator.py` (primary cluster orchestration)
-  - `python -m scripts.monitor status|health|alert` (unified monitoring)
-  - `scripts/unified_cluster_monitor.py` (deep health checks)
+  - `python -m scripts.monitor status|health|alert` (unified monitoring CLI)
+  - `python scripts/cluster_health_summary.py --watch` (deep health checks)
+  - `app/monitoring/unified_cluster_monitor.py` (importable monitor API)
 - Removal list includes:
   - `scripts/cluster_*` (monitor/control/manager/worker/sync shell + python)
   - `scripts/monitor_10h_enhanced.sh`
@@ -428,7 +429,7 @@ Added policy accuracy tracking to training pipeline:
 # Monitoring (DEPRECATED)
 # OLD: from scripts.cluster_monitor import ClusterMonitor
 # NEW:
-from scripts.unified_cluster_monitor import UnifiedClusterMonitor
+from app.monitoring.unified_cluster_monitor import UnifiedClusterMonitor
 
 # Unified monitor CLI
 # python -m scripts.monitor status|health|alert
