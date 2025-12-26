@@ -92,6 +92,7 @@ def convert_jsonl_to_sqlite(jsonl_path: Path, output_db: Path, board_type: str, 
             continue
 
     proc.wait()
+    print(f"  Lines read: {lines_read}")
 
     for game_id, info in game_info.items():
         c.execute(

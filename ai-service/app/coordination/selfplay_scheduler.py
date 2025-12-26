@@ -256,6 +256,9 @@ class SelfplayScheduler:
         # Get momentum multipliers (Phase 19)
         momentum_data = self._get_momentum_multipliers()
 
+        # Get game counts (Dec 2025)
+        game_count_data = await self._get_game_counts()
+
         # Update each config
         for config_key, priority in self._config_priorities.items():
             # Update staleness
@@ -282,6 +285,12 @@ class SelfplayScheduler:
             # Update momentum multiplier (Phase 19)
             if config_key in momentum_data:
                 priority.momentum_multiplier = momentum_data[config_key]
+
+            # Update game count and large board flag (Dec 2025)
+            if config_key in game_count_data:
+                priority.game_count = game_count_data[config_key]
+            # Mark large boards for higher data deficit weight
+            priority.is_large_board = config_key.startswith("square19") or config_key.startswith("hexagonal")
 
             # Compute priority score
             priority.priority_score = self._compute_priority_score(priority)
@@ -323,6 +332,7 @@ class SelfplayScheduler:
         December 2025 - Phase 2C.3: Now includes curriculum weight factor.
         December 2025 - Phase 5: Now includes improvement boost and quality penalty.
         December 2025 - Phase 19: Now includes momentum multiplier from FeedbackAccelerator.
+        December 2025 - Data deficit factor for large boards with low game counts.
         """
         # Base factors
         staleness = priority.staleness_factor * STALENESS_WEIGHT
@@ -342,8 +352,12 @@ class SelfplayScheduler:
         # Applied when quality degrades below threshold
         quality = priority.quality_penalty
 
+        # Dec 2025: Data deficit factor - boost configs with low game counts
+        # Large boards (square19, hexagonal) especially need more data
+        data_deficit = priority.data_deficit_factor * DATA_DEFICIT_WEIGHT
+
         # Combine factors
-        score = staleness + velocity + training + exploration + curriculum + improvement + quality
+        score = staleness + velocity + training + exploration + curriculum + improvement + quality + data_deficit
 
         # Apply exploration boost as multiplier
         score *= priority.exploration_boost
