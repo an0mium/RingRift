@@ -2983,6 +2983,8 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.TRAINING_TRIGGER,  # Decide when to trigger training
         DaemonType.DLQ_RETRY,  # P0.3: Dead letter queue remediation (Dec 2025)
         DaemonType.GAUNTLET_FEEDBACK,  # Dec 2025: Process evaluation results → emit REGRESSION_CRITICAL
+        DaemonType.AUTO_SYNC,  # Dec 2025: CRITICAL - Pull game data from remote nodes
+        DaemonType.CLUSTER_DATA_SYNC,  # Dec 2025: Cluster-wide data distribution
     ],
 
     # Training node profile - runs on GPU nodes
