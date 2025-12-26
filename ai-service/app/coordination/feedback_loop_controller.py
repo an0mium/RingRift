@@ -402,7 +402,12 @@ class FeedbackLoopController:
             )
 
             # Phase 5 (Dec 2025): Emit QUALITY_DEGRADED event when quality drops below threshold
-            quality_threshold = 0.6
+            # December 2025: Use centralized threshold from config
+            try:
+                from app.config.thresholds import MEDIUM_QUALITY_THRESHOLD
+                quality_threshold = MEDIUM_QUALITY_THRESHOLD
+            except ImportError:
+                quality_threshold = 0.6  # Fallback default
             if quality_score < quality_threshold:
                 self._emit_quality_degraded(config_key, quality_score, quality_threshold, previous_quality)
 
@@ -413,7 +418,7 @@ class FeedbackLoopController:
             self._update_curriculum_weight_from_selfplay(config_key, quality_score)
 
             # Signal training readiness if quality is good
-            if quality_score >= 0.6:
+            if quality_score >= quality_threshold:
                 self._signal_training_ready(config_key, quality_score)
 
         except Exception as e:
