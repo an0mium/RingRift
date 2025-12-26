@@ -237,8 +237,8 @@ class IdleResourceDaemon:
         # Unregister coordinator
         try:
             unregister_coordinator("idle_resource")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[IdleResourceDaemon] Failed to unregister coordinator: {e}")
 
         self._coordinator_status = CoordinatorStatus.STOPPED
         logger.info(
@@ -411,9 +411,9 @@ class IdleResourceDaemon:
             if scheduler:
                 return scheduler.get_queue_depth()
         except ImportError:
-            pass
-        except Exception:
-            pass
+            pass  # Expected if job_scheduler not available
+        except Exception as e:
+            logger.debug(f"[IdleResourceDaemon] Failed to get queue depth: {e}")
 
         return 0  # Default to no queue
 

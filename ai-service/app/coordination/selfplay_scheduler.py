@@ -584,8 +584,8 @@ class SelfplayScheduler:
                 else:
                     # Increase exploration on failure
                     priority.exploration_boost = min(2.0, priority.exploration_boost * 1.3)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling promotion complete: {e}")
 
     # =========================================================================
     # Status & Metrics
