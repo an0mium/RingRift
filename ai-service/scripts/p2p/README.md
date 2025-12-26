@@ -27,20 +27,25 @@ The main `p2p_orchestrator.py` (29,767 lines, 510 methods) needs decomposition i
 
 Extract handlers into `scripts/p2p/handlers/`:
 
-| Module          | Lines | Methods | Status                |
-| --------------- | ----- | ------- | --------------------- |
-| `work_queue.py` | 471   | 11      | ✅ Extracted          |
-| `election.py`   | 349   | 5       | ✅ Extracted          |
-| `relay.py`      | 368   | 4       | ✅ Extracted          |
-| `gauntlet.py`   | 382   | 3       | ✅ Extracted          |
-| `gossip.py`     | 226   | 2       | ✅ Extracted          |
-| `admin.py`      | 131   | 3       | ✅ Extracted          |
-| `elo_sync.py`   | 175   | 4       | ✅ Extracted          |
-| `data_sync.py`  | ~1000 | 12      | Pending (interleaved) |
-| `dashboard.py`  | ~2000 | 20      | Pending               |
-| `api.py`        | ~2500 | 25      | Pending (scattered)   |
+| Module              | Lines | Methods | Status                             |
+| ------------------- | ----- | ------- | ---------------------------------- |
+| `work_queue.py`     | 471   | 11      | ✅ Extracted                       |
+| `election.py`       | 349   | 5       | ✅ Extracted                       |
+| `relay.py`          | 368   | 4       | ✅ Extracted                       |
+| `gauntlet.py`       | 382   | 3       | ✅ Extracted                       |
+| `gossip.py`         | 226   | 2       | ✅ Extracted                       |
+| `admin.py`          | 131   | 3       | ✅ Extracted                       |
+| `elo_sync.py`       | 175   | 4       | ✅ Extracted                       |
+| `tournament.py`     | 210   | 4       | ✅ Extracted                       |
+| `cmaes.py`          | 215   | 4       | ✅ Extracted                       |
+| `ssh_tournament.py` | 263   | 4       | ✅ Extracted                       |
+| `data_sync.py`      | ~1000 | 12      | ⏸️ Skipped (complex internal deps) |
+| `dashboard.py`      | ~2000 | 20      | Pending                            |
+| `api.py`            | ~2500 | 25      | Pending (scattered)                |
 
-**Progress: 29,767 → 28,194 lines (-1,573 lines, ~5.3% reduction)**
+**Progress: 29,767 → 27,678 lines (-2,089 lines, ~7.0% reduction)**
+
+**Note:** `data_sync.py` handlers skipped - they depend on internal methods (`check_disk_has_capacity`, `_handle_sync_pull_request`) and peer lookup state that would require significant refactoring.
 
 ### Phase 2: Core Logic Extraction (TARGET: ~10,000 lines)
 

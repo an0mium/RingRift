@@ -1411,7 +1411,7 @@ def unwire_evaluation_from_feedback() -> None:
         router.unsubscribe(DataEventType.EVALUATION_COMPLETED.value, _on_evaluation_completed)
         _evaluation_watcher_active = False
         logger.info("[FeedbackAccelerator] Unsubscribed from EVALUATION_COMPLETED events")
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError, KeyError):
         pass
 
 
@@ -1518,5 +1518,5 @@ def unwire_hyperparameter_feedback() -> None:
         router.unsubscribe(DataEventType.HYPERPARAMETER_UPDATED.value, _on_hyperparameter_updated)
         _hyperparameter_watcher_active = False
         logger.info("[FeedbackAccelerator] Unsubscribed from HYPERPARAMETER_UPDATED events")
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError, KeyError):
         pass

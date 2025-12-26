@@ -22,6 +22,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from pydantic import ValidationError
 
 from ..ai.ig_gmo import (
     IGGMOConfig,
@@ -87,7 +88,7 @@ class IGGMODataset(Dataset):
                 # Reconstruct game states
                 try:
                     game_state = GameState.model_validate(initial_state_dict)
-                except Exception:
+                except (ValidationError, ValueError, TypeError, KeyError):
                     continue
 
                 from ..game_engine import GameEngine
@@ -134,7 +135,7 @@ class IGGMODataset(Dataset):
                         # Apply move
                         game_state = GameEngine.apply_move(game_state, move)
 
-                    except Exception:
+                    except (ValidationError, ValueError, TypeError, KeyError, IndexError, AttributeError, RuntimeError):
                         break
 
                 games_loaded += 1

@@ -146,7 +146,7 @@ class PEROrchestrator:
             bus.unsubscribe(DataEventType.PER_PRIORITIES_UPDATED, self._on_priorities_updated)
             self._subscribed = False
 
-        except Exception:
+        except (ImportError, AttributeError):
             pass
 
     def _on_buffer_rebuilt(self, event: Any) -> None:

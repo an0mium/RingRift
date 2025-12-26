@@ -445,7 +445,7 @@ def main() -> int:
                     logger.info(f"Models trained: {status['total_models_trained']}")
                 if status.get("promotions", 0) > 0:
                     logger.info(f"Promotions: {status['promotions']}")
-            except Exception:
+            except (ImportError, AttributeError, RuntimeError):
                 pass
 
         logger.info("=" * 70)

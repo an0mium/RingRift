@@ -998,7 +998,7 @@ else:
 
             return hosts
 
-        except Exception:
+        except (FileNotFoundError, OSError, PermissionError, TypeError, AttributeError):
             return []
 
 

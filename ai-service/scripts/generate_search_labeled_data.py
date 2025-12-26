@@ -158,7 +158,7 @@ def generate_labeled_samples_mcts(
             # Extract state features before the move
             try:
                 board_feat, global_feat = nn._extract_features(state)
-            except Exception:
+            except (ValueError, TypeError, AttributeError, RuntimeError):
                 move = mcts_ai.select_move(state)
                 if move:
                     state = engine.apply_move(state, move)
@@ -275,7 +275,7 @@ def generate_labeled_samples_heuristic(
 
             try:
                 board_feat, global_feat = nn._extract_features(state)
-            except Exception:
+            except (ValueError, TypeError, AttributeError, RuntimeError):
                 move = ai.select_move(state)
                 if move:
                     state = engine.apply_move(state, move)

@@ -107,7 +107,7 @@ def _gather_files(project_root: Path, *, include_snapshot_checkpoints: bool) -> 
     for path in candidates:
         try:
             resolved = path.resolve()
-        except Exception:
+        except (OSError, RuntimeError):
             resolved = path
         if resolved in seen:
             continue

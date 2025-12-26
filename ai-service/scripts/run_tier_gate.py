@@ -287,7 +287,7 @@ def _run_difficulty_mode(args: argparse.Namespace) -> int:
             tier_config.num_players,
         )
         current_model_id: str | None = production_ladder.model_id
-    except Exception:
+    except (KeyError, ValueError, LookupError):
         production_ladder = None
         current_model_id = None
 
@@ -306,7 +306,7 @@ def _run_difficulty_mode(args: argparse.Namespace) -> int:
 
                 if candidate_id in HEURISTIC_WEIGHT_PROFILES:
                     candidate_override_id = candidate_id
-            except Exception:
+            except (ImportError, AttributeError, KeyError):
                 candidate_override_id = None
         elif ai_type == AIType.MINIMAX:
             if bool(getattr(production_ladder, "use_neural_net", False)):

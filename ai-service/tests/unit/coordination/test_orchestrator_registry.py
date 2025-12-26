@@ -159,6 +159,7 @@ class TestOrchestratorRole:
             "promotion_leader",
             "external_sync_leader",
             "vast_pipeline_leader",
+            "cluster_data_sync_leader",
         }
         actual_roles = {role.value for role in OrchestratorRole}
         assert actual_roles == expected_roles

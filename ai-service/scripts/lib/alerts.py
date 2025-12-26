@@ -504,7 +504,7 @@ def get_slack_webhook() -> str | None:
     if webhook_file.exists():
         try:
             return webhook_file.read_text().strip()
-        except Exception:
+        except (OSError, PermissionError):
             pass
 
     return None
@@ -688,7 +688,7 @@ def get_discord_webhook() -> str | None:
     if webhook_file.exists():
         try:
             return webhook_file.read_text().strip()
-        except Exception:
+        except (OSError, PermissionError):
             pass
 
     return None

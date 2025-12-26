@@ -72,7 +72,7 @@ def get_vast_instances() -> list[VastInstance]:
             for inst in instances
             if inst.get("actual_status") == "running"
         ]
-    except Exception as e:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"Error: {e}")
         return []
 
@@ -93,7 +93,7 @@ def sync_code_to_instance(inst: VastInstance, dry_run: bool = False) -> bool:
         if "exists" not in result.stdout:
             print(f"  RingRift not found on {inst.instance_id}, needs setup")
             return False
-    except Exception as e:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError) as e:
         print(f"  SSH check failed for {inst.instance_id}: {e}")
         return False
 
@@ -114,7 +114,7 @@ def sync_code_to_instance(inst: VastInstance, dry_run: bool = False) -> bool:
             print(f"  Sync failed for {inst.instance_id}: {result.stderr[:200]}")
             return False
         return True
-    except Exception as e:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError) as e:
         print(f"  Sync error for {inst.instance_id}: {e}")
         return False
 
@@ -167,7 +167,7 @@ echo $!
         else:
             print(f"  Failed to start on {inst.instance_id}: {result.stderr[:200]}")
             return None
-    except Exception as e:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, ValueError, IndexError, OSError) as e:
         print(f"  Error launching on {inst.instance_id}: {e}")
         return None
 
@@ -182,7 +182,7 @@ def check_worker_status(inst: VastInstance, pid: int) -> str:
     try:
         result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=15)
         return result.stdout.strip()
-    except Exception:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
         return "unknown"
 
 
@@ -203,7 +203,7 @@ def collect_results(inst: VastInstance, run_id: str, output_dir: Path) -> bool:
     try:
         result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=120)
         return result.returncode == 0
-    except Exception:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
         return False
 
 

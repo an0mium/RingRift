@@ -682,7 +682,7 @@ class SharedFSTaskQueue:
             try:
                 with open(task_file) as f:
                     results.append(json.load(f))
-            except Exception:
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
                 continue
         return results
 
@@ -693,7 +693,7 @@ class SharedFSTaskQueue:
             try:
                 with open(task_file) as f:
                     results.append(json.load(f))
-            except Exception:
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
                 continue
         return results
 

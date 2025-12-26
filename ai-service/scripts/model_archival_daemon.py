@@ -147,7 +147,7 @@ class ModelArchiver:
             model_info = self.registry.get_model_by_path(str(path))
             if model_info and model_info.get("elo_rating"):
                 return (model_info["elo_rating"], model_info.get("games_played", 0))
-        except Exception:
+        except (KeyError, AttributeError, TypeError):
             pass
         return None
 
@@ -200,7 +200,7 @@ class ModelArchiver:
                             should_archive=False,
                             details=f"In {model_info['stage']} stage",
                         )
-                except Exception:
+                except (KeyError, AttributeError, TypeError):
                     pass
 
             return ArchivalDecision(

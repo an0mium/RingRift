@@ -165,7 +165,7 @@ def run_online_training(
         elif opp_type == "policy":
             try:
                 opp = AIFactory.create_for_tournament("policy_only", player_number=2, board_type="square8")
-            except Exception:
+            except (ImportError, ModuleNotFoundError, FileNotFoundError, ValueError, TypeError, RuntimeError, KeyError, AttributeError):
                 logger.warning("Failed to create policy opponent, using heuristic")
                 opp = AIFactory.create(AIType.HEURISTIC, player_number=2, config=AIConfig(difficulty=5))
         else:
@@ -208,7 +208,7 @@ def run_online_training(
         elif opp_name == "policy":
             try:
                 opponent = AIFactory.create_for_tournament("policy_only", player_number=opp_player, board_type="square8")
-            except Exception:
+            except (ImportError, ModuleNotFoundError, FileNotFoundError, ValueError, TypeError, RuntimeError, KeyError, AttributeError):
                 opponent = AIFactory.create(AIType.HEURISTIC, player_number=opp_player, config=AIConfig(difficulty=5))
 
         game_id = f"online_{game_num}_{opp_name}"

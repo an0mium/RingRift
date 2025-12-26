@@ -361,7 +361,7 @@ class RingRiftDataset(Dataset):
                             sample = self.data["features"][0]
                         if sample.ndim >= 3:
                             self.spatial_shape = tuple(sample.shape[-2:])
-                    except Exception:
+                    except (KeyError, IndexError, AttributeError, TypeError):
                         # Best-effort only; training will still work as long
                         # as individual samples are well-formed.
                         self.spatial_shape = None
@@ -622,7 +622,7 @@ class RingRiftDataset(Dataset):
             if self.num_players_arr is not None:
                 try:
                     num_players_val = int(self.num_players_arr[actual_idx])
-                except Exception:
+                except (ValueError, TypeError, IndexError):
                     num_players_val = 0
             if self.return_auxiliary_targets:
                 result = (

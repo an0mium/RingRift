@@ -144,7 +144,7 @@ def _looks_like_game_replay_db(db_path: Path) -> bool:
     """Heuristic filter so --scan-dir doesn't ingest non-GameReplayDB sqlite files."""
     try:
         conn = _connect_sqlite(db_path, readonly=True)
-    except Exception:
+    except (sqlite3.Error, OSError):
         return False
 
     try:
@@ -154,7 +154,7 @@ def _looks_like_game_replay_db(db_path: Path) -> bool:
         tables = {str(r[0]) for r in rows}
         required = {"games", "game_moves", "game_initial_state"}
         return required.issubset(tables)
-    except Exception:
+    except sqlite3.Error:
         return False
     finally:
         conn.close()

@@ -162,7 +162,7 @@ class OptimizationOrchestrator:
                     pass
 
             self._subscribed = False
-        except Exception:
+        except (ImportError, ModuleNotFoundError, RuntimeError, AttributeError):
             pass
 
     def _track_event(self, event_type: str) -> None:

@@ -310,7 +310,7 @@ def _format_markdown_summary(report: dict[str, Any]) -> str:
             "hexagonal": BoardType.HEXAGONAL,
         }
         canonical_available = True
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError):
         canonical_available = False
         board_type_map = {}
         BOARD_CONFIGS = {}
@@ -399,7 +399,7 @@ def _format_markdown_summary(report: dict[str, Any]) -> str:
         modes = cfg.get("recovery_slides_by_mode", {}) or {}
         try:
             modes_str = ", ".join(f"{k}:{int(v)}" for k, v in sorted(modes.items()))
-        except Exception:
+        except (TypeError, ValueError, KeyError, AttributeError):
             modes_str = json.dumps(modes, sort_keys=True)
 
         lines.append(

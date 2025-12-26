@@ -201,7 +201,7 @@ def create_mcts_ai(
                     accumulator_weight = state_dict.get("accumulator.weight")
                     if accumulator_weight is not None and hasattr(accumulator_weight, "shape"):
                         hidden_dim = int(accumulator_weight.shape[0])
-                except Exception:
+                except (AttributeError, IndexError, TypeError, ValueError):
                     pass
 
                 try:
@@ -212,7 +212,7 @@ def create_mcts_ai(
                             layer_indices.add(int(match.group(1)))
                     if layer_indices:
                         num_hidden_layers = len(layer_indices)
-                except Exception:
+                except (AttributeError, ValueError, TypeError):
                     pass
 
             ai.nnue_policy_model = RingRiftNNUEWithPolicy(

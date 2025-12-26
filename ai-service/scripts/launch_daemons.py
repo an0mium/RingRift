@@ -372,7 +372,7 @@ async def run_startup_diagnostics(daemons: list[DaemonType], verbose: bool = Fal
         hostname = socket.gethostname()
         results["checks"]["hostname"] = {"value": hostname, "ok": True}
         print(f"✓ Hostname: {hostname}")
-    except Exception:
+    except OSError:
         results["checks"]["hostname"] = {"value": "unknown", "ok": True}
 
     # 5. Check config files

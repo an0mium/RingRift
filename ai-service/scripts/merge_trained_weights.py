@@ -61,7 +61,7 @@ def get_num_players_from_path(path: str) -> int | None:
                 meta = json.load(f)
                 if "num_players" in meta:
                     return meta["num_players"]
-        except Exception:
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
             pass
 
     # Try parent directory's run_meta.json
@@ -74,7 +74,7 @@ def get_num_players_from_path(path: str) -> int | None:
                 meta = json.load(f)
                 if "num_players" in meta:
                     return meta["num_players"]
-        except Exception:
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
             pass
 
     # Try to infer from path pattern
@@ -153,7 +153,7 @@ def merge_weights_average(
             weights, fitness, num_players, _ = load_weights_file(path)
             all_weights.append((weights, fitness, num_players, path))
             print(f"  Loaded: {path} (fitness={fitness:.4f}, players={num_players})")
-        except Exception as e:
+        except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError, ValueError) as e:
             print(f"  Warning: Failed to load {path}: {e}")
 
     if not all_weights:

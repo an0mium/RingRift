@@ -21,19 +21,25 @@ Usage:
 """
 
 from .admin import AdminHandlersMixin
+from .cmaes import CMAESHandlersMixin
 from .election import ElectionHandlersMixin
 from .elo_sync import EloSyncHandlersMixin
 from .gauntlet import GauntletHandlersMixin
 from .gossip import GossipHandlersMixin
 from .relay import RelayHandlersMixin
+from .ssh_tournament import SSHTournamentHandlersMixin
+from .tournament import TournamentHandlersMixin
 from .work_queue import WorkQueueHandlersMixin
 
 __all__ = [
     "AdminHandlersMixin",
+    "CMAESHandlersMixin",
     "ElectionHandlersMixin",
     "EloSyncHandlersMixin",
     "GauntletHandlersMixin",
     "GossipHandlersMixin",
     "RelayHandlersMixin",
+    "SSHTournamentHandlersMixin",
+    "TournamentHandlersMixin",
     "WorkQueueHandlersMixin",
 ]

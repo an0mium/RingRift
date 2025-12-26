@@ -152,8 +152,8 @@ def _cleanup_training_slot():
         try:
             release_training_slot(_active_training_job_id, status="failed")
             logging.warning(f"Released training slot on exit: {_active_training_job_id}")
-        except Exception:
-            pass
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass  # Training coordinator communication failure during cleanup
         _active_training_job_id = None
 
 import atexit
@@ -262,7 +262,7 @@ def report_training_metrics(
                 )
                 if resp.status_code == 200:
                     logger.debug(f"Reported {metric['metric_type']} to orchestrator")
-            except Exception:
+            except (OSError, ValueError, requests.exceptions.RequestException):
                 pass  # Orchestrator not available, skip silently
 
     except ImportError:

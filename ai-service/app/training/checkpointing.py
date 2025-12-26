@@ -397,7 +397,7 @@ class AsyncCheckpointer:
             try:
                 manager = get_bridge_manager()
                 manager.unregister_bridge("async_checkpointer")
-            except Exception:
+            except (RuntimeError, ImportError):
                 pass
 
 

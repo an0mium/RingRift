@@ -116,9 +116,15 @@ class ModelConfigContract:
         violations = []
 
         # Check value head output dimension
-        # Most models use value_fc2 as the final value layer
-        if hasattr(model, 'value_fc2'):
-            actual_outputs = model.value_fc2.weight.shape[0]
+        # v5_heavy uses value_fc3 as final, older models use value_fc2
+        value_final_layer = None
+        if hasattr(model, 'value_fc3'):
+            value_final_layer = model.value_fc3
+        elif hasattr(model, 'value_fc2'):
+            value_final_layer = model.value_fc2
+
+        if value_final_layer is not None:
+            actual_outputs = value_final_layer.weight.shape[0]
             if actual_outputs != self.value_head_outputs:
                 violations.append(
                     f"Value head outputs: expected {self.value_head_outputs}, "

@@ -359,7 +359,7 @@ def safe_training_step(
             try:
                 import torch
                 torch.cuda.empty_cache()
-            except Exception:
+            except (ImportError, RuntimeError):
                 pass
         elif log_errors:
             logger.warning(f"Training step failed: {func.__name__}: {e}")

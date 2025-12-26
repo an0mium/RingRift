@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 from typing import Any, Optional
 
 from app.db.game_replay import BoardType, GameReplayDB
@@ -35,7 +36,7 @@ from app.db.game_replay import BoardType, GameReplayDB
 try:
     # Reuse the existing structural classifier for consistency with cleanup_useless_replay_dbs.
     from scripts.cleanup_useless_replay_dbs import classify_game_structure
-except Exception:  # pragma: no cover - defensive fallback
+except (ImportError, ModuleNotFoundError):  # pragma: no cover - defensive fallback
     classify_game_structure = None  # type: ignore[assignment]
 
 
@@ -236,7 +237,7 @@ def main() -> None:
                 continue
             try:
                 structure, _reason = classify_game_structure(db, game_id)  # type: ignore[operator]
-            except Exception:  # pragma: no cover - defensive
+            except (sqlite3.Error, ValueError, KeyError, TypeError):  # pragma: no cover - defensive
                 structure = "error"
             structure_by_game[game_id] = structure
 

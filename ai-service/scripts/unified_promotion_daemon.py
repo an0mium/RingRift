@@ -395,7 +395,7 @@ class GauntletRunner:
                     info["type"] = sidecar.get("model_type", info["type"])
                     info["board_type"] = sidecar.get("board_type", info["board_type"])
                     info["num_players"] = sidecar.get("num_players", info["num_players"])
-            except Exception:
+            except (OSError, json.JSONDecodeError, KeyError, TypeError):
                 pass
 
         # Parse from filename
@@ -602,7 +602,7 @@ class UnifiedPromotionDaemon:
             try:
                 with open(STATE_FILE) as f:
                     return DaemonState.from_dict(json.load(f))
-            except Exception:
+            except (OSError, json.JSONDecodeError, KeyError, TypeError):
                 pass
         return DaemonState()
 

@@ -83,7 +83,7 @@ def validate_db_basic(db_path: str) -> tuple[int | None, str]:
 
         conn.close()
         return count, "OK"
-    except Exception as e:
+    except (sqlite3.Error, json.JSONDecodeError, OSError) as e:
         return None, f"Error: {str(e)[:50]}"
 
 
@@ -147,7 +147,7 @@ def validate_db_structure(db_path: str, sample_size: int = 3) -> tuple[int | Non
         conn.close()
         return count, moves_count, errors
 
-    except Exception as e:
+    except (sqlite3.Error, json.JSONDecodeError, OSError) as e:
         return None, None, [str(e)]
 
 
@@ -237,7 +237,7 @@ def scan_directory(
                     try:
                         os.remove(db)
                         print(f"  Deleted: {db}")
-                    except Exception as e:
+                    except OSError as e:
                         print(f"  Failed to delete {db}: {e}")
 
     return results, failing_dbs

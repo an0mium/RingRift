@@ -166,7 +166,7 @@ def check_system_load() -> float:
     try:
         load = os.getloadavg()[0]
         return load
-    except Exception:
+    except OSError:
         return 0.0
 
 

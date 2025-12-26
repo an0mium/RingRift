@@ -662,7 +662,7 @@ class ShadowTournamentService:
                 if optimizer_interval < base_interval:
                     # Blend with optimizer recommendation
                     adjustment = min(adjustment, optimizer_interval / base_interval)
-            except Exception:
+            except (TypeError, AttributeError, ValueError):
                 pass  # Don't fail evaluation for optimizer errors
 
         # Calculate final interval

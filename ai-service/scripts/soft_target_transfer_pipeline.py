@@ -299,7 +299,7 @@ def main():
         try:
             os.unlink(data_path)
             logger.info("Cleaned up temporary data file")
-        except Exception:
+        except (FileNotFoundError, OSError, PermissionError):
             pass
 
     logger.info("\n" + "=" * 60)

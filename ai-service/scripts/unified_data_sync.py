@@ -80,7 +80,7 @@ def run_with_watchdog(service_args: list, check_interval: int = 30, max_restarts
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.status == 200
-        except Exception:
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError):
             return False
 
     def stop_service():

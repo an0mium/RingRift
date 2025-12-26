@@ -123,7 +123,7 @@ def get_model_elo_stats(db_path: Path) -> dict[str, ModelStats]:
                 file_stat = full_path.stat()
                 size_mb = file_stat.st_size / (1024 * 1024)
                 created_at = datetime.fromtimestamp(file_stat.st_ctime)
-            except Exception:
+            except OSError:
                 size_mb = 0
                 created_at = None
 
@@ -359,7 +359,7 @@ def main():
                     is_canonical=False,
                     size_mb=file_stat.st_size / (1024 * 1024),
                 )
-            except Exception:
+            except OSError:
                 pass
 
     print(f"Found {len(stats)} models")

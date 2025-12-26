@@ -50,7 +50,7 @@ def _get_registry():
         try:
             from app.training.model_registry import ModelRegistry
             _registry = ModelRegistry()
-        except Exception as e:
+        except (ImportError, ModuleNotFoundError, OSError, RuntimeError) as e:
             logger.warning(f"Could not initialize model registry: {e}")
             return None
     return _registry
@@ -147,7 +147,7 @@ def register_trained_model(
         logger.info(f"Registered model {model_id} v{version} in registry")
         return model_id
 
-    except Exception as e:
+    except (ImportError, ModuleNotFoundError, ValueError, TypeError, KeyError, AttributeError, OSError, RuntimeError) as e:
         logger.warning(f"Failed to register model: {e}")
         return None
 
@@ -169,7 +169,7 @@ def _compute_data_hash(data_path: str) -> str | None:
             h.update(chunk)
 
         return h.hexdigest()[:16]
-    except Exception:
+    except (FileNotFoundError, OSError, PermissionError, IOError):
         return None
 
 
@@ -199,7 +199,7 @@ def get_model_lineage(model_id: str) -> list[dict[str, Any]]:
             # Get parent from training config
             parent_id = model.training_config.parent_model_id
             current_id = parent_id
-        except Exception:
+        except (ValueError, TypeError, KeyError, AttributeError, OSError):
             break
 
     return lineage

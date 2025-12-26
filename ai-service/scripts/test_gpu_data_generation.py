@@ -209,11 +209,12 @@ class GPUDataGenTester:
                 # This is a soft check since augmentation complicates the pattern
                 passed = has_variety and total > 0
 
-            except Exception:
+            except (OSError, RuntimeError, ValueError) as e:
                 passed = False
                 wins, losses, draws = 0, 0, 0
                 win_rate, loss_rate = 0, 0
                 total = 0
+                self._log(f"    Error during data generation: {e}")
 
         duration = time.time() - start_time
 
@@ -266,11 +267,12 @@ class GPUDataGenTester:
 
                 passed = in_range and num_samples > 0
 
-            except Exception:
+            except (OSError, RuntimeError, ValueError) as e:
                 passed = False
                 num_samples = 0
                 min_expected = 0
                 max_expected = 0
+                self._log(f"    Error during augmentation test: {e}")
 
         duration = time.time() - start_time
 

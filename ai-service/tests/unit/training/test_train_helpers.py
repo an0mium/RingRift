@@ -20,15 +20,16 @@ from app.ai.heuristic_weights import (
 )
 from app.models import BoardType
 from app.training.tier_eval_config import HEURISTIC_TIER_SPECS, HeuristicTierSpec
-from app.training.train import (
+# Heuristic tuning functions moved to dedicated module (December 2025)
+from app.training.heuristic_tuning import (
     _flatten_heuristic_weights,
     _get_heuristic_tier_by_id,
     _reconstruct_heuristic_profile,
     evaluate_heuristic_candidate,
     run_cmaes_heuristic_optimization,
-    seed_all_legacy,
     temporary_heuristic_profile,
 )
+from app.training.train import seed_all_legacy
 
 
 class TestFlattenHeuristicWeights:

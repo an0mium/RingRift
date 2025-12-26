@@ -95,7 +95,7 @@ class ClusterWatchdog:
             )
             if result.returncode == 0 and result.stdout:
                 return json.loads(result.stdout)
-        except Exception:
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, json.JSONDecodeError):
             pass
         return None
 
@@ -110,7 +110,7 @@ class ClusterWatchdog:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 return int(result.stdout.strip())
-        except Exception:
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, ValueError):
             pass
         return 0
 

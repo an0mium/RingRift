@@ -221,7 +221,7 @@ def register_cmaes_result(
             """Get or create a Prometheus metric."""
             try:
                 return REGISTRY._names_to_collectors.get(name)
-            except Exception:
+            except (AttributeError, TypeError):
                 return None
 
         # Try to get existing metrics (defined in unified_ai_loop.py)

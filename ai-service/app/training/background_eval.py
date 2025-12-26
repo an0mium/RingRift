@@ -947,7 +947,7 @@ def auto_wire_from_training_coordinator() -> BackgroundEvaluator | None:
             parts = config_key.split("_")
             if len(parts) >= 1:
                 board_type = BoardType.from_string(parts[0])
-        except Exception:
+        except (ImportError, ValueError):
             pass
 
         _background_evaluator = wire_background_evaluator(

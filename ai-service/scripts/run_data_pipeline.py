@@ -268,7 +268,7 @@ class DataPipeline:
                 try:
                     with open(jsonl_file) as f:
                         total_lines += sum(1 for _ in f)
-                except Exception:
+                except OSError:
                     pass
 
             counts[source_dir.name] = total_lines
@@ -344,7 +344,7 @@ class DataPipeline:
                         match = re.search(r"(\d+,?\d*)\s+added", line)
                         if match:
                             stats["games_converted"] = int(match.group(1).replace(",", ""))
-                    except Exception:
+                    except ValueError:
                         pass
 
             if result.returncode == 0:

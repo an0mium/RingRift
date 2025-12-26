@@ -298,7 +298,7 @@ class TrainingOrchestrator:
                 try:
                     from app.coordination.training_coordinator import release_training_slot
                     release_training_slot()
-                except Exception:
+                except (ImportError, RuntimeError):
                     pass
 
     def should_checkpoint(self) -> bool:

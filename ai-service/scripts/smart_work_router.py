@@ -508,7 +508,7 @@ def wake_up_cpu_nodes(cpu_nodes: list[NodeCapabilities]) -> list[NodeCapabilitie
             if result.returncode == 0 and "alive" in result.stdout:
                 logger.info(f"CPU node {node.node_id} is reachable")
                 available.append(node)
-        except Exception:
+        except (subprocess.TimeoutExpired, OSError):
             logger.debug(f"CPU node {node.node_id} not reachable")
 
     return available

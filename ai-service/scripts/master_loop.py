@@ -960,7 +960,7 @@ class MasterLoopController:
                 breaker = self.pipeline_orchestrator._circuit_breaker
                 if breaker and not breaker.can_execute():
                     return False, "Circuit breaker open"
-        except Exception:
+        except AttributeError:
             pass
 
         return True, "Ready"

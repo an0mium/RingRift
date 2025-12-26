@@ -828,7 +828,7 @@ def train_nnue_policy(
                 accumulator_weight = state_dict.get("accumulator.weight")
                 if accumulator_weight is not None and hasattr(accumulator_weight, "shape"):
                     inferred_hidden_dim = int(accumulator_weight.shape[0])
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 pass
 
             try:
@@ -841,7 +841,7 @@ def train_nnue_policy(
                         layer_indices.add(int(match.group(1)))
                 if layer_indices:
                     inferred_num_hidden_layers = len(layer_indices)
-            except Exception:
+            except (AttributeError, TypeError):
                 pass
 
             value_model = RingRiftNNUE(

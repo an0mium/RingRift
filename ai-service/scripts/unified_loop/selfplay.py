@@ -366,7 +366,7 @@ class LocalSelfplayGenerator:
                         priority += 0.10
                     elif hasattr(signals, 'elo_trend') and signals.elo_trend > 20:
                         priority -= 0.05
-                except Exception:
+                except (AttributeError, TypeError, ValueError, KeyError, RuntimeError):
                     pass  # Silent fallback if signal computation fails
 
             # Factor 5: Improvement optimizer - amplify successful patterns
@@ -374,7 +374,7 @@ class LocalSelfplayGenerator:
                 try:
                     improvement_boost = get_selfplay_priority_boost(config_key)
                     priority += improvement_boost
-                except Exception:
+                except (AttributeError, TypeError, ValueError, KeyError, RuntimeError):
                     pass  # Silent fallback
 
             priorities[config_key] = priority

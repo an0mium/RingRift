@@ -217,7 +217,7 @@ def train_model_with_params(
         try:
             with open(report_path) as f:
                 report = json.load(f)
-        except Exception:
+        except (FileNotFoundError, OSError, PermissionError, ValueError):
             pass
 
     val_loss = report.get("best_val_loss")

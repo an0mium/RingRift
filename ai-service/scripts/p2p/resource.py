@@ -45,7 +45,7 @@ def get_disk_usage_percent(path: str | None = None) -> float:
         try:
             used_pct, _, _ = get_disk_usage(path)
             return used_pct
-        except Exception:
+        except (RuntimeError, OSError, ValueError):
             pass
     # Fallback to original implementation
     check_path = path or os.path.dirname(os.path.abspath(__file__))
@@ -57,7 +57,7 @@ def get_disk_usage_percent(path: str | None = None) -> float:
             return 100.0
         used = total - free
         return (used / total) * 100.0
-    except Exception:
+    except (OSError, ValueError):
         return 100.0  # Assume full on error to be safe
 
 

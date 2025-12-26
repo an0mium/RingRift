@@ -210,7 +210,7 @@ def _encode_single_game(
             # Apply move to get next state
             try:
                 current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
-            except Exception:
+            except (RuntimeError, ValueError):
                 # Skip rest of game on replay error
                 break
 

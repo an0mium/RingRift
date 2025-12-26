@@ -35,7 +35,7 @@ def get_game_count(db_path: Path) -> int:
         count = cursor.fetchone()[0]
         conn.close()
         return count
-    except Exception:
+    except sqlite3.Error:
         return 0
 
 
@@ -122,7 +122,7 @@ def validate_database(
                     "error": str(pve),
                 })
 
-        except Exception:
+        except (ValueError, RuntimeError, OSError):
             results["games_with_replay_errors"] += 1
 
         results["total_games_checked"] += 1

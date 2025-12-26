@@ -30,7 +30,7 @@ from typing import Any, Optional
 def _load_yaml(path: Path) -> dict[str, Any]:
     try:
         import yaml  # type: ignore
-    except Exception:
+    except ImportError:
         raise RuntimeError("PyYAML is required: pip install pyyaml")
 
     if not path.exists():
@@ -48,7 +48,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 def _dump_yaml(data: dict[str, Any]) -> str:
     try:
         import yaml  # type: ignore
-    except Exception:
+    except ImportError:
         raise RuntimeError("PyYAML is required: pip install pyyaml")
 
     return yaml.safe_dump(data, sort_keys=False)

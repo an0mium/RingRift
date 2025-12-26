@@ -49,9 +49,9 @@ logger = setup_script_logging("vast_autoscaler")
 # Configuration
 # =============================================================================
 
-# SAFETY: Enable scale-down now that AutoSyncDaemon is running in master_loop
-# This syncs data before termination. Set to True to disable auto-termination.
-SCALE_DOWN_DISABLED = False
+# SAFETY: Disable automatic instance termination - need all capacity for progress
+# Set to False only when cluster has excess capacity beyond training needs
+SCALE_DOWN_DISABLED = True
 
 @dataclass
 class ScalingConfig:
@@ -164,7 +164,7 @@ def get_p2p_status() -> dict | None:
         try:
             with urllib.request.urlopen(f"{leader}/status", timeout=10) as resp:
                 return json.loads(resp.read().decode())
-        except Exception:
+        except (ConnectionError, TimeoutError, json.JSONDecodeError, ValueError):
             continue
     return None
 

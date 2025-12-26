@@ -94,7 +94,7 @@ async def _run_with_heartbeat(
             f"(limit: {timeout_seconds}s)"
         )
         return False, None
-    except Exception as e:
+    except (RuntimeError, ValueError, OSError, ConnectionError) as e:
         logger.error(f"[Error] {config_key} gauntlet failed: {e}")
         return False, e
     finally:
@@ -288,7 +288,7 @@ async def main():
                 timeout_seconds=args.timeout,
             )
             results.append(result)
-        except Exception as e:
+        except (RuntimeError, ValueError, OSError, ConnectionError, KeyError, AttributeError) as e:
             logger.error(f"Failed to process {config_key}: {e}")
             results.append({
                 "config_key": config_key,

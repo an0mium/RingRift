@@ -42,6 +42,14 @@ from app.training.enhancements.seed_management import (
     set_reproducible_seed,
 )
 
+# Phase 3 exports: EWC, Model Ensemble, Evaluation Feedback (December 2025)
+from app.training.enhancements.evaluation_feedback import (
+    EvaluationFeedbackHandler,
+    create_evaluation_feedback_handler,
+)
+from app.training.enhancements.ewc_regularization import EWCRegularizer
+from app.training.enhancements.model_ensemble import ModelEnsemble
+
 __all__ = [
     # Training configuration
     "TrainingConfig",
@@ -59,4 +67,11 @@ __all__ = [
     "set_reproducible_seed",
     # Calibration
     "CalibrationAutomation",
+    # EWC Regularization (Phase 3 - December 2025)
+    "EWCRegularizer",
+    # Model Ensemble (Phase 3 - December 2025)
+    "ModelEnsemble",
+    # Evaluation Feedback (Phase 3 - December 2025)
+    "EvaluationFeedbackHandler",
+    "create_evaluation_feedback_handler",
 ]

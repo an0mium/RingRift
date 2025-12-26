@@ -242,11 +242,14 @@ from scripts.p2p.cluster_config import (
 )
 from scripts.p2p.handlers import (
     AdminHandlersMixin,
+    CMAESHandlersMixin,
     ElectionHandlersMixin,
     EloSyncHandlersMixin,
     GauntletHandlersMixin,
     GossipHandlersMixin,
     RelayHandlersMixin,
+    SSHTournamentHandlersMixin,
+    TournamentHandlersMixin,
     WorkQueueHandlersMixin,
 )
 
@@ -889,6 +892,9 @@ class P2POrchestrator(
     GossipHandlersMixin,
     AdminHandlersMixin,
     EloSyncHandlersMixin,
+    TournamentHandlersMixin,
+    CMAESHandlersMixin,
+    SSHTournamentHandlersMixin,
 ):
     """Main P2P orchestrator class that runs on each node.
 
@@ -900,6 +906,9 @@ class P2POrchestrator(
     - GossipHandlersMixin: Gossip protocol handlers (handle_gossip*)
     - AdminHandlersMixin: Admin and git handlers (handle_git_*, handle_admin_*)
     - EloSyncHandlersMixin: Elo sync handlers (handle_elo_sync_*)
+    - TournamentHandlersMixin: Tournament handlers (handle_tournament_*)
+    - CMAESHandlersMixin: CMA-ES optimization handlers (handle_cmaes_*)
+    - SSHTournamentHandlersMixin: SSH tournament handlers (handle_ssh_tournament_*)
     """
 
     def __init__(
@@ -8176,173 +8185,10 @@ class P2POrchestrator(
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    # ============================================
-    # Distributed CMA-ES Handlers
-    # ============================================
-
-    async def handle_cmaes_start(self, request: web.Request) -> web.Response:
-        """Start a distributed CMA-ES optimization job.
-
-        Only the leader can start distributed CMA-ES jobs.
-        Request body:
-        {
-            "board_type": "square8",
-            "num_players": 2,
-            "generations": 100,
-            "population_size": 20,
-            "games_per_eval": 50
-        }
-        """
-        try:
-            if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can start distributed CMA-ES",
-                    "leader_id": self.leader_id,
-                }, status=403)
-
-            data = await request.json()
-            job_id = f"cmaes_{uuid.uuid4().hex[:8]}"
-
-            # Create state for this job
-            state = DistributedCMAESState(
-                job_id=job_id,
-                board_type=data.get("board_type", "square8"),
-                num_players=data.get("num_players", 2),
-                generations=data.get("generations", 100),
-                population_size=data.get("population_size", 20),
-                games_per_eval=data.get("games_per_eval", 50),
-                status="starting",
-                started_at=time.time(),
-                last_update=time.time(),
-            )
-
-            # Find available GPU workers
-            with self.peers_lock:
-                gpu_nodes = [
-                    p.node_id for p in self.peers.values()
-                    if p.is_healthy() and p.has_gpu
-                ]
-            state.worker_nodes = gpu_nodes
-
-            if not state.worker_nodes:
-                return web.json_response({
-                    "error": "No GPU workers available for CMA-ES",
-                }, status=503)
-
-            self.distributed_cmaes_state[job_id] = state
-            state.status = "running"
-
-            logger.info(f"Started distributed CMA-ES job {job_id} with {len(state.worker_nodes)} workers")
-
-            # Launch coordinator task
-            asyncio.create_task(self._run_distributed_cmaes(job_id))
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "workers": state.worker_nodes,
-                "config": {
-                    "board_type": state.board_type,
-                    "num_players": state.num_players,
-                    "generations": state.generations,
-                    "population_size": state.population_size,
-                    "games_per_eval": state.games_per_eval,
-                },
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_cmaes_evaluate(self, request: web.Request) -> web.Response:
-        """Request evaluation of weights from workers.
-
-        Called by the coordinator to distribute weight evaluation tasks.
-        Workers respond via /cmaes/result endpoint.
-        """
-        try:
-            data = await request.json()
-            job_id = data.get("job_id")
-            weights = data.get("weights", {})
-            generation = data.get("generation", 0)
-            individual_idx = data.get("individual_idx", 0)
-
-            if not job_id:
-                return web.json_response({"error": "job_id required"}, status=400)
-
-            # Extract evaluation parameters from request
-            games_per_eval = data.get("games_per_eval", 5)
-            board_type = data.get("board_type", "square8")
-            num_players = data.get("num_players", 2)
-
-            # Store evaluation task for local processing
-            logger.info(f"Received CMA-ES evaluation request: job={job_id}, gen={generation}, idx={individual_idx}")
-
-            # Start evaluation in background
-            asyncio.create_task(self._evaluate_cmaes_weights(
-                job_id, weights, generation, individual_idx,
-                games_per_eval=games_per_eval, board_type=board_type, num_players=num_players
-            ))
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "status": "evaluation_started",
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_cmaes_status(self, request: web.Request) -> web.Response:
-        """Get status of distributed CMA-ES jobs."""
-        try:
-            job_id = request.query.get("job_id")
-
-            if job_id:
-                if job_id not in self.distributed_cmaes_state:
-                    return web.json_response({"error": "Job not found"}, status=404)
-                state = self.distributed_cmaes_state[job_id]
-                return web.json_response(state.to_dict())
-
-            # Return all jobs
-            return web.json_response({
-                job_id: state.to_dict()
-                for job_id, state in self.distributed_cmaes_state.items()
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_cmaes_result(self, request: web.Request) -> web.Response:
-        """Receive evaluation result from a worker."""
-        try:
-            data = await request.json()
-            job_id = data.get("job_id")
-            generation = data.get("generation", 0)
-            individual_idx = data.get("individual_idx", 0)
-            fitness = data.get("fitness", 0.0)
-            worker_id = data.get("worker_id", "unknown")
-
-            if job_id not in self.distributed_cmaes_state:
-                return web.json_response({"error": "Job not found"}, status=404)
-
-            logger.info(f"CMA-ES result: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f} from {worker_id}")
-
-            # Store result - the coordinator loop will process it
-            state = self.distributed_cmaes_state[job_id]
-            state.last_update = time.time()
-
-            # LEARNED LESSONS - Store result keyed by generation and index for coordinator to collect
-            result_key = f"{generation}_{individual_idx}"
-            state.pending_results[result_key] = fitness
-
-            # Update best if applicable
-            if fitness > state.best_fitness:
-                state.best_fitness = fitness
-                state.best_weights = data.get("weights", {})
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+    # CMA-ES Handlers moved to scripts/p2p/handlers/cmaes.py
+    # Inherited from CMAESHandlersMixin:
+    # - handle_cmaes_start, handle_cmaes_evaluate
+    # - handle_cmaes_status, handle_cmaes_result
 
     async def _run_distributed_cmaes(self, job_id: str):
         """Main coordinator loop for distributed CMA-ES.
@@ -8640,173 +8486,10 @@ print(wins / total)
         except Exception as e:
             logger.info(f"CMA-ES evaluation error: {e}")
 
-    # ============================================
-    # Distributed Tournament Handlers
-    # ============================================
-
-    async def handle_tournament_start(self, request: web.Request) -> web.Response:
-        """Start or propose a distributed tournament.
-
-        DISTRIBUTED TOURNAMENT SCHEDULING:
-        - Leaders can start tournaments directly (immediate)
-        - Non-leaders can propose tournaments (gossip-based consensus)
-
-        Request body:
-        {
-            "board_type": "square8",
-            "num_players": 2,
-            "agent_ids": ["agent1", "agent2", "agent3"],
-            "games_per_pairing": 2
-        }
-        """
-        try:
-            data = await request.json()
-
-            # Non-leaders propose tournaments via gossip consensus
-            if self.role != NodeRole.LEADER:
-                agent_ids = data.get("agent_ids", [])
-                if len(agent_ids) < 2:
-                    return web.json_response({"error": "At least 2 agents required"}, status=400)
-
-                proposal = self._propose_tournament(
-                    board_type=data.get("board_type", "square8"),
-                    num_players=data.get("num_players", 2),
-                    agent_ids=agent_ids,
-                    games_per_pairing=data.get("games_per_pairing", 2),
-                )
-
-                return web.json_response({
-                    "success": True,
-                    "mode": "proposal",
-                    "proposal_id": proposal["proposal_id"],
-                    "status": "Proposal created, awaiting gossip consensus",
-                    "agents": agent_ids,
-                })
-
-            # Leader can start tournaments directly
-            job_id = f"tournament_{uuid.uuid4().hex[:8]}"
-
-            agent_ids = data.get("agent_ids", [])
-            if len(agent_ids) < 2:
-                return web.json_response({"error": "At least 2 agents required"}, status=400)
-
-            # Create round-robin pairings
-            pairings = []
-            for i, a1 in enumerate(agent_ids):
-                for a2 in agent_ids[i+1:]:
-                    for game_num in range(data.get("games_per_pairing", 2)):
-                        pairings.append({
-                            "agent1": a1,
-                            "agent2": a2,
-                            "game_num": game_num,
-                            "status": "pending",
-                        })
-
-            state = DistributedTournamentState(
-                job_id=job_id,
-                board_type=data.get("board_type", "square8"),
-                num_players=data.get("num_players", 2),
-                agent_ids=agent_ids,
-                games_per_pairing=data.get("games_per_pairing", 2),
-                total_matches=len(pairings),
-                pending_matches=pairings,
-                status="running",
-                started_at=time.time(),
-                last_update=time.time(),
-            )
-
-            # Find available workers
-            with self.peers_lock:
-                workers = [p.node_id for p in self.peers.values() if p.is_healthy()]
-            state.worker_nodes = workers
-
-            if not state.worker_nodes:
-                return web.json_response({"error": "No workers available"}, status=503)
-
-            self.distributed_tournament_state[job_id] = state
-
-            logger.info(f"Started tournament {job_id}: {len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
-
-            # Launch coordinator task
-            asyncio.create_task(self._run_distributed_tournament(job_id))
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "agents": agent_ids,
-                "total_matches": len(pairings),
-                "workers": workers,
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_tournament_match(self, request: web.Request) -> web.Response:
-        """Request a tournament match to be played by a worker."""
-        try:
-            data = await request.json()
-            job_id = data.get("job_id")
-            match_info = data.get("match")
-
-            if not job_id or not match_info:
-                return web.json_response({"error": "job_id and match required"}, status=400)
-
-            logger.info(f"Received tournament match request: {match_info}")
-
-            # Start match in background
-            asyncio.create_task(self._play_tournament_match(job_id, match_info))
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "status": "match_started",
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_tournament_status(self, request: web.Request) -> web.Response:
-        """Get status of distributed tournaments."""
-        try:
-            job_id = request.query.get("job_id")
-
-            if job_id:
-                if job_id not in self.distributed_tournament_state:
-                    return web.json_response({"error": "Tournament not found"}, status=404)
-                state = self.distributed_tournament_state[job_id]
-                return web.json_response(state.to_dict())
-
-            return web.json_response({
-                job_id: state.to_dict()
-                for job_id, state in self.distributed_tournament_state.items()
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_tournament_result(self, request: web.Request) -> web.Response:
-        """Receive match result from a worker."""
-        try:
-            data = await request.json()
-            job_id = data.get("job_id")
-            match_result = data.get("result", {})
-            worker_id = data.get("worker_id", "unknown")
-
-            if job_id not in self.distributed_tournament_state:
-                return web.json_response({"error": "Tournament not found"}, status=404)
-
-            state = self.distributed_tournament_state[job_id]
-            state.results.append(match_result)
-            state.completed_matches += 1
-            state.last_update = time.time()
-
-            logger.info(f"Tournament result: {state.completed_matches}/{state.total_matches} matches from {worker_id}")
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "completed": state.completed_matches,
-                "total": state.total_matches,
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+    # Tournament Handlers moved to scripts/p2p/handlers/tournament.py
+    # Inherited from TournamentHandlersMixin:
+    # - handle_tournament_start, handle_tournament_match
+    # - handle_tournament_status, handle_tournament_result
 
     async def handle_play_elo_match(self, request: web.Request) -> web.Response:
         """Play a single Elo calibration match between AI configurations.
@@ -9364,213 +9047,12 @@ print(wins / total)
             logger.warning(f"Failed to build/save tournament game record: {e}")
             traceback.print_exc()
 
-    async def handle_ssh_tournament_start(self, request: web.Request) -> web.Response:
-        """Start an SSH-distributed difficulty-tier tournament (leader only).
-
-        This is a thin wrapper that runs `scripts/run_ssh_distributed_tournament.py`
-        as a subprocess and tracks its status locally on the leader node.
-        """
-        try:
-            if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can start SSH tournaments",
-                    "leader_id": self.leader_id,
-                }, status=403)
-
-            data = await request.json()
-
-            tiers = str(data.get("tiers") or "D1-D10")
-            board = str(data.get("board") or data.get("board_type") or "square8").strip().lower()
-            if board == "hexagonal":
-                board = "hex"
-            if board not in ("square8", "square19", "hex8", "hex"):
-                return web.json_response({"error": f"Invalid board: {board!r}"}, status=400)
-
-            games_per_matchup = int(data.get("games_per_matchup", 50) or 50)
-            seed = int(data.get("seed", 1) or 1)
-            think_time_scale = float(data.get("think_time_scale", 1.0) or 1.0)
-            max_moves = int(data.get("max_moves", 10000) or 10000)
-            wilson_confidence = float(data.get("wilson_confidence", 0.95) or 0.95)
-            nn_model_id = data.get("nn_model_id") or None
-            config_path = data.get("config") or None
-            include_nonready = bool(data.get("include_nonready", False))
-            max_parallel_per_host = data.get("max_parallel_per_host")
-            remote_output_dir = str(data.get("remote_output_dir") or "results/tournaments/ssh_shards")
-            job_timeout_sec = int(data.get("job_timeout_sec", 6 * 60 * 60) or (6 * 60 * 60))
-            retries = int(data.get("retries", 1) or 1)
-            dry_run = bool(data.get("dry_run", False))
-
-            requested_run_id = str(data.get("run_id") or "").strip()
-            job_id = requested_run_id or f"ssh_tournament_{uuid.uuid4().hex[:8]}"
-            run_id = job_id
-
-            hosts = data.get("hosts")
-            hosts_spec: str | None = None
-            if isinstance(hosts, list):
-                hosts_spec = ",".join(str(h).strip() for h in hosts if str(h).strip())
-            elif isinstance(hosts, str) and hosts.strip():
-                hosts_spec = hosts.strip()
-
-            output_root = str(
-                data.get("output_root") or f"results/tournaments/p2p_orchestrator/{run_id}"
-            )
-
-            report_path = str(Path(output_root) / f"report_{run_id}.json")
-            checkpoint_path = str(Path(output_root) / f"tournament_{run_id}.json")
-            manifest_path = str(Path(output_root) / "manifest.json")
-
-            log_dir = STATE_DIR / "ssh_tournaments"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_path = str(log_dir / f"{run_id}.log")
-
-            cmd: list[str] = [
-                sys.executable,
-                "scripts/run_ssh_distributed_tournament.py",
-                "--tiers", tiers,
-                "--board", board,
-                "--games-per-matchup", str(games_per_matchup),
-                "--seed", str(seed),
-                "--think-time-scale", str(think_time_scale),
-                "--max-moves", str(max_moves),
-                "--wilson-confidence", str(wilson_confidence),
-                "--remote-output-dir", remote_output_dir,
-                "--job-timeout-sec", str(job_timeout_sec),
-                "--retries", str(retries),
-                "--run-id", run_id,
-                "--output-root", output_root,
-            ]
-            if nn_model_id:
-                cmd.extend(["--nn-model-id", str(nn_model_id)])
-            if config_path:
-                cmd.extend(["--config", str(config_path)])
-            if hosts_spec:
-                cmd.extend(["--hosts", hosts_spec])
-            if include_nonready:
-                cmd.append("--include-nonready")
-            if max_parallel_per_host is not None:
-                cmd.extend(["--max-parallel-per-host", str(int(max_parallel_per_host))])
-            if dry_run:
-                cmd.append("--dry-run")
-
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
-
-            cwd = os.path.join(self.ringrift_path, "ai-service")
-            with open(log_path, "ab") as log_file:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=log_file,
-                    stderr=asyncio.subprocess.STDOUT,
-                    env=env,
-                    cwd=cwd,
-                )
-
-            run_state = SSHTournamentRun(
-                job_id=job_id,
-                run_id=run_id,
-                tiers=tiers,
-                board=board,
-                games_per_matchup=games_per_matchup,
-                pid=proc.pid,
-                status="running",
-                started_at=time.time(),
-                output_root=output_root,
-                manifest_path=manifest_path,
-                checkpoint_path=checkpoint_path,
-                report_path=report_path,
-                log_path=log_path,
-                command=cmd,
-            )
-
-            with self.ssh_tournament_lock:
-                self.ssh_tournament_runs[job_id] = run_state
-
-            asyncio.create_task(self._monitor_ssh_tournament_process(job_id, proc))
-
-            return web.json_response({"success": True, "job": run_state.to_dict()})
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_ssh_tournament_status(self, request: web.Request) -> web.Response:
-        """Get status of SSH-distributed tournaments."""
-        try:
-            job_id = request.query.get("job_id")
-
-            with self.ssh_tournament_lock:
-                if job_id:
-                    job = self.ssh_tournament_runs.get(job_id)
-                    if not job:
-                        return web.json_response({"error": "Tournament not found"}, status=404)
-                    return web.json_response(job.to_dict())
-
-                return web.json_response({
-                    jid: job.to_dict() for jid, job in self.ssh_tournament_runs.items()
-                })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_ssh_tournament_cancel(self, request: web.Request) -> web.Response:
-        """Cancel a running SSH tournament (best-effort)."""
-        try:
-            if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can cancel SSH tournaments",
-                    "leader_id": self.leader_id,
-                }, status=403)
-
-            data = await request.json()
-            job_id = data.get("job_id")
-            if not job_id:
-                return web.json_response({"error": "job_id is required"}, status=400)
-
-            with self.ssh_tournament_lock:
-                job = self.ssh_tournament_runs.get(job_id)
-            if not job:
-                return web.json_response({"error": "Tournament not found"}, status=404)
-
-            if job.status != "running":
-                return web.json_response({
-                    "success": False,
-                    "error": f"Cannot cancel tournament in status: {job.status}",
-                }, status=400)
-
-            try:
-                os.kill(job.pid, signal.SIGTERM)
-            except Exception as e:
-                return web.json_response({
-                    "success": False,
-                    "error": f"Failed to signal process: {e}",
-                }, status=500)
-
-            with self.ssh_tournament_lock:
-                job.status = "cancelled"
-                job.completed_at = time.time()
-
-            return web.json_response({"success": True, "job_id": job_id})
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def _monitor_ssh_tournament_process(self, job_id: str, proc) -> None:
-        """Monitor a tournament subprocess and update status."""
-        try:
-            return_code = await proc.wait()
-            with self.ssh_tournament_lock:
-                job = self.ssh_tournament_runs.get(job_id)
-                if not job:
-                    return
-                job.return_code = return_code
-                job.completed_at = time.time()
-                if job.status != "cancelled":
-                    job.status = "completed" if return_code == 0 else "failed"
-                    if return_code != 0:
-                        job.error_message = f"Process exited with code {return_code}"
-        except Exception as e:
-            with self.ssh_tournament_lock:
-                job = self.ssh_tournament_runs.get(job_id)
-                if job and job.status != "cancelled":
-                    job.status = "failed"
-                    job.completed_at = time.time()
-                    job.error_message = str(e)
+    # -------------------------------------------------------------------------
+    # SSH Tournament Handlers - EXTRACTED to scripts/p2p/handlers/ssh_tournament.py
+    # Provides: handle_ssh_tournament_start, handle_ssh_tournament_status,
+    #           handle_ssh_tournament_cancel, _monitor_ssh_tournament_process
+    # See SSHTournamentHandlersMixin
+    # -------------------------------------------------------------------------
 
     async def _run_distributed_tournament(self, job_id: str):
         """Main coordinator loop for distributed tournament."""
@@ -10044,6 +9526,8 @@ print(json.dumps(result))
 
     # =========================================================================
     # Phase 2: P2P Data Sync HTTP Handlers
+    # NOTE: Sync handlers have complex internal dependencies (disk checks, peer
+    # lookups, internal helper methods) and are kept here rather than extracted.
     # =========================================================================
 
     async def handle_sync_start(self, request: web.Request) -> web.Response:
@@ -23225,11 +22709,11 @@ print(json.dumps({{
             with db._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT model_name, elo_rating, games_played, last_updated,
+                    SELECT participant_id, rating, games_played, last_update,
                            (SELECT COUNT(*) FROM elo_ratings) as total,
-                           (SELECT MAX(last_updated) FROM elo_ratings) as max_updated
+                           (SELECT MAX(last_update) FROM elo_ratings) as max_updated
                     FROM elo_ratings
-                    ORDER BY elo_rating DESC
+                    ORDER BY rating DESC
                     LIMIT 5
                 """)
                 rows = cursor.fetchall()

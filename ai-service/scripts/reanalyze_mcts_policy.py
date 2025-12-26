@@ -147,7 +147,7 @@ class HeuristicNetworkWrapper:
                 value = max(-1.0, min(1.0, value))
             else:
                 value = 0.0
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             value = 0.0
 
         return policy, value
@@ -253,7 +253,7 @@ def reanalyze_game(
     if initial_state_dict:
         try:
             state = GameState(**initial_state_dict)
-        except Exception:
+        except (TypeError, ValueError, KeyError):
             state = create_initial_state(board_type, num_players)
     else:
         state = create_initial_state(board_type, num_players)

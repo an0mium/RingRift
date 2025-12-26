@@ -48,7 +48,7 @@ def get_process_counts():
             "tournament": sum(1 for line in lines if "tournament" in line.lower()),
         }
         return counts
-    except Exception:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         return {}
 
 
@@ -79,7 +79,7 @@ def get_top_elo():
         """).fetchall()
         conn.close()
         return [(Path(p).name if p else "?", f"{b}_{n}p", r, g) for p, b, n, r, g in rows]
-    except Exception:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
         conn.close()
         return []
 

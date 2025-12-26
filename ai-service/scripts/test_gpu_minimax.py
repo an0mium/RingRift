@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.ai.gpu_minimax_ai import GPUMinimaxAI
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.minimax_ai import MinimaxAI
+from app.core.exceptions import SelfplayError
 from app.models import AIConfig, BoardType, GameState, GameStatus, Move
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.generate_data import create_initial_state
@@ -267,7 +268,7 @@ class GPUMinimaxTester:
 
                 try:
                     state = self.rules_engine.apply_move(state, move)
-                except Exception:
+                except SelfplayError:
                     break
 
                 move_count += 1
@@ -450,7 +451,7 @@ class GPUMinimaxTester:
             move = valid_moves[np.random.randint(len(valid_moves))]
             try:
                 state = self.rules_engine.apply_move(state, move)
-            except Exception:
+            except SelfplayError:
                 break
 
         return state

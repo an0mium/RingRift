@@ -383,7 +383,7 @@ class GPUMCTSSelfplayRunner:
                         if idx >= 0:
                             policy_indices.append(idx)
                             policy_values.append(prob)
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError, KeyError):
                         pass
 
             if not policy_indices:

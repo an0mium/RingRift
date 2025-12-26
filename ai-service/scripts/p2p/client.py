@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -201,9 +202,9 @@ class P2PClient:
                         with urllib.request.urlopen(req, timeout=5) as resp:
                             if resp.status == 200:
                                 return host.tailscale_ip
-                    except Exception:
+                    except (urllib.error.URLError, socket.timeout, OSError):
                         continue
-        except Exception:
+        except (ImportError, AttributeError):
             pass
 
         return None

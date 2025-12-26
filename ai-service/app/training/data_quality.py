@@ -73,6 +73,7 @@ import json
 import logging
 import sqlite3
 import sys
+import zipfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -1472,7 +1473,7 @@ Examples:
                         print(f"Checksums present: Yes (use --verify-checksums to verify)")
                     else:
                         print(f"Checksums present: No (legacy export)")
-            except Exception:
+            except (FileNotFoundError, OSError, ValueError, zipfile.BadZipFile):
                 pass
 
         # Label validation

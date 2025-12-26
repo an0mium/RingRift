@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -61,7 +62,7 @@ def _load_final_state(
             state = db.get_state_at_move(game_id, total_moves - 1)
             if state is not None:
                 return state
-        except Exception:
+        except (sqlite3.Error, ValueError, KeyError, AttributeError):
             # Fall back to replay below
             pass
 
@@ -121,7 +122,7 @@ def extract_games(
         if raw_meta_json:
             try:
                 metadata = json.loads(raw_meta_json)
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 metadata = {}
 
         # Tag this as part of the golden replay suite for future reference.

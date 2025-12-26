@@ -19,6 +19,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from pydantic import ValidationError
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -168,7 +169,7 @@ class GMOv2Dataset(Dataset):
                 # Reconstruct game states
                 try:
                     game_state = GameState.model_validate(initial_state_dict)
-                except Exception:
+                except (ValidationError, ValueError, TypeError, KeyError):
                     continue
 
                 from ..game_engine import GameEngine
@@ -210,7 +211,7 @@ class GMOv2Dataset(Dataset):
                         # Apply move
                         game_state = GameEngine.apply_move(game_state, move)
 
-                    except Exception:
+                    except (ValidationError, ValueError, TypeError, KeyError, AttributeError):
                         break
 
                 games_loaded += 1

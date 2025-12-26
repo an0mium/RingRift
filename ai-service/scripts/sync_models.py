@@ -129,7 +129,7 @@ try:
     from app.distributed.storage_provider import should_sync_to_node
     from app.metrics.orchestrator import record_nfs_skip
     HAS_STORAGE_PROVIDER = True
-except Exception:
+except (ImportError, ModuleNotFoundError):
     HAS_STORAGE_PROVIDER = False
 
     def should_sync_to_node(_target: str) -> bool:  # type: ignore[return-type]
@@ -168,7 +168,7 @@ def check_disk_usage(path: Path | None = None) -> tuple[bool, float]:
             if not has_capacity:
                 logger.warning(f"Disk usage {percent:.1f}% exceeds limit {MAX_DISK_USAGE_PERCENT}%")
             return has_capacity, percent
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass  # Fall through to original implementation
 
     # Fallback to original implementation

@@ -159,7 +159,7 @@ def _create_ladder_ai_instance(
             tier_config.board_type,
             tier_config.num_players,
         )
-    except Exception:
+    except KeyError:
         ladder_config = None
 
     base_ai_type = (

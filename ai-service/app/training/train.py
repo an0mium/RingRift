@@ -45,49 +45,23 @@ from torch.utils.data import DataLoader, WeightedRandomSampler, random_split
 
 from app.utils.torch_utils import safe_load_checkpoint
 
-# Optional Prometheus metrics
-try:
-    from prometheus_client import Counter, Gauge, Histogram
-    HAS_PROMETHEUS = True
-
-    # December 2025: Use centralized metric registry
-    from app.metrics.constants import TRAINING_DURATION_BUCKETS
-    from app.metrics.registry import safe_metric as _safe_metric
-
-    TRAINING_EPOCHS = _safe_metric(Counter, 'ringrift_training_epochs_total', 'Total training epochs completed', labelnames=['config'])
-    TRAINING_LOSS = _safe_metric(Gauge, 'ringrift_training_loss', 'Current training loss', labelnames=['config', 'loss_type'])
-    TRAINING_SAMPLES = _safe_metric(Counter, 'ringrift_training_samples_total', 'Total samples processed', labelnames=['config'])
-    TRAINING_DURATION = _safe_metric(Histogram, 'ringrift_training_epoch_duration_seconds', 'Training epoch duration', labelnames=['config'], buckets=TRAINING_DURATION_BUCKETS)
-    CALIBRATION_ECE = _safe_metric(Gauge, 'ringrift_calibration_ece', 'Expected Calibration Error', labelnames=['config'])
-    CALIBRATION_MCE = _safe_metric(Gauge, 'ringrift_calibration_mce', 'Maximum Calibration Error', labelnames=['config'])
-    BATCH_SIZE = _safe_metric(Gauge, 'ringrift_training_batch_size', 'Current training batch size', labelnames=['config'])
-
-    # Fault tolerance metrics (2025-12)
-    CIRCUIT_BREAKER_STATE = _safe_metric(Gauge, 'ringrift_circuit_breaker_state', 'Circuit breaker state (0=closed, 1=open, 2=half-open)', labelnames=['config', 'operation'])
-    ANOMALY_DETECTIONS = _safe_metric(Counter, 'ringrift_training_anomalies_total', 'Total training anomalies detected', labelnames=['config', 'type'])
-    GRADIENT_CLIP_NORM = _safe_metric(Gauge, 'ringrift_gradient_clip_norm', 'Current gradient clipping threshold', labelnames=['config'])
-    GRADIENT_NORM = _safe_metric(Gauge, 'ringrift_gradient_norm', 'Recent gradient norm', labelnames=['config'])
-except ImportError:
-    HAS_PROMETHEUS = False
-    TRAINING_EPOCHS = None
-    TRAINING_LOSS = None
-    TRAINING_SAMPLES = None
-    TRAINING_DURATION = None
-    CALIBRATION_ECE = None
-    CALIBRATION_MCE = None
-    BATCH_SIZE = None
-    CIRCUIT_BREAKER_STATE = None
-    ANOMALY_DETECTIONS = None
-    GRADIENT_CLIP_NORM = None
-    GRADIENT_NORM = None
-
-# Optional: Dashboard metrics collector for persistent storage (2025-12)
-try:
-    from app.monitoring.training_dashboard import MetricsCollector
-    HAS_METRICS_COLLECTOR = True
-except ImportError:
-    HAS_METRICS_COLLECTOR = False
-    MetricsCollector = None  # type: ignore
+# Training metrics extracted to dedicated module (December 2025)
+from app.training.train_metrics import (
+    ANOMALY_DETECTIONS,
+    BATCH_SIZE,
+    CALIBRATION_ECE,
+    CALIBRATION_MCE,
+    CIRCUIT_BREAKER_STATE,
+    GRADIENT_CLIP_NORM,
+    GRADIENT_NORM,
+    HAS_METRICS_COLLECTOR,
+    HAS_PROMETHEUS,
+    TRAINING_DURATION,
+    TRAINING_EPOCHS,
+    TRAINING_LOSS,
+    TRAINING_SAMPLES,
+    MetricsCollector,
+)
 
 from app.ai.neural_losses import (
     build_rank_targets,

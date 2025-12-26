@@ -88,7 +88,7 @@ def get_vast_instances() -> list[dict]:
             for i in json.loads(result.stdout)
             if i.get('actual_status') == 'running'
         ]
-    except Exception:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, json.JSONDecodeError, KeyError, ValueError):
         return []
 
 
@@ -101,7 +101,7 @@ def find_latest_models(source_host: str, source_user: str, max_age_hours: float 
             f'find ~/ringrift/ai-service/models -name "*.pth" -mmin -{int(max_age_hours * 60)} -type f 2>/dev/null'
         ], capture_output=True, text=True, timeout=30)
         return [p.strip() for p in result.stdout.strip().split('\n') if p.strip()]
-    except Exception:
+    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
         return []
 
 

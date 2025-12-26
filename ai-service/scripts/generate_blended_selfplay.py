@@ -223,7 +223,7 @@ def run_nnue_games(
                 config=ai_config,
                 board_type=board_type,
             )
-        except Exception:
+        except (FileNotFoundError, OSError, ImportError, ModuleNotFoundError, ValueError, TypeError, RuntimeError):
             # Fall back to heuristic if NNUE not available
             ais[p] = AIFactory.create(
                 AIType.HEURISTIC,
@@ -579,7 +579,7 @@ def run_blended_selfplay(config: BlendedSelfplayConfig) -> dict[str, Any]:
         # Cleanup temp directory
         try:
             shutil.rmtree(temp_dir)
-        except Exception:
+        except (OSError, PermissionError, FileNotFoundError):
             pass
 
     stats["duration_seconds"] = time.time() - start_time

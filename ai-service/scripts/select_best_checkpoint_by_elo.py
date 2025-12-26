@@ -69,7 +69,7 @@ def is_versioned_checkpoint(checkpoint_path: Path) -> bool:
         from app.utils.torch_utils import safe_load_checkpoint
         data = safe_load_checkpoint(checkpoint_path, map_location="cpu")
         return "version" in data or "__version__" in data or "architecture" in data
-    except Exception:
+    except (OSError, RuntimeError, ValueError, KeyError):
         return False
 
 
@@ -154,7 +154,7 @@ def validate_checkpoint_loadable(
         if "size mismatch" in str(e) or "Error(s) in loading state_dict" in str(e):
             return False
         raise
-    except Exception:
+    except (OSError, ValueError, KeyError, AttributeError):
         return False
 
 

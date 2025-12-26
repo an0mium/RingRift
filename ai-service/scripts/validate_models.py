@@ -363,7 +363,7 @@ def validate_model_quick(model_path: Path) -> bool:
             # PK zip header
             if header[:2] != b'PK':
                 return False
-    except Exception:
+    except (FileNotFoundError, OSError, PermissionError):
         return False
 
     return True

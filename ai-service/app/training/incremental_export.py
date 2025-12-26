@@ -33,6 +33,8 @@ Usage:
     # ... process only new_games ...
     exporter.mark_exported(new_game_ids)
 """
+from __future__ import annotations
+
 import warnings
 
 warnings.warn(
@@ -42,8 +44,6 @@ warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
-
-from __future__ import annotations
 
 import logging
 import sqlite3
@@ -396,7 +396,7 @@ class ShardManager:
             try:
                 with np.load(shard_path, allow_pickle=True) as data:
                     total += len(data["features"])
-            except Exception:
+            except (OSError, ValueError, KeyError):
                 pass
         return total
 

@@ -280,7 +280,7 @@ def get_node_status() -> dict:
                 status["gpu_util"] = float(parts[0])
                 status["gpu_mem_used"] = float(parts[1])
                 status["gpu_mem_total"] = float(parts[2])
-    except Exception:
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError, ValueError):
         pass
 
     # Try to get CPU info
@@ -320,7 +320,7 @@ def get_job_count() -> dict:
         )
         counts["training"] = len(result.stdout.strip().split("\n")) if result.stdout.strip() else 0
 
-    except Exception:
+    except (subprocess.SubprocessError, FileNotFoundError):
         pass
 
     return counts

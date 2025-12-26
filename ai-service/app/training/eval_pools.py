@@ -582,7 +582,7 @@ def run_heuristic_tier_eval(
         # Use 95th percentile based on 20-quantiles (19/20 ≈ 0.95).
         try:
             p95_latency = float(quantiles(candidate_latencies_ms, n=20)[-1])
-        except Exception:
+        except ValueError:
             # Fallback to max when quantiles is unhappy with sample size.
             p95_latency = float(max(candidate_latencies_ms))
 

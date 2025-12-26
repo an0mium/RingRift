@@ -567,7 +567,7 @@ def run_single_game(
     if record_training_data:
         try:
             initial_state_snapshot = serialize_game_state(state)
-        except Exception:
+        except (TypeError, AttributeError, json.JSONDecodeError):
             initial_state_snapshot = None
 
     # Create main competing AIs (tier_a as P1, tier_b as P2)
@@ -663,7 +663,7 @@ def run_single_game(
                         else:
                             move_record = {"raw": str(move)}
                         move_history_list.append(move_record)
-                    except Exception:
+                    except (TypeError, AttributeError, json.JSONDecodeError):
                         pass
 
                 state_before = state

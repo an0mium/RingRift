@@ -292,7 +292,7 @@ def extract_samples_from_game(game: dict[str, Any]) -> list[GameSample]:
             timestamp = dt.timestamp()
         else:
             timestamp = time.time()
-    except Exception:
+    except ValueError:
         timestamp = time.time()
 
     # Create sample for each move

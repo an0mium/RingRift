@@ -45,7 +45,7 @@ def get_connection(db_path: Path):
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except (sqlite3.Error, OSError):
         conn.rollback()
         raise
     finally:

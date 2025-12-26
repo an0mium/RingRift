@@ -166,7 +166,7 @@ def check_canonical_gate(db_path: Path) -> bool:
             with open(summary_path) as f:
                 summary = json.load(f)
             return summary.get("canonical_ok", False)
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
 
     # If no summary, check for parity markers in DB
@@ -179,7 +179,7 @@ def check_canonical_gate(db_path: Path) -> bool:
         conn.close()
         # Require at least some completed games
         return completed > 0
-    except Exception:
+    except sqlite3.Error:
         return False
 
 

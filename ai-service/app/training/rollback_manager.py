@@ -396,7 +396,7 @@ class RollbackManager:
                 metric = REGISTRY._names_to_collectors.get(metric_name)
                 if metric:
                     metric.labels(model_id=model_id, trigger=triggered_by).inc()
-            except Exception:
+            except (AttributeError, KeyError, ValueError, TypeError):
                 pass
         except ImportError:
             pass
@@ -631,7 +631,7 @@ class AutoRollbackHandler:
             bus.unsubscribe(DataEventType.REGRESSION_SEVERE, self._on_regression_event)
             bus.unsubscribe(DataEventType.REGRESSION_CRITICAL, self._on_regression_event)
             self._event_subscribed = False
-        except Exception:
+        except (ImportError, AttributeError, TypeError):
             pass
 
     def _on_regression_event(self, event) -> None:

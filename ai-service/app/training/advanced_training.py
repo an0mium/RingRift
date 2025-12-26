@@ -1942,7 +1942,7 @@ class GradientAccumulationScheduler:
             allocated = torch.cuda.memory_allocated()
             total = torch.cuda.get_device_properties(0).total_memory
             return allocated / total
-        except Exception:
+        except RuntimeError:
             return 0.0
 
     def step(self, batch_size: int) -> int:
