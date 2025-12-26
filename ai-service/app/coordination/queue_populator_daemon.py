@@ -183,9 +183,9 @@ class QueuePopulatorDaemon:
         """Subscribe to relevant events."""
         # Subscribe to selfplay completion
         try:
-            from app.coordination.stage_events import StageEvent, get_event_bus
+            from app.coordination.event_router import StageEvent, get_stage_event_bus
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             unsub = bus.subscribe(
                 StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete
             )
@@ -196,9 +196,9 @@ class QueuePopulatorDaemon:
 
         # Subscribe to export completion
         try:
-            from app.coordination.stage_events import StageEvent, get_event_bus
+            from app.coordination.event_router import StageEvent, get_stage_event_bus
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             unsub = bus.subscribe(
                 StageEvent.NPZ_EXPORT_COMPLETE, self._on_export_complete
             )
@@ -219,6 +219,116 @@ class QueuePopulatorDaemon:
             logger.info("[QueuePopulator] Subscribed to WORK events")
         except ImportError:
             logger.debug("[QueuePopulator] Data events not available")
+
+        # Subscribe to P2P cluster health events (December 2025 - Critical Gap Fix)
+        await self._subscribe_to_p2p_health_events()
+
+    async def _subscribe_to_p2p_health_events(self) -> None:
+        """Subscribe to P2P cluster health events.
+
+        December 2025: Critical gap fix - prevents queue population for dead nodes.
+        Tracks unhealthy nodes and reduces queue population when cluster health
+        degrades.
+
+        Events handled:
+        - NODE_UNHEALTHY / P2P_NODE_DEAD: Track dead nodes
+        - NODE_RECOVERED: Remove from dead node tracking
+        - P2P_CLUSTER_UNHEALTHY: Reduce population rate
+        - P2P_CLUSTER_HEALTHY: Restore normal population
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+
+            # Initialize dead node tracking
+            if not hasattr(self, "_dead_nodes"):
+                self._dead_nodes: set[str] = set()
+            if not hasattr(self, "_cluster_health_factor"):
+                self._cluster_health_factor: float = 1.0
+
+            def _on_node_dead(event: Any) -> None:
+                """Handle P2P_NODE_DEAD or NODE_UNHEALTHY."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                node_id = payload.get("node_id", "")
+                reason = payload.get("reason", "unknown")
+
+                if node_id:
+                    self._dead_nodes.add(node_id)
+                    logger.warning(
+                        f"[QueuePopulator] Node {node_id} marked dead/unhealthy: {reason}. "
+                        f"Dead nodes: {len(self._dead_nodes)}"
+                    )
+
+            def _on_node_recovered(event: Any) -> None:
+                """Handle NODE_RECOVERED."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                node_id = payload.get("node_id", "")
+
+                if node_id and node_id in self._dead_nodes:
+                    self._dead_nodes.discard(node_id)
+                    logger.info(
+                        f"[QueuePopulator] Node {node_id} recovered. "
+                        f"Dead nodes remaining: {len(self._dead_nodes)}"
+                    )
+
+            def _on_cluster_unhealthy(event: Any) -> None:
+                """Handle P2P_CLUSTER_UNHEALTHY - reduce population rate."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                healthy_nodes = payload.get("healthy_nodes", 0)
+                total_nodes = payload.get("total_nodes", 0)
+
+                logger.warning(
+                    f"[QueuePopulator] Cluster unhealthy: {healthy_nodes}/{total_nodes}. "
+                    f"Reducing queue population rate."
+                )
+
+                if total_nodes > 0:
+                    self._cluster_health_factor = max(0.2, healthy_nodes / total_nodes)
+                else:
+                    self._cluster_health_factor = 0.5
+
+            def _on_cluster_healthy(event: Any) -> None:
+                """Handle P2P_CLUSTER_HEALTHY - restore normal population."""
+                logger.info("[QueuePopulator] Cluster healthy. Restoring normal population rate.")
+                self._cluster_health_factor = 1.0
+                self._dead_nodes.clear()
+
+            # Subscribe to all relevant P2P health events
+            events_subscribed = []
+
+            if hasattr(DataEventType, 'P2P_NODE_DEAD'):
+                router.subscribe(DataEventType.P2P_NODE_DEAD.value, _on_node_dead)
+                events_subscribed.append('P2P_NODE_DEAD')
+
+            if hasattr(DataEventType, 'NODE_UNHEALTHY'):
+                router.subscribe(DataEventType.NODE_UNHEALTHY.value, _on_node_dead)
+                events_subscribed.append('NODE_UNHEALTHY')
+
+            if hasattr(DataEventType, 'NODE_RECOVERED'):
+                router.subscribe(DataEventType.NODE_RECOVERED.value, _on_node_recovered)
+                events_subscribed.append('NODE_RECOVERED')
+
+            if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
+                router.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY.value, _on_cluster_unhealthy)
+                events_subscribed.append('P2P_CLUSTER_UNHEALTHY')
+
+            if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
+                router.subscribe(DataEventType.P2P_CLUSTER_HEALTHY.value, _on_cluster_healthy)
+                events_subscribed.append('P2P_CLUSTER_HEALTHY')
+
+            if events_subscribed:
+                logger.info(
+                    f"[QueuePopulator] Subscribed to P2P health events: {', '.join(events_subscribed)}"
+                )
+            else:
+                logger.debug("[QueuePopulator] No P2P health events available to subscribe to")
+
+        except ImportError:
+            logger.debug("[QueuePopulator] Event router not available, P2P health handling disabled")
+        except Exception as e:
+            logger.warning(f"[QueuePopulator] Failed to subscribe to P2P health events: {e}")
 
     async def _on_selfplay_complete(self, result: Any) -> None:
         """Handle selfplay completion - update data state."""
@@ -386,6 +496,16 @@ class QueuePopulatorDaemon:
                 idle_nodes * 2,  # Up to 2 items per idle node
             )
 
+            # Apply cluster health factor (December 2025 - P2P integration)
+            cluster_health = getattr(self, "_cluster_health_factor", 1.0)
+            if cluster_health < 1.0:
+                adjusted_slots = max(1, int(slots_available * cluster_health))
+                logger.debug(
+                    f"[QueuePopulator] Cluster health {cluster_health:.2f} reducing slots: "
+                    f"{slots_available} → {adjusted_slots}"
+                )
+                slots_available = adjusted_slots
+
             if slots_available <= 0:
                 return
 
@@ -422,7 +542,13 @@ class QueuePopulatorDaemon:
             return {"pending": 0, "running": 0}
 
     async def _count_idle_nodes(self) -> int:
-        """Count nodes that are idle and available for work."""
+        """Count nodes that are idle and available for work.
+
+        December 2025: Now excludes nodes tracked as dead/unhealthy via P2P events.
+        """
+        # Get set of dead nodes from P2P health tracking
+        dead_nodes = getattr(self, "_dead_nodes", set())
+
         try:
             # Try P2P status first
             from app.distributed.p2p_daemon import get_p2p_daemon
@@ -432,9 +558,10 @@ class QueuePopulatorDaemon:
                 peers = daemon.get_peer_status()
                 idle = sum(
                     1
-                    for peer in peers.values()
+                    for node_id, peer in peers.items()
                     if peer.get("status") == "alive"
                     and not peer.get("busy", False)
+                    and node_id not in dead_nodes  # Exclude dead nodes
                 )
                 return idle
 
@@ -447,12 +574,13 @@ class QueuePopulatorDaemon:
 
             queue = get_work_queue()
             running = queue.get_running_count()
-            # Assume some cluster size
-            estimated_total = 20
+            # Assume some cluster size, minus dead nodes
+            estimated_total = max(1, 20 - len(dead_nodes))
             return max(0, estimated_total - running)
 
         except ImportError:
-            return 5  # Default assumption
+            # Default assumption, reduced by dead node count
+            return max(1, 5 - len(dead_nodes))
 
     async def _refresh_data_states(self) -> None:
         """Update data states from cluster manifest and local discovery."""

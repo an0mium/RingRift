@@ -1,5 +1,23 @@
 """Unified Data Sync Service - Consolidated data synchronization.
 
+.. deprecated:: December 2025
+    UnifiedDataSyncService is deprecated and will be archived in Q2 2026.
+
+    Use AutoSyncDaemon for automated P2P sync or SyncFacade for direct sync:
+
+    For automated continuous sync::
+
+        from app.coordination import AutoSyncDaemon
+        daemon = AutoSyncDaemon()
+        await daemon.start()
+
+    For one-time sync operations::
+
+        from app.coordination.sync_facade import sync
+        await sync("all")  # Syncs data, models, training data
+
+    Migration guide: See SYNC_CONSOLIDATION_PLAN.md
+
 This module provides a single, unified entry point for all data synchronization
 functionality, consolidating:
 - streaming_data_collector.py (continuous incremental sync)
@@ -44,11 +62,27 @@ import socket
 import sqlite3
 import sys
 import time
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Emit deprecation warning at import time
+warnings.warn(
+    "UnifiedDataSyncService is deprecated and will be archived in Q2 2026. "
+    "Use AutoSyncDaemon for automated sync or SyncFacade for direct sync:\n"
+    "  from app.coordination import AutoSyncDaemon\n"
+    "  daemon = AutoSyncDaemon()\n"
+    "  await daemon.start()\n"
+    "Or for one-time sync:\n"
+    "  from app.coordination.sync_facade import sync\n"
+    "  await sync('all')\n"
+    "See SYNC_CONSOLIDATION_PLAN.md for migration guide.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

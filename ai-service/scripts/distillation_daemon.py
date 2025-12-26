@@ -100,7 +100,7 @@ def detect_board_config(model_path: Path) -> tuple[str, int]:
                 meta = json.load(f)
                 board_type = meta.get("board_type", board_type)
                 num_players = meta.get("num_players", num_players)
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError):
             pass
 
     return board_type, num_players

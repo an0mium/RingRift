@@ -6,7 +6,8 @@ This closes the gap between selfplay and training by eliminating the manual expo
 Key features:
 - Subscribes to SELFPLAY_COMPLETE events
 - Tracks accumulated games per configuration
-- Triggers export when game threshold reached (default: 500 games)
+- Triggers export when game threshold reached (default: 100 games)
+- Emits NPZ_EXPORT_STARTED event when export begins
 - Emits NPZ_EXPORT_COMPLETE event after successful export
 - Integrates with GameDiscovery for finding databases
 - Supports cooldown to prevent export spam
@@ -40,7 +41,8 @@ class AutoExportConfig:
 
     enabled: bool = True
     # Minimum games before triggering export
-    min_games_threshold: int = 500
+    # Lowered from 500 to 100 (Dec 2025) for faster training iteration
+    min_games_threshold: int = 100
     # Cooldown between exports for same config (seconds)
     # Reduced from 30 min to 5 min (Phase 1.5) to enable faster training cycles
     export_cooldown_seconds: int = 300  # 5 minutes
@@ -275,9 +277,9 @@ class AutoExportDaemon:
         export when games are synced from other nodes.
         """
         try:
-            from app.coordination.stage_events import StageEvent, get_event_bus
+            from app.coordination.event_router import StageEvent, get_stage_event_bus
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             unsub = bus.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
             self._event_subscriptions.append(unsub)
             logger.info("[AutoExportDaemon] Subscribed to SELFPLAY_COMPLETE events")
@@ -440,6 +442,9 @@ class AutoExportDaemon:
                     f"({state.games_since_last_export} games pending)"
                 )
 
+                # Emit NPZ_EXPORT_STARTED event
+                await self._emit_export_started(config_key, state.games_since_last_export)
+
                 # Build export command
                 base_dir = Path(__file__).resolve().parent.parent.parent
                 script_path = base_dir / "scripts" / "export_replay_dataset.py"
@@ -548,15 +553,50 @@ class AutoExportDaemon:
 
         return None
 
+    async def _emit_export_started(
+        self, config_key: str, games_pending: int
+    ) -> None:
+        """Emit NPZ_EXPORT_STARTED event."""
+        try:
+            from app.coordination.event_router import (
+                StageEvent,
+                StageCompletionResult,
+                get_stage_event_bus,
+            )
+
+            parts = config_key.rsplit("_", 1)
+            board_type = parts[0] if len(parts) == 2 else config_key
+            num_players = int(parts[1].replace("p", "")) if len(parts) == 2 else 2
+
+            bus = get_stage_event_bus()
+            await bus.emit(
+                StageCompletionResult(
+                    event=StageEvent.NPZ_EXPORT_STARTED,
+                    success=True,
+                    iteration=0,  # Export is not iteration-based
+                    timestamp=__import__("datetime").datetime.now().isoformat(),
+                    board_type=board_type,
+                    num_players=num_players,
+                    metadata={
+                        "config": config_key,
+                        "games_pending": games_pending,
+                    },
+                )
+            )
+            logger.debug(f"[AutoExportDaemon] Emitted NPZ_EXPORT_STARTED for {config_key}")
+
+        except Exception as e:
+            logger.warning(f"[AutoExportDaemon] Failed to emit export started event: {e}")
+
     async def _emit_export_complete(
         self, config_key: str, output_path: Path, samples: int | None
     ) -> None:
         """Emit NPZ_EXPORT_COMPLETE event."""
         try:
-            from app.coordination.stage_events import (
+            from app.coordination.event_router import (
                 StageEvent,
                 StageCompletionResult,
-                get_event_bus,
+                get_stage_event_bus,
             )
 
             state = self._export_states.get(config_key)
@@ -564,16 +604,17 @@ class AutoExportDaemon:
             board_type = parts[0] if len(parts) == 2 else config_key
             num_players = int(parts[1].replace("p", "")) if len(parts) == 2 else 2
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             await bus.emit(
                 StageCompletionResult(
                     event=StageEvent.NPZ_EXPORT_COMPLETE,
                     success=True,
+                    iteration=0,  # Export is not iteration-based
                     timestamp=__import__("datetime").datetime.now().isoformat(),
+                    board_type=board_type,
+                    num_players=num_players,
                     metadata={
                         "config": config_key,
-                        "board_type": board_type,
-                        "num_players": num_players,
                         "output_path": str(output_path),
                         "samples": samples,
                         "games_exported": state.last_export_games if state else 0,

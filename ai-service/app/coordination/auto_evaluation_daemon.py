@@ -160,9 +160,9 @@ class AutoEvaluationDaemon:
         """Subscribe to relevant events."""
         # Subscribe to training completion
         try:
-            from app.coordination.stage_events import StageEvent, get_event_bus
+            from app.coordination.event_router import StageEvent, get_stage_event_bus
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             unsub = bus.subscribe(
                 StageEvent.TRAINING_COMPLETE, self._on_training_complete
             )
@@ -254,11 +254,18 @@ class AutoEvaluationDaemon:
             "best_val_loss": float,
             "config": "board_type_Np",  # e.g., "hex8_2p"
             "checkpoint_path": str,
+            "trigger_evaluation": bool,  # Optional: if True, queue for evaluation
         }
         """
         try:
             payload = getattr(event, "payload", event)
             if isinstance(payload, dict):
+                # Check if evaluation should be triggered
+                trigger_evaluation = payload.get("trigger_evaluation", False)
+                if not trigger_evaluation:
+                    logger.debug("[AutoEvaluation] Skipping - trigger_evaluation not set")
+                    return
+
                 checkpoint_path = payload.get("checkpoint_path")
                 config = payload.get("config", "")
 
@@ -281,7 +288,7 @@ class AutoEvaluationDaemon:
 
                 logger.info(
                     f"[AutoEvaluation] Received TRAINING_COMPLETED for {config} "
-                    f"at {checkpoint_path}"
+                    f"at {checkpoint_path} - queueing for gauntlet evaluation"
                 )
 
                 # Queue for evaluation
@@ -509,13 +516,13 @@ class AutoEvaluationDaemon:
     ) -> None:
         """Emit EVALUATION_COMPLETE event."""
         try:
-            from app.coordination.stage_events import (
+            from app.coordination.event_router import (
                 StageCompletionResult,
                 StageEvent,
-                get_event_bus,
+                get_stage_event_bus,
             )
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             await bus.emit(
                 StageCompletionResult(
                     event=StageEvent.EVALUATION_COMPLETE,
@@ -617,13 +624,13 @@ class AutoEvaluationDaemon:
     async def _emit_promotion_triggered(self, state: ModelEvaluationState) -> None:
         """Emit PROMOTION_TRIGGERED event."""
         try:
-            from app.coordination.stage_events import (
+            from app.coordination.event_router import (
                 StageCompletionResult,
                 StageEvent,
-                get_event_bus,
+                get_stage_event_bus,
             )
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             await bus.emit(
                 StageCompletionResult(
                     event=StageEvent.MODEL_PROMOTED,

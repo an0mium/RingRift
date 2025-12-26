@@ -31,12 +31,16 @@ from app.coordination.event_router import (
     emit_model_promoted,
 )
 
-# Re-export from stage_events
+# Re-export from event_router (canonical source for stage event types)
+from app.coordination.event_router import (
+    StageCompletionResult,
+    get_stage_event_bus,
+)
+
+# StageEventBus still needs direct import (implementation detail)
 from app.coordination.stage_events import (
     StageEvent as StageEventModel,
     StageEventBus,
-    StageCompletionResult,
-    get_event_bus as get_stage_event_bus,
 )
 
 __all__ = [

@@ -164,7 +164,7 @@ def export_positions_from_db(
                     value = 1.0 if winner == current_player else -1.0
                     values.append(value)
 
-            except Exception:
+            except (ValueError, KeyError, json.JSONDecodeError):
                 continue
 
         conn.close()

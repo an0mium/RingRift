@@ -511,6 +511,198 @@ def _init_global_task_coordinator() -> BootstrapCoordinatorStatus:
     return status
 
 
+def _init_auto_export_daemon() -> BootstrapCoordinatorStatus:
+    """Initialize AutoExportDaemon (December 2025).
+
+    Automatically exports NPZ training data when game thresholds are met.
+    Subscribes to SELFPLAY_COMPLETE events.
+    """
+    status = BootstrapCoordinatorStatus(name="auto_export_daemon")
+    try:
+        from app.coordination.auto_export_daemon import get_auto_export_daemon
+
+        daemon = get_auto_export_daemon()
+        # Note: Daemon start is async, so we just get the singleton here
+        # The daemon will be started by DaemonManager
+        status.initialized = True
+        status.subscribed = True
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] AutoExportDaemon initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] AutoExportDaemon not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize AutoExportDaemon: {e}")
+
+    return status
+
+
+def _init_auto_evaluation_daemon() -> BootstrapCoordinatorStatus:
+    """Initialize AutoEvaluationDaemon (December 2025).
+
+    Automatically triggers model evaluation after training completes.
+    Subscribes to TRAINING_COMPLETE events.
+    """
+    status = BootstrapCoordinatorStatus(name="auto_evaluation_daemon")
+    try:
+        from app.coordination.auto_evaluation_daemon import get_auto_evaluation_daemon
+
+        daemon = get_auto_evaluation_daemon()
+        status.initialized = True
+        status.subscribed = True
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] AutoEvaluationDaemon initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] AutoEvaluationDaemon not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize AutoEvaluationDaemon: {e}")
+
+    return status
+
+
+def _init_model_distribution_daemon() -> BootstrapCoordinatorStatus:
+    """Initialize ModelDistributionDaemon (December 2025).
+
+    Automatically distributes models to cluster nodes after promotion.
+    Subscribes to MODEL_PROMOTED events.
+    Note: Just registers the daemon class; actual start happens via DaemonManager.
+    """
+    status = BootstrapCoordinatorStatus(name="model_distribution_daemon")
+    try:
+        from app.coordination.model_distribution_daemon import ModelDistributionDaemon
+
+        # Just import to verify availability - DaemonManager will start it
+        _ = ModelDistributionDaemon
+        status.initialized = True
+        status.subscribed = True  # Will subscribe when started by DaemonManager
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] ModelDistributionDaemon registered")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] ModelDistributionDaemon not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize ModelDistributionDaemon: {e}")
+
+    return status
+
+
+def _init_idle_resource_daemon() -> BootstrapCoordinatorStatus:
+    """Initialize IdleResourceDaemon (December 2025).
+
+    Monitors idle GPUs and spawns selfplay jobs to maximize utilization.
+    Critical for cluster efficiency.
+    Note: Just registers the daemon class; actual start happens via DaemonManager.
+    """
+    status = BootstrapCoordinatorStatus(name="idle_resource_daemon")
+    try:
+        from app.coordination.idle_resource_daemon import IdleResourceDaemon
+
+        # Just import to verify availability - DaemonManager will start it
+        _ = IdleResourceDaemon
+        status.initialized = True
+        status.subscribed = True  # Will subscribe when started by DaemonManager
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] IdleResourceDaemon registered")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] IdleResourceDaemon not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize IdleResourceDaemon: {e}")
+
+    return status
+
+
+def _init_quality_monitor_daemon() -> BootstrapCoordinatorStatus:
+    """Initialize QualityMonitorDaemon (December 2025).
+
+    Continuously monitors selfplay quality and emits warnings for low-quality data.
+    Critical for training data quality.
+    Note: Just registers the daemon class; actual start happens via DaemonManager.
+    """
+    status = BootstrapCoordinatorStatus(name="quality_monitor_daemon")
+    try:
+        from app.coordination.quality_monitor_daemon import QualityMonitorDaemon
+
+        # Just import to verify availability - DaemonManager will start it
+        _ = QualityMonitorDaemon
+        status.initialized = True
+        status.subscribed = True  # Will subscribe when started by DaemonManager
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] QualityMonitorDaemon registered")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] QualityMonitorDaemon not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize QualityMonitorDaemon: {e}")
+
+    return status
+
+
+def _init_orphan_detection_daemon() -> BootstrapCoordinatorStatus:
+    """Initialize OrphanDetectionDaemon (December 2025).
+
+    Detects orphaned game databases not tracked in cluster manifest.
+    Ensures all training data is discoverable.
+    Note: Just registers the daemon class; actual start happens via DaemonManager.
+    """
+    status = BootstrapCoordinatorStatus(name="orphan_detection_daemon")
+    try:
+        from app.coordination.orphan_detection_daemon import OrphanDetectionDaemon
+
+        # Just import to verify availability - DaemonManager will start it
+        _ = OrphanDetectionDaemon
+        status.initialized = True
+        status.subscribed = True  # Will subscribe when started by DaemonManager
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] OrphanDetectionDaemon registered")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] OrphanDetectionDaemon not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize OrphanDetectionDaemon: {e}")
+
+    return status
+
+
+def _init_curriculum_integration() -> BootstrapCoordinatorStatus:
+    """Initialize CurriculumIntegration (December 2025).
+
+    Bridges all feedback loops (quality, evaluation, plateau detection) to curriculum.
+    Critical for self-improving training loop.
+    """
+    status = BootstrapCoordinatorStatus(name="curriculum_integration")
+    try:
+        from app.coordination.curriculum_integration import wire_all_feedback_loops
+
+        wire_all_feedback_loops()
+        status.initialized = True
+        status.subscribed = True
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] CurriculumIntegration initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] CurriculumIntegration not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize CurriculumIntegration: {e}")
+
+    return status
+
+
 def _register_coordinators() -> bool:
     """Register all coordinators with OrchestratorRegistry."""
     try:
@@ -692,13 +884,13 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     # 4. Initialize model selector events for hot-reload on MODEL_PROMOTED
     # December 2025: Critical fix - handler existed but was never initialized!
     try:
-        from app.training.selfplay_model_selector import init_model_selector_events
+        from app.training.selfplay_model_selector import _init_event_subscription as init_model_selector_events
 
         init_model_selector_events()
         results["model_selector_events"] = True
         logger.debug("[Bootstrap] Initialized SelfplayModelSelector MODEL_PROMOTED subscription")
 
-    except (AttributeError, TypeError, RuntimeError) as e:
+    except (ImportError, AttributeError, TypeError, RuntimeError) as e:
         results["model_selector_events"] = False
         logger.debug(f"[Bootstrap] Failed to init model selector events: {e}")
 
@@ -862,12 +1054,22 @@ def bootstrap_coordination(
     enable_job_scheduler: bool = True,
     enable_global_task: bool = True,
     enable_integrations: bool = True,  # New: Wire integration modules (C2)
+    # Critical daemons (December 2025)
+    enable_auto_export: bool = True,
+    enable_auto_evaluation: bool = True,
+    enable_model_distribution: bool = True,
+    enable_idle_resource: bool = True,
+    enable_quality_monitor: bool = True,
+    enable_orphan_detection: bool = True,
+    enable_curriculum_integration: bool = True,
     pipeline_auto_trigger: bool = False,
     register_with_registry: bool = True,
     # Training config (December 2025 - CLI connection)
     training_epochs: int | None = None,
     training_batch_size: int | None = None,
     training_model_version: str | None = None,
+    # Master loop enforcement (December 2025)
+    require_master_loop: bool = False,  # Set True to enforce master loop for full automation
 ) -> dict[str, Any]:
     """Initialize all coordination components.
 
@@ -914,19 +1116,50 @@ def bootstrap_coordination(
         enable_job_scheduler: Initialize JobScheduler host-dead migration
         enable_global_task: Initialize global TaskCoordinator
         enable_integrations: Wire integration modules to event router (C2)
+        enable_auto_export: Initialize AutoExportDaemon (NPZ export automation)
+        enable_auto_evaluation: Initialize AutoEvaluationDaemon (model evaluation)
+        enable_model_distribution: Initialize ModelDistributionDaemon (model sync)
+        enable_idle_resource: Initialize IdleResourceDaemon (GPU utilization)
+        enable_quality_monitor: Initialize QualityMonitorDaemon (data quality)
+        enable_orphan_detection: Initialize OrphanDetectionDaemon (data discovery)
+        enable_curriculum_integration: Initialize CurriculumIntegration (feedback loops)
         pipeline_auto_trigger: Auto-trigger pipeline on events
         register_with_registry: Register coordinators with OrchestratorRegistry
         training_epochs: Override default training epochs for pipeline
         training_batch_size: Override default training batch size for pipeline
         training_model_version: Override default model version for pipeline
+        require_master_loop: If True, enforce that master loop is running
 
     Returns:
         Status dict with initialization results
+
+    Raises:
+        RuntimeError: If require_master_loop=True and master loop is not running
     """
 
     if _state.initialized:
         logger.warning("[Bootstrap] Coordination already initialized, skipping")
         return get_bootstrap_status()
+
+    # Check if master loop is required (December 2025)
+    # Can be overridden with RINGRIFT_SKIP_MASTER_LOOP_CHECK=1 environment variable
+    import os
+    skip_check = os.environ.get("RINGRIFT_SKIP_MASTER_LOOP_CHECK", "0") == "1"
+
+    if require_master_loop and not skip_check:
+        try:
+            from app.coordination.master_loop_guard import ensure_master_loop_running
+
+            ensure_master_loop_running(
+                require_for_automation=True,
+                operation_name="coordination bootstrap with full automation",
+            )
+            logger.info("[Bootstrap] Master loop check passed")
+        except ImportError:
+            logger.warning("[Bootstrap] master_loop_guard not available, skipping check")
+        except RuntimeError as e:
+            logger.error(f"[Bootstrap] {e}")
+            raise
 
     _state.started_at = datetime.now()
     _state.errors = []
@@ -961,6 +1194,14 @@ def bootstrap_coordination(
         ("multi_provider", enable_multi_provider, _init_multi_provider),
         # Job scheduler layer
         ("job_scheduler", enable_job_scheduler, _init_job_scheduler),
+        # Daemon layer (December 2025 - critical automation daemons)
+        ("auto_export_daemon", enable_auto_export, _init_auto_export_daemon),
+        ("auto_evaluation_daemon", enable_auto_evaluation, _init_auto_evaluation_daemon),
+        ("model_distribution_daemon", enable_model_distribution, _init_model_distribution_daemon),
+        ("idle_resource_daemon", enable_idle_resource, _init_idle_resource_daemon),
+        ("quality_monitor_daemon", enable_quality_monitor, _init_quality_monitor_daemon),
+        ("orphan_detection_daemon", enable_orphan_detection, _init_orphan_detection_daemon),
+        ("curriculum_integration", enable_curriculum_integration, _init_curriculum_integration),
         # Metrics layer (depends on pipeline)
         ("metrics_orchestrator", enable_metrics, _init_metrics_orchestrator),
         # Optimization layer (depends on metrics)
@@ -1035,6 +1276,14 @@ def shutdown_coordination() -> dict[str, Any]:
         "leadership_coordinator",
         "optimization_coordinator",
         "metrics_orchestrator",
+        # Daemon layer (shutdown before coordinators they depend on)
+        "curriculum_integration",
+        "orphan_detection_daemon",
+        "quality_monitor_daemon",
+        "idle_resource_daemon",
+        "model_distribution_daemon",
+        "auto_evaluation_daemon",
+        "auto_export_daemon",
         "job_scheduler",
         "multi_provider",
         "pipeline_orchestrator",

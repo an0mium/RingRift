@@ -283,6 +283,9 @@ class TensorGumbelTree:
         prior_logits: torch.Tensor,
         num_sampled_actions: int = 16,
         gumbel_scale: float = 1.0,
+        use_root_noise: bool = True,
+        dirichlet_epsilon: float = 0.25,
+        dirichlet_alpha: float = 0.3,
     ) -> torch.Tensor:
         """Initialize root node with Gumbel-Top-K sampling.
 
@@ -290,6 +293,9 @@ class TensorGumbelTree:
             prior_logits: (batch_size, num_actions) policy logits from NN
             num_sampled_actions: Number of actions to sample (k)
             gumbel_scale: Scale for Gumbel noise
+            use_root_noise: Whether to apply Dirichlet noise to root policy (AlphaZero-style)
+            dirichlet_epsilon: Mixing weight for Dirichlet noise (default 0.25)
+            dirichlet_alpha: Dirichlet concentration parameter (default 0.3)
 
         Returns:
             (batch_size, num_sampled_actions) indices of sampled actions
@@ -297,6 +303,21 @@ class TensorGumbelTree:
         with torch.no_grad():
             batch_size = prior_logits.shape[0]
             num_actions = prior_logits.shape[1]
+
+            # Apply Dirichlet noise to root policy for exploration (AlphaZero-style)
+            if use_root_noise:
+                # Convert logits to probabilities
+                prior_probs = F.softmax(prior_logits, dim=-1)
+
+                # Add Dirichlet noise
+                noised_probs = add_dirichlet_noise(
+                    prior_probs,
+                    epsilon=dirichlet_epsilon,
+                    alpha=dirichlet_alpha,
+                )
+
+                # Convert back to logits for consistency with rest of tree
+                prior_logits = torch.log(noised_probs.clamp(min=1e-10))
 
             # Store prior logits for root (node 0)
             self.prior_logits[:batch_size, 0, :num_actions] = prior_logits
@@ -480,6 +501,47 @@ class TensorGumbelTree:
                 return remaining / remaining.sum()
 
 
+def add_dirichlet_noise(
+    policy_probs: torch.Tensor,
+    epsilon: float = 0.25,
+    alpha: float = 0.3,
+) -> torch.Tensor:
+    """Add AlphaZero-style Dirichlet noise to root policy.
+
+    This injects exploration noise at the root node to encourage discovering
+    moves that the policy might otherwise miss during self-play.
+
+    The noised policy is: P'(a) = (1 - ε) * P(a) + ε * η(a)
+    where η ~ Dir(α) is Dirichlet noise.
+
+    Args:
+        policy_probs: (batch_size, num_actions) policy probabilities (must sum to 1)
+        epsilon: Mixing weight for noise (default 0.25 = 25% noise)
+        alpha: Dirichlet concentration parameter (default 0.3)
+               Lower alpha = more peaked noise, higher alpha = more uniform
+
+    Returns:
+        (batch_size, num_actions) noised policy probabilities
+    """
+    with torch.no_grad():
+        batch_size, num_actions = policy_probs.shape
+
+        # Generate Dirichlet noise on CPU (no GPU kernel for Dirichlet in PyTorch)
+        import numpy as np
+        noise = np.random.dirichlet([alpha] * num_actions, size=batch_size)
+        noise_tensor = torch.from_numpy(noise).to(
+            device=policy_probs.device, dtype=policy_probs.dtype
+        )
+
+        # Mix policy with noise: (1 - ε) * P + ε * η
+        noised_probs = (1.0 - epsilon) * policy_probs + epsilon * noise_tensor
+
+        # Renormalize to ensure valid probability distribution
+        noised_probs = noised_probs / noised_probs.sum(dim=1, keepdim=True).clamp(min=1e-10)
+
+        return noised_probs
+
+
 @dataclass
 class GPUGumbelMCTSConfig:
     """Configuration for GPU Gumbel MCTS search."""
@@ -508,6 +570,11 @@ class GPUGumbelMCTSConfig:
 
     # Legacy compatibility (deprecated, use eval_mode instead)
     use_nn_rollout: bool = False  # If True, equivalent to eval_mode="nn"
+
+    # Dirichlet noise for root exploration (AlphaZero-style)
+    use_root_noise: bool = True  # Enable Dirichlet noise at root by default
+    dirichlet_epsilon: float = 0.25  # 25% noise weight
+    dirichlet_alpha: float = 0.3  # Concentration parameter
 
     # Device
     device: str = "cuda"
@@ -647,6 +714,9 @@ class GPUGumbelMCTS:
                 policy_logits.unsqueeze(0),
                 num_sampled_actions=num_sampled,
                 gumbel_scale=self.config.gumbel_scale,
+                use_root_noise=self.config.use_root_noise,
+                dirichlet_epsilon=self.config.dirichlet_epsilon,
+                dirichlet_alpha=self.config.dirichlet_alpha,
             )
 
             # Map indices to moves
@@ -801,6 +871,9 @@ class GPUGumbelMCTS:
                 policy_logits.unsqueeze(0),
                 num_sampled_actions=num_sampled,
                 gumbel_scale=self.config.gumbel_scale,
+                use_root_noise=self.config.use_root_noise,
+                dirichlet_epsilon=self.config.dirichlet_epsilon,
+                dirichlet_alpha=self.config.dirichlet_alpha,
             )
 
             # Map indices to moves
@@ -1399,6 +1472,11 @@ class MultiTreeMCTSConfig:
     max_rollout_depth: int = 10
     eval_mode: str = "heuristic"
 
+    # Dirichlet noise for root exploration (AlphaZero-style)
+    use_root_noise: bool = True  # Enable Dirichlet noise at root by default
+    dirichlet_epsilon: float = 0.25  # 25% noise weight
+    dirichlet_alpha: float = 0.3  # Concentration parameter
+
     # Device
     device: str = "cuda"
 
@@ -1492,6 +1570,9 @@ class MultiTreeMCTS:
                 policy_logits_batch,
                 num_sampled_actions=num_sampled,
                 gumbel_scale=self.config.gumbel_scale,
+                use_root_noise=self.config.use_root_noise,
+                dirichlet_epsilon=self.config.dirichlet_epsilon,
+                dirichlet_alpha=self.config.dirichlet_alpha,
             )
 
             # Map indices to moves for each game

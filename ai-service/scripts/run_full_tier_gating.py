@@ -234,7 +234,7 @@ def _update_status_json(
         try:
             with open(status_path, encoding="utf-8") as f:
                 status = json.load(f)
-        except Exception:  # pragma: no cover - defensive
+        except (OSError, json.JSONDecodeError):  # pragma: no cover - defensive
             status = {}
 
     status["tier"] = tier

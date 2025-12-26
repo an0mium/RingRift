@@ -306,7 +306,7 @@ def save_json(
                 json.dump(data, f, indent=indent)
                 f.write("\n")  # Trailing newline
             shutil.move(tmp_path, filepath)
-        except Exception:
+        except (OSError, TypeError, ValueError):
             # Clean up temp file on error
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)

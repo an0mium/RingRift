@@ -438,7 +438,7 @@ class AutoPromotionTrigger:
                     alias_id=m.get("alias_id", ""),
                     alias_paths=m.get("alias_paths", []),
                 )
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError):
             pass
 
         return None

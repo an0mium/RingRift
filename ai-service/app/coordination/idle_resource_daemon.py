@@ -296,6 +296,16 @@ class IdleResourceDaemon:
                 )
             scaled = max(1, reduced)  # Always allow at least 1 spawn
 
+        # Apply cluster health reduction (December 2025 - P2P integration)
+        cluster_health = getattr(self, "_cluster_health_reduction", 1.0)
+        if cluster_health < 1.0:
+            health_reduced = int(scaled * cluster_health)
+            if health_reduced < scaled:
+                logger.debug(
+                    f"[IdleResourceDaemon] Cluster health reducing spawns: {scaled} → {health_reduced}"
+                )
+            scaled = max(1, health_reduced)
+
         return scaled
 
     def is_running(self) -> bool:
@@ -474,6 +484,9 @@ class IdleResourceDaemon:
         # December 2025: Subscribe to backpressure events
         self._wire_backpressure_events()
 
+        # December 2025: Subscribe to P2P cluster health events
+        self._wire_p2p_health_events()
+
         # Start monitoring loop
         self._monitor_task = safe_create_task(
             self._monitor_loop(),
@@ -543,6 +556,104 @@ class IdleResourceDaemon:
             logger.debug("[IdleResourceDaemon] Event router not available, backpressure handling disabled")
         except Exception as e:
             logger.warning(f"[IdleResourceDaemon] Failed to wire backpressure events: {e}")
+
+    def _wire_p2p_health_events(self) -> None:
+        """Subscribe to P2P cluster health events.
+
+        December 2025: Prevents spawning jobs on unhealthy/failing nodes.
+        This closes a critical gap where idle_resource_daemon could spawn
+        work on nodes that are in the process of failing or recovering.
+
+        Events handled:
+        - NODE_UNHEALTHY: Mark node as unavailable for spawning
+        - NODE_RECOVERED: Re-enable node for spawning
+        - P2P_CLUSTER_UNHEALTHY: Reduce spawning cluster-wide
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+
+            # Track unhealthy nodes - skip them during spawn decisions
+            if not hasattr(self, "_unhealthy_nodes"):
+                self._unhealthy_nodes: set[str] = set()
+
+            def _on_node_unhealthy(event: Any) -> None:
+                """Handle NODE_UNHEALTHY - mark node as unavailable."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                node_id = payload.get("node_id", "")
+                reason = payload.get("reason", "unknown")
+
+                if node_id:
+                    self._unhealthy_nodes.add(node_id)
+                    logger.warning(
+                        f"[IdleResourceDaemon] Node {node_id} marked unhealthy: {reason}. "
+                        f"Will skip spawning on this node."
+                    )
+
+            def _on_node_recovered(event: Any) -> None:
+                """Handle NODE_RECOVERED - re-enable node for spawning."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                node_id = payload.get("node_id", "")
+
+                if node_id and node_id in self._unhealthy_nodes:
+                    self._unhealthy_nodes.discard(node_id)
+                    logger.info(
+                        f"[IdleResourceDaemon] Node {node_id} recovered. "
+                        f"Re-enabled for job spawning."
+                    )
+
+            def _on_cluster_unhealthy(event: Any) -> None:
+                """Handle P2P_CLUSTER_UNHEALTHY - reduce spawn rate cluster-wide."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                healthy_nodes = payload.get("healthy_nodes", 0)
+                total_nodes = payload.get("total_nodes", 0)
+
+                logger.warning(
+                    f"[IdleResourceDaemon] Cluster unhealthy: {healthy_nodes}/{total_nodes} nodes. "
+                    f"Reducing spawn rate."
+                )
+
+                # Apply cluster-wide spawn reduction
+                if not hasattr(self, "_cluster_health_reduction"):
+                    self._cluster_health_reduction = 1.0
+
+                if total_nodes > 0:
+                    # Scale spawn rate by healthy node ratio
+                    self._cluster_health_reduction = max(0.2, healthy_nodes / total_nodes)
+                else:
+                    self._cluster_health_reduction = 0.5
+
+            def _on_cluster_healthy(event: Any) -> None:
+                """Handle P2P_CLUSTER_HEALTHY - restore normal spawn rate."""
+                logger.info("[IdleResourceDaemon] Cluster healthy. Restoring normal spawn rate.")
+                if hasattr(self, "_cluster_health_reduction"):
+                    self._cluster_health_reduction = 1.0
+
+            # Subscribe to P2P health events
+            if hasattr(DataEventType, 'NODE_UNHEALTHY'):
+                router.subscribe(DataEventType.NODE_UNHEALTHY.value, _on_node_unhealthy)
+            if hasattr(DataEventType, 'NODE_RECOVERED'):
+                router.subscribe(DataEventType.NODE_RECOVERED.value, _on_node_recovered)
+            if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
+                router.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY.value, _on_cluster_unhealthy)
+            if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
+                router.subscribe(DataEventType.P2P_CLUSTER_HEALTHY.value, _on_cluster_healthy)
+
+            # Initialize health tracking
+            self._unhealthy_nodes: set[str] = set()
+            self._cluster_health_reduction: float = 1.0
+
+            logger.info(
+                "[IdleResourceDaemon] Subscribed to P2P health events "
+                "(NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_UNHEALTHY, P2P_CLUSTER_HEALTHY)"
+            )
+
+        except ImportError:
+            logger.debug("[IdleResourceDaemon] Event router not available, P2P health handling disabled")
+        except Exception as e:
+            logger.warning(f"[IdleResourceDaemon] Failed to wire P2P health events: {e}")
 
     async def stop(self) -> None:
         """Stop the idle resource daemon."""
@@ -1100,6 +1211,25 @@ class IdleResourceDaemon:
     def _should_spawn(self, node: NodeStatus, queue_depth: int) -> bool:
         """Decide whether to spawn selfplay on a node."""
         now = time.time()
+
+        # =======================================================================
+        # P2P Node Health Check (December 2025 - Critical Gap Fix)
+        # =======================================================================
+        # Skip nodes that are marked unhealthy by P2P cluster health events
+        unhealthy_nodes = getattr(self, "_unhealthy_nodes", set())
+        if node.node_id in unhealthy_nodes:
+            logger.debug(
+                f"[IdleResourceDaemon] Skipping {node.node_id}: marked unhealthy by P2P"
+            )
+            return False
+
+        # Also check by host if node_id doesn't match
+        if node.host and node.host in unhealthy_nodes:
+            logger.debug(
+                f"[IdleResourceDaemon] Skipping {node.node_id} (host {node.host}): "
+                f"marked unhealthy by P2P"
+            )
+            return False
 
         # =======================================================================
         # Queue Backpressure (December 2025)

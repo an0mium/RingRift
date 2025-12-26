@@ -65,7 +65,7 @@ def safe_transaction(
     try:
         yield conn
         conn.commit()
-    except Exception:
+    except (OSError, RuntimeError, sqlite3.Error):
         conn.rollback()
         raise
     finally:

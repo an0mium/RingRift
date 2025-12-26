@@ -81,7 +81,7 @@ try:  # pragma: no cover
         "hexagonal": _BoardType.HEXAGONAL,
     }
     CANONICAL_RULES_AVAILABLE = True
-except Exception:  # pragma: no cover
+except (ImportError, AttributeError):  # pragma: no cover
     _BOARD_TYPE_TO_ENUM = {}
     _CANON_BOARD_CONFIGS = {}
     _get_canon_victory_threshold = None  # type: ignore[assignment]
@@ -89,7 +89,7 @@ except Exception:  # pragma: no cover
 
 try:  # pragma: no cover
     from app.training.selfplay_config import normalize_engine_mode as _normalize_engine_mode
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     def _normalize_engine_mode(raw_mode: str) -> str:
         return str(raw_mode).strip().lower()
 

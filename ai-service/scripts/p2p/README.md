@@ -16,6 +16,12 @@ scripts/p2p/
 ├── cluster_config.py     # Cluster configuration loading (265 lines)
 ├── client.py             # P2P client for external use (441 lines)
 ├── utils.py              # General utilities (46 lines)
+├── metrics_manager.py    # Metrics recording & history (Dec 26, 2025)
+├── resource_detector.py  # System resource detection (Dec 26, 2025)
+├── handlers/             # HTTP handler mixins
+│   ├── work_queue.py     # Work queue handlers (471 lines)
+│   ├── election.py       # Election handlers (349 lines)
+│   └── ...               # Other handler modules
 └── README.md             # This file
 ```
 
@@ -43,7 +49,17 @@ Extract handlers into `scripts/p2p/handlers/`:
 | `dashboard.py`      | ~2000 | 20      | Pending                            |
 | `api.py`            | ~2500 | 25      | Pending (scattered)                |
 
-**Progress: 29,767 → 27,678 lines (-2,089 lines, ~7.0% reduction)**
+**Progress: 29,767 → 27,522 lines (-2,245 lines, ~7.5% reduction)**
+
+### Utility Extractions (Dec 26, 2025)
+
+| Module                 | Lines | Methods | Status       |
+| ---------------------- | ----- | ------- | ------------ |
+| `metrics_manager.py`   | 268   | 6       | ✅ Extracted |
+| `resource_detector.py` | 340   | 8       | ✅ Extracted |
+| `network_manager.py`   | ~179  | 10      | Pending      |
+
+**Progress: 27,522 → 27,182 lines (-340 lines, ~1.1% additional reduction)**
 
 **Note:** `data_sync.py` handlers skipped - they depend on internal methods (`check_disk_has_capacity`, `_handle_sync_pull_request`) and peer lookup state that would require significant refactoring.
 

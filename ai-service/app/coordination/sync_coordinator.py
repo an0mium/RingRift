@@ -68,10 +68,19 @@ import warnings
 
 # Emit deprecation warning at import time (December 2025)
 warnings.warn(
-    "Importing directly from app.coordination.sync_coordinator is deprecated. "
-    "Use 'from app.coordination import SyncScheduler' or "
-    "'from app.coordination.cluster.sync import SyncScheduler' instead. "
-    "This module will be archived in Q2 2026.",
+    "SyncScheduler is deprecated and will be archived in Q2 2026. "
+    "Use AutoSyncDaemon for automated sync or SyncFacade for manual sync:\n"
+    "\n"
+    "For automated P2P sync:\n"
+    "  from app.coordination import AutoSyncDaemon\n"
+    "  daemon = AutoSyncDaemon()\n"
+    "  await daemon.start()\n"
+    "\n"
+    "For one-time sync operations:\n"
+    "  from app.coordination.sync_facade import sync\n"
+    "  await sync('games', priority='high')\n"
+    "\n"
+    "See SYNC_CONSOLIDATION_PLAN.md for migration guide.",
     DeprecationWarning,
     stacklevel=2,
 )

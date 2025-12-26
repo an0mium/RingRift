@@ -102,7 +102,7 @@ def get_game_count_for_config(
             count = cursor.fetchone()[0]
             conn.close()
             total_games += count
-        except Exception:
+        except (sqlite3.Error, OSError, IndexError):
             pass
 
     return total_games
@@ -202,7 +202,7 @@ def train_single_config(
             "elapsed_seconds": 7200,
             "error": "Timeout after 2 hours",
         }
-    except Exception as e:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
         return {
             "config_key": cfg_key,
             "board": board,
@@ -274,7 +274,7 @@ def run_multiconfig_training(
                     results.append(result)
                     status_str = "OK" if result["success"] else "FAILED"
                     logger.info(f"Completed {cfg_key}: {status_str}")
-                except Exception as e:
+                except (OSError, RuntimeError, subprocess.SubprocessError) as e:
                     logger.error(f"Exception for {cfg_key}: {e}")
                     results.append({
                         "config_key": cfg_key,
@@ -362,7 +362,7 @@ def emit_training_event(report: dict[str, Any]) -> None:
 
         emit_sync("TRAINING_COMPLETED", payload, "multiconfig_nnue_training")
 
-    except Exception as e:
+    except (ImportError, OSError, RuntimeError) as e:
         logger.debug(f"Could not emit training event: {e}")
 
 

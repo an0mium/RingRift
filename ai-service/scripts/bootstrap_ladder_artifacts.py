@@ -339,7 +339,7 @@ def main(argv: list[str]) -> int:
                     try:
                         stable_cpu.write_bytes(cpu_path.read_bytes())
                         cpu_path = stable_cpu
-                    except Exception:
+                    except (OSError, PermissionError):
                         pass
 
             if not _is_nonempty_file(cpu_path):

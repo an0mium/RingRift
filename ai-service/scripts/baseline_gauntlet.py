@@ -86,7 +86,7 @@ def run_game(
 
         try:
             move = ai.select_move(state)
-        except Exception:
+        except (ValueError, RuntimeError, AttributeError):
             # AI error - if model errors, it loses; if baseline errors, model wins
             if current == 1:
                 return 2  # Model loses

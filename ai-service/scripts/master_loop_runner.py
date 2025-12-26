@@ -83,7 +83,7 @@ def detect_node_role() -> str:
             status = json.loads(resp.read().decode())
             if status.get("is_leader"):
                 return "coordinator"
-    except Exception:
+    except (OSError, TimeoutError, json.JSONDecodeError, ValueError):
         pass
 
     # Default to worker

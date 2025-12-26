@@ -257,8 +257,7 @@ class NPZDistributionDaemon:
 
         # Try to subscribe to NPZ_EXPORT_COMPLETE events
         try:
-            from app.coordination.event_router import subscribe
-            from app.coordination.stage_events import StageEvent
+            from app.coordination.event_router import subscribe, StageEvent
 
             # Subscribe to StageEvent.NPZ_EXPORT_COMPLETE for pipeline integration
             subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_exported)

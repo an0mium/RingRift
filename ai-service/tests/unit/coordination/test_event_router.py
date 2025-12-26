@@ -708,11 +708,15 @@ class TestEventEmitters:
 
     @pytest.mark.asyncio
     async def test_emit_selfplay_batch_completed(self):
-        """emit_selfplay_batch_completed should publish correct event."""
+        """emit_selfplay_batch_completed should publish correct event.
+
+        Note: SELFPLAY_BATCH_COMPLETE is normalized to SELFPLAY_COMPLETE.
+        """
         from app.coordination.event_router import emit_selfplay_batch_completed
 
         received = []
-        subscribe("SELFPLAY_BATCH_COMPLETE", lambda e: received.append(e))
+        # Subscribe to canonical name (SELFPLAY_BATCH_COMPLETE → SELFPLAY_COMPLETE)
+        subscribe("SELFPLAY_COMPLETE", lambda e: received.append(e))
 
         with patch("app.coordination.event_router.HAS_DATA_EVENTS", False), \
              patch("app.coordination.event_router.HAS_STAGE_EVENTS", False), \
@@ -819,7 +823,12 @@ class TestDeduplication:
 
     @pytest.mark.asyncio
     async def test_content_based_dedup_identical_events(self):
-        """Identical events should be deduplicated based on content hash."""
+        """Identical events from router are NOT deduplicated (by design).
+
+        Content-based deduplication only applies to non-ROUTER origin events
+        to prevent amplification loops from forwarded events. Router-originated
+        events can legitimately be published multiple times with identical content.
+        """
         with patch("app.coordination.event_router.HAS_DATA_EVENTS", False), \
              patch("app.coordination.event_router.HAS_STAGE_EVENTS", False), \
              patch("app.coordination.event_router.HAS_CROSS_PROCESS", False):
@@ -828,9 +837,9 @@ class TestDeduplication:
                 await publish("DEDUP_TEST", {"key": "same_value"})
 
         router = get_router()
-        # Only 1 should be processed (others deduplicated by content hash)
-        assert router._events_routed.get("DEDUP_TEST", 0) == 1
-        assert router._content_duplicates_prevented == 2
+        # All 3 should be processed (router-origin events not content-deduplicated)
+        assert router._events_routed.get("DEDUP_TEST", 0) == 3
+        assert router._content_duplicates_prevented == 0
 
     @pytest.mark.asyncio
     async def test_content_based_dedup_different_payloads(self):
@@ -850,7 +859,11 @@ class TestDeduplication:
 
     @pytest.mark.asyncio
     async def test_content_hash_ignores_timestamps(self):
-        """Content hash should ignore timestamp fields for deduplication."""
+        """Content hash ignores timestamps but router-origin events aren't deduplicated.
+
+        While content hash computation excludes timestamp fields, router-originated
+        events are not subject to content-based deduplication (only event_id dedup).
+        """
         with patch("app.coordination.event_router.HAS_DATA_EVENTS", False), \
              patch("app.coordination.event_router.HAS_STAGE_EVENTS", False), \
              patch("app.coordination.event_router.HAS_CROSS_PROCESS", False):
@@ -860,9 +873,9 @@ class TestDeduplication:
             await publish("DEDUP_TS_TEST", {"key": "value", "created_at": 12345})
 
         router = get_router()
-        # All should be deduplicated (timestamps ignored in content hash)
-        assert router._events_routed.get("DEDUP_TS_TEST", 0) == 1
-        assert router._content_duplicates_prevented == 2
+        # All 3 processed (router-origin events not content-deduplicated)
+        assert router._events_routed.get("DEDUP_TS_TEST", 0) == 3
+        assert router._content_duplicates_prevented == 0
 
     @pytest.mark.asyncio
     async def test_stats_include_dedup_metrics(self):

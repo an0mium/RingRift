@@ -370,7 +370,7 @@ class EloMonitor:
 
             return (now - last_dt).total_seconds() / 3600
 
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
             return None
 
 

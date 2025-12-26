@@ -53,8 +53,8 @@ def _make_key(args: tuple, kwargs: dict) -> str:
         if len(key_str) > 200:
             return hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
         return key_str
-    except Exception:
-        # Fallback to str representation
+    except (TypeError, AttributeError, ValueError, RecursionError):
+        # Fallback to str representation if args are not hashable/representable
         return str((args, sorted(kwargs.items())))
 
 

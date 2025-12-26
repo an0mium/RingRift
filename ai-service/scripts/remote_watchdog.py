@@ -134,7 +134,7 @@ def get_disk_usage():
         try:
             percent, _, _ = unified_get_disk_usage(str(PROJECT_DIR))
             return f"{percent:.1f}%"
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass  # Fall through to original implementation
 
     # Fallback to original implementation

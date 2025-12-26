@@ -161,7 +161,7 @@ class HotDataPath:
                 with sqlite3.connect(db_path) as conn:
                     cursor = conn.execute("SELECT COUNT(*) FROM games")
                     total += cursor.fetchone()[0]
-            except Exception:
+            except (sqlite3.Error, OSError, IndexError):
                 pass
         return total
 

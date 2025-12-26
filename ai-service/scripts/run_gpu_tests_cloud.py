@@ -147,7 +147,7 @@ def check_host_connectivity(host_name: str, host_config: dict) -> bool:
             timeout=30,
         )
         return result.returncode == 0 and "ok" in result.stdout
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError, TimeoutError) as e:
         print(f"  {host_name}: Connection failed - {e}")
         return False
 
@@ -225,7 +225,7 @@ PYTHONPATH=. python scripts/test_gpu_all.py --{mode} --output-json /tmp/gpu_test
             fetch_result = subprocess.run(fetch_cmd, capture_output=True, text=True, timeout=30)
             if fetch_result.returncode == 0:
                 results["details"] = json.loads(fetch_result.stdout)
-        except Exception:
+        except (subprocess.SubprocessError, OSError, json.JSONDecodeError):
             pass
 
         return results
@@ -233,7 +233,7 @@ PYTHONPATH=. python scripts/test_gpu_all.py --{mode} --output-json /tmp/gpu_test
     except subprocess.TimeoutExpired:
         print(f"  TIMEOUT on {host_name} after 30 minutes")
         return {"status": "timeout", "host": host_name, "passed": False}
-    except Exception as e:
+    except (subprocess.SubprocessError, OSError) as e:
         print(f"  ERROR on {host_name}: {e}")
         return {"status": "error", "host": host_name, "error": str(e), "passed": False}
 

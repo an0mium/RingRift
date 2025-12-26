@@ -100,6 +100,42 @@ class LinearDecaySchedule(TemperatureSchedule):
         return self.initial_temp + progress * (self.final_temp - self.initial_temp)
 
 
+class RobustLinearDecay(TemperatureSchedule):
+    """Linear decay schedule with higher exploration and longer decay period.
+
+    This schedule is designed for more robust exploration throughout the game:
+    - Higher initial temperature (1.2) for better move diversity
+    - Higher final temperature (0.5) to maintain exploration even in endgame
+    - Longer decay period (10-80 moves) for sustained exploration
+
+    Use this for training runs where you want richer, more diverse data.
+    """
+
+    def __init__(
+        self,
+        initial_temp: float = 1.2,
+        final_temp: float = 0.5,
+        decay_start: int = 10,
+        decay_end: int = 80
+    ):
+        self.initial_temp = initial_temp
+        self.final_temp = final_temp
+        self.decay_start = decay_start
+        self.decay_end = decay_end
+
+    def get_temperature(self, move_number: int, game_state: Any | None = None,
+                        training_progress: float | None = None) -> float:
+        if move_number <= self.decay_start:
+            return self.initial_temp
+
+        if move_number >= self.decay_end:
+            return self.final_temp
+
+        # Linear interpolation
+        progress = (move_number - self.decay_start) / (self.decay_end - self.decay_start)
+        return self.initial_temp + progress * (self.final_temp - self.initial_temp)
+
+
 class ExponentialDecaySchedule(TemperatureSchedule):
     """Exponential decay schedule."""
 
@@ -755,6 +791,13 @@ def create_scheduler(
             final_temp=0.1,
             decay_start_move=15,
             decay_end_move=60
+        ),
+        "robust": TemperatureConfig(
+            schedule_type=ScheduleType.LINEAR_DECAY,
+            initial_temp=1.2,
+            final_temp=0.5,
+            decay_start_move=10,
+            decay_end_move=80
         ),
         "alphazero": TemperatureConfig(
             schedule_type=ScheduleType.STEP,

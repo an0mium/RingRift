@@ -31,7 +31,7 @@ def systemd_notify_watchdog():
     if HAS_SYSTEMD and SYSTEMD_NOTIFIER:
         try:
             SYSTEMD_NOTIFIER.notify("WATCHDOG=1")
-        except Exception:
+        except (OSError, RuntimeError):
             pass  # Ignore errors - we may not be running under systemd
 
 

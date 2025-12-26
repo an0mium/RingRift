@@ -79,7 +79,7 @@ def _get_ladder_config(args: argparse.Namespace):
         board_type = BOARD_TYPE_BY_ARG[args.board]
         difficulty = int(args.tier[1:])
         return get_ladder_tier_config(difficulty, board_type, args.num_players)
-    except Exception:
+    except (KeyError, ValueError, TypeError):
         return None
 
 

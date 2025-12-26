@@ -37,6 +37,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from app.core.async_context import safe_create_task
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -280,7 +282,10 @@ class EphemeralSyncDaemon:
         await self._discover_sync_targets()
 
         # Start poll loop
-        self._poll_task = asyncio.create_task(self._poll_loop())
+        self._poll_task = safe_create_task(
+            self._poll_loop(),
+            name="ephemeral_sync_poll",
+        )
 
         logger.info(
             f"EphemeralSyncDaemon started: "
@@ -306,6 +311,22 @@ class EphemeralSyncDaemon:
 
         logger.info("EphemeralSyncDaemon stopped")
 
+    async def sync_now(self) -> int:
+        """Trigger an immediate sync/push.
+
+        Dec 2025: Added to expose sync functionality to sync_facade.py.
+
+        Returns:
+            Number of games pushed.
+        """
+        if not self._running:
+            logger.warning("[EphemeralSyncDaemon] sync_now() called but daemon not running")
+            return 0
+
+        # Force push any pending data
+        await self._push_to_targets(force=True)
+        return self._stats.games_pushed
+
     def _setup_termination_handlers(self) -> None:
         """Setup signal handlers for termination."""
         def handle_termination(sig, frame):
@@ -314,8 +335,11 @@ class EphemeralSyncDaemon:
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    # Schedule the sync
-                    asyncio.create_task(self._handle_termination())
+                    # Schedule the sync with error handling
+                    safe_create_task(
+                        self._handle_termination(),
+                        name="ephemeral_termination_sync",
+                    )
                 else:
                     loop.run_until_complete(self._handle_termination())
             except RuntimeError:
@@ -488,8 +512,11 @@ class EphemeralSyncDaemon:
                         f"Write-through timeout for game {game_id} "
                         f"(timeout={self.config.write_through_timeout_seconds}s)"
                     )
-                    # Fall back to async push
-                    asyncio.create_task(self._push_to_targets())
+                    # Fall back to async push with error handling
+                    safe_create_task(
+                        self._push_to_targets(),
+                        name="ephemeral_fallback_push",
+                    )
                     return False
             else:
                 # Legacy async push (fire-and-forget)

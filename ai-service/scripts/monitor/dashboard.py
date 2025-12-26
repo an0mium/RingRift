@@ -50,7 +50,7 @@ def get_node_status(host: str, port: int = 8770, timeout: int = 5) -> dict | Non
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
-    except Exception:
+    except (OSError, TimeoutError, urllib.error.URLError, json.JSONDecodeError):
         return None
 
 

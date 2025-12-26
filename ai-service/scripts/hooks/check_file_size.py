@@ -34,7 +34,7 @@ def count_lines(filepath: Path) -> int:
         with open(filepath, encoding="utf-8") as f:
             lines = f.readlines()
         return len(lines)
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return 0
 
 

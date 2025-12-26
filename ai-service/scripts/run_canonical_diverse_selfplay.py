@@ -103,7 +103,7 @@ def get_current_game_counts() -> dict[str, int]:
                 count = cursor.fetchone()[0]
                 conn.close()
                 counts[config_key] = count
-            except Exception:
+            except (OSError, RuntimeError):
                 counts[config_key] = 0
         else:
             counts[config_key] = 0
@@ -204,7 +204,7 @@ def run_selfplay_batch(
         except subprocess.TimeoutExpired:
             results[matchup_key] = 0
             print(f"    {matchup_key}: TIMEOUT")
-        except Exception as e:
+        except (OSError, RuntimeError, subprocess.SubprocessError) as e:
             results[matchup_key] = 0
             print(f"    {matchup_key}: ERROR - {e}")
 

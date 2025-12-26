@@ -127,7 +127,7 @@ def analyze_game(game_data: dict, game_file: str, game_index: int) -> dict:
 
         try:
             state = GameEngine.apply_move(state, matched_move)
-        except Exception:
+        except (ValueError, RuntimeError):
             break
 
     return results

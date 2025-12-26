@@ -586,7 +586,7 @@ def check_port_open(
         result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
-    except Exception:
+    except (OSError, socket.error):
         return False
 
 

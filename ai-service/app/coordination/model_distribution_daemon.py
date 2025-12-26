@@ -279,7 +279,7 @@ class ModelDistributionDaemon:
 
             # Also subscribe to PROMOTION_COMPLETE for stage events compatibility
             try:
-                from app.coordination.stage_events import StageEvent
+                from app.coordination.event_router import StageEvent
                 subscribe(StageEvent.PROMOTION_COMPLETE, self._on_model_promoted)
                 logger.info("Also subscribed to PROMOTION_COMPLETE stage events")
             except ImportError:

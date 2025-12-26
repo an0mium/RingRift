@@ -73,6 +73,7 @@ class SearchConfig:
     temperature: float = 1.0
     temperature_threshold: int = 30  # Switch to greedy after this move
     c_puct: float = 1.5
+    use_root_noise: bool = True  # Enable Dirichlet noise at root (AlphaZero-style)
     dirichlet_alpha: float = 0.3
     dirichlet_epsilon: float = 0.25
 

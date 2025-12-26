@@ -199,7 +199,7 @@ class DaemonType(Enum):
     UTILIZATION_OPTIMIZER = "utilization_optimizer"
 
     # Lambda idle shutdown (December 2025) - terminates idle Lambda nodes to save costs
-    # NOTE: Lambda account suspended pending support ticket resolution
+    # NOTE: Lambda account suspended pending support ticket resolution - keep code for restoration
     LAMBDA_IDLE = "lambda_idle"
 
     # Cluster watchdog (December 2025) - self-healing cluster utilization monitor

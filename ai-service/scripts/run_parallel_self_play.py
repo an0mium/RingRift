@@ -281,7 +281,7 @@ def worker_process(task: WorkerTask) -> list[GameResult]:
                     f"time={elapsed:.2f}s"
                 )
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError) as e:
             worker_logger.error(
                 f"Game {game_idx} failed with error: {e}",
                 exc_info=True,
@@ -459,7 +459,7 @@ def run_parallel_self_play(
         try:
             total_memory_config = MemoryConfig.from_env()
             per_worker_memory_gb = divide_memory_budget(total_memory_config.max_memory_gb, num_workers)
-        except Exception:
+        except (OSError, ValueError, KeyError):
             # Default to 1GB per worker if no config available
             per_worker_memory_gb = 1.0
 
@@ -515,7 +515,7 @@ def run_parallel_self_play(
                 )
 
                 logger.info(f"Worker {task.worker_id} completed: " f"{games_completed} games")
-            except Exception as e:
+            except (ValueError, RuntimeError, OSError) as e:
                 failed_workers += 1
                 logger.error(
                     f"Worker {task.worker_id} failed: {e}",

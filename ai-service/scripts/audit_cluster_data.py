@@ -464,7 +464,7 @@ def check_manifest_registration(
                     )
                     count = cursor.fetchone()[0]
                     db.in_manifest = count > 0
-            except Exception:
+            except (sqlite3.Error, OSError, IndexError):
                 db.in_manifest = False
 
             if not db.in_manifest and db.game_count > 0:

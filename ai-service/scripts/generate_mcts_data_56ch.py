@@ -85,7 +85,7 @@ def generate_data(
             # Extract features
             try:
                 board_feat, global_feat = nn._extract_features(state)
-            except Exception:
+            except (ValueError, RuntimeError, AttributeError):
                 move = mcts_ai.select_move(state)
                 if move:
                     state = engine.apply_move(state, move)

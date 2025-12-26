@@ -140,7 +140,7 @@ def migrate_model(
         if existing:
             logger.debug(f"Already registered: {path.name}")
             return False
-    except Exception:
+    except (OSError, ValueError, KeyError):
         pass
 
     # Infer configuration

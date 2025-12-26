@@ -423,7 +423,7 @@ def generate_vectors(
                 try:
                     move_obj = moves[k - 1]
                     canonical_move = json.loads(move_obj.model_dump_json(by_alias=True))
-                except Exception:
+                except (AttributeError, json.JSONDecodeError, TypeError):
                     pass
 
             # Build fixture

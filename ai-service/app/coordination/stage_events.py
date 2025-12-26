@@ -72,6 +72,7 @@ class StageEvent(Enum):
     # Data processing stages
     SYNC_COMPLETE = "sync_complete"
     PARITY_VALIDATION_COMPLETE = "parity_validation_complete"
+    NPZ_EXPORT_STARTED = "npz_export_started"
     NPZ_EXPORT_COMPLETE = "npz_export_complete"
 
     # Training stages

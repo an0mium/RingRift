@@ -69,7 +69,7 @@ def get_config_status(db_path: Path) -> list[ConfigStatus]:
                 row = cur.fetchone()
                 if row:
                     current_elo, games_played = row
-            except Exception:
+            except (sqlite3.Error, OSError):
                 pass
 
         target = get_elo_target(config_key)

@@ -191,7 +191,7 @@ def scan_model_pool(
                     with open(meta_path) as f:
                         meta = json.load(f)
                         elo_estimate = meta.get("elo_rating") or meta.get("elo")
-                except Exception:
+                except (OSError, json.JSONDecodeError, KeyError):
                     pass
 
             pool.append(ModelPoolEntry(
@@ -366,7 +366,7 @@ class Telemetry:
         try:
             with open(self.output_path, "w") as f:
                 json.dump(metrics, f, indent=2)
-        except Exception as e:
+        except (OSError, TypeError) as e:
             logger.warning(f"Failed to write telemetry: {e}")
 
     def get_final_stats(self) -> dict[str, Any]:
@@ -598,7 +598,7 @@ def extract_training_samples(
         # Get the move that was played (if available)
         move_json = None
         if i < len(move_history):
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(AttributeError, TypeError, ValueError):
                 move_json = move_history[i].model_dump_json()
 
         sample = TrainingSample(
@@ -732,7 +732,7 @@ def save_checkpoint(
         with open(config.checkpoint_path, "w") as f:
             json.dump(checkpoint, f)
         logger.info(f"Checkpoint saved: {games_completed} games completed")
-    except Exception as e:
+    except (OSError, TypeError) as e:
         logger.warning(f"Failed to save checkpoint: {e}")
 
 
@@ -744,7 +744,7 @@ def load_checkpoint(config: WorkerConfig) -> dict[str, Any] | None:
     try:
         with open(config.checkpoint_path) as f:
             return json.load(f)
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.warning(f"Failed to load checkpoint: {e}")
         return None
 
@@ -861,7 +861,7 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
                 move_count=int(game_info.get("move_count", 0) or 0),
                 samples_count=len(samples),
             )
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             logger.debug(f"Telemetry record failed: {e}")
 
         # Write samples to storage

@@ -769,6 +769,9 @@ class SelfplayScheduler:
         Short jobs (square8, hex8) are boosted for ephemeral nodes.
         Long jobs (square19, hexagonal) are reduced for ephemeral nodes.
 
+        December 2025 - P2P Integration: Excludes unhealthy nodes and applies
+        cluster health factor to allocation.
+
         Args:
             config_key: Configuration key
             total_games: Total games to allocate
@@ -776,9 +779,26 @@ class SelfplayScheduler:
         Returns:
             Dict mapping node_id to num_games
         """
-        # Get available nodes sorted by capacity
+        # Get unhealthy nodes from P2P health tracking
+        unhealthy_nodes = getattr(self, "_unhealthy_nodes", set())
+
+        # Apply cluster health factor to total games
+        cluster_health = getattr(self, "_cluster_health_factor", 1.0)
+        if cluster_health < 1.0:
+            adjusted_games = max(MIN_GAMES_PER_ALLOCATION, int(total_games * cluster_health))
+            logger.debug(
+                f"[SelfplayScheduler] Cluster health {cluster_health:.2f} reducing allocation: "
+                f"{total_games} → {adjusted_games} games"
+            )
+            total_games = adjusted_games
+
+        # Get available nodes sorted by capacity, excluding unhealthy nodes
         available_nodes = sorted(
-            [n for n in self._node_capabilities.values() if n.available_capacity > 0.1],
+            [
+                n for n in self._node_capabilities.values()
+                if n.available_capacity > 0.1
+                and n.node_id not in unhealthy_nodes  # Exclude unhealthy nodes
+            ],
             key=lambda n: (-n.available_capacity, n.data_lag_seconds),
         )
 
@@ -959,8 +979,25 @@ class SelfplayScheduler:
                 # Wire orphaned event: Subscribe to LOW_QUALITY_DATA_WARNING for selfplay throttling
                 if hasattr(DataEventType, 'LOW_QUALITY_DATA_WARNING'):
                     bus.subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, self._on_low_quality_warning)
+
+                # December 2025: Subscribe to P2P cluster health events (Critical Gap Fix)
+                # Prevents allocating selfplay to unhealthy/failing nodes
+                if hasattr(DataEventType, 'NODE_UNHEALTHY'):
+                    bus.subscribe(DataEventType.NODE_UNHEALTHY, self._on_node_unhealthy)
+                if hasattr(DataEventType, 'NODE_RECOVERED'):
+                    bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
+                if hasattr(DataEventType, 'P2P_NODE_DEAD'):
+                    bus.subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_unhealthy)
+                if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
+                    bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_cluster_unhealthy)
+                if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
+                    bus.subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy)
+
                 self._subscribed = True
-                logger.info("[SelfplayScheduler] Subscribed to pipeline events (including EXPLORATION_BOOST, LOW_QUALITY_DATA_WARNING)")
+                logger.info(
+                    "[SelfplayScheduler] Subscribed to pipeline events "
+                    "(including P2P health: NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_*)"
+                )
 
         except Exception as e:
             logger.warning(f"[SelfplayScheduler] Failed to subscribe to events (reactive scheduling disabled): {e}")
@@ -1531,6 +1568,105 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling low quality warning: {e}")
+
+    # =========================================================================
+    # P2P Cluster Health Event Handlers (December 2025 - Critical Gap Fix)
+    # =========================================================================
+
+    def _on_node_unhealthy(self, event: Any) -> None:
+        """Handle NODE_UNHEALTHY or P2P_NODE_DEAD - mark node as unavailable.
+
+        December 2025: Prevents allocating selfplay to failing/unhealthy nodes.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            node_id = payload.get("node_id", "")
+            reason = payload.get("reason", "unknown")
+
+            if node_id:
+                if not hasattr(self, "_unhealthy_nodes"):
+                    self._unhealthy_nodes: set[str] = set()
+
+                self._unhealthy_nodes.add(node_id)
+
+                # Also mark node as unavailable in capabilities if tracked
+                if node_id in self._node_capabilities:
+                    self._node_capabilities[node_id].current_load = 1.0  # Mark as fully loaded
+
+                logger.warning(
+                    f"[SelfplayScheduler] Node {node_id} marked unhealthy: {reason}. "
+                    f"Will not allocate selfplay to this node."
+                )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling node unhealthy: {e}")
+
+    def _on_node_recovered(self, event: Any) -> None:
+        """Handle NODE_RECOVERED - re-enable node for allocation.
+
+        December 2025: Restores node availability after recovery.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            node_id = payload.get("node_id", "")
+
+            if node_id:
+                unhealthy_nodes = getattr(self, "_unhealthy_nodes", set())
+                if node_id in unhealthy_nodes:
+                    self._unhealthy_nodes.discard(node_id)
+
+                    logger.info(
+                        f"[SelfplayScheduler] Node {node_id} recovered. "
+                        f"Re-enabled for selfplay allocation."
+                    )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling node recovered: {e}")
+
+    def _on_cluster_unhealthy(self, event: Any) -> None:
+        """Handle P2P_CLUSTER_UNHEALTHY - reduce allocation rate.
+
+        December 2025: When cluster health degrades, reduce overall selfplay
+        allocation to avoid overwhelming healthy nodes.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            healthy_nodes = payload.get("healthy_nodes", 0)
+            total_nodes = payload.get("total_nodes", 0)
+
+            if not hasattr(self, "_cluster_health_factor"):
+                self._cluster_health_factor = 1.0
+
+            if total_nodes > 0:
+                self._cluster_health_factor = max(0.3, healthy_nodes / total_nodes)
+            else:
+                self._cluster_health_factor = 0.5
+
+            logger.warning(
+                f"[SelfplayScheduler] Cluster unhealthy: {healthy_nodes}/{total_nodes}. "
+                f"Reducing allocation to {self._cluster_health_factor:.0%}."
+            )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling cluster unhealthy: {e}")
+
+    def _on_cluster_healthy(self, event: Any) -> None:
+        """Handle P2P_CLUSTER_HEALTHY - restore normal allocation.
+
+        December 2025: Restores full allocation when cluster recovers.
+        """
+        try:
+            logger.info("[SelfplayScheduler] Cluster healthy. Restoring normal allocation.")
+
+            if hasattr(self, "_cluster_health_factor"):
+                self._cluster_health_factor = 1.0
+
+            # Clear unhealthy node tracking
+            if hasattr(self, "_unhealthy_nodes"):
+                self._unhealthy_nodes.clear()
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling cluster healthy: {e}")
 
     # =========================================================================
     # Status & Metrics

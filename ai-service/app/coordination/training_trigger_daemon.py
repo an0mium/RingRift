@@ -245,9 +245,9 @@ class TrainingTriggerDaemon:
     async def _subscribe_to_events(self) -> None:
         """Subscribe to relevant events."""
         try:
-            from app.coordination.stage_events import StageEvent, get_event_bus
+            from app.coordination.event_router import StageEvent, get_stage_event_bus
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             unsub = bus.subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_export_complete)
             self._event_subscriptions.append(unsub)
             logger.info("[TrainingTriggerDaemon] Subscribed to NPZ_EXPORT_COMPLETE events")
@@ -840,15 +840,15 @@ class TrainingTriggerDaemon:
                 breaker.record_failure(config_key)
 
         try:
-            from app.coordination.stage_events import (
+            from app.coordination.event_router import (
                 StageEvent,
                 StageCompletionResult,
-                get_event_bus,
+                get_stage_event_bus,
             )
 
             state = self._training_states.get(config_key)
 
-            bus = get_event_bus()
+            bus = get_stage_event_bus()
             await bus.emit(
                 StageCompletionResult(
                     event=StageEvent.TRAINING_COMPLETE if success else StageEvent.TRAINING_FAILED,

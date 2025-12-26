@@ -1,5 +1,21 @@
 """Unified Sync Orchestrator - Single entry point for all sync operations (December 2025).
 
+.. warning::
+    SyncOrchestrator may be deprecated in favor of SyncFacade.
+
+    Consider using SyncFacade for simpler, unified sync operations::
+
+        from app.coordination.sync_facade import sync
+
+        # Sync all data types
+        await sync("all")
+
+        # Sync specific data with routing
+        await sync("games", board_type="hex8", priority="high")
+
+    If you need the full orchestrator functionality, continue using this module.
+    Check SYNC_CONSOLIDATION_PLAN.md for guidance.
+
 This module provides a unified facade for coordinating all sync-related operations:
 - Data sync (games, training data)
 - Model sync (P2P model distribution)
@@ -14,8 +30,8 @@ Instead of managing 5+ separate sync components, use SyncOrchestrator for:
 
 Components wrapped:
 - SyncCoordinator (app/distributed/sync_coordinator.py): Data sync execution
-- SyncScheduler (app/coordination/sync_coordinator.py): Sync scheduling
-- UnifiedDataSync (app/distributed/unified_data_sync.py): Unified data sync
+- SyncScheduler (app/coordination/sync_coordinator.py): Sync scheduling (DEPRECATED)
+- UnifiedDataSync (app/distributed/unified_data_sync.py): Unified data sync (DEPRECATED)
 - EloSyncManager (app/tournament/elo_sync_manager.py): Elo rating sync
 - RegistrySyncManager (app/training/registry_sync_manager.py): Registry sync
 
@@ -47,8 +63,21 @@ import asyncio
 import contextlib
 import logging
 import time
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
+
+# Emit pending deprecation warning at import time
+warnings.warn(
+    "SyncOrchestrator may be deprecated in favor of SyncFacade. "
+    "For simpler sync operations, consider:\n"
+    "  from app.coordination.sync_facade import sync\n"
+    "  await sync('all')  # Syncs all data types\n"
+    "If you need the full orchestrator, continue using this module. "
+    "See SYNC_CONSOLIDATION_PLAN.md for guidance.",
+    PendingDeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

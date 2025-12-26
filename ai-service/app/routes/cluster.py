@@ -111,7 +111,7 @@ def _get_p2p_status() -> dict[str, Any] | None:
         url = "http://localhost:8770/status"
         with urllib.request.urlopen(url, timeout=2) as response:
             return json.loads(response.read().decode())
-    except Exception:
+    except (OSError, ValueError, json.JSONDecodeError, TimeoutError):
         return None
 
 

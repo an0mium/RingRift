@@ -7730,6 +7730,8 @@ class P2POrchestrator(
                 "disk_percent": self.self_info.disk_percent,
                 "memory_percent": self.self_info.memory_percent,
                 "cpu_percent": self.self_info.cpu_percent,
+                "gpu_percent": self.self_info.gpu_percent,
+                "gpu_memory_percent": self.self_info.gpu_memory_percent,
                 "selfplay_jobs": self.self_info.selfplay_jobs,
                 "training_jobs": self.self_info.training_jobs,
                 # Cluster health for alerting

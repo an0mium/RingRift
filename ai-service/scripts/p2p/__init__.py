@@ -85,6 +85,18 @@ from .utils import (
     systemd_notify_ready,
 )
 
+# Re-export metrics utilities (Dec 26, 2025)
+from .metrics_manager import (
+    MetricsManager,
+    MetricsManagerMixin,
+)
+
+# Re-export resource detection utilities (Dec 26, 2025)
+from .resource_detector import (
+    ResourceDetector,
+    ResourceDetectorMixin,
+)
+
 # Re-export client utilities
 from .client import (
     P2PClient,
@@ -99,6 +111,12 @@ from .client import (
 )
 
 __all__ = [
+    # Metrics (Dec 26, 2025)
+    'MetricsManager',
+    'MetricsManagerMixin',
+    # Resource detection (Dec 26, 2025)
+    'ResourceDetector',
+    'ResourceDetectorMixin',
     # Constants
     'DEFAULT_PORT',
     'DISK_CRITICAL_THRESHOLD',

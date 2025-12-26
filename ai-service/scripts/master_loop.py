@@ -114,6 +114,9 @@ MAX_DATA_STALENESS_HOURS = 4.0  # Trigger sync if data older than this
 STATE_DB_PATH = Path(__file__).parent.parent / "data" / "coordination" / "master_loop_state.db"
 STATE_SAVE_INTERVAL_SECONDS = 300  # Save state every 5 minutes
 
+# PID file for master loop detection (December 2025)
+PID_FILE_PATH = Path(__file__).parent.parent / "data" / "coordination" / "master_loop.pid"
+
 
 @dataclass
 class ConfigState:
@@ -379,6 +382,55 @@ class MasterLoopController:
         except Exception as e:
             logger.debug(f"[MasterLoop] Failed to update heartbeat: {e}")
 
+    def _create_pid_file(self) -> None:
+        """Create PID file for master loop detection (December 2025)."""
+        try:
+            PID_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(PID_FILE_PATH, "w") as f:
+                f.write(str(os.getpid()))
+            logger.debug(f"[MasterLoop] Created PID file: {PID_FILE_PATH}")
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Failed to create PID file: {e}")
+
+    def _remove_pid_file(self) -> None:
+        """Remove PID file on shutdown (December 2025)."""
+        try:
+            if PID_FILE_PATH.exists():
+                PID_FILE_PATH.unlink()
+                logger.debug(f"[MasterLoop] Removed PID file: {PID_FILE_PATH}")
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Failed to remove PID file: {e}")
+
+    @staticmethod
+    def is_running(pid_file: Path | None = None) -> bool:
+        """Check if master loop is running by checking PID file.
+
+        Args:
+            pid_file: Path to PID file (defaults to PID_FILE_PATH)
+
+        Returns:
+            True if master loop process is active, False otherwise
+        """
+        pid_file = pid_file or PID_FILE_PATH
+
+        if not pid_file.exists():
+            return False
+
+        try:
+            with open(pid_file, "r") as f:
+                pid = int(f.read().strip())
+
+            # Check if process with this PID exists
+            try:
+                os.kill(pid, 0)  # Signal 0 doesn't kill, just checks existence
+                return True
+            except OSError:
+                # Process doesn't exist, remove stale PID file
+                pid_file.unlink()
+                return False
+        except (ValueError, IOError, OSError):
+            return False
+
     @staticmethod
     def check_health(db_path: Path | None = None, max_age_seconds: float = 120.0) -> dict[str, Any]:
         """Check if master loop is healthy by reading heartbeat.
@@ -426,6 +478,10 @@ class MasterLoopController:
             return
 
         self._running = True
+
+        # Create PID file (December 2025)
+        self._create_pid_file()
+
         logger.info(f"[MasterLoop] Starting with {len(self.active_configs)} configs")
         logger.info(
             f"[MasterLoop] Dry run: {self.dry_run}, Skip daemons: {self.skip_daemons}, "
@@ -475,6 +531,9 @@ class MasterLoopController:
 
         # Mark heartbeat as stopped (Dec 2025)
         self._update_heartbeat("stopped")
+
+        # Remove PID file (December 2025)
+        self._remove_pid_file()
 
         # Stop daemons
         if not self.skip_daemons and self._daemon_manager is not None:

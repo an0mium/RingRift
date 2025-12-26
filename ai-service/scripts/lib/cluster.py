@@ -809,7 +809,7 @@ class ClusterAutomation:
             ) as resp:
                 if resp.status == 200:
                     return "running"
-        except Exception:
+        except (OSError, TimeoutError, urllib.error.URLError):
             pass
         return "stopped"
 

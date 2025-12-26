@@ -295,7 +295,7 @@ def run_regression_test(
                             break
                     else:
                         break
-            except Exception:
+            except (ValueError, RuntimeError, AttributeError):
                 break
 
             move_count += 1

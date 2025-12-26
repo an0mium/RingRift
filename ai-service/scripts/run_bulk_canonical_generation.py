@@ -92,7 +92,7 @@ def get_db_game_count(db_path: Path, num_players: int | None = None) -> int:
         count = cursor.fetchone()[0]
         conn.close()
         return count
-    except Exception:
+    except (OSError, RuntimeError):
         return 0
 
 
@@ -201,7 +201,7 @@ def run_selfplay_for_config(
             "success": False,
             "error": "Timeout after 1 hour",
         }
-    except Exception as e:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
         return {
             "config_key": cfg_key,
             "board": board,
@@ -258,7 +258,7 @@ def run_bulk_generation(
                         f"Completed {cfg_key}: {status_str} "
                         f"({result.get('games_in_db', 0)} total games)"
                     )
-                except Exception as e:
+                except (OSError, RuntimeError, subprocess.SubprocessError) as e:
                     logger.error(f"Exception for {cfg_key}: {e}")
                     results.append({
                         "config_key": cfg_key,

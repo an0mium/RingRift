@@ -176,7 +176,7 @@ class FastGeometry:
         # Square19: center 3x3
         self._center_square19 = frozenset(f"{x},{y}" for x in [8, 9, 10] for y in [8, 9, 10])
 
-        # Hex: center hexagon (distance 0-2 from origin)
+        # Hex (HEXAGONAL): center hexagon (distance 0-2 from origin)
         hex_center: set[str] = set()
         for x in range(-2, 3):
             for y in range(-2, 3):
@@ -184,6 +184,15 @@ class FastGeometry:
                 if abs(x) <= 2 and abs(y) <= 2 and abs(z) <= 2:
                     hex_center.add(f"{x},{y},{z}")
         self._center_hex = frozenset(hex_center)
+
+        # HEX8: center hexagon (distance 0-1 from origin for smaller board)
+        hex8_center: set[str] = set()
+        for x in range(-1, 2):
+            for y in range(-1, 2):
+                z = -x - y
+                if abs(x) <= 1 and abs(y) <= 1 and abs(z) <= 1:
+                    hex8_center.add(f"{x},{y},{z}")
+        self._center_hex8 = frozenset(hex8_center)
 
     def _build_coords_tables(self) -> None:
         """Pre-compute key -> coordinates mappings to avoid string parsing."""
@@ -282,8 +291,10 @@ class FastGeometry:
             return self._all_keys_square8
         elif board_type == BoardType.SQUARE19:
             return self._all_keys_square19
-        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        elif board_type == BoardType.HEXAGONAL:
             return self._all_keys_hex
+        elif board_type == BoardType.HEX8:
+            return self._all_keys_hex8
         return []
 
     def get_center_positions(self, board_type: BoardType) -> frozenset[str]:
@@ -299,8 +310,10 @@ class FastGeometry:
             return self._center_square8
         elif board_type == BoardType.SQUARE19:
             return self._center_square19
-        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        elif board_type == BoardType.HEXAGONAL:
             return self._center_hex
+        elif board_type == BoardType.HEX8:
+            return self._center_hex8
         return frozenset()
 
     def is_within_bounds_tuple(
@@ -323,13 +336,21 @@ class FastGeometry:
             return 0 <= x < 8 and 0 <= y < 8
         elif board_type == BoardType.SQUARE19:
             return 0 <= x < 19 and 0 <= y < 19
-        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        elif board_type == BoardType.HEXAGONAL:
             if z is None:
                 z = -x - y
             return (
                 abs(x) <= self.HEX_RADIUS
                 and abs(y) <= self.HEX_RADIUS
                 and abs(z) <= self.HEX_RADIUS
+            )
+        elif board_type == BoardType.HEX8:
+            if z is None:
+                z = -x - y
+            return (
+                abs(x) <= self.HEX8_RADIUS
+                and abs(y) <= self.HEX8_RADIUS
+                and abs(z) <= self.HEX8_RADIUS
             )
         return False
 
@@ -390,8 +411,10 @@ class FastGeometry:
             return self._coords_square8.get(key, (0, 0, None))
         elif board_type == BoardType.SQUARE19:
             return self._coords_square19.get(key, (0, 0, None))
-        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        elif board_type == BoardType.HEXAGONAL:
             return self._coords_hex.get(key, (0, 0, 0))
+        elif board_type == BoardType.HEX8:
+            return self._coords_hex8.get(key, (0, 0, 0))
         return (0, 0, None)
 
     def offset_key_fast(
@@ -420,8 +443,10 @@ class FastGeometry:
             return self._offset_square8.get(lookup_key)
         elif board_type == BoardType.SQUARE19:
             return self._offset_square19.get(lookup_key)
-        elif board_type in (BoardType.HEXAGONAL, BoardType.HEX8):
+        elif board_type == BoardType.HEXAGONAL:
             return self._offset_hex.get(lookup_key)
+        elif board_type == BoardType.HEX8:
+            return self._offset_hex8.get(lookup_key)
         return None
 
     def offset_key(

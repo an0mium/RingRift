@@ -427,6 +427,7 @@ class DaemonManager:
         )
 
         # Lambda idle shutdown (December 2025) - terminates idle Lambda nodes to save costs
+        # NOTE: Lambda account suspended pending support ticket - keep for restoration
         self.register_factory(
             DaemonType.LAMBDA_IDLE,
             self._create_lambda_idle,
@@ -803,6 +804,18 @@ class DaemonManager:
         Returns:
             Dict mapping daemon type to start success
         """
+        # Check if master loop is running (December 2025)
+        # Warn user if starting daemons outside of master loop
+        try:
+            from app.coordination.master_loop_guard import check_or_warn
+
+            if not check_or_warn("daemon management"):
+                logger.warning(
+                    "[DaemonManager] For full automation, use: python scripts/master_loop.py"
+                )
+        except ImportError:
+            pass  # master_loop_guard not available
+
         results: dict[DaemonType, bool] = {}
         types_to_start = types or list(self._factories.keys())
 
@@ -2238,7 +2251,7 @@ class DaemonManager:
 
         Automatically triggers NPZ export when game thresholds are met.
         Subscribes to SELFPLAY_COMPLETE events and triggers export when
-        accumulated games exceed threshold (default: 500 games).
+        accumulated games exceed threshold (default: 100 games).
 
         Emits NPZ_EXPORT_COMPLETE events for downstream consumers.
         """
@@ -2753,6 +2766,7 @@ class DaemonManager:
         This daemon should only run on the coordinator node.
 
         NOTE: Lambda account currently suspended pending support ticket resolution.
+              Keep this code for restoration when account is reactivated.
         """
         try:
             from app.coordination.lambda_idle_daemon import (
@@ -2865,7 +2879,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.JOB_SCHEDULER,  # Phase 3: Centralized job scheduling with PID-based allocation
         DaemonType.IDLE_RESOURCE,  # Phase 20: Monitor idle GPUs and spawn selfplay
         DaemonType.NODE_RECOVERY,  # Phase 21: Auto-recover terminated nodes
-        DaemonType.LAMBDA_IDLE,  # Dec 2025: Auto-terminate idle Lambda nodes for cost savings
+        DaemonType.LAMBDA_IDLE,  # Dec 2025: Auto-terminate idle Lambda nodes (suspended - keep for restoration)
         DaemonType.QUEUE_POPULATOR,  # Phase 4: Auto-populate work queue with jobs
         DaemonType.CURRICULUM_INTEGRATION,  # Bridges feedback loops for self-improvement
         DaemonType.AUTO_EXPORT,  # Auto-export NPZ when game threshold met

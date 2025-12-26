@@ -142,7 +142,7 @@ class NodeConfig:
             result = sock.connect_ex((self.ssh_host, self.ssh_port))
             sock.close()
             return result == 0
-        except Exception:
+        except (OSError, socket.error):
             return False
 
     def get_ssh_command(self, command: str, timeout: int = 30) -> list[str]:

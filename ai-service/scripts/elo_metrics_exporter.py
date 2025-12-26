@@ -396,7 +396,7 @@ def update_metrics():
     if HAS_RESOURCE_GUARD and update_resource_metrics is not None:
         try:
             update_resource_metrics()
-        except Exception:
+        except (OSError, RuntimeError):
             pass  # Silently ignore resource metric failures
 
 

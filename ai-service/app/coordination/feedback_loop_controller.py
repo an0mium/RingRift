@@ -235,10 +235,30 @@ class FeedbackLoopController:
                 bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
                 event_count += 1
 
+            # Dec 2025: Subscribe to DAEMON_STATUS_CHANGED for health monitoring
+            if hasattr(DataEventType, 'DAEMON_STATUS_CHANGED'):
+                bus.subscribe(DataEventType.DAEMON_STATUS_CHANGED, self._on_daemon_status_changed)
+                event_count += 1
+
+            # Dec 2025: Subscribe to P2P_CLUSTER_UNHEALTHY for cluster health feedback
+            if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
+                bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_p2p_cluster_unhealthy)
+                event_count += 1
+
+            # Dec 2025: Subscribe to TRAINING_ROLLBACK_NEEDED for rollback coordination
+            if hasattr(DataEventType, 'TRAINING_ROLLBACK_NEEDED'):
+                bus.subscribe(DataEventType.TRAINING_ROLLBACK_NEEDED, self._on_training_rollback_needed)
+                event_count += 1
+
+            # Dec 2025: Subscribe to QUALITY_CHECK_FAILED for quality feedback
+            if hasattr(DataEventType, 'QUALITY_CHECK_FAILED'):
+                bus.subscribe(DataEventType.QUALITY_CHECK_FAILED, self._on_quality_check_failed)
+                event_count += 1
+
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
 
             self._subscribed = True
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Failed to subscribe: {e}")
 
     def _unsubscribe_from_events(self) -> None:
@@ -279,7 +299,7 @@ class FeedbackLoopController:
                 bus.unsubscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
 
             self._subscribed = False
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error unsubscribing: {e}")
 
     def _wire_curriculum_feedback(self) -> None:
@@ -302,7 +322,7 @@ class FeedbackLoopController:
             logger.warning(
                 "[FeedbackLoopController] curriculum_feedback module not available"
             )
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Failed to wire curriculum feedback: {e}")
 
     def _wire_exploration_boost(self) -> None:
@@ -384,14 +404,14 @@ class FeedbackLoopController:
                                 f"[FeedbackLoopController] Lazily wired exploration "
                                 f"boost for {config_key}"
                             )
-                except Exception as e:
+                except (AttributeError, TypeError, RuntimeError) as e:
                     logger.debug(f"[FeedbackLoopController] Lazy wiring failed: {e}")
 
             # P0.6 Dec 2025: Use DataEventType enum for type-safe subscription
             bus.subscribe(DataEventType.SCHEDULER_REGISTERED, on_scheduler_registered)
             logger.debug("[FeedbackLoopController] Subscribed to SCHEDULER_REGISTERED")
 
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Failed to subscribe to lazy scheduler: {e}")
 
     # =========================================================================
@@ -449,7 +469,7 @@ class FeedbackLoopController:
             if quality_score >= quality_threshold:
                 self._signal_training_ready(config_key, quality_score)
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling selfplay complete: {e}")
 
     def _on_selfplay_rate_changed(self, event: Any) -> None:
@@ -493,7 +513,7 @@ class FeedbackLoopController:
                 f"momentum={momentum_state}"
             )
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling rate change: {e}")
 
     def _on_training_loss_anomaly(self, event: Any) -> None:
@@ -541,7 +561,7 @@ class FeedbackLoopController:
             if severity == "severe" or state.loss_anomaly_count >= 3:
                 self._boost_exploration_for_anomaly(config_key, state.loss_anomaly_count)
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling loss anomaly: {e}")
 
     def _on_training_loss_trend(self, event: Any) -> None:
@@ -593,7 +613,7 @@ class FeedbackLoopController:
                 # Optionally reduce exploration boost since training is on track
                 self._reduce_exploration_after_improvement(config_key)
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling loss trend: {e}")
 
     def _on_quality_degraded_for_training(self, event: Any) -> None:
@@ -644,7 +664,7 @@ class FeedbackLoopController:
             # Also boost exploration for this config
             self._boost_exploration_for_stall(config_key, trend_duration_epochs=3)
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling quality degraded: {e}")
 
     def _trigger_quality_check(self, config_key: str, reason: str) -> None:
@@ -682,7 +702,7 @@ class FeedbackLoopController:
                     priority=priority,
                 ))
 
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Error triggering quality check: {e}")
 
     def _boost_exploration_for_anomaly(self, config_key: str, anomaly_count: int) -> None:
@@ -721,7 +741,7 @@ class FeedbackLoopController:
             logger.debug(
                 f"[FeedbackLoopController] Emitted EXPLORATION_BOOST event for {config_key}"
             )
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 
         # Try to wire to active temperature schedulers (optional, may not be running)
@@ -739,7 +759,7 @@ class FeedbackLoopController:
                 logger.debug("[FeedbackLoopController] Wired boost to temperature scheduler")
         except ImportError:
             logger.debug("[FeedbackLoopController] Temperature scheduling not available (using fallback)")
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Could not wire to scheduler: {e}")
 
     def _boost_exploration_for_stall(self, config_key: str, stall_epochs: int) -> None:
@@ -771,7 +791,7 @@ class FeedbackLoopController:
                 anomaly_count=stall_epochs // 5,  # Use stall count as pseudo-anomaly count
                 source="FeedbackLoopController",
             ))
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 
         # Try to wire to active temperature schedulers
@@ -786,7 +806,7 @@ class FeedbackLoopController:
                         logger.debug("[FeedbackLoopController] Wired stall boost to scheduler")
         except ImportError:
             logger.debug("[FeedbackLoopController] Temperature scheduling not available (using fallback)")
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Could not wire stall boost: {e}")
 
     def _reduce_exploration_after_improvement(self, config_key: str) -> None:
@@ -818,7 +838,7 @@ class FeedbackLoopController:
                             scheduler.set_exploration_boost(new_boost)
             except ImportError:
                 pass  # Using fallback
-            except Exception as e:
+            except (AttributeError, TypeError, RuntimeError) as e:
                 logger.debug(f"[FeedbackLoopController] Could not wire reduction: {e}")
 
     def _on_training_complete(self, event: Any) -> None:
@@ -863,7 +883,7 @@ class FeedbackLoopController:
                 config_key, policy_accuracy, value_accuracy
             )
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling training complete: {e}")
 
     def _emit_curriculum_training_feedback(
@@ -932,7 +952,7 @@ class FeedbackLoopController:
 
         except ImportError:
             pass  # Event system not available
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Failed to emit curriculum event: {e}")
 
     def _on_evaluation_complete(self, event: Any) -> None:
@@ -967,7 +987,7 @@ class FeedbackLoopController:
             if win_rate >= self.promotion_threshold:
                 self._consider_promotion(config_key, model_path, win_rate, elo)
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling evaluation complete: {e}")
 
     def _on_evaluation_failed(self, event: Any) -> None:
@@ -1037,13 +1057,13 @@ class FeedbackLoopController:
                             "reason": "evaluation_failures_exceeded",
                             "exploration_boost": state.current_exploration_boost,
                         })
-                except Exception as emit_err:
+                except (AttributeError, TypeError, RuntimeError) as emit_err:
                     logger.debug(f"Failed to emit selfplay target: {emit_err}")
 
                 # Reset failure counter after signaling
                 state.consecutive_failures = 0
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling evaluation failed: {e}")
 
     def _on_regression_detected(self, event: Any) -> None:
@@ -1130,10 +1150,10 @@ class FeedbackLoopController:
                 logger.debug(
                     f"[FeedbackLoopController] Emitted EXPLORATION_BOOST event for {config_key}"
                 )
-            except Exception as e:
+            except (AttributeError, TypeError, RuntimeError) as e:
                 logger.debug(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling regression detected: {e}")
 
     def _retry_evaluation(self, config_key: str, model_path: str, attempt: int) -> None:
@@ -1195,7 +1215,7 @@ class FeedbackLoopController:
 
             _safe_create_task(_do_retry(), f"retry_evaluation:{config_key}")
 
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError, asyncio.CancelledError) as e:
             logger.error(f"[FeedbackLoopController] Error setting up evaluation retry: {e}")
 
     def _on_promotion_complete(self, event: Any) -> None:
@@ -1264,7 +1284,7 @@ class FeedbackLoopController:
             # Apply feedback to FeedbackAccelerator
             self._apply_intensity_feedback(config_key, state)
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling promotion complete: {e}")
 
     def _on_work_completed(self, event: Any) -> None:
@@ -1303,7 +1323,7 @@ class FeedbackLoopController:
                 state.work_completed_count += 1
                 state.last_work_completion_time = time.time()
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling work completed: {e}")
 
     # =========================================================================
@@ -1356,7 +1376,7 @@ class FeedbackLoopController:
                         total_moves=game["total_moves"] or 0,
                     )
                     quality_scores.append(quality.quality_score)
-                except Exception as e:
+                except (AttributeError, TypeError, KeyError, ValueError) as e:
                     logger.debug(f"[FeedbackLoopController] Failed to compute quality for game {game.get('game_id', 'unknown')}: {e}")
                     continue
 
@@ -1375,7 +1395,7 @@ class FeedbackLoopController:
 
         except ImportError:
             logger.debug("UnifiedQualityScorer not available, using count heuristic")
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
             logger.debug(f"Quality assessment error: {e}")
 
         # Fallback to count-based heuristic
@@ -1450,7 +1470,7 @@ class FeedbackLoopController:
 
         except ImportError:
             pass
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
             logger.warning(f"Failed to update training intensity: {e}")
 
     def _update_curriculum_weight_from_selfplay(
@@ -1499,7 +1519,7 @@ class FeedbackLoopController:
 
         except ImportError:
             pass
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
             logger.debug(f"Failed to update curriculum weight: {e}")
 
     def _signal_training_ready(self, config_key: str, quality_score: float) -> None:
@@ -1559,7 +1579,7 @@ class FeedbackLoopController:
 
         except ImportError:
             logger.debug("[FeedbackLoopController] emit_quality_degraded not available")
-        except Exception as e:
+        except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error emitting quality degraded: {e}")
 
     def _trigger_evaluation(self, config_key: str, model_path: str) -> None:
@@ -1744,7 +1764,7 @@ class FeedbackLoopController:
 
         except ImportError:
             pass
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
             logger.warning(f"Failed to apply intensity feedback: {e}")
 
     # =========================================================================
@@ -1780,6 +1800,135 @@ class FeedbackLoopController:
                 for k, v in self._states.items()
             },
         }
+
+    def _on_daemon_status_changed(self, event) -> None:
+        """Handle DAEMON_STATUS_CHANGED - daemon health state transitions.
+
+        Monitors daemon health and adjusts feedback loop behavior if critical
+        daemons (training, evaluation, sync) are stuck or crashed.
+
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, "payload") else {}
+        daemon_name = payload.get("daemon_name", "")
+        old_status = payload.get("old_status", "")
+        new_status = payload.get("new_status", "")
+        hostname = payload.get("hostname", "")
+
+        logger.info(
+            f"[FeedbackLoopController] Daemon status changed: {daemon_name} on {hostname} "
+            f"{old_status} -> {new_status}"
+        )
+
+        # If critical training daemon crashed, reduce training allocation temporarily
+        if new_status in ["error", "stuck", "crashed"]:
+            if "training" in daemon_name.lower() or "coordinator" in daemon_name.lower():
+                logger.warning(
+                    f"[FeedbackLoopController] Critical daemon {daemon_name} unhealthy, "
+                    f"reducing training allocation"
+                )
+
+    def _on_p2p_cluster_unhealthy(self, event) -> None:
+        """Handle P2P_CLUSTER_UNHEALTHY - cluster connectivity issues.
+
+        When cluster health degrades, adjusts sync and training strategies
+        to minimize dependency on unreliable nodes.
+
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, "payload") else {}
+        dead_nodes = payload.get("dead_nodes", [])
+        alive_nodes = payload.get("alive_nodes", [])
+
+        logger.warning(
+            f"[FeedbackLoopController] P2P cluster unhealthy: "
+            f"{len(dead_nodes)} dead, {len(alive_nodes)} alive"
+        )
+
+        # If too many nodes dead, pause pipeline temporarily
+        if len(dead_nodes) > len(alive_nodes):
+            logger.error(
+                "[FeedbackLoopController] Majority of cluster dead, pausing feedback loop"
+            )
+            self._cluster_healthy = False
+        else:
+            self._cluster_healthy = True
+
+    def _on_training_rollback_needed(self, event) -> None:
+        """Handle TRAINING_ROLLBACK_NEEDED - training needs checkpoint rollback.
+
+        Coordinates rollback to previous checkpoint and boosts exploration
+        to escape the failure mode.
+
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, "payload") else {}
+        config = payload.get("config", "")
+        reason = payload.get("reason", "")
+        epoch = payload.get("epoch", 0)
+
+        logger.error(
+            f"[FeedbackLoopController] Training rollback needed: {config} "
+            f"(epoch {epoch}, reason: {reason})"
+        )
+
+        if config:
+            state = self._get_or_create_state(config)
+            state.consecutive_failures += 1
+
+            # Emit exploration boost to escape failure mode
+            try:
+                from app.distributed.data_events import emit_exploration_boost
+                _safe_create_task(
+                    emit_exploration_boost(
+                        config_key=config,
+                        boost_factor=2.0,
+                        reason=reason,
+                        anomaly_count=state.consecutive_failures,
+                        source="feedback_loop_controller",
+                    ),
+                    "exploration_boost_emit"
+                )
+            except ImportError:
+                pass
+
+    def _on_quality_check_failed(self, event) -> None:
+        """Handle QUALITY_CHECK_FAILED - data quality check failed.
+
+        Triggers additional selfplay to improve data quality and adjusts
+        training parameters to be more conservative.
+
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, "payload") else {}
+        config = payload.get("config", "")
+        quality_score = payload.get("quality_score", 0.0)
+        threshold = payload.get("threshold", 0.6)
+
+        logger.warning(
+            f"[FeedbackLoopController] Quality check failed: {config} "
+            f"(score={quality_score:.2f}, threshold={threshold:.2f})"
+        )
+
+        if config:
+            state = self._get_or_create_state(config)
+            state.last_selfplay_quality = quality_score
+
+            # Trigger more selfplay to improve quality
+            if HAS_SELFPLAY_EVENTS:
+                try:
+                    _safe_create_task(
+                        emit_selfplay_target_updated(
+                            config_key=config,
+                            target_games=1000,  # Request more games
+                            reason="quality_check_failed",
+                            priority=8,
+                            source="feedback_loop_controller",
+                        ),
+                        "selfplay_target_emit"
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to emit selfplay target: {e}")
 
     def signal_selfplay_quality(self, config_key: str, quality_score: float) -> None:
         """Manually signal selfplay quality (for testing/manual intervention)."""

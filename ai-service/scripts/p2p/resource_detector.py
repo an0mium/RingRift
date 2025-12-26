@@ -1,0 +1,451 @@
+"""Resource Detector for P2P Orchestrator.
+
+Extracted from p2p_orchestrator.py on December 26, 2025.
+
+This module provides:
+- GPU detection (NVIDIA and Apple MPS)
+- Memory detection (Linux and macOS)
+- Resource usage monitoring (CPU, memory, disk, GPU)
+- NFS accessibility checking
+- External work detection (CMA-ES, gauntlet, tournaments)
+
+Usage as standalone:
+    detector = ResourceDetector(ringrift_path="/path/to/ringrift")
+    has_gpu, gpu_name = detector.detect_gpu()
+    memory_gb = detector.detect_memory()
+    usage = detector.get_resource_usage()
+
+Usage as mixin (in P2POrchestrator):
+    class P2POrchestrator(ResourceDetectorMixin, ...):
+        pass
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class ResourceDetector:
+    """Standalone resource detector for system resources and capabilities.
+
+    Features:
+    - GPU detection (NVIDIA via nvidia-smi, Apple MPS)
+    - Memory detection (platform-aware)
+    - Real-time resource usage monitoring
+    - NFS mount accessibility checking
+    - External work detection (non-P2P processes)
+    """
+
+    def __init__(
+        self,
+        ringrift_path: Path | str | None = None,
+        start_time: float | None = None,
+        startup_grace_period: float = 30.0,
+    ):
+        """Initialize resource detector.
+
+        Args:
+            ringrift_path: Path to RingRift installation (for disk checks)
+            start_time: Timestamp when orchestrator started (for grace period)
+            startup_grace_period: Seconds to skip heavy I/O after startup
+        """
+        self.ringrift_path = Path(ringrift_path) if ringrift_path else Path.cwd()
+        self.start_time = start_time or time.time()
+        self.startup_grace_period = startup_grace_period
+
+        # Cache detected values
+        self._cached_gpu: tuple[bool, str] | None = None
+        self._cached_memory: int | None = None
+
+    def detect_gpu(self) -> tuple[bool, str]:
+        """Detect if GPU is available and its name.
+
+        Returns:
+            Tuple of (has_gpu, gpu_name)
+        """
+        if self._cached_gpu is not None:
+            return self._cached_gpu
+
+        # Try NVIDIA GPU via nvidia-smi
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                self._cached_gpu = (True, result.stdout.strip().split("\n")[0])
+                return self._cached_gpu
+        except (
+            subprocess.SubprocessError,
+            subprocess.TimeoutExpired,
+            OSError,
+            KeyError,
+            IndexError,
+            AttributeError,
+        ):
+            pass
+
+        # Try Apple MPS (Apple Silicon)
+        try:
+            result = subprocess.run(
+                ["python3", "-c", "import torch; print(torch.backends.mps.is_available())"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if "True" in result.stdout:
+                self._cached_gpu = (True, "Apple MPS")
+                return self._cached_gpu
+        except (
+            subprocess.SubprocessError,
+            subprocess.TimeoutExpired,
+            OSError,
+            ValueError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            ImportError,
+        ):
+            pass
+
+        self._cached_gpu = (False, "")
+        return self._cached_gpu
+
+    def detect_memory(self) -> int:
+        """Detect total system memory in GB.
+
+        Returns:
+            Total memory in GB (defaults to 16 if detection fails)
+        """
+        if self._cached_memory is not None:
+            return self._cached_memory
+
+        try:
+            if sys.platform == "darwin":
+                result = subprocess.run(
+                    ["sysctl", "-n", "hw.memsize"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                self._cached_memory = int(result.stdout.strip()) // (1024**3)
+                return self._cached_memory
+            else:
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
+                            self._cached_memory = int(line.split()[1]) // (1024**2)
+                            return self._cached_memory
+        except (OSError, ValueError):
+            pass
+
+        self._cached_memory = 16  # Default assumption
+        return self._cached_memory
+
+    def get_local_ip(self) -> str:
+        """Get local IP address.
+
+        Returns:
+            Local IP address or "127.0.0.1" if detection fails
+        """
+        try:
+            # Connect to external address to determine local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except OSError:
+            return "127.0.0.1"
+
+    def get_tailscale_ip(self) -> str:
+        """Return this node's Tailscale IPv4 (100.x) when available.
+
+        Returns:
+            Tailscale IP if available, else empty string
+        """
+        try:
+            result = subprocess.run(
+                ["tailscale", "ip", "-4"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                return ""
+            ip = (result.stdout or "").strip().splitlines()[0].strip()
+            return ip
+        except FileNotFoundError:
+            return ""
+        except (
+            subprocess.SubprocessError,
+            subprocess.TimeoutExpired,
+            OSError,
+            KeyError,
+            IndexError,
+            AttributeError,
+        ):
+            return ""
+
+    def is_in_startup_grace_period(self) -> bool:
+        """Check if we're still in the startup grace period.
+
+        During this period, skip heavy I/O operations like JSONL scanning
+        to ensure HTTP server remains responsive.
+
+        Returns:
+            True if still in grace period
+        """
+        return (time.time() - self.start_time) < self.startup_grace_period
+
+    def get_resource_usage(self) -> dict[str, float]:
+        """Get current resource usage.
+
+        Returns:
+            Dict with cpu_percent, memory_percent, disk_percent,
+            gpu_percent, gpu_memory_percent, disk_free_gb
+        """
+        result: dict[str, float] = {
+            "cpu_percent": 0.0,
+            "memory_percent": 0.0,
+            "disk_percent": 0.0,
+            "gpu_percent": 0.0,
+            "gpu_memory_percent": 0.0,
+        }
+
+        try:
+            # CPU
+            if sys.platform == "darwin":
+                out = subprocess.run(
+                    ["ps", "-A", "-o", "%cpu"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                cpus = [float(x) for x in out.stdout.strip().split("\n")[1:] if x.strip()]
+                cpu_count = os.cpu_count() or 1
+                result["cpu_percent"] = min(100.0, sum(cpus) / cpu_count)
+            else:
+                with open("/proc/loadavg") as f:
+                    load = float(f.read().split()[0])
+                    cpu_count = os.cpu_count() or 1
+                    result["cpu_percent"] = min(100.0, load * 100 / cpu_count)
+
+            # Memory
+            if sys.platform == "darwin":
+                out = subprocess.run(
+                    ["vm_stat"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                # Parse vm_stat output
+                lines = out.stdout.strip().split("\n")
+                stats: dict[str, int] = {}
+                for line in lines[1:]:
+                    if ":" in line:
+                        key, val = line.split(":")
+                        stats[key.strip()] = int(val.strip().rstrip("."))
+                page_size = 16384  # Usually 16KB on M1
+                free = stats.get("Pages free", 0) * page_size
+                total = self.detect_memory() * (1024**3)
+                result["memory_percent"] = 100.0 * (1 - free / total) if total > 0 else 0.0
+            else:
+                with open("/proc/meminfo") as f:
+                    mem: dict[str, int] = {}
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            mem[parts[0].rstrip(":")] = int(parts[1])
+                    total = mem.get("MemTotal", 1)
+                    avail = mem.get("MemAvailable", mem.get("MemFree", 0))
+                    result["memory_percent"] = 100.0 * (1 - avail / total)
+
+            # Disk
+            usage = shutil.disk_usage(self.ringrift_path)
+            result["disk_percent"] = 100.0 * usage.used / usage.total
+            result["disk_free_gb"] = usage.free / (1024**3)
+
+            # GPU (NVIDIA) - handle multi-GPU by using max
+            try:
+                out = subprocess.run(
+                    [
+                        "nvidia-smi",
+                        "--query-gpu=utilization.gpu,memory.used,memory.total",
+                        "--format=csv,noheader,nounits",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if out.returncode == 0:
+                    lines = out.stdout.strip().split("\n")
+                    gpu_utils: list[float] = []
+                    mem_percents: list[float] = []
+                    for line in lines:
+                        parts = line.strip().split(",")
+                        if len(parts) >= 3:
+                            try:
+                                gpu_utils.append(float(parts[0].strip()))
+                                mem_used = float(parts[1].strip())
+                                mem_total = float(parts[2].strip())
+                                if mem_total > 0:
+                                    mem_percents.append(100.0 * mem_used / mem_total)
+                            except (ValueError, IndexError):
+                                continue
+                    if gpu_utils:
+                        # Use max utilization across GPUs (more representative)
+                        result["gpu_percent"] = max(gpu_utils)
+                    if mem_percents:
+                        result["gpu_memory_percent"] = max(mem_percents)
+            except (ValueError, KeyError, IndexError, AttributeError):
+                # Silently ignore nvidia-smi errors (not all nodes have GPUs)
+                pass
+
+        except Exception as e:
+            logger.info(f"Resource check error: {e}")
+
+        return result
+
+    def check_nfs_accessible(self) -> bool:
+        """Check if NFS mount is accessible.
+
+        Tests common NFS mount points for accessibility.
+
+        Returns:
+            True if NFS is accessible, False otherwise
+        """
+        nfs_paths = [
+            Path("/mnt/nfs/ringrift"),
+            Path("/home/shared/ringrift"),
+            Path(os.environ.get("RINGRIFT_NFS_PATH", "/mnt/nfs/ringrift")),
+        ]
+
+        for nfs_path in nfs_paths:
+            try:
+                if nfs_path.exists() and nfs_path.is_dir():
+                    # Try to list directory (actual access check)
+                    list(nfs_path.iterdir())[:1]
+                    return True
+            except (OSError, KeyError, IndexError, AttributeError):
+                continue
+
+        # NFS not found or not accessible
+        return False
+
+    def detect_local_external_work(self) -> dict[str, bool]:
+        """Detect external work running on this node (not tracked by P2P orchestrator).
+
+        This detects:
+        - CMA-ES optimization (HeuristicAI weight tuning)
+        - Gauntlet runs (baseline or two-stage)
+        - ELO tournaments
+        - Data merge/aggregation jobs
+
+        Returns:
+            Dict with boolean flags for each work type
+        """
+        result = {
+            "cmaes_running": False,
+            "gauntlet_running": False,
+            "tournament_running": False,
+            "data_merge_running": False,
+        }
+
+        try:
+            # Use pgrep to check for running processes (efficient)
+            checks = [
+                ("cmaes_running", "HeuristicAI.*json|cmaes_distributed|run_cpu_cmaes"),
+                ("gauntlet_running", "baseline_gauntlet|two_stage_gauntlet"),
+                ("tournament_running", "run_model_elo_tournament"),
+                ("data_merge_running", "merge_game_dbs|aggregate_jsonl|export_training"),
+            ]
+
+            for key, pattern in checks:
+                try:
+                    proc = subprocess.run(
+                        ["pgrep", "-f", pattern],
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    # pgrep returns 0 if matches found
+                    result[key] = proc.returncode == 0 and proc.stdout.strip() != ""
+                except (
+                    subprocess.SubprocessError,
+                    subprocess.TimeoutExpired,
+                    OSError,
+                    KeyError,
+                    IndexError,
+                    AttributeError,
+                ):
+                    pass
+
+        except Exception as e:
+            logger.debug(f"External work detection error: {e}")
+
+        return result
+
+
+class ResourceDetectorMixin:
+    """Mixin class for adding resource detection to P2POrchestrator.
+
+    This mixin provides backward-compatible method names for P2POrchestrator.
+    The orchestrator should initialize self._resource_detector in __init__.
+
+    Example:
+        class P2POrchestrator(ResourceDetectorMixin, ...):
+            def __init__(self, ...):
+                ...
+                self._resource_detector = ResourceDetector(
+                    ringrift_path=self.ringrift_path,
+                    start_time=self.start_time,
+                    startup_grace_period=STARTUP_JSONL_GRACE_PERIOD_SECONDS,
+                )
+    """
+
+    _resource_detector: ResourceDetector
+
+    def _detect_gpu(self) -> tuple[bool, str]:
+        """Detect GPU (delegates to ResourceDetector)."""
+        return self._resource_detector.detect_gpu()
+
+    def _detect_memory(self) -> int:
+        """Detect memory (delegates to ResourceDetector)."""
+        return self._resource_detector.detect_memory()
+
+    def _get_local_ip(self) -> str:
+        """Get local IP (delegates to ResourceDetector)."""
+        return self._resource_detector.get_local_ip()
+
+    def _get_tailscale_ip(self) -> str:
+        """Get Tailscale IP (delegates to ResourceDetector)."""
+        return self._resource_detector.get_tailscale_ip()
+
+    def _is_in_startup_grace_period(self) -> bool:
+        """Check startup grace period (delegates to ResourceDetector)."""
+        return self._resource_detector.is_in_startup_grace_period()
+
+    def _get_resource_usage(self) -> dict[str, Any]:
+        """Get resource usage (delegates to ResourceDetector)."""
+        return self._resource_detector.get_resource_usage()
+
+    def _check_nfs_accessible(self) -> bool:
+        """Check NFS accessibility (delegates to ResourceDetector)."""
+        return self._resource_detector.check_nfs_accessible()
+
+    def _detect_local_external_work(self) -> dict[str, bool]:
+        """Detect external work (delegates to ResourceDetector)."""
+        return self._resource_detector.detect_local_external_work()

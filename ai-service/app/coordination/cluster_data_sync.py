@@ -36,6 +36,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from app.config.ports import get_p2p_status_url
+from app.core.async_context import safe_create_task
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +377,18 @@ class ClusterDataSyncDaemon:
         """Stop the daemon."""
         self._running = False
 
+    async def sync_now(self) -> int:
+        """Trigger an immediate sync cycle.
+
+        Dec 2025: Added to expose sync functionality to sync_facade.py.
+
+        Returns:
+            Number of files synced.
+        """
+        await self._sync_cycle()
+        # Return count of successful syncs from last cycle
+        return len([r for r in self._last_sync_results if r.success])
+
     async def _sync_cycle(self) -> None:
         """One sync cycle - push data to all eligible targets."""
         logger.info("Starting sync cycle")
@@ -458,8 +471,9 @@ class TrainingNodeWatcher:
             check_interval: Seconds between checks
         """
         self._running = True
-        self._watch_task = asyncio.create_task(
-            self._watch_loop(check_interval)
+        self._watch_task = safe_create_task(
+            self._watch_loop(check_interval),
+            name="training_node_watcher",
         )
         logger.info("TrainingNodeWatcher started")
 

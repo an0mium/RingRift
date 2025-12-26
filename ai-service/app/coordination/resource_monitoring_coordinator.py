@@ -659,7 +659,8 @@ class ResourceMonitoringCoordinator:
                     f"{available_gpus}/{total_gpus} GPUs, {healthy_nodes}/{total_nodes} nodes"
                 )
 
-            except ImportError as e:
+            except (ImportError, RuntimeError) as e:
+                # RuntimeError covers "no running event loop" in sync contexts
                 logger.debug(f"Could not emit capacity change: {e}")
 
     def on_backpressure_change(

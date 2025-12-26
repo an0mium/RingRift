@@ -38,7 +38,7 @@ try:
     count = conn.execute('SELECT COUNT(*) FROM games').fetchone()[0]
     print(count)
     conn.close()
-except Exception: print(0)
+except (sqlite3.Error, OSError, IndexError): print(0)
 "'''
     result = run_ssh_cmd(ssh_cmd, remote_cmd, timeout=15)
     try:

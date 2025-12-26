@@ -451,7 +451,7 @@ def consolidate_databases(db_paths: list[Path], output_path: Path) -> int:
                                 move,
                             )
                             total_moves += 1
-                        except Exception:
+                        except (sqlite3.Error, ValueError, TypeError):
                             pass
 
             src_conn.close()

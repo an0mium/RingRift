@@ -343,7 +343,7 @@ class DataAggregator:
                             'free_gb': round(usage.free / (1024**3), 1),
                             'percent_used': round(usage.used / usage.total * 100, 1),
                         }
-                except Exception:
+                except (OSError, AttributeError, ZeroDivisionError):
                     pass
 
         return status

@@ -37,7 +37,7 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
-from app.core.async_context import fire_and_forget
+from app.core.async_context import fire_and_forget, safe_create_task
 
 if TYPE_CHECKING:
     from app.distributed.cluster_manifest import ClusterManifest
@@ -260,6 +260,20 @@ class AutoSyncDaemon:
         """Check if the daemon is running."""
         return self._running
 
+    async def sync_now(self) -> int:
+        """Trigger an immediate sync cycle.
+
+        Dec 2025: Added to expose sync functionality to sync_facade.py.
+
+        Returns:
+            Number of games synced (0 if skipped or no data).
+        """
+        if not self._running:
+            logger.warning("[AutoSyncDaemon] sync_now() called but daemon not running")
+            return 0
+
+        return await self._sync_cycle()
+
     async def start(self) -> None:
         """Start the auto sync daemon."""
         if not self.config.enabled:
@@ -282,7 +296,10 @@ class AutoSyncDaemon:
         await self._start_gossip_sync()
 
         # Start main sync loop
-        self._sync_task = asyncio.create_task(self._sync_loop())
+        self._sync_task = safe_create_task(
+            self._sync_loop(),
+            name="auto_sync_loop",
+        )
 
         # Register with coordinator registry
         register_coordinator(self)
@@ -322,6 +339,16 @@ class AutoSyncDaemon:
             if hasattr(DataEventType, 'NEW_GAMES_AVAILABLE'):
                 bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games_available)
                 logger.info("[AutoSyncDaemon] Subscribed to NEW_GAMES_AVAILABLE (push-on-generate)")
+
+            # Subscribe to DATA_SYNC_STARTED for sync coordination (Dec 2025)
+            if hasattr(DataEventType, 'DATA_SYNC_STARTED'):
+                bus.subscribe(DataEventType.DATA_SYNC_STARTED, self._on_data_sync_started)
+                logger.info("[AutoSyncDaemon] Subscribed to DATA_SYNC_STARTED")
+
+            # Subscribe to MODEL_DISTRIBUTION_COMPLETE for model sync tracking (Dec 2025)
+            if hasattr(DataEventType, 'MODEL_DISTRIBUTION_COMPLETE'):
+                bus.subscribe(DataEventType.MODEL_DISTRIBUTION_COMPLETE, self._on_model_distribution_complete)
+                logger.info("[AutoSyncDaemon] Subscribed to MODEL_DISTRIBUTION_COMPLETE")
 
             self._subscribed = True
         except (ImportError, RuntimeError, AttributeError) as e:
@@ -419,6 +446,67 @@ class AutoSyncDaemon:
             self._errors_count += 1
             self._last_error = str(e)
             logger.error(f"[AutoSyncDaemon] Error handling NEW_GAMES_AVAILABLE: {e}")
+
+    async def _on_data_sync_started(self, event) -> None:
+        """Handle DATA_SYNC_STARTED - sync operation initiated.
+
+        Tracks active sync operations to avoid concurrent syncs to the
+        same target, which can cause conflicts and waste bandwidth.
+
+        Added: December 2025
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            host = payload.get("host", "")
+            sync_type = payload.get("sync_type", "incremental")
+
+            logger.info(
+                f"[AutoSyncDaemon] Sync started to {host} (type: {sync_type})"
+            )
+
+            # Track active sync to avoid concurrent operations
+            if not hasattr(self, "_active_syncs"):
+                self._active_syncs = {}
+            self._active_syncs[host] = {
+                "start_time": time.time(),
+                "sync_type": sync_type,
+            }
+
+            self._events_processed += 1
+
+        except (RuntimeError, AttributeError) as e:
+            logger.debug(f"[AutoSyncDaemon] Error handling DATA_SYNC_STARTED: {e}")
+
+    async def _on_model_distribution_complete(self, event) -> None:
+        """Handle MODEL_DISTRIBUTION_COMPLETE - model synced to cluster.
+
+        Logs model distribution completion and clears any pending model
+        sync requests. This prevents redundant model distribution attempts.
+
+        Added: December 2025
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            model_id = payload.get("model_id", "")
+            board_type = payload.get("board_type", "")
+            num_players = payload.get("num_players", 0)
+            distributed_to = payload.get("distributed_to", [])
+
+            config_key = f"{board_type}_{num_players}p" if board_type and num_players else ""
+
+            logger.info(
+                f"[AutoSyncDaemon] Model distribution complete: {model_id} "
+                f"({config_key}) -> {len(distributed_to)} nodes"
+            )
+
+            # Clear any pending model sync requests
+            if hasattr(self, "_pending_model_syncs"):
+                self._pending_model_syncs.pop(config_key, None)
+
+            self._events_processed += 1
+
+        except (RuntimeError, AttributeError) as e:
+            logger.debug(f"[AutoSyncDaemon] Error handling MODEL_DISTRIBUTION_COMPLETE: {e}")
 
     async def _push_to_neighbors(self, config_key: str, new_games: int) -> None:
         """Push data to up to 3 neighbor nodes (Layer 1: push-from-generator).

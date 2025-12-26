@@ -1484,6 +1484,21 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         while state.game_status != GameStatus.COMPLETED and len(moves) < self.config.max_moves:
             valid_moves = GameEngine.get_valid_moves(state, state.current_player)
             if not valid_moves:
+                # No interactive moves - check for bookkeeping move requirement
+                # (e.g., NO_LINE_ACTION, NO_TERRITORY_ACTION per RR-CANON-R075)
+                requirement = GameEngine.get_phase_requirement(state, state.current_player)
+                if requirement is not None:
+                    bookkeeping_move = GameEngine.synthesize_bookkeeping_move(requirement, state)
+                    if bookkeeping_move:
+                        current_player = state.current_player
+                        state = GameEngine.apply_move(state, bookkeeping_move)
+                        # Record bookkeeping move in game history, but NOT as training sample
+                        moves.append({"player": current_player, "move": str(bookkeeping_move)})
+                        move_objects.append(bookkeeping_move)
+                        move_probs_list.append(None)  # No policy for bookkeeping
+                        search_stats_list.append(None)
+                        continue
+                # No interactive moves and no bookkeeping required - game is stuck
                 break
 
             # Get move from MCTS (GumbelMCTSAI only takes game_state, computes valid moves internally)
@@ -1658,6 +1673,19 @@ class GNNSelfplayRunner(SelfplayRunner):
         while not is_game_over(state) and len(moves) < 300:  # max 300 moves
             valid_moves = GameEngine.get_valid_moves(state, state.current_player)
             if not valid_moves:
+                # No interactive moves - check for bookkeeping move requirement
+                # (e.g., NO_LINE_ACTION, NO_TERRITORY_ACTION per RR-CANON-R075)
+                requirement = GameEngine.get_phase_requirement(state, state.current_player)
+                if requirement is not None:
+                    bookkeeping_move = GameEngine.synthesize_bookkeeping_move(requirement, state)
+                    if bookkeeping_move:
+                        current_player = state.current_player
+                        state = GameEngine.apply_move(state, bookkeeping_move)
+                        # Record bookkeeping move in game history, but NOT as training sample
+                        moves.append({"player": current_player, "move": str(bookkeeping_move)})
+                        move_objects.append(bookkeeping_move)
+                        continue
+                # No interactive moves and no bookkeeping required - game is stuck
                 break
 
             # Convert state to graph for GNN

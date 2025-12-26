@@ -81,7 +81,7 @@ def diff_state_from_bundle(bundle_path: Path, ts_k: int | None = None) -> None:
         elif ts_k_values:
             try:
                 ts_k = int(ts_k_values[-1])
-            except Exception:
+            except (ValueError, TypeError, IndexError):
                 ts_k = 0
         else:
             ts_k = 0

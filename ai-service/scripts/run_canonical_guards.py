@@ -57,7 +57,7 @@ def _infer_board_type(db_path: Path) -> str | None:
     try:
         with GameReplayDB(str(db_path))._get_conn() as conn:  # type: ignore[attr-defined]
             row = conn.execute("SELECT board_type FROM games LIMIT 1").fetchone()
-    except Exception:
+    except (OSError, RuntimeError):
         return None
 
     if not row:
@@ -205,7 +205,7 @@ def _run_parity_sample(
         if summary_path.exists():
             try:
                 return json.loads(summary_path.read_text(encoding="utf-8"))
-            except Exception as exc:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
                 return {
                     "error": "failed_to_load_parity_summary",
                     "summary_path": str(summary_path),

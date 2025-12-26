@@ -82,7 +82,7 @@ def check_file(filepath: Path) -> list[tuple[int, str, str]]:
     try:
         content = filepath.read_text()
         lines = content.split("\n")
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return []
 
     # Check if file uses resource_guard

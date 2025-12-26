@@ -242,7 +242,7 @@ def reanalyze_replay_dataset(
                 try:
                     with open(path, encoding="utf-8") as f:
                         fixture = json.load(f)
-                except Exception:
+                except (OSError, json.JSONDecodeError):
                     continue
                 game_id = fixture.get("game_id")
                 diverged_at = fixture.get("diverged_at")

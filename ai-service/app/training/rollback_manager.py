@@ -576,10 +576,23 @@ class AutoRollbackHandler:
                 )
 
         elif severity == RegressionSeverity.MODERATE:
-            logger.info(
-                f"[AutoRollbackHandler] MODERATE regression for {model_id} - monitoring"
-            )
-            # Track but don't act
+            # Check if elo_drop > 30 (significant regression requiring rollback)
+            elo_drop = event.elo_drop if hasattr(event, 'elo_drop') else 0
+            if elo_drop > 30:
+                logger.warning(
+                    f"[AutoRollbackHandler] MODERATE regression with elo_drop={elo_drop:.1f} > 30 - "
+                    f"triggering auto-rollback for {model_id}"
+                )
+                self._execute_rollback(
+                    model_id,
+                    reason=f"Auto-rollback: MODERATE regression with elo_drop={elo_drop:.1f} - {event.reason}",
+                    triggered_by="auto_regression_moderate",
+                )
+            else:
+                logger.info(
+                    f"[AutoRollbackHandler] MODERATE regression for {model_id} (elo_drop={elo_drop:.1f}) - monitoring"
+                )
+                # Track but don't act
 
         # MINOR regressions are logged by the detector but not acted upon here
 
@@ -669,6 +682,8 @@ class AutoRollbackHandler:
                 self.reason = reason
                 self.timestamp = timestamp
                 self._payload = payload
+                # Extract elo_drop from payload for threshold checking
+                self.elo_drop = payload.get("elo_drop", 0.0)
 
             def to_dict(self):
                 return self._payload

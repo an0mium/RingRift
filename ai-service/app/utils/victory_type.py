@@ -27,6 +27,8 @@ __all__ = [
     "VICTORY_TYPES",
     "derive_stalemate_tiebreaker",
     "derive_victory_type",
+    "is_valid_victory_type",
+    "normalize_victory_type",
     "validate_stalemate_tiebreaker",
     "validate_victory_type",
 ]
@@ -203,3 +205,92 @@ def validate_victory_type(victory_type: str) -> bool:
 def validate_stalemate_tiebreaker(tiebreaker: str | None) -> bool:
     """Check if a stalemate_tiebreaker string is valid."""
     return tiebreaker is None or tiebreaker in STALEMATE_TIEBREAKERS
+
+
+# Mapping from legacy/inconsistent terms to canonical victory types
+_VICTORY_TYPE_ALIASES: dict[str, str] = {
+    # Ring elimination variants
+    "elimination": "ring_elimination",
+    "ring_elimination": "ring_elimination",
+    "RING_ELIMINATION": "ring_elimination",
+    # Territory variants
+    "territory": "territory",
+    "territory_control": "territory",
+    "TERRITORY_CONTROL": "territory",
+    # Last player standing variants
+    "lps": "lps",
+    "last_player_standing": "lps",
+    "LAST_PLAYER_STANDING": "lps",
+    # Stalemate variants
+    "stalemate": "stalemate",
+    "structural": "stalemate",
+    # Timeout
+    "timeout": "timeout",
+    "TIMEOUT": "timeout",
+}
+
+
+def normalize_victory_type(raw_value: str | None) -> str | None:
+    """Normalize a victory type string to canonical form.
+
+    Maps legacy and inconsistent victory type names to the canonical
+    set defined in VICTORY_TYPES. Returns None for invalid/unknown types.
+
+    Canonical types: ring_elimination, territory, lps, stalemate, timeout
+
+    Args:
+        raw_value: The raw victory type string from a game record
+
+    Returns:
+        Canonical victory type string, or None if the input is invalid
+        (unknown, other, empty, None, or unrecognized).
+
+    Examples:
+        >>> normalize_victory_type("elimination")
+        "ring_elimination"
+        >>> normalize_victory_type("last_player_standing")
+        "lps"
+        >>> normalize_victory_type("unknown")
+        None
+        >>> normalize_victory_type("other")
+        None
+    """
+    if not raw_value:
+        return None
+
+    # Handle status: prefixed values (e.g., "status:completed:ring_elimination")
+    cleaned = raw_value.strip().lower()
+    if ":" in cleaned:
+        # Extract the last meaningful part
+        parts = cleaned.split(":")
+        for part in reversed(parts):
+            part = part.strip()
+            if part and part not in ("status", "completed", "active"):
+                cleaned = part
+                break
+
+    # Check alias map
+    if cleaned in _VICTORY_TYPE_ALIASES:
+        return _VICTORY_TYPE_ALIASES[cleaned]
+
+    # Check if it's already a valid canonical type
+    if cleaned in VICTORY_TYPES:
+        return cleaned
+
+    # Invalid/unknown types return None (to be filtered out)
+    return None
+
+
+def is_valid_victory_type(raw_value: str | None) -> bool:
+    """Check if a victory type is valid and should be kept.
+
+    Returns False for unknown, other, or invalid victory types that
+    should be filtered out of training data.
+
+    Args:
+        raw_value: The raw victory type string
+
+    Returns:
+        True if the victory type is valid, False otherwise.
+    """
+    return normalize_victory_type(raw_value) is not None

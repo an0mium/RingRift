@@ -277,7 +277,7 @@ def is_aligned_data_file(filepath: Path) -> bool:
             # Check if keys are sequential (broken) or scattered (aligned)
             gaps = [keys[i+1] - keys[i] for i in range(len(keys)-1)]
             return not all(g == 1 for g in gaps)
-    except Exception:
+    except (ValueError, TypeError, KeyError):
         return False
 
 

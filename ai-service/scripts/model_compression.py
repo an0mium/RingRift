@@ -444,7 +444,7 @@ def compress_model(
     try:
         compressed_model = safe_load_checkpoint(output_path, map_location="cpu")
         compressed_latency = measure_latency(compressed_model, input_shape)
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         compressed_latency = original_latency * 0.5  # Estimate
 
     compressed_accuracy = None

@@ -53,7 +53,7 @@ def load_state() -> dict:
     if STATE_FILE.exists():
         try:
             return json.loads(STATE_FILE.read_text())
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             pass
     return {
         "last_check": None,

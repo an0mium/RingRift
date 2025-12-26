@@ -5,19 +5,18 @@
 # Lambda Labs account terminated Dec 2025. All Lambda nodes permanently removed.
 
 sync_routing:
-  max_disk_usage_percent: 70
-  target_disk_usage_percent: 60
-  min_free_disk_percent: 30
+  # Dec 2025: Temporarily increased from 70% to 85% to allow syncs while cleaning up
+  # TODO: Reduce back to 70% after freeing disk space on mac-studio
+  max_disk_usage_percent: 85
+  target_disk_usage_percent: 70
+  min_free_disk_percent: 15
   replication_target: 2
-  excluded_hosts:
-  - name: mac-studio
-    receive_models: true
-    receive_games: false
-    receive_npz: false
-    reason: coordinator/dev machine
+  # Dec 2025: Removed mac-studio from excluded_hosts - use allowed_external_storage instead
+  # This fixes the contradiction where mac-studio was both excluded and allowed
+  excluded_hosts: []
   allowed_external_storage:
   - host: mac-studio
-    path: /Volumes/OWC
+    path: /Volumes/RingRift-Data/selfplay_repository
     receive_games: true
     receive_npz: true
     receive_models: true

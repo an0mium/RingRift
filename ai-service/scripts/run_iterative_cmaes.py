@@ -164,7 +164,7 @@ def check_nn_quality_gate(
         try:
             if os.path.exists(output_path):
                 os.remove(output_path)
-        except Exception:
+        except OSError:
             pass
 
 

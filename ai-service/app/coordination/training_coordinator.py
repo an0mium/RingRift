@@ -763,6 +763,17 @@ class TrainingCoordinator:
             logger.info(
                 f"[TrainingCoordinator] Training paused for {config_key} after rollback"
             )
+            # Emit TRAINING_PAUSED event for monitoring
+            self._emit_via_router(
+                "TRAINING_PAUSED",
+                {
+                    "config_key": config_key,
+                    "reason": f"auto_rollback_{triggered_by}",
+                    "from_version": from_version,
+                    "to_version": to_version,
+                    "timestamp": time.time(),
+                },
+            )
         else:
             logger.debug(
                 f"[TrainingCoordinator] No active training to pause for {config_key}"
@@ -891,11 +902,20 @@ class TrainingCoordinator:
                 f"{old_capacity:.1%} → {self._cluster_capacity:.1%}"
             )
 
+            # Parse num_players from config_key (e.g., "hex8_3p" -> 3)
+            parts = config_key.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].endswith("p"):
+                board_type = parts[0]
+                num_players = int(parts[1][:-1])
+            else:
+                board_type = config_key
+                num_players = 2  # Fallback for invalid format
+
             self._emit_training_event(
                 "capacity_reduced",
                 job_id="",
-                board_type=config_key.split("_")[0] if "_" in config_key else "",
-                num_players=2,
+                board_type=board_type,
+                num_players=num_players,
                 reason="low_quality_data",
                 quality_score=quality_score,
             )

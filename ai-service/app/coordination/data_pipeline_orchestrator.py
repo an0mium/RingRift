@@ -703,6 +703,30 @@ class DataPipelineOrchestrator:
                 self._on_promotion_candidate,
             )
 
+            # Subscribe to database lifecycle events (December 2025 - Phase 4A.3)
+            router.subscribe(
+                DataEventType.DATABASE_CREATED.value,
+                self._on_database_created,
+            )
+
+            # Subscribe to training threshold events
+            router.subscribe(
+                DataEventType.TRAINING_THRESHOLD_REACHED.value,
+                self._on_training_threshold_reached,
+            )
+
+            # Subscribe to promotion lifecycle events
+            router.subscribe(
+                DataEventType.PROMOTION_STARTED.value,
+                self._on_promotion_started,
+            )
+
+            # Subscribe to work queue events
+            router.subscribe(
+                DataEventType.WORK_QUEUED.value,
+                self._on_work_queued,
+            )
+
             logger.info("[DataPipelineOrchestrator] Subscribed to data events")
             return True
 
@@ -1750,6 +1774,103 @@ class DataPipelineOrchestrator:
         # If we're in evaluation stage, update transition tracking
         if self._current_stage == PipelineStage.EVALUATION:
             self._stage_metadata["candidates"] = len(self._promotion_candidates)
+
+    async def _on_database_created(self, event) -> None:
+        """Handle DATABASE_CREATED - new game database file created.
+
+        This handler enables immediate registration and pipeline triggering
+        when new databases are created, preventing orphaned databases.
+
+        Added: December 2025 - Phase 4A.3
+        """
+        payload = event.payload if hasattr(event, 'payload') else event
+        db_path = payload.get("db_path", "")
+        board_type = payload.get("board_type", "")
+        num_players = payload.get("num_players", 0)
+
+        logger.info(
+            f"[DataPipelineOrchestrator] New database created: {db_path} "
+            f"({board_type}_{num_players}p)"
+        )
+
+        # Track for sync triggering if threshold is met
+        if not hasattr(self, "_new_databases"):
+            self._new_databases = []
+        self._new_databases.append({
+            "db_path": db_path,
+            "board_type": board_type,
+            "num_players": num_players,
+            "timestamp": time.time(),
+        })
+
+    async def _on_training_threshold_reached(self, event) -> None:
+        """Handle TRAINING_THRESHOLD_REACHED - enough games for training.
+
+        Triggers NPZ export and training when game threshold is met.
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, 'payload') else event
+        config = payload.get("config", "")
+        games = payload.get("games", 0)
+
+        logger.info(
+            f"[DataPipelineOrchestrator] Training threshold reached: "
+            f"{config} ({games} games)"
+        )
+
+        # Auto-trigger export if enabled and we're in appropriate stage
+        if self.auto_trigger and self.auto_trigger_export:
+            if self._current_stage in [PipelineStage.IDLE, PipelineStage.DATA_SYNC]:
+                board_type = config.split("_")[0] if "_" in config else ""
+                num_players_str = config.split("_")[1].replace("p", "") if "_" in config else "2"
+                try:
+                    num_players = int(num_players_str)
+                    iteration = self._current_iteration + 1
+                    await self._auto_trigger_export(iteration, board_type, num_players)
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Failed to parse config {config}: {e}")
+
+    async def _on_promotion_started(self, event) -> None:
+        """Handle PROMOTION_STARTED - promotion process initiated.
+
+        Tracks promotion attempts and updates pipeline stage.
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, 'payload') else event
+        config = payload.get("config", "")
+        model_id = payload.get("model_id", "")
+
+        logger.info(
+            f"[DataPipelineOrchestrator] Promotion started: {model_id} ({config})"
+        )
+
+        # Transition to promotion stage if in evaluation
+        if self._current_stage == PipelineStage.EVALUATION:
+            iteration = self._current_iteration
+            self._transition_to(
+                PipelineStage.PROMOTION,
+                iteration,
+                metadata={"model_id": model_id, "config": config},
+            )
+
+    async def _on_work_queued(self, event) -> None:
+        """Handle WORK_QUEUED - work added to distributed queue.
+
+        Logs work queue activity for pipeline observability.
+        Added: December 2025
+        """
+        payload = event.payload if hasattr(event, 'payload') else event
+        work_type = payload.get("work_type", "unknown")
+        config = payload.get("config", "")
+
+        logger.debug(
+            f"[DataPipelineOrchestrator] Work queued: {work_type} ({config})"
+        )
+
+        # Track work queue depth for backpressure decisions
+        if not hasattr(self, "_queued_work_count"):
+            self._queued_work_count = 0
+        self._queued_work_count += 1
 
     async def _pause_pipeline(self, reason: str) -> None:
         """Pause the pipeline due to resource constraints."""

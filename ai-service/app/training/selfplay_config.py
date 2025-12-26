@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -110,7 +111,7 @@ class SelfplayConfig:
     simulation_budget: int | None = None  # Gumbel MCTS budget (default uses difficulty)
     difficulty: int = 8  # AI difficulty level (1-10), affects simulation budget
     temperature: float = 1.0
-    temperature_threshold: int = 30  # Move number after which to use greedy
+    temperature_threshold: int = 40  # Move number after which to use greedy (increased for more exploration)
 
     # Output settings
     output_format: OutputFormat = OutputFormat.DB
@@ -204,6 +205,10 @@ class SelfplayConfig:
     # Elo-adaptive budget (December 2025)
     model_elo: float | None = None  # Model Elo for adaptive budget calculation
     training_epoch: int = 0  # Training epoch for progressive budget scaling
+
+    # Mixed opponent diversity (December 2025)
+    mixed_opponents: bool = False  # Enable mixed opponent training
+    opponent_mix: dict[str, float] | None = None  # Custom opponent mix distribution
 
     # Additional engine-specific options
     extra_options: dict[str, Any] = field(default_factory=dict)
@@ -665,6 +670,23 @@ def create_argument_parser(
              "for maximum learning signal. Not recommended to disable.",
     )
 
+    # Mixed opponent diversity (December 2025)
+    mixed_group = parser.add_argument_group("Mixed Opponent Training")
+    mixed_group.add_argument(
+        "--mixed-opponents",
+        action="store_true",
+        help="Enable mixed opponent training with random/heuristic/MCTS mix. "
+             "Default mix: 30%% random, 40%% heuristic, 30%% MCTS. "
+             "Automatically sets --engine-mode to 'mixed'.",
+    )
+    mixed_group.add_argument(
+        "--opponent-mix",
+        type=str,
+        default=None,
+        help="Custom opponent mix in format 'random:0.3,heuristic:0.4,mcts:0.3'. "
+             "Only used with --mixed-opponents.",
+    )
+
     return parser
 
 
@@ -750,6 +772,29 @@ def parse_selfplay_args(
         # PFSP opponent selection (enabled by default, use --disable-pfsp to turn off)
         use_pfsp=not getattr(parsed, "disable_pfsp", False),
     )
+
+    # Handle --mixed-opponents flag
+    if getattr(parsed, "mixed_opponents", False):
+        # Override engine mode to MIXED
+        config.engine_mode = EngineMode.MIXED
+        config.mixed_opponents = True
+
+        # Parse custom opponent mix if provided
+        opponent_mix_str = getattr(parsed, "opponent_mix", None)
+        if opponent_mix_str:
+            try:
+                # Parse format: "random:0.3,heuristic:0.4,mcts:0.3"
+                mix_dict = {}
+                for pair in opponent_mix_str.split(","):
+                    key, value = pair.split(":")
+                    mix_dict[key.strip()] = float(value.strip())
+                config.opponent_mix = mix_dict
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Failed to parse --opponent-mix '{opponent_mix_str}': {e}. "
+                    "Using default mix."
+                )
 
     return config
 
@@ -873,6 +918,17 @@ CURRICULUM_STAGES: dict[str, CurriculumStage] = {
         search_depth=3,
         games_per_config=200,
         description="Gradient Move Optimization (experimental)",
+    ),
+    # Mixed opponent diversity training (December 2025)
+    "robust_diverse": CurriculumStage(
+        name="robust_diverse",
+        engine_mode=EngineMode.MIXED,
+        temperature=1.0,
+        mcts_simulations=400,
+        search_depth=2,
+        games_per_config=600,
+        random_opening_moves=1,
+        description="Mixed opponent training (30% random, 40% heuristic, 30% MCTS) for robust play",
     ),
 }
 

@@ -62,6 +62,7 @@ from app.training.selfplay_runner import (
     RunStats,
     SelfplayRunner,
 )
+from app.training.mixed_opponent_selfplay import MixedOpponentSelfplayRunner
 
 # Setup logging
 logging.basicConfig(
@@ -104,10 +105,9 @@ def get_runner_for_config(config: SelfplayConfig) -> SelfplayRunner:
             return GumbelMCTSSelfplayRunner(config)
 
     elif mode in (EngineMode.MIXED, EngineMode.DIVERSE):
-        # Mixed mode - alternate between engines
-        logger.info(f"Using mixed engine strategy for {mode.value}")
-        # Default to Gumbel MCTS for quality
-        return GumbelMCTSSelfplayRunner(config)
+        # Mixed mode - use MixedOpponentSelfplayRunner for diverse opponent training
+        logger.info(f"Using MixedOpponentSelfplayRunner for {mode.value}")
+        return MixedOpponentSelfplayRunner(config)
 
     elif mode == EngineMode.GNN:
         # Pure GNN policy network
@@ -268,6 +268,9 @@ def main():
     logger.info(f"Games: {config.num_games}")
     logger.info(f"Engine: {config.engine_mode.value}")
     logger.info(f"MCTS sims: {config.mcts_simulations}")
+    if config.mixed_opponents:
+        mix_str = ", ".join(f"{k}: {v:.0%}" for k, v in (config.opponent_mix or {}).items())
+        logger.info(f"Mixed opponents: {mix_str or '30% random, 40% heuristic, 30% MCTS'}")
     if priority_boost != 0.0:
         logger.info(f"Priority boost: {priority_boost:+.2f}")
     if games_multiplier != 1.0:

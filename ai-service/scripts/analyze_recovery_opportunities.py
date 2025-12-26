@@ -196,7 +196,7 @@ def replay_game_and_find_recovery_opportunities(
         }
         board_type = board_type_map.get(board_type_str, BoardType.SQUARE8)
         board.default_rings_per_player = get_rings_per_player(board_type)
-    except Exception:
+    except (ImportError, AttributeError, KeyError):
         # Keep the dataclass default when imports fail (e.g., minimal env).
         pass
 

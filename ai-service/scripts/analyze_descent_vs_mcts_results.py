@@ -42,7 +42,7 @@ def load_run(results_path: Path) -> RunSummary | None:
     try:
         with results_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return None
 
     cfg = data.get("config", {})

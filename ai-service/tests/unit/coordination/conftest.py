@@ -521,3 +521,188 @@ def async_timeout():
             pytest.fail(f"Async operation timed out after {timeout_seconds}s")
 
     return _timeout
+
+
+# =============================================================================
+# MOCK EVENT FIXTURES (Dec 26, 2025)
+# =============================================================================
+
+
+@pytest.fixture
+def mock_event():
+    """Provide a mock event class for event handler tests.
+
+    Usage:
+        def test_handler(mock_event):
+            event = mock_event(payload={"key": "value"})
+            await coordinator._on_some_event(event)
+    """
+    @dataclass
+    class MockEvent:
+        payload: dict[str, Any]
+    return MockEvent
+
+
+# =============================================================================
+# COORDINATOR SINGLETON RESET FIXTURES (Dec 26, 2025)
+# =============================================================================
+
+
+@pytest.fixture
+def reset_coordinator_singleton():
+    """Factory to reset coordinator singletons during tests.
+
+    Usage:
+        def test_singleton(reset_coordinator_singleton):
+            reset_coordinator_singleton("app.coordination.leadership_coordinator", "_leadership_coordinator")
+    """
+    def _reset(module_path: str, singleton_attr: str) -> None:
+        """Reset a coordinator singleton."""
+        import importlib
+        module = importlib.import_module(module_path)
+        setattr(module, singleton_attr, None)
+
+    return _reset
+
+
+@pytest.fixture(autouse=False)
+def reset_all_coordination_singletons():
+    """Reset all coordination singletons before and after test.
+
+    Usage: Add this fixture to tests that need singleton isolation.
+    """
+    singletons = [
+        ("app.coordination.leadership_coordinator", "_leadership_coordinator"),
+        ("app.coordination.model_lifecycle_coordinator", "_model_coordinator"),
+        ("app.coordination.task_lifecycle_coordinator", "_task_lifecycle_coordinator"),
+        ("app.coordination.recovery_orchestrator", "_recovery_orchestrator"),
+        ("app.coordination.health_check_orchestrator", "_health_orchestrator"),
+        ("app.coordination.resource_monitoring_coordinator", "_resource_coordinator"),
+        ("app.coordination.unified_resource_coordinator", "_coordinator"),
+        ("app.coordination.optimization_coordinator", "_optimization_coordinator"),
+    ]
+
+    import importlib
+
+    # Reset before test
+    for module_path, attr in singletons:
+        try:
+            module = importlib.import_module(module_path)
+            setattr(module, attr, None)
+        except (ImportError, AttributeError):
+            pass  # Module may not be loaded yet
+
+    yield
+
+    # Reset after test
+    for module_path, attr in singletons:
+        try:
+            module = importlib.import_module(module_path)
+            setattr(module, attr, None)
+        except (ImportError, AttributeError):
+            pass
+
+
+# =============================================================================
+# PROVIDER PATCH FIXTURES (Dec 26, 2025)
+# =============================================================================
+
+
+@pytest.fixture
+def patch_provider_managers():
+    """Context manager factory to patch all provider managers.
+
+    Usage:
+        def test_something(patch_provider_managers):
+            with patch_provider_managers("app.coordination.health_check_orchestrator"):
+                orchestrator = HealthCheckOrchestrator()
+    """
+    @contextlib.contextmanager
+    def _patch_providers(module_path: str):
+        """Patch provider managers for a specific coordination module."""
+        with patch(f"{module_path}.LambdaManager"), \
+             patch(f"{module_path}.VastManager"), \
+             patch(f"{module_path}.HetznerManager"), \
+             patch(f"{module_path}.AWSManager"), \
+             patch(f"{module_path}.TailscaleManager"):
+            yield
+
+    return _patch_providers
+
+
+@pytest.fixture
+def health_check_orchestrator_mocked(patch_provider_managers):
+    """Create a HealthCheckOrchestrator with mocked dependencies."""
+    with patch_provider_managers("app.coordination.health_check_orchestrator"):
+        from app.coordination.health_check_orchestrator import HealthCheckOrchestrator
+        return HealthCheckOrchestrator(check_interval=60.0)
+
+
+@pytest.fixture
+def recovery_orchestrator_mocked(patch_provider_managers):
+    """Create a RecoveryOrchestrator with mocked dependencies."""
+    with patch("app.coordination.recovery_orchestrator.get_health_orchestrator") as mock_health:
+        with patch_provider_managers("app.coordination.recovery_orchestrator"):
+            from app.coordination.recovery_orchestrator import RecoveryOrchestrator
+
+            mock_health_instance = MagicMock()
+            mock_health.return_value = mock_health_instance
+
+            return RecoveryOrchestrator(
+                health_orchestrator=mock_health_instance,
+                slack_webhook_url=None,
+            )
+
+
+# =============================================================================
+# COORDINATOR FACTORY FIXTURES (Dec 26, 2025)
+# =============================================================================
+
+
+@pytest.fixture
+def leadership_coordinator_fresh():
+    """Create a fresh LeadershipCoordinator."""
+    from app.coordination.leadership_coordinator import LeadershipCoordinator
+    return LeadershipCoordinator(local_node_id="test-node-1")
+
+
+@pytest.fixture
+def model_lifecycle_coordinator_fresh():
+    """Create a fresh ModelLifecycleCoordinator."""
+    from app.coordination.model_lifecycle_coordinator import ModelLifecycleCoordinator
+    return ModelLifecycleCoordinator()
+
+
+@pytest.fixture
+def task_lifecycle_coordinator_fresh():
+    """Create a fresh TaskLifecycleCoordinator."""
+    from app.coordination.task_lifecycle_coordinator import TaskLifecycleCoordinator
+    return TaskLifecycleCoordinator(
+        heartbeat_threshold_seconds=60.0,
+        orphan_check_interval_seconds=1.0,
+    )
+
+
+@pytest.fixture
+def resource_monitoring_coordinator_fresh():
+    """Create a fresh ResourceMonitoringCoordinator."""
+    from app.coordination.resource_monitoring_coordinator import ResourceMonitoringCoordinator
+    return ResourceMonitoringCoordinator()
+
+
+@pytest.fixture
+def unified_resource_coordinator_fresh():
+    """Create a fresh UnifiedResourceCoordinator."""
+    from app.coordination.unified_resource_coordinator import UnifiedResourceCoordinator
+    return UnifiedResourceCoordinator()
+
+
+@pytest.fixture
+def optimization_coordinator_fresh():
+    """Create a fresh OptimizationCoordinator."""
+    from app.coordination.optimization_coordinator import OptimizationCoordinator
+    return OptimizationCoordinator(
+        plateau_window=5,
+        plateau_threshold=0.001,
+        cooldown_seconds=60.0,
+    )

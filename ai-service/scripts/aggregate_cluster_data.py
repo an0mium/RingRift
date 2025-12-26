@@ -92,7 +92,7 @@ def count_games_in_db(db_path: Path) -> int:
         ).fetchone()[0]
         conn.close()
         return count
-    except Exception:
+    except (sqlite3.Error, OSError, IndexError):
         return 0
 
 
