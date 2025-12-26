@@ -262,12 +262,13 @@ describe('VictoryModal – GameEndExplanation-driven copy', () => {
     );
 
     expect(screen.getByText('🏰 Alice Wins!')).toBeInTheDocument();
-    // The full detailed copy includes additional context about what happened
-    expect(
-      screen.getByText(
-        /Victory by Territory Control after resolving the final disconnected mini-region.*Processing that region/i
-      )
-    ).toBeInTheDocument();
+
+    // Assert mini-region semantics without pinning exact prose.
+    const description = screen.getByText(
+      /Victory by territory after resolving the final disconnected mini-region/i
+    );
+    expect(description).toBeInTheDocument();
+    expect(description).toHaveTextContent(/rules compared Territory spaces/i);
   });
 
   it('falls back to legacy copy for unrecognized uxCopy key', () => {

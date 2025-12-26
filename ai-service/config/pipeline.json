@@ -97,7 +97,7 @@
 
   "evaluation": {
     "tournament_games": 20,
-    "promotion_threshold": 0.55,
+    "promotion_threshold": 0.60,
     "ai_types": ["Heuristic", "MCTS", "Minimax"],
     "difficulty_levels": [3, 5, 7]
   },

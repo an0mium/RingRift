@@ -83,6 +83,10 @@ class IdleResourceConfig:
     # Queue depth thresholds for scaling
     high_queue_depth: int = 20
     medium_queue_depth: int = 10
+    # Queue backpressure threshold (December 2025) - stop spawning above this
+    max_queue_depth: int = 100
+    # Training backlog threshold in hours - stop spawning if too much unprocessed data
+    max_pending_training_hours: float = 24.0
 
     @classmethod
     def from_env(cls) -> IdleResourceConfig:
@@ -628,9 +632,60 @@ class IdleResourceDaemon:
 
         return 0  # Default to no queue
 
+    def _get_pending_training_hours(self) -> float:
+        """Get estimated hours of unprocessed training data.
+
+        December 2025: Used for training backlog backpressure. If training
+        can't keep up with selfplay, we should pause data generation.
+
+        Returns:
+            Estimated hours of training data pending processing, or 0.0 if unknown.
+        """
+        try:
+            from app.distributed.data_catalog import get_data_catalog
+
+            catalog = get_data_catalog()
+            # Get total samples waiting for training
+            pending_samples = catalog.get_pending_sample_count()
+
+            # Estimate processing rate: ~50k samples/hour on typical GPU
+            samples_per_hour = 50000
+            pending_hours = pending_samples / samples_per_hour
+
+            return pending_hours
+
+        except ImportError:
+            pass  # DataCatalog not available
+        except AttributeError:
+            pass  # get_pending_sample_count not implemented
+        except Exception as e:
+            logger.debug(f"[IdleResourceDaemon] Failed to get pending training hours: {e}")
+
+        return 0.0  # Default to no backlog
+
     def _should_spawn(self, node: NodeStatus, queue_depth: int) -> bool:
         """Decide whether to spawn selfplay on a node."""
         now = time.time()
+
+        # =======================================================================
+        # Queue Backpressure (December 2025)
+        # =======================================================================
+        # Stop spawning if queue is overloaded to prevent system overwhelm
+        if queue_depth > self.config.max_queue_depth:
+            logger.info(
+                f"[IdleResourceDaemon] Queue backpressure: depth {queue_depth} > "
+                f"max {self.config.max_queue_depth}, skipping spawn on {node.node_id}"
+            )
+            return False
+
+        # Check training data backlog (prevent generating data faster than training)
+        pending_hours = self._get_pending_training_hours()
+        if pending_hours > self.config.max_pending_training_hours:
+            logger.info(
+                f"[IdleResourceDaemon] Training backlog: {pending_hours:.1f}h > "
+                f"max {self.config.max_pending_training_hours}h, skipping spawn"
+            )
+            return False
 
         # Check if node is in backoff from previous failures (December 2025)
         if self._is_node_in_backoff(node.node_id):

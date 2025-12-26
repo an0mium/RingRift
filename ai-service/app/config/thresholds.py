@@ -654,8 +654,8 @@ RETRY_MAX_DELAY = 60.0
 # Model count threshold to trigger culling
 MODEL_CULL_THRESHOLD = 100
 
-# Win rate threshold for model promotion
-PROMOTION_WIN_RATE_THRESHOLD = 0.55  # 55%
+# Win rate threshold for model promotion (December 2025: tightened from 0.55)
+PROMOTION_WIN_RATE_THRESHOLD = 0.60  # 60% - stricter to prevent weak model promotion
 
 # ELO underserved threshold (fewer games = underserved)
 ELO_UNDERSERVED_THRESHOLD = 100

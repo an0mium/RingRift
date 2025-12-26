@@ -97,6 +97,7 @@ class ConfigPriority:
     curriculum_weight: float = 1.0  # Phase 2C.3: Curriculum-based weight
     improvement_boost: float = 0.0  # Phase 5: From ImprovementOptimizer (-0.10 to +0.15)
     quality_penalty: float = 0.0  # Phase 5: Quality degradation penalty (0.0 to -0.20)
+    momentum_multiplier: float = 1.0  # Phase 19: From FeedbackAccelerator (0.5 to 1.5)
 
     # Computed priority
     priority_score: float = 0.0
@@ -225,6 +226,9 @@ class SelfplayScheduler:
         # Get improvement boosts (Phase 5)
         improvement_data = self._get_improvement_boosts()
 
+        # Get momentum multipliers (Phase 19)
+        momentum_data = self._get_momentum_multipliers()
+
         # Update each config
         for config_key, priority in self._config_priorities.items():
             # Update staleness
@@ -248,6 +252,10 @@ class SelfplayScheduler:
             if config_key in improvement_data:
                 priority.improvement_boost = improvement_data[config_key]
 
+            # Update momentum multiplier (Phase 19)
+            if config_key in momentum_data:
+                priority.momentum_multiplier = momentum_data[config_key]
+
             # Compute priority score
             priority.priority_score = self._compute_priority_score(priority)
 
@@ -260,6 +268,7 @@ class SelfplayScheduler:
 
         December 2025 - Phase 2C.3: Now includes curriculum weight factor.
         December 2025 - Phase 5: Now includes improvement boost and quality penalty.
+        December 2025 - Phase 19: Now includes momentum multiplier from FeedbackAccelerator.
         """
         # Base factors
         staleness = priority.staleness_factor * STALENESS_WEIGHT
@@ -284,6 +293,15 @@ class SelfplayScheduler:
 
         # Apply exploration boost as multiplier
         score *= priority.exploration_boost
+
+        # Phase 19: Apply momentum multiplier from FeedbackAccelerator
+        # This provides Elo momentum → Selfplay rate coupling:
+        # - ACCELERATING: 1.5x (capitalize on positive momentum)
+        # - IMPROVING: 1.25x (boost for continued improvement)
+        # - STABLE: 1.0x (normal rate)
+        # - PLATEAU: 1.1x (slight boost to try to break plateau)
+        # - REGRESSING: 0.75x (reduce noise, focus on quality)
+        score *= priority.momentum_multiplier
 
         return score
 
@@ -445,6 +463,44 @@ class SelfplayScheduler:
             logger.debug("[SelfplayScheduler] improvement_optimizer not available")
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error getting improvement boosts: {e}")
+
+        return result
+
+    def _get_momentum_multipliers(self) -> dict[str, float]:
+        """Get momentum multipliers from FeedbackAccelerator per config.
+
+        Phase 19 (Dec 2025): Connects selfplay scheduling to Elo momentum.
+        This provides Elo momentum → Selfplay rate coupling:
+        - ACCELERATING: 1.5x (capitalize on positive momentum)
+        - IMPROVING: 1.25x (boost for continued improvement)
+        - STABLE: 1.0x (normal rate)
+        - PLATEAU: 1.1x (slight boost to try to break plateau)
+        - REGRESSING: 0.75x (reduce noise, focus on quality)
+
+        Returns:
+            Dict mapping config_key to multiplier value (0.5 to 1.5)
+        """
+        result: dict[str, float] = {}
+
+        try:
+            from app.training.feedback_accelerator import get_feedback_accelerator
+
+            accelerator = get_feedback_accelerator()
+
+            for config_key in ALL_CONFIGS:
+                multiplier = accelerator.get_selfplay_multiplier(config_key)
+                if multiplier != 1.0:  # Only log non-default values
+                    result[config_key] = multiplier
+                    logger.debug(
+                        f"[SelfplayScheduler] Momentum multiplier for {config_key}: {multiplier:.2f}x"
+                    )
+                else:
+                    result[config_key] = multiplier
+
+        except ImportError:
+            logger.debug("[SelfplayScheduler] feedback_accelerator not available")
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error getting momentum multipliers: {e}")
 
         return result
 

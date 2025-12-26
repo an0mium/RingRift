@@ -793,10 +793,10 @@ def train_model(
     # GNN support (2025-12)
     model_type: str = "cnn",  # "cnn", "gnn", or "hybrid"
     # Training data freshness check (2025-12)
-    check_data_freshness: bool = False,
+    # Made mandatory by default - Phase 1.5 of improvement plan
+    skip_freshness_check: bool = False,
     max_data_age_hours: float = 1.0,
-    warn_on_stale_data: bool = True,
-    fail_on_stale_data: bool = False,
+    allow_stale_data: bool = False,  # If True, warn instead of fail on stale
 ):
     """
     Train the RingRift neural network model.
@@ -887,11 +887,12 @@ def train_model(
         seed_all(config.seed)
 
     # ==========================================================================
-    # Training Data Freshness Check (2025-12)
+    # Training Data Freshness Check (2025-12) - Phase 1.5: Made mandatory
     # ==========================================================================
     # Validate that training data is fresh before starting training
-    # This helps ensure training nodes have up-to-date data
-    if check_data_freshness and HAS_FRESHNESS_CHECK:
+    # This is now MANDATORY by default to prevent stale data training
+    # Use --skip-freshness-check to bypass (not recommended)
+    if not skip_freshness_check and HAS_FRESHNESS_CHECK:
         if not distributed or is_main_process():
             logger.info(
                 f"Checking training data freshness "
@@ -914,25 +915,33 @@ def train_model(
                         f"(threshold={max_data_age_hours}h), "
                         f"games={freshness_result.games_available}"
                     )
-                    if fail_on_stale_data:
-                        raise ValueError(
-                            f"{msg}. Set --fail-on-stale-data=False or "
-                            "run data sync: python scripts/run_training_loop.py --sync-only"
-                        )
-                    elif warn_on_stale_data:
+                    if allow_stale_data:
+                        # User explicitly allowed stale data with --allow-stale-data
                         logger.warning(msg)
                         logger.warning(
-                            "Consider running data sync before training: "
-                            "python scripts/run_training_loop.py --sync-only"
+                            "Proceeding with stale data (--allow-stale-data specified). "
+                            "Consider running data sync: python scripts/run_training_loop.py --sync-only"
                         )
                     else:
-                        logger.info(msg)
+                        # Default: fail on stale data to prevent training on outdated samples
+                        raise ValueError(
+                            f"{msg}. Use --allow-stale-data to proceed anyway, or "
+                            "run data sync: python scripts/run_training_loop.py --sync-only"
+                        )
+            except ValueError:
+                raise  # Re-raise stale data errors
             except Exception as e:
                 logger.warning(f"Data freshness check failed: {e}")
-    elif check_data_freshness and not HAS_FRESHNESS_CHECK:
+    elif not skip_freshness_check and not HAS_FRESHNESS_CHECK:
         if not distributed or is_main_process():
             logger.warning(
-                "Data freshness check requested but module not available"
+                "Data freshness check enabled but module not available - skipping"
+            )
+    elif skip_freshness_check:
+        if not distributed or is_main_process():
+            logger.warning(
+                "Skipping data freshness check (--skip-freshness-check). "
+                "Training may use stale data!"
             )
 
     # ==========================================================================

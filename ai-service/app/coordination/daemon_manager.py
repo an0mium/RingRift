@@ -182,6 +182,9 @@ class DaemonType(Enum):
     # Health server (December 2025) - exposes /health, /ready, /metrics HTTP endpoints
     HEALTH_SERVER = "health_server"
 
+    # Maintenance daemon (December 2025) - log rotation, DB vacuum, cleanup
+    MAINTENANCE = "maintenance"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -557,6 +560,13 @@ class DaemonManager:
             DaemonType.SYSTEM_HEALTH_MONITOR,
             self._create_system_health_monitor,
             depends_on=[DaemonType.EVENT_ROUTER, DaemonType.NODE_HEALTH_MONITOR],
+        )
+
+        # Maintenance daemon (December 2025) - log rotation, DB vacuum, cleanup
+        self.register_factory(
+            DaemonType.MAINTENANCE,
+            self._create_maintenance,
+            depends_on=[],  # No dependencies
         )
 
     def register_factory(
@@ -2504,26 +2514,102 @@ class DaemonManager:
     async def _create_dlq_retry(self) -> None:
         """Create and run dead-letter queue retry daemon.
 
-        Monitors the dead-letter queue for failed events and retries them
-        with exponential backoff.
+        December 2025 (Phase 2.2): Enhanced DLQ lifecycle management.
+        - Auto-retry with exponential backoff (base 60s, max 5 attempts)
+        - Auto-quarantine after max retries (mark resolved with failure reason)
+        - Hourly audit report of DLQ state
+
+        Monitors the dead-letter queue for failed sync entries and retries them.
         """
         try:
-            from app.coordination.event_router import get_router
+            from app.distributed.unified_manifest import get_unified_manifest
 
-            router = get_router()
-            if router is None:
-                logger.warning("Event router not available for DLQ retry")
+            manifest = get_unified_manifest()
+            if manifest is None:
+                logger.warning("Unified manifest not available for DLQ retry")
                 return
 
-            logger.info("DLQ retry daemon started")
+            logger.info("DLQ retry daemon started (exponential backoff, max 5 retries)")
+
+            MAX_RETRIES = 5
+            BASE_DELAY_SECONDS = 60.0
+            last_audit_time = time.time()
+            AUDIT_INTERVAL = 3600.0  # Hourly audit
 
             while True:
                 try:
-                    # Check for DLQ entries and retry them
-                    if hasattr(router, "retry_dlq"):
-                        retried = await router.retry_dlq()
-                        if retried:
-                            logger.info(f"Retried {retried} events from DLQ")
+                    # Get unresolved DLQ entries
+                    entries = manifest.get_dead_letter_entries(limit=50, include_resolved=False)
+
+                    retried_count = 0
+                    quarantined_count = 0
+
+                    for entry in entries:
+                        # Check if max retries exceeded
+                        if entry.retry_count >= MAX_RETRIES:
+                            # Quarantine: mark as resolved with failure
+                            manifest.mark_dead_letter_resolved([entry.id])
+                            quarantined_count += 1
+                            logger.warning(
+                                f"[DLQ] Quarantined entry {entry.id} (game={entry.game_id}) "
+                                f"after {entry.retry_count} failed retries"
+                            )
+                            continue
+
+                        # Exponential backoff: 60s, 120s, 240s, 480s, 960s
+                        backoff_delay = BASE_DELAY_SECONDS * (2 ** entry.retry_count)
+
+                        # Check if enough time has passed since last retry
+                        if entry.last_retry_at:
+                            time_since_last = time.time() - entry.last_retry_at
+                            if time_since_last < backoff_delay:
+                                continue  # Not ready for retry yet
+
+                        # Attempt retry via sync daemon
+                        try:
+                            # Increment retry count before attempting
+                            manifest.increment_dead_letter_retry(entry.id)
+
+                            # Attempt the sync (via cluster_data_sync or similar)
+                            from app.coordination.cluster_data_sync import sync_game
+
+                            success = await sync_game(
+                                game_id=entry.game_id,
+                                source_host=entry.source_host,
+                            )
+
+                            if success:
+                                manifest.mark_dead_letter_resolved([entry.id])
+                                retried_count += 1
+                                logger.info(
+                                    f"[DLQ] Successfully retried entry {entry.id} "
+                                    f"(game={entry.game_id}, attempt={entry.retry_count + 1})"
+                                )
+                        except ImportError:
+                            # sync_game not available, just track retry
+                            pass
+                        except Exception as e:
+                            logger.debug(f"[DLQ] Retry failed for {entry.id}: {e}")
+
+                    if retried_count or quarantined_count:
+                        logger.info(
+                            f"[DLQ] Cycle: {retried_count} retried, {quarantined_count} quarantined"
+                        )
+
+                    # Hourly audit report
+                    if time.time() - last_audit_time > AUDIT_INTERVAL:
+                        stats = manifest.get_manifest_stats()
+                        if stats.dead_letter_count > 0:
+                            logger.info(
+                                f"[DLQ Audit] {stats.dead_letter_count} unresolved entries"
+                            )
+                        last_audit_time = time.time()
+
+                        # Cleanup old resolved entries (older than 7 days)
+                        cleaned = manifest.cleanup_old_dead_letters(days=7)
+                        if cleaned:
+                            logger.info(f"[DLQ] Cleaned up {cleaned} old resolved entries")
+
                 except Exception as e:
                     logger.error(f"DLQ retry error: {e}")
 
@@ -2531,6 +2617,28 @@ class DaemonManager:
 
         except ImportError as e:
             logger.warning(f"DLQ retry dependencies not available: {e}")
+
+    async def _create_maintenance(self) -> None:
+        """Create and run maintenance daemon (December 2025).
+
+        Handles automated system maintenance:
+        - Log rotation (hourly, 100MB max, 10 backups)
+        - Database VACUUM (weekly)
+        - Game archival (daily, >30 days old)
+        - DLQ cleanup (weekly backup to DLQ_RETRY)
+
+        This is the long-term sustainability daemon.
+        """
+        try:
+            from app.coordination.maintenance_daemon import get_maintenance_daemon
+
+            daemon = get_maintenance_daemon()
+            await daemon.run_forever()
+
+        except ImportError as e:
+            logger.warning(f"MaintenanceDaemon not available: {e}")
+        except Exception as e:
+            logger.error(f"MaintenanceDaemon failed: {e}")
 
     # Note: TRAINING_WATCHER removed in Phase 21.2 (Dec 2025)
     # Use TRAINING_NODE_WATCHER from cluster_data_sync instead, which provides

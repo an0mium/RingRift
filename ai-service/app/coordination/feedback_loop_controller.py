@@ -136,7 +136,7 @@ class FeedbackLoopController:
 
         # Configuration
         self.policy_accuracy_threshold = 0.75  # Trigger evaluation above this
-        self.promotion_threshold = 0.55  # Win rate for promotion consideration
+        self.promotion_threshold = 0.60  # Win rate for promotion (Dec 2025: tightened from 0.55)
         self.failure_exploration_boost = 1.3  # Boost exploration on failure
         self.success_intensity_reduction = 0.9  # Reduce intensity on success
 

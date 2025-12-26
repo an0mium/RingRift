@@ -665,6 +665,6 @@ SELFPLAY_SCHEMA = Schema({
 EVALUATION_SCHEMA = Schema({
     "shadow_games": IntField(default=20, min_val=1),
     "full_tournament_games": IntField(default=100, min_val=10),
-    "promotion_threshold": FloatField(default=0.55, min_val=0.5, max_val=1.0),
+    "promotion_threshold": FloatField(default=0.60, min_val=0.5, max_val=1.0),  # Dec 2025: tightened
     "elo_k_factor": IntField(default=32, min_val=1),
 })

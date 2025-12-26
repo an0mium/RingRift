@@ -358,17 +358,18 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     # Training data freshness check (2025-12)
+    # Made mandatory by default to prevent stale data training (Phase 1.5)
     parser.add_argument(
-        '--check-data-freshness', action='store_true',
-        help='Check training data freshness before starting (warn if data is stale)'
+        '--skip-freshness-check', action='store_true',
+        help='Skip training data freshness check (not recommended - may train on stale data)'
     )
     parser.add_argument(
         '--max-data-age-hours', type=float, default=1.0,
         help='Maximum age in hours for "fresh" training data (default: 1.0)'
     )
     parser.add_argument(
-        '--fail-on-stale-data', action='store_true',
-        help='Fail if training data is stale (instead of just warning)'
+        '--allow-stale-data', action='store_true',
+        help='Allow training on stale data with warning (default: fail on stale)'
     )
 
     # Adaptive training intensity (2025-12)
@@ -436,8 +437,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Evaluation games for promotion decision'
     )
     parser.add_argument(
-        '--curriculum-promotion-threshold', type=float, default=0.55,
-        help='Win rate threshold for promotion'
+        '--curriculum-promotion-threshold', type=float, default=0.60,
+        help='Win rate threshold for promotion (Dec 2025: tightened from 0.55)'
     )
     parser.add_argument(
         '--curriculum-data-retention', type=int, default=3,
@@ -871,10 +872,10 @@ def main() -> None:
         dropout=getattr(args, 'dropout', 0.08),
         # GNN support (2025-12)
         model_type=getattr(args, 'model_type', 'cnn'),
-        # Training data freshness check (2025-12)
-        check_data_freshness=getattr(args, 'check_data_freshness', False),
+        # Training data freshness check (2025-12) - mandatory by default
+        skip_freshness_check=getattr(args, 'skip_freshness_check', False),
         max_data_age_hours=getattr(args, 'max_data_age_hours', 1.0),
-        fail_on_stale_data=getattr(args, 'fail_on_stale_data', False),
+        allow_stale_data=getattr(args, 'allow_stale_data', False),
         # Quality-aware sample filtering (December 2025)
         min_quality_score=getattr(args, 'min_quality_score', 0.0),
     )

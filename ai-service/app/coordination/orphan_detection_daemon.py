@@ -45,8 +45,8 @@ if str(ROOT) not in sys.path:
 class OrphanDetectionConfig:
     """Configuration for orphan detection daemon."""
 
-    # Scan settings
-    scan_interval_seconds: float = 1800.0  # 30 minutes
+    # Scan settings (Phase 3B.3: Dec 2025 - reduced from 30 min to 5 min)
+    scan_interval_seconds: float = 300.0  # 5 minutes
     games_dir: str = "data/games"
 
     # Auto-registration

@@ -111,6 +111,50 @@ from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("run_gpu_selfplay")
 
+
+def _emit_gpu_selfplay_complete(
+    board_type: str,
+    num_players: int,
+    games_completed: int,
+    total_samples: int,
+    output_dir: str,
+    db_path: str | None,
+    duration_seconds: float,
+) -> None:
+    """Emit SELFPLAY_COMPLETE event for pipeline automation.
+
+    Phase 3A.2 (Dec 2025): GPU selfplay now emits events to trigger
+    downstream pipeline stages (sync, export, training).
+    """
+    import socket
+
+    try:
+        from app.coordination.event_router import publish_sync, StageEvent
+
+        config_key = f"{board_type}_{num_players}p"
+        publish_sync(
+            event_type=StageEvent.GPU_SELFPLAY_COMPLETE,
+            payload={
+                "config_key": config_key,
+                "board_type": board_type,
+                "num_players": num_players,
+                "games_completed": games_completed,
+                "games_count": games_completed,
+                "total_samples": total_samples,
+                "output_dir": output_dir,
+                "db_path": str(db_path) if db_path else None,
+                "duration_seconds": duration_seconds,
+                "node_id": socket.gethostname(),
+            },
+            source="gpu_selfplay",
+        )
+        logger.info(f"[Pipeline] Emitted GPU_SELFPLAY_COMPLETE for {config_key}")
+    except ImportError:
+        logger.debug("[Pipeline] Event router not available")
+    except Exception as e:
+        logger.warning(f"[Pipeline] Failed to emit GPU_SELFPLAY_COMPLETE: {e}")
+
+
 # =============================================================================
 # Default Heuristic Weights
 # =============================================================================
@@ -1414,6 +1458,17 @@ def run_quality_tier_selfplay(
     logger.info(f"  Avg length: {stats['avg_game_length']:.1f} moves")
     logger.info(f"  Output: {games_file}")
 
+    # Emit SELFPLAY_COMPLETE for pipeline automation (Phase 3A.2: Dec 2025)
+    _emit_gpu_selfplay_complete(
+        board_type=board_type,
+        num_players=num_players,
+        games_completed=num_games,
+        total_samples=stats["total_moves"],
+        output_dir=output_dir,
+        db_path=None,  # Quality tier doesn't use DB
+        duration_seconds=elapsed,
+    )
+
     return stats
 
 
@@ -1634,6 +1689,17 @@ def run_gpu_selfplay(
     logger.info("")
     logger.info(f"Games saved to: {games_file}")
     logger.info(f"Stats saved to: {stats_file}")
+
+    # Emit SELFPLAY_COMPLETE for pipeline automation (Phase 3A.2: Dec 2025)
+    _emit_gpu_selfplay_complete(
+        board_type=board_type,
+        num_players=num_players,
+        games_completed=stats["total_games"],
+        total_samples=stats["total_moves"],
+        output_dir=output_dir,
+        db_path=output_db,
+        duration_seconds=stats["total_time_seconds"],
+    )
 
     return stats
 

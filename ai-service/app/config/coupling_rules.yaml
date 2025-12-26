@@ -1,0 +1,187 @@
+# Coupling Rules - Explicit feedback loop connections
+#
+# This file documents the explicit coupling between feedback signals
+# and actions in the AI training self-improvement loop.
+#
+# December 2025: Created for Phase 2 feedback consolidation.
+
+# =============================================================================
+# Quality → Export Rules
+# =============================================================================
+quality_to_export:
+  # When to trigger export based on quality scores
+  trigger_threshold: 0.70  # Export when quality > 70%
+  warning_threshold: 0.50  # Warn when quality < 50%
+
+  # Minimum games before export
+  min_games: 500
+
+  # Action on trigger
+  action: "emit_export_trigger"
+  event: "EXPORT_REQUESTED"
+
+# =============================================================================
+# Accuracy → Intensity Rules
+# =============================================================================
+accuracy_to_intensity:
+  # Training intensity based on policy accuracy
+  thresholds:
+    hot_path: 0.65      # Below 65% → hot_path (2x epochs)
+    normal: 0.75        # 65-85% → normal
+    cool_down: 0.85     # Above 85% → cool_down (fewer resources)
+
+  # Cooldown between intensity changes
+  cooldown_seconds: 300
+
+  # Action
+  action: "set_training_intensity"
+  affects:
+    - epochs_multiplier
+    - learning_rate
+    - batch_priority
+
+# =============================================================================
+# Win Rate → Exploration Rules
+# =============================================================================
+winrate_to_exploration:
+  # Exploration adjustment based on evaluation win rates
+  thresholds:
+    reduce_exploration: 0.80  # Above 80% vs heuristic → reduce
+    boost_exploration: 0.50   # Below 50% → boost
+
+  # Multiplier adjustments
+  reduction_factor: 0.8
+  boost_factor: 1.3
+
+  # Bounds
+  min_multiplier: 0.5
+  max_multiplier: 2.0
+
+  # Cooldown
+  cooldown_seconds: 300
+
+  # Action
+  action: "set_exploration_multiplier"
+  affects:
+    - temperature_multiplier
+    - dirichlet_noise
+
+# =============================================================================
+# Promotion → Exploration Rules
+# =============================================================================
+promotion_to_exploration:
+  # Exploration adjustment based on promotion outcomes
+  on_success:
+    action: "reset_exploration"
+    multiplier: 1.0
+
+  on_failure:
+    action: "boost_exploration"
+    multiplier_boost: 1.3
+    max_multiplier: 2.0
+
+  # Action
+  affects:
+    - temperature_multiplier
+    - dirichlet_noise
+
+# =============================================================================
+# Regression → Alert Rules
+# =============================================================================
+regression_to_alert:
+  # Regression detection thresholds
+  thresholds:
+    elo_drop: 50.0           # ELO points
+    win_rate_drop: 0.10      # 10% win rate drop
+    consecutive_regressions: 3  # Before forced action
+
+  # Actions on regression
+  on_detected:
+    - action: "emit_regression_alert"
+      event: "REGRESSION_DETECTED"
+    - action: "boost_exploration"
+      multiplier: 1.5
+    - action: "increase_intensity"
+      value: "hot_path"
+
+  # Escalation
+  escalation:
+    after_consecutive: 3
+    action: "trigger_rollback_review"
+    event: "ROLLBACK_REQUESTED"
+
+# =============================================================================
+# Freshness → Sync Rules
+# =============================================================================
+freshness_to_sync:
+  # Data freshness thresholds (hours)
+  thresholds:
+    fresh: 1.0        # Data < 1 hour old is fresh
+    stale: 4.0        # Data 1-4 hours is stale (warning)
+    critical: 24.0    # Data > 24 hours blocks training
+
+  # Actions
+  on_stale:
+    - action: "trigger_sync"
+      priority: "normal"
+    - action: "emit_warning"
+      event: "DATA_STALE_WARNING"
+
+  on_critical:
+    - action: "block_training"
+    - action: "trigger_sync"
+      priority: "critical"
+    - action: "emit_alert"
+      event: "DATA_CRITICAL_ALERT"
+
+# =============================================================================
+# Curriculum → Selfplay Priority Rules
+# =============================================================================
+curriculum_to_priority:
+  # How curriculum weights affect selfplay allocation
+  weight_to_allocation:
+    # Relative weight → relative game allocation
+    formula: "games = base_games * weight / sum(weights)"
+
+  # Weight adjustment triggers
+  triggers:
+    elo_velocity_positive:
+      threshold: 10.0  # ELO/day
+      weight_boost: 0.2
+
+    elo_velocity_negative:
+      threshold: -5.0  # ELO/day
+      weight_boost: 0.3  # Boost struggling configs
+
+    plateau_detected:
+      weight_reduction: 0.1
+      redirect_to: "similar_configs"
+
+# =============================================================================
+# Event Mappings
+# =============================================================================
+event_mappings:
+  # Map internal signals to data events
+  INTENSITY_CHANGED: "TRAINING_INTENSITY_UPDATED"
+  EXPLORATION_CHANGED: "EXPLORATION_BOOST_UPDATED"
+  CURRICULUM_CHANGED: "CURRICULUM_REBALANCED"
+  QUALITY_UPDATED: "QUALITY_SCORE_UPDATED"
+  REGRESSION_DETECTED: "REGRESSION_DETECTED"
+  PROMOTION_OUTCOME: "MODEL_PROMOTED"
+
+# =============================================================================
+# Config Defaults
+# =============================================================================
+defaults:
+  # Default values for new configs
+  intensity: "normal"
+  exploration_multiplier: 1.0
+  curriculum_weight: 1.0
+  quality_threshold: 0.70
+
+  # Default cooldowns (seconds)
+  cooldowns:
+    intensity: 300
+    exploration: 300
+    curriculum: 600
+    promotion: 900

@@ -131,7 +131,11 @@ class AutoExportDaemon:
             pass
 
     async def _subscribe_to_events(self) -> None:
-        """Subscribe to relevant events."""
+        """Subscribe to relevant events.
+
+        Phase 3A.3 (Dec 2025): Now subscribes to SYNC_COMPLETE to trigger
+        export when games are synced from other nodes.
+        """
         try:
             from app.coordination.stage_events import StageEvent, get_event_bus
 
@@ -139,6 +143,11 @@ class AutoExportDaemon:
             unsub = bus.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
             self._event_subscriptions.append(unsub)
             logger.info("[AutoExportDaemon] Subscribed to SELFPLAY_COMPLETE events")
+
+            # Phase 3A.3: Also subscribe to SYNC_COMPLETE for cross-node data
+            unsub = bus.subscribe(StageEvent.SYNC_COMPLETE, self._on_sync_complete)
+            self._event_subscriptions.append(unsub)
+            logger.info("[AutoExportDaemon] Subscribed to SYNC_COMPLETE events")
         except ImportError:
             logger.warning("[AutoExportDaemon] Stage events not available")
 
@@ -175,6 +184,40 @@ class AutoExportDaemon:
 
         except Exception as e:
             logger.error(f"[AutoExportDaemon] Error handling selfplay complete: {e}")
+
+    async def _on_sync_complete(self, result: Any) -> None:
+        """Handle sync completion event (Phase 3A.3: Dec 2025).
+
+        When games are synced from other nodes, check if export is needed.
+        This enables cross-node data to trigger exports just like local selfplay.
+        """
+        try:
+            # Extract sync info from result
+            metadata = getattr(result, "metadata", {})
+            games_synced = metadata.get("games_synced", 0) or metadata.get("files_synced", 0)
+            config_key = metadata.get("config_key", "")
+
+            if not games_synced or not config_key:
+                return
+
+            # Parse config key
+            parts = config_key.rsplit("_", 1)
+            if len(parts) != 2:
+                return
+
+            board_type = parts[0]
+            try:
+                num_players = int(parts[1].replace("p", ""))
+            except ValueError:
+                return
+
+            logger.info(
+                f"[AutoExportDaemon] Sync complete: {games_synced} games for {config_key}"
+            )
+            await self._record_games(config_key, board_type, num_players, games_synced)
+
+        except Exception as e:
+            logger.error(f"[AutoExportDaemon] Error handling sync complete: {e}")
 
     async def _on_new_games(self, event: Any) -> None:
         """Handle new games available event."""
