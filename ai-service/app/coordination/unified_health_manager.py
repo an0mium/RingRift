@@ -18,6 +18,7 @@ Event Integration:
 - Subscribes to REGRESSION_DETECTED: Track model regressions
 - Subscribes to HOST_OFFLINE: Track offline hosts for recovery
 - Subscribes to NODE_RECOVERED: Update recovery state
+- Subscribes to PARITY_FAILURE_RATE_CHANGED: Alert on TS/Python parity issues (Dec 2025)
 
 Usage:
     from app.coordination.unified_health_manager import (
@@ -715,6 +716,82 @@ class UnifiedHealthManager(CoordinatorBase):
             state.offline_since = 0.0
 
             logger.info(f"[UnifiedHealthManager] Node recovered: {node_id}")
+
+    async def _on_parity_failure_rate_changed(self, event) -> None:
+        """Handle PARITY_FAILURE_RATE_CHANGED event - alert on parity issues.
+
+        December 2025: Closes the parity → alert feedback loop.
+        When TS/Python parity failure rate exceeds thresholds, record as an
+        error and potentially trigger alerts for investigation.
+
+        Parity failures indicate divergence between TypeScript (source of truth)
+        and Python implementations, which can cause training on incorrect data.
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        failure_rate = payload.get("failure_rate", 0.0)
+        board_type = payload.get("board_type", "unknown")
+        num_players = payload.get("num_players", 0)
+        config_key = payload.get("config_key", f"{board_type}_{num_players}p")
+        total_games = payload.get("total_games", 0)
+        failed_games = payload.get("failed_games", 0)
+        source = payload.get("source", "unknown")
+
+        # Thresholds for severity levels
+        CRITICAL_THRESHOLD = 0.05  # 5% failure rate is critical
+        WARNING_THRESHOLD = 0.01  # 1% failure rate is concerning
+
+        if failure_rate >= CRITICAL_THRESHOLD:
+            severity = ErrorSeverity.CRITICAL
+            message = (
+                f"CRITICAL: Parity failure rate {failure_rate:.1%} for {config_key} "
+                f"({failed_games}/{total_games} games). Training data may be corrupted."
+            )
+            logger.error(f"[UnifiedHealthManager] {message}")
+        elif failure_rate >= WARNING_THRESHOLD:
+            severity = ErrorSeverity.WARNING
+            message = (
+                f"WARNING: Parity failure rate {failure_rate:.1%} for {config_key} "
+                f"({failed_games}/{total_games} games). Investigation recommended."
+            )
+            logger.warning(f"[UnifiedHealthManager] {message}")
+        else:
+            # Below threshold, just log for tracking
+            logger.debug(
+                f"[UnifiedHealthManager] Parity failure rate {failure_rate:.1%} "
+                f"for {config_key} - within acceptable limits"
+            )
+            return  # Don't record as error
+
+        # Record error for tracking and potential escalation
+        error = ErrorRecord(
+            error_id=self._generate_error_id(),
+            component="parity",
+            error_type="parity_failure_rate",
+            message=message,
+            severity=severity,
+            context={
+                "config_key": config_key,
+                "board_type": board_type,
+                "num_players": num_players,
+                "failure_rate": failure_rate,
+                "failed_games": failed_games,
+                "total_games": total_games,
+                "source": source,
+            },
+        )
+        self._record_error(error)
+
+        # Trigger circuit breaker for parity component if critical
+        if severity == ErrorSeverity.CRITICAL:
+            self._on_component_failure(f"parity:{config_key}")
+
+            # Escalate critical parity failures
+            await self._escalate_to_human(
+                config_key,
+                f"Critical parity failure rate: {failure_rate:.1%} "
+                f"({failed_games}/{total_games} games)",
+            )
 
     # =========================================================================
     # Error and Recovery Recording

@@ -2152,6 +2152,120 @@ async def emit_idle_resource_detected(
 
 
 # =============================================================================
+# P0.5 Missing Event Emitters (December 2025)
+# =============================================================================
+# These were identified as "ghost events" - event types defined but never emitted.
+
+
+async def emit_data_stale(
+    config: str,
+    data_age_hours: float,
+    last_sync_time: str,
+    threshold_hours: float = 1.0,
+    source: str = "training_freshness",
+) -> None:
+    """Emit a DATA_STALE event when training data is older than threshold.
+
+    P0.5 Dec 2025: Closes feedback loop for data freshness monitoring.
+    This enables training_freshness.py and sync daemons to respond to stale data.
+
+    Args:
+        config: Board configuration (e.g., "hex8_2p")
+        data_age_hours: How old the data is in hours
+        last_sync_time: ISO timestamp of last data sync
+        threshold_hours: Threshold at which data is considered stale
+        source: Component that detected staleness
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DATA_STALE,
+        payload={
+            "config": config,
+            "data_age_hours": data_age_hours,
+            "last_sync_time": last_sync_time,
+            "threshold_hours": threshold_hours,
+        },
+        source=source,
+    ))
+
+
+async def emit_curriculum_advanced(
+    config: str,
+    old_tier: str,
+    new_tier: str,
+    trigger_reason: str,
+    elo: float = 0.0,
+    win_rate: float = 0.0,
+    games_at_tier: int = 0,
+    source: str = "curriculum_integration",
+) -> None:
+    """Emit a CURRICULUM_ADVANCED event when curriculum tier progresses.
+
+    P0.5 Dec 2025: Closes curriculum feedback loop.
+    This enables SelfplayScheduler to adjust priorities based on curriculum progression.
+
+    Args:
+        config: Board configuration (e.g., "hex8_2p")
+        old_tier: Previous curriculum tier (e.g., "BEGINNER")
+        new_tier: New curriculum tier (e.g., "INTERMEDIATE")
+        trigger_reason: What triggered the advancement (elo, winrate, games)
+        elo: Current Elo rating
+        win_rate: Current win rate
+        games_at_tier: Number of games played at old tier
+        source: Component that triggered advancement
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.CURRICULUM_ADVANCED,
+        payload={
+            "config": config,
+            "old_tier": old_tier,
+            "new_tier": new_tier,
+            "trigger_reason": trigger_reason,
+            "elo": elo,
+            "win_rate": win_rate,
+            "games_at_tier": games_at_tier,
+        },
+        source=source,
+    ))
+
+
+async def emit_daemon_status_changed(
+    daemon_name: str,
+    hostname: str,
+    old_status: str,
+    new_status: str,
+    reason: str = "",
+    error: str | None = None,
+    source: str = "daemon_manager",
+) -> None:
+    """Emit a DAEMON_STATUS_CHANGED event for daemon health transitions.
+
+    P0.5 Dec 2025: Enables watchdog to react to daemon health state changes.
+    Useful for detecting stuck, crashed, or restarted daemons.
+
+    Args:
+        daemon_name: Name of the daemon (e.g., "selfplay_scheduler")
+        hostname: Host running the daemon
+        old_status: Previous status (running, stopped, error)
+        new_status: New status (running, stopped, error, stuck)
+        reason: Why the status changed (timeout, exception, signal, restart)
+        error: Error message if transition was due to error
+        source: Component reporting the change
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.DAEMON_STATUS_CHANGED,
+        payload={
+            "daemon_name": daemon_name,
+            "hostname": hostname,
+            "old_status": old_status,
+            "new_status": new_status,
+            "reason": reason,
+            "error": error,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
 # Deprecation Support (December 2025)
 # =============================================================================
 # This module is deprecated in favor of app.coordination.event_router.

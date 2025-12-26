@@ -207,20 +207,19 @@ Rules:
 - CMA-ES updates `data/trained_heuristic_profiles.json`; set `RINGRIFT_TRAINED_HEURISTIC_PROFILES` to load it (auto-set in `ai-service/run.sh` if the file exists).
 - The candidate id recorded in `training_report.json` is used for gating and promotion.
 
-### 4.4 D3 – lower minimax tier (non-neural)
+### 4.4 D3 – tuned heuristic tier
 
 **Model type**
 
-- Minimax search (`AIType.MINIMAX`) using heuristic evaluation only.
+- Heuristic AI (`AIType.HEURISTIC`) using CMA-ES tuned weights.
 
 **Training data & method**
 
-- Use CMA-ES (same pipeline as D2) to produce a D3-specific heuristic profile for minimax evaluation.
-- If minimax depth/pruning changes are part of the candidate, capture them via the `search_persona.json` artifact and treat the persona tag as the `model_id`.
+- Use CMA-ES (same pipeline as D2) to produce a D3-specific heuristic profile.
 
 **Outputs & versioning**
 
-- Candidate includes `heuristic_profile_id` (and optionally a persona-tag `model_id`).
+- Candidate includes `heuristic_profile_id` (and optionally a `model_id` alias).
 
 ### 4.5 D4 – mid minimax tier (NNUE)
 
@@ -237,16 +236,16 @@ Rules:
 
 - Persona tag (for search config) and/or `nn_model_id` checkpoint.
 
-### 4.6 D5 – upper-mid Descent tier (neural)
+### 4.6 D5 – upper-mid minimax tier (NNUE)
 
 **Model type**
 
-- Descent (`AIType.DESCENT`) with neural guidance (default `ringrift_best_sq8_2p`).
+- Minimax with NNUE evaluation; default checkpoint `nnue_square8_2p`.
 
 **Training data & method**
 
-- `run_tier_training_pipeline.py --tier D5` should run neural training when D5 is Descent (override the tier config if needed).
-- Candidate is a new NN checkpoint plus any updated Descent parameters.
+- `run_tier_training_pipeline.py --tier D5` produces a `search_persona.json` snapshot for minimax settings.
+- Optional: train a new NNUE checkpoint and update `model_id` to the candidate `nn_model_id`.
 
 ### 4.7 D6 – high Descent tier (neural)
 
@@ -731,7 +730,7 @@ When canonical Square-8 2-player replay DBs exist and have passed the unified ga
 
 1. Run [`run_tier_training_pipeline.py`](../../ai-service/scripts/run_tier_training_pipeline.py:1) **without** `--demo` so that it can:
    - Generate or select training datasets derived **only** from DBs marked `canonical` in the registry.
-   - Invoke the appropriate heuristic / neural training loops for the tier (for example via [`python.train_model`](../../ai-service/app/training/train.py:1171) for neural tiers D5–D10).
+   - Invoke the appropriate heuristic / neural training loops for the tier (for example via [`python.train_model`](../../ai-service/app/training/train.py:1171) for neural tiers D6–D10, plus D5 when refreshing NNUE checkpoints).
    - Emit a richer `training_report.json` with explicit data-source and hyperparameter fields alongside training metrics.
 
 2. Run [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py:1) **without** `--demo` (and without `--no-perf`) so that it:
@@ -755,9 +754,9 @@ In both cases you should keep each candidate’s artefacts under a dedicated `--
 | ---- | -------------------- | ----------------- | ----------------------- | ----------- | ---------------------- |
 | D1   | Random               | —                 | —                       | —           | Baseline only          |
 | D2   | Heuristic            | `heuristic_cmaes` | 0.60                    | No          | Anchor (Template A)    |
-| D3   | Minimax (non-neural) | `heuristic_cmaes` | 0.55                    | Yes         | Optional               |
+| D3   | Heuristic (tuned)    | `heuristic_cmaes` | 0.55                    | Yes         | Optional               |
 | D4   | Minimax (NNUE)       | `search_persona`  | 0.68                    | Yes         | Anchor (Templates A/B) |
-| D5   | Descent (neural)     | `neural`          | 0.60                    | Yes         | Optional               |
+| D5   | Minimax (NNUE)       | `search_persona`  | 0.60                    | Yes         | Optional               |
 | D6   | Descent (neural)     | `neural`          | 0.72                    | Yes         | Anchor (Templates B/C) |
 | D7   | MCTS (heuristic)     | `search_persona`  | 0.65                    | Yes         | Optional               |
 | D8   | MCTS (neural)        | `neural`          | 0.75                    | Yes         | Anchor (Template C)    |

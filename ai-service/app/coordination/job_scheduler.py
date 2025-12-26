@@ -359,6 +359,46 @@ class PriorityJobScheduler:
                 return cost
         return PROVIDER_COSTS.get("unknown", 2.0)
 
+    def _is_ephemeral_host(self, host_name: str) -> bool:
+        """Check if a host is ephemeral (can be terminated at any time) (P2.4).
+
+        Args:
+            host_name: Name of the host
+
+        Returns:
+            True if host is ephemeral
+        """
+        host_lower = host_name.lower()
+        return any(provider in host_lower for provider in EPHEMERAL_PROVIDERS)
+
+    def _is_job_suitable_for_ephemeral(self, job: ScheduledJob) -> bool:
+        """Check if a job is suitable for ephemeral hosts (P2.4).
+
+        Ephemeral hosts can be terminated at any time, so we only schedule:
+        - Short-duration jobs (< 30 minutes)
+        - Non-critical job types (not training, promotion, evaluation)
+        - Jobs with priority NORMAL or LOW (not CRITICAL/HIGH)
+
+        Args:
+            job: The scheduled job
+
+        Returns:
+            True if job can run on ephemeral hosts
+        """
+        # Block critical job types
+        if job.job_type in EPHEMERAL_BLOCKED_JOB_TYPES:
+            return False
+
+        # Block high priority jobs
+        if job.priority < JobPriority.NORMAL:
+            return False
+
+        # Block long-running jobs
+        if job.estimated_duration_seconds > MAX_EPHEMERAL_JOB_DURATION_SECONDS:
+            return False
+
+        return True
+
     def _apply_starvation_prevention(self) -> int:
         """Boost priority for jobs waiting too long (P2.2).
 
@@ -528,6 +568,15 @@ class PriorityJobScheduler:
 
                 # Check CPU capacity for selfplay jobs
                 if job.job_type == "selfplay" and _get_cpu(status) > TARGET_CPU_UTILIZATION_MAX:
+                    continue
+
+                # P2.4 (Dec 2025): Block unsuitable jobs on ephemeral hosts
+                if self._is_ephemeral_host(host_name) and not self._is_job_suitable_for_ephemeral(job):
+                    logger.debug(
+                        f"[JobScheduler] Skipping {job.job_type} on ephemeral host {host_name}: "
+                        f"job not suitable (type={job.job_type}, priority={job.priority.name}, "
+                        f"duration={job.estimated_duration_seconds}s)"
+                    )
                     continue
 
                 # Check duration-based availability (December 2025 consolidation)
@@ -1642,6 +1691,10 @@ __all__ = [
     "STARVATION_THRESHOLD_HOURS",
     # P2.3 (Dec 2025): Cost-aware scheduling
     "PROVIDER_COSTS",
+    # P2.4 (Dec 2025): Ephemeral node optimization
+    "EPHEMERAL_BLOCKED_JOB_TYPES",
+    "EPHEMERAL_PROVIDERS",
+    "MAX_EPHEMERAL_JOB_DURATION_SECONDS",
     # Job migration (December 2025)
     "HostDeadJobMigrator",
     "JobPriority",
