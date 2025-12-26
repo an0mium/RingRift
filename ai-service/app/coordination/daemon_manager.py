@@ -58,16 +58,18 @@ logger = logging.getLogger(__name__)
 class DaemonType(Enum):
     """Types of daemons that can be managed."""
     # Sync daemons
+    # DEPRECATED (Dec 2025): SYNC_COORDINATOR replaced by AUTO_SYNC - removal Q2 2026
     SYNC_COORDINATOR = "sync_coordinator"
     HIGH_QUALITY_SYNC = "high_quality_sync"
     ELO_SYNC = "elo_sync"
     MODEL_SYNC = "model_sync"
 
     # Health/monitoring
+    # DEPRECATED (Dec 2025): HEALTH_CHECK replaced by NODE_HEALTH_MONITOR - removal Q2 2026
     HEALTH_CHECK = "health_check"
     CLUSTER_MONITOR = "cluster_monitor"
     QUEUE_MONITOR = "queue_monitor"
-    NODE_HEALTH_MONITOR = "node_health_monitor"
+    NODE_HEALTH_MONITOR = "node_health_monitor"  # Canonical health daemon
 
     # Event processing
     EVENT_ROUTER = "event_router"
@@ -1406,8 +1408,18 @@ class DaemonManager:
     async def _create_health_check(self) -> None:
         """Create and run health check daemon.
 
+        .. deprecated:: December 2025
+            Use NODE_HEALTH_MONITOR instead. Will be removed in Q2 2026.
+
         Uses HealthChecker from health_checks module and runs periodic checks.
         """
+        import warnings
+        warnings.warn(
+            "HEALTH_CHECK daemon is deprecated. Use NODE_HEALTH_MONITOR instead. "
+            "HEALTH_CHECK will be removed in Q2 2026.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         try:
             from app.distributed.health_checks import HealthChecker
 
