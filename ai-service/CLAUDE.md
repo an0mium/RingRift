@@ -96,7 +96,7 @@ python scripts/master_loop.py --skip-daemons
 **What it orchestrates:**
 
 - `SelfplayScheduler` - Priority-based selfplay allocation using curriculum weights, Elo velocities
-- `DaemonManager` - Lifecycle for all background daemons (62 types)
+- `DaemonManager` - Lifecycle for all background daemons (66 types)
 - `ClusterMonitor` - Real-time cluster health
 - `FeedbackLoopController` - Training feedback signals
 - `DataPipelineOrchestrator` - Pipeline stage tracking
@@ -426,7 +426,7 @@ The `DaemonManager` coordinates 60+ background services. See `docs/DAEMON_REGIST
 - **`daemon_manager.py`**: Lifecycle management, health checks, auto-restart (~2,000 LOC)
 - **`daemon_runners.py`**: Async runner functions for all daemon types (~1,100 LOC, Dec 2025 extraction)
 - **`daemon_registry.py`**: Declarative daemon specifications (~150 LOC, Dec 2025)
-- **`daemon_types.py`**: `DaemonType` enum with all 63+ daemon types
+- **`daemon_types.py`**: `DaemonType` enum with all 66 daemon types
 - **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
 - **`auto_sync_daemon.py`**: Automated P2P data sync with push-from-generator + gossip replication
 - **`training_activity_daemon.py`**: Detects training activity, triggers priority sync (Dec 2025)
@@ -436,7 +436,7 @@ The `DaemonManager` coordinates 60+ background services. See `docs/DAEMON_REGIST
 The daemon system uses a three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative configuration (NEW Dec 2025)
-   - `DAEMON_REGISTRY`: Dict[DaemonType, DaemonSpec] with all 63 daemon configurations
+   - `DAEMON_REGISTRY`: Dict[DaemonType, DaemonSpec] with all 66 daemon configurations
    - `DaemonSpec` dataclass: runner_name, depends_on, category, auto_restart, health_check_interval
    - `get_daemons_by_category()`, `get_categories()`, `validate_registry()`
    - Replaces ~330 lines of imperative code with ~30 lines of declarations
@@ -623,7 +623,7 @@ Three main options - use the recommended one:
 
 | Script                 | Purpose                                 | Recommended?       |
 | ---------------------- | --------------------------------------- | ------------------ |
-| `master_loop.py`       | Full cluster automation with 63 daemons | ✅ Yes             |
+| `master_loop.py`       | Full cluster automation with 66 daemons | ✅ Yes             |
 | `run_training_loop.py` | Simple 1-config pipeline                | For single configs |
 | `unified_ai_loop.py`   | Legacy wrapper                          | ❌ Deprecated      |
 
@@ -642,7 +642,7 @@ Major consolidation effort completed December 2025:
 | `EloSyncManager` + `RegistrySyncManager`                                                 | `DatabaseSyncManager` base class         | ~567            | Complete |
 | 28 `_init_*()` functions in `coordination_bootstrap.py`                                  | `COORDINATOR_REGISTRY` + generic handler | ~17             | Complete |
 | 5× NodeStatus definitions                                                                | `node_status.py`                         | ~200            | Complete |
-| DaemonManager factory methods (62 of 63)                                                 | `daemon_runners.py`                      | ~1,580          | Complete |
+| DaemonManager factory methods (65 of 66)                                                 | `daemon_runners.py`                      | ~1,580          | Complete |
 | `tracing.py` + `distributed_lock.py` + `optional_imports.py` + `yaml_utils.py`           | `core_utils.py`                          | ~0 (re-exports) | Complete |
 | `coordinator_base.py` + `coordinator_dependencies.py`                                    | `core_base.py`                           | ~0 (re-exports) | Complete |
 | `event_router.py` + `event_mappings.py` + `event_emitters.py` + `event_normalization.py` | `core_events.py`                         | ~0 (re-exports) | Complete |
@@ -652,8 +652,8 @@ Major consolidation effort completed December 2025:
 | Module               | Purpose                                                       |
 | -------------------- | ------------------------------------------------------------- |
 | `node_status.py`     | Unified NodeHealthState enum + NodeMonitoringStatus dataclass |
-| `daemon_runners.py`  | 63 daemon runner functions extracted from DaemonManager       |
-| `daemon_registry.py` | Declarative DaemonSpec registry for all 63 daemon types       |
+| `daemon_runners.py`  | 66 daemon runner functions extracted from DaemonManager       |
+| `daemon_registry.py` | Declarative DaemonSpec registry for all 66 daemon types       |
 
 **`node_status.py`** consolidates 5 duplicate NodeStatus definitions:
 
@@ -672,7 +672,7 @@ Major consolidation effort completed December 2025:
 
 **`daemon_registry.py`** provides declarative daemon configuration (Dec 27, 2025):
 
-- `DAEMON_REGISTRY`: Dict[DaemonType, DaemonSpec] with all 63 daemon configurations
+- `DAEMON_REGISTRY`: Dict[DaemonType, DaemonSpec] with all 66 daemon configurations
 - `DaemonSpec` dataclass with frozen=True for immutability:
   - `runner_name`: Function name in daemon_runners.py (e.g., "create_auto_sync")
   - `depends_on`: Tuple of DaemonTypes that must start first

@@ -1187,6 +1187,7 @@ class SelfplayRunner(ABC):
 
         December 2025: Uses unified auto_sync_daemon (not deprecated wrapper).
         """
+        import asyncio  # Import early to avoid UnboundLocalError in except clause
         try:
             from app.coordination.auto_sync_daemon import get_auto_sync_daemon
 
@@ -1206,7 +1207,6 @@ class SelfplayRunner(ABC):
             }
 
             # Call on_game_complete (fire-and-forget for non-blocking)
-            import asyncio
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(daemon.on_game_complete(game_result, db_path))

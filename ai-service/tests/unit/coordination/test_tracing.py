@@ -580,18 +580,20 @@ class TestTraceCollector:
         """Test getting slow traces."""
         collector = TraceCollector()
 
-        # Fast trace
+        # Fast trace - set duration_ms AFTER end_span (which calculates real duration)
         fast = TraceContext.new("fast")
         fast.start_span("op")
-        fast._current_span.duration_ms = 100
         fast.end_span()
+        # Override the calculated duration with our test value
+        fast.spans[-1].duration_ms = 100
         collector.collect(fast)
 
-        # Slow trace
+        # Slow trace - set duration_ms AFTER end_span
         slow = TraceContext.new("slow")
         slow.start_span("op")
-        slow._current_span.duration_ms = 2000
         slow.end_span()
+        # Override the calculated duration with our test value
+        slow.spans[-1].duration_ms = 2000
         collector.collect(slow)
 
         slow_traces = collector.get_slow_traces(threshold_ms=1000)

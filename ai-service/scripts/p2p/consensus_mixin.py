@@ -8,6 +8,7 @@ Usage:
         pass
 
 Phase 2 extraction - Dec 26, 2025
+Refactored to use P2PMixinBase - Dec 27, 2025
 
 Features:
 - Integrates PySyncObj Raft for replicated state machines
@@ -28,6 +29,8 @@ import logging
 import time
 from threading import RLock
 from typing import TYPE_CHECKING, Any
+
+from scripts.p2p.p2p_mixin_base import P2PMixinBase
 
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeInfo
@@ -336,8 +339,10 @@ if PYSYNCOBJ_AVAILABLE:
             return self._job_node.get(job_id)
 
 
-class ConsensusMixin:
+class ConsensusMixin(P2PMixinBase):
     """Mixin integrating PySyncObj Raft with P2POrchestrator.
+
+    Inherits from P2PMixinBase for shared logging helpers.
 
     Provides Raft-based consensus for:
     - Work queue operations (add, claim, complete)
@@ -359,6 +364,8 @@ class ConsensusMixin:
     Methods:
     - _save_state() - Persist state changes
     """
+
+    MIXIN_TYPE = "consensus"
 
     # Type hints for IDE support (implemented by P2POrchestrator)
     node_id: str

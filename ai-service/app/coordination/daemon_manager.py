@@ -2163,6 +2163,8 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.CLUSTER_WATCHDOG,  # Dec 2025: Self-healing cluster utilization
         DaemonType.METRICS_ANALYSIS,  # Phase 21.2: Analyze training metrics for feedback
         DaemonType.ELO_SYNC,  # Dec 2025: Sync Elo ratings across cluster nodes
+        DaemonType.DATA_CONSOLIDATION,  # Dec 27, 2025: Consolidate scattered data files
+        DaemonType.COORDINATOR_DISK_MANAGER,  # Dec 27, 2025: Manage coordinator disk space
     ],
 
     # Training node profile - runs on GPU nodes
@@ -2186,6 +2188,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.FEEDBACK_LOOP,  # Phase 21.2: Orchestrate all feedback signals
         DaemonType.METRICS_ANALYSIS,  # Phase 21.2: Analyze training metrics for feedback
         DaemonType.DLQ_RETRY,  # P0.3: Dead letter queue remediation (Dec 2025)
+        DaemonType.DISK_SPACE_MANAGER,  # Dec 27, 2025: Manage disk space on training nodes
     ],
 
     # Ephemeral node profile - runs on Vast.ai/spot instances

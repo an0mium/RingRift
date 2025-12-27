@@ -349,6 +349,74 @@ def _check_event_emitters() -> bool:
         return False
 
 
+async def _emit_event_safe(
+    emit_func_name: str,
+    event_name: str,
+    context_id: str = "",
+    log_level: str = "debug",
+    **kwargs,
+) -> bool:
+    """Generic helper for safe event emission with consistent error handling.
+
+    December 2025: Consolidates the try/except/import pattern used by 18+ emit
+    functions in this file. Reduces boilerplate while maintaining safety guarantees.
+
+    Args:
+        emit_func_name: Name of emit function in event_router (e.g., "emit_host_offline")
+        event_name: Human-readable event name for logging (e.g., "HOST_OFFLINE")
+        context_id: Identifier for logging (e.g., node_id)
+        log_level: Log level for success message ("debug" or "info")
+        **kwargs: Keyword arguments to pass to the emit function
+
+    Returns:
+        True if emitted successfully, False otherwise
+
+    Example:
+        await _emit_event_safe(
+            "emit_host_offline",
+            "HOST_OFFLINE",
+            context_id=node_id,
+            host=node_id,
+            reason="timeout",
+            source="p2p_orchestrator",
+        )
+    """
+    if not _check_event_emitters():
+        return False
+
+    try:
+        # Dynamic import of the emit function
+        import importlib
+        event_router = importlib.import_module("app.coordination.event_router")
+        emit_func = getattr(event_router, emit_func_name)
+        await emit_func(**kwargs)
+
+        # Log success at appropriate level
+        msg = f"[P2P Event] Emitted {event_name}"
+        if context_id:
+            msg += f" for {context_id}"
+        if log_level == "info":
+            logger.info(msg)
+        else:
+            logger.debug(msg)
+        return True
+
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_router not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
+        logger.debug(f"[P2P Event] Failed to emit {event_name}: {e}")
+        return False
+
+
+# TODO (Dec 2025): Remaining emit functions below can be refactored to use _emit_event_safe()
+# Example: Replace _emit_p2p_host_offline body with:
+#   return await _emit_event_safe("emit_host_offline", "HOST_OFFLINE", node_id,
+#       host=node_id, reason=reason, last_seen=last_seen, source="p2p_orchestrator")
+# This would save ~350-400 LOC across 18 functions.
+
+
 async def _emit_p2p_host_offline(node_id: str, reason: str = "timeout", last_seen: float | None = None) -> None:
     """Safely emit HOST_OFFLINE event when a peer goes offline/is retired.
 
