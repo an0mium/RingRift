@@ -360,6 +360,51 @@ class ThresholdManager:
             "thresholds": stats,
         }
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check threshold manager health for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status and metrics
+        """
+        from app.coordination.contracts import HealthCheckResult
+        from app.coordination.protocols import CoordinatorStatus
+
+        try:
+            health = self.get_health()
+            threshold_count = health.get("threshold_count", 0)
+            unhealthy = health.get("unhealthy_thresholds", [])
+            all_healthy = health.get("all_healthy", True)
+
+            # Healthy if all thresholds are meeting their success rate targets
+            if all_healthy:
+                status = CoordinatorStatus.RUNNING
+                message = ""
+            elif len(unhealthy) < threshold_count / 2:
+                status = CoordinatorStatus.DEGRADED
+                message = f"Unhealthy thresholds: {', '.join(unhealthy)}"
+            else:
+                status = CoordinatorStatus.ERROR
+                message = f"Majority of thresholds unhealthy: {', '.join(unhealthy)}"
+
+            return HealthCheckResult(
+                healthy=all_healthy,
+                status=status,
+                message=message,
+                details={
+                    "threshold_count": threshold_count,
+                    "unhealthy_count": len(unhealthy),
+                    "unhealthy_thresholds": unhealthy,
+                },
+            )
+
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check failed: {e}",
+                details={"error": str(e)},
+            )
+
 
 # =============================================================================
 # Global Manager and Pre-configured Thresholds

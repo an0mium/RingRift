@@ -3,6 +3,11 @@
 This module provides adapters that wrap existing daemon classes to make them
 compatible with the centralized DaemonManager lifecycle management.
 
+December 2025 Consolidation:
+- Replaced 9 near-identical adapter classes with data-driven ConfigurableDaemonAdapter
+- ~450 LOC saved through configuration-based approach
+- Legacy adapter classes preserved as thin wrappers for backward compatibility
+
 Each adapter:
 1. Implements a consistent interface for DaemonManager
 2. Optionally acquires an OrchestratorRole for exclusive execution
@@ -11,31 +16,34 @@ Each adapter:
 
 Usage:
     from app.coordination.daemon_adapters import (
-        DistillationDaemonAdapter,
-        PromotionDaemonAdapter,
         get_daemon_adapter,
+        ConfigurableDaemonAdapter,
+        DaemonAdapterSpec,
     )
 
-    # Get an adapter for a daemon type
+    # Get an adapter for a daemon type (uses ADAPTER_SPECS registry)
     adapter = get_daemon_adapter(DaemonType.DISTILLATION)
 
-    # Use with DaemonManager
-    manager = get_daemon_manager()
-    manager.register_factory(
-        DaemonType.DISTILLATION,
-        adapter.run,
-        depends_on=adapter.depends_on,
+    # Or create a custom adapter via spec
+    spec = DaemonAdapterSpec(
+        daemon_type=DaemonType.MY_DAEMON,
+        module_path="app.my_module",
+        class_name="MyDaemon",
+        role=OrchestratorRole.MY_LEADER,
     )
+    adapter = ConfigurableDaemonAdapter(spec)
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import time
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from app.core.async_context import safe_create_task
 
@@ -261,7 +269,229 @@ class DaemonAdapter(ABC):
         )
 
 
-class DistillationDaemonAdapter(DaemonAdapter):
+# =============================================================================
+# Configurable Daemon Adapter (December 2025 Consolidation)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class DaemonAdapterSpec:
+    """Specification for a daemon adapter.
+
+    Enables data-driven adapter configuration instead of per-daemon subclasses.
+    December 2025: Replaces 9 near-identical adapter classes.
+    """
+
+    daemon_type: DaemonType
+    module_path: str  # e.g., "app.training.distillation_daemon"
+    class_name: str  # e.g., "DistillationDaemon"
+    role: OrchestratorRole | None = None
+    depends_on: tuple[DaemonType, ...] = ()
+    deprecated: bool = False
+    deprecated_message: str = ""
+    # Custom health check: attribute name on daemon that returns bool
+    health_check_attr: str | None = None
+
+
+class ConfigurableDaemonAdapter(DaemonAdapter):
+    """Generic daemon adapter configured via DaemonAdapterSpec.
+
+    December 2025: Consolidates 9 near-identical adapter classes into one
+    configuration-driven implementation. Saves ~450 LOC.
+
+    Usage:
+        spec = ADAPTER_SPECS[DaemonType.DISTILLATION]
+        adapter = ConfigurableDaemonAdapter(spec)
+        await adapter.run()
+    """
+
+    def __init__(
+        self,
+        spec: DaemonAdapterSpec,
+        config: DaemonAdapterConfig | None = None,
+    ):
+        super().__init__(config)
+        self._spec = spec
+
+    @property
+    def daemon_type(self) -> DaemonType:
+        return self._spec.daemon_type
+
+    @property
+    def role(self) -> OrchestratorRole | None:
+        return self._spec.role
+
+    @property
+    def depends_on(self) -> list[DaemonType]:
+        return list(self._spec.depends_on)
+
+    async def _create_daemon(self) -> Any:
+        # Emit deprecation warning if applicable
+        if self._spec.deprecated:
+            warnings.warn(
+                self._spec.deprecated_message or f"{self._spec.class_name} is deprecated",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+
+        try:
+            module = importlib.import_module(self._spec.module_path)
+            daemon_class = getattr(module, self._spec.class_name)
+            return daemon_class()
+        except ImportError as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] {self._spec.class_name} not available: {e}"
+            )
+            return None
+        except AttributeError as e:
+            logger.warning(
+                f"[{self.__class__.__name__}] {self._spec.class_name} not found in "
+                f"{self._spec.module_path}: {e}"
+            )
+            return None
+
+    async def _run_daemon(self, daemon: Any) -> None:
+        if hasattr(daemon, "start"):
+            await daemon.start()
+            # Wait while daemon is running
+            while hasattr(daemon, "is_running") and daemon.is_running():
+                await asyncio.sleep(self.config.poll_interval_seconds)
+        elif hasattr(daemon, "run"):
+            await daemon.run()
+        else:
+            # Fallback: run indefinitely
+            while self._running:
+                await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _health_check(self) -> bool:
+        if not self._daemon_instance:
+            return False
+
+        # Use custom health check attribute if specified
+        if self._spec.health_check_attr:
+            attr = getattr(self._daemon_instance, self._spec.health_check_attr, None)
+            if callable(attr):
+                result = attr()
+                return bool(result)
+            return bool(attr)
+
+        # Default health checks
+        if hasattr(self._daemon_instance, "is_running"):
+            return self._daemon_instance.is_running()
+        if hasattr(self._daemon_instance, "_running"):
+            return self._daemon_instance._running
+        return True
+
+
+# =============================================================================
+# Adapter Specifications Registry
+# =============================================================================
+
+ADAPTER_SPECS: dict[DaemonType, DaemonAdapterSpec] = {
+    DaemonType.DISTILLATION: DaemonAdapterSpec(
+        daemon_type=DaemonType.DISTILLATION,
+        module_path="app.training.distillation_daemon",
+        class_name="DistillationDaemon",
+        role=OrchestratorRole.DISTILLATION_LEADER,
+    ),
+    DaemonType.UNIFIED_PROMOTION: DaemonAdapterSpec(
+        daemon_type=DaemonType.UNIFIED_PROMOTION,
+        module_path="app.training.unified_promotion_daemon",
+        class_name="UnifiedPromotionDaemon",
+        role=OrchestratorRole.PROMOTION_LEADER,
+    ),
+    DaemonType.EXTERNAL_DRIVE_SYNC: DaemonAdapterSpec(
+        daemon_type=DaemonType.EXTERNAL_DRIVE_SYNC,
+        module_path="app.distributed.external_drive_sync",
+        class_name="ExternalDriveSyncDaemon",
+        role=OrchestratorRole.EXTERNAL_SYNC_LEADER,
+    ),
+    DaemonType.VAST_CPU_PIPELINE: DaemonAdapterSpec(
+        daemon_type=DaemonType.VAST_CPU_PIPELINE,
+        module_path="app.distributed.vast_cpu_pipeline",
+        class_name="VastCpuPipelineDaemon",
+        role=OrchestratorRole.VAST_PIPELINE_LEADER,
+    ),
+    DaemonType.CLUSTER_DATA_SYNC: DaemonAdapterSpec(
+        daemon_type=DaemonType.CLUSTER_DATA_SYNC,
+        module_path="app.coordination.auto_sync_daemon",
+        class_name="AutoSyncDaemon",
+        role=OrchestratorRole.CLUSTER_DATA_SYNC_LEADER,
+    ),
+    DaemonType.AUTO_SYNC: DaemonAdapterSpec(
+        daemon_type=DaemonType.AUTO_SYNC,
+        module_path="app.coordination.auto_sync_daemon",
+        class_name="AutoSyncDaemon",
+        role=None,  # Runs on all nodes
+    ),
+    DaemonType.NPZ_DISTRIBUTION: DaemonAdapterSpec(
+        daemon_type=DaemonType.NPZ_DISTRIBUTION,
+        module_path="app.coordination.unified_distribution_daemon",
+        class_name="UnifiedDistributionDaemon",
+        role=None,
+        deprecated=True,
+        deprecated_message=(
+            "NPZ_DISTRIBUTION is deprecated. Use MODEL_DISTRIBUTION with "
+            "UnifiedDistributionDaemon instead."
+        ),
+    ),
+    DaemonType.ORPHAN_DETECTION: DaemonAdapterSpec(
+        daemon_type=DaemonType.ORPHAN_DETECTION,
+        module_path="app.coordination.orphan_detection_daemon",
+        class_name="OrphanDetectionDaemon",
+        role=None,
+    ),
+    DaemonType.DATA_CLEANUP: DaemonAdapterSpec(
+        daemon_type=DaemonType.DATA_CLEANUP,
+        module_path="app.coordination.data_cleanup_daemon",
+        class_name="DataCleanupDaemon",
+        role=None,
+    ),
+}
+
+
+# =============================================================================
+# Legacy Adapter Classes (Backward Compatibility)
+# =============================================================================
+# These classes are preserved for backward compatibility with existing code
+# that imports specific adapter classes. They are thin wrappers around
+# ConfigurableDaemonAdapter.
+
+
+def _create_legacy_adapter(daemon_type: DaemonType) -> type[DaemonAdapter]:
+    """Create a legacy adapter class for backward compatibility."""
+    spec = ADAPTER_SPECS.get(daemon_type)
+    if not spec:
+        raise ValueError(f"No spec found for {daemon_type}")
+
+    class LegacyAdapter(ConfigurableDaemonAdapter):
+        def __init__(self, config: DaemonAdapterConfig | None = None):
+            super().__init__(spec, config)
+
+    return LegacyAdapter
+
+
+# Legacy classes - thin wrappers for backward compatibility
+DistillationDaemonAdapter = _create_legacy_adapter(DaemonType.DISTILLATION)
+PromotionDaemonAdapter = _create_legacy_adapter(DaemonType.UNIFIED_PROMOTION)
+ExternalDriveSyncAdapter = _create_legacy_adapter(DaemonType.EXTERNAL_DRIVE_SYNC)
+VastCpuPipelineAdapter = _create_legacy_adapter(DaemonType.VAST_CPU_PIPELINE)
+ClusterDataSyncAdapter = _create_legacy_adapter(DaemonType.CLUSTER_DATA_SYNC)
+AutoSyncDaemonAdapter = _create_legacy_adapter(DaemonType.AUTO_SYNC)
+NPZDistributionDaemonAdapter = _create_legacy_adapter(DaemonType.NPZ_DISTRIBUTION)
+OrphanDetectionDaemonAdapter = _create_legacy_adapter(DaemonType.ORPHAN_DETECTION)
+DataCleanupDaemonAdapter = _create_legacy_adapter(DaemonType.DATA_CLEANUP)
+
+
+# =============================================================================
+# Original Legacy Classes (Preserved for Reference, Now Unused)
+# =============================================================================
+# The following class definitions were the original implementations before
+# the December 2025 consolidation. They are preserved as comments for
+# historical reference but the actual implementations above use the
+# data-driven ConfigurableDaemonAdapter pattern.
+#
+# class DistillationDaemonAdapter(DaemonAdapter):
     """Adapter for the distillation daemon."""
 
     @property

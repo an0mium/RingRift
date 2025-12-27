@@ -41,10 +41,10 @@ The game rules are defined in `src/shared/engine/`. The Python `ai-service` **mi
 
 ```bash
 # Frontend development
-npm run dev:client
+cd src/client && npm run dev
 
 # Backend server
-npm run dev:server
+cd src/server && npm run dev
 
 # AI service (Python)
 cd ai-service
@@ -54,6 +54,30 @@ python -m app.training.train --help
 npm test                           # TypeScript tests
 cd ai-service && pytest           # Python tests
 ```
+
+## Cluster Automation (Recommended)
+
+For long-term cluster utilization, use `master_loop.py`:
+
+```bash
+cd ai-service
+
+# Full automation (24/7 cluster operation)
+python scripts/master_loop.py
+
+# Watch mode (show status)
+python scripts/master_loop.py --watch
+
+# Dry run (preview actions)
+python scripts/master_loop.py --dry-run
+```
+
+This orchestrates:
+
+- **SelfplayScheduler**: Priority-based selfplay allocation (staleness, Elo velocity, curriculum weights)
+- **DaemonManager**: 60+ background daemons for sync, training, evaluation
+- **FeedbackLoopController**: Training feedback signals and curriculum adjustments
+- **DataPipelineOrchestrator**: Export → training → evaluation → promotion
 
 ## Board Configurations
 

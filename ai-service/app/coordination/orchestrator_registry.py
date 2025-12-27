@@ -71,6 +71,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.async_context import fire_and_forget
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
@@ -186,16 +187,15 @@ class OrchestratorInfo:
         return asdict(self)
 
 
-class OrchestratorRegistry:
+class OrchestratorRegistry(SingletonMixin):
     """
     SQLite-based registry for orchestrator coordination.
+
+    December 27, 2025: Migrated to SingletonMixin (Wave 4 Phase 1).
 
     Ensures mutual exclusion between orchestrators and provides
     visibility into what's running across the cluster.
     """
-
-    _instance: Optional['OrchestratorRegistry'] = None
-    _lock = threading.RLock()
 
     def __init__(self):
         self._db_path = REGISTRY_DB
@@ -209,21 +209,16 @@ class OrchestratorRegistry:
         atexit.register(self._cleanup_on_exit)
 
     @classmethod
-    def get_instance(cls) -> 'OrchestratorRegistry':
-        """Get singleton instance."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
-
-    @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton (for testing)."""
-        with cls._lock:
-            if cls._instance is not None:
-                cls._instance._cleanup_on_exit()
-                cls._instance = None
+        """Reset the singleton (for testing).
+
+        Overrides SingletonMixin.reset_instance to call cleanup first.
+        """
+        with cls._get_lock():
+            if cls.has_instance():
+                instance = cls.get_instance()
+                instance._cleanup_on_exit()
+            super().reset_instance()
 
     def _init_db(self):
         """Initialize the SQLite database with schema."""

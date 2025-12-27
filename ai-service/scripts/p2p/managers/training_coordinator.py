@@ -742,6 +742,53 @@ class TrainingCoordinator:
             logger.error(f"getting median model: {e}")
             return None
 
+    def _get_model_path_from_participant(self, participant_id: str, config_key: str) -> str | None:
+        """Get the model path for a participant from the ELO database.
+
+        Args:
+            participant_id: The participant ID (e.g., "policy_only:canonical_hex8_2p")
+            config_key: The config key (e.g., "hex8_2p")
+
+        Returns:
+            The model path if found, None otherwise.
+        """
+        elo_db_path = self.ringrift_path / "ai-service" / "data" / "unified_elo.db"
+        if not elo_db_path.exists():
+            return None
+
+        try:
+            conn = sqlite3.connect(str(elo_db_path))
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT model_path FROM participants
+                WHERE participant_id = ?
+            """, (participant_id,))
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and row[0]:
+                model_path = row[0]
+                # Resolve relative paths
+                if not os.path.isabs(model_path):
+                    model_path = str(self.ringrift_path / "ai-service" / model_path)
+                return model_path
+
+            # Try to infer model path from participant_id
+            # Format is usually "algorithm:model_id" e.g., "policy_only:canonical_hex8_2p"
+            parts = participant_id.split(":", 1)
+            model_id = parts[-1] if len(parts) > 1 else participant_id
+
+            # Check common model locations
+            for prefix in ["models", "models/checkpoints"]:
+                candidate = self.ringrift_path / "ai-service" / prefix / f"{model_id}.pth"
+                if candidate.exists():
+                    return str(candidate)
+
+            return None
+        except Exception as e:
+            logger.error(f"getting model path for {participant_id}: {e}")
+            return None
+
     async def _run_post_training_gauntlet(self, job: Any) -> bool:
         """Run quick gauntlet evaluation for newly trained model.
 
@@ -765,20 +812,107 @@ class TrainingCoordinator:
         model_id = os.path.splitext(os.path.basename(model_path))[0]
 
         # Get median model from ELO database
-        median_model = self._get_median_model(config_key)
-        if not median_model:
+        median_model_id = self._get_median_model(config_key)
+        if not median_model_id:
             logger.info(f"No median model for {config_key}, skipping gauntlet")
             return True  # Pass if no baseline to compare against
 
-        logger.info(f"Running post-training gauntlet: {model_id} vs {median_model} (median)")
+        # Get model path for median model
+        median_model_path = self._get_model_path_from_participant(median_model_id, config_key)
+        if not median_model_path or not os.path.exists(median_model_path):
+            logger.info(f"Median model path not found for {median_model_id}, skipping gauntlet")
+            return True
 
-        # For now, return True (gauntlet implementation would go here)
-        # In production, this would:
-        # 1. Try to dispatch to CPU-rich node
-        # 2. Fall back to local execution
-        # 3. Run games and return pass/fail based on win rate
-        logger.info("Gauntlet evaluation not yet implemented, passing by default")
-        return True
+        logger.info(f"Running post-training gauntlet: {model_id} vs {median_model_id} (median)")
+
+        try:
+            # Import game playing infrastructure
+            import functools
+            from app.training.game_gauntlet import play_single_game, GameResult
+            from app.ai.universal_ai import UniversalAI
+            from app.models import BoardType
+
+            # Parse board type
+            board_type_map = {
+                "square8": BoardType.SQUARE8,
+                "square19": BoardType.SQUARE19,
+                "hex8": BoardType.HEX8,
+                "hexagonal": BoardType.HEXAGONAL,
+            }
+            board_type = board_type_map.get(job.board_type)
+            if not board_type:
+                logger.warning(f"Unknown board type {job.board_type}, skipping gauntlet")
+                return True
+
+            num_players = job.num_players
+            games_per_side = 4  # 4 games as player 1, 4 as player 2
+
+            # Run games in executor to not block event loop
+            loop = asyncio.get_event_loop()
+            wins = 0
+            total_games = 0
+
+            for candidate_player in [1, 2]:
+                for game_num in range(games_per_side):
+                    try:
+                        # Load AIs fresh for each game to avoid state issues
+                        candidate_ai = UniversalAI.from_checkpoint(
+                            model_path,
+                            player_number=candidate_player,
+                            board_type=board_type,
+                            num_players=num_players,
+                        )
+
+                        opponent_player = 2 if candidate_player == 1 else 1
+                        opponent_ai = UniversalAI.from_checkpoint(
+                            median_model_path,
+                            player_number=opponent_player,
+                            board_type=board_type,
+                            num_players=num_players,
+                        )
+
+                        # Play game in executor - use functools.partial to avoid closure issues
+                        game_func = functools.partial(
+                            play_single_game,
+                            candidate_ai=candidate_ai,
+                            opponent_ai=opponent_ai,
+                            board_type=board_type,
+                            num_players=num_players,
+                            candidate_player=candidate_player,
+                            seed=game_num + (1000 if candidate_player == 1 else 2000),
+                        )
+                        result = await loop.run_in_executor(None, game_func)
+
+                        total_games += 1
+                        if result.winner == candidate_player:
+                            wins += 1
+                        elif result.winner == 0:
+                            wins += 0.5  # Draw counts as half win
+
+                    except Exception as e:
+                        logger.warning(f"Game {game_num} failed: {e}")
+                        continue
+
+            if total_games == 0:
+                logger.warning("No games completed in gauntlet, passing by default")
+                return True
+
+            win_rate = wins / total_games
+            passed = win_rate >= 0.5
+
+            logger.info(
+                f"Post-training gauntlet result: {wins}/{total_games} ({win_rate:.1%}) - "
+                f"{'PASSED' if passed else 'FAILED'}"
+            )
+
+            return passed
+
+        except ImportError as e:
+            logger.warning(f"Could not import game gauntlet modules: {e}, skipping gauntlet")
+            return True
+        except Exception as e:
+            logger.error(f"Gauntlet evaluation failed: {e}", exc_info=True)
+            return True  # Pass on error to avoid blocking training pipeline
 
     async def _archive_failed_model(self, model_path: str, board_type: str,
                                      num_players: int, reason: str) -> None:

@@ -102,26 +102,29 @@ class TestCircuitBreaker:
 
     def test_half_open_transition_after_timeout(self):
         """Circuit should transition to half-open after reset timeout."""
-        cb = CircuitBreaker(failure_threshold=1, reset_timeout_seconds=0.1)
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.1)
 
         # Trip the circuit
         cb.record_failure("test")
         assert cb.state == CircuitBreakerState.OPEN
 
-        # Wait for timeout
-        time.sleep(0.15)
+        # Wait for timeout (canonical uses 2x backoff, so wait 0.25s for 0.1*2=0.2 effective)
+        time.sleep(0.25)
 
-        # Should transition to half-open
-        assert cb.state == CircuitBreakerState.HALF_OPEN
+        # Canonical breaker transitions to HALF_OPEN when can_execute() is called
+        # (not on state property access), so call can_execute() first
         assert cb.can_execute()
+        assert cb.state == CircuitBreakerState.HALF_OPEN
 
     def test_half_open_closes_on_success(self):
         """Circuit should close after success in half-open state."""
-        cb = CircuitBreaker(failure_threshold=1, reset_timeout_seconds=0.01)
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
 
-        # Trip and wait for half-open
+        # Trip and wait for half-open (canonical uses 2x backoff, so wait 0.03s for 0.01*2=0.02 effective)
         cb.record_failure("test")
-        time.sleep(0.02)
+        time.sleep(0.03)
+        # Trigger HALF_OPEN transition via can_execute()
+        assert cb.can_execute()
         assert cb.state == CircuitBreakerState.HALF_OPEN
 
         # Record success
@@ -130,7 +133,7 @@ class TestCircuitBreaker:
 
     def test_half_open_reopens_on_failure(self):
         """Circuit should reopen on failure in half-open state."""
-        cb = CircuitBreaker(failure_threshold=1, reset_timeout_seconds=0.05)
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.05)
 
         # Trip the circuit
         cb.record_failure("test")
@@ -168,7 +171,8 @@ class TestCircuitBreaker:
 
         cb.reset()
         assert cb.state == CircuitBreakerState.CLOSED
-        assert cb._failure_count == 0
+        # Use get_status() API instead of private attributes
+        assert cb.get_status()["failure_count"] == 0
 
     def test_tracks_failures_by_stage(self):
         """Should track failures per stage."""

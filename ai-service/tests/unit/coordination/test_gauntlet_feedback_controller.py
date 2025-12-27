@@ -400,7 +400,9 @@ class TestEventHandling:
         }
 
         with patch.object(controller, "_analyze_and_act", new_callable=AsyncMock) as mock_analyze:
-            await controller._handle_evaluation_async(event)
+            # December 27, 2025: Migration to BaseEventHandler
+            # Handler is now _on_evaluation_completed (async)
+            await controller._on_evaluation_completed(event)
 
             mock_analyze.assert_called_once()
 
@@ -414,7 +416,8 @@ class TestEventHandling:
         }
 
         # Should not raise, just log and skip
-        await controller._handle_evaluation_async(event)
+        # December 27, 2025: Migration to BaseEventHandler
+        await controller._on_evaluation_completed(event)
 
         # No crash means success
 
@@ -433,7 +436,8 @@ class TestEventHandling:
         }
 
         with patch.object(controller, "_analyze_and_act", new_callable=AsyncMock) as mock_analyze:
-            await controller._handle_evaluation_async(event)
+            # December 27, 2025: Migration to BaseEventHandler
+            await controller._on_evaluation_completed(event)
 
             mock_analyze.assert_called_once()
 

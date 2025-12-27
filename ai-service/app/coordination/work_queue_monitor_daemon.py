@@ -52,11 +52,13 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Thresholds
-BACKPRESSURE_THRESHOLD = 100  # Emit backpressure if queue depth exceeds this
-STUCK_JOB_THRESHOLD_SECONDS = 300  # 5 minutes claimed but not started
-NODE_OVERLOAD_THRESHOLD = 5  # Max concurrent jobs per node
-LATENCY_WINDOW_SIZE = 100  # Rolling window for latency calculation
+# Thresholds (December 27, 2025: Centralized in coordination_defaults.py)
+from app.config.coordination_defaults import WorkQueueMonitorDefaults
+
+BACKPRESSURE_THRESHOLD = WorkQueueMonitorDefaults.BACKPRESSURE_THRESHOLD
+STUCK_JOB_THRESHOLD_SECONDS = WorkQueueMonitorDefaults.STUCK_JOB_THRESHOLD
+NODE_OVERLOAD_THRESHOLD = WorkQueueMonitorDefaults.NODE_OVERLOAD_THRESHOLD
+LATENCY_WINDOW_SIZE = WorkQueueMonitorDefaults.LATENCY_WINDOW_SIZE
 
 
 @dataclass

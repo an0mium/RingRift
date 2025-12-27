@@ -673,6 +673,57 @@ class ResourceTargetManager:
             "targets": asdict(self._targets),
         }
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check resource target manager health for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status and metrics
+        """
+        from app.coordination.contracts import HealthCheckResult
+        from app.coordination.protocols import CoordinatorStatus
+
+        try:
+            summary = self.get_cluster_summary()
+            active_hosts = summary.get("active_hosts", 0)
+            avg_cpu = summary.get("avg_cpu", 0.0)
+            avg_gpu = summary.get("avg_gpu", 0.0)
+            backpressure = summary.get("backpressure_factor", 1.0)
+
+            # Health checks:
+            # 1. At least one active host reporting
+            # 2. Backpressure not too severe (factor > 0.3)
+            # 3. CPU not critically high (< 95%)
+            issues = []
+            if active_hosts == 0:
+                issues.append("No active hosts reporting utilization")
+            if backpressure < 0.3:
+                issues.append(f"Severe backpressure: {backpressure:.2f}")
+            if avg_cpu > 95:
+                issues.append(f"Critical CPU utilization: {avg_cpu:.1f}%")
+
+            is_healthy = len(issues) == 0
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED,
+                message="; ".join(issues) if issues else "",
+                details={
+                    "active_hosts": active_hosts,
+                    "avg_cpu": round(avg_cpu, 1),
+                    "avg_gpu": round(avg_gpu, 1),
+                    "backpressure_factor": round(backpressure, 2),
+                    "total_jobs": summary.get("total_jobs", 0),
+                },
+            )
+
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check failed: {e}",
+                details={"error": str(e)},
+            )
+
 
 # Module-level singleton accessors
 _manager: ResourceTargetManager | None = None

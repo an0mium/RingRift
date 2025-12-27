@@ -67,7 +67,7 @@ def _get_event_type_value(event_name: str) -> str:
     "DATA_SYNC_COMPLETED" but subscribers expected "sync_completed" (the enum value).
 
     Args:
-        event_name: Human-readable event name (e.g., "DATA_SYNC_COMPLETED")
+        event_name: Enum member name (e.g., "DATA_SYNC_COMPLETED")
 
     Returns:
         The enum value (e.g., "sync_completed") or original name if enum not available
@@ -81,18 +81,13 @@ def _get_event_type_value(event_name: str) -> str:
             logger.debug("DataEventType not available, using raw event names")
             return event_name
 
-    # Map human-readable names to enum members
-    mapping = {
-        "DATA_SYNC_STARTED": "DATA_SYNC_STARTED",
-        "DATA_SYNC_COMPLETED": "DATA_SYNC_COMPLETED",
-        "DATA_SYNC_FAILED": "DATA_SYNC_FAILED",
-    }
-    enum_name = mapping.get(event_name, event_name)
+    # Dec 2025: Directly use enum member name without hardcoded mapping
+    # This ensures any new event types in DataEventType are automatically supported
     try:
-        return getattr(_DataEventType, enum_name).value
+        return getattr(_DataEventType, event_name).value
     except AttributeError:
-        # Dec 2025: Log warning instead of silent fallback
-        logger.warning(f"[SyncPlanner] Event type {enum_name} not found in DataEventType enum")
+        # Log warning for unknown event types - helps catch typos/mismatches
+        logger.warning(f"[SyncPlanner] Event type {event_name} not found in DataEventType enum")
         return event_name
 
 

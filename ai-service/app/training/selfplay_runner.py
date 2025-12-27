@@ -154,8 +154,13 @@ class SelfplayRunner(ABC):
         self._quality_penalty_rate = 1.0  # From QUALITY_PENALTY_APPLIED
 
         # Setup signal handlers - only respond to first signal
-        signal.signal(signal.SIGTERM, self._handle_signal)
-        signal.signal(signal.SIGINT, self._handle_signal)
+        # Signal handlers can only be set in main thread, so wrap in try/except
+        try:
+            signal.signal(signal.SIGTERM, self._handle_signal)
+            signal.signal(signal.SIGINT, self._handle_signal)
+        except ValueError:
+            # Not in main thread (e.g., running from thread pool executor)
+            pass
 
     @classmethod
     def from_cli(cls, argv: list[str] | None = None) -> "SelfplayRunner":

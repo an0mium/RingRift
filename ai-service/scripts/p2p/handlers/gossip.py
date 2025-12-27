@@ -285,4 +285,6 @@ class GossipHandlersMixin:
             })
 
         except Exception as e:
+            # Dec 2025: Added logging for debugging anti-entropy failures
+            logger.error(f"Error handling anti-entropy request: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)

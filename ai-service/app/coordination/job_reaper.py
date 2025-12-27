@@ -47,16 +47,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ============================================
-# Configuration
+# Configuration (December 27, 2025: Centralized in coordination_defaults.py)
 # ============================================
 
-CHECK_INTERVAL = 30  # seconds between checks
-DEFAULT_JOB_TIMEOUT = 3600  # 1 hour default timeout
-MAX_REASSIGN_ATTEMPTS = 3  # Maximum times to reassign a failed job
-NODE_BLACKLIST_DURATION = 600  # 10 minutes blacklist for failing nodes
-SSH_TIMEOUT = 30  # seconds for SSH commands
-LEADER_CHECK_TIMEOUT = 5  # seconds for P2P leader check
-LEADER_RETRY_DELAY = 10  # seconds to wait when not leader
+from app.config.coordination_defaults import JobReaperDefaults
+
+CHECK_INTERVAL = JobReaperDefaults.CHECK_INTERVAL
+DEFAULT_JOB_TIMEOUT = JobReaperDefaults.DEFAULT_JOB_TIMEOUT
+MAX_REASSIGN_ATTEMPTS = JobReaperDefaults.MAX_REASSIGN_ATTEMPTS
+NODE_BLACKLIST_DURATION = JobReaperDefaults.NODE_BLACKLIST_DURATION
+SSH_TIMEOUT = JobReaperDefaults.SSH_TIMEOUT
+LEADER_CHECK_TIMEOUT = JobReaperDefaults.LEADER_CHECK_TIMEOUT
+LEADER_RETRY_DELAY = JobReaperDefaults.LEADER_RETRY_DELAY
 
 
 class ReaperAction(str, Enum):

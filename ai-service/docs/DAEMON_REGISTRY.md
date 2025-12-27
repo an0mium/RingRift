@@ -2,10 +2,10 @@
 
 This document provides a comprehensive reference for all daemons managed by the RingRift AI service `DaemonManager`.
 
-**Last updated:** December 27, 2025 (Session 4 - Verification)
-**Total Daemon Types:** 66 (65 in `daemon_runners.py` + 1 inline in `daemon_manager.py`)
+**Last updated:** December 27, 2025 (Session 5 - Disk Management)
+**Total Daemon Types:** 68 (67 in `daemon_runners.py` + 1 inline in `daemon_manager.py`)
 **Startup Order:** 18 daemons in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`)
-**Dependencies:** All 66 daemons have entries in `DAEMON_DEPENDENCIES`
+**Dependencies:** All 68 daemons have entries in `DAEMON_DEPENDENCIES`
 
 > **Architecture Note (December 2025):** Factory methods have been extracted from `daemon_manager.py` to `daemon_runners.py`. Factory methods named `create_*()` are in `daemon_runners.py`; methods named `_create_*()` remain in `daemon_manager.py` for legacy or special cases.
 
@@ -26,6 +26,7 @@ This document provides a comprehensive reference for all daemons managed by the 
   - [System Health](#system-health)
   - [Cost Optimization](#cost-optimization)
   - [Feedback & Curriculum](#feedback--curriculum)
+  - [Disk Space Management](#disk-space-management-december-2025)
 - [Daemon Profiles](#daemon-profiles)
 - [Dependency Graph](#dependency-graph)
 - [Priority Levels](#priority-levels)
@@ -340,6 +341,40 @@ Training feedback and curriculum learning.
 
 ---
 
+### Disk Space Management (December 2025)
+
+Disk space monitoring and cleanup for coordinator nodes.
+
+| Daemon Type                | Priority | Description                                                                                    | Dependencies       |
+| -------------------------- | -------- | ---------------------------------------------------------------------------------------------- | ------------------ |
+| `DISK_SPACE_MANAGER`       | MEDIUM   | Proactive disk space monitoring. Cleanup at 60% usage (before 70% threshold).                  | EVENT_ROUTER       |
+| `COORDINATOR_DISK_MANAGER` | HIGH     | Specialized disk manager for coordinator nodes. Auto-syncs to external storage before cleanup. | DISK_SPACE_MANAGER |
+
+**COORDINATOR_DISK_MANAGER Details:**
+
+Prevents coordinator node disk fill-up by syncing data to external storage (e.g., OWC drive on mac-studio):
+
+- **Sync Target:** `/Volumes/RingRift-Data` on mac-studio
+- **Data Routed:**
+  - `data/games/*.db` → `RingRift-Data/selfplay_repository/`
+  - `data/training/*.npz` → `RingRift-Data/canonical_data/`
+  - `models/*.pth` → `RingRift-Data/canonical_models/`
+- **Cleanup Threshold:** 50% disk usage (more aggressive than GPU nodes)
+- **Retention:** Canonical databases kept locally; other data synced then removed after 24hr
+
+**Configuration:**
+
+- `RINGRIFT_COORDINATOR_REMOTE_HOST` - Remote host for sync (default: mac-studio)
+- `RINGRIFT_COORDINATOR_REMOTE_PATH` - Remote path (default: /Volumes/RingRift-Data)
+- `RINGRIFT_DISK_SPACE_CHECK_INTERVAL` - Check interval in seconds (default: 1800)
+
+**Factory Methods:**
+
+- `create_disk_space_manager()` → Creates `DiskSpaceManagerDaemon` (in daemon_runners.py)
+- `create_coordinator_disk_manager()` → Creates `CoordinatorDiskManager` (in daemon_runners.py)
+
+---
+
 ## Daemon Profiles
 
 Profiles group daemons by node role for easier management.
@@ -536,16 +571,31 @@ MODEL_DISTRIBUTION
 EVALUATION
 └── AUTO_PROMOTION
 
+DATA_PIPELINE (CRITICAL - event subscribers before emitters!)
+├── AUTO_SYNC (CRITICAL) - depends on DATA_PIPELINE
+├── EPHEMERAL_SYNC - depends on DATA_PIPELINE
+├── TRAINING_NODE_WATCHER - depends on DATA_PIPELINE
+├── NPZ_DISTRIBUTION
+└── DATA_CONSOLIDATION
+
+FEEDBACK_LOOP (CRITICAL - subscribes to training events!)
+└── AUTO_SYNC (CRITICAL) - depends on FEEDBACK_LOOP
+
+December 2025 Critical Order:
+- DATA_PIPELINE (position 3) must start BEFORE AUTO_SYNC (position 5)
+- FEEDBACK_LOOP (position 4) must start BEFORE AUTO_SYNC (position 5)
+- AUTO_SYNC emits DATA_SYNC_COMPLETED which DATA_PIPELINE must catch
+
+DISK_SPACE_MANAGER
+└── COORDINATOR_DISK_MANAGER - depends on DISK_SPACE_MANAGER
+
 Standalone (no dependencies):
-- AUTO_SYNC (CRITICAL)
 - SYNC_COORDINATOR (deprecated)
 - HIGH_QUALITY_SYNC
 - ELO_SYNC
 - GOSSIP_SYNC
-- EPHEMERAL_SYNC
 - MODEL_SYNC
 - EXTERNAL_DRIVE_SYNC
-- TRAINING_NODE_WATCHER
 - REPLICATION_MONITOR
 - REPLICATION_REPAIR
 - HEALTH_CHECK (deprecated)
@@ -561,6 +611,7 @@ Standalone (no dependencies):
 - DAEMON_WATCHDOG
 - HEALTH_SERVER
 - DATA_CLEANUP
+- DISK_SPACE_MANAGER
 ```
 
 ---

@@ -1269,6 +1269,65 @@ class UnifiedScheduler:
 
         return status
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check scheduler health for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status and metrics
+        """
+        from app.coordination.contracts import HealthCheckResult
+        from app.coordination.protocols import CoordinatorStatus
+
+        try:
+            # Count jobs by state
+            with sqlite3.connect(self.db_path) as conn:
+                row = conn.execute("""
+                    SELECT
+                        COUNT(*) as total,
+                        SUM(CASE WHEN state = 'running' THEN 1 ELSE 0 END) as running,
+                        SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END) as failed
+                    FROM jobs
+                    WHERE created_at > ?
+                """, (time.time() - 3600,)).fetchone()  # Last hour
+
+                total = row[0] if row else 0
+                running = row[1] or 0 if row else 0
+                failed = row[2] or 0 if row else 0
+
+            # Check if backends are available
+            backends_available = []
+            if self.enable_slurm:
+                backends_available.append("slurm")
+            if self.enable_vast:
+                backends_available.append("vast")
+            if self.enable_p2p:
+                backends_available.append("p2p")
+
+            # Health is good if we have at least one backend and failure rate < 20%
+            failure_rate = failed / total if total > 0 else 0.0
+            is_healthy = len(backends_available) > 0 and failure_rate < 0.2
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED,
+                message="" if is_healthy else f"High failure rate: {failure_rate:.1%}",
+                details={
+                    "backends": backends_available,
+                    "jobs_last_hour": total,
+                    "running": running,
+                    "failed": failed,
+                    "failure_rate": round(failure_rate, 3),
+                },
+            )
+
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check failed: {e}",
+                details={"error": str(e)},
+            )
+
 
 # Singleton instance
 _scheduler: UnifiedScheduler | None = None

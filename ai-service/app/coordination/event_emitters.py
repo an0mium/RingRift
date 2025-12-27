@@ -216,6 +216,114 @@ def _emit_data_event_sync(
         return False
 
 
+# =============================================================================
+# Retry-Enabled Emission (December 2025)
+# =============================================================================
+
+# Critical events that should be retried on failure
+CRITICAL_EVENT_TYPES = {
+    "training_started",
+    "training_completed",
+    "model_promoted",
+    "consolidation_complete",
+    "data_sync_completed",
+    "evaluation_completed",
+    "regression_detected",
+    "promotion_failed",
+}
+
+
+async def _emit_data_event_with_retry(
+    event_type: DataEventType,
+    payload: dict[str, Any],
+    source: str = "event_emitters",
+    log_message: str | None = None,
+    max_retries: int = 3,
+    base_delay: float = 0.5,
+) -> bool:
+    """Emit a DataEvent with exponential backoff retry for critical events.
+
+    December 2025: Added to ensure critical pipeline events aren't lost due
+    to transient failures (network issues, bus not ready, etc.).
+
+    Args:
+        event_type: The DataEventType enum value
+        payload: Event payload dict (timestamp auto-added if missing)
+        source: Event source identifier
+        log_message: Optional log message (uses event_type.value if None)
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Base delay in seconds for exponential backoff (default: 0.5)
+
+    Returns:
+        True if emitted successfully, False if all retries exhausted
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    # Auto-add timestamp if not present
+    if "timestamp" not in payload:
+        payload["timestamp"] = _get_timestamp()
+
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            bus = get_data_bus()
+            if bus is None:
+                if attempt < max_retries:
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                    continue
+                return False
+
+            event = DataEvent(
+                event_type=event_type,
+                payload=payload,
+                source=source,
+            )
+
+            await bus.publish(event)
+
+            msg = log_message or f"Emitted {event_type.value}"
+            if attempt > 0:
+                logger.info(f"{msg} (after {attempt} retries)")
+            else:
+                logger.debug(msg)
+
+            return True
+
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                logger.debug(
+                    f"Retry {attempt + 1}/{max_retries} for {event_type.value} "
+                    f"after {delay:.1f}s: {e}"
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.warning(
+                    f"Failed to emit {event_type.value} after {max_retries} retries: {last_error}"
+                )
+
+    return False
+
+
+def is_critical_event(event_type: DataEventType | str) -> bool:
+    """Check if an event type is critical and should use retry logic.
+
+    Args:
+        event_type: Event type (enum or string value)
+
+    Returns:
+        True if the event is critical
+    """
+    if hasattr(event_type, "value"):
+        event_str = event_type.value
+    else:
+        event_str = str(event_type)
+    return event_str in CRITICAL_EVENT_TYPES
+
+
 def _get_timestamp() -> str:
     """Get current timestamp in ISO format."""
     return datetime.now().isoformat()
@@ -336,6 +444,87 @@ async def _emit_stage_event(
         return False
 
 
+# Critical stage events that should use retry logic
+CRITICAL_STAGE_EVENTS = {
+    "training_complete",
+    "training_failed",
+    "evaluation_complete",
+    "promotion_complete",
+    "promotion_failed",
+}
+
+
+async def _emit_stage_event_with_retry(
+    event: StageEvent,
+    result: StageCompletionResult,
+    max_retries: int = 3,
+    base_delay: float = 0.5,
+) -> bool:
+    """Emit a StageEvent with exponential backoff retry.
+
+    December 2025: Added for critical pipeline stage events.
+
+    Args:
+        event: The StageEvent type
+        result: The completion result
+        max_retries: Maximum retry attempts
+        base_delay: Base delay for exponential backoff
+
+    Returns:
+        True if emitted successfully
+    """
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Try unified router first if enabled
+            if USE_UNIFIED_ROUTER and HAS_EVENT_ROUTER:
+                payload = {
+                    "event": event.value if hasattr(event, 'value') else str(event),
+                    "success": result.success if hasattr(result, 'success') else True,
+                    "config": result.config if hasattr(result, 'config') else "",
+                    "metrics": result.metrics if hasattr(result, 'metrics') else {},
+                }
+                if await _emit_via_router(event.value if hasattr(event, 'value') else str(event), payload, "stage_event"):
+                    if attempt > 0:
+                        logger.info(f"Emitted {event} (after {attempt} retries)")
+                    return True
+
+            # Fallback to direct stage bus
+            if not HAS_STAGE_EVENTS:
+                if attempt < max_retries:
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                    continue
+                return False
+
+            bus = get_stage_bus()
+            if bus is None:
+                if attempt < max_retries:
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                    continue
+                return False
+
+            await bus.emit(result)
+            if attempt > 0:
+                logger.info(f"Emitted {result.event.value} (after {attempt} retries)")
+            else:
+                logger.debug(f"Emitted {result.event.value}")
+            return True
+
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                logger.debug(
+                    f"Retry {attempt + 1}/{max_retries} for {event} after {delay:.1f}s: {e}"
+                )
+                await asyncio.sleep(delay)
+            else:
+                logger.warning(f"Failed to emit {event} after {max_retries} retries: {last_error}")
+
+    return False
+
+
 def _emit_stage_event_sync(
     event: StageEvent,
     result: StageCompletionResult,
@@ -446,6 +635,8 @@ async def emit_training_complete(
 ) -> bool:
     """Emit TRAINING_COMPLETE or TRAINING_FAILED event.
 
+    This is a critical event and uses retry logic to ensure delivery.
+
     Args:
         job_id: Training job ID
         board_type: Board type
@@ -484,7 +675,8 @@ async def emit_training_complete(
         },
     )
 
-    return await _emit_stage_event(event, result)
+    # Use retry for this critical event (December 2025)
+    return await _emit_stage_event_with_retry(event, result)
 
 
 def emit_training_complete_sync(
@@ -2120,6 +2312,10 @@ async def emit_repair_failed(
 
 
 __all__ = [
+    # Retry-enabled emission (December 2025)
+    "CRITICAL_EVENT_TYPES",
+    "CRITICAL_STAGE_EVENTS",
+    "is_critical_event",
     # Backpressure events (December 2025)
     "emit_backpressure_activated",
     "emit_backpressure_released",

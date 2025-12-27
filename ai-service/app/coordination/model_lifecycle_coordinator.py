@@ -219,6 +219,40 @@ class ModelLifecycleCoordinator:
             logger.error(f"[ModelLifecycleCoordinator] Failed to subscribe: {e}")
             return False
 
+    def unsubscribe_from_events(self) -> None:
+        """Unsubscribe from model lifecycle events.
+
+        December 27, 2025: Added to fix missing cleanup method (Wave 4 Phase 1).
+        This enables graceful shutdown without memory leaks from orphaned callbacks.
+        """
+        if not self._subscribed:
+            return
+
+        try:
+            from app.coordination.event_router import get_router
+            from app.coordination.event_router import DataEventType
+
+            router = get_router()
+
+            # Unsubscribe from all events
+            router.unsubscribe(DataEventType.CHECKPOINT_SAVED.value, self._on_checkpoint_saved)
+            router.unsubscribe(DataEventType.CHECKPOINT_LOADED.value, self._on_checkpoint_loaded)
+            router.unsubscribe(DataEventType.MODEL_PROMOTED.value, self._on_model_promoted)
+            router.unsubscribe(DataEventType.PROMOTION_ROLLED_BACK.value, self._on_promotion_rolled_back)
+            router.unsubscribe(DataEventType.PROMOTION_FAILED.value, self._on_promotion_failed)
+            router.unsubscribe(DataEventType.TRAINING_COMPLETED.value, self._on_training_completed)
+            router.unsubscribe(DataEventType.ELO_UPDATED.value, self._on_elo_updated)
+            router.unsubscribe(DataEventType.MODEL_CORRUPTED.value, self._on_model_corrupted)
+            router.unsubscribe(DataEventType.REGRESSION_DETECTED.value, self._on_regression_detected)
+
+            logger.info("[ModelLifecycleCoordinator] Unsubscribed from model events")
+
+        except (ImportError, ValueError, KeyError, AttributeError) as e:
+            logger.debug(f"[ModelLifecycleCoordinator] Error unsubscribing: {e}")
+        finally:
+            # Always mark as unsubscribed even if cleanup fails
+            self._subscribed = False
+
     def _ensure_model_record(self, model_id: str) -> ModelRecord:
         """Ensure a model record exists."""
         if model_id not in self._models:

@@ -45,10 +45,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Thresholds
-HEARTBEAT_STALE_THRESHOLD_SECONDS = 300  # 5 minutes without heartbeat = stale
-DEGRADED_COOLDOWN_SECONDS = 60  # Minimum time between degraded alerts
-INIT_FAILURE_MAX_RETRIES = 3  # Max failures before marking permanently unhealthy
+# Thresholds (December 27, 2025: Centralized in coordination_defaults.py)
+from app.config.coordination_defaults import CoordinatorHealthDefaults
+
+HEARTBEAT_STALE_THRESHOLD_SECONDS = CoordinatorHealthDefaults.HEARTBEAT_STALE_THRESHOLD
+DEGRADED_COOLDOWN_SECONDS = CoordinatorHealthDefaults.DEGRADED_COOLDOWN
+INIT_FAILURE_MAX_RETRIES = CoordinatorHealthDefaults.INIT_FAILURE_MAX_RETRIES
 
 
 class CoordinatorState(Enum):

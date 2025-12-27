@@ -1246,6 +1246,175 @@ def get_timeout(operation: str) -> int:
 
 
 # =============================================================================
+# Job Reaper Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class JobReaperDefaults:
+    """Default values for job reaper daemon.
+
+    Used by: job_reaper.py
+    """
+    # Interval between reaper checks (seconds)
+    CHECK_INTERVAL: int = _env_int("RINGRIFT_JOB_REAPER_CHECK_INTERVAL", 30)
+
+    # Default job timeout (seconds)
+    DEFAULT_JOB_TIMEOUT: int = _env_int("RINGRIFT_DEFAULT_JOB_TIMEOUT", 3600)
+
+    # Maximum times to reassign a failed job
+    MAX_REASSIGN_ATTEMPTS: int = _env_int("RINGRIFT_MAX_REASSIGN_ATTEMPTS", 3)
+
+    # Duration to blacklist failing nodes (seconds)
+    NODE_BLACKLIST_DURATION: int = _env_int("RINGRIFT_NODE_BLACKLIST_DURATION", 600)
+
+    # SSH command timeout (seconds)
+    SSH_TIMEOUT: int = _env_int("RINGRIFT_JOB_REAPER_SSH_TIMEOUT", 30)
+
+    # P2P leader check timeout (seconds)
+    LEADER_CHECK_TIMEOUT: int = _env_int("RINGRIFT_LEADER_CHECK_TIMEOUT", 5)
+
+    # Delay before retrying when not leader (seconds)
+    LEADER_RETRY_DELAY: int = _env_int("RINGRIFT_LEADER_RETRY_DELAY", 10)
+
+
+# =============================================================================
+# Coordinator Health Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class CoordinatorHealthDefaults:
+    """Default values for coordinator health monitoring.
+
+    Used by: coordinator_health_monitor_daemon.py
+    """
+    # Threshold for considering heartbeat stale (seconds)
+    HEARTBEAT_STALE_THRESHOLD: int = _env_int(
+        "RINGRIFT_COORDINATOR_HEARTBEAT_STALE_THRESHOLD", 300
+    )
+
+    # Cooldown between degraded alerts (seconds)
+    DEGRADED_COOLDOWN: int = _env_int("RINGRIFT_COORDINATOR_DEGRADED_COOLDOWN", 60)
+
+    # Max failures before marking permanently unhealthy
+    INIT_FAILURE_MAX_RETRIES: int = _env_int(
+        "RINGRIFT_COORDINATOR_INIT_FAILURE_MAX_RETRIES", 3
+    )
+
+
+# =============================================================================
+# Work Queue Monitor Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class WorkQueueMonitorDefaults:
+    """Default values for work queue monitoring.
+
+    Used by: work_queue_monitor_daemon.py
+    """
+    # Queue depth threshold for backpressure signal
+    BACKPRESSURE_THRESHOLD: int = _env_int(
+        "RINGRIFT_QUEUE_BACKPRESSURE_THRESHOLD", 100
+    )
+
+    # Time threshold for stuck jobs (seconds)
+    STUCK_JOB_THRESHOLD: int = _env_int("RINGRIFT_STUCK_JOB_THRESHOLD", 300)
+
+    # Max concurrent jobs per node
+    NODE_OVERLOAD_THRESHOLD: int = _env_int("RINGRIFT_NODE_OVERLOAD_THRESHOLD", 5)
+
+    # Rolling window size for latency calculation
+    LATENCY_WINDOW_SIZE: int = _env_int("RINGRIFT_LATENCY_WINDOW_SIZE", 100)
+
+
+# =============================================================================
+# Ephemeral Guard Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class EphemeralGuardDefaults:
+    """Default values for ephemeral data guard.
+
+    Used by: ephemeral_data_guard.py
+    """
+    # Interval between checkpoints (seconds)
+    CHECKPOINT_INTERVAL: int = _env_int("RINGRIFT_EPHEMERAL_CHECKPOINT_INTERVAL", 60)
+
+    # Timeout for host heartbeat (seconds)
+    HEARTBEAT_TIMEOUT: int = _env_int("RINGRIFT_EPHEMERAL_HEARTBEAT_TIMEOUT", 120)
+
+    # Unsynced games threshold for evacuation
+    EVACUATION_THRESHOLD: int = _env_int("RINGRIFT_EVACUATION_THRESHOLD", 50)
+
+    # Threshold for immediate write-through of critical games
+    CRITICAL_GAME_THRESHOLD: int = _env_int("RINGRIFT_CRITICAL_GAME_THRESHOLD", 10)
+
+
+# =============================================================================
+# Selfplay Allocation Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class SelfplayAllocationDefaults:
+    """Default values for selfplay job allocation.
+
+    Used by: selfplay_scheduler.py, selfplay_orchestrator.py
+    """
+    # Default games per config allocation
+    GAMES_PER_CONFIG: int = _env_int("RINGRIFT_SELFPLAY_GAMES_PER_CONFIG", 500)
+
+    # Minimum games per allocation
+    MIN_GAMES_PER_ALLOCATION: int = _env_int(
+        "RINGRIFT_MIN_GAMES_PER_ALLOCATION", 100
+    )
+
+    # Minimum RAM for task allocation (GB)
+    MIN_MEMORY_GB: int = _env_int("RINGRIFT_MIN_MEMORY_GB_FOR_TASKS", 8)
+
+    # Disk usage warning threshold (%)
+    DISK_WARNING_THRESHOLD: int = _env_int("RINGRIFT_DISK_WARNING_THRESHOLD", 90)
+
+    # Memory usage warning threshold (%)
+    MEMORY_WARNING_THRESHOLD: int = _env_int("RINGRIFT_MEMORY_WARNING_THRESHOLD", 95)
+
+    # Default MCTS budget for large boards
+    LARGE_BOARD_BUDGET: int = _env_int("RINGRIFT_LARGE_BOARD_MCTS_BUDGET", 800)
+
+
+# =============================================================================
+# Cross Process Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class CrossProcessDefaults:
+    """Default values for cross-process events.
+
+    Used by: cross_process_events.py
+    """
+    # Default retention for events (hours)
+    RETENTION_HOURS: int = _env_int("RINGRIFT_CROSS_PROCESS_RETENTION_HOURS", 24)
+
+    # Timeout for subscriber operations (seconds)
+    SUBSCRIBER_TIMEOUT: int = _env_int("RINGRIFT_SUBSCRIBER_TIMEOUT", 300)
+
+
+# =============================================================================
+# Sync Integrity Defaults (December 27, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class SyncIntegrityDefaults:
+    """Default values for sync integrity checking.
+
+    Used by: sync_integrity.py
+    """
+    # Default chunk size for file hashing (bytes)
+    DEFAULT_CHUNK_SIZE: int = _env_int("RINGRIFT_SYNC_DEFAULT_CHUNK_SIZE", 8192)
+
+    # Large chunk size for big files (bytes)
+    LARGE_CHUNK_SIZE: int = _env_int("RINGRIFT_SYNC_LARGE_CHUNK_SIZE", 65536)
+
+
+# =============================================================================
 # Convenience Functions
 # =============================================================================
 
@@ -1460,12 +1629,16 @@ __all__ = [
     "CacheDefaults",
     "CircuitBreakerDefaults",
     "ClusterWatchdogDefaults",
+    "CoordinatorHealthDefaults",
+    "CrossProcessDefaults",
     "DaemonHealthDefaults",
     "DaemonLoopDefaults",
     "DurationDefaults",
     "EphemeralDefaults",
+    "EphemeralGuardDefaults",
     "HealthDefaults",
     "HeartbeatDefaults",
+    "JobReaperDefaults",
     "JobTimeoutDefaults",
     "LockDefaults",
     "MetricsAnalysisDefaults",
@@ -1483,13 +1656,16 @@ __all__ = [
     "RetryDefaults",
     "ScalingDefaults",
     "SchedulerDefaults",
+    "SelfplayAllocationDefaults",
     "SQLiteDefaults",
     "SyncCoordinatorDefaults",
     "SyncDefaults",
+    "SyncIntegrityDefaults",
     "TaskLifecycleDefaults",
     "TrainingDefaults",
     "TransportDefaults",
     "UtilizationDefaults",
+    "WorkQueueMonitorDefaults",
     # Utility functions
     "get_all_defaults",
     "get_backpressure_multiplier",
