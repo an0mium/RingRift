@@ -37,6 +37,12 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
+from app.coordination.sync_integrity import (
+    IntegrityReport,
+    check_sqlite_integrity,
+    compute_file_checksum,
+    verify_sync_integrity,
+)
 from app.core.async_context import fire_and_forget, safe_create_task
 
 if TYPE_CHECKING:
@@ -178,6 +184,10 @@ class SyncStats:
     # Quality extraction stats (December 2025)
     games_quality_extracted: int = 0
     games_added_to_priority: int = 0
+    # Verification stats (December 2025 - Gap 4 fix)
+    databases_verified: int = 0
+    databases_verification_failed: int = 0
+    last_verification_time: float = 0.0
 
 
 class AutoSyncDaemon:
@@ -841,6 +851,12 @@ class AutoSyncDaemon:
         # Trigger data collection from peers
         await self._collect_from_peers()
 
+        # December 2025 - Gap 4 fix: Verify synced databases after collection
+        verification_passed = await self._verify_synced_databases()
+        if not verification_passed:
+            logger.warning("[AutoSyncDaemon] Some databases failed verification")
+            # Continue anyway - partial data is better than no data
+
         # Register synced data to manifest
         await self._register_synced_data()
 
@@ -1221,6 +1237,95 @@ class AutoSyncDaemon:
                 f"{status['total_pushed']} pushed, {status['total_pulled']} pulled"
             )
 
+    async def _verify_synced_databases(self) -> bool:
+        """Verify integrity of synced databases (December 2025 - Gap 4 fix).
+
+        Runs SQLite PRAGMA integrity_check on all recently synced databases
+        to detect corruption from incomplete transfers, network errors, etc.
+
+        Returns:
+            True if all databases pass verification, False if any fail.
+        """
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        data_dir = base_dir / "data" / "games"
+
+        if not data_dir.exists():
+            return True
+
+        start_time = time.time()
+        verified_count = 0
+        failed_count = 0
+        failed_dbs: list[str] = []
+
+        for db_path in data_dir.glob("*.db"):
+            # Skip manifest and schema files
+            if "manifest" in db_path.name or "schema" in db_path.name:
+                continue
+
+            # Skip WAL files (only check main database)
+            if db_path.suffix in ["-wal", "-shm"]:
+                continue
+
+            try:
+                is_valid, errors = check_sqlite_integrity(db_path)
+
+                if is_valid:
+                    verified_count += 1
+                else:
+                    failed_count += 1
+                    failed_dbs.append(db_path.name)
+                    logger.error(
+                        f"[AutoSyncDaemon] Database {db_path.name} failed integrity check: {errors}"
+                    )
+                    # Emit verification failed event
+                    fire_and_forget(
+                        self._emit_sync_verification_failed(
+                            db_path.name,
+                            f"Integrity check failed: {errors[:2]}",
+                        )
+                    )
+
+            except (OSError, sqlite3.Error) as e:
+                # Database may be locked or in use - not necessarily corrupted
+                logger.debug(f"[AutoSyncDaemon] Could not verify {db_path.name}: {e}")
+
+        # Update stats
+        self._stats.databases_verified += verified_count
+        self._stats.databases_verification_failed += failed_count
+        self._stats.last_verification_time = time.time()
+
+        elapsed = time.time() - start_time
+        if verified_count > 0 or failed_count > 0:
+            logger.info(
+                f"[AutoSyncDaemon] Verification complete: {verified_count} passed, "
+                f"{failed_count} failed ({elapsed:.2f}s)"
+            )
+
+        return failed_count == 0
+
+    async def _emit_sync_verification_failed(self, db_name: str, error: str) -> None:
+        """Emit SYNC_VERIFICATION_FAILED event for feedback loop."""
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            if router:
+                await router.publish(
+                    event_type=DataEventType.DATA_SYNC_FAILED,
+                    payload={
+                        "node_id": self.node_id,
+                        "db_name": db_name,
+                        "error": error,
+                        "verification_failed": True,
+                        "total_verified": self._stats.databases_verified,
+                        "total_failed": self._stats.databases_verification_failed,
+                    },
+                    source="AutoSyncDaemon:verification",
+                )
+        except (RuntimeError, OSError, ConnectionError) as e:
+            logger.debug(f"Could not emit SYNC_VERIFICATION_FAILED: {e}")
+
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""
         gossip_status = {}
@@ -1272,6 +1377,10 @@ class AutoSyncDaemon:
                 "databases_skipped_quality": self._stats.databases_skipped_quality,
                 "games_quality_extracted": self._stats.games_quality_extracted,
                 "games_added_to_priority": self._stats.games_added_to_priority,
+                # December 2025 - Gap 4 fix: Verification stats
+                "databases_verified": self._stats.databases_verified,
+                "databases_verification_failed": self._stats.databases_verification_failed,
+                "last_verification_time": self._stats.last_verification_time,
             },
             "quality_filter": {
                 "enabled": self.config.quality_filter_enabled,
@@ -1312,6 +1421,10 @@ class AutoSyncDaemon:
             "games_synced": self._stats.games_synced,
             "bytes_transferred": self._stats.bytes_transferred,
             "last_sync_time": self._stats.last_sync_time,
+            # December 2025 - Gap 4 fix: Verification metrics
+            "databases_verified": self._stats.databases_verified,
+            "databases_verification_failed": self._stats.databases_verification_failed,
+            "last_verification_time": self._stats.last_verification_time,
         }
 
     def health_check(self) -> HealthCheckResult:

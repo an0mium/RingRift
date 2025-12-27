@@ -204,6 +204,18 @@ from app.coordination.sync_stall_handler import (
     reset_stall_handler,
 )
 
+# SyncFacade - Unified entry point for all sync operations (December 2025)
+# Use this for all new code instead of accessing sync implementations directly
+from app.coordination.sync_facade import (
+    SyncBackend,
+    SyncFacade,
+    SyncRequest,
+    SyncResponse,
+    get_sync_facade,
+    reset_sync_facade,
+    sync,
+)
+
 # Sync mutex exports
 from app.coordination.sync_mutex import (
     SyncLockInfo,
@@ -1966,6 +1978,7 @@ __all__ = [
     "get_stage_event_bus",
     "get_stall_handler",
     "get_sync_coordinator",
+    "get_sync_facade",
     # Sync mutex helpers
     "get_sync_lock_context",
     "get_sync_mutex",
@@ -2110,6 +2123,11 @@ __all__ = [
     "subscribe_event",
     "subscribe_process",
     "subscribe_process_safe",
+    "sync",
+    "SyncBackend",
+    "SyncFacade",
+    "SyncRequest",
+    "SyncResponse",
     "sync_games",
     "sync_high_quality_games",
     "sync_lock",

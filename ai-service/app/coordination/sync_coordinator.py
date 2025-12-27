@@ -481,37 +481,48 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         logger.info(f"[SyncCoordinator] Loaded state for {len(self._host_states)} hosts")
 
     def _save_state(self) -> None:
-        """Save state to database."""
+        """Save state to database with transaction isolation."""
         conn = self._get_connection()
         cursor = conn.cursor()
 
-        for host, state in self._host_states.items():
+        try:
+            # Wrap all state updates in single transaction for atomicity
+            cursor.execute("BEGIN IMMEDIATE")
+
+            for host, state in self._host_states.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO host_state
+                    (host, host_type, last_sync_time, last_sync_games, total_games,
+                     estimated_unsynced, last_heartbeat, is_reachable, sync_failures_24h,
+                     last_error, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    host,
+                    state.host_type.value,
+                    state.last_sync_time,
+                    state.last_sync_games,
+                    state.total_games,
+                    state.estimated_unsynced_games,
+                    state.last_heartbeat,
+                    1 if state.is_reachable else 0,
+                    state.sync_failures_24h,
+                    state.last_error,
+                    json.dumps(state.metadata),
+                ))
+
             cursor.execute("""
-                INSERT OR REPLACE INTO host_state
-                (host, host_type, last_sync_time, last_sync_games, total_games,
-                 estimated_unsynced, last_heartbeat, is_reachable, sync_failures_24h,
-                 last_error, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                host,
-                state.host_type.value,
-                state.last_sync_time,
-                state.last_sync_games,
-                state.total_games,
-                state.estimated_unsynced_games,
-                state.last_heartbeat,
-                1 if state.is_reachable else 0,
-                state.sync_failures_24h,
-                state.last_error,
-                json.dumps(state.metadata),
-            ))
+                INSERT OR REPLACE INTO coordinator_state (key, value, updated_at)
+                VALUES ('last_full_sync_time', ?, ?)
+            """, (str(self._last_full_sync_time), time.time()))
 
-        cursor.execute("""
-            INSERT OR REPLACE INTO coordinator_state (key, value, updated_at)
-            VALUES ('last_full_sync_time', ?, ?)
-        """, (str(self._last_full_sync_time), time.time()))
+            conn.commit()
 
-        conn.commit()
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            logger.warning(f"[SyncCoordinator] Failed to save state: {e}")
 
     def _load_host_config(self) -> None:
         """Load host configuration from YAML."""
@@ -602,19 +613,29 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         self._save_state()
 
     def record_sync_start(self, host: str) -> int:
-        """Record that a sync operation has started."""
+        """Record that a sync operation has started with transaction isolation."""
         if host in self._host_states:
             self._host_states[host].sync_in_progress = True
 
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO sync_history (host, started_at)
-            VALUES (?, ?)
-        """, (host, time.time()))
-        conn.commit()
-
-        return cursor.lastrowid
+        try:
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("""
+                INSERT INTO sync_history (host, started_at)
+                VALUES (?, ?)
+            """, (host, time.time()))
+            # Capture lastrowid BEFORE commit (critical for thread safety)
+            sync_id = cursor.lastrowid
+            conn.commit()
+            return sync_id
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            logger.warning(f"[SyncCoordinator] Failed to record sync start: {e}")
+            return -1
 
     def record_sync_complete(
         self,
@@ -625,7 +646,7 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         success: bool = True,
         error_message: str = "",
     ) -> None:
-        """Record that a sync operation has completed."""
+        """Record that a sync operation has completed with transaction isolation."""
         now = time.time()
 
         if host in self._host_states:
@@ -644,20 +665,31 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         conn = self._get_connection()
         cursor = conn.cursor()
 
-        # Get start time for duration calculation
-        cursor.execute("SELECT started_at FROM sync_history WHERE sync_id = ?", (sync_id,))
-        row = cursor.fetchone()
-        started_at = row["started_at"] if row else now
-        duration = now - started_at
+        try:
+            # Wrap SELECT + UPDATE in single transaction for consistency
+            cursor.execute("BEGIN IMMEDIATE")
 
-        cursor.execute("""
-            UPDATE sync_history
-            SET completed_at = ?, games_synced = ?, bytes_transferred = ?,
-                success = ?, error_message = ?, duration_seconds = ?
-            WHERE sync_id = ?
-        """, (now, games_synced, bytes_transferred, 1 if success else 0,
-              error_message, duration, sync_id))
-        conn.commit()
+            # Get start time for duration calculation
+            cursor.execute("SELECT started_at FROM sync_history WHERE sync_id = ?", (sync_id,))
+            row = cursor.fetchone()
+            started_at = row["started_at"] if row else now
+            duration = now - started_at
+
+            cursor.execute("""
+                UPDATE sync_history
+                SET completed_at = ?, games_synced = ?, bytes_transferred = ?,
+                    success = ?, error_message = ?, duration_seconds = ?
+                WHERE sync_id = ?
+            """, (now, games_synced, bytes_transferred, 1 if success else 0,
+                  error_message, duration, sync_id))
+            conn.commit()
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            logger.warning(f"[SyncCoordinator] Failed to record sync complete: {e}")
+            return
 
         self._save_state()
 

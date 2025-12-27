@@ -368,40 +368,61 @@ class GossipSyncDaemon:
         return games
 
     def _store_games(self, games: list[dict]) -> int:
-        """Store received games in local database."""
+        """Store received games in local database with transaction isolation."""
         if not games:
             return 0
 
         # Store in a gossip-specific database
         gossip_db = self.data_dir / "gossip_received.db"
-        conn = sqlite3.connect(gossip_db)
+        conn = sqlite3.connect(gossip_db, isolation_level="IMMEDIATE")
 
-        # Create table if needed (use first game's columns)
-        columns = list(games[0].keys())
-        conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS games (
-                {', '.join(f'{col} TEXT' for col in columns)},
-                UNIQUE(game_id)
-            )
-        """)
-
-        stored = 0
-        for game in games:
-            try:
-                placeholders = ",".join(["?" for _ in columns])
-                conn.execute(
-                    f"INSERT OR IGNORE INTO games ({','.join(columns)}) VALUES ({placeholders})",
-                    [game.get(col) for col in columns]
+        try:
+            # Create table if needed (use first game's columns)
+            columns = list(games[0].keys())
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS games (
+                    {', '.join(f'{col} TEXT' for col in columns)},
+                    UNIQUE(game_id)
                 )
-                if game.get("game_id"):
-                    self.state.known_game_ids.add(game["game_id"])
-                stored += 1
-            except (sqlite3.Error, KeyError, TypeError):
-                pass
+            """)
+            conn.commit()  # DDL in separate transaction
 
-        conn.commit()
-        conn.close()
-        return stored
+            # Begin transaction for data writes
+            conn.execute("BEGIN IMMEDIATE")
+            stored = 0
+            stored_game_ids: list[str] = []
+
+            # Use executemany for better performance and atomicity
+            placeholders = ",".join(["?" for _ in columns])
+            for game in games:
+                try:
+                    conn.execute(
+                        f"INSERT OR IGNORE INTO games ({','.join(columns)}) VALUES ({placeholders})",
+                        [game.get(col) for col in columns]
+                    )
+                    if game_id := game.get("game_id"):
+                        stored_game_ids.append(game_id)
+                    stored += 1
+                except (sqlite3.Error, KeyError, TypeError) as e:
+                    logger.debug(f"[GossipSync] Failed to store game: {e}")
+
+            conn.commit()
+
+            # Only update known_game_ids after successful commit
+            for game_id in stored_game_ids:
+                self.state.known_game_ids.add(game_id)
+
+            return stored
+
+        except sqlite3.Error as e:
+            logger.warning(f"[GossipSync] Transaction failed, rolling back: {e}")
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            return 0
+        finally:
+            conn.close()
 
     def _get_peer_game_ids(self, sample: list[str]) -> list[str]:
         """Get game IDs that peer might have but we don't."""

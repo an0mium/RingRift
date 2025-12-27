@@ -1,5 +1,23 @@
 """Replication Monitor Daemon - Continuous monitoring for data replication health.
 
+.. deprecated:: December 2025
+    This module is deprecated. Use unified_replication_daemon.py instead:
+
+    from app.coordination.unified_replication_daemon import (
+        UnifiedReplicationDaemon,
+        UnifiedReplicationConfig,
+        get_replication_daemon,
+    )
+
+MIGRATION GUIDE:
+    Old (deprecated):
+        from app.coordination.replication_monitor import get_replication_monitor
+        daemon = get_replication_monitor()
+
+    New (recommended):
+        from app.coordination.unified_replication_daemon import get_replication_daemon
+        daemon = await get_replication_daemon()
+
 This daemon monitors the ClusterManifest for under-replicated data and triggers
 emergency sync operations when data safety is at risk.
 
@@ -10,7 +28,7 @@ Features:
 4. Trigger emergency sync for critical under-replication
 5. Emit events for external monitoring systems
 
-Usage:
+Usage (DEPRECATED - see migration guide above):
     from app.coordination.replication_monitor import (
         ReplicationMonitorDaemon,
         ReplicationMonitorConfig,
@@ -36,9 +54,18 @@ import asyncio
 import logging
 import socket
 import time
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+# Emit deprecation warning on import
+warnings.warn(
+    "replication_monitor is deprecated. Use unified_replication_daemon instead:\n"
+    "  from app.coordination.unified_replication_daemon import get_replication_daemon",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

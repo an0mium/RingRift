@@ -1,5 +1,23 @@
 """Replication Repair Daemon - Active repair of under-replicated data.
 
+.. deprecated:: December 2025
+    This module is deprecated. Use unified_replication_daemon.py instead:
+
+    from app.coordination.unified_replication_daemon import (
+        UnifiedReplicationDaemon,
+        UnifiedReplicationConfig,
+        get_replication_daemon,
+    )
+
+MIGRATION GUIDE:
+    Old (deprecated):
+        from app.coordination.replication_repair_daemon import get_replication_repair_daemon
+        daemon = get_replication_repair_daemon()
+
+    New (recommended):
+        from app.coordination.unified_replication_daemon import get_replication_daemon
+        daemon = await get_replication_daemon()
+
 This daemon works alongside ReplicationMonitorDaemon to actively repair
 under-replicated games by coordinating targeted sync operations.
 
@@ -12,7 +30,7 @@ Features:
 
 December 2025: Created for Phase 4 replication enforcement.
 
-Usage:
+Usage (DEPRECATED - see migration guide above):
     from app.coordination.replication_repair_daemon import (
         ReplicationRepairDaemon,
         get_replication_repair_daemon,
@@ -31,9 +49,18 @@ import asyncio
 import logging
 import socket
 import time
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+# Emit deprecation warning on import
+warnings.warn(
+    "replication_repair_daemon is deprecated. Use unified_replication_daemon instead:\n"
+    "  from app.coordination.unified_replication_daemon import get_replication_daemon",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

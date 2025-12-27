@@ -55,6 +55,8 @@ __all__ = [
     "EventBus",
     "get_event_bus",
     "reset_event_bus",
+    # Generic emitter (used by consolidated event_router)
+    "emit_data_event",
     # Cluster health emitters (December 2025 - Phase 21)
     "emit_node_unhealthy",
     "emit_node_recovered",
@@ -795,6 +797,38 @@ def _bridge_to_cross_process(event: DataEvent) -> None:
 
 
 # Convenience functions for common events
+
+
+async def emit_data_event(
+    event_type: DataEventType | str,
+    payload: dict[str, Any] | None = None,
+    source: str = "",
+    *,
+    bridge_cross_process: bool = True,
+) -> None:
+    """Emit an arbitrary DataEvent.
+
+    This is a thin helper used by the unified router and by quality/monitoring
+    utilities that want to publish DataEventType values without depending on
+    the full EventBus API.
+
+    Args:
+        event_type: Event type enum or its string value
+        payload: Event payload
+        source: Component that generated the event
+        bridge_cross_process: Whether to bridge to cross-process queue
+    """
+    if isinstance(event_type, str):
+        event_type = DataEventType(event_type)
+
+    await get_event_bus().publish(
+        DataEvent(
+            event_type=event_type,
+            payload=payload or {},
+            source=source,
+        ),
+        bridge_cross_process=bridge_cross_process,
+    )
 
 
 async def emit_new_games(host: str, new_games: int, total_games: int, source: str = "") -> None:
