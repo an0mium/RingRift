@@ -357,6 +357,24 @@ class DaemonLifecycleManager:
                         info, DaemonState.FAILED,
                         reason="max_restarts_exceeded", error=str(e)
                     )
+
+                    # December 2025: Handle dependent daemons on failure
+                    # When a daemon fails permanently, dependent daemons should be notified
+                    # to prevent them from operating with missing dependencies
+                    dependents = self._get_dependents(daemon_type)
+                    if dependents:
+                        logger.warning(
+                            f"[DaemonLifecycle] {daemon_type.value} failed permanently - "
+                            f"notifying {len(dependents)} dependent daemons: "
+                            f"{[d.value for d in dependents]}"
+                        )
+                        # Schedule graceful restart of dependents with throttling
+                        # Use a longer delay to prevent cascade thundering herd
+                        for i, dependent in enumerate(dependents):
+                            cascade_delay = 30.0 + (i * 10.0)  # Staggered restart
+                            asyncio.create_task(
+                                self._cascade_restart_dependent(dependent, daemon_type, cascade_delay)
+                            )
                     break
 
                 # Restart with exponential backoff + jitter to prevent thundering herd

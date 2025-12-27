@@ -496,6 +496,122 @@ class GameDiscovery:
             logger.debug(f"Error getting config counts from {db_path}: {e}")
             return {}
 
+    # =========================================================================
+    # JSONL Discovery Methods (December 2025)
+    # =========================================================================
+
+    def find_all_jsonl_files(self, use_cache: bool = True) -> list[JsonlFileInfo]:
+        """Find all JSONL game files using known patterns.
+
+        JSONL files contain game records from GPU selfplay that can be
+        converted to NPZ format via scripts/jsonl_to_npz.py.
+
+        Returns:
+            List of JsonlFileInfo objects for all found JSONL files.
+        """
+        cache_key = "jsonl_all"
+        if use_cache and cache_key in self._cache:
+            return self._cache[cache_key]
+
+        jsonl_files = []
+        seen_paths: set[Path] = set()
+
+        for pattern, is_central in self.JSONL_PATTERNS:
+            for jsonl_info in self._find_jsonl_by_pattern(pattern, is_central):
+                if jsonl_info.path not in seen_paths:
+                    seen_paths.add(jsonl_info.path)
+                    jsonl_files.append(jsonl_info)
+
+        self._cache[cache_key] = jsonl_files
+        return jsonl_files
+
+    def find_jsonl_for_config(
+        self,
+        board_type: str,
+        num_players: int,
+        use_cache: bool = True,
+    ) -> list[JsonlFileInfo]:
+        """Find JSONL files for a specific configuration.
+
+        Args:
+            board_type: Board type (square8, square19, hexagonal, hex8)
+            num_players: Number of players (2, 3, 4)
+            use_cache: Use cached results if available
+
+        Returns:
+            List of JsonlFileInfo objects matching the configuration.
+        """
+        cache_key = f"jsonl_{board_type}_{num_players}p"
+        if use_cache and cache_key in self._cache:
+            return self._cache[cache_key]
+
+        all_jsonl = self.find_all_jsonl_files(use_cache=use_cache)
+        aliases = BOARD_TYPE_ALIASES.get(board_type, [board_type])
+
+        matching = [
+            j for j in all_jsonl
+            if j.board_type in aliases and j.num_players == num_players
+        ]
+
+        self._cache[cache_key] = matching
+        return matching
+
+    def count_jsonl_games_by_config(self) -> dict[str, int]:
+        """Count total games in JSONL files by configuration.
+
+        Returns:
+            Dict mapping config_key (e.g., "hex8_2p") to game count.
+        """
+        counts: dict[str, int] = {}
+        for jsonl_info in self.find_all_jsonl_files():
+            if jsonl_info.board_type and jsonl_info.num_players:
+                config_key = f"{jsonl_info.board_type}_{jsonl_info.num_players}p"
+                counts[config_key] = counts.get(config_key, 0) + jsonl_info.game_count
+        return counts
+
+    def _find_jsonl_by_pattern(
+        self, pattern: str, is_central: bool
+    ) -> Iterator[JsonlFileInfo]:
+        """Find JSONL files matching a pattern.
+
+        Args:
+            pattern: Glob pattern with {board_type} and {num_players} placeholders
+            is_central: Whether pattern matches multiple configs (not used for JSONL)
+
+        Yields:
+            JsonlFileInfo for each matching file
+        """
+        # Generate all board/player combinations
+        for board_type in ALL_BOARD_TYPES:
+            for num_players in ALL_PLAYER_COUNTS:
+                concrete_pattern = pattern.replace(
+                    "{board_type}", board_type
+                ).replace(
+                    "{num_players}", str(num_players)
+                )
+
+                for match in self.root_path.glob(concrete_pattern):
+                    if match.is_file() and match.stat().st_size > 0:
+                        yield JsonlFileInfo(
+                            path=match,
+                            board_type=board_type,
+                            num_players=num_players,
+                            source_pattern=pattern,
+                        )
+
+        # Also try pattern as-is (for catch-all patterns without placeholders)
+        if "{board_type}" not in pattern and "{num_players}" not in pattern:
+            for match in self.root_path.glob(pattern):
+                if match.is_file() and match.stat().st_size > 0:
+                    # Infer config from filename
+                    board_type, num_players = self._infer_config_from_path(match)
+                    yield JsonlFileInfo(
+                        path=match,
+                        board_type=board_type,
+                        num_players=num_players,
+                        source_pattern=pattern,
+                    )
+
 
 # Convenience functions for quick access
 def find_all_game_databases(root_path: Path | str | None = None) -> list[DatabaseInfo]:

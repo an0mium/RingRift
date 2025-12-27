@@ -375,6 +375,15 @@ class UnifiedEventRouter:
             for event in StageEvent:
                 stage_bus.subscribe(event, self._on_stage_event)
 
+        # Bridge: DataEventBus -> Router (December 27, 2025)
+        # This ensures events published via emit_host_offline(), emit_leader_elected(), etc.
+        # reach coordinators that subscribe via get_router().subscribe()
+        if HAS_DATA_EVENTS:
+            data_bus = get_data_event_bus()
+            # Subscribe to all DataEventType values
+            for event_type in DataEventType:
+                data_bus.subscribe(event_type, self._on_data_bus_event)
+
         # Bridge: CrossProcessEventQueue -> Router (via poller)
         # Use stable=True to resume from last acked event on restart
         if HAS_CROSS_PROCESS and self._enable_cp_polling:
@@ -429,6 +438,23 @@ class UnifiedEventRouter:
             source=result.metadata.get("source", "stage_bus"),
             origin=EventSource.STAGE_BUS,
             stage_result=result,
+        )
+        await self._dispatch(router_event, exclude_origin=True)
+
+    async def _on_data_bus_event(self, event: DataEvent) -> None:
+        """Handle events from DataEventBus (December 27, 2025).
+
+        This bridges events published via emit_host_offline(), emit_leader_elected(),
+        emit_data_sync_completed(), etc. to the UnifiedEventRouter so coordinators
+        subscribing via get_router().subscribe() receive them.
+        """
+        router_event = RouterEvent(
+            event_type=normalize_event_type(event.event_type.value),
+            payload=event.payload,
+            timestamp=event.timestamp if hasattr(event, "timestamp") else time.time(),
+            source=event.source,
+            origin=EventSource.DATA_BUS,
+            data_event=event,
         )
         await self._dispatch(router_event, exclude_origin=True)
 

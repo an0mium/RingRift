@@ -39,6 +39,9 @@ from typing import Any, Callable
 # December 2025: Import TaskStatus from canonical source
 from app.coordination.types import TaskStatus
 
+# December 2025: Use centralized timeout constants
+from app.config.coordination_defaults import JobTimeoutDefaults
+
 logger = logging.getLogger(__name__)
 
 # TaskStatus is now imported from app.coordination.types
@@ -131,7 +134,7 @@ class CoordinationFacade:
         self,
         task_type: str,
         node_id: str,
-        timeout_seconds: float = 3600.0,
+        timeout_seconds: float = float(JobTimeoutDefaults.GPU_SELFPLAY),
         **metadata,
     ) -> str | None:
         """Spawn a task on a node.

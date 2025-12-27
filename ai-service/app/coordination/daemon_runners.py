@@ -803,10 +803,18 @@ async def create_adaptive_resources() -> None:
 async def create_lambda_idle() -> None:
     """Create and run Lambda idle shutdown daemon.
 
-    NOTE: Lambda Labs account was terminated December 2025. This runner
-    now logs a warning and returns immediately without starting any daemon.
-    Retained for backward compatibility with existing daemon registrations.
+    DEPRECATED (December 2025): Lambda Labs account permanently terminated.
+    Use DaemonType.VAST_IDLE or other provider-specific idle daemons instead.
+    This runner returns immediately without starting any daemon.
+    Retained for backward compatibility and will be removed in Q2 2026.
     """
+    warnings.warn(
+        "DaemonType.LAMBDA_IDLE is deprecated. Lambda Labs account was terminated Dec 2025. "
+        "Use DaemonType.VAST_IDLE or other provider idle daemons instead. "
+        "Removal scheduled for Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from app.coordination.unified_idle_shutdown_daemon import (
         create_lambda_idle_daemon,
     )
