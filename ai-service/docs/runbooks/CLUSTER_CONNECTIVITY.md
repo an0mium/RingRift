@@ -304,7 +304,7 @@ hosts:
 2. P2P cluster status from healthy nodes
 3. Network trace/ping results
 4. Recent changes to network configuration
-5. Provider status page (Lambda, Vast.ai, etc.)
+5. Provider status page (Vast.ai, RunPod, Nebius, Vultr; Lambda Labs is legacy/retired)
 
 ### 6.3 Escalation Path
 
@@ -336,7 +336,7 @@ for ip in $(tailscale status --json | jq -r '.Peer[].TailscaleIPs[0]'); do
 done
 
 # Restart P2P on single node
-ssh ubuntu@<node> "pkill -f p2p_daemon; cd ~/ringrift/ai-service && nohup python -m app.distributed.p2p_daemon &"
+ssh ubuntu@<node> "pkill -f p2p_orchestrator; cd ~/ringrift/ai-service && PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py --node-id <node-id> --port 8770 --peers <coordinator_urls> > logs/p2p.log 2>&1 &"
 
 # Force sync
 curl -X POST http://localhost:8001/admin/sync/trigger
@@ -351,13 +351,13 @@ python -m app.distributed.cluster_monitor --watch --interval 5
 
 ### Provider IP Ranges
 
-| Provider    | IP Range                       | Notes      |
-| ----------- | ------------------------------ | ---------- |
-| Lambda Labs | 100.x.x.x                      | Tailscale  |
-| RunPod      | 38.x.x.x, 104.x.x.x, 193.x.x.x | Public IPs |
-| Vast.ai     | Variable                       | Ephemeral  |
-| Nebius      | 89.169.x.x                     | Public IPs |
-| Vultr       | 208.167.x.x                    | Public IPs |
+| Provider             | IP Range                       | Notes      |
+| -------------------- | ------------------------------ | ---------- |
+| Lambda Labs (legacy) | 100.x.x.x                      | Retired    |
+| RunPod               | 38.x.x.x, 104.x.x.x, 193.x.x.x | Public IPs |
+| Vast.ai              | Variable                       | Ephemeral  |
+| Nebius               | 89.169.x.x                     | Public IPs |
+| Vultr                | 208.167.x.x                    | Public IPs |
 
 ### Critical Ports
 

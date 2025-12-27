@@ -17,6 +17,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
+# Canonical types (December 2025 consolidation)
+from app.coordination.types import BackpressureLevel
+
 if TYPE_CHECKING:
     from app.coordination.selfplay_scheduler import SelfplayScheduler
     from app.coordination.work_queue import WorkItem, WorkQueue
@@ -463,6 +466,56 @@ class QueuePopulator:
 
         return base_priority + priority_boost
 
+    def _check_backpressure(self) -> tuple[BackpressureLevel, float]:
+        """Check current backpressure level from queue and resource monitors.
+
+        Returns:
+            Tuple of (backpressure_level, reduction_factor)
+            where reduction_factor is 0.0-1.0 (1.0 = no reduction)
+        """
+        try:
+            # Check queue monitor for queue depth backpressure
+            from app.coordination.queue_monitor import get_queue_monitor
+
+            monitor = get_queue_monitor()
+            if monitor:
+                status = monitor.get_overall_status()
+                bp_level = status.get("backpressure_level", "none")
+                if isinstance(bp_level, str):
+                    bp_level = BackpressureLevel(bp_level)
+                elif hasattr(bp_level, "value"):
+                    bp_level = BackpressureLevel(bp_level.value)
+
+                if bp_level.should_stop():
+                    return bp_level, 0.0
+
+                return bp_level, bp_level.reduction_factor()
+
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[QueuePopulator] Backpressure check failed: {e}")
+
+        # Also check resource coordinator if available
+        try:
+            from app.coordination.resource_monitoring_coordinator import (
+                get_resource_coordinator,
+            )
+
+            coordinator = get_resource_coordinator()
+            if coordinator and coordinator.is_backpressure_active():
+                status = coordinator.get_status()
+                bp_level_str = status.get("backpressure_level", "none")
+                bp_level = BackpressureLevel(bp_level_str)
+                return bp_level, bp_level.reduction_factor()
+
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[QueuePopulator] Resource backpressure check failed: {e}")
+
+        return BackpressureLevel.NONE, 1.0
+
     def update_target_elo(
         self,
         board_type: str,
@@ -694,6 +747,13 @@ class QueuePopulator:
         1. Order configs by priority (staleness, velocity, training needs)
         2. Boost work item priorities for high-priority configs
 
+        Respects backpressure signals from queue and resource monitors:
+        - STOP/CRITICAL: Add no items
+        - HARD/HIGH: Add only 10% of normal items
+        - SOFT/MEDIUM: Add 25-50% of normal items
+        - LOW: Add 75% of normal items
+        - NONE: Add full amount
+
         Returns:
             Number of items added
         """
@@ -708,9 +768,26 @@ class QueuePopulator:
             logger.info("All Elo targets met, no population needed")
             return 0
 
+        # Check backpressure before populating (December 2025)
+        bp_level, reduction_factor = self._check_backpressure()
+        if bp_level.should_stop():
+            logger.info(
+                f"[QueuePopulator] Backpressure {bp_level.value} active - skipping population"
+            )
+            return 0
+
         items_needed = self.calculate_items_needed()
         if items_needed <= 0:
             return 0
+
+        # Apply backpressure reduction (December 2025)
+        if reduction_factor < 1.0:
+            original_needed = items_needed
+            items_needed = max(1, int(items_needed * reduction_factor))
+            logger.info(
+                f"[QueuePopulator] Backpressure {bp_level.value}: reduced items "
+                f"{original_needed} -> {items_needed} (factor={reduction_factor:.2f})"
+            )
 
         # Get scheduler priorities for intelligent ordering (December 2025)
         scheduler_priorities = self._get_scheduler_priorities()

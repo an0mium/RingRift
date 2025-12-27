@@ -67,8 +67,8 @@ RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --resume
 **CLI**:
 
 ```bash
-# Start as node in P2P cluster (replace with your node ID and coordinator IP)
-python scripts/p2p_orchestrator.py --node-id gpu-node-1 --peers COORDINATOR_IP:8770
+# Start as node in P2P cluster (replace with your node ID and coordinator URLs)
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id gpu-node-1 --port 8770 --peers <coordinator_urls>
 
 # View cluster status
 curl http://localhost:8770/status

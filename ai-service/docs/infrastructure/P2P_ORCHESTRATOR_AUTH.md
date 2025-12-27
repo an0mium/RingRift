@@ -141,7 +141,7 @@ For a full endpoint list, see [P2P_ADMIN_API.md](P2P_ADMIN_API.md).
 For nodes behind NAT that cannot receive direct connections:
 
 ```bash
-python scripts/p2p_orchestrator.py \
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py \
   --node-id nat-node \
   --relay-peers http://relay1:8770,http://relay2:8770
 ```

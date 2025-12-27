@@ -584,18 +584,34 @@ class DaemonManager:
                 return True
 
             # Check dependencies - wait for them to be READY not just RUNNING
+            # Dec 2025: Added timeout to prevent deadlocks
+            DEPENDENCY_READY_TIMEOUT = 30.0  # seconds
             for dep in info.depends_on:
                 dep_info = self._daemons.get(dep)
                 if dep_info is None or dep_info.state != DaemonState.RUNNING:
                     logger.warning(f"Cannot start {daemon_type.value}: dependency {dep.value} not running")
                     return False
-                # P0.3: Also check if dependency has signaled readiness
+                # P0.3: Wait for dependency to signal readiness with timeout
                 if dep_info.ready_event and not dep_info.ready_event.is_set():
-                    logger.warning(
-                        f"Cannot start {daemon_type.value}: dependency {dep.value} "
-                        f"running but not ready"
+                    logger.info(
+                        f"Waiting for {dep.value} to be ready before starting {daemon_type.value}"
                     )
-                    return False
+                    try:
+                        # Release lock while waiting to prevent deadlock
+                        self._lock.release()
+                        try:
+                            await asyncio.wait_for(
+                                dep_info.ready_event.wait(),
+                                timeout=DEPENDENCY_READY_TIMEOUT,
+                            )
+                        finally:
+                            await self._lock.acquire()
+                    except asyncio.TimeoutError:
+                        logger.error(
+                            f"Dependency {dep.value} not ready after {DEPENDENCY_READY_TIMEOUT}s, "
+                            f"cannot start {daemon_type.value}"
+                        )
+                        return False
 
             # Get factory
             factory = self._factories.get(daemon_type)
@@ -607,7 +623,7 @@ class DaemonManager:
             #
             # NOTE: Most daemon factories in this codebase do not explicitly call
             # mark_daemon_ready(). To avoid deadlocking dependency start order,
-            # we treat "task created" as "ready" by default.
+            # we auto-set ready after a short delay for backward compatibility.
             info.ready_event = asyncio.Event()
 
             # Start daemon
@@ -620,8 +636,19 @@ class DaemonManager:
                 info.start_time = time.time()
                 info.state = DaemonState.RUNNING
 
-                # Default readiness: started ⇒ ready (dependency ordering).
-                info.ready_event.set()
+                # Dec 2025: Auto-set readiness after brief delay for backward compatibility.
+                # Daemons can call mark_daemon_ready() earlier for explicit signaling.
+                # This delay allows daemons to complete critical initialization.
+                async def _auto_set_ready():
+                    await asyncio.sleep(0.5)  # Brief delay for initialization
+                    if info.ready_event and not info.ready_event.is_set():
+                        info.ready_event.set()
+                        logger.debug(f"{daemon_type.value} auto-marked as ready")
+
+                safe_create_task(
+                    _auto_set_ready(),
+                    name=f"auto_ready_{daemon_type.value}",
+                )
 
                 logger.info(f"Started daemon: {daemon_type.value}")
                 return True

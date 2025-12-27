@@ -255,7 +255,7 @@ print(sum(rd.get_cluster_total_by_config().values()))
 # Step 1: Verify failure scope
 # Check cloud provider status pages
 # - Vast.ai: https://status.vast.ai
-# - Lambda: https://status.lambdalabs.com
+# - Lambda (legacy): https://status.lambdalabs.com
 # - RunPod: https://status.runpod.io
 
 # Step 2: Check local coordinator (if available)
@@ -264,7 +264,7 @@ curl -s http://localhost:8770/status
 # Step 3: Bring up coordinator first
 # If running locally:
 cd /Users/armand/Development/RingRift/ai-service
-python -m app.p2p.orchestrator &
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id mac-studio --port 8770 --peers <url-list> &
 
 # Step 4: Reconnect cloud nodes as they come online
 # They will auto-rejoin the P2P mesh
@@ -356,7 +356,7 @@ After any disaster recovery:
 - **Infrastructure Lead**: Check CLAUDE.md for current personnel
 - **Cloud Provider Support**:
   - Vast.ai: support@vast.ai
-  - Lambda Labs: support@lambdalabs.com
+  - Lambda Labs (legacy): support@lambdalabs.com
   - RunPod: support@runpod.io
 
 ---

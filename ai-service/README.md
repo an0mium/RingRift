@@ -257,7 +257,7 @@ vim config/distributed_hosts.yaml  # Add your server IPs
 python scripts/update_cluster_code.py --auto-stash
 
 # 3. Start the P2P orchestrator
-python scripts/p2p_orchestrator.py --node-id my-node
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id my-node --port 8770 --peers <url-list>
 
 # 4. Check cluster status
 curl http://localhost:8770/health

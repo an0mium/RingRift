@@ -504,6 +504,233 @@ def verify_sync_integrity(
 
 
 # =============================================================================
+# Database Transfer Safety (December 2025)
+# =============================================================================
+# These functions address the root cause of database corruption during sync:
+# 1. SQLite WAL mode leaves uncommitted data in -wal files
+# 2. Partial aria2 downloads reassemble incorrectly after connection resets
+# 3. Non-atomic file operations leave incomplete files on disk
+
+
+def prepare_database_for_transfer(db_path: Path) -> tuple[bool, str]:
+    """Prepare a SQLite database for safe transfer by consolidating all data.
+
+    This function:
+    1. Checkpoints any WAL data into the main database file
+    2. Runs VACUUM to consolidate and defragment the database
+    3. Sets journal mode to DELETE (no sidecar files needed)
+
+    This is CRITICAL before transferring databases to prevent corruption.
+    Without this, WAL mode databases may transfer without their -wal files,
+    resulting in missing transactions and data corruption.
+
+    Args:
+        db_path: Path to SQLite database file
+
+    Returns:
+        Tuple of (success, message)
+
+    Example:
+        success, msg = prepare_database_for_transfer(Path("games.db"))
+        if success:
+            # Safe to transfer games.db
+            rsync_file(...)
+    """
+    if not db_path.exists():
+        return False, f"Database not found: {db_path}"
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+
+        # Check current journal mode
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        logger.info(f"[TransferSafety] {db_path.name}: current journal mode = {mode}")
+
+        # Checkpoint any WAL data
+        if mode.upper() == "WAL":
+            logger.info(f"[TransferSafety] {db_path.name}: checkpointing WAL...")
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+        # Switch to DELETE mode (simpler, no sidecar files)
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.commit()
+
+        # VACUUM to consolidate database
+        logger.info(f"[TransferSafety] {db_path.name}: running VACUUM...")
+        conn.execute("VACUUM")
+        conn.commit()
+        conn.close()
+
+        # Verify no WAL files remain
+        wal_path = db_path.with_suffix(db_path.suffix + "-wal")
+        shm_path = db_path.with_suffix(db_path.suffix + "-shm")
+        if wal_path.exists():
+            wal_path.unlink()
+            logger.info(f"[TransferSafety] Removed orphaned WAL file: {wal_path}")
+        if shm_path.exists():
+            shm_path.unlink()
+            logger.info(f"[TransferSafety] Removed orphaned SHM file: {shm_path}")
+
+        logger.info(f"[TransferSafety] ✓ {db_path.name}: prepared for transfer")
+        return True, "Database prepared for transfer"
+
+    except sqlite3.Error as e:
+        return False, f"SQLite error: {e}"
+    except Exception as e:
+        return False, f"Unexpected error: {e}"
+
+
+def atomic_file_write(
+    target_path: Path,
+    write_func,
+    temp_suffix: str = ".tmp",
+) -> tuple[bool, str]:
+    """Write a file atomically using temp file + rename pattern.
+
+    This ensures that the target file is either:
+    - Completely written with valid content, or
+    - Unchanged (if write fails)
+
+    Args:
+        target_path: Final destination path
+        write_func: Callable that writes to the temp file path
+        temp_suffix: Suffix for temporary file
+
+    Returns:
+        Tuple of (success, message)
+
+    Example:
+        def do_download(temp_path):
+            # Download to temp_path
+            subprocess.run(["aria2c", "-o", str(temp_path), url])
+
+        success, msg = atomic_file_write(Path("model.pth"), do_download)
+    """
+    import os
+    import shutil
+
+    temp_path = target_path.parent / f".{target_path.name}{temp_suffix}"
+
+    try:
+        # Ensure parent directory exists
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Remove any stale temp file
+        if temp_path.exists():
+            temp_path.unlink()
+
+        # Execute the write function
+        write_func(temp_path)
+
+        # Verify temp file was created
+        if not temp_path.exists():
+            return False, "Write function did not create temp file"
+
+        # Atomic rename (POSIX guarantees atomicity on same filesystem)
+        os.rename(str(temp_path), str(target_path))
+
+        return True, f"Atomically wrote {target_path}"
+
+    except Exception as e:
+        # Cleanup temp file on error
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+        return False, f"Atomic write failed: {e}"
+
+
+def verified_database_copy(
+    source_path: Path,
+    target_path: Path,
+    prepare_source: bool = True,
+) -> tuple[bool, str]:
+    """Copy a SQLite database with full safety guarantees.
+
+    This combines all safety measures:
+    1. (Optional) Prepares source database (VACUUM, checkpoint WAL)
+    2. Computes source checksum before copy
+    3. Copies to temp file
+    4. Verifies target checksum matches source
+    5. Runs SQLite integrity check on target
+    6. Atomic rename to final location
+
+    Args:
+        source_path: Source database file
+        target_path: Target destination
+        prepare_source: Whether to VACUUM source first (default: True)
+
+    Returns:
+        Tuple of (success, message)
+
+    Example:
+        success, msg = verified_database_copy(
+            Path("games.db"),
+            Path("/backup/games.db"),
+        )
+    """
+    import shutil
+
+    if not source_path.exists():
+        return False, f"Source not found: {source_path}"
+
+    try:
+        # Step 1: Prepare source (optional)
+        if prepare_source:
+            success, msg = prepare_database_for_transfer(source_path)
+            if not success:
+                logger.warning(f"[TransferSafety] Could not prepare source: {msg}")
+                # Continue anyway - copying an unprepared DB is better than not copying
+
+        # Step 2: Compute source checksum
+        source_checksum = compute_file_checksum(source_path)
+        if not source_checksum:
+            return False, "Failed to compute source checksum"
+
+        source_size = source_path.stat().st_size
+        logger.info(f"[TransferSafety] Source: {source_size} bytes, checksum: {source_checksum[:16]}...")
+
+        # Step 3: Copy to temp file
+        temp_path = target_path.parent / f".{target_path.name}.tmp"
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if temp_path.exists():
+            temp_path.unlink()
+
+        shutil.copy2(str(source_path), str(temp_path))
+
+        # Step 4: Verify checksum
+        target_checksum = compute_file_checksum(temp_path)
+        if target_checksum != source_checksum:
+            temp_path.unlink()
+            return False, f"Checksum mismatch: expected {source_checksum[:16]}..., got {target_checksum[:16]}..."
+
+        # Step 5: SQLite integrity check
+        is_valid, errors = check_sqlite_integrity(temp_path)
+        if not is_valid:
+            temp_path.unlink()
+            return False, f"SQLite integrity check failed: {errors}"
+
+        # Step 6: Atomic rename
+        import os
+        os.rename(str(temp_path), str(target_path))
+
+        logger.info(f"[TransferSafety] ✓ Successfully copied {source_path.name} ({source_size} bytes)")
+        return True, f"Copied and verified {source_path.name}"
+
+    except Exception as e:
+        # Cleanup
+        temp_path = target_path.parent / f".{target_path.name}.tmp"
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+        return False, f"Copy failed: {e}"
+
+
+# =============================================================================
 # Module Exports
 # =============================================================================
 
@@ -512,9 +739,12 @@ __all__ = [
     "LARGE_CHUNK_SIZE",
     "IntegrityCheckResult",
     "IntegrityReport",
+    "atomic_file_write",
     "check_sqlite_integrity",
     "compute_db_checksum",
     "compute_file_checksum",
+    "prepare_database_for_transfer",
+    "verified_database_copy",
     "verify_checksum",
     "verify_sync_integrity",
 ]

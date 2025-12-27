@@ -91,7 +91,7 @@ python scripts/deploy_p2p_systemd.py --include-local
 ```bash
 # On a remote node
 ssh <node> 'cd ~/ringrift/ai-service && \
-  nohup python scripts/p2p_orchestrator.py \
+  PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py \
     --node-id $(hostname) \
     --host 0.0.0.0 \
     --port 8770 \

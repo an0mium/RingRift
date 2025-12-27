@@ -393,14 +393,93 @@ class TrainingCoordinator:
             logger.warning(f"[TrainingCoordinator] Failed to subscribe to cluster events: {e}")
 
     def _on_cluster_healthy(self, event: Any) -> None:
-        """Handle cluster healthy event - resume accepting training requests."""
+        """Handle cluster healthy event - resume paused training.
+
+        Phase 8 (December 2025): Made actionable - resumes paused training jobs.
+        When cluster becomes healthy again, we:
+        1. Enable new training requests (via _cluster_healthy flag)
+        2. Resume any training jobs paused due to cluster health
+        3. Emit TRAINING_RESUMED event for monitoring
+        """
+        was_unhealthy = not self._cluster_healthy
         self._cluster_healthy = True
         logger.info("[TrainingCoordinator] Cluster is healthy - training enabled")
 
+        # Phase 8: Resume any paused training jobs
+        if was_unhealthy:
+            # Get paused jobs (resume all paused jobs when cluster becomes healthy)
+            conn = self._get_connection()
+            cursor = conn.execute(
+                '''SELECT job_id, board_type, num_players FROM training_jobs
+                   WHERE status = 'paused'
+                   ORDER BY started_at'''
+            )
+            paused_jobs = cursor.fetchall()
+
+            resumed_count = 0
+            for row in paused_jobs:
+                config_key = f"{row['board_type']}_{row['num_players']}p"
+                if self._resume_training_for_config(config_key):
+                    resumed_count += 1
+
+            if resumed_count > 0:
+                logger.info(
+                    f"[TrainingCoordinator] Resumed {resumed_count} training jobs after cluster recovery"
+                )
+
+                # Emit event for monitoring
+                self._emit_via_router(
+                    "TRAINING_RESUMED",
+                    {
+                        "reason": "cluster_healthy",
+                        "resumed_count": resumed_count,
+                        "timestamp": time.time(),
+                    },
+                )
+
     def _on_cluster_unhealthy(self, event: Any) -> None:
-        """Handle cluster unhealthy event - pause new training requests."""
+        """Handle cluster unhealthy event - pause existing training.
+
+        Phase 8 (December 2025): Made actionable - now actually pauses training.
+        When cluster becomes unhealthy, we:
+        1. Block new training requests (via _cluster_healthy flag)
+        2. Pause all active training jobs
+        3. Emit TRAINING_PAUSED event for monitoring
+        """
+        was_healthy = self._cluster_healthy
         self._cluster_healthy = False
-        logger.warning("[TrainingCoordinator] Cluster is unhealthy - pausing new training")
+        logger.warning("[TrainingCoordinator] Cluster is unhealthy - pausing training")
+
+        # Get reason from event
+        payload = event.payload if hasattr(event, 'payload') else {}
+        reason = payload.get('reason', 'cluster_unhealthy')
+        healthy_nodes = payload.get('healthy_nodes', [])
+
+        # Phase 8: Actually pause all active training
+        if was_healthy:  # Only act on state transition
+            active_jobs = self.get_active_jobs()
+            paused_count = 0
+
+            for job in active_jobs:
+                config_key = f"{job.board_type}_{job.num_players}p"
+                if self._pause_training_for_config(config_key, reason=reason):
+                    paused_count += 1
+
+            if paused_count > 0:
+                logger.warning(
+                    f"[TrainingCoordinator] Paused {paused_count} training jobs due to cluster health"
+                )
+
+                # Emit event for monitoring/dashboards
+                self._emit_via_router(
+                    "TRAINING_PAUSED",
+                    {
+                        "reason": reason,
+                        "paused_count": paused_count,
+                        "healthy_nodes": healthy_nodes,
+                        "timestamp": time.time(),
+                    },
+                )
 
     def _on_capacity_changed(self, event: Any) -> None:
         """Handle capacity change event - adjust training intensity."""
@@ -414,14 +493,53 @@ class TrainingCoordinator:
             )
 
     def _on_node_recovered(self, event: Any) -> None:
-        """Handle node recovery - may allow more training."""
-        logger.info("[TrainingCoordinator] Node recovered - checking training capacity")
-        # Could trigger pending training requests here
+        """Handle node recovery - resume training if safe.
+
+        Phase 8 (December 2025): Made actionable - resumes paused training.
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+        node_id = payload.get('node_id', 'unknown')
+
+        logger.info(f"[TrainingCoordinator] Node recovered: {node_id}")
+
+        # Check if we now have enough healthy nodes to resume
+        if not self._cluster_healthy:
+            # Query current cluster health
+            try:
+                from app.distributed.data_events import get_event_bus
+                # The cluster will emit P2P_CLUSTER_HEALTHY if quorum restored
+                # We don't auto-resume here - wait for the healthy event
+                logger.info(
+                    f"[TrainingCoordinator] Node {node_id} recovered but cluster still unhealthy. "
+                    f"Waiting for cluster health event to resume training."
+                )
+            except ImportError:
+                pass
 
     def _on_node_unhealthy(self, event: Any) -> None:
-        """Handle node unhealthy - reduce training capacity."""
-        logger.warning("[TrainingCoordinator] Node unhealthy - may affect training")
-        # Reduce effective capacity when nodes drop
+        """Handle node unhealthy - reduce training capacity.
+
+        Phase 8 (December 2025): Made actionable - actually reduces capacity.
+        When a node becomes unhealthy, we reduce capacity proportionally.
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+        node_id = payload.get('node_id', 'unknown')
+        total_nodes = payload.get('total_nodes', 10)
+        healthy_nodes = payload.get('healthy_nodes', total_nodes - 1)
+
+        logger.warning(f"[TrainingCoordinator] Node unhealthy: {node_id}")
+
+        # Calculate new capacity based on remaining healthy nodes
+        if total_nodes > 0:
+            new_capacity = healthy_nodes / total_nodes
+            old_capacity = self._cluster_capacity
+            self._cluster_capacity = max(0.3, min(1.0, new_capacity))  # Don't go below 30%
+
+            if abs(new_capacity - old_capacity) > 0.1:
+                logger.warning(
+                    f"[TrainingCoordinator] Capacity reduced due to node failure: "
+                    f"{old_capacity:.1%} → {self._cluster_capacity:.1%}"
+                )
 
     def _on_regression_detected(self, event: Any) -> None:
         """Handle REGRESSION_DETECTED event - consider pausing training.

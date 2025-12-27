@@ -273,7 +273,7 @@ ssh ubuntu@<primary-gpu-ip> 'curl -s http://localhost:8770/elo/table | head -5'
 
 # 2. If not running, start it
 ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && \
-  nohup python scripts/p2p_orchestrator.py --port 8770 > logs/orchestrator.log 2>&1 &'
+  PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py --port 8770 > logs/orchestrator.log 2>&1 &'
 ```
 
 Then in Grafana:

@@ -166,6 +166,130 @@ class LeaderElectionMixin:
             return False, "role=leader but leader_id!=self"
         return True, "consistent"
 
+    def _has_voter_consensus_on_leader(self, proposed_leader: str) -> bool:
+        """Check if voter quorum agrees on the proposed leader.
+
+        This prevents split-brain scenarios where network partitions cause
+        different nodes to see different leaders. Leadership is only valid
+        if a quorum of voters agrees on the SAME leader.
+
+        Args:
+            proposed_leader: The node ID to validate as leader
+
+        Returns:
+            True if quorum of voters agrees on this leader
+        """
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        if not voters:
+            return True  # No voters configured = single-node mode
+
+        quorum = min(VOTER_MIN_QUORUM, len(voters))
+        voting_for_proposed = 0
+
+        with self.peers_lock:
+            peers = dict(self.peers)
+
+        for node_id in voters:
+            if node_id == self.node_id:
+                # Count self's vote
+                if self.leader_id == proposed_leader:
+                    voting_for_proposed += 1
+            else:
+                peer = peers.get(node_id)
+                if peer and peer.is_alive() and getattr(peer, "leader_id", None) == proposed_leader:
+                    voting_for_proposed += 1
+
+        has_consensus = voting_for_proposed >= quorum
+        if not has_consensus:
+            logger.warning(
+                f"No consensus on leader {proposed_leader}: "
+                f"{voting_for_proposed}/{quorum} voters agree"
+            )
+        return has_consensus
+
+    def _count_votes_for_leader(self, leader_id: str) -> int:
+        """Count how many voters recognize this leader.
+
+        Args:
+            leader_id: The leader to count votes for
+
+        Returns:
+            Number of voters agreeing on this leader
+        """
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        if not voters:
+            return 1
+
+        vote_count = 0
+        with self.peers_lock:
+            peers = dict(self.peers)
+
+        for node_id in voters:
+            if node_id == self.node_id:
+                if self.leader_id == leader_id:
+                    vote_count += 1
+            else:
+                peer = peers.get(node_id)
+                if peer and peer.is_alive() and getattr(peer, "leader_id", None) == leader_id:
+                    vote_count += 1
+
+        return vote_count
+
+    def _detect_split_brain(self) -> dict[str, Any] | None:
+        """Detect if cluster is in split-brain state.
+
+        Split-brain occurs when voters report different leaders.
+        This is a critical situation that must be resolved.
+
+        Returns:
+            None if no split-brain, otherwise dict with details:
+            {
+                "leaders_seen": {"leader1": [voter1, voter2], "leader2": [voter3]},
+                "severity": "critical" | "warning",
+                "recommended_action": "force_election" | "wait"
+            }
+        """
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        if not voters:
+            return None
+
+        leaders_seen: dict[str, list[str]] = {}
+
+        with self.peers_lock:
+            peers = dict(self.peers)
+
+        # Collect leader reports from all alive voters
+        for node_id in voters:
+            if node_id == self.node_id:
+                leader = self.leader_id or ""
+            else:
+                peer = peers.get(node_id)
+                if not peer or not peer.is_alive():
+                    continue
+                leader = getattr(peer, "leader_id", "") or ""
+
+            if leader:
+                if leader not in leaders_seen:
+                    leaders_seen[leader] = []
+                leaders_seen[leader].append(node_id)
+
+        # Check for split-brain
+        if len(leaders_seen) <= 1:
+            return None  # No split-brain
+
+        # Multiple leaders detected - this is split-brain
+        severity = "critical" if len(leaders_seen) >= 3 else "warning"
+        logger.error(
+            f"SPLIT-BRAIN DETECTED: {len(leaders_seen)} different leaders seen: "
+            f"{list(leaders_seen.keys())}"
+        )
+
+        return {
+            "leaders_seen": leaders_seen,
+            "severity": severity,
+            "recommended_action": "force_election" if severity == "critical" else "wait",
+        }
+
 
 # Convenience functions for external use
 def check_quorum(

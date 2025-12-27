@@ -231,16 +231,16 @@ python scripts/cluster_submit.py gpu-selfplay --board hex8 --players 2 --games 5
 
 ## Current System Status (2025-12-17)
 
-| Component        | Status     | Details                                 |
-| ---------------- | ---------- | --------------------------------------- |
-| Unified AI Loop  | Running    | On MacBook, detecting 469K games        |
-| Data Aggregation | Configured | Mac Studio as primary (7.3TB OWC drive) |
-| S3 Backup        | Configured | Hourly sync to ringrift-models-20251214 |
-| Training         | Active     | On GH200-k cluster                      |
-| Elo Evaluation   | Active     | Running gauntlet evaluations            |
-| Cluster Nodes    | 33/47      | Updated with latest code                |
-| Disk Space (MBP) | 179GB free | Data sync disabled on orchestrator      |
-| Disk Space (MS)  | 5.8TB free | OWC drive for data aggregation          |
+| Component        | Status     | Details                                        |
+| ---------------- | ---------- | ---------------------------------------------- |
+| Unified AI Loop  | Running    | On MacBook, detecting 469K games               |
+| Data Aggregation | Configured | Mac Studio as primary (/Volumes/RingRift-Data) |
+| S3 Backup        | Configured | Hourly sync to ringrift-models-20251214        |
+| Training         | Active     | On GH200-k cluster                             |
+| Elo Evaluation   | Active     | Running gauntlet evaluations                   |
+| Cluster Nodes    | 33/47      | Updated with latest code                       |
+| Disk Space (MBP) | 179GB free | Data sync disabled on orchestrator             |
+| Disk Space (MS)  | 5.8TB free | External drive for data aggregation            |
 
 ## Related Documentation
 

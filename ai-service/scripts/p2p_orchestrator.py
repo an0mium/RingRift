@@ -326,6 +326,12 @@ from scripts.p2p.peer_manager import PeerManagerMixin
 from scripts.p2p.leader_election import LeaderElectionMixin
 from scripts.p2p.gossip_metrics import GossipMetricsMixin
 
+# Phase 5: SWIM + Raft integration mixins (Dec 26, 2025)
+from scripts.p2p.membership_mixin import MembershipMixin
+from scripts.p2p.consensus_mixin import ConsensusMixin
+from scripts.p2p.handlers.swim import SwimHandlersMixin
+from scripts.p2p.handlers.raft import RaftHandlersMixin
+
 # Import constants from the refactored module (Phase 2 refactoring - consolidated)
 from scripts.p2p.constants import (
     ADVERTISE_HOST_ENV,
@@ -1003,6 +1009,11 @@ class P2POrchestrator(
     PeerManagerMixin,
     LeaderElectionMixin,
     GossipMetricsMixin,
+    # Phase 5: SWIM + Raft integration (Dec 26, 2025)
+    MembershipMixin,      # SWIM gossip-based membership
+    ConsensusMixin,       # PySyncObj Raft consensus
+    SwimHandlersMixin,    # /swim/* HTTP handlers
+    RaftHandlersMixin,    # /raft/* HTTP handlers
 ):
     """Main P2P orchestrator class that runs on each node.
 
@@ -1365,6 +1376,24 @@ class P2POrchestrator(
         self.training_lock = threading.RLock()
         self.ssh_tournament_lock = threading.RLock()
         self.relay_lock = threading.RLock()
+
+        # ============================================
+        # Phase 5: SWIM + Raft Integration (Dec 26, 2025)
+        # ============================================
+        # SWIM provides leaderless gossip-based membership with 5s failure detection
+        # Raft provides replicated work queue with sub-second failover
+        # Both are initialized here but started asynchronously in run()
+
+        # Initialize SWIM membership (from MembershipMixin)
+        self._swim_initialized = self._init_swim_membership()
+        if self._swim_initialized:
+            logger.info("SWIM membership initialized (will start in run())")
+
+        # Initialize Raft consensus (from ConsensusMixin)
+        # Note: Raft requires advertise_host which is set above
+        self._raft_init_attempted = False
+        # Raft initialization deferred to after peers are discovered
+        # to ensure we have partner addresses available
 
         # State persistence (Phase 1 refactoring: delegated to StateManager)
         self.db_path = STATE_DIR / f"{node_id}_state.db"

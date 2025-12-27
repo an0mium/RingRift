@@ -180,15 +180,15 @@ board_overrides:
 
 ### Other YAML Files
 
-| File                    | Purpose                                         |
-| ----------------------- | ----------------------------------------------- |
-| `cluster.yaml`          | Cluster-wide settings                           |
-| `node_policies.yaml`    | Per-node policies (sync priority, capabilities) |
-| `p2p_hosts.yaml`        | P2P network bootstrap peers                     |
-| `promotion_daemon.yaml` | Model promotion daemon settings                 |
-| `selfplay_workers.yaml` | Selfplay worker configuration                   |
-| `alerts.yaml`           | Alerting thresholds and destinations            |
-| `data_aggregator.yaml`  | Data aggregation settings                       |
+| File                    | Purpose                                                          |
+| ----------------------- | ---------------------------------------------------------------- |
+| `cluster.yaml`          | Cluster-wide settings                                            |
+| `node_policies.yaml`    | Per-node policies (sync priority, capabilities)                  |
+| `p2p_hosts.yaml`        | Deprecated (P2P peers now derived from `distributed_hosts.yaml`) |
+| `promotion_daemon.yaml` | Model promotion daemon settings                                  |
+| `selfplay_workers.yaml` | Selfplay worker configuration                                    |
+| `alerts.yaml`           | Alerting thresholds and destinations                             |
+| `data_aggregator.yaml`  | Data aggregation settings                                        |
 
 ---
 

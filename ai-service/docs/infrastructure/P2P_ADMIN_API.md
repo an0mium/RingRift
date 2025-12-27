@@ -656,5 +656,5 @@ export P2P_PORT=8770
 Or command line:
 
 ```bash
-python scripts/p2p_orchestrator.py --port 8770
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --port 8770
 ```

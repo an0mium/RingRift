@@ -592,6 +592,21 @@ Recent stability improvements to P2P orchestrator:
 - Clear error messages for port 8770 conflicts
 - Suggested remediation: `lsof -i :8770` and `pkill -f p2p_orchestrator`
 
+### P2P Manager Modules (December 2025)
+
+The P2P orchestrator has been decomposed into modular manager classes at `scripts/p2p/managers/`:
+
+| Manager               | Lines | Purpose                                        |
+| --------------------- | ----- | ---------------------------------------------- |
+| `StateManager`        | 629   | SQLite persistence, cluster epoch tracking     |
+| `NodeSelector`        | 330   | Node ranking and selection for job dispatch    |
+| `SyncPlanner`         | 704   | Manifest collection and sync planning          |
+| `JobManager`          | 663   | Job spawning and lifecycle management          |
+| `SelfplayScheduler`   | 737   | Priority-based selfplay config selection       |
+| `TrainingCoordinator` | 734   | Training dispatch, completion, model promotion |
+
+All managers use dependency injection for testability. See `scripts/p2p/managers/README.md` for architecture details.
+
 ### Cluster Configuration
 
 The cluster is configured via `config/distributed_hosts.yaml`:
