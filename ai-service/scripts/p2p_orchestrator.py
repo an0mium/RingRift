@@ -2786,6 +2786,32 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"TailscalePeerDiscoveryLoop: not available: {e}")
 
+            # WorkerPullLoop - December 27, 2025
+            # Workers poll leader for work (pull model instead of push)
+            # Extracted from _worker_pull_loop
+            def _get_self_metrics_for_pull() -> dict[str, Any]:
+                """Get self node metrics for idle detection."""
+                return {
+                    "gpu_percent": getattr(self.self_info, "gpu_percent", 0),
+                    "cpu_percent": getattr(self.self_info, "cpu_percent", 0),
+                    "training_jobs": getattr(self.self_info, "training_jobs", 0),
+                    "has_gpu": getattr(self.self_info, "has_gpu", False),
+                }
+
+            try:
+                from scripts.p2p.loops import WorkerPullLoop
+                worker_pull = WorkerPullLoop(
+                    is_leader=lambda: self.role == NodeRole.LEADER,
+                    get_leader_id=lambda: self.leader_id,
+                    get_self_metrics=_get_self_metrics_for_pull,
+                    claim_work_from_leader=self._claim_work_from_leader,
+                    execute_work=self._execute_claimed_work,
+                    report_work_result=self._report_work_result,
+                )
+                manager.register(worker_pull)
+            except (ImportError, TypeError) as e:
+                logger.debug(f"WorkerPullLoop: not available: {e}")
+
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
             return True

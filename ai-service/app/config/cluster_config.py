@@ -537,8 +537,12 @@ class ClusterNode:
 
     @property
     def is_active(self) -> bool:
-        """Check if node is marked as active."""
-        return self.status not in ("terminated", "offline", "setup")
+        """Check if node is marked as active.
+
+        December 2025: Added 'retired' status to inactive list to prevent
+        sync operations from targeting retired nodes (e.g., nebius-h100-2).
+        """
+        return self.status not in ("terminated", "offline", "setup", "retired")
 
     @property
     def is_gpu_node(self) -> bool:
@@ -609,12 +613,14 @@ class ClusterNode:
     def should_receive_sync(self) -> bool:
         """Check if this node should receive sync data.
 
-        Returns False if skip_sync_receive is set (e.g., for orchestrator nodes
-        that should not accumulate training data on their local disk).
+        Returns False if:
+        - skip_sync_receive is set (e.g., for orchestrator nodes)
+        - node is not active (retired, terminated, offline, setup)
 
         Dec 2025: Added to prevent orchestrator disk fill-up.
+        Dec 2025: Added is_active check to filter retired nodes.
         """
-        return not self.skip_sync_receive
+        return self.is_active and not self.skip_sync_receive
 
 
 def get_cluster_nodes(config_path: str | Path | None = None) -> dict[str, ClusterNode]:

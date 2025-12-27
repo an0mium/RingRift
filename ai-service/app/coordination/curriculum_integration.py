@@ -135,8 +135,12 @@ class MomentumToCurriculumBridge:
             if hasattr(DataEventType, 'ELO_SIGNIFICANT_CHANGE'):
                 router.subscribe(DataEventType.ELO_SIGNIFICANT_CHANGE, self._on_elo_significant_change)
 
+            # December 2025: Subscribe to SELFPLAY_ALLOCATION_UPDATED to track allocation changes
+            if hasattr(DataEventType, 'SELFPLAY_ALLOCATION_UPDATED'):
+                router.subscribe(DataEventType.SELFPLAY_ALLOCATION_UPDATED, self._on_selfplay_allocation_updated)
+
             self._event_subscribed = True
-            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE")
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED")
             return True
 
         except (ImportError, AttributeError, TypeError, RuntimeError) as e:
