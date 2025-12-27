@@ -471,7 +471,7 @@ from scripts.p2p.utils import (
     systemd_notify_ready,
     systemd_notify_watchdog,
 )
-from scripts.p2p.managers import StateManager
+from scripts.p2p.managers import NodeSelector, StateManager
 from scripts.p2p.managers.state_manager import PersistedLeaderState
 
 # Unified resource checking utilities (80% max utilization)
@@ -2499,89 +2499,71 @@ class P2POrchestrator(
         return self.state_manager._db_connect()
 
     def _load_state(self):
-        """Load persisted state from database."""
-        conn = None
+        """Load persisted state from database.
+
+        Phase 1 Refactoring: Delegated to StateManager.
+        The StateManager returns a PersistedState object which is then
+        applied to the orchestrator's instance variables.
+        """
         try:
-            conn = self._db_connect()
-            cursor = conn.cursor()
+            state = self.state_manager.load_state(self.node_id)
 
-            # Load peers
-            cursor.execute("SELECT node_id, info_json FROM peers")
-            for row in cursor.fetchall():
+            # Apply loaded peers
+            for node_id, info_dict in state.peers.items():
                 try:
-                    if row[0] == self.node_id:
-                        continue
-                    info = NodeInfo.from_dict(json.loads(row[1]))
-                    self.peers[row[0]] = info
+                    info = NodeInfo.from_dict(info_dict)
+                    self.peers[node_id] = info
                 except Exception as e:
-                    logger.error(f"Failed to load peer {row[0]}: {e}")
+                    logger.error(f"Failed to load peer {node_id}: {e}")
 
-            # Load jobs
-            cursor.execute("SELECT * FROM jobs WHERE status = 'running'")
-            for row in cursor.fetchall():
-                job = ClusterJob(
-                    job_id=row[0],
-                    job_type=JobType(row[1]),
-                    node_id=row[2],
-                    board_type=row[3],
-                    num_players=row[4],
-                    engine_mode=row[5],
-                    pid=row[6],
-                    started_at=row[7],
-                    status=row[8],
-                )
-                self.local_jobs[job.job_id] = job
+            # Apply loaded jobs
+            for job_dict in state.jobs:
+                try:
+                    job = ClusterJob(
+                        job_id=job_dict["job_id"],
+                        job_type=JobType(job_dict["job_type"]),
+                        node_id=job_dict["node_id"],
+                        board_type=job_dict.get("board_type", "square8"),
+                        num_players=job_dict.get("num_players", 2),
+                        engine_mode=job_dict.get("engine_mode", "descent-only"),
+                        pid=job_dict.get("pid", 0),
+                        started_at=job_dict.get("started_at", 0.0),
+                        status=job_dict.get("status", "running"),
+                    )
+                    self.local_jobs[job.job_id] = job
+                except Exception as e:
+                    logger.error(f"Failed to load job: {e}")
 
-            # Load leader
-            cursor.execute("SELECT key, value FROM state")
-            state_rows = {row[0]: row[1] for row in cursor.fetchall() if row and row[0]}
-            raw_leader_id = state_rows.get("leader_id")
-            if raw_leader_id:
-                self.leader_id = raw_leader_id
-
-            raw_lease_id = state_rows.get("leader_lease_id")
-            if raw_lease_id:
-                self.leader_lease_id = raw_lease_id
-
-            raw_lease_expires = state_rows.get("leader_lease_expires")
-            if raw_lease_expires:
+            # Apply leader state
+            ls = state.leader_state
+            if ls.leader_id:
+                self.leader_id = ls.leader_id
+            if ls.leader_lease_id:
+                self.leader_lease_id = ls.leader_lease_id
+            if ls.leader_lease_expires:
+                self.leader_lease_expires = ls.leader_lease_expires
+            if ls.last_lease_renewal:
+                self.last_lease_renewal = ls.last_lease_renewal
+            if ls.role:
                 with contextlib.suppress(Exception):
-                    self.leader_lease_expires = float(raw_lease_expires)
+                    self.role = NodeRole(ls.role)
 
-            raw_last_renewal = state_rows.get("last_lease_renewal")
-            if raw_last_renewal:
-                with contextlib.suppress(Exception):
-                    self.last_lease_renewal = float(raw_last_renewal)
-
-            raw_role = state_rows.get("role")
-            if raw_role:
-                with contextlib.suppress(Exception):
-                    self.role = NodeRole(str(raw_role))
-
-            raw_grant_leader = state_rows.get("voter_grant_leader_id")
-            if raw_grant_leader:
-                self.voter_grant_leader_id = str(raw_grant_leader)
-            raw_grant_lease = state_rows.get("voter_grant_lease_id")
-            if raw_grant_lease:
-                self.voter_grant_lease_id = str(raw_grant_lease)
-            raw_grant_expires = state_rows.get("voter_grant_expires")
-            if raw_grant_expires:
-                with contextlib.suppress(Exception):
-                    self.voter_grant_expires = float(raw_grant_expires)
+            # Voter grant state
+            if ls.voter_grant_leader_id:
+                self.voter_grant_leader_id = ls.voter_grant_leader_id
+            if ls.voter_grant_lease_id:
+                self.voter_grant_lease_id = ls.voter_grant_lease_id
+            if ls.voter_grant_expires:
+                self.voter_grant_expires = ls.voter_grant_expires
 
             # Optional persisted voter configuration (convergence helper). Only
             # apply when voters are not explicitly configured via env/config.
-            raw_voters = state_rows.get("voter_node_ids")
-            if raw_voters and not (getattr(self, "voter_node_ids", []) or []) and str(getattr(self, "voter_config_source", "none") or "none") == "none":
-                voters: list[str] = []
-                try:
-                    parsed = json.loads(raw_voters)
-                    if isinstance(parsed, list):
-                        voters = [str(v).strip() for v in parsed if str(v).strip()]
-                except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
-                    voters = [t.strip() for t in str(raw_voters).split(",") if t.strip()]
-                if voters:
-                    self._maybe_adopt_voter_node_ids(voters, source="state")
+            if (
+                ls.voter_node_ids
+                and not (getattr(self, "voter_node_ids", []) or [])
+                and str(getattr(self, "voter_config_source", "none") or "none") == "none"
+            ):
+                self._maybe_adopt_voter_node_ids(ls.voter_node_ids, source="state")
 
             # Self-heal inconsistent persisted leader state (can happen after
             # abrupt shutdowns or partial writes): never keep role=leader without
@@ -2596,65 +2578,41 @@ class P2POrchestrator(
             logger.info(f"Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
         except Exception as e:
             logger.error(f"Failed to load state: {e}")
-        finally:
-            if conn:
-                conn.close()
 
     def _save_state(self):
-        """Save current state to database."""
-        conn = None
+        """Save current state to database.
+
+        Phase 1 Refactoring: Delegated to StateManager.
+        Creates a PersistedLeaderState from instance variables and
+        passes it to the StateManager for persistence.
+        """
         try:
-            conn = self._db_connect()
-            cursor = conn.cursor()
-
-            # Save peers
-            cursor.execute("DELETE FROM peers WHERE node_id = ?", (self.node_id,))
-            with self.peers_lock:
-                for node_id, info in self.peers.items():
-                    if node_id == self.node_id:
-                        continue
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO peers (node_id, host, port, last_heartbeat, info_json)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (node_id, info.host, info.port, info.last_heartbeat, json.dumps(info.to_dict())))
-
-            # Save jobs
-            with self.jobs_lock:
-                for _job_id, job in self.local_jobs.items():
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO jobs
-                        (job_id, job_type, node_id, board_type, num_players, engine_mode, pid, started_at, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (job.job_id, job.job_type.value, job.node_id, job.board_type,
-                          job.num_players, job.engine_mode, job.pid, job.started_at, job.status))
-
-            # Save leader
+            # Build leader state from instance variables
             role_value = self.role.value if hasattr(self.role, "value") else str(self.role)
-            voter_node_ids_json = json.dumps(sorted(set(getattr(self, "voter_node_ids", []) or [])))
-            voter_config_source = str(getattr(self, "voter_config_source", "") or "")
-            state_payload = [
-                ("leader_id", self.leader_id),
-                ("leader_lease_id", self.leader_lease_id or ""),
-                ("leader_lease_expires", str(float(self.leader_lease_expires or 0.0))),
-                ("last_lease_renewal", str(float(self.last_lease_renewal or 0.0))),
-                ("role", role_value),
-                ("voter_node_ids", voter_node_ids_json),
-                ("voter_config_source", voter_config_source),
-                ("voter_grant_leader_id", str(getattr(self, "voter_grant_leader_id", "") or "")),
-                ("voter_grant_lease_id", str(getattr(self, "voter_grant_lease_id", "") or "")),
-                ("voter_grant_expires", str(float(getattr(self, "voter_grant_expires", 0.0) or 0.0))),
-            ]
-            cursor.executemany(
-                "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
-                state_payload,
-                )
+            leader_state = PersistedLeaderState(
+                leader_id=self.leader_id or "",
+                leader_lease_id=self.leader_lease_id or "",
+                leader_lease_expires=float(self.leader_lease_expires or 0.0),
+                last_lease_renewal=float(self.last_lease_renewal or 0.0),
+                role=role_value,
+                voter_grant_leader_id=str(getattr(self, "voter_grant_leader_id", "") or ""),
+                voter_grant_lease_id=str(getattr(self, "voter_grant_lease_id", "") or ""),
+                voter_grant_expires=float(getattr(self, "voter_grant_expires", 0.0) or 0.0),
+                voter_node_ids=list(getattr(self, "voter_node_ids", []) or []),
+                voter_config_source=str(getattr(self, "voter_config_source", "") or ""),
+            )
 
-            conn.commit()
+            # Delegate to StateManager
+            self.state_manager.save_state(
+                node_id=self.node_id,
+                peers=self.peers,
+                jobs=self.local_jobs,
+                leader_state=leader_state,
+                peers_lock=self.peers_lock,
+                jobs_lock=self.jobs_lock,
+            )
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
-        finally:
-            if conn:
-                conn.close()
 
     # =========================================================================
     # Phase 27: Peer Cache and Reputation Tracking
@@ -2667,49 +2625,33 @@ class P2POrchestrator(
 
     # =========================================================================
     # Phase 29: Cluster Epoch Persistence
+    # Phase 1 Refactoring: Delegated to StateManager
     # =========================================================================
 
     def _load_cluster_epoch(self) -> None:
-        """Load cluster epoch from database."""
-        conn = None
-        try:
-            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
-            cursor = conn.cursor()
-            cursor.execute("SELECT value FROM config WHERE key = 'cluster_epoch'")
-            row = cursor.fetchone()
-            if row:
-                self._cluster_epoch = int(row[0])
-                logger.info(f"Loaded cluster epoch: {self._cluster_epoch}")
-        except Exception as e:
-            if self.verbose:
-                logger.debug(f"Error loading cluster epoch: {e}")
-        finally:
-            if conn:
-                conn.close()
+        """Load cluster epoch from database.
+
+        Phase 1 Refactoring: Delegated to StateManager.
+        Kept for backward compatibility.
+        """
+        self._cluster_epoch = self.state_manager.load_cluster_epoch()
 
     def _save_cluster_epoch(self) -> None:
-        """Save cluster epoch to database."""
-        conn = None
-        try:
-            conn = sqlite3.connect(str(self.db_path), timeout=5.0)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR REPLACE INTO config (key, value) VALUES ('cluster_epoch', ?)",
-                (str(self._cluster_epoch),)
-            )
-            conn.commit()
-        except Exception as e:
-            if self.verbose:
-                logger.debug(f"Error saving cluster epoch: {e}")
-        finally:
-            if conn:
-                conn.close()
+        """Save cluster epoch to database.
+
+        Phase 1 Refactoring: Delegated to StateManager.
+        Kept for backward compatibility.
+        """
+        self.state_manager.set_cluster_epoch(self._cluster_epoch)
+        self.state_manager.save_cluster_epoch()
 
     def _increment_cluster_epoch(self) -> None:
-        """Increment cluster epoch (called on leader change)."""
-        self._cluster_epoch += 1
-        self._save_cluster_epoch()
-        logger.info(f"Incremented cluster epoch to {self._cluster_epoch}")
+        """Increment cluster epoch (called on leader change).
+
+        Phase 1 Refactoring: Delegated to StateManager.
+        Kept for backward compatibility.
+        """
+        self._cluster_epoch = self.state_manager.increment_cluster_epoch()
 
     # Class-level metrics buffer for batched writes (5% speedup)
     _metrics_buffer: list[tuple] = []

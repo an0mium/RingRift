@@ -250,8 +250,9 @@ class P2PAutoDeployer:
         remote_cmd = f"curl -s --connect-timeout 5 localhost:{self.config.p2p_port}/health 2>/dev/null"
 
         try:
+            # Use '--' to separate SSH options from the command
             proc = await asyncio.create_subprocess_exec(
-                *ssh_args, remote_cmd,
+                *ssh_args, "--", remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -342,27 +343,26 @@ class P2PAutoDeployer:
         ssh_args = self._build_ssh_args(host_info, timeout=self.config.deployment_timeout_seconds)
 
         # Remote command to start P2P with venv and proper peers
+        # Note: We avoid "pkill -f p2p_orchestrator" as it can kill the SSH session
+        # Instead, kill by listening port or use a more specific pattern
         remote_cmd = f"""
 cd {ringrift_path} || exit 1
-# Kill any existing P2P
-pkill -f p2p_orchestrator 2>/dev/null || true
+# Kill any existing P2P by port (safer than pkill -f which can kill SSH)
+fuser -k {self.config.p2p_port}/tcp 2>/dev/null || true
 sleep 2
 # Ensure logs directory exists
 mkdir -p logs
 # Activate venv and start P2P orchestrator
 {venv_activate} 2>/dev/null || true
 export PYTHONPATH={ringrift_path}
-screen -dmS p2p python scripts/p2p_orchestrator.py \\
-    --node-id {host_id} \\
-    --port {self.config.p2p_port} \\
-    --peers {seed_peers}
+screen -dmS p2p bash -c 'python scripts/p2p_orchestrator.py --node-id {host_id} --port {self.config.p2p_port} --peers {seed_peers} 2>&1 | tee logs/p2p.log'
 sleep 8
 # Verify it started via health check
 if curl -s --connect-timeout 5 localhost:{self.config.p2p_port}/health 2>/dev/null | grep -q '"healthy"'; then
     echo "P2P_STARTED"
 else
-    # Fallback: check if process is at least running
-    if pgrep -f p2p_orchestrator > /dev/null; then
+    # Fallback: check if port is listening
+    if ss -tlnp 2>/dev/null | grep -q ':{self.config.p2p_port}' || netstat -tlnp 2>/dev/null | grep -q ':{self.config.p2p_port}'; then
         echo "P2P_STARTED"
     else
         echo "P2P_FAILED"
@@ -371,8 +371,9 @@ fi
 """
 
         try:
+            # Use '--' to separate SSH options from the command
             proc = await asyncio.create_subprocess_exec(
-                *ssh_args, remote_cmd,
+                *ssh_args, "--", remote_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
