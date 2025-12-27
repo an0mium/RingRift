@@ -3853,8 +3853,10 @@ class P2POrchestrator(
             return False
         return True
 
-    # NOTE: is_leader property removed Dec 2025 (~4 LOC).
-    # All code already uses _is_leader() directly.
+    @property
+    def is_leader(self) -> bool:
+        """Property alias for _is_leader() - required by WorkQueueHandlersMixin."""
+        return self._is_leader()
 
     # =========================================================================
     # TASK ISOLATION - Prevent single task failure from crashing all tasks
