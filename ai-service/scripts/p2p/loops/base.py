@@ -622,7 +622,9 @@ class LoopManager:
             stats = loop.stats
             total_runs += stats.total_runs
             total_errors += stats.failed_runs
-            if stats.failure_rate > 0.5:  # >50% failure rate
+            # Dec 2025: Fixed bug - use (100 - success_rate) instead of non-existent failure_rate
+            failure_rate = (100.0 - stats.success_rate) / 100.0 if stats.total_runs > 0 else 0.0
+            if failure_rate > 0.5:  # >50% failure rate
                 failing_loops.append(name)
 
         # Determine overall status

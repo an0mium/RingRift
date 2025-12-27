@@ -258,8 +258,15 @@ class TrainingActivityDaemon(BaseDaemon[TrainingActivityConfig]):
                 )
                 if result.returncode == 0:
                     return True
-        except Exception as e:
-            logger.debug(f"[{self._get_daemon_name()}] Local training check failed: {e}")
+        except subprocess.TimeoutExpired as e:
+            # pgrep taking too long - skip this cycle
+            logger.debug(f"[{self._get_daemon_name()}] Local training check timed out: {e}")
+        except subprocess.SubprocessError as e:
+            # pgrep failed for process-related reason
+            logger.debug(f"[{self._get_daemon_name()}] Local training check subprocess error: {e}")
+        except (OSError, FileNotFoundError) as e:
+            # pgrep not available or permission denied
+            logger.debug(f"[{self._get_daemon_name()}] Local training check OS error: {e}")
         return False
 
     def get_training_nodes(self) -> set[str]:

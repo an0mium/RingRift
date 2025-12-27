@@ -844,10 +844,16 @@ class SyncRouter:
                 self._on_model_sync_requested,
             )
 
+            # Dec 2025: Subscribe to SYNC_STALLED to track slow/unreliable nodes
+            router.subscribe(
+                DataEventType.SYNC_STALLED.value,
+                self._on_sync_stalled,
+            )
+
             logger.info(
                 "[SyncRouter] Wired to event router "
                 "(NEW_GAMES_AVAILABLE, TRAINING_STARTED, HOST_ONLINE/OFFLINE, "
-                "NODE_RECOVERED, CLUSTER_CAPACITY_CHANGED, MODEL_SYNC_REQUESTED)"
+                "NODE_RECOVERED, CLUSTER_CAPACITY_CHANGED, MODEL_SYNC_REQUESTED, SYNC_STALLED)"
             )
 
         except ImportError as e:
@@ -1097,6 +1103,63 @@ class SyncRouter:
 
         except Exception as e:
             logger.error(f"[SyncRouter] Error handling model sync request: {e}")
+
+    async def _on_sync_stalled(self, event: Any) -> None:
+        """Handle SYNC_STALLED event - mark node as slow/unreliable for routing.
+
+        December 2025: Added to complete sync reliability integration.
+        When a sync operation times out, reduce priority of the slow node
+        in future routing decisions.
+
+        Args:
+            event: Event with payload containing target_host, timeout_seconds, retry_count
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+            target_node = payload.get("target_host", "")
+            timeout_seconds = payload.get("timeout_seconds", 0)
+            retry_count = payload.get("retry_count", 0)
+            data_type = payload.get("data_type", "game")
+
+            if not target_node:
+                return
+
+            logger.warning(
+                f"[SyncRouter] Sync stalled to {target_node}: "
+                f"timeout={timeout_seconds}s, retries={retry_count}, type={data_type}"
+            )
+
+            # Track stall count for this node
+            if not hasattr(self, '_stall_counts'):
+                self._stall_counts: dict[str, int] = {}
+
+            self._stall_counts[target_node] = self._stall_counts.get(target_node, 0) + 1
+            stall_count = self._stall_counts[target_node]
+
+            # After 3 stalls, temporarily disable sync to this node
+            if stall_count >= 3:
+                if target_node in self._node_capabilities:
+                    cap = self._node_capabilities[target_node]
+                    # Disable based on data type that stalled
+                    if data_type == "game":
+                        cap.can_receive_games = False
+                    elif data_type == "model":
+                        cap.can_receive_models = False
+                    elif data_type == "npz":
+                        cap.can_receive_npz = False
+                    else:
+                        # Disable all sync for generic stalls
+                        cap.can_receive_games = False
+                        cap.can_receive_models = False
+                        cap.can_receive_npz = False
+
+                    logger.warning(
+                        f"[SyncRouter] Disabled {data_type} sync to {target_node} "
+                        f"after {stall_count} stalls"
+                    )
+
+        except (AttributeError, KeyError) as e:
+            logger.debug(f"[SyncRouter] Error handling sync stalled: {e}")
 
     async def _emit_capacity_refresh(
         self,

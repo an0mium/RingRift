@@ -875,6 +875,34 @@ def record_training_complete(
     )
 
 
+def record_regression(
+    config_key: str,
+    regression_type: str = "unknown",
+    severity: str = "moderate",
+    elo_drop: float = 0.0,
+    win_rate: float = 0.0,
+) -> None:
+    """Record a detected model regression.
+
+    December 2025: Added for REGRESSION_DETECTED event wiring.
+
+    Args:
+        config_key: Configuration key (e.g., "hex8_2p")
+        regression_type: Type of regression (e.g., "elo_drop", "win_rate_decline")
+        severity: Regression severity ("mild", "moderate", "severe")
+        elo_drop: Amount of Elo lost (positive value)
+        win_rate: Current win rate
+    """
+    get_improvement_optimizer().record_regression(
+        config_key, regression_type, severity, elo_drop, win_rate
+    )
+
+
+def record_promotion_failure(config_key: str, model_id: str = "", reason: str = "") -> None:
+    """Record a failed promotion."""
+    get_improvement_optimizer().record_promotion_failure(config_key, reason)
+
+
 def get_improvement_metrics() -> dict[str, Any]:
     """Get improvement efficiency metrics."""
     return get_improvement_optimizer().get_improvement_metrics()
