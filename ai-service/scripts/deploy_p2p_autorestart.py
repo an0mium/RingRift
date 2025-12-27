@@ -8,6 +8,7 @@ Usage:
     python scripts/deploy_p2p_autorestart.py                  # Deploy to all p2p_enabled nodes
     python scripts/deploy_p2p_autorestart.py --nodes vast-*   # Deploy to matching nodes
     python scripts/deploy_p2p_autorestart.py --check          # Check P2P status
+    python scripts/deploy_p2p_autorestart.py --seeds ...      # Override seed peers
 """
 
 import argparse
@@ -25,6 +26,26 @@ def load_hosts_config():
     config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
     with open(config_path) as f:
         return yaml.safe_load(f)
+
+
+def build_seed_peers(config: dict) -> list[str]:
+    """Build seed peers from the p2p_voters list in distributed_hosts.yaml."""
+    voters = config.get("p2p_voters", []) or []
+    hosts = config.get("hosts", {}) or {}
+    peers: list[str] = []
+    for node_id in voters:
+        host_config = hosts.get(node_id, {})
+        host = host_config.get("p2p_public_host") or host_config.get("ssh_host")
+        if not host:
+            continue
+        port = int(host_config.get("p2p_port", 8770) or 8770)
+        if "://" in str(host):
+            peer = str(host)
+        else:
+            peer = f"http://{host}:{port}"
+        if peer not in peers:
+            peers.append(peer)
+    return peers
 
 
 def build_ssh_cmd(host_config: dict) -> list[str]:
@@ -50,23 +71,28 @@ def build_ssh_cmd(host_config: dict) -> list[str]:
 async def deploy_to_node(
     node_id: str,
     host_config: dict,
+    seed_peers: list[str],
     dry_run: bool = False,
 ) -> tuple[str, bool, str]:
     """Deploy P2P with auto-restart to a single node."""
     ssh_cmd = build_ssh_cmd(host_config)
     ringrift_path = host_config.get("ringrift_path", "~/ringrift/ai-service")
 
+    seed_list = ",".join(seed_peers)
     # Create a robust supervisor script
     commands = f'''
 set -e
 
 # Expand home directory
 RINGRIFT_PATH="{ringrift_path}"
-RINGRIFT_PATH="${{RINGRIFT_PATH/#\\~/\\$HOME}}"
-eval RINGRIFT_PATH="$RINGRIFT_PATH"
+case "$RINGRIFT_PATH" in
+  "~/"*) RINGRIFT_PATH="$HOME/${{RINGRIFT_PATH#~/}}" ;;
+  "~") RINGRIFT_PATH="$HOME" ;;
+esac
 
 NODE_ID="{node_id}"
 P2P_PORT=8770
+P2P_SEEDS="{seed_list}"
 
 # Create directories
 mkdir -p "$RINGRIFT_PATH/logs"
@@ -90,6 +116,7 @@ cat > "$RINGRIFT_PATH/scripts/p2p_supervisor_loop.sh" << 'SUPERVISOR_EOF'
 NODE_ID="$1"
 RINGRIFT_PATH="$2"
 P2P_PORT="${{3:-8770}}"
+P2P_SEEDS="{seed_list}"
 
 PYTHON="$RINGRIFT_PATH/venv/bin/python"
 if [ ! -x "$PYTHON" ]; then PYTHON="/usr/bin/python3"; fi
@@ -108,7 +135,7 @@ while true; do
     $PYTHON scripts/p2p_orchestrator.py \\
         --node-id "$NODE_ID" \\
         --port $P2P_PORT \\
-        --peers "https://p2p.ringrift.ai,http://100.78.101.123:8770,http://100.88.176.74:8770" \\
+        --peers "$P2P_SEEDS" \\
         --ringrift-path "$PARENT_PATH" \\
         2>&1 | tee -a "$RINGRIFT_PATH/logs/p2p.log" || true
 
@@ -149,11 +176,16 @@ fi
     try:
         result = await asyncio.create_subprocess_exec(
             *ssh_cmd,
-            commands,
+            "bash",
+            "-s",
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(result.communicate(), timeout=120)
+        stdout, stderr = await asyncio.wait_for(
+            result.communicate(commands.encode()),
+            timeout=120,
+        )
         stdout_text = stdout.decode().strip()
         stderr_text = stderr.decode().strip()
 
@@ -210,11 +242,17 @@ async def main():
     parser.add_argument("--nodes", help="Node pattern to match (e.g., 'vast-*')")
     parser.add_argument("--dry-run", action="store_true", help="Preview actions without executing")
     parser.add_argument("--check", action="store_true", help="Check P2P status on nodes")
+    parser.add_argument("--seeds", help="Override seed peers (comma-separated)")
     parser.add_argument("--skip-local", action="store_true", default=True, help="Skip local nodes")
     args = parser.parse_args()
 
     config = load_hosts_config()
     hosts = config.get("hosts", {})
+    seed_peers = [s.strip() for s in (args.seeds or "").split(",") if s.strip()]
+    if not seed_peers:
+        seed_peers = build_seed_peers(config)
+    if not seed_peers:
+        print("Warning: No seed peers resolved from config; P2P bootstrap may be slow.", file=sys.stderr)
 
     # Filter to p2p_enabled nodes
     nodes_to_deploy = []
@@ -263,7 +301,7 @@ async def main():
 
         for i in range(0, len(nodes_to_deploy), batch_size):
             batch = nodes_to_deploy[i:i + batch_size]
-            tasks = [deploy_to_node(nid, cfg, args.dry_run) for nid, cfg in batch]
+            tasks = [deploy_to_node(nid, cfg, seed_peers, args.dry_run) for nid, cfg in batch]
             results = await asyncio.gather(*tasks)
             all_results.extend(results)
 

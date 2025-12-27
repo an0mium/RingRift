@@ -47,8 +47,15 @@ def load_distributed_hosts(config_path: Path | None = None) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def get_voters(hosts: dict) -> list[str]:
-    """Extract voter node IDs from hosts config."""
+def get_voters(config: dict) -> list[str]:
+    """Extract voter node IDs from distributed_hosts config."""
+    p2p_voters_list = config.get("p2p_voters", []) or []
+    if p2p_voters_list and isinstance(p2p_voters_list, list):
+        voters = sorted({str(v).strip() for v in p2p_voters_list if str(v).strip()})
+        if voters:
+            return voters
+
+    hosts = config.get("hosts", {}) or {}
     voters = []
     for node_id, cfg in hosts.items():
         if not isinstance(cfg, dict):
@@ -82,9 +89,10 @@ def get_peer_urls(hosts: dict, port: int = 8770) -> list[str]:
     return sorted(set(peers))
 
 
-def get_voter_peer_urls(hosts: dict, port: int = 8770) -> list[str]:
+def get_voter_peer_urls(config: dict, port: int = 8770) -> list[str]:
     """Generate peer URLs only for voter nodes."""
-    voters = set(get_voters(hosts))
+    voters = set(get_voters(config))
+    hosts = config.get("hosts", {}) or {}
     peers = []
     for node_id, cfg in hosts.items():
         if node_id not in voters:
@@ -148,19 +156,19 @@ def main():
             print(",".join(peers))
 
         elif args.voter_peers:
-            peers = get_voter_peer_urls(hosts, args.port)
+            peers = get_voter_peer_urls(data, args.port)
             print(",".join(peers))
 
         elif args.voters:
-            voters = get_voters(hosts)
+            voters = get_voters(data)
             print(",".join(voters))
 
         elif args.node_conf:
-            peers = get_voter_peer_urls(hosts, args.port)
+            peers = get_voter_peer_urls(data, args.port)
             print(f"P2P_PEERS={','.join(peers)}")
 
         elif args.update_node_conf:
-            peers = get_voter_peer_urls(hosts, args.port)
+            peers = get_voter_peer_urls(data, args.port)
             update_node_conf(args.update_node_conf, peers)
 
     except Exception as e:

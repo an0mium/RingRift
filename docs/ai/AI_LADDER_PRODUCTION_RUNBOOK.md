@@ -39,9 +39,8 @@ Full training runs require GPU for D6–D10 neural tiers (plus D5 if retraining 
 
 ### Cluster Config References
 
-- `ai-service/config/cluster_nodes.yaml` – cluster inventory + SSH keys
 - `ai-service/config/distributed_hosts.yaml` – roles, sync routing, resource metadata
-- `ai-service/config/p2p_hosts.yaml` – P2P orchestrator host list
+- `ai-service/config/distributed_hosts.yaml` – P2P voters (`p2p_voters`) and per-host `p2p_enabled`
 - `ai-service/config/node_policies.yaml` – allowed work types per node class
 - `ai-service/config/selfplay_workers.example.yaml` – template (copy to `selfplay_workers.yaml` if needed)
 - `ai-service/config/unified_loop.yaml` – unified loop config

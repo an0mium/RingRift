@@ -159,8 +159,10 @@ class P2PAutoDeployer:
             self._hosts = data.get("hosts", {})
             logger.info(f"Loaded {len(self._hosts)} hosts from config")
 
-        except Exception as e:
-            logger.error(f"Failed to load hosts config: {e}")
+        except (OSError, IOError) as e:
+            logger.error(f"Failed to read hosts config file: {e}")
+        except yaml.YAMLError as e:
+            logger.error(f"Failed to parse hosts config YAML: {e}")
 
     def _get_deployable_hosts(self) -> dict[str, dict[str, Any]]:
         """Get hosts that should have P2P deployed.

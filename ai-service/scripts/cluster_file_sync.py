@@ -407,15 +407,22 @@ def rsync_transfer(
     port: int,
     remote_path: str,
     config: TransferConfig,
+    verify_checksum: bool = True,
 ) -> TransferResult:
-    """Transfer using rsync with resume support."""
+    """Transfer using rsync with resume support and optional verification.
+
+    December 2025: Added --checksum flag and post-transfer verification to prevent
+    the corruption issues seen with --partial on flaky connections.
+    """
     start = time.time()
 
     ssh_cmd = f"ssh -i {config.ssh_key} -o StrictHostKeyChecking=no -o ServerAliveInterval=10 -p {port}"
 
+    # December 2025: Added --checksum flag for transfer-level verification
     cmd = [
         "rsync",
         "-avz",
+        "--checksum",  # Use checksum instead of just mtime/size
         "--compress-level=9",
         "--partial",
         "--progress",
@@ -423,6 +430,15 @@ def rsync_transfer(
         str(local_path),
         f"root@{host}:{remote_path}",
     ]
+
+    # Compute local checksum for verification
+    local_checksum = None
+    if verify_checksum:
+        try:
+            from app.distributed.sync_utils import _compute_checksum
+            local_checksum = _compute_checksum(local_path)
+        except Exception as e:
+            logger.warning(f"Could not compute local checksum: {e}")
 
     for attempt in range(config.max_retries):
         try:
@@ -433,11 +449,32 @@ def rsync_transfer(
                 timeout=config.transfer_timeout * 2,  # rsync may take longer
             )
             if result.returncode == 0:
+                # December 2025: Verify remote checksum if available
+                verified = False
+                if verify_checksum and local_checksum:
+                    try:
+                        remote_checksum = _get_remote_checksum(
+                            host, port, remote_path, config.ssh_key
+                        )
+                        if remote_checksum == local_checksum:
+                            verified = True
+                            logger.debug(f"Checksum verified: {local_checksum[:16]}...")
+                        else:
+                            logger.warning(
+                                f"Checksum mismatch! Local: {local_checksum[:16]}..., "
+                                f"Remote: {remote_checksum[:16] if remote_checksum else 'None'}..."
+                            )
+                            # Don't return success on checksum mismatch
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Could not verify remote checksum: {e}")
+                        verified = False  # Unverified but successful
+
                 return TransferResult(
                     success=True,
                     bytes_transferred=local_path.stat().st_size,
                     duration_seconds=time.time() - start,
-                    method="rsync",
+                    method="rsync" + ("_verified" if verified else ""),
                 )
         except subprocess.TimeoutExpired:
             logger.warning(f"rsync timeout on attempt {attempt + 1}")
@@ -453,6 +490,32 @@ def rsync_transfer(
         method="rsync",
         error="All rsync attempts failed",
     )
+
+
+def _get_remote_checksum(host: str, port: int, remote_path: str, ssh_key: str) -> str | None:
+    """Get SHA256 checksum of remote file.
+
+    December 2025: Added for post-transfer verification.
+    """
+    ssh_cmd = [
+        "ssh",
+        "-i", ssh_key,
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        "-p", str(port),
+        f"root@{host}",
+        f"sha256sum '{remote_path}' 2>/dev/null | cut -d' ' -f1",
+    ]
+    try:
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0 and result.stdout.strip():
+            checksum = result.stdout.strip()
+            if len(checksum) == 64:  # Valid SHA256 length
+                return checksum
+        return None
+    except Exception:
+        return None
 
 
 def smart_push(

@@ -90,6 +90,14 @@ class ModelDistributionConfig:
     verify_checksums: bool = True  # Enable SHA256 checksum verification
     checksum_timeout_seconds: float = 30.0  # Timeout for remote checksum verification
 
+    # BitTorrent distribution settings (December 2025)
+    # BitTorrent provides piece-level verification, preventing corruption on flaky connections
+    use_bittorrent_for_large_files: bool = True  # Use BitTorrent for files > threshold
+    bittorrent_size_threshold_bytes: int = 50_000_000  # 50MB - use BT above this
+    bittorrent_timeout_seconds: float = 600.0  # 10 minute timeout for BT distribution
+    bittorrent_min_seeders: int = 1  # Minimum seeders required to use BitTorrent
+    create_torrents_for_models: bool = True  # Auto-create .torrent files for models
+
 
 @dataclass
 class ModelDeliveryResult:
@@ -544,6 +552,130 @@ class ModelDistributionDaemon:
         # Consider successful if most uploads worked
         return success_count > total * 0.5
 
+    async def _distribute_via_bittorrent(
+        self,
+        model_paths: list[Path] | None = None,
+    ) -> bool:
+        """Distribute large models via BitTorrent with piece-level verification.
+
+        December 2025: BitTorrent is ideal for large models (>50MB) because:
+        - Piece-level verification catches corruption that rsync --partial misses
+        - Multi-peer downloads provide redundancy on flaky connections
+        - DHT enables trackerless peer discovery within the cluster
+        - Seeding after download helps other nodes in the cluster
+
+        This method:
+        1. Creates .torrent files for models if they don't exist
+        2. Registers torrents in ClusterManifest for peer discovery
+        3. Seeds the torrents for other nodes to download
+
+        Args:
+            model_paths: Specific models to distribute. If None, distributes
+                        all canonical models above size threshold.
+
+        Returns:
+            True if BitTorrent distribution initiated successfully, False otherwise.
+        """
+        try:
+            from app.distributed.aria2_transport import Aria2Transport, Aria2Config
+            from app.distributed.torrent_generator import get_torrent_generator
+            from app.distributed.cluster_manifest import get_cluster_manifest
+        except ImportError as e:
+            logger.debug(f"BitTorrent support not available: {e}")
+            return False
+
+        # Get models to distribute
+        models_dir = ROOT / self.config.models_dir
+        if model_paths is None:
+            model_paths = list(models_dir.glob("canonical_*.pth"))
+            model_paths.extend(models_dir.glob("ringrift_best_*.pth"))
+
+        if not model_paths:
+            logger.info("No models found for BitTorrent distribution")
+            return True
+
+        # Filter to large files only
+        large_models = [
+            p for p in model_paths
+            if p.exists() and p.stat().st_size > self.config.bittorrent_size_threshold_bytes
+        ]
+
+        if not large_models:
+            logger.debug("No models above BitTorrent size threshold")
+            return False  # Signal to use fallback transport
+
+        logger.info(
+            f"Distributing {len(large_models)} large models via BitTorrent "
+            f"(>{self.config.bittorrent_size_threshold_bytes / 1024 / 1024:.0f}MB)"
+        )
+
+        # Create torrents and start seeding
+        transport = Aria2Transport(Aria2Config(
+            enable_bittorrent=True,
+            bt_enable_dht=True,
+            bt_enable_lpd=True,
+            bt_enable_pex=True,
+        ))
+
+        success_count = 0
+        for model_path in large_models:
+            try:
+                # Create and register torrent
+                torrent_path, info_hash, error = await transport.create_and_register_torrent(
+                    model_path,
+                    web_seeds=self._get_web_seed_urls(model_path),
+                )
+
+                if torrent_path and info_hash:
+                    logger.info(
+                        f"Created torrent for {model_path.name}: {info_hash[:16]}..."
+                    )
+                    success_count += 1
+
+                    # Start seeding this model
+                    seed_success, seed_error = await transport.seed_file(
+                        model_path,
+                        torrent_path,
+                        duration_seconds=int(self.config.bittorrent_timeout_seconds),
+                    )
+
+                    if seed_success:
+                        logger.info(f"Started seeding {model_path.name}")
+                    else:
+                        logger.warning(f"Failed to seed {model_path.name}: {seed_error}")
+                else:
+                    logger.warning(f"Failed to create torrent for {model_path.name}: {error}")
+
+            except Exception as e:
+                logger.warning(f"BitTorrent distribution failed for {model_path.name}: {e}")
+
+        await transport.close()
+
+        logger.info(f"BitTorrent: Created {success_count}/{len(large_models)} torrents")
+        return success_count > 0
+
+    def _get_web_seed_urls(self, model_path: Path) -> list[str]:
+        """Get web seed URLs for hybrid HTTP+BitTorrent downloads.
+
+        Web seeds allow nodes without peers to still download via HTTP
+        while getting piece-level verification from the torrent.
+
+        Args:
+            model_path: Path to the model file
+
+        Returns:
+            List of HTTP URLs that can serve this file
+        """
+        urls = []
+        target_nodes = self._get_distribution_targets()
+
+        for node in target_nodes[:5]:  # Limit to 5 web seeds
+            # Assume HTTP data server on port 8766
+            url = f"http://{node}:8766/models/{model_path.name}"
+            urls.append(url)
+
+        return urls
+
     async def _upload_model_to_node(
         self,
         session: "aiohttp.ClientSession",
@@ -830,35 +962,49 @@ class ModelDistributionDaemon:
     async def _run_smart_sync(self) -> bool:
         """Run model sync using best available method.
 
-        Tries HTTP distribution first (faster), falls back to rsync if:
-        - HTTP is disabled
-        - HTTP distribution fails
-        - aiohttp is not available
+        December 2025 transport priority:
+        1. BitTorrent for large files (>50MB) - piece-level verification
+        2. HTTP streaming - fast for smaller files
+        3. rsync fallback - reliable but slower
 
-        December 2025: Now includes checksum verification after distribution.
+        BitTorrent is preferred for large models because it provides:
+        - Piece-level SHA1 verification (catches corruption rsync --partial misses)
+        - Multi-peer downloads for redundancy
+        - DHT for trackerless peer discovery
+        - Resume capability across connection drops
 
         Returns:
             True if sync succeeded, False otherwise
         """
-        # Try HTTP first if enabled
         distribution_succeeded = False
         method = "unknown"
 
+        # Try BitTorrent first for large models (December 2025)
+        if self.config.use_bittorrent_for_large_files:
+            bt_success = await self._distribute_via_bittorrent()
+            if bt_success:
+                distribution_succeeded = True
+                method = "bittorrent"
+                logger.info("Large model distribution via BitTorrent succeeded")
+                # Note: BitTorrent only handles large files, continue with HTTP for small files
+
+        # Try HTTP for remaining/smaller files
         if self.config.use_http_distribution:
             http_success = await self._distribute_via_http()
             if http_success:
                 distribution_succeeded = True
-                method = "http"
-            elif self.config.fallback_to_rsync:
+                if method == "unknown":
+                    method = "http"
+                else:
+                    method = f"{method}+http"
+            elif self.config.fallback_to_rsync and not distribution_succeeded:
                 logger.info("HTTP distribution failed, falling back to rsync")
                 rsync_success = await self._run_model_sync()
                 if rsync_success:
                     distribution_succeeded = True
                     method = "rsync"
-            else:
-                return False
-        else:
-            # Rsync only
+        elif not distribution_succeeded:
+            # Rsync only (no HTTP)
             rsync_success = await self._run_model_sync()
             if rsync_success:
                 distribution_succeeded = True

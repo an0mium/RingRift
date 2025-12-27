@@ -37,14 +37,14 @@
 
 ### Sync Components (All Implemented)
 
-| Component                       | Purpose                    | Status                   |
-| ------------------------------- | -------------------------- | ------------------------ |
-| `auto_sync_daemon.py`           | P2P gossip sync            | Code exists, not running |
-| `cluster_data_sync.py`          | Push to cluster nodes      | Code exists, not running |
-| `ephemeral_sync.py`             | Aggressive Vast.ai sync    | Code exists, not running |
-| `s3_backup_daemon.py`           | S3 model backup            | Code exists, not running |
-| `external_drive_sync_daemon.py` | OWC drive sync             | Code exists, not running |
-| `npz_distribution_daemon.py`    | Training data distribution | Code exists, not running |
+| Component                    | Purpose                             | Status                   |
+| ---------------------------- | ----------------------------------- | ------------------------ |
+| `auto_sync_daemon.py`        | P2P gossip sync                     | Code exists, not running |
+| `cluster_data_sync.py`       | Push to cluster nodes               | Code exists, not running |
+| `ephemeral_sync.py`          | Aggressive Vast.ai sync             | Code exists, not running |
+| `s3_backup_daemon.py`        | S3 model backup                     | Code exists, not running |
+| `unified_data_sync.py`       | External drive sync (RingRift-Data) | Active service           |
+| `npz_distribution_daemon.py` | Training data distribution          | Code exists, not running |
 
 ### Data Flow Paths
 
@@ -55,7 +55,7 @@ Selfplay Nodes (Vast.ai, etc.)
     [NOT RUNNING]
     auto_sync_daemon
          │
-         ├──► Mac-Studio OWC Drive (/Volumes/RingRift-Data)
+         ├──► Mac-Studio External Drive (/Volumes/RingRift-Data)
          │         └── 83% FULL - BLOCKING
          │
          ├──► AWS S3 (ringrift-models-20251214)
@@ -104,14 +104,14 @@ excluded_hosts:
 
 allowed_external_storage:
   - host: mac-studio
-    path: /Volumes/OWC
+    path: /Volumes/RingRift-Data
     receive_games: true    # ← ALLOWS games (contradiction!)
 ```
 
 **Fix Required**:
 
 ```yaml
-# Remove mac-studio from excluded_hosts OR
+# Remove mac-studio from excluded_hosts AND
 # Use only allowed_external_storage for external drive
 ```
 
@@ -120,18 +120,18 @@ allowed_external_storage:
 **Check**:
 
 ```bash
-ps aux | grep -E "external_drive_sync|s3_backup|auto_sync" | grep -v grep
-# Result: No output - nothing running
+ps aux | grep -E "unified_data_sync|s3_backup|auto_sync" | grep -v grep
+# Expect unified_data_sync + s3_backup when the pipeline is healthy
 ```
 
 **Fix Required**:
-Start daemons on mac-studio:
+Start the unified data sync service on mac-studio:
 
 ```bash
 # On mac-studio
 cd ~/Development/RingRift/ai-service
-python scripts/external_drive_sync_daemon.py --start
-python scripts/launch_daemons.py --daemon s3_backup
+./venv/bin/python scripts/unified_data_sync.py --watchdog --http-port 8765
+./venv/bin/python scripts/launch_daemons.py --daemon s3_backup
 ```
 
 ### 4. Training Data Freshness (HIGH)
@@ -197,7 +197,7 @@ sync_routing:
   replication_target: 2
 
   # Remove mac-studio from excluded_hosts entirely
-  # Use only allowed_external_storage for OWC drive
+  # Use only allowed_external_storage for external drive
   excluded_hosts: []
 
   allowed_external_storage:

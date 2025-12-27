@@ -1,15 +1,13 @@
-"""
-Tests for V2 neural network architecture MPS compatibility.
+"""Tests for V2 neural network architecture MPS compatibility.
 
-These tests verify that V2 architectures (RingRiftCNN_v2, HexNeuralNet_v2, etc.)
-are fully MPS-compatible and can run on Apple Silicon GPUs.
+These tests verify that V2 architectures (RingRiftCNN_v2, HexNeuralNet_v2,
+etc.) are fully MPS-compatible and can run on Apple Silicon GPUs.
 
-V2 architectures use torch.mean() for global pooling instead of AdaptiveAvgPool2d,
-which ensures compatibility with PyTorch's MPS backend.
+V2 architectures use torch.mean() for global pooling instead of
+AdaptiveAvgPool2d, which ensures compatibility with PyTorch's MPS backend.
 """
 
 import os
-from unittest.mock import Mock
 
 import pytest
 import torch
@@ -169,10 +167,10 @@ class TestMemoryTierSelection:
     """Tests for memory tier configuration."""
 
     def test_get_memory_tier_default(self):
-        """Test that default memory tier is 'high'."""
+        """Test that default memory tier is v4 (NAS-optimized default)."""
         os.environ.pop('RINGRIFT_NN_MEMORY_TIER', None)
         tier = get_memory_tier()
-        assert tier == "high"
+        assert tier == "v4"
 
     def test_get_memory_tier_high(self):
         """Test explicit high memory tier selection."""
@@ -192,12 +190,12 @@ class TestMemoryTierSelection:
         finally:
             os.environ.pop('RINGRIFT_NN_MEMORY_TIER', None)
 
-    def test_invalid_tier_defaults_to_high(self):
-        """Test that invalid tier values default to 'high'."""
+    def test_invalid_tier_defaults_to_v4(self):
+        """Test that invalid tier values default to v4."""
         os.environ['RINGRIFT_NN_MEMORY_TIER'] = 'invalid'
         try:
             tier = get_memory_tier()
-            assert tier == "high"
+            assert tier == "v4"
         finally:
             os.environ.pop('RINGRIFT_NN_MEMORY_TIER', None)
 

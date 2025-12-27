@@ -55,9 +55,9 @@ python scripts/cli.py health
 - `p2p_orchestrator.py` - **Primary cluster orchestrator** (1.1MB, self-healing P2P coordination)
   - Leader election and peer discovery
   - Auto-starts selfplay/training jobs
-  - Vast.ai and Lambda Labs integration
+  - Vast.ai integration (Lambda Labs legacy support retired)
   - Supports all board types: square8, hex8, square19, hexagonal
-  - Start: `python scripts/p2p_orchestrator.py --node-id <name> --peers <ip>:8770`
+  - Start: `PYTHONPATH=. python scripts/p2p_orchestrator.py --node-id <name> --port 8770 --peers <url-list>`
 - `vast_p2p_sync.py` - **Vast.ai instance synchronization** (22KB)
   - Synchronizes Vast.ai instances with P2P network
   - Instance status tracking, node unretiring, P2P orchestrator startup

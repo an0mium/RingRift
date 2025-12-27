@@ -27,7 +27,8 @@ class TestSSHConfig:
         assert config.port == 22
         assert config.user == "root"
         assert config.ssh_key is None
-        assert config.connect_timeout == 10
+        # Network stability default (Dec 2025): increased from 10s to 30s.
+        assert config.connect_timeout == 30
         assert config.batch_mode is True
 
     def test_custom_values(self):

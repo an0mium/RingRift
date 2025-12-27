@@ -344,14 +344,21 @@ Expected performance:
 
 ### Remote Hosts
 
-Configure P2P hosts in `config/distributed_hosts.yaml`:
+Configure P2P voters in `config/distributed_hosts.yaml`:
 
 ```yaml
+p2p_voters:
+  - nebius-backbone-1
+  - nebius-h100-3
+  - hetzner-cpu1
+  - hetzner-cpu2
+  - vultr-a100-20gb
+
 hosts:
   gpu-node-1:
     ssh_host: 10.0.0.1 # Replace with actual IP or hostname
     role: selfplay
-    p2p_voter: true
+    p2p_enabled: true
   gpu-node-2:
     ssh_host: 10.0.0.2 # Replace with actual IP or hostname
     role: selfplay

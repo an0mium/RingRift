@@ -49,7 +49,6 @@ ExecStartPre=/bin/bash -c 'if command -v lsof >/dev/null 2>&1; then pid=$(lsof -
 # Start orchestrator
 ExecStart=/bin/bash -c '\\
   RINGRIFT_PATH="${RINGRIFT_PATH:-/home/ubuntu/ringrift}"; \\
-  RINGRIFT_PATH="${RINGRIFT_PATH%/ai-service}"; \\
   AI_SERVICE_PATH="$RINGRIFT_PATH/ai-service"; \\
   export PYTHONPATH="$AI_SERVICE_PATH"; \\
   PY="$AI_SERVICE_PATH/venv/bin/python"; \\
@@ -106,6 +105,14 @@ def build_seed_peers(config: dict) -> list[str]:
     return peers
 
 
+def expand_home_path(path: str, ssh_user: str) -> str:
+    """Expand ~ using the target user's home directory."""
+    if path == "~" or path.startswith("~/"):
+        home = "/root" if ssh_user == "root" else f"/home/{ssh_user}"
+        return path.replace("~", home, 1)
+    return path
+
+
 def resolve_sudo_mode(host_config: dict, force_sudo: bool | None) -> bool:
     """Determine whether to use sudo on the target host."""
     if force_sudo is not None:
@@ -136,6 +143,7 @@ def build_ssh_cmd(host_config: dict) -> list[str]:
 def get_node_conf(node_id: str, host_config: dict, seed_peers: list[str]) -> str:
     """Generate node.conf content for a node."""
     ringrift_path = host_config.get("ringrift_path", "~/ringrift/ai-service")
+    ringrift_path = expand_home_path(ringrift_path, host_config.get("ssh_user", "root"))
     # Normalize path (remove /ai-service suffix if present)
     if ringrift_path.endswith("/ai-service"):
         ringrift_path = ringrift_path[:-11]

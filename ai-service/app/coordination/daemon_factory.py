@@ -146,9 +146,13 @@ def _build_registry() -> dict[str, DaemonSpec]:
             class_name="TournamentDaemon",
             factory_fn="get_tournament_daemon",
         ),
+        # Dec 2025: GAUNTLET_FEEDBACK now delegates to UnifiedFeedbackOrchestrator
+        # which consolidates all 4 feedback systems. The old GauntletFeedbackController
+        # is deprecated. See unified_feedback.py for the replacement.
         DaemonType.GAUNTLET_FEEDBACK.name: DaemonSpec(
-            import_path="app.coordination.gauntlet_feedback_controller",
-            class_name="GauntletFeedbackController",
+            import_path="app.coordination.unified_feedback",
+            class_name="UnifiedFeedbackOrchestrator",
+            factory_fn="get_unified_feedback",
         ),
 
         # =================================================================
@@ -306,9 +310,13 @@ def _build_registry() -> dict[str, DaemonSpec]:
         # =================================================================
         # Feedback & Curriculum Daemons
         # =================================================================
+        # Dec 2025: FEEDBACK_LOOP now uses UnifiedFeedbackOrchestrator which
+        # consolidates FeedbackLoopController, GauntletFeedbackController,
+        # CurriculumIntegration, and TrainingFreshness into one system.
         DaemonType.FEEDBACK_LOOP.name: DaemonSpec(
-            import_path="app.coordination.feedback_loop_controller",
-            class_name="FeedbackLoopController",
+            import_path="app.coordination.unified_feedback",
+            class_name="UnifiedFeedbackOrchestrator",
+            factory_fn="get_unified_feedback",
         ),
     }
 

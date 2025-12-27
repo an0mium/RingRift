@@ -250,27 +250,59 @@ def deploy_to_cluster(
     hosts: list[str],
     remote_path: str = "~/ringrift/ai-service/models/nnue/"
 ) -> dict[str, bool]:
-    """Deploy model to cluster nodes via SSH."""
+    """Deploy model to cluster nodes via SSH with verification.
+
+    December 2025: Updated to use rsync_push_file_verified for integrity
+    verification after transfer. Prevents silent corruption on flaky connections.
+    """
+    from app.distributed.hosts import HostConfig
+    from app.distributed.sync_utils import rsync_push_file_verified
+
     results = {}
 
-    for host in hosts:
+    for host_str in hosts:
         try:
-            # Use rsync for efficient transfer
-            cmd = [
-                "rsync", "-avz", "--timeout=30",
-                str(model_path),
-                f"{host}:{remote_path}"
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            success = result.returncode == 0
-            results[host] = success
-            if success:
-                print(f"[Deploy] Synced to {host}")
+            # Parse host string (format: user@host or user@host:port)
+            if ":" in host_str and "@" in host_str:
+                user_host, port_str = host_str.rsplit(":", 1)
+                user, ssh_host = user_host.split("@", 1)
+                port = int(port_str)
+            elif "@" in host_str:
+                user, ssh_host = host_str.split("@", 1)
+                port = 22
             else:
-                print(f"[Deploy] Failed to sync to {host}: {result.stderr}")
+                user = "ubuntu"
+                ssh_host = host_str
+                port = 22
+
+            # Create HostConfig for verified rsync
+            host_config = HostConfig(
+                name=host_str,
+                ssh_host=ssh_host,
+                ssh_user=user,
+                ssh_port=port,
+                ssh_key="~/.ssh/id_cluster",
+            )
+
+            # Use verified rsync with checksum validation
+            result = rsync_push_file_verified(
+                host=host_config,
+                local_path=model_path,
+                remote_path=f"{remote_path}{model_path.name}",
+                timeout=120,
+            )
+
+            results[host_str] = result.success and result.verified
+            if result.success and result.verified:
+                print(f"[Deploy] Synced to {host_str} (checksum verified)")
+            elif result.success:
+                print(f"[Deploy] Synced to {host_str} (unverified)")
+            else:
+                print(f"[Deploy] Failed to sync to {host_str}: {result.error}")
+
         except Exception as e:
-            results[host] = False
-            print(f"[Deploy] Error syncing to {host}: {e}")
+            results[host_str] = False
+            print(f"[Deploy] Error syncing to {host_str}: {e}")
 
     return results
 

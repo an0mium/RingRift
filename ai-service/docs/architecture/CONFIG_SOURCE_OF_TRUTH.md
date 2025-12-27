@@ -42,6 +42,13 @@ This document designates the authoritative configuration file for each concept t
 
 ```yaml
 # Example structure
+p2p_voters:
+  - nebius-backbone-1
+  - nebius-h100-3
+  - hetzner-cpu1
+  - hetzner-cpu2
+  - vultr-a100-20gb
+
 hosts:
   runpod-h100:
     ssh_host: 102.210.171.65
@@ -51,7 +58,6 @@ hosts:
     gpu: H100 PCIe
     gpu_vram_gb: 80
     role: gpu_selfplay_primary
-    p2p_voter: true
     p2p_enabled: true
 ```
 

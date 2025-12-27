@@ -1,518 +1,763 @@
 # Daemon Registry
 
-Complete reference of all background daemons in the RingRift AI training infrastructure.
+This document provides a comprehensive reference for all daemons managed by the RingRift AI service `DaemonManager`.
 
-**Last Updated:** December 2025
-**Total Daemons:** 53
+**Last updated:** December 26, 2025
+**Total Daemon Types:** 60+
 
-## Quick Reference
+## Table of Contents
 
-| Category    | Daemons | Purpose                             |
-| ----------- | ------- | ----------------------------------- |
-| Sync        | 6       | Data synchronization across cluster |
-| Training    | 9       | Training pipeline automation        |
-| Monitoring  | 7       | Health and status monitoring        |
-| Events      | 3       | Event routing and processing        |
-| P2P         | 3       | Peer-to-peer mesh network           |
-| Replication | 2       | Data replication enforcement        |
-| Feedback    | 4       | Training feedback loops             |
-| Resources   | 4       | Resource management                 |
-| Recovery    | 3       | Error recovery and resilience       |
-| External    | 2       | External storage/providers          |
-| Utility     | 10      | Various utilities                   |
+- [Overview](#overview)
+- [Daemon Types](#daemon-types)
+  - [Core Infrastructure](#core-infrastructure)
+  - [Sync Daemons](#sync-daemons)
+  - [Training & Pipeline](#training--pipeline)
+  - [Evaluation & Tournament](#evaluation--tournament)
+  - [Health & Monitoring](#health--monitoring)
+  - [Cluster Management](#cluster-management)
+  - [Job Scheduling](#job-scheduling)
+  - [Backup & Storage](#backup--storage)
+  - [Resource & Utilization](#resource--utilization)
+  - [Pipeline Automation](#pipeline-automation)
+  - [System Health](#system-health)
+  - [Cost Optimization](#cost-optimization)
+  - [Feedback & Curriculum](#feedback--curriculum)
+- [Daemon Profiles](#daemon-profiles)
+- [Dependency Graph](#dependency-graph)
+- [Priority Levels](#priority-levels)
+- [Factory Methods Reference](#factory-methods-reference)
 
-## Daemon Profiles
+## Overview
 
-Daemons are grouped into profiles for different node roles:
+The `DaemonManager` coordinates the lifecycle of 60+ background services across the RingRift cluster. Daemons are organized into profiles based on node roles (coordinator, training_node, ephemeral, selfplay).
 
-Canonical definitions live in `app/coordination/daemon_manager.py` as
-`DAEMON_PROFILES` and are used by `scripts/launch_daemons.py --profile`.
+**Key Concepts:**
 
-### Coordinator Profile (mac-studio)
+- **CRITICAL daemons**: Core infrastructure that requires faster failure detection (15s health checks)
+- **Dependencies**: Daemons can depend on other daemons being started first
+- **Profiles**: Predefined sets of daemons for different node types
+- **Auto-restart**: Most daemons automatically restart on failure (with exponential backoff)
 
-Primary orchestration node - runs most daemons:
+## Daemon Types
 
-- EVENT_ROUTER, HEALTH_SERVER, P2P_BACKEND
-- TOURNAMENT_DAEMON, MODEL_DISTRIBUTION
-- REPLICATION_MONITOR, REPLICATION_REPAIR
-- CLUSTER_MONITOR, FEEDBACK_LOOP
-- QUALITY_MONITOR, MODEL_PERFORMANCE_WATCHDOG
-- NPZ_DISTRIBUTION, ORPHAN_DETECTION
-- NODE_HEALTH_MONITOR, SYSTEM_HEALTH_MONITOR
-- UNIFIED_PROMOTION, JOB_SCHEDULER
-- IDLE_RESOURCE, NODE_RECOVERY
-- QUEUE_POPULATOR, CURRICULUM_INTEGRATION
-- AUTO_EXPORT, TRAINING_TRIGGER
+### Core Infrastructure
 
-### Training Node Profile (GPU nodes)
+These daemons form the foundation of the cluster coordination system.
 
-For nodes actively running training:
+| Daemon Type            | Priority     | Description                                                                                                                      | Dependencies |
+| ---------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `EVENT_ROUTER`         | **CRITICAL** | Unified event bus for all coordination. All pipeline events, feedback signals, and cross-daemon communication flow through this. | None         |
+| `CROSS_PROCESS_POLLER` | HIGH         | Polls for events from other processes and forwards them to the event router.                                                     | None         |
+| `DAEMON_WATCHDOG`      | HIGH         | Monitors daemon health and triggers restarts when failures are detected.                                                         | None         |
+| `DLQ_RETRY`            | MEDIUM       | Dead letter queue remediation. Retries failed events from the DLQ.                                                               | EVENT_ROUTER |
 
-- EVENT_ROUTER, HEALTH_SERVER
-- DATA_PIPELINE, CONTINUOUS_TRAINING_LOOP
-- AUTO_SYNC, TRAINING_NODE_WATCHER
-- EVALUATION, QUALITY_MONITOR
-- ORPHAN_DETECTION, UNIFIED_PROMOTION
-- P2P_AUTO_DEPLOY, IDLE_RESOURCE
-- CURRICULUM_INTEGRATION
-- AUTO_EXPORT, TRAINING_TRIGGER
+**Factory Methods:**
 
-### Ephemeral Profile (Vast.ai spot instances)
-
-Minimal daemons for short-lived nodes:
-
-- EVENT_ROUTER, EPHEMERAL_SYNC
-- DATA_PIPELINE, IDLE_RESOURCE
-
-### Selfplay Profile (GPU selfplay nodes)
-
-For dedicated selfplay generation:
-
-- EVENT_ROUTER, AUTO_SYNC
-- QUALITY_MONITOR, IDLE_RESOURCE
+- `_create_event_router()` → Uses `event_router.get_router()`
+- `_create_cross_process_poller()` → Creates `CrossProcessEventPoller`
+- `_create_daemon_watchdog()` → Uses `daemon_watchdog.start_watchdog()`
+- `_create_dlq_retry()` → Creates `DLQRetryDaemon`
 
 ---
-
-## Master Loop Profiles (scripts/master_loop.py)
-
-The unified controller supports `--profile` to choose a daemon set. These
-profiles are separate from the node role profiles above and control which
-daemons the master loop starts.
-
-### minimal
-
-Baseline sync + health:
-
-- EVENT_ROUTER, NODE_HEALTH_MONITOR, CLUSTER_MONITOR
-- SYSTEM_HEALTH_MONITOR, HEALTH_SERVER
-- AUTO_SYNC, CLUSTER_DATA_SYNC, ELO_SYNC
-
-### standard (default)
-
-Core automation on top of `minimal`:
-
-- FEEDBACK_LOOP, DATA_PIPELINE, MODEL_DISTRIBUTION
-- IDLE_RESOURCE, UTILIZATION_OPTIMIZER, QUEUE_POPULATOR
-- AUTO_EXPORT, EVALUATION, AUTO_PROMOTION, TOURNAMENT_DAEMON
-- CURRICULUM_INTEGRATION, NODE_RECOVERY, TRAINING_NODE_WATCHER
-- QUALITY_MONITOR
-
-### full
-
-All `DaemonType` entries except deprecated `SYNC_COORDINATOR` and `HEALTH_CHECK`.
-
----
-
-## Daemon Details
 
 ### Sync Daemons
 
-#### SYNC_COORDINATOR
+Data synchronization across the cluster.
 
-**Status:** Deprecated (use AUTO_SYNC)
+| Daemon Type             | Priority     | Description                                                                                                              | Dependencies |
+| ----------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| `AUTO_SYNC`             | **CRITICAL** | Primary data sync mechanism. Pulls game data from remote nodes to coordinator. Excludes coordinator-to-coordinator sync. | None         |
+| `SYNC_COORDINATOR`      | DEPRECATED   | Legacy sync coordinator. Use `AUTO_SYNC` instead. Scheduled for removal Q2 2026.                                         | None         |
+| `GOSSIP_SYNC`           | MEDIUM       | P2P gossip-based data synchronization for eventual consistency.                                                          | None         |
+| `EPHEMERAL_SYNC`        | HIGH         | Aggressive 5-second sync for Vast.ai ephemeral nodes to prevent data loss on termination.                                | None         |
+| `MODEL_SYNC`            | MEDIUM       | Syncs trained models across the cluster.                                                                                 | None         |
+| `MODEL_DISTRIBUTION`    | MEDIUM       | Auto-distributes models after promotion. Subscribes to MODEL_PROMOTED events.                                            | EVENT_ROUTER |
+| `NPZ_DISTRIBUTION`      | MEDIUM       | Syncs training data (NPZ files) after export.                                                                            | EVENT_ROUTER |
+| `EXTERNAL_DRIVE_SYNC`   | LOW          | Backup to external drives for disaster recovery.                                                                         | None         |
+| `CLUSTER_DATA_SYNC`     | MEDIUM       | Full cluster-wide data distribution and replication.                                                                     | EVENT_ROUTER |
+| `TRAINING_NODE_WATCHER` | MEDIUM       | Detects active training processes and triggers priority data sync.                                                       | None         |
+| `HIGH_QUALITY_SYNC`     | MEDIUM       | Priority sync for high-quality game data (quality score > 0.7).                                                          | None         |
+| `ELO_SYNC`              | MEDIUM       | Synchronize ELO ratings across cluster.                                                                                  | None         |
 
-- **Purpose:** Legacy sync coordination
-- **File:** `app/coordination/sync_coordinator.py`
+**Factory Methods:**
 
-#### HIGH_QUALITY_SYNC
-
-- **Purpose:** Priority sync for high-quality game data
-- **Triggers:** Quality score > 0.7
-
-#### ELO_SYNC
-
-- **Purpose:** Synchronize ELO ratings across cluster
-- **Interval:** 60 seconds
-- **File:** Integrated into P2P
-
-#### MODEL_SYNC
-
-- **Purpose:** Sync model files between nodes
-- **Triggers:** MODEL_PROMOTED event
-
-#### CLUSTER_DATA_SYNC
-
-- **Purpose:** Cluster-wide game database sync
-- **Interval:** 300 seconds
-- **File:** `app/coordination/cluster_data_sync.py`
-
-#### AUTO_SYNC
-
-- **Purpose:** Automated P2P data sync with gossip replication
-- **Features:** Push-from-generator, excludes coordinator, respects bandwidth limits
-- **File:** `app/coordination/auto_sync_daemon.py`
+- `_create_auto_sync()` → Creates `AutoSyncDaemon`
+- `_create_sync_coordinator()` → Creates `SyncCoordinator` (deprecated)
+- `_create_gossip_sync()` → Creates `GossipSyncDaemon`
+- `_create_ephemeral_sync()` → Uses `ephemeral_sync.get_ephemeral_sync_daemon()`
+- `_create_model_sync()` → Creates `ModelSyncDaemon`
+- `_create_model_distribution()` → Creates `ModelDistributionDaemon`
+- `_create_npz_distribution()` → Creates `NPZDistributionDaemon`
+- `_create_external_drive_sync()` → Creates `ExternalDriveSyncDaemon`
+- `_create_cluster_data_sync()` → Creates `ClusterDataSyncDaemon`
+- `_create_training_node_watcher()` → Uses `cluster_data_sync.get_training_node_watcher()`
+- `_create_high_quality_sync()` → Creates `HighQualitySyncDaemon`
+- `_create_elo_sync()` → Creates `EloSyncDaemon`
 
 ---
 
-### Training Daemons
+### Training & Pipeline
 
-#### DATA_PIPELINE
+Training pipeline orchestration and coordination.
 
-- **Purpose:** Orchestrate training data pipeline
-- **Stages:** Selfplay → Sync → Export → Train → Evaluate → Promote
-- **File:** `app/coordination/data_pipeline_orchestrator.py`
+| Daemon Type                | Priority | Description                                                                          | Dependencies             |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------ | ------------------------ |
+| `DATA_PIPELINE`            | HIGH     | Orchestrates pipeline stages: selfplay → sync → export → train → evaluate → promote. | EVENT_ROUTER             |
+| `CONTINUOUS_TRAINING_LOOP` | MEDIUM   | Continuous training loop that runs indefinitely.                                     | EVENT_ROUTER             |
+| `UNIFIED_PROMOTION`        | HIGH     | Auto-promotes models after evaluation. Subscribes to EVALUATION_COMPLETED events.    | EVENT_ROUTER             |
+| `AUTO_PROMOTION`           | HIGH     | Auto-promotes models based on evaluation thresholds. Emits MODEL_PROMOTED.           | EVENT_ROUTER, EVALUATION |
+| `DISTILLATION`             | LOW      | Creates smaller student models from larger teacher models for deployment.            | EVENT_ROUTER             |
+| `SELFPLAY_COORDINATOR`     | MEDIUM   | Distributes selfplay workloads across the cluster.                                   | EVENT_ROUTER             |
 
-#### SELFPLAY_COORDINATOR
+**Factory Methods:**
 
-- **Purpose:** Coordinate selfplay across cluster
-- **Features:** Priority-based allocation, curriculum weights
-
-#### CONTINUOUS_TRAINING_LOOP
-
-- **Purpose:** Run continuous training loop
-- **Depends on:** EVENT_ROUTER
-
-#### TOURNAMENT_DAEMON
-
-- **Purpose:** Schedule evaluation tournaments
-- **Triggers:** TRAINING_COMPLETED event
-- **Interval:** Periodic ladder (configurable)
-- **File:** `app/coordination/tournament_daemon.py`
-
-#### EVALUATION
-
-- **Purpose:** Auto-evaluate models after training
-- **Triggers:** TRAINING_COMPLETED event
-- **File:** `app/coordination/evaluation_daemon.py`
-
-#### AUTO_EXPORT
-
-- **Purpose:** Auto-export NPZ when game threshold met
-- **Threshold:** Configurable (default: 500 games)
-- **File:** `app/coordination/auto_export_daemon.py`
-
-#### TRAINING_TRIGGER
-
-- **Purpose:** Decide when to trigger training
-- **Logic:** Games threshold, quality gates, staleness
-- **File:** `app/coordination/training_trigger_daemon.py`
-
-#### DISTILLATION
-
-- **Purpose:** Knowledge distillation for smaller models
-- **File:** `app/coordination/daemon_adapters.py`
-
-#### UNIFIED_PROMOTION
-
-- **Purpose:** Auto-promote models based on evaluation
-- **Thresholds:** 60% vs heuristic, 85% vs random
-- **File:** `app/coordination/auto_promotion_daemon.py`
+- `_create_data_pipeline()` → Creates `DataPipelineOrchestrator`
+- `_create_continuous_training_loop()` → Creates `ContinuousTrainingLoop`
+- `_create_unified_promotion()` → Creates `PromotionController`
+- `_create_auto_promotion()` → Uses `auto_promotion_daemon.get_auto_promotion_daemon()`
+- `_create_distillation()` → Creates `DistillationDaemon`
+- `_create_selfplay_coordinator()` → Creates `SelfplayScheduler`
 
 ---
 
-### Monitoring Daemons
+### Evaluation & Tournament
 
-#### HEALTH_CHECK
+Model evaluation and tournament scheduling.
 
-**Status:** Deprecated (use NODE_HEALTH_MONITOR)
+| Daemon Type         | Priority | Description                                                                                      | Dependencies |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------ | ------------ |
+| `EVALUATION`        | HIGH     | Auto-triggers evaluation after TRAINING_COMPLETE events.                                         | EVENT_ROUTER |
+| `TOURNAMENT_DAEMON` | MEDIUM   | Automatic tournament scheduling for model comparison.                                            | EVENT_ROUTER |
+| `GAUNTLET_FEEDBACK` | MEDIUM   | Bridges gauntlet evaluation results to training feedback. Emits REGRESSION_CRITICAL on failures. | EVENT_ROUTER |
 
-- **Purpose:** Legacy health checks
+**Factory Methods:**
 
-#### CLUSTER_MONITOR
-
-- **Purpose:** Real-time cluster status
-- **File:** `app/distributed/cluster_monitor.py`
-
-#### QUEUE_MONITOR
-
-- **Purpose:** Work queue depth monitoring
-- **Alerts:** Queue overflow, starvation
-
-#### NODE_HEALTH_MONITOR
-
-- **Purpose:** Unified cluster health maintenance
-- **Features:** SSH health, GPU util, disk space
-- **File:** `app/coordination/unified_node_health_daemon.py`
-
-#### QUALITY_MONITOR
-
-- **Purpose:** Continuous selfplay quality monitoring
-- **Metrics:** Policy accuracy, value accuracy, game length
-- **File:** `app/coordination/quality_monitor_daemon.py`
-
-#### MODEL_PERFORMANCE_WATCHDOG
-
-- **Purpose:** Monitor model win rates for regression
-- **Alerts:** Win rate drops > 10%
-
-#### SYSTEM_HEALTH_MONITOR
-
-- **Purpose:** Global system health with pipeline pause
-- **Features:** Resource constraints, coordinator health
-- **File:** `app/coordination/system_health_monitor.py`
+- `_create_evaluation_daemon()` → Uses `evaluation_daemon.get_evaluation_daemon()`
+- `_create_tournament_daemon()` → Uses `tournament_daemon.get_tournament_daemon()`
+- `_create_gauntlet_feedback()` → Creates `GauntletFeedbackController`
 
 ---
 
-### Replication Daemons
+### Health & Monitoring
 
-#### REPLICATION_MONITOR
+Cluster health monitoring and alerting.
 
-- **Purpose:** Monitor data replication health
-- **Alerts:** Under-replicated, single-copy, zero-copy games
-- **Emergency:** Triggers sync when threshold exceeded
-- **File:** `app/coordination/replication_monitor.py`
+| Daemon Type                  | Priority   | Description                                                                              | Dependencies                      |
+| ---------------------------- | ---------- | ---------------------------------------------------------------------------------------- | --------------------------------- |
+| `NODE_HEALTH_MONITOR`        | HIGH       | Unified cluster health maintenance. Canonical health daemon.                             | None                              |
+| `HEALTH_CHECK`               | DEPRECATED | Legacy health checker. Use `NODE_HEALTH_MONITOR` instead. Scheduled for removal Q2 2026. | None                              |
+| `QUALITY_MONITOR`            | MEDIUM     | Continuous selfplay data quality monitoring. Triggers throttling feedback.               | EVENT_ROUTER                      |
+| `MODEL_PERFORMANCE_WATCHDOG` | MEDIUM     | Monitors model win rates and performance metrics.                                        | EVENT_ROUTER                      |
+| `ORPHAN_DETECTION`           | LOW        | Detects orphaned game databases not in the cluster manifest.                             | None                              |
+| `SYSTEM_HEALTH_MONITOR`      | HIGH       | Global system health with pipeline pause capability.                                     | EVENT_ROUTER, NODE_HEALTH_MONITOR |
+| `HEALTH_SERVER`              | HIGH       | HTTP endpoints: /health, /ready, /metrics for external monitoring.                       | None                              |
 
-#### REPLICATION_REPAIR
+**Factory Methods:**
 
-- **Purpose:** Actively repair under-replicated data
-- **Priority:** Zero-copy > single-copy > under-replicated
-- **Limits:** 500 repairs/hour, 3 concurrent
-- **File:** `app/coordination/replication_repair_daemon.py`
-
----
-
-### Event Daemons
-
-#### EVENT_ROUTER
-
-- **Purpose:** Unified event bus routing
-- **Features:** SHA256 deduplication, cross-process bridging
-- **File:** `app/coordination/event_router.py`
-
-#### CROSS_PROCESS_POLLER
-
-- **Purpose:** Poll cross-process event queue
-- **Backend:** SQLite-based queue
-- **File:** `app/coordination/cross_process_events.py`
-
-#### DLQ_RETRY
-
-- **Purpose:** Retry failed event handlers
-- **Depends on:** EVENT_ROUTER
-- **File:** `app/coordination/dead_letter_queue.py`
+- `_create_node_health_monitor()` → Creates `UnifiedNodeHealthDaemon`
+- `_create_health_check()` → Creates `HealthChecker` (deprecated)
+- `_create_quality_monitor()` → Uses `quality_monitor_daemon.create_quality_monitor()`
+- `_create_model_performance_watchdog()` → Creates `ModelPerformanceWatchdog`
+- `_create_orphan_detection()` → Creates `OrphanDetectionDaemon`
+- `_create_system_health_monitor()` → Creates `SystemHealthMonitorDaemon`
+- `_create_health_server()` → Creates `HealthServerDaemon`
 
 ---
 
-### P2P Daemons
+### Cluster Management
 
-#### P2P_BACKEND
+P2P cluster coordination and monitoring.
 
-- **Purpose:** P2P mesh network server
-- **Port:** 8770
-- **Features:** Leader election, gossip protocol
-- **File:** `app/distributed/p2p.py`
+| Daemon Type           | Priority | Description                                                                 | Dependencies |
+| --------------------- | -------- | --------------------------------------------------------------------------- | ------------ |
+| `CLUSTER_MONITOR`     | MEDIUM   | Real-time cluster monitoring (game counts, disk usage, training processes). | None         |
+| `P2P_BACKEND`         | HIGH     | P2P node coordination and leader election.                                  | None         |
+| `QUEUE_MONITOR`       | MEDIUM   | Monitors queue depths and applies backpressure.                             | None         |
+| `REPLICATION_MONITOR` | MEDIUM   | Monitors data replication health across cluster.                            | None         |
+| `REPLICATION_REPAIR`  | MEDIUM   | Actively repairs under-replicated data.                                     | None         |
+| `P2P_AUTO_DEPLOY`     | MEDIUM   | Ensures P2P orchestrator runs on all cluster nodes.                         | EVENT_ROUTER |
+| `CLUSTER_WATCHDOG`    | HIGH     | Self-healing cluster utilization monitor. Standalone daemon on coordinator. | None         |
 
-#### GOSSIP_SYNC
+**Factory Methods:**
 
-- **Purpose:** Gossip-based data discovery
-- **Interval:** 60 seconds
-
-#### DATA_SERVER
-
-- **Purpose:** HTTP data server for file transfers
-
----
-
-### Feedback Daemons
-
-#### FEEDBACK_LOOP
-
-- **Purpose:** Central feedback loop controller
-- **Signals:** Intensity, exploration, curriculum
-- **File:** `app/coordination/feedback_loop_controller.py`
-
-#### CURRICULUM_INTEGRATION
-
-- **Purpose:** Bridge feedback loops for self-improvement
-- **Features:** Weight adjustment, ELO velocity tracking
-
-#### GAUNTLET_FEEDBACK
-
-- **Purpose:** Bridge gauntlet evaluation to training
-- **File:** `app/coordination/gauntlet_feedback_controller.py`
-
-#### METRICS_ANALYSIS
-
-- **Purpose:** Continuous metrics and plateau detection
-- **Triggers:** PLATEAU_DETECTED event
+- `_create_cluster_monitor()` → Creates `ClusterMonitor`
+- `_create_p2p_backend()` → Creates `P2PNode`
+- `_create_queue_monitor()` → Creates `QueueMonitor`
+- `_create_replication_monitor()` → Uses `replication_monitor.get_replication_monitor()`
+- `_create_replication_repair()` → Uses `replication_repair_daemon.get_replication_repair_daemon()`
+- `_create_p2p_auto_deploy()` → Creates `P2PAutoDeployDaemon`
+- `_create_cluster_watchdog()` → Creates `ClusterWatchdogDaemon`
 
 ---
 
-### Resource Daemons
+### Job Scheduling
 
-#### IDLE_RESOURCE
+Resource allocation and job scheduling.
 
-- **Purpose:** Monitor idle GPUs, spawn selfplay
-- **Threshold:** GPU util < 10%
-- **File:** `app/coordination/idle_resource_daemon.py`
+| Daemon Type          | Priority | Description                                                    | Dependencies |
+| -------------------- | -------- | -------------------------------------------------------------- | ------------ |
+| `JOB_SCHEDULER`      | HIGH     | Centralized job scheduling with PID-based resource allocation. | EVENT_ROUTER |
+| `RESOURCE_OPTIMIZER` | MEDIUM   | Optimizes resource allocation across the cluster.              | None         |
+| `VAST_CPU_PIPELINE`  | LOW      | CPU-only preprocessing pipeline for Vast.ai CPU nodes.         | None         |
 
-#### JOB_SCHEDULER
+**Factory Methods:**
 
-- **Purpose:** Centralized job scheduling
-- **Features:** PID-based resource allocation
-
-#### QUEUE_POPULATOR
-
-- **Purpose:** Auto-populate work queue
-- **Mix:** 60% selfplay, 30% training, 10% tournament
-- **File:** `app/coordination/queue_populator_daemon.py`
-
-#### ADAPTIVE_RESOURCES
-
-- **Purpose:** Dynamic resource scaling
-- **Thresholds:** Disk 85%/92%, Memory 85%/95%
+- `_create_job_scheduler()` → Creates `JobScheduler`
+- `_create_resource_optimizer()` → Creates `ResourceOptimizer` (not implemented yet)
+- `_create_vast_cpu_pipeline()` → Creates `VastCpuPipelineDaemon`
 
 ---
 
-### Recovery Daemons
+### Backup & Storage
 
-#### NODE_RECOVERY
+Data backup and external storage.
 
-- **Purpose:** Auto-recover terminated nodes
-- **Providers:** Vast.ai, RunPod restart
-- **File:** `app/coordination/node_recovery_daemon.py`
+| Daemon Type   | Priority | Description                                                                     | Dependencies                     |
+| ------------- | -------- | ------------------------------------------------------------------------------- | -------------------------------- |
+| `S3_BACKUP`   | MEDIUM   | Backs up models to S3 after promotion. Runs after MODEL_DISTRIBUTION completes. | EVENT_ROUTER, MODEL_DISTRIBUTION |
+| `DATA_SERVER` | MEDIUM   | HTTP server for serving game data and models over P2P network (port 8771).      | None                             |
 
-#### RECOVERY_ORCHESTRATOR
+**Factory Methods:**
 
-- **Purpose:** Model/training state recovery
-- **Depends on:** NODE_HEALTH_MONITOR
-
-#### P2P_AUTO_DEPLOY
-
-- **Purpose:** Ensure P2P runs on recovered nodes
+- `_create_s3_backup()` → Creates `S3BackupDaemon`
+- `_create_data_server()` → Creates `DataServer`
 
 ---
 
-### External Daemons
+### Resource & Utilization
 
-#### EXTERNAL_DRIVE_SYNC
+GPU/CPU resource optimization.
 
-- **Purpose:** Sync to external storage (/Volumes/OWC)
-- **File:** `app/coordination/daemon_adapters.py`
+| Daemon Type             | Priority     | Description                                                                                   | Dependencies                  |
+| ----------------------- | ------------ | --------------------------------------------------------------------------------------------- | ----------------------------- |
+| `IDLE_RESOURCE`         | **CRITICAL** | Monitors idle GPUs and auto-spawns selfplay jobs. Uses SelfplayScheduler priorities.          | EVENT_ROUTER                  |
+| `QUEUE_POPULATOR`       | **CRITICAL** | Auto-populates work queue until Elo targets met (60% selfplay, 30% training, 10% tournament). | EVENT_ROUTER                  |
+| `NODE_RECOVERY`         | MEDIUM       | Auto-recovers terminated cluster nodes.                                                       | EVENT_ROUTER                  |
+| `UTILIZATION_OPTIMIZER` | HIGH         | Matches GPU capabilities to board sizes. Stops CPU selfplay on GPU nodes.                     | EVENT_ROUTER, IDLE_RESOURCE   |
+| `ADAPTIVE_RESOURCES`    | MEDIUM       | Dynamic resource scaling based on workload.                                                   | EVENT_ROUTER, CLUSTER_MONITOR |
+| `MULTI_PROVIDER`        | MEDIUM       | Coordinates workloads across Lambda/Vast/Nebius/RunPod/Vultr providers.                       | EVENT_ROUTER, CLUSTER_MONITOR |
 
-#### VAST_CPU_PIPELINE
+**Factory Methods:**
 
-- **Purpose:** Coordinate Vast.ai CPU instances
-
----
-
-### Utility Daemons
-
-#### TRAINING_NODE_WATCHER
-
-- **Purpose:** Detect active training, trigger priority sync
-- **File:** `app/coordination/training_freshness.py`
-
-#### EPHEMERAL_SYNC
-
-- **Purpose:** Aggressive sync for spot instances
-- **Interval:** 5 seconds
-- **File:** `app/coordination/ephemeral_sync.py`
-
-#### NPZ_DISTRIBUTION
-
-- **Purpose:** Distribute training data after export
-- **File:** `app/coordination/npz_distribution_daemon.py`
-
-#### ORPHAN_DETECTION
-
-- **Purpose:** Detect unregistered game databases
-- **File:** `app/coordination/orphan_detection_daemon.py`
-
-#### MODEL_DISTRIBUTION
-
-- **Purpose:** Distribute models after promotion
-- **Triggers:** MODEL_PROMOTED event
-- **File:** `app/coordination/model_distribution_daemon.py`
-
-#### CACHE_COORDINATION
-
-- **Purpose:** Coordinate model caching across cluster
-- **Depends on:** CLUSTER_MONITOR
-
-#### MULTI_PROVIDER
-
-- **Purpose:** Coordinate across Runpod/Vast
-- **Depends on:** CLUSTER_MONITOR
-
-#### HEALTH_SERVER
-
-- **Purpose:** HTTP endpoints (/health, /ready, /metrics)
-- **Port:** 8765
-
-#### MAINTENANCE
-
-- **Purpose:** Log rotation, DB vacuum, cleanup
-- **File:** `app/coordination/maintenance_daemon.py`
-
-#### AUTO_PROMOTION
-
-- **Purpose:** Legacy auto-promotion (see UNIFIED_PROMOTION)
+- `_create_idle_resource()` → Creates `IdleResourceDaemon`
+- `_create_queue_populator()` → Creates `QueuePopulatorDaemon`
+- `_create_node_recovery()` → Creates `NodeRecoveryDaemon`
+- `_create_utilization_optimizer()` → Creates `UtilizationOptimizer`
+- `_create_adaptive_resources()` → Creates `AdaptiveResourceManager` (not implemented yet)
+- `_create_multi_provider()` → Creates `MultiProviderOrchestrator` (not implemented yet)
 
 ---
 
-## Starting Daemons
+### Pipeline Automation
 
-### Via master_loop.py (Recommended)
+Automated pipeline stage triggering.
 
-```bash
-# Full automation
-python scripts/master_loop.py
+| Daemon Type        | Priority | Description                                                                     | Dependencies              |
+| ------------------ | -------- | ------------------------------------------------------------------------------- | ------------------------- |
+| `AUTO_EXPORT`      | MEDIUM   | Auto-triggers NPZ export when game count thresholds are met.                    | EVENT_ROUTER              |
+| `TRAINING_TRIGGER` | MEDIUM   | Decides when to auto-trigger training based on data freshness and availability. | EVENT_ROUTER, AUTO_EXPORT |
+| `DATA_CLEANUP`     | LOW      | Auto-quarantines/deletes poor quality game databases.                           | None                      |
 
-# Specific configs
-python scripts/master_loop.py --configs hex8_2p,square8_2p
+**Factory Methods:**
+
+- `_create_auto_export()` → Creates `AutoExportDaemon`
+- `_create_training_trigger()` → Creates `TrainingTriggerDaemon`
+- `_create_data_cleanup()` → Creates `DataCleanupDaemon` (not implemented yet)
+
+---
+
+### System Health
+
+System-level maintenance and monitoring.
+
+| Daemon Type             | Priority | Description                                           | Dependencies                      |
+| ----------------------- | -------- | ----------------------------------------------------- | --------------------------------- |
+| `MAINTENANCE`           | LOW      | Log rotation, database vacuum, cleanup tasks.         | None                              |
+| `METRICS_ANALYSIS`      | MEDIUM   | Continuous metrics monitoring and plateau detection.  | EVENT_ROUTER                      |
+| `CACHE_COORDINATION`    | MEDIUM   | Coordinates model caching across the cluster.         | EVENT_ROUTER, CLUSTER_MONITOR     |
+| `RECOVERY_ORCHESTRATOR` | HIGH     | Handles model/training state recovery after failures. | EVENT_ROUTER, NODE_HEALTH_MONITOR |
+
+**Factory Methods:**
+
+- `_create_maintenance()` → Creates `MaintenanceDaemon`
+- `_create_metrics_analysis()` → Creates `MetricsAnalysisDaemon` (not implemented yet)
+- `_create_cache_coordination()` → Creates `CacheCoordinationDaemon` (not implemented yet)
+- `_create_recovery_orchestrator()` → Creates `RecoveryOrchestrator` (not implemented yet)
+
+---
+
+### Cost Optimization
+
+Cloud provider cost management.
+
+| Daemon Type   | Priority | Description                                                                                                                                               | Dependencies                  |
+| ------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `LAMBDA_IDLE` | LOW      | Auto-terminates idle Lambda nodes to save costs. (NOTE: Lambda account currently suspended pending support ticket resolution - code kept for restoration) | EVENT_ROUTER, CLUSTER_MONITOR |
+| `VAST_IDLE`   | MEDIUM   | Auto-terminates idle Vast.ai nodes to save costs. Important for ephemeral marketplace instances.                                                          | EVENT_ROUTER, CLUSTER_MONITOR |
+
+**Factory Methods:**
+
+- `_create_lambda_idle()` → Creates `LambdaIdleDaemon`
+- `_create_vast_idle()` → Creates `VastIdleDaemon`
+
+---
+
+### Feedback & Curriculum
+
+Training feedback and curriculum learning.
+
+| Daemon Type              | Priority     | Description                                                                                              | Dependencies |
+| ------------------------ | ------------ | -------------------------------------------------------------------------------------------------------- | ------------ |
+| `FEEDBACK_LOOP`          | **CRITICAL** | Orchestrates all training feedback signals (quality, performance, Elo velocity).                         | EVENT_ROUTER |
+| `CURRICULUM_INTEGRATION` | MEDIUM       | Bridges all feedback loops for self-improvement. Adjusts training curriculum based on model performance. | EVENT_ROUTER |
+
+**Factory Methods:**
+
+- `_create_feedback_loop()` → Creates `FeedbackLoopController`
+- `_create_curriculum_integration()` → Creates `CurriculumIntegrationDaemon`
+
+---
+
+## Daemon Profiles
+
+Profiles group daemons by node role for easier management.
+
+### Coordinator Profile
+
+Runs on the central coordinator node (typically MacBook M3).
+
+**Daemon Count:** 32
+
+**Daemons:**
+
+- `EVENT_ROUTER` (CRITICAL)
+- `HEALTH_SERVER`
+- `P2P_BACKEND`
+- `TOURNAMENT_DAEMON`
+- `MODEL_DISTRIBUTION`
+- `S3_BACKUP`
+- `REPLICATION_MONITOR`
+- `REPLICATION_REPAIR`
+- `CLUSTER_MONITOR`
+- `QUEUE_MONITOR`
+- `FEEDBACK_LOOP` (CRITICAL)
+- `QUALITY_MONITOR`
+- `MODEL_PERFORMANCE_WATCHDOG`
+- `NPZ_DISTRIBUTION`
+- `ORPHAN_DETECTION`
+- `NODE_HEALTH_MONITOR`
+- `SYSTEM_HEALTH_MONITOR`
+- `UNIFIED_PROMOTION`
+- `JOB_SCHEDULER`
+- `IDLE_RESOURCE` (CRITICAL)
+- `NODE_RECOVERY`
+- `LAMBDA_IDLE`
+- `QUEUE_POPULATOR` (CRITICAL)
+- `CURRICULUM_INTEGRATION`
+- `AUTO_EXPORT`
+- `TRAINING_TRIGGER`
+- `DLQ_RETRY`
+- `GAUNTLET_FEEDBACK`
+- `AUTO_SYNC` (CRITICAL)
+- `CLUSTER_DATA_SYNC`
+- `CLUSTER_WATCHDOG`
+- `METRICS_ANALYSIS`
+
+**Use Case:** Centralized coordination, monitoring, and job scheduling for the entire cluster.
+
+---
+
+### Training Node Profile
+
+Runs on GPU training nodes (Lambda GH200, H100, Nebius, RunPod, Vultr).
+
+**Daemon Count:** 18
+
+**Daemons:**
+
+- `EVENT_ROUTER` (CRITICAL)
+- `HEALTH_SERVER`
+- `DATA_PIPELINE`
+- `CONTINUOUS_TRAINING_LOOP`
+- `AUTO_SYNC` (CRITICAL)
+- `TRAINING_NODE_WATCHER`
+- `EVALUATION`
+- `QUALITY_MONITOR`
+- `ORPHAN_DETECTION`
+- `UNIFIED_PROMOTION`
+- `P2P_AUTO_DEPLOY`
+- `IDLE_RESOURCE` (CRITICAL)
+- `UTILIZATION_OPTIMIZER`
+- `CURRICULUM_INTEGRATION`
+- `AUTO_EXPORT`
+- `TRAINING_TRIGGER`
+- `FEEDBACK_LOOP` (CRITICAL)
+- `METRICS_ANALYSIS`
+- `DLQ_RETRY`
+
+**Use Case:** Dedicated training and evaluation on stable GPU nodes.
+
+---
+
+### Ephemeral Profile
+
+Runs on ephemeral/spot instances (Vast.ai marketplace).
+
+**Daemon Count:** 9
+
+**Daemons:**
+
+- `EVENT_ROUTER` (CRITICAL)
+- `HEALTH_SERVER`
+- `EPHEMERAL_SYNC` (5-second aggressive sync)
+- `DATA_PIPELINE`
+- `IDLE_RESOURCE` (CRITICAL)
+- `QUALITY_MONITOR`
+- `ORPHAN_DETECTION`
+- `AUTO_SYNC` (CRITICAL)
+- `FEEDBACK_LOOP` (CRITICAL)
+
+**Use Case:** Ephemeral nodes with aggressive data sync to prevent loss on termination.
+
+---
+
+### Selfplay Profile
+
+Runs on selfplay-only nodes (generates training data).
+
+**Daemon Count:** 6
+
+**Daemons:**
+
+- `EVENT_ROUTER` (CRITICAL)
+- `HEALTH_SERVER`
+- `AUTO_SYNC` (CRITICAL)
+- `QUALITY_MONITOR`
+- `IDLE_RESOURCE` (CRITICAL)
+- `FEEDBACK_LOOP` (CRITICAL)
+
+**Use Case:** Dedicated selfplay generation with quality monitoring and resource utilization.
+
+---
+
+### Full Profile
+
+All daemons (for testing/development).
+
+**Daemon Count:** 60+
+
+**Use Case:** Complete daemon suite for integration testing.
+
+---
+
+### Minimal Profile
+
+Just event routing (for debugging).
+
+**Daemon Count:** 1
+
+**Daemons:**
+
+- `EVENT_ROUTER`
+
+**Use Case:** Minimal setup for debugging event-driven workflows.
+
+---
+
+## Dependency Graph
+
+This graph shows which daemons depend on other daemons being started first.
+
+```
+EVENT_ROUTER (CRITICAL - no dependencies)
+├── DLQ_RETRY
+├── CONTINUOUS_TRAINING_LOOP
+├── TOURNAMENT_DAEMON
+├── DATA_PIPELINE
+├── SELFPLAY_COORDINATOR
+├── MODEL_DISTRIBUTION
+├── UNIFIED_PROMOTION
+├── FEEDBACK_LOOP (CRITICAL)
+├── EVALUATION
+│   └── AUTO_PROMOTION
+├── QUALITY_MONITOR
+├── MODEL_PERFORMANCE_WATCHDOG
+├── NPZ_DISTRIBUTION
+├── DISTILLATION
+├── CLUSTER_DATA_SYNC
+├── JOB_SCHEDULER
+├── IDLE_RESOURCE (CRITICAL)
+│   └── UTILIZATION_OPTIMIZER
+├── NODE_RECOVERY
+├── P2P_AUTO_DEPLOY
+├── QUEUE_POPULATOR (CRITICAL)
+├── CURRICULUM_INTEGRATION
+├── AUTO_EXPORT
+│   └── TRAINING_TRIGGER
+├── GAUNTLET_FEEDBACK
+└── METRICS_ANALYSIS
+
+NODE_HEALTH_MONITOR
+├── SYSTEM_HEALTH_MONITOR
+└── RECOVERY_ORCHESTRATOR
+
+CLUSTER_MONITOR
+├── CACHE_COORDINATION
+├── ADAPTIVE_RESOURCES
+├── MULTI_PROVIDER
+├── LAMBDA_IDLE
+└── VAST_IDLE
+
+MODEL_DISTRIBUTION
+└── S3_BACKUP
+
+EVALUATION
+└── AUTO_PROMOTION
+
+Standalone (no dependencies):
+- AUTO_SYNC (CRITICAL)
+- SYNC_COORDINATOR (deprecated)
+- HIGH_QUALITY_SYNC
+- ELO_SYNC
+- GOSSIP_SYNC
+- EPHEMERAL_SYNC
+- MODEL_SYNC
+- EXTERNAL_DRIVE_SYNC
+- TRAINING_NODE_WATCHER
+- REPLICATION_MONITOR
+- REPLICATION_REPAIR
+- HEALTH_CHECK (deprecated)
+- ORPHAN_DETECTION
+- P2P_BACKEND
+- QUEUE_MONITOR
+- RESOURCE_OPTIMIZER
+- VAST_CPU_PIPELINE
+- DATA_SERVER
+- MAINTENANCE
+- CLUSTER_WATCHDOG
+- CROSS_PROCESS_POLLER
+- DAEMON_WATCHDOG
+- HEALTH_SERVER
+- DATA_CLEANUP
 ```
 
-### Via launch_daemons.py
+---
 
-```bash
-# Start all
-python scripts/launch_daemons.py --all
+## Priority Levels
 
-# By category
-python scripts/launch_daemons.py --monitoring
-python scripts/launch_daemons.py --training
+Daemons are categorized by priority for health monitoring and restart behavior.
 
-# Specific daemon
-python scripts/launch_daemons.py --daemon replication_repair
+### CRITICAL Priority
+
+These daemons get 15-second health check intervals (vs 60s for others):
+
+1. **EVENT_ROUTER** - Core event bus. All coordination depends on this.
+2. **AUTO_SYNC** - Primary data sync mechanism. Ensures fresh data.
+3. **QUEUE_POPULATOR** - Keeps work queue populated. Prevents idle cluster.
+4. **IDLE_RESOURCE** - Ensures GPUs stay utilized. Prevents waste.
+5. **FEEDBACK_LOOP** - Coordinates training feedback signals.
+
+**Health Check Interval:** 15 seconds
+**Auto-Restart:** Yes (with exponential backoff, max 5 attempts)
+
+### HIGH Priority
+
+Important daemons for cluster operation:
+
+- P2P_BACKEND
+- NODE_HEALTH_MONITOR
+- HEALTH_SERVER
+- DATA_PIPELINE
+- UNIFIED_PROMOTION
+- AUTO_PROMOTION
+- EVALUATION
+- SYSTEM_HEALTH_MONITOR
+- UTILIZATION_OPTIMIZER
+- RECOVERY_ORCHESTRATOR
+- CLUSTER_WATCHDOG
+- JOB_SCHEDULER
+- EPHEMERAL_SYNC
+
+**Health Check Interval:** 60 seconds
+**Auto-Restart:** Yes
+
+### MEDIUM Priority
+
+Standard operational daemons:
+
+- All sync daemons (GOSSIP_SYNC, MODEL_SYNC, etc.)
+- Training support (CONTINUOUS_TRAINING_LOOP, DISTILLATION)
+- Monitoring (QUALITY_MONITOR, CLUSTER_MONITOR, etc.)
+- Pipeline automation (AUTO_EXPORT, TRAINING_TRIGGER)
+- Tournaments and evaluation (TOURNAMENT_DAEMON, GAUNTLET_FEEDBACK)
+- Resource management (NODE_RECOVERY, VAST_IDLE)
+
+**Health Check Interval:** 60 seconds
+**Auto-Restart:** Yes
+
+### LOW Priority
+
+Optional/non-critical daemons:
+
+- ORPHAN_DETECTION
+- EXTERNAL_DRIVE_SYNC
+- VAST_CPU_PIPELINE
+- MAINTENANCE
+- DISTILLATION
+- LAMBDA_IDLE
+- DATA_CLEANUP
+
+**Health Check Interval:** 60 seconds
+**Auto-Restart:** Yes (but lower urgency)
+
+---
+
+## Factory Methods Reference
+
+All daemon factory methods follow the pattern `_create_<daemon_name>()`. They either:
+
+1. **Direct instantiation:** Create the daemon class directly
+2. **Factory function:** Call a module-level factory function (e.g., `get_router()`, `get_evaluation_daemon()`)
+3. **Not implemented:** Return a placeholder/not implemented error
+
+### Import Paths
+
+See `daemon_factory.py` for the complete registry mapping daemon types to:
+
+- Import path (e.g., `app.coordination.auto_sync_daemon`)
+- Class name (e.g., `AutoSyncDaemon`)
+- Optional factory function (e.g., `get_auto_sync_daemon`)
+
+Example:
+
+```python
+DaemonType.AUTO_SYNC: DaemonSpec(
+    import_path="app.coordination.auto_sync_daemon",
+    class_name="AutoSyncDaemon",
+    singleton=True,
+)
 ```
 
-### Programmatically
+---
+
+## Usage Examples
+
+### Starting a Daemon Profile
+
+```python
+from app.coordination.daemon_manager import get_daemon_manager, start_profile
+
+# Start coordinator profile
+await start_profile("coordinator")
+
+# Or manually
+manager = get_daemon_manager()
+await manager.start_all(DAEMON_PROFILES["training_node"])
+```
+
+### Starting Individual Daemons
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager, DaemonType
 
 manager = get_daemon_manager()
-await manager.start(DaemonType.REPLICATION_REPAIR)
+
+# Start a single daemon
+await manager.start(DaemonType.AUTO_SYNC)
+
+# Start multiple daemons
+await manager.start_all([
+    DaemonType.EVENT_ROUTER,
+    DaemonType.FEEDBACK_LOOP,
+    DaemonType.IDLE_RESOURCE,
+])
+```
+
+### Checking Daemon Status
+
+```python
+manager = get_daemon_manager()
+
+# Get all daemon statuses
+status = manager.get_status()
+for daemon_type, info in status.items():
+    print(f"{daemon_type.value}: {info.state.value} (uptime: {info.uptime_seconds}s)")
+
+# Check specific daemon
+info = manager.get_daemon_info(DaemonType.AUTO_SYNC)
+if info.state == DaemonState.RUNNING:
+    print(f"AUTO_SYNC running for {info.uptime_seconds}s")
+```
+
+### Graceful Shutdown
+
+```python
+manager = get_daemon_manager()
+
+# Shutdown all daemons
+await manager.shutdown()
+
+# Shutdown specific daemon
+await manager.stop(DaemonType.CLUSTER_MONITOR)
 ```
 
 ---
 
-## Daemon Dependencies
+## Configuration
 
-```
-EVENT_ROUTER (core - most daemons depend on this)
-    ├── DLQ_RETRY
-    ├── CONTINUOUS_TRAINING_LOOP
-    ├── TOURNAMENT_DAEMON
-    ├── DATA_PIPELINE
-    ├── SELFPLAY_COORDINATOR
-    ├── MODEL_DISTRIBUTION
-    ├── UNIFIED_PROMOTION
-    ├── FEEDBACK_LOOP
-    ├── EVALUATION
-    │   └── AUTO_PROMOTION
-    ├── QUALITY_MONITOR
-    ├── MODEL_PERFORMANCE_WATCHDOG
-    ├── NPZ_DISTRIBUTION
-    ├── JOB_SCHEDULER
-    ├── IDLE_RESOURCE
-    ├── NODE_RECOVERY
-    ├── QUEUE_POPULATOR
-    ├── CURRICULUM_INTEGRATION
-    ├── AUTO_EXPORT
-    │   └── TRAINING_TRIGGER
-    ├── GAUNTLET_FEEDBACK
-    ├── CACHE_COORDINATION
-    │   └── (CLUSTER_MONITOR)
-    ├── METRICS_ANALYSIS
-    ├── ADAPTIVE_RESOURCES
-    │   └── (CLUSTER_MONITOR)
-    ├── MULTI_PROVIDER
-    │   └── (CLUSTER_MONITOR)
-    └── SYSTEM_HEALTH_MONITOR
-        └── (NODE_HEALTH_MONITOR)
+Daemon behavior is controlled by `DaemonManagerConfig`:
 
-RECOVERY_ORCHESTRATOR
-    └── (NODE_HEALTH_MONITOR)
+```python
+from app.coordination.daemon_types import DaemonManagerConfig
+
+config = DaemonManagerConfig(
+    auto_start=False,  # Don't auto-start on init
+    health_check_interval=30.0,  # Global health check interval
+    critical_daemon_health_interval=15.0,  # Faster for critical daemons
+    shutdown_timeout=10.0,  # Max time for graceful shutdown
+    auto_restart_failed=True,  # Auto-restart failed daemons
+    max_restart_attempts=5,  # Max restart attempts per daemon
+    recovery_cooldown=10.0,  # Time before attempting recovery (reduced from 300s)
+)
+
+manager = get_daemon_manager(config)
 ```
+
+---
+
+## Environment Variables
+
+Daemon-related environment variables (via `app.config.env`):
+
+- `RINGRIFT_NODE_ROLE` - Node role: `coordinator`, `training_node`, `ephemeral`, `selfplay`
+- `RINGRIFT_IS_COORDINATOR` - Boolean flag for coordinator node
+- `RINGRIFT_DAEMON_PROFILE` - Override auto-detected profile
+- `RINGRIFT_SKIP_DAEMONS` - Comma-separated list of daemons to skip
+- `RINGRIFT_P2P_STARTUP_GRACE_PERIOD` - Grace period for P2P startup (default: 120s)
+
+---
+
+## Deprecation Notices
+
+### SYNC_COORDINATOR (Q2 2026)
+
+**Replacement:** `AUTO_SYNC`
+**Status:** Deprecated December 2025, removal Q2 2026
+**Migration:** Replace all references to `DaemonType.SYNC_COORDINATOR` with `DaemonType.AUTO_SYNC`
+
+### HEALTH_CHECK (Q2 2026)
+
+**Replacement:** `NODE_HEALTH_MONITOR`
+**Status:** Deprecated December 2025, removal Q2 2026
+**Migration:** Replace all references to `DaemonType.HEALTH_CHECK` with `DaemonType.NODE_HEALTH_MONITOR`
+
+---
+
+## See Also
+
+- `daemon_manager.py` - Main daemon lifecycle management
+- `daemon_types.py` - Type definitions and enums
+- `daemon_factory.py` - Centralized daemon creation factory
+- `daemon_adapters.py` - Daemon wrappers for legacy code
+- `CONFIG_REFERENCE.md` - Environment variable configuration
+- `CLAUDE.md` - Cluster infrastructure overview

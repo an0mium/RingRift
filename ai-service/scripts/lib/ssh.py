@@ -66,7 +66,7 @@ class SSHConfig:
             port=int(d.get("ssh_port") or d.get("port", 22)),
             user=d.get("ssh_user") or d.get("user", "root"),
             ssh_key=d.get("ssh_key"),
-            connect_timeout=int(d.get("connect_timeout", 10)),
+            connect_timeout=int(d.get("connect_timeout", 30)),
         )
 
     def build_ssh_args(self) -> list[str]:

@@ -648,7 +648,10 @@ def sync_model_to_cluster(
     config: str,
     hosts: list[str] | None = None,
 ) -> int:
-    """Sync promoted model to cluster nodes.
+    """Sync promoted model to cluster nodes with verification.
+
+    December 2025: Updated to use rsync_push_file_verified for integrity
+    verification after transfer. Prevents silent corruption on flaky connections.
 
     Args:
         model_path: Path to model file
@@ -656,8 +659,11 @@ def sync_model_to_cluster(
         hosts: Optional list of hosts to sync to
 
     Returns:
-        Number of successful syncs
+        Number of successful syncs (with verification)
     """
+    from app.distributed.hosts import HostConfig
+    from app.distributed.sync_utils import rsync_push_file_verified
+
     if hosts is None:
         # Default cluster hosts from config
         config_path = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
@@ -672,19 +678,32 @@ def sync_model_to_cluster(
 
     success_count = 0
     for host in hosts[:10]:  # Limit to first 10 hosts
-        remote_path = f"ubuntu@{host}:~/ringrift/ai-service/models/"
         try:
-            result = subprocess.run(
-                ["rsync", "-avz", "--timeout=30",
-                 "-e", "ssh -i ~/.ssh/id_cluster -o ConnectTimeout=10 -o StrictHostKeyChecking=no",
-                 str(model_path), remote_path],
-                capture_output=True, text=True, timeout=60
+            # Create HostConfig for verified rsync
+            host_config = HostConfig(
+                name=host,
+                ssh_host=host,
+                ssh_user="ubuntu",
+                ssh_port=22,
+                ssh_key="~/.ssh/id_cluster",
             )
-            if result.returncode == 0:
-                print(f"  ✓ Synced to {host}")
+
+            # Use verified rsync with checksum validation
+            result = rsync_push_file_verified(
+                host=host_config,
+                local_path=model_path,
+                remote_path=f"~/ringrift/ai-service/models/{model_path.name}",
+                timeout=120,
+            )
+
+            if result.success and result.verified:
+                print(f"  ✓ Synced to {host} (checksum verified)")
                 success_count += 1
+            elif result.success:
+                print(f"  ⚠ Synced to {host} (unverified: {result.error})")
             else:
-                print(f"  ✗ Failed sync to {host}: {result.stderr[:100]}")
+                print(f"  ✗ Failed sync to {host}: {result.error}")
+
         except subprocess.TimeoutExpired:
             print(f"  ✗ Timeout syncing to {host}")
         except Exception as e:

@@ -1008,6 +1008,31 @@ def export_replay_dataset_multi(
 
     np.savez_compressed(output_path, **save_kwargs)
 
+    # December 2025: Validate exported NPZ structure before declaring success
+    # This catches corruption issues like the 22 billion element array incident
+    try:
+        from app.coordination.npz_validation import validate_npz_structure
+
+        validation_result = validate_npz_structure(Path(output_path))
+        if not validation_result.valid:
+            print(f"[NPZ VALIDATION FAILED] Export produced corrupted file!")
+            for error in validation_result.errors:
+                print(f"  ERROR: {error}")
+            for warning in validation_result.warnings:
+                print(f"  WARNING: {warning}")
+            # Move corrupted file to quarantine
+            from app.distributed.sync_utils import _quarantine_file
+            quarantine_path = _quarantine_file(Path(output_path), "export_validation_failed")
+            print(f"  Quarantined to: {quarantine_path}")
+            return None  # Signal failure
+        else:
+            print(f"[NPZ VALIDATION] Passed: {validation_result.sample_count} samples, "
+                  f"{len(validation_result.array_shapes)} arrays")
+    except ImportError:
+        print("[NPZ VALIDATION] Skipped (npz_validation module not available)")
+    except Exception as e:
+        print(f"[NPZ VALIDATION] Warning: Validation check failed: {e}")
+
     # Log engine mode distribution for sample weighting visibility
     from collections import Counter
     mode_counts = Counter(engine_modes_list)

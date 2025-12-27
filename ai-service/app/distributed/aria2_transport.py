@@ -107,6 +107,12 @@ class Aria2Config:
     # DHT routing table persistence (enables faster peer discovery on restart)
     dht_file_path: str = ".dht.dat"
     dht_save_interval: int = 30  # Save DHT routing table every 30 seconds
+    # December 2025: Automatic BitTorrent preference for large files
+    # Files above this threshold will prefer BitTorrent over HTTP (50MB default)
+    # BitTorrent provides piece-level verification which prevents corruption
+    # issues seen with rsync --partial on flaky connections
+    prefer_torrent_for_large_files: bool = True
+    large_file_threshold_bytes: int = 50_000_000  # 50MB - use BitTorrent above this
 
 
 @dataclass
@@ -591,6 +597,8 @@ class Aria2Transport:
         fallback_urls: list[str] | None = None,
         min_seeders: int = 1,
         expected_checksum: str | None = None,
+        expected_size: int | None = None,
+        prefer_torrent: bool | None = None,
     ) -> tuple[bool, int, str]:
         """Download file using BitTorrent if available, HTTP fallback otherwise.
 
@@ -599,12 +607,19 @@ class Aria2Transport:
         2. Using BitTorrent swarm if seeders available (handles connection drops)
         3. Falling back to multi-connection HTTP if no torrent/seeders
 
+        December 2025: Added prefer_torrent parameter and automatic preference
+        for large files based on config.large_file_threshold_bytes. BitTorrent
+        provides piece-level verification which prevents corruption issues seen
+        with rsync --partial on flaky connections.
+
         Args:
             file_path: Path to the file (used to lookup torrent)
             output_dir: Directory to save the file
             fallback_urls: HTTP URLs to use if BitTorrent unavailable
             min_seeders: Minimum seeders required to use BitTorrent
             expected_checksum: Optional SHA256 checksum for verification
+            expected_size: Optional expected file size in bytes
+            prefer_torrent: Force BitTorrent preference (None=use config)
 
         Returns:
             Tuple of (success, bytes_downloaded, error_message)
@@ -612,8 +627,20 @@ class Aria2Transport:
         if not self.is_available():
             return False, 0, "aria2c not available"
 
+        # Determine if we should prefer BitTorrent based on file size
+        # Large files (>50MB) benefit from piece-level verification
+        use_torrent_preference = prefer_torrent
+        if use_torrent_preference is None and self.config.prefer_torrent_for_large_files:
+            if expected_size and expected_size > self.config.large_file_threshold_bytes:
+                use_torrent_preference = True
+                logger.info(
+                    f"Large file detected ({expected_size / 1024 / 1024:.1f}MB > "
+                    f"{self.config.large_file_threshold_bytes / 1024 / 1024:.0f}MB threshold), "
+                    f"preferring BitTorrent"
+                )
+
         # Try BitTorrent first if torrent support available
-        if HAS_TORRENT_SUPPORT:
+        if HAS_TORRENT_SUPPORT and (use_torrent_preference or use_torrent_preference is None):
             try:
                 manifest = get_cluster_manifest()
                 torrent_meta = manifest.get_torrent_for_file(file_path)

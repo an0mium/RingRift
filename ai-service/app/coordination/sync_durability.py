@@ -247,8 +247,8 @@ class ConnectionPool:
             self._local.conn = None
             try:
                 conn.close()
-            except Exception:
-                pass
+            except (sqlite3.Error, OSError) as close_err:
+                logger.debug(f"Error closing connection after failure: {close_err}")
             raise
 
     def close_all(self) -> None:
@@ -257,8 +257,8 @@ class ConnectionPool:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except (sqlite3.Error, OSError) as close_err:
+                logger.debug(f"Error closing connection: {close_err}")
             self._local.conn = None
 
     def get_stats(self) -> dict[str, int]:

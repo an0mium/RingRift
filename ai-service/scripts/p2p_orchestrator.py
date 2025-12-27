@@ -26910,7 +26910,7 @@ print(json.dumps({{
         """Main entry point - start the orchestrator."""
         if not HAS_AIOHTTP:
             logger.error("aiohttp is required. Install with: pip install aiohttp")
-            return
+            raise RuntimeError("aiohttp is required but not available - install with: pip install aiohttp")
 
         # Set up HTTP server
         @web.middleware
@@ -27336,14 +27336,25 @@ def main():
     # Handle shutdown gracefully - avoid race conditions with async tasks
     # December 2025: Fixed signal handler race condition that caused threading exceptions
     _shutdown_requested = False
+    _start_time = time.time()
 
     def signal_handler(sig, frame):
         nonlocal _shutdown_requested
+        import traceback
+
+        uptime = time.time() - _start_time
+        sig_name = signal.Signals(sig).name if hasattr(signal, 'Signals') else f"signal {sig}"
+
         if _shutdown_requested:
             # Force exit on second signal
-            logger.warning("Forced shutdown (second signal)")
+            logger.warning(f"Forced shutdown (second {sig_name}) after {uptime:.1f}s uptime")
             os._exit(1)
         _shutdown_requested = True
+
+        # Enhanced logging to identify what's sending signals
+        logger.warning(f"=== SIGNAL RECEIVED: {sig_name} ===")
+        logger.warning(f"PID: {os.getpid()}, Uptime: {uptime:.1f}s, Node: {args.node_id}")
+        logger.warning(f"Stack trace at signal:\n{''.join(traceback.format_stack(frame))}")
         logger.info("Shutdown requested, stopping gracefully...")
         if orchestrator:
             orchestrator.running = False

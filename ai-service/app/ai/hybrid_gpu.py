@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import random
 import threading
 import time
 from collections.abc import Callable
@@ -47,6 +48,7 @@ from .gpu_batch import (
     GPUHeuristicEvaluator,
     get_device,
 )
+from .base import BaseAI
 from .heuristic_weights import (
     get_weights_for_board,
     get_weights_for_player_count,
@@ -908,6 +910,7 @@ class HybridNNValuePlayer:
         temperature: float = 0.1,
         prefer_gpu: bool = True,
         model_path: str | None = None,
+        rng_seed: int | None = None,
     ):
         """Initialize hybrid player.
 
@@ -927,6 +930,14 @@ class HybridNNValuePlayer:
         self.player_number = player_number
         self.top_k = top_k
         self.temperature = temperature
+
+        # Per-instance RNGs so this helper doesn't mutate global RNG state.
+        self._rng_seed = int(rng_seed or 0) & 0xFFFFFFFF
+        self._rng = random.Random(self._rng_seed)
+        self._np_rng = np.random.default_rng(self._rng_seed)
+
+        # Lazy heuristic scorer (constructed on first use).
+        self._heuristic = None
 
         # Create hybrid GPU evaluator for fast heuristic
         self.evaluator = create_hybrid_evaluator(
@@ -1011,19 +1022,27 @@ class HybridNNValuePlayer:
                 moves_to_score.extend(placements[:max_to_evaluate // 2])
                 remaining = max_to_evaluate - len(moves_to_score)
                 if remaining > 0 and movements:
-                    # Randomly sample movements
-                    import random
-                    moves_to_score.extend(random.sample(movements, min(remaining, len(movements))))
+                    # Randomly sample movements (per-instance RNG)
+                    moves_to_score.extend(
+                        self._rng.sample(
+                            movements,
+                            min(remaining, len(movements)),
+                        )
+                    )
 
                 # Ensure we have at least top_k moves
                 if len(moves_to_score) < self.top_k:
                     moves_to_score = valid_moves[:max_to_evaluate]
 
-            # Score the selected moves
-            from .heuristic_ai import HeuristicAI
-            from app.models import AIConfig as HeuristicConfig
-            heuristic_config = HeuristicConfig(difficulty=1)
-            heuristic = HeuristicAI(self.player_number, heuristic_config)
+            # Score the selected moves (lazy-init to avoid repeated construction)
+            if self._heuristic is None:
+                from .heuristic_ai import HeuristicAI
+                from app.models import AIConfig as HeuristicConfig
+
+                heuristic_config = HeuristicConfig(difficulty=1)
+                self._heuristic = HeuristicAI(self.player_number, heuristic_config)
+
+            heuristic = self._heuristic
             move_scores = []
             for move in moves_to_score:
                 try:
@@ -1080,7 +1099,7 @@ class HybridNNValuePlayer:
                         vals = np.array([v for _, v in nn_values])
                         probs = np.exp(vals / self.temperature)
                         probs = probs / probs.sum()
-                        idx = np.random.choice(len(nn_values), p=probs)
+                        idx = int(self._np_rng.choice(len(nn_values), p=probs))
                         best_move = nn_values[idx][0]
                 else:
                     best_move = top_moves[0]
@@ -1104,41 +1123,28 @@ class HybridNNValuePlayer:
         }
 
 
-class HybridNNAI:
-    """BaseAI-compatible wrapper for HybridNNValuePlayer.
+class HybridNNAI(BaseAI):
+    """BaseAI wrapper for :class:`HybridNNValuePlayer`.
 
-    This adapter allows HybridNNValuePlayer to be used through the standard
-    AIFactory.create() interface, making it compatible with the difficulty ladder.
-
-    The hybrid approach provides 5-10x speedup over full MCTS by using fast
-    heuristic to generate candidates and NN value head to rank them.
-    Ideal for responsive human games (D7) with <500ms latency.
+    This keeps HybridNN usable through [`app.ai.factory.AIFactory.create()`](ai-service/app/ai/factory.py:782)
+    while satisfying Lane-3 assumptions that every `AIType` instantiates a
+    [`app.ai.base.BaseAI`](ai-service/app/ai/base.py:80) subclass.
     """
 
     def __init__(self, player_number: int, config):
-        """Initialize HybridNNAI adapter.
+        super().__init__(player_number, config)
 
-        Args:
-            player_number: Player number (1-indexed)
-            config: AIConfig with hybrid settings
-        """
-        from ..models import AIConfig
+        # Get hybrid-specific config from AIConfig or use defaults.
+        top_k = getattr(config, "hybrid_top_k", 8)
+        temperature = getattr(config, "hybrid_temperature", 0.1)
+        board_type = getattr(config, "board_type", None) or "square8"
+        num_players = getattr(config, "num_players", 2)
 
-        self.player_number = player_number
-        self.config = config
-        self.move_count = 0
-
-        # Get hybrid-specific config from AIConfig or use defaults
-        top_k = getattr(config, 'hybrid_top_k', 8)
-        temperature = getattr(config, 'hybrid_temperature', 0.1)
-        board_type = getattr(config, 'board_type', None) or 'square8'
-        num_players = getattr(config, 'num_players', 2)
-
-        # If board_type is an enum, get value
-        if hasattr(board_type, 'value'):
+        # If board_type is an enum, get value.
+        if hasattr(board_type, "value"):
             board_type = board_type.value
 
-        # Create underlying hybrid player
+        # Create underlying hybrid player.
         self._hybrid = HybridNNValuePlayer(
             board_type=board_type,
             num_players=num_players,
@@ -1146,26 +1152,17 @@ class HybridNNAI:
             top_k=top_k,
             temperature=temperature,
             prefer_gpu=True,
-            model_path=getattr(config, 'nn_model_id', None),
+            model_path=getattr(config, "nn_model_id", None),
+            rng_seed=self.rng_seed,
         )
 
-        # Late import to avoid circular dependency
-        from ..rules.factory import get_rules_engine
-        self.rules_engine = get_rules_engine()
+        self._heuristic_fallback = None
 
     def select_move(self, game_state, valid_moves=None):
-        """Select a move using hybrid heuristic + NN value approach.
-
-        Args:
-            game_state: Current game state
-            valid_moves: Optional list of valid moves
-
-        Returns:
-            Selected move or None
-        """
         if valid_moves is None:
             valid_moves = self.rules_engine.get_valid_moves(
-                game_state, self.player_number
+                game_state,
+                self.player_number,
             )
 
         if not valid_moves:
@@ -1177,32 +1174,30 @@ class HybridNNAI:
         return move
 
     def evaluate_position(self, game_state) -> float:
-        """Evaluate position using NN value head.
-
-        Args:
-            game_state: Current game state
-
-        Returns:
-            Position evaluation (higher is better for this player)
-        """
         if self._hybrid.neural_net is not None:
             try:
-                values, _ = self._hybrid.neural_net.evaluate_batch([game_state])
+                value_head = (
+                    self.player_number - 1
+                    if getattr(self._hybrid, "num_players", 2) > 2
+                    else None
+                )
+                values, _ = self._hybrid.neural_net.evaluate_batch(
+                    [game_state],
+                    value_head=value_head,
+                )
                 return float(values[0])
-            except (RuntimeError, IndexError, TypeError):
+            except (RuntimeError, IndexError, TypeError, ValueError):
                 pass
 
-        # Fallback to heuristic evaluation
-        return self._hybrid.evaluator.evaluate_position(
-            game_state, self.player_number
-        )
+        # Fallback: use the standard HeuristicAI evaluation.
+        if self._heuristic_fallback is None:
+            from .heuristic_ai import HeuristicAI
 
-    def get_valid_moves(self, game_state):
-        """Get valid moves for current player."""
-        return self.rules_engine.get_valid_moves(game_state, self.player_number)
+            self._heuristic_fallback = HeuristicAI(self.player_number, self.config)
+
+        return float(self._heuristic_fallback.evaluate_position(game_state))
 
     def get_stats(self) -> dict:
-        """Get player statistics."""
         stats = self._hybrid.get_stats()
         stats["move_count"] = self.move_count
         return stats

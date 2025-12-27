@@ -60,9 +60,13 @@ MIN_DISK_FREE_GB = 50  # Deprecated - loaded dynamically
 # Sync interval (seconds) - 2 minutes (Dec 2025: reduced from 5 min for faster data availability)
 SYNC_INTERVAL_SECONDS = 120
 
-# Bandwidth limit per transfer (KB/s) - 50 MB/s (Dec 2025: increased from 20 MB/s)
-# Most nodes can handle higher bandwidth; reduces sync latency from 25min to 10min for large DBs
-SYNC_BANDWIDTH_LIMIT_KBPS = 50_000
+# December 2025: Use provider-specific bandwidth hints instead of hardcoded value
+# This prevents rate limiting on Nebius and other providers with connection issues
+from app.coordination.sync_bandwidth import PROVIDER_BANDWIDTH_HINTS
+
+# Legacy constant for backwards compatibility - now computed per-node
+# Use get_bandwidth_for_node() for dynamic lookup
+SYNC_BANDWIDTH_LIMIT_KBPS = PROVIDER_BANDWIDTH_HINTS.get("default", 20_000)
 
 # Maximum concurrent syncs (Dec 2025: increased from 3 to 10 for 43-node cluster)
 # With 40+ nodes, 3 concurrent syncs creates a bottleneck
@@ -100,6 +104,42 @@ class EligibleSyncNode:
     host: str
     disk_free_gb: float
     is_nfs: bool = False  # Lambda nodes share NFS, skip rsync between them
+    provider: str = "default"  # December 2025: Provider for bandwidth hints
+
+
+def get_bandwidth_for_node(node: EligibleSyncNode) -> int:
+    """Get bandwidth limit in KB/s for a specific node.
+
+    December 2025: Uses PROVIDER_BANDWIDTH_HINTS to apply per-provider
+    bandwidth limits. This prevents rate limiting on Nebius and other
+    providers with connection issues.
+
+    Args:
+        node: The target node
+
+    Returns:
+        Bandwidth limit in KB/s
+    """
+    # Check node_id for provider hints
+    node_lower = node.node_id.lower()
+
+    for provider, bw in PROVIDER_BANDWIDTH_HINTS.items():
+        if provider in node_lower:
+            logger.debug(f"Using {provider} bandwidth {bw}KB/s for {node.node_id}")
+            return bw
+
+    # Check host for provider hints
+    host_lower = node.host.lower() if node.host else ""
+    for provider, bw in PROVIDER_BANDWIDTH_HINTS.items():
+        if provider in host_lower:
+            logger.debug(f"Using {provider} bandwidth {bw}KB/s for {node.node_id}")
+            return bw
+
+    # Use explicit provider if set
+    if node.provider and node.provider in PROVIDER_BANDWIDTH_HINTS:
+        return PROVIDER_BANDWIDTH_HINTS[node.provider]
+
+    return PROVIDER_BANDWIDTH_HINTS.get("default", 20_000)
 
 
 # SyncResult is now imported from sync_constants
@@ -173,11 +213,30 @@ def get_sync_targets() -> list["EligibleSyncNode"]:
         if not host:
             continue
 
+        # December 2025: Detect provider for bandwidth hints
+        provider = info.get("provider", "default")
+        if not provider or provider == "default":
+            # Infer from node_id or host
+            node_lower = node_id.lower()
+            if "lambda" in node_lower:
+                provider = "lambda"
+            elif "runpod" in node_lower:
+                provider = "runpod"
+            elif "nebius" in node_lower:
+                provider = "nebius"
+            elif "vast" in node_lower:
+                provider = "vast"
+            elif "vultr" in node_lower:
+                provider = "vultr"
+            elif "hetzner" in node_lower:
+                provider = "hetzner"
+
         targets.append(EligibleSyncNode(
             node_id=node_id,
             host=host,
             disk_free_gb=disk_free,
             is_nfs=is_nfs,
+            provider=provider,
         ))
 
     # Sort by disk space (push to nodes with most space first)
@@ -233,6 +292,9 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
             duration_seconds=0,
         )
 
+    # December 2025: Use per-provider bandwidth limits to prevent rate limiting
+    bandwidth_kbps = get_bandwidth_for_node(target)
+
     # Build rsync command with keepalive and integrity options
     target_path = f"ubuntu@{target.host}:~/ringrift/ai-service/data/games/synced/"
     ssh_opts = (
@@ -247,7 +309,7 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
         "rsync",
         "-avz",
         "--progress",
-        f"--bwlimit={SYNC_BANDWIDTH_LIMIT_KBPS}",
+        f"--bwlimit={bandwidth_kbps}",  # Per-provider bandwidth limit
         "--timeout=60",           # Per-file I/O timeout (shorter, more granular)
         "--partial",              # Keep partial transfers for resume
         "--partial-dir=.rsync-partial",

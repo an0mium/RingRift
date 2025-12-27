@@ -477,8 +477,12 @@ class OrchestratorRegistry:
                     self.heartbeat()
                     # Also clean up stale entries periodically
                     self._cleanup_stale_orchestrators()
-                except Exception as e:
-                    logger.error(f"Heartbeat error: {e}")
+                except sqlite3.Error as e:
+                    logger.error(f"Heartbeat database error: {e}")
+                except (OSError, IOError) as e:
+                    logger.warning(f"Heartbeat I/O error: {e}")
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Heartbeat data error: {e}")
                 time.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
         self._heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
