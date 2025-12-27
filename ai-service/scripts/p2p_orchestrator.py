@@ -10291,7 +10291,7 @@ print(json.dumps(result))
                 continue
 
             logger.info(f"Auto-triggering {job_config['job_type']} training for {config_key} ({game_count} games)")
-            await self._dispatch_training_job(job_config)
+            await self.training_coordinator.dispatch_training_job(job_config)
             self._record_training_trigger(trigger_hash)  # Record after successful dispatch
 
     async def _check_local_training_fallback(self):
@@ -10409,7 +10409,7 @@ print(json.dumps(result))
                 "config_key": config_key,
                 "total_games": game_count,
             }
-            await self._dispatch_training_job(job_config)
+            await self.training_coordinator.dispatch_training_job(job_config)
             self._record_training_trigger(trigger_hash)  # Record after successful dispatch
             triggered_count += 1
 
@@ -10615,7 +10615,7 @@ print(json.dumps(result))
                 "total_games": data.get("total_games", 0),
             }
 
-            job = await self._dispatch_training_job(job_config)
+            job = await self.training_coordinator.dispatch_training_job(job_config)
             if job:
                 return web.json_response({
                     "success": True,
@@ -18553,7 +18553,7 @@ print(json.dumps(result))
                     "config_key": f"{board_type}_{num_players}p",
                     "total_games": int(data.get("total_games", 0)),
                 }
-                job = await self._dispatch_training_job(job_config)
+                job = await self.training_coordinator.dispatch_training_job(job_config)
                 if not job:
                     return web.json_response(
                         {"success": False, "error": "No suitable worker available"},
