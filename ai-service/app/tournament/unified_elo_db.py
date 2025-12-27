@@ -310,7 +310,9 @@ class EloDatabase:
                 tournament_id TEXT,
                 game_id TEXT,
                 worker TEXT,
-                metadata TEXT
+                metadata TEXT,
+                elo_before TEXT,        -- JSON dict of participant_id -> elo before match
+                elo_after TEXT          -- JSON dict of participant_id -> elo after match
             );
 
             -- Rating history: track Elo changes over time
