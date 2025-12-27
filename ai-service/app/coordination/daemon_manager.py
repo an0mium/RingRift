@@ -865,6 +865,149 @@ class DaemonManager:
         except (RuntimeError, OSError, ConnectionError, ImportError) as e:
             logger.error(f"[DaemonManager] Error handling REGRESSION_CRITICAL: {e}")
 
+    async def _on_selfplay_target_updated(self, event) -> None:
+        """Handle SELFPLAY_TARGET_UPDATED event - adjust daemon workloads.
+
+        P0.3 (December 2025): When selfplay targets change (due to priority
+        shifts, feedback loop adjustments, or backpressure), coordinate
+        daemon-level response:
+        1. Log the target change for monitoring
+        2. Adjust idle resource daemon behavior if needed
+        3. Propagate priority to relevant daemons
+
+        Args:
+            event: The SELFPLAY_TARGET_UPDATED event with payload containing
+                   config_key, priority, reason, target_jobs, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "unknown")
+            priority = payload.get("priority", "normal")
+            reason = payload.get("reason", "unknown")
+            target_jobs = payload.get("target_jobs")
+
+            logger.info(
+                f"[DaemonManager] SELFPLAY_TARGET_UPDATED: {config_key} "
+                f"priority={priority} reason={reason}"
+                + (f" target_jobs={target_jobs}" if target_jobs else "")
+            )
+
+            # If priority is urgent or high, consider scaling up idle resource daemon
+            if priority in ("urgent", "high"):
+                if DaemonType.IDLE_RESOURCE in self._daemons:
+                    info = self._daemons[DaemonType.IDLE_RESOURCE]
+                    if info.state == DaemonState.RUNNING and hasattr(info, 'instance'):
+                        # Signal to check for idle resources more frequently
+                        daemon = info.instance
+                        if hasattr(daemon, 'trigger_immediate_check'):
+                            daemon.trigger_immediate_check()
+                            logger.debug(
+                                f"[DaemonManager] Triggered immediate idle resource check "
+                                f"for {config_key}"
+                            )
+
+        except (RuntimeError, OSError, AttributeError) as e:
+            logger.debug(f"[DaemonManager] Error handling SELFPLAY_TARGET_UPDATED: {e}")
+
+    async def _on_exploration_boost(self, event) -> None:
+        """Handle EXPLORATION_BOOST event - coordinate temperature adjustments.
+
+        P0.3 (December 2025): When exploration boost is requested (due to
+        training stalls, Elo plateau, or quality issues), coordinate
+        daemon-level response:
+        1. Log the boost for monitoring
+        2. Propagate to selfplay daemons for temperature adjustment
+        3. Track boost duration for expiry
+
+        Args:
+            event: The EXPLORATION_BOOST event with payload containing
+                   config_key, boost_factor, reason, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "unknown")
+            boost_factor = payload.get("boost_factor", 1.0)
+            reason = payload.get("reason", "unknown")
+            duration_seconds = payload.get("duration_seconds", 3600)
+
+            logger.info(
+                f"[DaemonManager] EXPLORATION_BOOST: {config_key} "
+                f"factor={boost_factor:.2f}x reason={reason} "
+                f"duration={duration_seconds}s"
+            )
+
+            # Propagate boost to selfplay scheduler if available
+            if DaemonType.SELFPLAY_SCHEDULER in self._daemons:
+                info = self._daemons[DaemonType.SELFPLAY_SCHEDULER]
+                if info.state == DaemonState.RUNNING and hasattr(info, 'instance'):
+                    scheduler = info.instance
+                    if hasattr(scheduler, 'apply_exploration_boost'):
+                        scheduler.apply_exploration_boost(
+                            config_key=config_key,
+                            boost_factor=boost_factor,
+                            duration_seconds=duration_seconds,
+                        )
+                        logger.debug(
+                            f"[DaemonManager] Applied exploration boost to SelfplayScheduler"
+                        )
+
+        except (RuntimeError, OSError, AttributeError) as e:
+            logger.debug(f"[DaemonManager] Error handling EXPLORATION_BOOST: {e}")
+
+    async def _on_daemon_status_changed(self, event) -> None:
+        """Handle DAEMON_STATUS_CHANGED event - self-healing response.
+
+        P0.3 (December 2025): When a daemon status changes (failure, restart,
+        health degradation), coordinate daemon-level response:
+        1. Log the status change
+        2. Attempt restart for failed daemons if configured
+        3. Update cluster health awareness
+
+        Args:
+            event: The DAEMON_STATUS_CHANGED event with payload containing
+                   daemon_type, old_status, new_status, reason, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            daemon_type_str = payload.get("daemon_type", "unknown")
+            old_status = payload.get("old_status", "unknown")
+            new_status = payload.get("new_status", "unknown")
+            reason = payload.get("reason", "")
+
+            logger.info(
+                f"[DaemonManager] DAEMON_STATUS_CHANGED: {daemon_type_str} "
+                f"{old_status} -> {new_status}"
+                + (f" ({reason})" if reason else "")
+            )
+
+            # Self-healing: attempt restart for failed daemons
+            if new_status in ("FAILED", "CRASHED", "STOPPED"):
+                try:
+                    daemon_type = DaemonType(daemon_type_str)
+                    if daemon_type in self._daemons:
+                        info = self._daemons[daemon_type]
+
+                        # Only restart if we haven't exceeded retry limits
+                        max_restarts = 3
+                        if info.restart_count < max_restarts:
+                            logger.warning(
+                                f"[DaemonManager] Attempting self-healing restart for "
+                                f"{daemon_type_str} (attempt {info.restart_count + 1}/{max_restarts})"
+                            )
+                            # Schedule restart via lifecycle manager
+                            if hasattr(self, '_lifecycle') and self._lifecycle:
+                                await self._lifecycle.restart_daemon(daemon_type)
+                        else:
+                            logger.error(
+                                f"[DaemonManager] Daemon {daemon_type_str} exceeded max restarts "
+                                f"({max_restarts}), not attempting self-healing"
+                            )
+                except ValueError:
+                    logger.debug(f"[DaemonManager] Unknown daemon type: {daemon_type_str}")
+
+        except (RuntimeError, OSError, AttributeError) as e:
+            logger.debug(f"[DaemonManager] Error handling DAEMON_STATUS_CHANGED: {e}")
+
     async def _wire_coordination_events(self) -> None:
         """Wire ALL coordination event subscriptions at startup.
 

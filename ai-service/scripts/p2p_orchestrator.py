@@ -75,13 +75,22 @@ _predictive_alerts = None
 _tier_calibrator = None
 
 def get_auto_scaler():
-    """Get the auto-scaler singleton (lazy load)."""
+    """Get the auto-scaler singleton (lazy load).
+
+    December 2025 (Phase 7.1.3): Uses MonitoringAwareAutoScaler with event subscription
+    for reactive scaling based on cluster health and resource events.
+    """
     global _auto_scaler
     if _auto_scaler is None:
         try:
-            from app.coordination.auto_scaler import AutoScaler
-            _auto_scaler = AutoScaler()
+            from app.coordination.auto_scaler import create_auto_scaler
+            _auto_scaler = create_auto_scaler(subscribe_events=True)
+            logger.info("[P2P] AutoScaler initialized with event subscriptions")
         except ImportError:
+            logger.debug("[P2P] auto_scaler module not available")
+            _auto_scaler = None
+        except Exception as e:
+            logger.warning(f"[P2P] Failed to initialize auto_scaler: {e}")
             _auto_scaler = None
     return _auto_scaler
 
@@ -2594,54 +2603,50 @@ class P2POrchestrator(
 
         If no voters are configured, returns an empty list and quorum checks are
         disabled (backwards compatible).
+
+        December 2025 (Phase 7.1.2): Consolidated to use cluster_config.get_p2p_voters()
+        for YAML loading, while preserving env var priority for overrides.
         """
+        # Priority 1: Environment variable override (highest priority)
         env = (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip()
         if env:
             self.voter_config_source = "env"
             voters = [t.strip() for t in env.split(",") if t.strip()]
             return sorted(set(voters))
 
+        # Priority 2: Use cluster_config for YAML-based voter loading
+        # This handles both p2p_voters list and legacy per-host p2p_voter: true
+        try:
+            from app.config.cluster_config import get_p2p_voters
+            voters = get_p2p_voters()
+            if voters:
+                self.voter_config_source = "config"
+                return voters
+        except ImportError:
+            logger.debug("[P2P] cluster_config not available, falling back to direct YAML load")
+        except Exception as e:
+            logger.warning(f"[P2P] Failed to load voters via cluster_config: {e}")
+
+        # Priority 3: Fallback - direct YAML load for legacy compatibility
         cfg_path = Path(self.ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
         if not cfg_path.exists():
             self.voter_config_source = "none"
             return []
 
         try:
-            import yaml  # type: ignore
-        except (ImportError):
-            return []
-
-        try:
+            import yaml
             data = yaml.safe_load(cfg_path.read_text()) or {}
-        except (OSError, ValueError, AttributeError):
-            return []
+            p2p_voters_list = data.get("p2p_voters", []) or []
+            if p2p_voters_list and isinstance(p2p_voters_list, list):
+                voters = sorted({str(v).strip() for v in p2p_voters_list if str(v).strip()})
+                if voters:
+                    self.voter_config_source = "config"
+                    return voters
+        except Exception:
+            pass
 
-        # Priority 1: Check for p2p_voters list (authoritative)
-        p2p_voters_list = data.get("p2p_voters", []) or []
-        if p2p_voters_list and isinstance(p2p_voters_list, list):
-            voters = sorted({str(v).strip() for v in p2p_voters_list if str(v).strip()})
-            if voters:
-                self.voter_config_source = "config"
-                return voters
-
-        # Priority 2: Legacy support - check p2p_voter: true on each host
-        hosts = data.get("hosts", {}) or {}
-        voters: list[str] = []
-        for node_id, cfg in hosts.items():
-            if not isinstance(cfg, dict):
-                continue
-            raw = cfg.get("p2p_voter", False)
-            if raw is True:
-                voters.append(str(node_id))
-                continue
-            if isinstance(raw, (int, float)) and int(raw) == 1:
-                voters.append(str(node_id))
-                continue
-            if isinstance(raw, str) and raw.strip().lower() in {"1", "true", "yes", "y"}:
-                voters.append(str(node_id))
-        voters = sorted(set(voters))
-        self.voter_config_source = "config" if voters else "none"
-        return voters
+        self.voter_config_source = "none"
+        return []
 
     def _maybe_adopt_voter_node_ids(self, voter_node_ids: list[str], *, source: str) -> bool:
         """Adopt/override the voter set when it's not explicitly configured.

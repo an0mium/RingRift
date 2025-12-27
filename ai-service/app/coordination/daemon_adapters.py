@@ -340,11 +340,11 @@ class ClusterDataSyncAdapter(DaemonAdapter):
 
     async def _create_daemon(self) -> Any:
         try:
-            from app.coordination.cluster_data_sync import ClusterDataSyncDaemon
+            from app.coordination.auto_sync_daemon import AutoSyncDaemon
 
-            return ClusterDataSyncDaemon()
+            return AutoSyncDaemon()
         except ImportError:
-            logger.warning("[ClusterDataSyncAdapter] ClusterDataSyncDaemon not available")
+            logger.warning("[ClusterDataSyncAdapter] AutoSyncDaemon not available")
             return None
 
     async def _run_daemon(self, daemon: Any) -> None:
@@ -361,12 +361,17 @@ class ClusterDataSyncAdapter(DaemonAdapter):
         if not self._daemon_instance:
             return False
         # Check if it's running and has synced recently (within 2 intervals)
-        from app.coordination.cluster_data_sync import SYNC_INTERVAL_SECONDS
+        # December 2025: Use daemon's config interval instead of deprecated constant
+        interval_seconds = getattr(
+            getattr(self._daemon_instance, "config", None),
+            "interval_seconds",
+            120,  # Fallback to legacy default
+        )
         stats = self._daemon_instance.stats
         if not stats.get("running"):
             return False
         last_sync = stats.get("last_sync_time", 0)
-        if time.time() - last_sync > SYNC_INTERVAL_SECONDS * 2:
+        if time.time() - last_sync > interval_seconds * 2:
             return False
         return True
 
