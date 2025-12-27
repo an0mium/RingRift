@@ -10667,47 +10667,11 @@ print(json.dumps(result))
         """Schedule a tournament to compare the new model against baseline.
 
         .. deprecated:: December 2025
-            This method duplicates TrainingCoordinator._schedule_model_comparison_tournament().
-            Future versions should delegate to self.training_coordinator.
-            Scheduled for removal in Q2 2026.
+            Delegates to TrainingCoordinator._schedule_model_comparison_tournament().
+            This wrapper method will be removed in Q2 2026.
         """
-        if not job.output_model_path:
-            return
-
-        try:
-            # Get tournament matchups from cycle manager
-            matchups = self.improvement_cycle_manager.get_tournament_matchups(
-                job.board_type,
-                job.num_players,
-                new_model_path=job.output_model_path
-            )
-
-            if not matchups:
-                logger.info(f"No tournament matchups for {job.board_type}_{job.num_players}p")
-                return
-
-            logger.info(f"Scheduling {len(matchups)} tournament matchups for new model")
-
-            # Run evaluation games (simplified - in production would dispatch to workers)
-            total_games = 0
-
-            for matchup in matchups:
-                if matchup.get("purpose") == "primary_evaluation":
-                    # Primary evaluation against best model
-                    games = matchup.get("games", 20)
-                    total_games += games
-                    # Placeholder: actual tournament execution would go here
-                    # For now, mark as needing external evaluation
-                    logger.info(f"Tournament: {matchup['agent_a']} vs {matchup['agent_b']} ({games} games)")
-
-            # Update cycle state - evaluation is now pending
-            cycle_key = f"{job.board_type}_{job.num_players}p"
-            if cycle_key in self.improvement_cycle_manager.state.cycles:
-                self.improvement_cycle_manager.state.cycles[cycle_key].pending_evaluation = True
-                self.improvement_cycle_manager._save_state()
-
-        except Exception as e:
-            logger.error(f"scheduling tournament: {e}")
+        # Delegate to TrainingCoordinator (December 2025 refactoring)
+        await self.training_coordinator._schedule_model_comparison_tournament(job)
 
     # =========================================================================
     # POST-TRAINING GAUNTLET: Immediate evaluation after training

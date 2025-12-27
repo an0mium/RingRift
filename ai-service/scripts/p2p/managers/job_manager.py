@@ -530,9 +530,50 @@ class JobManager:
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-        # Run export script (simplified - actual implementation would use proper export logic)
-        logger.info(f"Exporting training data to {output_file}")
-        # The actual export would be done here
+        jsonl_files = list(Path(iteration_dir).glob("*.jsonl"))
+        if not jsonl_files:
+            logger.warning(f"No JSONL files found for export in {iteration_dir}")
+            return
+
+        cmd = [
+            sys.executable,
+            os.path.join(self.ringrift_path, "ai-service", "scripts", "jsonl_to_npz.py"),
+            "--input-dir",
+            iteration_dir,
+            "--output",
+            output_file,
+            "--board-type",
+            state.board_type,
+            "--num-players",
+            str(state.num_players),
+        ]
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            _stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=600  # 10 minutes max
+            )
+
+            if proc.returncode == 0:
+                logger.info(f"Exported training data to {output_file}")
+                state.training_data_path = output_file
+            else:
+                logger.warning(f"Training data export failed: {stderr.decode()[:500]}")
+
+        except asyncio.TimeoutError:
+            logger.warning("Training data export timed out")
+        except Exception as e:
+            logger.error(f"Training data export error: {e}")
 
     async def run_training(self, job_id: str) -> None:
         """Run neural network training on GPU node.
