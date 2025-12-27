@@ -2659,14 +2659,13 @@ class AutoSyncDaemon:
                     local_path.unlink(missing_ok=True)
                     continue
 
-                # Count games for stats
+                # Count games for stats (Dec 27, 2025: Use context manager to prevent leaks)
                 try:
-                    conn = sqlite3.connect(str(local_path), timeout=10.0)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM games")
-                    game_count = cursor.fetchone()[0]
-                    conn.close()
-                    games_pulled += game_count
+                    with sqlite3.connect(str(local_path), timeout=10.0) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM games")
+                        game_count = cursor.fetchone()[0]
+                        games_pulled += game_count
                 except sqlite3.Error:
                     pass
 
