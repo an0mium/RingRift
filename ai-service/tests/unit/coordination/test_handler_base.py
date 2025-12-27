@@ -66,10 +66,14 @@ class TestHealthCheckResult:
     """Tests for HealthCheckResult dataclass."""
 
     def test_default_values(self):
-        """Should have sensible defaults."""
+        """Should have sensible defaults.
+
+        Note: HealthCheckResult now imports from contracts.py which defaults
+        status to RUNNING (not STOPPED) - this is the canonical behavior.
+        """
         result = HealthCheckResult(healthy=True)
         assert result.healthy is True
-        assert result.status == CoordinatorStatus.STOPPED
+        assert result.status == CoordinatorStatus.RUNNING  # contracts.py default
         assert result.message == ""
         assert result.details == {}
         assert result.timestamp > 0

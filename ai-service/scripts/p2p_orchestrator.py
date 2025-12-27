@@ -2963,21 +2963,8 @@ class P2POrchestrator(
         Returns:
             HealthCheckResult with overall orchestrator health status
         """
-        try:
-            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
-        except ImportError:
-            # Fallback if protocols not available
-            class HealthCheckResult:
-                def __init__(self, healthy, status, message, details):
-                    self.healthy = healthy
-                    self.status = status
-                    self.message = message
-                    self.details = details
-
-            class CoordinatorStatus:
-                RUNNING = "running"
-                ERROR = "error"
-                STOPPED = "stopped"
+        # Import from contracts (zero-dependency module)
+        from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
         # Get manager health status
         manager_health = self._validate_manager_health()

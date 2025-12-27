@@ -172,7 +172,10 @@ async def _get_backend() -> P2PBackend | None:
     if _backend_instance is not None:
         # Check if still healthy
         try:
-            if await _backend_instance.health_check():
+            health_result = await _backend_instance.health_check()
+            # December 2025: health_check now returns HealthCheckResult
+            is_healthy = health_result.healthy if hasattr(health_result, "healthy") else bool(health_result)
+            if is_healthy:
                 return _backend_instance
         except (asyncio.TimeoutError, OSError, RuntimeError):
             pass
@@ -204,7 +207,9 @@ async def is_p2p_available() -> bool:
         return False
 
     try:
-        return await backend.health_check()
+        health_result = await backend.health_check()
+        # December 2025: health_check now returns HealthCheckResult
+        return health_result.healthy if hasattr(health_result, "healthy") else bool(health_result)
     except (asyncio.TimeoutError, OSError, RuntimeError):
         return False
 

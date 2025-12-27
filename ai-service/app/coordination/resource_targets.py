@@ -205,7 +205,7 @@ TIER_ADJUSTMENTS: dict[HostTier, dict[str, float]] = {
 }
 
 
-class ResourceTargetManager:
+class ResourceTargetManager(SingletonMixin):
     """Manages unified resource utilization targets across the cluster.
 
     Thread-safe singleton that provides:
@@ -213,10 +213,9 @@ class ResourceTargetManager:
     - Host-specific adjustments
     - Adaptive targets based on pipeline health
     - Utilization history tracking
-    """
 
-    _instance: ResourceTargetManager | None = None
-    _lock = threading.RLock()
+    December 27, 2025: Migrated to SingletonMixin (Wave 4 Phase 1).
+    """
 
     def __init__(self, db_path: Path | None = None, config_path: Path | None = None):
         self._db_path = db_path or _DEFAULT_DB_PATH

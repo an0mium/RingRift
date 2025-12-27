@@ -37,6 +37,7 @@ import yaml
 
 # December 2025: Use consolidated daemon stats base class
 from app.coordination.daemon_stats import SyncDaemonStats
+from app.db.write_lock import is_database_safe_to_sync
 from app.coordination.protocols import (
     CoordinatorStatus,
     HealthCheckResult,

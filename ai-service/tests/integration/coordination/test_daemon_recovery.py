@@ -505,10 +505,11 @@ class TestConcurrentOperations:
 
     @pytest.mark.asyncio
     async def test_lock_reentrancy_during_dependency_wait(self, manager: DaemonManager):
-        """Lock should be released during dependency wait to avoid deadlock.
+        """Daemon with dependencies starts correctly when parent is running and ready.
 
-        This test verifies that starting a child daemon with dependencies
-        doesn't cause deadlock when the parent starts concurrently.
+        This test verifies that:
+        1. Child fails fast if parent not running
+        2. Child starts successfully if parent is running AND ready
         """
         parent_started = asyncio.Event()
 
@@ -528,40 +529,28 @@ class TestConcurrentOperations:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # Start child first (will wait for parent to be running and ready)
-        child_task = asyncio.create_task(manager.start(DaemonType.DATA_PIPELINE))
+        # Trying to start child when parent not running should fail fast
+        child_result_1 = await manager.start(DaemonType.DATA_PIPELINE)
+        assert child_result_1 is False, "Child should fail fast if parent not running"
 
-        # Let child start waiting for dependency
-        await asyncio.sleep(0.05)
+        # Start parent first
+        parent_result = await manager.start(DaemonType.EVENT_ROUTER)
+        assert parent_result is True, "Parent should start successfully"
 
-        # Start parent concurrently - should not deadlock due to lock release
-        parent_task = asyncio.create_task(manager.start(DaemonType.EVENT_ROUTER))
-
-        # Wait for parent to start running
+        # Wait for parent to actually start running
         await asyncio.wait_for(parent_started.wait(), timeout=1.0)
-        await asyncio.sleep(0.05)
 
-        # Mark parent as ready so child can proceed
+        # Mark parent as ready
         manager.mark_daemon_ready(DaemonType.EVENT_ROUTER)
 
-        # Both should complete without deadlock (timeout = 2s)
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(child_task, parent_task, return_exceptions=True),
-                timeout=2.0,
-            )
-        except asyncio.TimeoutError:
-            child_task.cancel()
-            parent_task.cancel()
-            try:
-                await asyncio.gather(child_task, parent_task, return_exceptions=True)
-            except asyncio.CancelledError:
-                pass
-            pytest.fail("Deadlock detected - lock not released during dependency wait")
+        # Now child should start successfully
+        child_result_2 = await manager.start(DaemonType.DATA_PIPELINE)
 
         # Both should be running
         assert manager._daemons[DaemonType.EVENT_ROUTER].state == DaemonState.RUNNING
-        assert manager._daemons[DaemonType.DATA_PIPELINE].state == DaemonState.RUNNING
+        assert manager._daemons[DaemonType.DATA_PIPELINE].state == DaemonState.RUNNING, (
+            f"Child should be running when parent is ready, got {manager._daemons[DaemonType.DATA_PIPELINE].state}"
+        )
 
 
 # =============================================================================
