@@ -235,6 +235,13 @@ from app.config.cluster_config import (
     get_host_bandwidth_limit,
     get_host_provider,
     filter_hosts_by_status,
+    # December 2025 additions
+    get_cluster_nodes,
+    get_ready_nodes,
+    get_gpu_nodes,
+    get_node_bandwidth_kbs,
+    get_gpu_types,
+    ClusterNode,
 )
 
 # Get sync routing config
@@ -250,10 +257,26 @@ provider = get_host_provider("nebius-h100")  # Returns "nebius"
 
 # Filter hosts by status
 ready = filter_hosts_by_status(["ready"])
+
+# December 2025: Node-based helpers
+nodes = get_cluster_nodes()  # Dict[str, ClusterNode]
+ready_nodes = get_ready_nodes()  # List[ClusterNode] with status='ready'
+gpu_types = get_gpu_types()  # Dict[str, int] mapping GPU name to VRAM
+
+# Provider-based bandwidth (in KB/s)
+bw = get_node_bandwidth_kbs("vast-12345")  # Uses provider defaults
 ```
 
-Dataclasses: `SyncRoutingConfig`, `AutoSyncConfig`, `EloSyncConfig`, `ClusterConfig`
-Eliminates ~40 inline yaml.safe_load calls across the codebase.
+Dataclasses: `SyncRoutingConfig`, `AutoSyncConfig`, `EloSyncConfig`, `ClusterConfig`, `ClusterNode`
+
+**ClusterNode fields** (December 2025):
+
+- `name`, `tailscale_ip`, `ssh_host`, `ssh_port`, `ssh_user`, `ssh_key`
+- `status`, `role`, `gpu`, `gpu_vram_gb`, `bandwidth_mbps`
+- `is_coordinator`, `data_server_port`, `data_server_url`
+- Properties: `best_ip`, `provider`, `is_active`, `is_gpu_node`
+
+Modules consolidated (Dec 2025): `sync_bandwidth.py`, `utilization_optimizer.py`, `database_sync_manager.py`
 
 ### Unified SSH (`app/core/ssh.py`)
 
