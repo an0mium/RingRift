@@ -105,13 +105,14 @@ class DiskSpaceConfig(DaemonConfig):
     # Check interval (seconds) - default 30 minutes
     check_interval_seconds: int = 1800
 
-    # Thresholds (percentages)
+    # Thresholds (percentages) - imported from centralized config
+    # See app/config/thresholds.py for DISK_WARNING_PERCENT, DISK_CRITICAL_PERCENT
     proactive_cleanup_threshold: int = 60  # Start cleanup at 60%
-    warning_threshold: int = 70  # Emit warning at 70%
-    critical_threshold: int = 85  # Emit critical at 85%
-    emergency_threshold: int = 95  # Emergency mode at 95%
+    warning_threshold: int = 65  # Emit warning at 65% (from DISK_WARNING_PERCENT)
+    critical_threshold: int = 70  # Emit critical at 70% (from DISK_CRITICAL_PERCENT)
+    emergency_threshold: int = 85  # Emergency mode at 85%
 
-    # Target after cleanup
+    # Target after cleanup - aligned with auto_sync_daemon target_disk_usage_percent
     target_disk_usage: int = 50  # Clean down to 50%
 
     # Minimum free space (GB)

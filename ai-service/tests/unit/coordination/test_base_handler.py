@@ -274,6 +274,9 @@ class TestBaseSingletonHandler:
         class TestSingleton(BaseSingletonHandler):
             _instance: ClassVar["TestSingleton | None"] = None
 
+            def __init__(self) -> None:
+                super().__init__("TestSingleton")
+
             def _do_subscribe(self) -> bool:
                 return True
 
@@ -295,6 +298,9 @@ class TestBaseSingletonHandler:
 
         class TestSingleton(BaseSingletonHandler):
             _instance: ClassVar["TestSingleton | None"] = None
+
+            def __init__(self) -> None:
+                super().__init__("TestSingleton")
 
             def _do_subscribe(self) -> bool:
                 return True
@@ -318,6 +324,9 @@ class TestBaseSingletonHandler:
 
         class TestSingleton(BaseSingletonHandler):
             _instance: ClassVar["TestSingleton | None"] = None
+
+            def __init__(self) -> None:
+                super().__init__("TestSingleton")
 
             def _do_subscribe(self) -> bool:
                 self._subscribed = True

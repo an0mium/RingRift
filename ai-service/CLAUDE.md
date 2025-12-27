@@ -1471,3 +1471,40 @@ Added `tests/unit/coordination/test_coordination_smoke.py` with 11 tests:
 - `TestDataEventTypes` - Verifies ORPHAN_GAMES events exist
 
 Run with: `pytest tests/unit/coordination/test_coordination_smoke.py -v`
+
+### Integration Fixes (Dec 27, 2025)
+
+**SyncCoordinator.health_check()** - Added to `app/distributed/sync_coordinator.py`:
+
+- Returns `HealthCheckResult` for DaemonManager integration
+- Reports: sync health status, consecutive failures, data server health
+- Includes transport availability (aria2, P2P, SSH, gossip)
+
+**Orphaned Event Wiring** - Added to `DataPipelineOrchestrator`:
+
+| Event                   | Handler                       | Purpose                                   |
+| ----------------------- | ----------------------------- | ----------------------------------------- |
+| `REPAIR_COMPLETED`      | `_on_repair_completed()`      | Retrigger sync after data repair          |
+| `REPAIR_FAILED`         | `_on_repair_failed()`         | Track repair failures for circuit breaker |
+| `QUALITY_SCORE_UPDATED` | `_on_quality_score_updated()` | Aggregate quality metrics                 |
+| `CURRICULUM_REBALANCED` | `_on_curriculum_rebalanced()` | Update pipeline priorities                |
+| `CURRICULUM_ADVANCED`   | `_on_curriculum_advanced()`   | Track curriculum progression              |
+
+**Singleton Consolidation** - Unified implementations:
+
+- `app/core/singleton_mixin.py` → Re-export with deprecation warning
+- `app/coordination/singleton_mixin.py` → Canonical location (503 LOC)
+
+```python
+from app.coordination.singleton_mixin import (
+    SingletonMixin,      # Mixin for existing classes
+    SingletonMeta,       # Metaclass for new classes
+    ThreadSafeSingletonMixin,  # Enhanced thread safety
+    singleton,           # Decorator (simplest)
+)
+```
+
+**LogContext Rename** - Clarified naming collision:
+
+- `app/core/logging_config.LogContext` → Renamed to `TemporaryLogLevel`
+- `app/utils/logging_utils.LogContext` → Unchanged (structured context)

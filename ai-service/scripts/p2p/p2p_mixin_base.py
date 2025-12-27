@@ -426,7 +426,8 @@ class P2PMixinBase:
             return getattr(module, constant_name, default_value)
         except ImportError:
             return default_value
-        except Exception:
+        except AttributeError:
+            # Module exists but constant not found - use default
             return default_value
 
     @classmethod

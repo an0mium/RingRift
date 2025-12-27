@@ -392,8 +392,8 @@ class MultiEventHandler(BaseEventHandler):
             for event_type, handler in self._event_handlers.items():
                 try:
                     bus.unsubscribe(event_type, handler)
-                except Exception:
-                    pass  # Continue unsubscribing others
+                except (ValueError, KeyError, AttributeError):
+                    pass  # Continue unsubscribing others - expected errors
         except ImportError:
             pass
 

@@ -2,10 +2,10 @@
 
 This document provides a comprehensive reference for all daemons managed by the RingRift AI service `DaemonManager`.
 
-**Last updated:** December 27, 2025 (Session 5 - Disk Management)
-**Total Daemon Types:** 68 (67 in `daemon_runners.py` + 1 inline in `daemon_manager.py`)
+**Last updated:** December 27, 2025 (Session 6 - Code Quality)
+**Total Daemon Types:** 66 (65 in `daemon_runners.py` + 1 inline in `daemon_manager.py`)
 **Startup Order:** 18 daemons in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`)
-**Dependencies:** All 68 daemons have entries in `DAEMON_DEPENDENCIES`
+**Dependencies:** All 66 daemons have entries in `DAEMON_DEPENDENCIES`
 
 > **Architecture Note (December 2025):** Factory methods have been extracted from `daemon_manager.py` to `daemon_runners.py`. Factory methods named `create_*()` are in `daemon_runners.py`; methods named `_create_*()` remain in `daemon_manager.py` for legacy or special cases.
 
