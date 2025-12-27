@@ -491,7 +491,7 @@ class MomentumToCurriculumBridge:
 
             return HealthCheckResult(
                 healthy=True,
-                status=CoordinatorStatus.IDLE,
+                status=CoordinatorStatus.READY,  # READY instead of IDLE (IDLE doesn't exist)
                 message=f"Sync idle, {active_configs} configs with weight",
                 details={
                     "running": self._running,
