@@ -345,7 +345,7 @@ class UnifiedQueuePopulator:
     def _scale_queue_depth_to_cluster(self) -> None:
         """Scale min_queue_depth based on cluster size."""
         try:
-            from app.distributed.cluster_monitor import ClusterMonitor
+            from app.coordination.cluster_status_monitor import ClusterMonitor
 
             monitor = ClusterMonitor()
             status = monitor.get_cluster_status(

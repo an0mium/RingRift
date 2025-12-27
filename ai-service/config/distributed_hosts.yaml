@@ -588,16 +588,17 @@ hosts:
   # AWS NODES (proxy only, no GPU)
   # ============================================================
   # AWS proxy node - t3.micro for SSH tunneling to internal cloud networks
+  # NOTE: This is a proxy-only node without RingRift codebase (too small at 1GB RAM)
   aws-proxy:
     ssh_host: 3.147.65.95
     ssh_port: 22
     ssh_user: ec2-user
     ssh_key: ~/.ssh/ringrift-proxy-key.pem
-    ringrift_path: ~/ringrift/ai-service
+    ringrift_path: null  # No codebase on proxy node
     memory_gb: 1
     cpus: 2
     role: proxy
-    status: ready
+    status: proxy_only  # Skip in update scripts
     aws_instance_id: i-07435e263bca683e0
     selfplay_enabled: false
     training_enabled: false

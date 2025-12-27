@@ -5004,197 +5004,37 @@ class P2POrchestrator(
     async def _sync_selfplay_to_training_nodes(self) -> dict[str, Any]:
         """Sync selfplay data to training primary nodes.
 
-        This is called periodically by the leader to ensure training nodes
-        have the latest selfplay data for model training.
-
-        Features:
-        - Prioritizes nodes by GPU power (H100 > 5090 > 4090 > etc.)
-        - Skips syncing TO nodes with critical disk usage
-        - Cleans up source nodes with high disk usage after successful sync
+        December 2025: Delegated to SyncPlanner.sync_selfplay_to_training_nodes()
         """
         if not self._is_leader():
             return {"success": False, "error": "Not the leader"}
 
-        # Get training primary nodes (Phase 2B: Direct call to NodeSelector)
-        training_nodes = self.node_selector.get_training_primary_nodes()
-        if not training_nodes:
-            return {"success": False, "error": "No training nodes available"}
-
-        # Filter out nodes with critical disk space
-        # Try SyncRouter first for quality-based routing (December 2025)
-        router = self._get_sync_router()
-        if router is not None:
-            try:
-                # Refresh capacity data before routing
-                if hasattr(router, 'refresh_all_capacity'):
-                    router.refresh_all_capacity()
-
-                # Get sync targets with quality-based priority
-                targets = router.get_sync_targets(
-                    data_type="game",
-                    exclude_nodes=[self.node_id],  # Don't sync to self
-                    max_targets=len(training_nodes),
-                )
-                if targets:
-                    # Filter to training nodes only
-                    training_node_ids = {n.node_id for n in training_nodes}
-                    eligible_training_nodes = [
-                        n for n in training_nodes
-                        if any(t.node_id == n.node_id for t in targets)
-                    ]
-                    if eligible_training_nodes:
-                        logger.info(f"SyncRouter: selected {len(eligible_training_nodes)} training nodes with quality-based routing")
-                    else:
-                        # Fallback to disk-based filtering
-                        eligible_training_nodes = [n for n in training_nodes if self._should_sync_to_node(n)]
-                else:
-                    eligible_training_nodes = [n for n in training_nodes if self._should_sync_to_node(n)]
-            except Exception as e:
-                logger.debug(f"SyncRouter fallback: {e}")
-                eligible_training_nodes = [n for n in training_nodes if self._should_sync_to_node(n)]
-        else:
-            eligible_training_nodes = [n for n in training_nodes if self._should_sync_to_node(n)]
-
-        if not eligible_training_nodes:
-            return {"success": False, "error": "All training nodes have critical disk usage"}
-
-        logger.info(f"Training sync: {len(eligible_training_nodes)} eligible training nodes")
-        for node in eligible_training_nodes:
-            logger.info(f"  - {node.node_id}: {node.gpu_name} (power={node.gpu_power_score()}, disk={node.disk_percent:.1f}%)")
-
-        # Emit DATA_SYNC_STARTED event for pipeline coordination
-        sync_start_time = time.time()
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-            emit_data_event(
-                event_type=DataEventType.DATA_SYNC_STARTED,
-                source="P2POrchestrator",
-                metadata={
-                    "sync_type": "training_sync",
-                    "target_nodes": [n.node_id for n in eligible_training_nodes],
-                },
-            )
-        except ImportError:
-            pass  # Module not available (optional dependency)
-        except Exception as e:
-            logger.debug(f"DATA_SYNC_STARTED event emission failed (best-effort): {e}")
-
-        # Collect current cluster manifest if stale
+        # Use stale manifest if available, otherwise will be collected fresh
+        manifest = self.cluster_data_manifest
         if (time.time() - self.last_manifest_collection > self.manifest_collection_interval
-                or not self.cluster_data_manifest):
-            logger.info("Collecting fresh cluster manifest for training sync...")
-            self.cluster_data_manifest = await self._collect_cluster_manifest()
-            self.last_manifest_collection = time.time()
+                or not manifest):
+            manifest = None  # Will be collected by SyncPlanner
 
-        if not self.cluster_data_manifest:
-            return {"success": False, "error": "Failed to collect cluster manifest"}
+        result = await self.sync_planner.sync_selfplay_to_training_nodes(
+            get_training_nodes=self.node_selector.get_training_primary_nodes,
+            should_sync_to_node=self._should_sync_to_node,
+            should_cleanup_source=self._should_cleanup_source,
+            collect_manifest=self._collect_cluster_manifest,
+            execute_sync_job=self._request_node_sync,
+            cleanup_synced_files=self._cleanup_synced_files,
+            get_sync_router=self._get_sync_router,
+            cluster_manifest=manifest,
+        )
 
-        # Track source nodes that need cleanup after sync
-        sources_to_cleanup: dict[str, list[str]] = {}  # node_id -> list of synced files
+        # Update orchestrator state
+        if result.get("success"):
+            self.last_training_sync_time = time.time()
+            # Refresh manifest after sync
+            if not manifest:
+                self.cluster_data_manifest = await self._collect_cluster_manifest()
+                self.last_manifest_collection = time.time()
 
-        # Find selfplay files that training nodes don't have
-        sync_jobs_created = 0
-        for target_node in eligible_training_nodes:
-            target_manifest = self.cluster_data_manifest.node_manifests.get(target_node.node_id)
-            target_files = set()
-            if target_manifest:
-                target_files = set(target_manifest.files_by_path.keys())
-
-            # Find source nodes with selfplay data this target doesn't have
-            for source_id, source_manifest in self.cluster_data_manifest.node_manifests.items():
-                if source_id == target_node.node_id:
-                    continue
-
-                # Check if source node needs disk cleanup
-                source_node = self.peers.get(source_id)
-                needs_cleanup = source_node and self._should_cleanup_source(source_node)
-
-                # Find selfplay files to sync (with mtime comparison for efficiency)
-                files_to_sync = []
-                for file_info in source_manifest.files:
-                    if file_info.file_type != "selfplay":
-                        continue
-
-                    # Check if target needs this file
-                    target_file_info = target_manifest.files_by_path.get(file_info.path) if target_manifest else None
-
-                    should_sync = False
-                    if file_info.path not in target_files:
-                        # Target doesn't have file at all
-                        should_sync = True
-                    elif target_file_info and file_info.modified_time > target_file_info.modified_time + 60:
-                        # Source is newer (with 60s tolerance to avoid clock skew issues)
-                        should_sync = True
-
-                    if should_sync:
-                        files_to_sync.append(file_info.path)
-
-                if files_to_sync:
-                    # Create sync job
-                    job_id = f"training_sync_{source_id}_to_{target_node.node_id}_{int(time.time())}"
-                    job = DataSyncJob(
-                        job_id=job_id,
-                        source_node=source_id,
-                        target_node=target_node.node_id,
-                        files=files_to_sync[:50],  # Limit files per job
-                        status="pending",
-                    )
-                    self.active_sync_jobs[job_id] = job
-                    sync_jobs_created += 1
-                    logger.info(f"Created training sync job: {len(files_to_sync)} files from {source_id} to {target_node.node_id}")
-
-                    # Track files for cleanup if source has high disk usage
-                    if needs_cleanup:
-                        if source_id not in sources_to_cleanup:
-                            sources_to_cleanup[source_id] = []
-                        sources_to_cleanup[source_id].extend(files_to_sync[:50])
-
-        # Execute sync jobs
-        successful_syncs = 0
-        if sync_jobs_created > 0:
-            await self._execute_pending_sync_jobs()
-            # Count successful syncs
-            successful_syncs = sum(
-                1 for job in self.active_sync_jobs.values()
-                if job.status == "completed"
-            )
-
-        # Cleanup source nodes with high disk usage after successful syncs
-        cleanup_results = {}
-        if successful_syncs > 0 and sources_to_cleanup:
-            logger.info(f"Running post-sync cleanup on {len(sources_to_cleanup)} source nodes...")
-            for source_id, files in sources_to_cleanup.items():
-                success = await self._cleanup_synced_files(source_id, files)
-                cleanup_results[source_id] = success
-
-        self.last_training_sync_time = time.time()
-
-        # Emit DATA_SYNC_COMPLETED event for pipeline coordination
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-            emit_data_event(
-                event_type=DataEventType.DATA_SYNC_COMPLETED,
-                source="P2POrchestrator",
-                metadata={
-                    "sync_type": "training_sync",
-                    "duration_seconds": time.time() - sync_start_time,
-                    "sync_jobs_created": sync_jobs_created,
-                    "successful_syncs": successful_syncs,
-                    "target_nodes": [n.node_id for n in eligible_training_nodes],
-                },
-            )
-        except ImportError:
-            pass  # Module not available (optional dependency)
-        except Exception as e:
-            logger.debug(f"DATA_SYNC_COMPLETED event emission failed (best-effort): {e}")
-
-        return {
-            "success": True,
-            "training_nodes": [n.node_id for n in eligible_training_nodes],
-            "sync_jobs_created": sync_jobs_created,
-            "successful_syncs": successful_syncs,
-            "sources_cleaned": sum(cleanup_results.values()),
-        }
+        return result
 
     async def _execute_pending_sync_jobs(self):
         """Execute all pending sync jobs."""

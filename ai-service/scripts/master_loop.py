@@ -253,7 +253,7 @@ class MasterLoopController:
     def cluster_monitor(self):
         """Get ClusterMonitor (lazy load)."""
         if self._cluster_monitor is None:
-            from app.distributed.cluster_monitor import ClusterMonitor
+            from app.coordination.cluster_status_monitor import ClusterMonitor
             self._cluster_monitor = ClusterMonitor()
         return self._cluster_monitor
 

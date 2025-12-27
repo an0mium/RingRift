@@ -40,11 +40,18 @@ PATH_MAPPINGS = {
 }
 
 
-def get_node_path(node_name: str, node_config: dict) -> str:
-    """Get the ringrift path for a node based on config or provider."""
+def get_node_path(node_name: str, node_config: dict) -> str | None:
+    """Get the ringrift path for a node based on config or provider.
+
+    Returns None if node explicitly has no path (e.g., proxy-only nodes).
+    """
     # Use explicit path from config if available
     if 'ringrift_path' in node_config:
-        return node_config['ringrift_path']
+        path = node_config['ringrift_path']
+        # Return None if explicitly set to null/None
+        if path is None:
+            return None
+        return path
 
     # Determine provider from node name
     for provider in ['runpod', 'vast', 'nebius', 'vultr', 'hetzner']:

@@ -671,9 +671,9 @@ class SyncRouter:
         - HOST_ONLINE/OFFLINE: Update node capabilities
         """
         try:
-            from app.coordination.event_router import DataEventType, get_event_router
+            from app.coordination.event_router import DataEventType, get_router
 
-            router = get_event_router()
+            router = get_router()
 
             # Subscribe to game events
             router.subscribe(

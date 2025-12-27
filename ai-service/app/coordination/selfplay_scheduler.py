@@ -1010,7 +1010,7 @@ class SelfplayScheduler:
 
         try:
             # Try getting from cluster monitor
-            from app.distributed.cluster_monitor import ClusterMonitor
+            from app.coordination.cluster_status_monitor import ClusterMonitor
 
             monitor = ClusterMonitor()
             status = monitor.get_cluster_status()

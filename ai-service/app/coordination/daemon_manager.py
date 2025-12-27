@@ -62,7 +62,6 @@ from app.coordination.daemon_types import (
     DaemonManagerConfig,
     DaemonState,
     DaemonType,
-    _check_deprecated_daemon,
     mark_daemon_ready,
 )
 
@@ -71,18 +70,8 @@ from app.coordination.daemon_lifecycle import DaemonLifecycleManager
 
 logger = logging.getLogger(__name__)
 
-
-# Legacy re-exports for backwards compatibility
-# These were moved to daemon_types.py in Dec 2025
-_DEPRECATED_DAEMON_TYPES: dict[str, tuple[str, str]] = {
-    "sync_coordinator": ("AUTO_SYNC", "Q2 2026"),
-    "health_check": ("NODE_HEALTH_MONITOR", "Q2 2026"),
-}
-
-
-def _check_deprecated_daemon_legacy(daemon_type: "DaemonType") -> None:
-    """Legacy wrapper - use daemon_types._check_deprecated_daemon instead."""
-    _check_deprecated_daemon(daemon_type)
+# Note: Deprecated daemon tracking is now in daemon_types.py._DEPRECATED_DAEMON_TYPES
+# The legacy re-export was removed Dec 2025 as it was unused dead code.
 
 
 class DaemonManager:
@@ -2039,7 +2028,7 @@ class DaemonManager:
         Monitors cluster health and node status.
         """
         try:
-            from app.distributed.cluster_monitor import ClusterMonitor
+            from app.coordination.cluster_status_monitor import ClusterMonitor
 
             monitor = ClusterMonitor()
             await monitor.run_forever(interval=30)

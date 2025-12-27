@@ -1748,7 +1748,7 @@ class DataPipelineOrchestrator:
         Uses cached ClusterMonitor with TTL to avoid expensive SSH reconnections.
         """
         try:
-            from app.distributed.cluster_monitor import ClusterMonitor
+            from app.coordination.cluster_status_monitor import ClusterMonitor
 
             # Use cached ClusterMonitor with TTL (December 2025 - performance fix)
             now = time.time()

@@ -409,18 +409,26 @@ class AdaptiveResourceManager:
         return result
 
     async def _get_active_selfplay_nodes(self) -> list[str]:
-        """Get list of nodes running selfplay jobs."""
+        """Get list of nodes running selfplay jobs.
+
+        December 2025: Fixed bug - was trying to import non-existent get_cluster_monitor.
+        Now uses ClusterMonitor class directly.
+        """
         try:
-            from app.distributed.cluster_monitor import get_cluster_monitor
+            from app.coordination.cluster_status_monitor import ClusterMonitor
 
-            monitor = get_cluster_monitor()
-            if monitor is None:
-                return []
-
-            status = await monitor.get_cluster_status()
-            nodes = []
-            for node_id, node_info in status.get("nodes", {}).items():
-                if node_info.get("has_selfplay_data", False):
+            monitor = ClusterMonitor()
+            status = monitor.get_cluster_status()
+            nodes: list[str] = []
+            for node_id, node_info in getattr(status, "nodes", {}).items():
+                has_selfplay = False
+                if hasattr(node_info, "total_games"):
+                    has_selfplay = getattr(node_info, "total_games", 0) > 0
+                elif isinstance(node_info, dict):
+                    has_selfplay = node_info.get("has_selfplay_data", False)
+                    if not has_selfplay:
+                        has_selfplay = node_info.get("total_games", 0) > 0
+                if has_selfplay:
                     nodes.append(node_id)
             return nodes
         except ImportError:
