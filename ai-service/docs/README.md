@@ -12,6 +12,13 @@ Technical documentation for the RingRift AI training service.
 | [Architecture Overview](architecture/ARCHITECTURE_OVERVIEW.md) | System architecture           |
 | [Training Pipeline](training/TRAINING_PIPELINE.md)             | Training pipeline overview    |
 
+## P2P + Sync SSoT
+
+- Cluster inventory + voters: `ai-service/config/distributed_hosts.yaml` (`p2p_voters`, per-host `p2p_enabled`)
+- Canonical P2P start: `PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id <name> --port 8770 --peers <url-list>`
+- Data sync service: `PYTHONPATH=. venv/bin/python scripts/unified_data_sync.py --watchdog --http-port 8765`
+- External storage path: `/Volumes/RingRift-Data` on mac-studio via `allowed_external_storage`
+
 ## Documentation Structure
 
 ### [architecture/](architecture)

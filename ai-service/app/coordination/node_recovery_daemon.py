@@ -43,17 +43,11 @@ from app.core.async_context import safe_create_task
 
 logger = logging.getLogger(__name__)
 
-# Health event emission imports (December 2025 - Phase 21)
-try:
-    from app.distributed.data_events import (
-        emit_node_unhealthy,
-        emit_node_recovered,
-    )
-    HAS_HEALTH_EVENTS = True
-except ImportError:
-    HAS_HEALTH_EVENTS = False
-    emit_node_unhealthy = None
-    emit_node_recovered = None
+# Health event emission (uses safe fallbacks internally)
+from app.coordination.event_emitters import (
+    emit_node_unhealthy,
+    emit_node_recovered,
+)
 
 
 class RecoveryAction(Enum):

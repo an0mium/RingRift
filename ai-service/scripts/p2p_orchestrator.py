@@ -1384,6 +1384,46 @@ class P2POrchestrator(
         # Raft provides replicated work queue with sub-second failover
         # Both are initialized here but started asynchronously in run()
 
+        # Feature flag validation - warn if flags enabled but dependencies missing
+        from scripts.p2p.constants import (
+            SWIM_ENABLED, RAFT_ENABLED, MEMBERSHIP_MODE, CONSENSUS_MODE
+        )
+        try:
+            from app.p2p.swim_adapter import SWIM_AVAILABLE
+        except ImportError:
+            SWIM_AVAILABLE = False
+        try:
+            from scripts.p2p.consensus_mixin import PYSYNCOBJ_AVAILABLE
+        except ImportError:
+            PYSYNCOBJ_AVAILABLE = False
+
+        if SWIM_ENABLED and not SWIM_AVAILABLE:
+            logger.warning(
+                "RINGRIFT_SWIM_ENABLED=true but swim-p2p not installed or not compatible. "
+                "SWIM features disabled. Install with: pip install swim-p2p>=1.2.0"
+            )
+        if RAFT_ENABLED and not PYSYNCOBJ_AVAILABLE:
+            logger.warning(
+                "RINGRIFT_RAFT_ENABLED=true but pysyncobj not installed. "
+                "Raft features disabled. Install with: pip install pysyncobj>=0.3.14"
+            )
+        if MEMBERSHIP_MODE in ("swim", "hybrid") and not SWIM_AVAILABLE:
+            logger.warning(
+                f"RINGRIFT_MEMBERSHIP_MODE={MEMBERSHIP_MODE} but SWIM unavailable. "
+                "Falling back to HTTP heartbeats."
+            )
+        if CONSENSUS_MODE in ("raft", "hybrid") and not PYSYNCOBJ_AVAILABLE:
+            logger.warning(
+                f"RINGRIFT_CONSENSUS_MODE={CONSENSUS_MODE} but PySyncObj unavailable. "
+                "Falling back to Bully algorithm."
+            )
+
+        # Log active P2P protocol modes
+        logger.info(
+            f"P2P protocols: MEMBERSHIP_MODE={MEMBERSHIP_MODE} (SWIM={'available' if SWIM_AVAILABLE else 'unavailable'}), "
+            f"CONSENSUS_MODE={CONSENSUS_MODE} (Raft={'available' if PYSYNCOBJ_AVAILABLE else 'unavailable'})"
+        )
+
         # Initialize SWIM membership (from MembershipMixin)
         self._swim_initialized = self._init_swim_membership()
         if self._swim_initialized:
@@ -1394,6 +1434,16 @@ class P2POrchestrator(
         self._raft_init_attempted = False
         # Raft initialization deferred to after peers are discovered
         # to ensure we have partner addresses available
+
+        # Try early Raft initialization if we have voter nodes
+        if RAFT_ENABLED and PYSYNCOBJ_AVAILABLE and self.voter_node_ids:
+            try:
+                self._raft_init_attempted = True
+                raft_ok = self._init_raft_consensus()
+                if raft_ok:
+                    logger.info("Raft consensus initialized (will sync with peers in run())")
+            except Exception as e:
+                logger.warning(f"Early Raft initialization failed (will retry later): {e}")
 
         # State persistence (Phase 1 refactoring: delegated to StateManager)
         self.db_path = STATE_DIR / f"{node_id}_state.db"
@@ -6380,6 +6430,9 @@ class P2POrchestrator(
         except Exception as e:
             data_dedup = {"error": str(e)}
 
+        # Phase 5: SWIM/Raft protocol status (Dec 26, 2025)
+        swim_raft_status = self._get_swim_raft_status()
+
         return web.json_response({
             "node_id": self.node_id,
             "role": self.role.value,
@@ -6407,6 +6460,7 @@ class P2POrchestrator(
             "sync_intervals": sync_intervals,
             "tournament_scheduling": tournament_scheduling,
             "data_dedup": data_dedup,
+            "swim_raft": swim_raft_status,
         })
 
     async def handle_external_work(self, request: web.Request) -> web.Response:
@@ -23263,6 +23317,94 @@ print(json.dumps({{
                 "known_file_hashes": len(self._synced_file_hashes),
                 "known_game_ids": len(self._known_game_ids),
             }
+
+    def _get_swim_raft_status(self) -> dict[str, Any]:
+        """Get SWIM/Raft protocol status summary.
+
+        Returns status of the new P2P protocols (Phase 5, Dec 26, 2025):
+        - SWIM: Gossip-based membership with 5s failure detection
+        - Raft: Replicated work queue with sub-second failover
+
+        These protocols are enabled via feature flags and provide
+        gradual migration from HTTP/Bully to SWIM/Raft.
+        """
+        try:
+            from scripts.p2p.constants import (
+                SWIM_ENABLED, RAFT_ENABLED, MEMBERSHIP_MODE, CONSENSUS_MODE
+            )
+        except ImportError:
+            SWIM_ENABLED = False
+            RAFT_ENABLED = False
+            MEMBERSHIP_MODE = "http"
+            CONSENSUS_MODE = "bully"
+
+        # Check SWIM status
+        swim_status = {
+            "enabled": SWIM_ENABLED,
+            "available": False,
+            "started": getattr(self, "_swim_started", False),
+            "alive_count": 0,
+        }
+        try:
+            from app.p2p.swim_adapter import SWIM_AVAILABLE
+            swim_status["available"] = SWIM_AVAILABLE
+
+            # Get membership summary if SWIM is active
+            if hasattr(self, "get_swim_membership_summary"):
+                summary = self.get_swim_membership_summary()
+                swim_status.update({
+                    "started": summary.get("swim_started", False),
+                    "alive_count": summary.get("swim", {}).get("alive", 0),
+                    "suspected_count": summary.get("swim", {}).get("suspected", 0),
+                    "failed_count": summary.get("swim", {}).get("failed", 0),
+                })
+        except ImportError:
+            pass
+        except Exception as e:
+            swim_status["error"] = str(e)
+
+        # Check Raft status
+        raft_status = {
+            "enabled": RAFT_ENABLED,
+            "available": False,
+            "initialized": getattr(self, "_raft_initialized", False),
+            "is_leader": False,
+        }
+        try:
+            from scripts.p2p.consensus_mixin import PYSYNCOBJ_AVAILABLE
+            raft_status["available"] = PYSYNCOBJ_AVAILABLE
+
+            # Get Raft consensus status if available
+            if hasattr(self, "get_raft_status"):
+                raft_info = self.get_raft_status()
+                raft_status.update({
+                    "initialized": raft_info.get("raft_initialized", False),
+                    "is_leader": raft_info.get("is_raft_leader", False),
+                    "leader_address": raft_info.get("raft_leader", ""),
+                    "should_use_raft": raft_info.get("should_use_raft", False),
+                })
+                if "work_queue_status" in raft_info:
+                    wq = raft_info["work_queue_status"]
+                    raft_status["work_queue"] = {
+                        "pending": wq.get("by_status", {}).get("pending", 0),
+                        "claimed": wq.get("by_status", {}).get("claimed", 0),
+                        "completed": wq.get("by_status", {}).get("completed", 0),
+                    }
+        except ImportError:
+            pass
+        except Exception as e:
+            raft_status["error"] = str(e)
+
+        return {
+            "membership_mode": MEMBERSHIP_MODE,
+            "consensus_mode": CONSENSUS_MODE,
+            "swim": swim_status,
+            "raft": raft_status,
+            "hybrid_status": {
+                "swim_fallback_active": not swim_status.get("started", False) and MEMBERSHIP_MODE != "http",
+                "raft_fallback_active": not raft_status.get("initialized", False) and CONSENSUS_MODE != "bully",
+            },
+        }
 
     # ============================================================================
     # DISTRIBUTED TOURNAMENT SCHEDULING

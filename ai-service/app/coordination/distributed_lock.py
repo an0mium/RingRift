@@ -241,7 +241,7 @@ class DistributedLock:
                         source="distributed_lock",
                     )
                 except ImportError:
-                    pass
+                    pass  # Event router not available, lock still acquired
                 return False
 
             # Wait and retry
@@ -565,7 +565,7 @@ def cleanup_stale_locks(
                             logger.info(f"Removed lock from dead process: {lock_file.name} (pid {lock_pid})")
                             continue
                 except ValueError:
-                    pass  # Invalid PID format
+                    logger.debug(f"[DistributedLock] Invalid PID format in lock file: {lock_file.name}")
 
         except Exception as e:
             stats["errors"] += 1

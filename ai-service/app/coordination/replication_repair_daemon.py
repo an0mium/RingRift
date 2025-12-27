@@ -373,7 +373,7 @@ class ReplicationRepairDaemon:
                 if stable_candidates:
                     candidates = stable_candidates
             except ImportError:
-                pass
+                pass  # SyncRouter not available, use all candidates
 
         # Calculate how many more copies we need
         copies_needed = self.config.target_replicas - current_copies

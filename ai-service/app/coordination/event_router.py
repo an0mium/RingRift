@@ -450,8 +450,8 @@ class UnifiedEventRouter:
                     )
                     router_event.stage_result = stage_result
                     await get_stage_event_bus().emit(stage_result)
-                except (ValueError, KeyError):
-                    pass
+                except (ValueError, KeyError) as e:
+                    logger.debug(f"[EventRouter] Failed to create stage result: {e}")
 
         # Route to CrossProcessEventQueue
         if route_to_cross_process and HAS_CROSS_PROCESS:

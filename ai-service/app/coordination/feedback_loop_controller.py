@@ -815,7 +815,7 @@ class FeedbackLoopController:
         # P11-CRITICAL-1: Emit EXPLORATION_BOOST event to notify selfplay/temperature schedulers
         try:
             import asyncio
-            from app.distributed.data_events import emit_exploration_boost
+            from app.coordination.event_router import emit_exploration_boost
 
             asyncio.create_task(emit_exploration_boost(
                 config_key=config_key,
@@ -868,7 +868,7 @@ class FeedbackLoopController:
         # P11-CRITICAL-1: Emit EXPLORATION_BOOST event
         try:
             import asyncio
-            from app.distributed.data_events import emit_exploration_boost
+            from app.coordination.event_router import emit_exploration_boost
 
             asyncio.create_task(emit_exploration_boost(
                 config_key=config_key,
@@ -1132,8 +1132,7 @@ class FeedbackLoopController:
 
                 # Emit event for selfplay boost
                 try:
-                    from app.distributed.data_events import DataEventType
-                    from app.coordination.event_router import get_event_bus
+                    from app.coordination.event_router import DataEventType, get_event_bus
 
                     bus = get_event_bus()
                     if bus:
@@ -1224,7 +1223,7 @@ class FeedbackLoopController:
 
             # Emit EXPLORATION_BOOST event for temperature schedulers
             try:
-                from app.distributed.data_events import emit_exploration_boost
+                from app.coordination.event_router import emit_exploration_boost
 
                 _safe_create_task(emit_exploration_boost(
                     config_key=config_key,

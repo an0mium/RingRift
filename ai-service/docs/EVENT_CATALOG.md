@@ -16,11 +16,13 @@
 1. [Overview](#overview)
 2. [Architecture](#architecture)
 3. [Event Categories](#event-categories)
-4. [Usage Examples](#usage-examples)
-5. [Event Flow Diagrams](#event-flow-diagrams)
-6. [Best Practices](#best-practices)
-7. [Migration Guide](#migration-guide)
-8. [Debugging](#debugging)
+4. [Quick Reference](#quick-reference)
+5. [Event Ordering Guarantees](#event-ordering-guarantees)
+6. [Usage Examples](#usage-examples)
+7. [Event Flow Diagrams](#event-flow-diagrams)
+8. [Best Practices](#best-practices)
+9. [Migration Guide](#migration-guide)
+10. [Debugging](#debugging)
 
 ---
 

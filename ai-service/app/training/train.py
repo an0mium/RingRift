@@ -214,7 +214,7 @@ except ImportError:
 
 # Event emission for training feedback loops (Phase 21.2 - Dec 2025)
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         emit_training_loss_anomaly,
         emit_training_loss_trend,
     )
@@ -4848,7 +4848,7 @@ def train_model(
                         # This triggers curriculum boost for this config
                         try:
                             import asyncio
-                            from app.distributed.data_events import emit_training_early_stopped
+                            from app.coordination.event_router import emit_training_early_stopped
 
                             config_key = f"{config.board_type}_{num_players}p"
                             best_elo = early_stopper.best_elo if early_stopper.best_elo > float('-inf') else None

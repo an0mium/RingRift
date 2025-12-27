@@ -434,8 +434,7 @@ class SelfplayRunner(ABC):
         """
         try:
             import socket
-            from app.coordination.event_router import publish_sync
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import publish_sync, DataEventType
 
             config_key = f"{self.config.board_type}_{self.config.num_players}p"
             node_id = socket.gethostname()
@@ -492,8 +491,7 @@ class SelfplayRunner(ABC):
         more low-quality data that would waste compute.
         """
         try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_event_router
+            from app.coordination.event_router import DataEventType, get_router as get_event_router
 
             router = get_event_router()
             config_key = f"{self.config.board_type}_{self.config.num_players}p"
@@ -568,8 +566,7 @@ class SelfplayRunner(ABC):
         - PROMOTION_FAILED: Increase opponent difficulty on failed promotion
         """
         try:
-            from app.coordination.event_router import get_router, subscribe
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, subscribe, DataEventType
 
             router = get_router()
             if router is None:
