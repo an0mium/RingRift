@@ -4677,61 +4677,9 @@ class P2POrchestrator(
         }
 
     # ============================================
-    # Training Node Priority Sync
-    # Phase 1 Refactoring: Delegated to NodeSelector
+    # NodeSelector Wrapper Methods REMOVED (Dec 2025)
+    # All call sites now use self.node_selector.* directly
     # ============================================
-
-    def _get_training_primary_nodes(self, count: int = TRAINING_NODE_COUNT) -> list[NodeInfo]:
-        """Get the top N nodes by GPU power for training priority.
-
-        Phase 1 Refactoring: Delegated to NodeSelector.
-        """
-        return self.node_selector.get_training_primary_nodes(count)
-
-    def _get_training_nodes_ranked(self) -> list[dict[str, Any]]:
-        """Get all GPU nodes with their power rankings for dashboard display.
-
-        Phase 1 Refactoring: Delegated to NodeSelector.
-        """
-        return self.node_selector.get_training_nodes_ranked()
-
-    # ============================================
-    # CPU Node Priority for Data Processing
-    # Phase 1 Refactoring: Delegated to NodeSelector
-    # ============================================
-
-    def _get_cpu_primary_nodes(self, count: int = 3) -> list[NodeInfo]:
-        """Get the top N nodes by CPU power for CPU-intensive tasks.
-
-        Phase 1 Refactoring: Delegated to NodeSelector.
-        """
-        return self.node_selector.get_cpu_primary_nodes(count)
-
-    def _get_cpu_nodes_ranked(self) -> list[dict[str, Any]]:
-        """Get all nodes with their CPU power rankings for dashboard display.
-
-        Phase 1 Refactoring: Delegated to NodeSelector.
-        """
-        return self.node_selector.get_cpu_nodes_ranked()
-
-    # ============================================
-    # Task-Specific Node Selection
-    # Phase 1 Refactoring: Delegated to NodeSelector
-    # ============================================
-
-    def _get_best_gpu_node_for_training(self) -> NodeInfo | None:
-        """Get the best GPU node for neural network training.
-
-        Phase 1 Refactoring: Delegated to NodeSelector.
-        """
-        return self.node_selector.get_best_gpu_node_for_training()
-
-    def _get_best_cpu_node_for_gauntlet(self) -> NodeInfo | None:
-        """Get the best CPU node for gauntlet/tournament work.
-
-        Phase 1 Refactoring: Delegated to NodeSelector.
-        """
-        return self.node_selector.get_best_cpu_node_for_gauntlet()
 
     async def _dispatch_gauntlet_to_cpu_node(
         self,
@@ -4745,7 +4693,7 @@ class P2POrchestrator(
         This ensures gauntlets run on Vast instances with high CPU count
         rather than blocking GPU-rich nodes like GH200/H100.
         """
-        cpu_node = self._get_best_cpu_node_for_gauntlet()
+        cpu_node = self.node_selector.get_best_cpu_node_for_gauntlet()
         if not cpu_node:
             logger.info("No CPU node available for gauntlet, running locally")
             return None
@@ -4860,8 +4808,8 @@ class P2POrchestrator(
         if not self._is_leader():
             return {"success": False, "error": "Not the leader"}
 
-        # Get training primary nodes
-        training_nodes = self._get_training_primary_nodes()
+        # Get training primary nodes (Phase 2B: Direct call to NodeSelector)
+        training_nodes = self.node_selector.get_training_primary_nodes()
         if not training_nodes:
             return {"success": False, "error": "No training nodes available"}
 
@@ -4906,6 +4854,21 @@ class P2POrchestrator(
         logger.info(f"Training sync: {len(eligible_training_nodes)} eligible training nodes")
         for node in eligible_training_nodes:
             logger.info(f"  - {node.node_id}: {node.gpu_name} (power={node.gpu_power_score()}, disk={node.disk_percent:.1f}%)")
+
+        # Emit DATA_SYNC_STARTED event for pipeline coordination
+        sync_start_time = time.time()
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+            emit_data_event(
+                event_type=DataEventType.DATA_SYNC_STARTED,
+                source="P2POrchestrator",
+                metadata={
+                    "sync_type": "training_sync",
+                    "target_nodes": [n.node_id for n in eligible_training_nodes],
+                },
+            )
+        except Exception:
+            pass  # Event emission is best-effort
 
         # Collect current cluster manifest if stale
         if (time.time() - self.last_manifest_collection > self.manifest_collection_interval
@@ -6124,7 +6087,8 @@ class P2POrchestrator(
                         self._npz_export_running = True
 
                         # Find best CPU node for export (prefer vast nodes)
-                        cpu_nodes = self._get_cpu_primary_nodes(count=3)
+                        # Phase 2B: Direct call to NodeSelector
+                        cpu_nodes = self.node_selector.get_cpu_primary_nodes(count=3)
                         export_node = None
                         for node in cpu_nodes:
                             # Skip nodes that are already very loaded
@@ -7811,8 +7775,9 @@ class P2POrchestrator(
         Returns nodes sorted by GPU processing power for training priority.
         """
         try:
-            rankings = self._get_training_nodes_ranked()
-            training_nodes = self._get_training_primary_nodes()
+            # Phase 2B: Direct calls to NodeSelector
+            rankings = self.node_selector.get_training_nodes_ranked()
+            training_nodes = self.node_selector.get_training_primary_nodes()
 
             return web.json_response({
                 "rankings": rankings,
@@ -15168,35 +15133,9 @@ print(json.dumps(result))
     # - handle_elo_sync_download, handle_elo_sync_upload
     # - _trigger_elo_sync_after_matches
 
-    async def _elo_sync_loop(self):
-        """Background loop for periodic Elo database synchronization.
-
-        .. deprecated:: Dec 2025
-            Use :class:`scripts.p2p.loops.EloSyncLoop` via LoopManager instead.
-        """
-        if not self.elo_sync_manager:
-            return
-
-        # Initialize the sync manager
-        try:
-            await self.elo_sync_manager.initialize()
-        except Exception as e:
-            logger.info(f"EloSyncManager initialization failed: {e}")
-            return
-
-        logger.info(f"Elo sync loop started (interval: {self.elo_sync_manager.sync_interval}s)")
-
-        while self.running:
-            try:
-                # Only sync if we're not currently busy with training
-                if not self.sync_in_progress:
-                    success = await self.elo_sync_manager.sync_with_cluster()
-                    if success:
-                        logger.info(f"Elo sync completed: {self.elo_sync_manager.state.local_match_count} matches")
-            except Exception as e:
-                logger.info(f"Elo sync error: {e}")
-
-            await asyncio.sleep(self.elo_sync_manager.sync_interval)
+    # NOTE: _elo_sync_loop() removed Dec 2025 (29 LOC).
+    # Now runs via LoopManager as EloSyncLoop.
+    # See scripts/p2p/loops/elo_sync_loop.py for implementation.
 
     async def _worker_pull_loop(self):
         """Background loop for workers to poll leader for work (pull model).
@@ -26860,9 +26799,7 @@ print(json.dumps({{
         if HAS_MODEL_SYNC:
             tasks.append(self._create_safe_task(self._model_sync_loop(), "model_sync"))
 
-        # Add Elo database sync loop (cluster-wide Elo consistency)
-        if HAS_ELO_SYNC and self.elo_sync_manager:
-            tasks.append(self._create_safe_task(self._elo_sync_loop(), "elo_sync"))
+        # NOTE: _elo_sync_loop removed Dec 2025 - now runs via LoopManager (EloSyncLoop)
 
         # Add worker pull loop (workers poll leader for work)
         tasks.append(self._create_safe_task(self._worker_pull_loop(), "worker_pull"))
@@ -26870,14 +26807,12 @@ print(json.dumps({{
         # Add work queue maintenance loop (leader cleans up timeouts and old items)
         tasks.append(self._create_safe_task(self._work_queue_maintenance_loop(), "work_queue_maintenance"))
 
-        # Add idle detection loop (leader auto-assigns work to idle nodes)
-        tasks.append(self._create_safe_task(self._idle_detection_loop(), "idle_detection"))
+        # NOTE: _idle_detection_loop removed Dec 2025 - now runs via LoopManager (IdleDetectionLoop)
 
         # === AUTOMATION LOOPS (2024-12) ===
         # These loops enable hands-free cluster operation
 
-        # Auto-scaling loop: provision/deprovision Vast.ai instances based on queue depth
-        tasks.append(self._create_safe_task(self._auto_scaling_loop(), "auto_scaling"))
+        # NOTE: _auto_scaling_loop removed Dec 2025 - now runs via LoopManager (AutoScalingLoop)
 
         # Predictive monitoring loop: alert before problems occur
         tasks.append(self._create_safe_task(self._predictive_monitoring_loop(), "predictive_monitoring"))
@@ -26885,21 +26820,19 @@ print(json.dumps({{
         # Self-healing loop: recover stuck jobs and unhealthy nodes
         tasks.append(self._create_safe_task(self._self_healing_loop(), "self_healing"))
 
-        # Job reaper loop: enforce job timeouts with SSH kill and work reassignment (leader-only)
-        tasks.append(self._create_safe_task(self._job_reaper_loop(), "job_reaper"))
+        # NOTE: _job_reaper_loop removed Dec 2025 - now runs via LoopManager (JobReaperLoop)
 
         # Validation loop: auto-queue validation for newly trained models
         tasks.append(self._create_safe_task(self._validation_loop(), "validation"))
 
-        # Queue populator loop: maintain 50+ work items until 2000 Elo target met
-        tasks.append(self._create_safe_task(self._queue_populator_loop(), "queue_populator"))
+        # NOTE: _queue_populator_loop removed Dec 2025 - now runs via LoopManager (QueuePopulatorLoop)
 
         # Store tasks for shutdown handling
         self._background_tasks = tasks
 
         # Phase 4: Start extracted loops via LoopManager (Dec 2025)
-        # These run alongside inline loops during gradual migration.
-        # Once verified, inline loops will be deprecated.
+        # These 5 loops now ONLY run via LoopManager (inline versions removed):
+        # - EloSyncLoop, IdleDetectionLoop, AutoScalingLoop, JobReaperLoop, QueuePopulatorLoop
         if EXTRACTED_LOOPS_ENABLED and self._register_extracted_loops():
             loop_manager = self._get_loop_manager()
             if loop_manager is not None:

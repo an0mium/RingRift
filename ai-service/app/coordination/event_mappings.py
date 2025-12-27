@@ -150,6 +150,10 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     "selfplay_complete": "SELFPLAY_BATCH_COMPLETE",
     "selfplay_target_updated": "SELFPLAY_TARGET_UPDATED",
     "selfplay_rate_changed": "SELFPLAY_RATE_CHANGED",
+    # Selfplay orchestrator events (Dec 2025 - feedback loop integration)
+    "request_selfplay_queued": "REQUEST_SELFPLAY_QUEUED",
+    "selfplay_budget_adjusted": "SELFPLAY_BUDGET_ADJUSTED",
+    "curriculum_allocation_changed": "CURRICULUM_ALLOCATION_CHANGED",
     # Coordinator/daemon health
     "coordinator_healthy": "COORDINATOR_HEALTHY",
     "coordinator_unhealthy": "COORDINATOR_UNHEALTHY",
@@ -166,6 +170,7 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     "node_recovered": "NODE_RECOVERED",
     "node_activated": "NODE_ACTIVATED",
     "cluster_capacity_changed": "CLUSTER_CAPACITY_CHANGED",
+    "sync_capacity_refreshed": "SYNC_CAPACITY_REFRESHED",
     # P2P cluster events
     "p2p_cluster_healthy": "P2P_CLUSTER_HEALTHY",
     "p2p_cluster_unhealthy": "P2P_CLUSTER_UNHEALTHY",

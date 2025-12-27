@@ -683,6 +683,7 @@ __all__ = [
     'DataLoaderConfig',
     'DataLoaderResult',
     'collect_data_paths',
+    'compute_num_workers',
     'create_data_loaders',
     'create_standard_loaders',
     'create_streaming_loaders',

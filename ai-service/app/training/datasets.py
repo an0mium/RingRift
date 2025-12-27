@@ -766,6 +766,7 @@ class WeightedRingRiftDataset(RingRiftDataset):
         use_multi_player_values: bool = False,
         filter_empty_policies: bool = True,
         return_num_players: bool = False,
+        return_heuristics: bool = False,
     ):
         super().__init__(
             data_path,
@@ -774,6 +775,7 @@ class WeightedRingRiftDataset(RingRiftDataset):
             use_multi_player_values=use_multi_player_values,
             filter_empty_policies=filter_empty_policies,
             return_num_players=return_num_players,
+            return_heuristics=return_heuristics,
         )
 
         self.weighting = weighting

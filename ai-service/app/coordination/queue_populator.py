@@ -437,30 +437,21 @@ class QueuePopulator:
             return {}
 
         try:
-            # Run async method in sync context
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Can't use run_until_complete in running loop
-                # Fall back to cached priorities if available
+            # Check if we're in a running event loop (Dec 2025: use get_running_loop)
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in a running loop - can't use run_until_complete
+                # Fall back to cached priorities to avoid deadlock
                 priorities_list = getattr(self._selfplay_scheduler, "_cached_priorities", [])
                 if priorities_list:
                     return dict(priorities_list)
                 return {}
-            else:
-                priorities_list = loop.run_until_complete(
-                    self._selfplay_scheduler.get_priority_configs(top_n=12)
-                )
-                return dict(priorities_list)
-        except RuntimeError:
-            # No event loop - try creating one
-            try:
+            except RuntimeError:
+                # No running loop - safe to create one and run sync
                 priorities_list = asyncio.run(
                     self._selfplay_scheduler.get_priority_configs(top_n=12)
                 )
                 return dict(priorities_list)
-            except Exception as e:
-                logger.debug(f"[QueuePopulator] Failed to get scheduler priorities: {e}")
-                return {}
         except Exception as e:
             logger.debug(f"[QueuePopulator] Failed to get scheduler priorities: {e}")
             return {}
