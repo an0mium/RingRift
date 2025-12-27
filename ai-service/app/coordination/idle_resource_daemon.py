@@ -1138,7 +1138,7 @@ class IdleResourceDaemon:
         nodes: list[NodeStatus] = []
 
         try:
-            from app.distributed.p2p_orchestrator import get_p2p_orchestrator
+            from app.coordination.p2p_integration import get_p2p_orchestrator
 
             p2p = get_p2p_orchestrator()
             if p2p is None:
@@ -1969,7 +1969,7 @@ class IdleResourceDaemon:
     ) -> bool:
         """Distribute job via P2P orchestrator."""
         try:
-            from app.distributed.p2p_orchestrator import get_p2p_orchestrator
+            from app.coordination.p2p_integration import get_p2p_orchestrator
 
             p2p = get_p2p_orchestrator()
             if p2p is None:

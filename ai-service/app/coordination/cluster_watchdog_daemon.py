@@ -167,6 +167,40 @@ class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
             f"interval={self.config.check_interval_seconds}s, "
             f"min_gpu={self.config.min_gpu_utilization}%"
         )
+        # Subscribe to cluster events (December 2025)
+        await self._subscribe_to_events()
+
+    async def _subscribe_to_events(self) -> None:
+        """Subscribe to relevant cluster events."""
+        try:
+            from app.coordination.event_router import DataEventType, get_event_router
+
+            router = get_event_router()
+            router.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline)
+            router.subscribe(DataEventType.HOST_ONLINE, self._on_host_online)
+            logger.info(f"[{self._get_daemon_name()}] Subscribed to cluster events")
+        except ImportError:
+            logger.debug(f"[{self._get_daemon_name()}] Event router not available")
+        except Exception as e:
+            logger.warning(f"[{self._get_daemon_name()}] Failed to subscribe: {e}")
+
+    async def _on_host_offline(self, event) -> None:
+        """Handle host going offline."""
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+            host = payload.get("host", "unknown")
+            logger.info(f"[{self._get_daemon_name()}] Host offline: {host}")
+        except Exception as e:
+            logger.debug(f"[{self._get_daemon_name()}] Error handling host offline: {e}")
+
+    async def _on_host_online(self, event) -> None:
+        """Handle host coming online."""
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+            host = payload.get("host", "unknown")
+            logger.info(f"[{self._get_daemon_name()}] Host online: {host}")
+        except Exception as e:
+            logger.debug(f"[{self._get_daemon_name()}] Error handling host online: {e}")
 
     async def _run_cycle(self) -> None:
         """Run a single watchdog cycle."""

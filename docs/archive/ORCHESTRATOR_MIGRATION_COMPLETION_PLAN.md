@@ -24,7 +24,7 @@ The orchestrator migration is **COMPLETE through Phase 3**. All critical legacy 
 **What Remains (deferred to Phase 4):**
 
 - Tier 2 sandbox support modules (~1,200 lines) – needed for sandbox UX
-- 4 parity tests retained for debugging (GameEngine.orchestratorParity.integration.test.ts)
+- Parity tests retained for debugging (ClientSandboxEngine and Backend_vs_Sandbox parity suites)
 - SSOT banner additions for support modules
 
 ---
@@ -91,28 +91,12 @@ ORCHESTRATOR_ADAPTER_ENABLED: z
 
 ### 2.1 Tests Explicitly Disabling Orchestrator
 
-**8 test files** call `disableOrchestratorAdapter()`:
+**2 test files** call `disableOrchestratorAdapter()`:
 
-<<<<<<< Updated upstream
-| File                                                                                                                                                | Purpose                               | Migration Strategy                      |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------- |
-| [`GameEngine.orchestratorParity.integration.test.ts`](../tests/unit/GameEngine.orchestratorParity.integration.test.ts:65)                           | Parity testing legacy vs orchestrator | **Keep** – Critical parity verification |
-=======
-| File                                                                                                                                                   | Purpose                               | Migration Strategy                      |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- | --------------------------------------- |
-| [`GameEngine.orchestratorParity.integration.test.ts`](../tests/unit/GameEngine.orchestratorParity.integration.test.ts:65)                              | Parity testing legacy vs orchestrator | **Keep** – Critical parity verification |
->>>>>>> Stashed changes
-| [`ClientSandboxEngine.chainCapture.getValidMoves.test.ts`](../../tests/unit/ClientSandboxEngine.chainCapture.getValidMoves.test.ts:56)                 | Capture enumeration                   | **Migrate** – Use orchestrator adapter  |
-| [`ClientSandboxEngine.movementParity.shared.test.ts`](../../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts:66)                           | Movement parity                       | **Keep** – Dual-path verification       |
-| [`ClientSandboxEngine.placement.shared.test.ts`](../../tests/unit/ClientSandboxEngine.placement.shared.test.ts:44)                                     | Placement testing                     | **Migrate** – Use orchestrator          |
-| [`GameEngine.utilityMethods.test.ts`](../../tests/unit/GameEngine.utilityMethods.test.ts:232)                                                          | Utility method testing                | **Keep** – Tests the toggle itself      |
-<<<<<<< Updated upstream
-| [`Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts`](../tests/unit/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts:182)                    | Critical parity                       | **Keep** – Dual-path verification       |
-=======
-| [`Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts`](../tests/unit/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts:182)                       | Critical parity                       | **Keep** – Dual-path verification       |
->>>>>>> Stashed changes
-| [`ClientSandboxEngine.orchestratorParity.test.ts`](../../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts:64)                                 | Parity testing                        | **Keep** – Critical parity verification |
-| [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](../../tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts:75) | Territory decisions                   | **Migrate** – Use orchestrator          |
+| File                                                                                              | Purpose                    | Migration Strategy                 |
+| ------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------- |
+| [`GameEngine.utilityMethods.test.ts`](../../tests/unit/GameEngine.utilityMethods.test.ts:286)     | Utility method testing     | **Keep** – Tests the toggle itself |
+| [`GameEngine.branchCoverage.test.ts`](../../tests/unit/GameEngine.branchCoverage.test.ts:775)     | Branch coverage validation | **Keep** – Toggle no-op coverage   |
 
 ### 2.2 Tests Importing RuleEngine Directly
 
@@ -230,10 +214,10 @@ ORCHESTRATOR_ADAPTER_ENABLED: z
 
 Mark these tests with explicit comments explaining dual-path necessity:
 
-- `GameEngine.orchestratorParity.integration.test.ts` – Verifies legacy vs orchestrator
-- `ClientSandboxEngine.orchestratorParity.test.ts` – Verifies sandbox paths
-- `Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts` – Cross-host parity
+- `ClientSandboxEngine.orchestratorParity.test.ts` – Verifies sandbox adapter paths
 - `ClientSandboxEngine.movementParity.shared.test.ts` – Movement parity
+- `Backend_vs_Sandbox.seed5.internalStateParity.test.ts` – Cross-host parity (seeded traces)
+- `TerritoryBorders.Backend_vs_Sandbox.test.ts` – Cross-host territory border parity
 
 #### 2.3 Archive Legacy Stubs (0.5 day)
 
@@ -485,7 +469,7 @@ Add explicit SSOT banners declaring these as:
 
 ### What Was Kept (and Why)
 
-1. **GameEngine.orchestratorParity.integration.test.ts** – Critical for debugging parity issues between hosts
+1. **Backend_vs_Sandbox.seed5.internalStateParity.test.ts** – Critical for debugging parity issues between hosts
 2. **4 parity test files** – Dual-path verification capability retained for edge case debugging
 3. **Tier 2 sandbox modules** – Still needed for sandbox UX functionality (~1,200 lines)
 

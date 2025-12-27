@@ -2497,24 +2497,25 @@ class QualityFeedbackWatcher:
         multiplier: float,
         avg_quality: float,
     ) -> None:
-        """Emit quality feedback adjusted event."""
+        """Emit quality feedback adjusted event.
+
+        December 2025: Fixed duplicate emission - now uses single publish_sync call.
+        """
         try:
-            from app.coordination.event_router import get_router, RouterEvent, EventSource, DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
             # P0.6 Dec 2025: Use DataEventType enum for type-safe event emission
-            event = RouterEvent(
-                event_type=DataEventType.QUALITY_FEEDBACK_ADJUSTED,
-                payload={
-                    "config_key": config_key,
-                    "budget_multiplier": multiplier,
-                    "avg_quality": avg_quality,
-                    "timestamp": time.time(),
-                },
-                source="quality_feedback_watcher",
-                origin=EventSource.ROUTER,
-            )
-            router.publish_sync(DataEventType.QUALITY_FEEDBACK_ADJUSTED, event.payload, "quality_feedback_watcher")
+            # Single publish call (fixed duplicate emission Dec 27, 2025)
+            payload = {
+                "config_key": config_key,
+                "budget_multiplier": multiplier,
+                "quality_score": avg_quality,  # Renamed for consistency with handler
+                "avg_quality": avg_quality,  # Keep for backward compat
+                "adjustment_type": "quality_watcher",
+                "timestamp": time.time(),
+            }
+            router.publish_sync(DataEventType.QUALITY_FEEDBACK_ADJUSTED, payload, "quality_feedback_watcher")
             logger.debug(f"Emitted QUALITY_FEEDBACK_ADJUSTED for {config_key}")
         except Exception as e:
             logger.debug(f"Failed to emit quality feedback event: {e}")

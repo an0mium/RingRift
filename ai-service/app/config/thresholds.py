@@ -1336,6 +1336,30 @@ DAEMON_RESTART_DELAY_MAX = 300
 # Daemon restart count reset after stability period (seconds)
 DAEMON_RESTART_RESET_AFTER = 3600
 
+# Daemon lifecycle timeouts (December 2025)
+DAEMON_JOIN_TIMEOUT = 5.0  # Thread/process join timeout
+DAEMON_SHUTDOWN_TIMEOUT = 10.0  # Max time to wait for graceful shutdown
+DAEMON_FORCE_KILL_TIMEOUT = 5.0  # Additional time after shutdown before force kill
+DAEMON_READY_TIMEOUT = 30.0  # Max time to wait for daemon to be ready
+MAX_DAEMON_RESTART_ATTEMPTS = 5  # Max restart attempts per daemon
+
+# Health check and heartbeat (December 2025)
+HEALTH_CHECK_TIMEOUT = 5  # Socket/HTTP health check timeout
+HEALTH_CHECK_INTERVAL_SECONDS = 30  # Global health check interval
+HEARTBEAT_INTERVAL_SECONDS = 30  # Daemon heartbeat interval
+HEARTBEAT_TIMEOUT_SECONDS = 60  # Time before declaring daemon unresponsive
+SQLITE_CONNECT_TIMEOUT = 5.0  # SQLite connection timeout
+
+# Circuit breaker settings (December 2025)
+CIRCUIT_BREAKER_TIMEOUT = 60.0  # Time before circuit breaker opens
+CIRCUIT_BREAKER_HALF_OPEN_TIMEOUT = 30.0  # Half-open testing period
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5  # Failures before opening circuit
+
+# Recovery settings (December 2025)
+RECOVERY_ATTEMPT_COOLDOWN_SECONDS = 300  # Cooldown between recovery attempts
+CAPACITY_REFRESH_INTERVAL = 300.0  # Interval for refreshing cluster capacity
+SYNC_STALL_DETECTION_TIMEOUT = 600  # Timeout before declaring sync stalled
+
 # Lock timeout for coordination primitives (seconds)
 COORDINATION_LOCK_TIMEOUT = 60
 

@@ -238,7 +238,7 @@ class NodeRecoveryDaemon(BaseDaemon[NodeRecoveryConfig]):
     async def _update_node_states(self) -> None:
         """Update node states from P2P cluster."""
         try:
-            from app.distributed.p2p_orchestrator import get_p2p_orchestrator
+            from app.coordination.p2p_integration import get_p2p_orchestrator
 
             p2p = get_p2p_orchestrator()
             if p2p is None:

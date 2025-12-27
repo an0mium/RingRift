@@ -264,6 +264,12 @@ class FeedbackLoopController:
                 bus.subscribe(DataEventType.QUALITY_CHECK_FAILED, self._on_quality_check_failed)
                 event_count += 1
 
+            # Dec 2025: Subscribe to QUALITY_FEEDBACK_ADJUSTED for dynamic training adjustments
+            # Closes feedback loop: quality assessment → training intensity/exploration adjustments
+            if hasattr(DataEventType, 'QUALITY_FEEDBACK_ADJUSTED'):
+                bus.subscribe(DataEventType.QUALITY_FEEDBACK_ADJUSTED, self._on_quality_feedback_adjusted)
+                event_count += 1
+
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
 
             self._subscribed = True
@@ -2059,6 +2065,62 @@ class FeedbackLoopController:
                     )
                 except Exception as e:
                     logger.debug(f"Failed to emit selfplay target: {e}")
+
+    def _on_quality_feedback_adjusted(self, event) -> None:
+        """Handle QUALITY_FEEDBACK_ADJUSTED - quality assessment triggered adjustments.
+
+        Adjusts training intensity and exploration based on data quality feedback.
+        When quality improves, accelerate training. When quality degrades, boost exploration.
+
+        Added: December 2025 - Closes critical feedback loop gap
+        """
+        payload = event.payload if hasattr(event, "payload") else {}
+        config_key = payload.get("config_key", "")
+        quality_score = payload.get("quality_score", 0.5)
+        budget_multiplier = payload.get("budget_multiplier", 1.0)
+        adjustment_type = payload.get("adjustment_type", "unknown")
+
+        if not config_key:
+            return
+
+        state = self._get_or_create_state(config_key)
+
+        # Update quality tracking
+        state.last_selfplay_quality = quality_score
+
+        # Adjust training intensity based on quality feedback
+        if budget_multiplier > 1.0:
+            # Quality is good - accelerate training
+            state.current_training_intensity = "accelerated"
+            logger.info(
+                f"[FeedbackLoopController] Quality feedback positive for {config_key}: "
+                f"score={quality_score:.2f}, multiplier={budget_multiplier:.2f} → accelerated training"
+            )
+        elif budget_multiplier < 0.8:
+            # Quality is poor - boost exploration, slow training
+            state.current_training_intensity = "conservative"
+            logger.info(
+                f"[FeedbackLoopController] Quality feedback negative for {config_key}: "
+                f"score={quality_score:.2f}, multiplier={budget_multiplier:.2f} → conservative training"
+            )
+
+            # Trigger exploration boost for poor quality
+            if HAS_EXPLORATION_EVENTS:
+                try:
+                    _safe_create_task(
+                        emit_exploration_boost(
+                            config_key=config_key,
+                            boost_factor=1.5,
+                            reason=f"quality_feedback_{adjustment_type}",
+                            source="feedback_loop_controller",
+                        ),
+                        "quality_exploration_boost_emit"
+                    )
+                except (ImportError, Exception) as e:
+                    logger.debug(f"Failed to emit exploration boost: {e}")
+        else:
+            # Quality is normal
+            state.current_training_intensity = "normal"
 
     def signal_selfplay_quality(self, config_key: str, quality_score: float) -> None:
         """Manually signal selfplay quality (for testing/manual intervention)."""

@@ -324,11 +324,11 @@ The only `continue-on-error: true` is at [line 198-199](../../../.github/workflo
 | ------------------- | --------------------------------------------------- | ---------------------------- |
 | RatingService       | `tests/unit/RatingService.test.ts`                  | ✅ Comprehensive (76+ tests) |
 | Auth Routes         | `tests/unit/auth.routes.test.ts`                    | ✅ Comprehensive             |
-| Rate Limiter        | `tests/unit/middleware/rateLimiter.test.ts`                    | ✅ Comprehensive             |
+| Rate Limiter        | `tests/unit/middleware/rateLimiter.test.ts`         | ✅ Comprehensive             |
 | Error Handler       | `tests/unit/errorHandler.standardized.test.ts`      | ✅ Comprehensive             |
 | Security Headers    | `tests/unit/securityHeaders.test.ts`                | ✅ Comprehensive             |
-| Degradation Headers | `tests/unit/middleware/degradationHeaders.test.ts`             | ✅ Comprehensive             |
-| Metrics Middleware  | `tests/unit/middleware/metricsMiddleware.test.ts`              | ✅ Comprehensive             |
+| Degradation Headers | `tests/unit/middleware/degradationHeaders.test.ts`  | ✅ Comprehensive             |
+| Metrics Middleware  | `tests/unit/middleware/metricsMiddleware.test.ts`   | ✅ Comprehensive             |
 | WebSocket Auth      | `tests/unit/WebSocketServer.authRevocation.test.ts` | ✅ Specific                  |
 | AI Engine Fallback  | `tests/unit/AIEngine.fallback.test.ts`              | ✅ Specific                  |
 | GameEngine          | Multiple scenario files                             | ✅ Extensive                 |

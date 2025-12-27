@@ -445,7 +445,10 @@ class VastCpuPipelineDaemon:
             logger.error(f"Data validation failed: {e}")
 
     async def _check_job_status(self) -> None:
-        """Check status of active jobs and handle completions."""
+        """Check status of active jobs and handle completions.
+
+        December 2025: Checks if background process is still running via SSH.
+        """
         completed: list[str] = []
 
         for job_id, job in self._active_jobs.items():
@@ -460,8 +463,50 @@ class VastCpuPipelineDaemon:
                         completed.append(job_id)
                         continue
 
-                # TODO: Check actual job status via SSH or API
-                # For now, assume job is still running
+                # Check actual job status via SSH
+                pid = job.result.get("pid")
+                if pid and job.node_id:
+                    try:
+                        from app.core.ssh import run_ssh_command_async
+
+                        # Check if process is still running
+                        result = await run_ssh_command_async(
+                            job.node_id,
+                            f"ps -p {pid} -o pid= 2>/dev/null || echo 'done'",
+                            timeout=10,
+                        )
+
+                        if result.returncode == 0:
+                            output = result.stdout.strip()
+                            if output == "done" or not output:
+                                # Process finished - check log for result
+                                log_file = job.result.get("log_file", "")
+                                if log_file:
+                                    log_result = await run_ssh_command_async(
+                                        job.node_id,
+                                        f"tail -20 {log_file} 2>/dev/null",
+                                        timeout=10,
+                                    )
+                                    log_output = log_result.stdout if log_result.returncode == 0 else ""
+
+                                    # Check for success indicators
+                                    if "error" in log_output.lower() or "failed" in log_output.lower():
+                                        job.success = False
+                                        job.error = f"Job failed - check {log_file}"
+                                    else:
+                                        job.success = True
+
+                                    job.result["log_tail"] = log_output[-500:]  # Last 500 chars
+
+                                job.completed_at = time.time()
+                                completed.append(job_id)
+                                logger.info(
+                                    f"Job {job_id} completed on {job.node_id}: "
+                                    f"success={job.success}"
+                                )
+
+                    except Exception as e:
+                        logger.debug(f"Failed to check PID {pid} on {job.node_id}: {e}")
 
             except Exception as e:
                 logger.error(f"Failed to check job {job_id} status: {e}")

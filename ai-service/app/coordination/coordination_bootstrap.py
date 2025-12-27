@@ -786,6 +786,24 @@ def _init_curriculum_integration() -> BootstrapCoordinatorStatus:
         status.initialized_at = datetime.now()
         logger.info("[Bootstrap] CurriculumIntegration initialized")
 
+        # Dec 2025: Verify OpponentTrackerIntegration was wired
+        # This closes a critical feedback loop for weak opponent targeting
+        try:
+            from app.training.curriculum_feedback import get_curriculum_feedback
+            feedback = get_curriculum_feedback()
+            if hasattr(feedback, '_opponent_tracker') and feedback._opponent_tracker is not None:
+                logger.info("[Bootstrap] OpponentTrackerIntegration verified - wired to curriculum")
+            else:
+                # Attempt direct wiring as fallback
+                from app.training.curriculum_feedback import wire_opponent_tracker_to_curriculum
+                wire_opponent_tracker_to_curriculum()
+                if hasattr(feedback, '_opponent_tracker') and feedback._opponent_tracker is not None:
+                    logger.info("[Bootstrap] OpponentTrackerIntegration wired via fallback")
+                else:
+                    logger.warning("[Bootstrap] OpponentTrackerIntegration not available")
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"[Bootstrap] OpponentTrackerIntegration verification skipped: {e}")
+
     except ImportError as e:
         status.error = f"Import error: {e}"
         logger.warning(f"[Bootstrap] CurriculumIntegration not available: {e}")

@@ -144,6 +144,15 @@ HTTP_TOTAL_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_HTTP_TOTAL_TIMEOUT", "45")
 MAX_CONSECUTIVE_FAILURES = 5  # Mark node dead after 5 failures (increased from 3)
 RETRY_DEAD_NODE_INTERVAL = 120  # Retry dead nodes every 2 minutes (reduced from 5)
 
+# ============================================
+# Gossip Protocol
+# ============================================
+
+# Upper bound on peer endpoints included in gossip payloads to limit message size.
+GOSSIP_MAX_PEER_ENDPOINTS = int(
+    os.environ.get("RINGRIFT_P2P_GOSSIP_MAX_PEER_ENDPOINTS", "25") or 25
+)
+
 # Peer lifecycle
 PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "3600") or 3600)
 RETRY_RETIRED_NODE_INTERVAL = int(os.environ.get("RINGRIFT_P2P_RETRY_RETIRED_NODE_INTERVAL", "3600") or 3600)

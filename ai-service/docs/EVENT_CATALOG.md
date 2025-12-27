@@ -2166,10 +2166,10 @@ Complete list of all 159 event types organized by category:
 
 ### Lock Events
 
-| Event               | Description       | Key Fields        |
-| ------------------- | ----------------- | ----------------- |
-| `LOCK_TIMEOUT`      | Lock timed out    | lock_name         |
-| `DEADLOCK_DETECTED` | Deadlock detected | locks_involved    |
+| Event               | Description       | Key Fields     |
+| ------------------- | ----------------- | -------------- |
+| `LOCK_TIMEOUT`      | Lock timed out    | lock_name      |
+| `DEADLOCK_DETECTED` | Deadlock detected | locks_involved |
 
 ### Checkpoint Events
 
