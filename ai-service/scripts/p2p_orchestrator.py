@@ -2593,6 +2593,15 @@ class P2POrchestrator(
             )
             manager.register(work_queue_maint)
 
+            # NATManagementLoop - STUN-like probing, symmetric NAT detection, relay selection
+            # December 27, 2025: Migrated from inline _nat_management_loop
+            nat_management = NATManagementLoop(
+                detect_nat_type=self._detect_nat_type,
+                probe_nat_blocked_peers=self._probe_nat_blocked_peers,
+                update_relay_preferences=self._update_relay_preferences,
+            )
+            manager.register(nat_management)
+
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
             return True
