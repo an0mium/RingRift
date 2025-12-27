@@ -111,6 +111,39 @@ class DaemonAdapter(ABC):
         """Check daemon health. Override for custom health checks."""
         return self._running and self._daemon_instance is not None
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check adapter health for CoordinatorProtocol compliance.
+
+        December 2025: Added for unified daemon health monitoring.
+        Delegates to wrapped daemon's health_check() if available.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        # If daemon has its own health_check(), delegate to it
+        if self._daemon_instance is not None and hasattr(self._daemon_instance, "health_check"):
+            return self._daemon_instance.health_check()
+
+        # Otherwise, check adapter state
+        if not self._running:
+            return HealthCheckResult(
+                healthy=True,  # Stopped is not unhealthy
+                status=CoordinatorStatus.STOPPED,
+                message=f"{self.__class__.__name__} not running",
+            )
+
+        if not self._healthy:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"{self.__class__.__name__} unhealthy (count: {self._unhealthy_count})",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"{self.__class__.__name__} running",
+        )
+
     async def run(self) -> None:
         """Main entry point for DaemonManager integration."""
         # Acquire role if required

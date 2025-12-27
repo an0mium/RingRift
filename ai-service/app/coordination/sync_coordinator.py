@@ -1337,20 +1337,14 @@ def wire_sync_events() -> SyncScheduler:
     scheduler = get_sync_scheduler()
 
     try:
-        from app.coordination.event_router import get_router
+        from app.coordination.event_router import get_router, get_event_payload
         from app.coordination.event_router import DataEventType  # Types still needed
 
         router = get_router()
 
-        def _event_payload(event: Any) -> dict[str, Any]:
-            if isinstance(event, dict):
-                return event
-            payload = getattr(event, "payload", None)
-            return payload if isinstance(payload, dict) else {}
-
         def _on_sync_completed(event: Any) -> None:
             """Handle sync completion - update host state."""
-            payload = _event_payload(event)
+            payload = get_event_payload(event)
             host = payload.get("host") or payload.get("source_host")
             games_synced = payload.get("games_synced", 0)
             if host:
@@ -1364,7 +1358,7 @@ def wire_sync_events() -> SyncScheduler:
 
         def _on_sync_failed(event: Any) -> None:
             """Handle sync failure - update scheduling."""
-            payload = _event_payload(event)
+            payload = get_event_payload(event)
             host = payload.get("host") or payload.get("source_host")
             error = payload.get("error", "Unknown error")
             if host:
@@ -1380,7 +1374,7 @@ def wire_sync_events() -> SyncScheduler:
 
         def _on_new_games(event: Any) -> None:
             """Handle new games - update priority."""
-            payload = _event_payload(event)
+            payload = get_event_payload(event)
             host = payload.get("host") or payload.get("source_host")
             count = payload.get("count", 1)
             if host:
@@ -1395,7 +1389,7 @@ def wire_sync_events() -> SyncScheduler:
             2. Log stall for monitoring
             3. SyncScheduler will automatically select alternative sources on next sync
             """
-            payload = _event_payload(event)
+            payload = get_event_payload(event)
             source_host = payload.get("source_host", "unknown")
             target_host = payload.get("target_host", "unknown")
             timeout = payload.get("timeout_seconds", 0)

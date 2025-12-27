@@ -1225,6 +1225,33 @@ def get_event_stats() -> dict[str, Any]:
     return get_router().get_stats()
 
 
+def get_event_payload(event: RouterEvent | dict[str, Any] | Any) -> dict[str, Any]:
+    """Extract payload from an event, regardless of event format.
+
+    December 2025: Standard helper for event handlers that need to work with
+    both RouterEvent objects and raw dictionaries. Use this in callbacks
+    instead of custom payload extraction logic.
+
+    Args:
+        event: Either a RouterEvent, a dict, or any object with a .payload attribute
+
+    Returns:
+        The event payload as a dictionary
+
+    Usage:
+        from app.coordination.event_router import get_event_payload
+
+        def my_handler(event: RouterEvent) -> None:
+            payload = get_event_payload(event)
+            host = payload.get("host")
+            # ... process event
+    """
+    if isinstance(event, dict):
+        return event
+    payload = getattr(event, "payload", None)
+    return payload if isinstance(payload, dict) else {}
+
+
 __all__ = [  # noqa: RUF022
     "DATA_TO_STAGE_EVENT_MAP",
     # Event type mappings
@@ -1244,6 +1271,7 @@ __all__ = [  # noqa: RUF022
     "validate_event_flow",
     "get_orphaned_events",
     "get_event_stats",
+    "get_event_payload",  # Dec 2025: Standard helper for event handlers
     # Re-exports from data_events for backward compatibility
     "DataEvent",
     "DataEventType",

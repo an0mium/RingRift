@@ -882,6 +882,10 @@ class SyncPlanner:
             "cluster_manifest_nodes": len(self._cluster_manifest.node_manifests) if self._cluster_manifest else 0,
             "active_sync_jobs": len(self._active_sync_jobs),
             "sync_in_progress": self._sync_in_progress,
+            # Dec 2025: Event emission tracking
+            "events_emitted": self.stats.events_emitted,
+            "events_failed": self.stats.events_failed,
+            "last_event_error": self.stats.last_event_error if self.stats.events_failed > 0 else None,
         }
 
     # ============================================
