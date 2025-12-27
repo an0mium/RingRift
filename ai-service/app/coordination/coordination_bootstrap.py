@@ -515,7 +515,7 @@ def _init_queue_populator() -> BootstrapCoordinatorStatus:
     """Initialize QueuePopulator."""
     status = BootstrapCoordinatorStatus(name="queue_populator")
     try:
-        from app.coordination.queue_populator import wire_queue_populator_events
+        from app.coordination.unified_queue_populator import wire_queue_populator_events
 
         coordinator = wire_queue_populator_events()
         status.initialized = True
@@ -1536,7 +1536,7 @@ def shutdown_coordination() -> dict[str, Any]:
                 from app.coordination.ephemeral_data_guard import get_ephemeral_guard
                 coordinator = get_ephemeral_guard()
             elif name == "queue_populator":
-                from app.coordination.queue_populator import get_queue_populator
+                from app.coordination.unified_queue_populator import get_queue_populator
                 coordinator = get_queue_populator()
             elif name == "multi_provider":
                 from app.coordination.multi_provider_orchestrator import get_multi_provider_orchestrator

@@ -535,7 +535,7 @@ class SelfplayScheduler:
 
         try:
             # Try using QueuePopulator's ConfigTarget if available
-            from app.coordination.queue_populator import get_queue_populator
+            from app.coordination.unified_queue_populator import get_queue_populator
 
             populator = get_queue_populator()
             if populator:

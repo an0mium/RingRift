@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Protocol
 from aiohttp import web
 
 if TYPE_CHECKING:
-    from app.coordination.queue_populator import QueuePopulator
+    from app.coordination.unified_queue_populator import UnifiedQueuePopulator as QueuePopulator
 
 logger = logging.getLogger(__name__)
 

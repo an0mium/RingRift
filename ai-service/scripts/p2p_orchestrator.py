@@ -10199,20 +10199,8 @@ print(json.dumps(result))
         # Delegate to JobManager (December 2025 refactoring)
         await self.job_manager.run_distributed_selfplay(job_id)
 
-    async def _run_local_selfplay(
-        self, job_id: str, num_games: int, board_type: str,
-        num_players: int, model_path: str | None, output_dir: str
-    ):
-        """Run selfplay locally using subprocess.
-
-        .. deprecated:: December 2025
-            Delegates to JobManager.run_local_selfplay().
-            This wrapper method will be removed in Q2 2026.
-        """
-        # Delegate to JobManager (December 2025 refactoring)
-        await self.job_manager.run_local_selfplay(
-            job_id, num_games, board_type, num_players, model_path, output_dir
-        )
+    # NOTE: _run_local_selfplay() removed Dec 2025 (14 LOC).
+    # Use self.job_manager.run_local_selfplay() directly.
 
     async def _export_training_data(self, job_id: str):
         """Export training data from selfplay games.
@@ -10234,15 +10222,8 @@ print(json.dumps(result))
         # Delegate to JobManager (December 2025 refactoring)
         await self.job_manager.run_training(job_id)
 
-    async def _run_local_training(self, config: dict):
-        """Run training locally using subprocess.
-
-        .. deprecated:: December 2025
-            Delegates to JobManager.run_local_training().
-            This wrapper method will be removed in Q2 2026.
-        """
-        # Delegate to JobManager (December 2025 refactoring)
-        await self.job_manager.run_local_training(config)
+    # NOTE: _run_local_training() removed Dec 2025 (9 LOC).
+    # Use self.job_manager.run_local_training() directly.
 
     # ============================================
     # Phase 3: Training Pipeline Integration Methods
@@ -10739,25 +10720,11 @@ print(json.dumps(result))
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
 
-    async def _handle_training_job_completion(self, job: TrainingJob) -> None:
-        """Handle training job completion - run gauntlet, notify cycle manager, trigger evaluation.
+    # NOTE: _handle_training_job_completion() removed Dec 2025 (9 LOC).
+    # Use self.training_coordinator.handle_training_job_completion() directly.
 
-        .. deprecated:: December 2025
-            Delegates to TrainingCoordinator.handle_training_job_completion().
-            This wrapper method will be removed in Q2 2026.
-        """
-        # Delegate to TrainingCoordinator (December 2025 refactoring)
-        await self.training_coordinator.handle_training_job_completion(job)
-
-    async def _schedule_model_comparison_tournament(self, job: TrainingJob) -> None:
-        """Schedule a tournament to compare the new model against baseline.
-
-        .. deprecated:: December 2025
-            Delegates to TrainingCoordinator._schedule_model_comparison_tournament().
-            This wrapper method will be removed in Q2 2026.
-        """
-        # Delegate to TrainingCoordinator (December 2025 refactoring)
-        await self.training_coordinator._schedule_model_comparison_tournament(job)
+    # NOTE: _schedule_model_comparison_tournament() removed Dec 2025 (9 LOC).
+    # Use self.training_coordinator._schedule_model_comparison_tournament() directly.
 
     # =========================================================================
     # POST-TRAINING GAUNTLET: Immediate evaluation after training
@@ -10802,15 +10769,8 @@ print(json.dumps(result))
             logger.error(f"getting median model: {e}")
             return None
 
-    async def _run_post_training_gauntlet(self, job: TrainingJob) -> bool:
-        """Run quick gauntlet evaluation for newly trained model.
-
-        .. deprecated:: December 2025
-            Delegates to TrainingCoordinator._run_post_training_gauntlet().
-            This wrapper method will be removed in Q2 2026.
-        """
-        # Delegate to TrainingCoordinator (December 2025 refactoring)
-        return await self.training_coordinator._run_post_training_gauntlet(job)
+    # NOTE: _run_post_training_gauntlet() removed Dec 2025 (9 LOC).
+    # Use self.training_coordinator._run_post_training_gauntlet() directly.
 
     async def _archive_failed_model(self, model_path: str, board_type: str,
                                      num_players: int, reason: str) -> None:
@@ -24378,100 +24338,9 @@ print(json.dumps({{
 
         return min(5, boost)  # Cap at +5
 
-    def _pick_weighted_selfplay_config(self, node) -> dict[str, Any] | None:
-        """Pick a selfplay config weighted by priority and node capabilities.
-
-        .. deprecated:: December 2025
-            Use self.selfplay_scheduler.pick_weighted_config() instead.
-            This method is dead code - callers now use selfplay_scheduler directly.
-            Scheduled for removal in Q2 2026.
-
-        PRIORITY-BASED SCHEDULING: Combines static priority with dynamic
-        ELO-based boosts to allocate more resources to high-performing configs.
-
-        Returns config dict with board_type, num_players, engine_mode.
-        """
-        # Get the selfplay configs - DIVERSE mode prioritized for high-quality training data
-        # Uses "mixed" engine mode for varied AI matchups (NNUE, MCTS, heuristic combinations)
-        selfplay_configs = [
-            # Priority 8: Underrepresented hex/sq19 combos with diverse AI (highest priority)
-            {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "hex8", "num_players": 2, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "hex8", "num_players": 3, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "hex8", "num_players": 4, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "square19", "num_players": 3, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "square19", "num_players": 2, "engine_mode": "mixed", "priority": 8},
-            {"board_type": "square19", "num_players": 4, "engine_mode": "mixed", "priority": 8},
-            # Priority 7: Square8 multi-player with diverse AI
-            {"board_type": "square8", "num_players": 3, "engine_mode": "mixed", "priority": 7},
-            {"board_type": "square8", "num_players": 4, "engine_mode": "mixed", "priority": 7},
-            # Priority 6: Cross-AI matches (specific matchup types)
-            {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-            {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-            {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-            # Priority 5: Standard 2p square8 with diverse AI
-            {"board_type": "square8", "num_players": 2, "engine_mode": "mixed", "priority": 5},
-            # Priority 4: Tournament varied (for evaluation-style games)
-            {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
-            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
-            # Priority 3: CPU-bound specialized modes
-            {"board_type": "square8", "num_players": 2, "engine_mode": "mcts-only", "priority": 3},
-            {"board_type": "hexagonal", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
-        ]
-
-        # Filter by node memory (avoid large boards on small nodes)
-        node_mem = int(getattr(node, "memory_gb", 0) or 0)
-        if node_mem and node_mem < 48:
-            selfplay_configs = [c for c in selfplay_configs if c.get("board_type") == "square8"]
-
-        if not selfplay_configs:
-            return None
-
-        # PRIORITY-BASED SCHEDULING: Add ELO-based priority boosts
-        # Phase 3.1: Also incorporate curriculum weights from unified AI loop
-        curriculum_weights = {}
-        if HAS_CURRICULUM_WEIGHTS and load_curriculum_weights is not None:
-            try:
-                curriculum_weights = load_curriculum_weights()
-            except (OSError, ValueError, KeyError, ImportError):
-                pass  # Use empty weights on error
-
-        # Load board priority overrides from config (0=CRITICAL, 1=HIGH, 2=MEDIUM, 3=LOW)
-        board_priority_overrides = get_board_priority_overrides()
-
-        for cfg in selfplay_configs:
-            elo_boost = self._get_elo_based_priority_boost(
-                cfg.get("board_type", ""),
-                cfg.get("num_players", 2),
-            )
-
-            # Phase 3.1: Apply curriculum weight boost
-            # Config keys are formatted as "board_type_Np" (e.g., "square8_2p")
-            config_key = f"{cfg.get('board_type', '')}_{cfg.get('num_players', 2)}p"
-            curriculum_weight = curriculum_weights.get(config_key, 1.0)
-            # Convert weight (0.7-1.5) to priority boost (0-3)
-            # weight 0.7 = -1 boost, weight 1.0 = 0 boost, weight 1.5 = +2 boost
-            curriculum_boost = int((curriculum_weight - 1.0) * 4)
-            curriculum_boost = max(-2, min(3, curriculum_boost))  # Clamp to -2..+3
-
-            # Apply board priority overrides from config
-            # 0=CRITICAL adds +6, 1=HIGH adds +4, 2=MEDIUM adds +2, 3=LOW adds 0
-            board_priority = board_priority_overrides.get(config_key, 3)  # Default to LOW (3)
-            board_priority_boost = (3 - board_priority) * 2  # 0->6, 1->4, 2->2, 3->0
-
-            cfg["effective_priority"] = cfg.get("priority", 1) + elo_boost + curriculum_boost + board_priority_boost
-
-        # Build weighted list by effective priority
-        weighted = []
-        for cfg in selfplay_configs:
-            # Ensure minimum priority of 1
-            priority = max(1, cfg.get("effective_priority", 1))
-            weighted.extend([cfg] * priority)
-
-        import random
-        return random.choice(weighted) if weighted else None
+    # NOTE: _pick_weighted_selfplay_config() removed Dec 2025 (95 LOC).
+    # Use self.selfplay_scheduler.pick_weighted_config() instead.
+    # See scripts/p2p/managers/selfplay_scheduler.py for implementation.
 
     async def _auto_scale_gpu_utilization(self) -> int:
         """Auto-scale diverse/hybrid selfplay jobs to reach 60-80% GPU utilization.
@@ -25349,8 +25218,8 @@ print(json.dumps({{
             # Base targets:
             # - GPU nodes: fixed concurrency tuned for GPU throughput.
             # - CPU-only nodes: scale with CPU cores (and cap by memory).
-            # HYBRID MODE: Get separate GPU and CPU-only job targets
-            hybrid_targets = self._get_hybrid_job_targets(node)
+            # HYBRID MODE: Get separate GPU and CPU-only job targets (delegated)
+            hybrid_targets = self.selfplay_scheduler.get_hybrid_job_targets(node)
             gpu_job_target = hybrid_targets.get("gpu_jobs", 0)
             cpu_only_target = hybrid_targets.get("cpu_only_jobs", 0)
             total_target = hybrid_targets.get("total_jobs", gpu_job_target)

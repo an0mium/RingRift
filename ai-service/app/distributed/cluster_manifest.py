@@ -52,7 +52,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Generator
 
-import yaml
+from app.config.cluster_config import load_cluster_config
 
 logger = logging.getLogger(__name__)
 
@@ -434,23 +434,22 @@ class ClusterManifest:
         logger.info(f"ClusterManifest initialized: node={self.node_id}, db={db_path}")
 
     def _load_config(self, config_path: Path | None = None) -> None:
-        """Load host configuration and exclusion rules."""
-        if config_path is None:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            config_path = base_dir / "config" / "distributed_hosts.yaml"
+        """Load host configuration and exclusion rules.
 
-        if not config_path.exists():
-            logger.warning(f"No config found at {config_path}")
-            return
-
+        Uses the consolidated cluster_config module instead of inline yaml loading.
+        """
         try:
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
+            cluster_config = load_cluster_config(config_path)
 
-            self._hosts_config = config.get("hosts", {})
+            self._hosts_config = cluster_config.hosts_raw
 
-            # Build exclusion rules from config
-            self._build_exclusion_rules(config)
+            # Build exclusion rules from config (use raw section for backwards compat)
+            raw_config = {
+                "hosts": cluster_config.hosts_raw,
+                "sync_routing": cluster_config.get_raw_section("sync_routing"),
+                "auto_sync": cluster_config.get_raw_section("auto_sync"),
+            }
+            self._build_exclusion_rules(raw_config)
 
         except Exception as e:
             logger.error(f"Failed to load config: {e}")

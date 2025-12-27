@@ -28,8 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from app.config.cluster_config import load_cluster_config, get_host_provider
 from app.distributed.cluster_manifest import (
     ClusterManifest,
     DataType,
@@ -118,26 +117,28 @@ class SyncRouter:
         logger.info(f"SyncRouter initialized: {len(self._node_capabilities)} nodes")
 
     def _load_config(self, config_path: Path | None = None) -> None:
-        """Load configuration from distributed_hosts.yaml."""
-        if config_path is None:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            config_path = base_dir / "config" / "distributed_hosts.yaml"
+        """Load configuration from distributed_hosts.yaml using cluster_config.
 
-        if not config_path.exists():
-            logger.warning(f"No config found at {config_path}")
-            return
-
+        Uses the consolidated cluster_config module instead of inline yaml loading.
+        """
         try:
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
+            cluster_config = load_cluster_config(config_path)
 
-            self._hosts_config = config.get("hosts", {})
-            self._sync_routing = config.get("sync_routing", {})
+            self._hosts_config = cluster_config.hosts_raw
+            self._sync_routing = cluster_config.get_raw_section("sync_routing")
 
             # Dec 2025: Load allowed_external_storage for coordinator backup
-            self._external_storage: list[dict[str, Any]] = self._sync_routing.get(
-                "allowed_external_storage", []
-            )
+            self._external_storage: list[dict[str, Any]] = [
+                {
+                    "host": storage.host,
+                    "path": storage.path,
+                    "receive_games": storage.receive_games,
+                    "receive_npz": storage.receive_npz,
+                    "receive_models": storage.receive_models,
+                    "subdirs": storage.subdirs,
+                }
+                for storage in cluster_config.sync_routing.allowed_external_storage
+            ]
 
             # Build node capabilities from hosts config
             self._build_node_capabilities()
@@ -168,24 +169,8 @@ class SyncRouter:
             role = host_config.get("role", "selfplay")
             gpu = host_config.get("gpu", "")
 
-            # Determine provider
-            provider = "unknown"
-            if "lambda" in host_name.lower():
-                provider = "lambda"
-            elif "vast" in host_name.lower():
-                provider = "vast"
-            elif "hetzner" in host_name.lower():
-                provider = "hetzner"
-            elif "aws" in host_name.lower():
-                provider = "aws"
-            elif any(x in host_name.lower() for x in ["mac", "mbp"]):
-                provider = "mac"
-            elif "runpod" in host_name.lower():
-                provider = "runpod"
-            elif "nebius" in host_name.lower():
-                provider = "nebius"
-            elif "vultr" in host_name.lower():
-                provider = "vultr"
+            # Use consolidated provider detection from cluster_config
+            provider = get_host_provider(host_name)
 
             # Check if shares NFS (Lambda nodes with same provider)
             shares_nfs = provider == "lambda"

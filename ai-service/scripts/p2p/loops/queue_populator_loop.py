@@ -154,8 +154,8 @@ class QueuePopulatorLoop(BaseLoop):
         try:
             import yaml
 
-            from app.coordination.queue_populator import (
-                QueuePopulator,
+            from app.coordination.unified_queue_populator import (
+                UnifiedQueuePopulator as QueuePopulator,
                 load_populator_config_from_yaml,
             )
             from app.coordination.work_queue import get_work_queue
