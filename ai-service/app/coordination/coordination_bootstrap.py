@@ -1592,9 +1592,27 @@ def shutdown_coordination() -> dict[str, Any]:
             # job_scheduler doesn't have a coordinator instance to shutdown
 
             # Call shutdown method if available
+            # P0.4 (December 2025): Handle async shutdown methods properly
             if coordinator and hasattr(coordinator, "shutdown"):
-                coordinator.shutdown()
-                logger.debug(f"[Bootstrap] Shutdown {name}")
+                import asyncio
+                import inspect
+
+                shutdown_method = getattr(coordinator, "shutdown")
+                if inspect.iscoroutinefunction(shutdown_method):
+                    # Async shutdown - need to run in event loop
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # Create task and schedule (fire-and-forget in sync context)
+                        loop.create_task(shutdown_method())
+                        logger.debug(f"[Bootstrap] Scheduled async shutdown for {name}")
+                    except RuntimeError:
+                        # No running loop - create one
+                        asyncio.run(shutdown_method())
+                        logger.debug(f"[Bootstrap] Shutdown {name} (async)")
+                else:
+                    # Sync shutdown
+                    shutdown_method()
+                    logger.debug(f"[Bootstrap] Shutdown {name}")
 
             shutdown_results[name] = True
 

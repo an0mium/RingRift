@@ -248,13 +248,12 @@ class BackpressureMonitor:
             logger.debug(f"[Backpressure] Daemon manager unavailable: {e}")
 
         # Disk pressure from P2P status
-        # Dec 2025: Fixed import path to use cluster_data_sync.get_p2p_status()
+        # Dec 2025: Updated to use p2p_integration.get_p2p_status (async, with caching)
         try:
-            from app.coordination.cluster_data_sync import get_p2p_status
+            from app.coordination.p2p_integration import get_p2p_status
 
-            # get_p2p_status() is sync, run in thread pool
-            loop = asyncio.get_running_loop()
-            status = await loop.run_in_executor(None, get_p2p_status)
+            # get_p2p_status() is async with caching
+            status = await get_p2p_status()
             if status:
                 # Aggregate disk usage across all nodes
                 peers = status.get("peers", [])

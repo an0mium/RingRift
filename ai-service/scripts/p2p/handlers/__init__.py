@@ -44,10 +44,14 @@ Handler Categories:
     Administration:
         - AdminHandlersMixin: Git status, code updates, health checks
 
+    Network Discovery (December 2025):
+        - NetworkDiscoveryMixin: Local IP/Tailscale detection, partition recovery
+
 See individual handler modules for endpoint documentation.
 """
 
 from .admin import AdminHandlersMixin
+from .network_discovery import NetworkDiscoveryMixin
 from .cmaes import CMAESHandlersMixin
 from .election import ElectionHandlersMixin
 from .elo_sync import EloSyncHandlersMixin
@@ -67,6 +71,7 @@ __all__ = [
     "EloSyncHandlersMixin",
     "GauntletHandlersMixin",
     "GossipHandlersMixin",
+    "NetworkDiscoveryMixin",
     "RaftHandlersMixin",
     "RelayHandlersMixin",
     "SSHTournamentHandlersMixin",

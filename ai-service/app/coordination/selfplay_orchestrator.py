@@ -229,16 +229,17 @@ class SelfplayOrchestrator:
             True if successfully subscribed
         """
         try:
-            from app.coordination.event_router import StageEvent, get_stage_event_bus
+            # P0.5 (December 2025): Use get_router() instead of deprecated get_stage_event_bus()
+            from app.coordination.event_router import StageEvent, get_router
 
-            bus = get_stage_event_bus()
+            router = get_router()
 
             # Subscribe to selfplay stage events
-            bus.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_stage_complete)
-            bus.subscribe(
+            router.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_stage_complete)
+            router.subscribe(
                 StageEvent.GPU_SELFPLAY_COMPLETE, self._on_gpu_selfplay_stage_complete
             )
-            bus.subscribe(
+            router.subscribe(
                 StageEvent.CANONICAL_SELFPLAY_COMPLETE,
                 self._on_canonical_selfplay_stage_complete,
             )

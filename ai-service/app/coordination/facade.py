@@ -484,10 +484,18 @@ class CoordinationFacade:
         return self._training_coordinator
 
     def _get_node_monitor(self):
-        """Lazy load node health monitor."""
+        """Lazy load node health monitor.
+
+        December 2025: node_health_monitor is deprecated in favor of
+        health_check_orchestrator, but this facade method is kept for
+        backward compatibility with existing callers.
+        """
         if self._node_monitor is None:
             try:
-                from app.coordination.node_health_monitor import get_node_health_monitor
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=DeprecationWarning)
+                    from app.coordination.node_health_monitor import get_node_health_monitor
                 self._node_monitor = get_node_health_monitor()
             except Exception as e:
                 logger.debug(f"Could not load node monitor: {e}")

@@ -58,6 +58,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.config.thresholds import (
+    MEDIUM_QUALITY_THRESHOLD,
+    QUALITY_EXCELLENT_THRESHOLD,
+    QUALITY_GOOD_THRESHOLD,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,15 +110,15 @@ class FeedbackConfig:
     exploration_strategy: FeedbackStrategy = FeedbackStrategy.ADAPTIVE
     curriculum_strategy: FeedbackStrategy = FeedbackStrategy.BALANCED
 
-    # Training intensity thresholds
-    quality_excellent_threshold: float = 0.90  # → hot_path
-    quality_good_threshold: float = 0.80  # → accelerated
+    # Training intensity thresholds (from app.config.thresholds)
+    quality_excellent_threshold: float = QUALITY_EXCELLENT_THRESHOLD  # → hot_path
+    quality_good_threshold: float = QUALITY_GOOD_THRESHOLD  # → accelerated
     quality_adequate_threshold: float = 0.65  # → normal
     quality_poor_threshold: float = 0.50  # → reduced
     # Below 0.50 → paused
 
     # Exploration boost parameters
-    low_quality_threshold: float = 0.6
+    low_quality_threshold: float = MEDIUM_QUALITY_THRESHOLD
     base_exploration_boost: float = 1.3  # For low quality
     anomaly_exploration_boost: float = 1.15  # Per anomaly, cumulative
     max_exploration_boost: float = 2.0

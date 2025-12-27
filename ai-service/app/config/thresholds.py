@@ -763,8 +763,24 @@ MEDIUM_QUALITY_THRESHOLD = 0.6
 # High quality threshold (affects priority)
 HIGH_QUALITY_THRESHOLD = 0.7
 
+# Good quality threshold - accelerated training path
+QUALITY_GOOD_THRESHOLD = 0.80
+
+# Excellent quality threshold - hot path for fast promotion
+QUALITY_EXCELLENT_THRESHOLD = 0.90
+
 # Overfit detection threshold (train-val gap)
 OVERFIT_THRESHOLD = 0.15
+
+# =============================================================================
+# Gauntlet Feedback Thresholds (December 2025)
+# =============================================================================
+
+# Strong performance vs heuristic - reduces exploration (model is performing well)
+STRONG_VS_HEURISTIC_THRESHOLD = 0.80
+
+# Weak performance vs random - indicates need for more training
+WEAK_VS_RANDOM_THRESHOLD = 0.70
 
 
 # =============================================================================

@@ -39,6 +39,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.config.thresholds import (
+    STRONG_VS_HEURISTIC_THRESHOLD,
+    WEAK_VS_RANDOM_THRESHOLD,
+)
 from app.coordination.protocols import (
     CoordinatorStatus,
     HealthCheckResult,
@@ -59,9 +63,9 @@ logger = logging.getLogger(__name__)
 class GauntletFeedbackConfig:
     """Configuration for gauntlet feedback controller."""
 
-    # Performance thresholds
-    strong_vs_heuristic_threshold: float = 0.80  # Above this = reduce exploration
-    weak_vs_random_threshold: float = 0.70  # Below this = need more training
+    # Performance thresholds (from app.config.thresholds)
+    strong_vs_heuristic_threshold: float = STRONG_VS_HEURISTIC_THRESHOLD  # Above this = reduce exploration
+    weak_vs_random_threshold: float = WEAK_VS_RANDOM_THRESHOLD  # Below this = need more training
     plateau_variance_threshold: float = 0.01  # ELO variance below this = plateau
     plateau_window_size: int = 5  # Number of evaluations to check for plateau
 
