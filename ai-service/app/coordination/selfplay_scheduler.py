@@ -78,6 +78,7 @@ from app.config.thresholds import (
     is_ephemeral_node,
     get_gpu_weight,
 )
+from app.coordination.backpressure import get_backpressure_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -737,6 +738,31 @@ class SelfplayScheduler:
         Returns:
             Dict mapping config_key to {node_id: num_games}
         """
+        # Check backpressure before allocating (Dec 2025)
+        try:
+            bp_monitor = get_backpressure_monitor()
+            bp_signal = await bp_monitor.get_signal()
+
+            if bp_signal.should_pause:
+                logger.warning(
+                    f"[SelfplayScheduler] Backpressure pause: pressure={bp_signal.overall_pressure:.2f}"
+                )
+                return {}
+
+            # Scale games by spawn rate multiplier
+            spawn_multiplier = bp_signal.spawn_rate_multiplier
+            if spawn_multiplier < 1.0:
+                scaled_games = int(games_per_config * spawn_multiplier)
+                scaled_games = max(MIN_GAMES_PER_ALLOCATION, scaled_games)
+                logger.info(
+                    f"[SelfplayScheduler] Backpressure scaling: {games_per_config} -> {scaled_games} "
+                    f"(multiplier={spawn_multiplier:.2f}, pressure={bp_signal.overall_pressure:.2f})"
+                )
+                games_per_config = scaled_games
+        except Exception as e:
+            # Don't let backpressure failures block allocation
+            logger.warning(f"[SelfplayScheduler] Backpressure check failed (continuing): {e}")
+
         # Get priority configs
         priorities = await self.get_priority_configs(top_n=max_configs)
 

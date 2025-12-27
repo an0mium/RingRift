@@ -337,7 +337,7 @@ class DaemonManager:
         self.register_factory(
             DaemonType.QUEUE_POPULATOR,
             self._create_queue_populator,
-            depends_on=[DaemonType.EVENT_ROUTER],
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.SELFPLAY_COORDINATOR],
         )
 
         # Curriculum integration - bridges feedback loops for self-improvement (December 2025)
@@ -2500,8 +2500,10 @@ class DaemonManager:
         """
         try:
             from app.coordination.queue_populator import QueuePopulator
+            from app.coordination.selfplay_scheduler import get_selfplay_scheduler
 
-            populator = QueuePopulator()
+            scheduler = get_selfplay_scheduler()
+            populator = QueuePopulator(selfplay_scheduler=scheduler)
             logger.info("Queue populator daemon started")
 
             while True:

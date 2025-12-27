@@ -104,6 +104,13 @@ except ImportError:
     HAS_CROSS_PROCESS = False
 
 
+# Handler timeout to prevent hung event handlers from blocking dispatch
+# Environment variable override: RINGRIFT_EVENT_HANDLER_TIMEOUT
+DEFAULT_HANDLER_TIMEOUT_SECONDS = float(
+    os.environ.get("RINGRIFT_EVENT_HANDLER_TIMEOUT", "30.0")
+)
+
+
 class EventSource(str, Enum):
     """Source system for events."""
     DATA_BUS = "data_bus"           # From EventBus (data_events.py)
@@ -519,12 +526,22 @@ class UnifiedEventRouter:
         if event.event_type in self._subscribers:
             callbacks.extend(self._subscribers[event.event_type])
 
-        # Invoke callbacks
+        # Invoke callbacks with timeout protection (Dec 2025)
         for callback in callbacks:
             try:
                 result = callback(event)
                 if asyncio.iscoroutine(result):
-                    await result
+                    try:
+                        await asyncio.wait_for(
+                            result,
+                            timeout=DEFAULT_HANDLER_TIMEOUT_SECONDS,
+                        )
+                    except asyncio.TimeoutError:
+                        callback_name = getattr(callback, "__name__", str(callback))
+                        logger.error(
+                            f"[EventRouter] Handler timeout for {event.event_type}: "
+                            f"{callback_name} exceeded {DEFAULT_HANDLER_TIMEOUT_SECONDS}s"
+                        )
             except Exception as e:
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
 

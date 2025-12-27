@@ -228,6 +228,10 @@ from app.coordination.sync_integrity import (
     compute_file_checksum,
     verify_checksum,
     verify_sync_integrity,
+    # Transfer Safety (December 2025)
+    atomic_file_write,
+    prepare_database_for_transfer,
+    verified_database_copy,
 )
 
 # =============================================================================
@@ -287,6 +291,10 @@ __all__ = [
     "compute_file_checksum",
     "verify_checksum",
     "verify_sync_integrity",
+    # === Transfer Safety (December 2025) ===
+    "atomic_file_write",
+    "prepare_database_for_transfer",
+    "verified_database_copy",
     # === Stall Handling (sync_stall_handler.py) ===
     "SyncStallHandler",
     "get_stall_handler",

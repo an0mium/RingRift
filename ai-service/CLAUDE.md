@@ -432,6 +432,44 @@ Self-play (Python/TS) -> GameReplayDB (.db)
                     Model checkpoints
 ```
 
+## Deprecated Components & Migration
+
+The following components are deprecated and will be removed in future releases:
+
+### Daemons (Removal: Q2 2026)
+
+| Deprecated                    | Replacement                       | Notes                     |
+| ----------------------------- | --------------------------------- | ------------------------- |
+| `DaemonType.SYNC_COORDINATOR` | `DaemonType.AUTO_SYNC`            | Use AutoSyncDaemon        |
+| `DaemonType.HEALTH_CHECK`     | `DaemonType.NODE_HEALTH_MONITOR`  | Unified health monitoring |
+| `vast_idle_daemon.py`         | `unified_idle_shutdown_daemon.py` | Provider-agnostic         |
+| `lambda_idle_daemon.py`       | `unified_idle_shutdown_daemon.py` | Provider-agnostic         |
+
+### Training Modules (Deprecated Dec 2025)
+
+| Deprecated                                     | Replacement               | Notes                          |
+| ---------------------------------------------- | ------------------------- | ------------------------------ |
+| `orchestrated_training.py`                     | `unified_orchestrator.py` | Unified training orchestration |
+| `integrated_enhancements.py`                   | `unified_orchestrator.py` | Consolidated enhancements      |
+| `DataQualityScorer` (in training_enhancements) | `UnifiedQualityScorer`    | See `unified_quality.py`       |
+
+### Training Entry Points
+
+Three main options - use the recommended one:
+
+| Script                 | Purpose                                  | Recommended?       |
+| ---------------------- | ---------------------------------------- | ------------------ |
+| `master_loop.py`       | Full cluster automation with 30+ daemons | ✅ Yes             |
+| `run_training_loop.py` | Simple 1-config pipeline                 | For single configs |
+| `unified_ai_loop.py`   | Legacy wrapper                           | ❌ Deprecated      |
+
+### Migration Guides
+
+Full migration documentation is in the archive:
+
+- `archive/deprecated_coordination/README.md` - Coordination module migrations
+- `archive/deprecated_scripts/README.md` - Script migrations
+
 ## Known Issues & Gotchas
 
 1. **Canonical databases only**: Training scripts enforce `canonical_*.db` naming by default. Use `--allow-noncanonical` to bypass.
