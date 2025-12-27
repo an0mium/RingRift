@@ -361,7 +361,9 @@ class TestDataConsolidationDaemon:
     @pytest.mark.asyncio
     async def test_get_status(self, daemon, source_db):
         """Test daemon status reporting."""
-        await daemon._consolidate_config("hex8", 2)
+        # Add to pending and process (which adds to stats history)
+        daemon._pending_configs.add("hex8_2p")
+        await daemon._process_pending_consolidations()
         status = daemon.get_status()
 
         assert status["running"] is False
