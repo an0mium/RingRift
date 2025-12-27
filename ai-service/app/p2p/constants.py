@@ -29,6 +29,11 @@ except ImportError:
 # ============================================
 
 DEFAULT_PORT = 8770
+
+# Tailscale uses the IPv4 CGNAT range 100.64.0.0/10 for node IPs.
+# Helpers treat hosts in this range as "Tailscale endpoints".
+TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
 # Dec 2025 (Phase 2): Reduced from 30s to 15s for faster failure detection
 # Matches RELAY_HEARTBEAT_INTERVAL. 10s would match voters but may cause
 # false positives on congested networks.
@@ -221,6 +226,13 @@ MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "http")
 CONSENSUS_MODE = os.environ.get("RINGRIFT_CONSENSUS_MODE", "bully")
 
 # ============================================
+# Tailscale Network
+# ============================================
+
+# Tailscale CGNAT network for detecting Tailscale IPs
+TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+# ============================================
 # Network Helpers
 # ============================================
 
@@ -252,3 +264,15 @@ def get_default_storage_root() -> Path:
     if root:
         return Path(root)
     return Path.cwd()
+
+
+def get_default_state_dir() -> Path:
+    """Return default directory for P2P state files."""
+    state_dir = os.environ.get("RINGRIFT_P2P_STATE_DIR", "").strip()
+    if state_dir:
+        return Path(state_dir)
+    return get_default_storage_root() / "p2p_state"
+
+
+# Default state directory constant (for backward compat with scripts/p2p/__init__.py)
+STATE_DIR = get_default_state_dir()

@@ -1441,6 +1441,12 @@ class AutoSyncDaemon:
                 bus.subscribe(DataEventType.MODEL_DISTRIBUTION_COMPLETE, self._on_model_distribution_complete)
                 logger.info("[AutoSyncDaemon] Subscribed to MODEL_DISTRIBUTION_COMPLETE")
 
+            # Subscribe to SELFPLAY_COMPLETE for immediate sync on selfplay completion (Dec 2025)
+            # Phase F: Trigger sync immediately when selfplay batch finishes
+            if hasattr(DataEventType, 'SELFPLAY_COMPLETE'):
+                bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
+                logger.info("[AutoSyncDaemon] Subscribed to SELFPLAY_COMPLETE (immediate sync)")
+
             self._subscribed = True
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning(f"[AutoSyncDaemon] Failed to subscribe to events: {e}")
@@ -1598,6 +1604,46 @@ class AutoSyncDaemon:
 
         except (RuntimeError, AttributeError) as e:
             logger.warning(f"[AutoSyncDaemon] Error handling MODEL_DISTRIBUTION_COMPLETE: {e}")
+
+    async def _on_selfplay_complete(self, event) -> None:
+        """Handle SELFPLAY_COMPLETE event - immediate sync on selfplay finish.
+
+        Phase F (December 2025): When a selfplay batch completes, immediately
+        trigger game data sync to propagate fresh training data across the cluster.
+        This closes the loop from selfplay -> sync -> training for faster iteration.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            config_key = payload.get("config_key", "")
+            games_played = payload.get("games_played", 0)
+            db_path = payload.get("db_path", "")
+
+            # Only sync if we have a meaningful batch
+            min_games = self.config.min_games_to_sync or 5
+            if games_played < min_games:
+                logger.debug(
+                    f"[AutoSyncDaemon] Selfplay sync skipped: {config_key} "
+                    f"({games_played} < {min_games} min games)"
+                )
+                return
+
+            logger.info(
+                f"[AutoSyncDaemon] SELFPLAY_COMPLETE: {config_key} "
+                f"({games_played} games) - triggering immediate cluster sync"
+            )
+
+            self._events_processed += 1
+
+            # Trigger immediate sync for this config
+            fire_and_forget(self._trigger_urgent_sync(config_key))
+
+            # Also push to neighbors for Layer 1 replication
+            fire_and_forget(self._push_to_neighbors(config_key, games_played))
+
+        except (RuntimeError, OSError, ConnectionError) as e:
+            self._errors_count += 1
+            self._last_error = str(e)
+            logger.error(f"[AutoSyncDaemon] Error handling SELFPLAY_COMPLETE: {e}")
 
     async def _push_to_neighbors(self, config_key: str, new_games: int) -> None:
         """Push data to up to 3 neighbor nodes (Layer 1: push-from-generator).

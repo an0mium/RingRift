@@ -92,12 +92,14 @@ def _build_registry() -> dict[str, DaemonSpec]:
             class_name="ModelSyncDaemon",
         ),
         DaemonType.MODEL_DISTRIBUTION.name: DaemonSpec(
-            import_path="app.coordination.model_distribution_daemon",
-            class_name="ModelDistributionDaemon",
+            import_path="app.coordination.unified_distribution_daemon",
+            class_name="UnifiedDistributionDaemon",
+            factory_fn="create_model_distribution_daemon",
         ),
         DaemonType.NPZ_DISTRIBUTION.name: DaemonSpec(
-            import_path="app.coordination.npz_distribution_daemon",
-            class_name="NPZDistributionDaemon",
+            import_path="app.coordination.unified_distribution_daemon",
+            class_name="UnifiedDistributionDaemon",
+            factory_fn="create_npz_distribution_daemon",
         ),
         DaemonType.EXTERNAL_DRIVE_SYNC.name: DaemonSpec(
             import_path="app.distributed.external_drive_sync",

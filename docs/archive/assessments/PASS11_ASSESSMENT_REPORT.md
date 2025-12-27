@@ -71,11 +71,11 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **Test Files Identified:**
 
-- [`tests/unit/rateLimiter.test.ts`](../tests/unit/rateLimiter.test.ts:1) - Comprehensive rate limiting tests
+- [`tests/unit/middleware/rateLimiter.test.ts`](../../../tests/unit/middleware/rateLimiter.test.ts:1) - Comprehensive rate limiting tests
 - [`tests/unit/errorHandler.standardized.test.ts`](../../../tests/unit/errorHandler.standardized.test.ts:1) - Error standardization tests
-- [`tests/unit/metricsMiddleware.test.ts`](../tests/unit/metricsMiddleware.test.ts:1) - Metrics tracking tests
+- [`tests/unit/middleware/metricsMiddleware.test.ts`](../../../tests/unit/middleware/metricsMiddleware.test.ts:1) - Metrics tracking tests
 - [`tests/unit/securityHeaders.test.ts`](../../../tests/unit/securityHeaders.test.ts:1) - CSP/security header tests
-- [`tests/unit/degradationHeaders.test.ts`](../tests/unit/degradationHeaders.test.ts:1) - Graceful degradation tests
+- [`tests/unit/middleware/degradationHeaders.test.ts`](../../../tests/unit/middleware/degradationHeaders.test.ts:1) - Graceful degradation tests
 
 **Middleware Features:**
 
@@ -289,7 +289,7 @@ const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 **Claims**:
 
 1. `OrchestratorRolloutService.ts` exists
-2. `ShadowModeComparator.ts` exists
+2. `ShadowModeComparator.ts` removed (ShadowMode deprecated)
 
 **Verification Results**:
 
@@ -299,11 +299,7 @@ const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
    - Percentage rollout with consistent hashing
    - Allow/deny user lists
 
-2. ✅ **PASSED** - [`src/server/services/ShadowModeComparator.ts`](../src/server/services/ShadowModeComparator.ts:1) (550 lines)
-   - Parallel engine execution
-   - Detailed state comparison
-   - Mismatch logging at warn level
-   - Metrics tracking
+2. ✅ **PASSED** - `src/server/services/ShadowModeComparator.ts` removed (see `tests/TEST_LAYERS.md` for ShadowMode deprecation note)
 
 ### CI Configuration Verification
 
@@ -328,11 +324,11 @@ The only `continue-on-error: true` is at [line 198-199](../../../.github/workflo
 | ------------------- | --------------------------------------------------- | ---------------------------- |
 | RatingService       | `tests/unit/RatingService.test.ts`                  | ✅ Comprehensive (76+ tests) |
 | Auth Routes         | `tests/unit/auth.routes.test.ts`                    | ✅ Comprehensive             |
-| Rate Limiter        | `tests/unit/rateLimiter.test.ts`                    | ✅ Comprehensive             |
+| Rate Limiter        | `tests/unit/middleware/rateLimiter.test.ts`                    | ✅ Comprehensive             |
 | Error Handler       | `tests/unit/errorHandler.standardized.test.ts`      | ✅ Comprehensive             |
 | Security Headers    | `tests/unit/securityHeaders.test.ts`                | ✅ Comprehensive             |
-| Degradation Headers | `tests/unit/degradationHeaders.test.ts`             | ✅ Comprehensive             |
-| Metrics Middleware  | `tests/unit/metricsMiddleware.test.ts`              | ✅ Comprehensive             |
+| Degradation Headers | `tests/unit/middleware/degradationHeaders.test.ts`             | ✅ Comprehensive             |
+| Metrics Middleware  | `tests/unit/middleware/metricsMiddleware.test.ts`              | ✅ Comprehensive             |
 | WebSocket Auth      | `tests/unit/WebSocketServer.authRevocation.test.ts` | ✅ Specific                  |
 | AI Engine Fallback  | `tests/unit/AIEngine.fallback.test.ts`              | ✅ Specific                  |
 | GameEngine          | Multiple scenario files                             | ✅ Extensive                 |
@@ -524,7 +520,7 @@ All previous pass claims were **verified** and the codebase shows **no stale con
 | `src/server/middleware/rateLimiter.ts`               | 663   | Middleware |
 | `src/server/middleware/errorHandler.ts`              | 250   | Middleware |
 | `src/server/services/OrchestratorRolloutService.ts`  | 373   | Services   |
-| `src/server/services/ShadowModeComparator.ts`        | 550   | Services   |
+| `src/server/services/ShadowModeComparator.ts`        | N/A   | Removed    |
 | `src/client/services/api.ts`                         | 337   | Client     |
 | `src/server/database/connection.ts`                  | 125   | Database   |
 | `src/server/openapi/config.ts`                       | 941   | OpenAPI    |

@@ -810,7 +810,7 @@ This closes the loop on the architecture/topology documentation vertical and mak
 * - Ensured that references to MemoryConfig, bounded transposition tables, hex augmentation, self-play generation, and the training pipeline match the actual code locations and test coverage. All code links are now repo-root-correct and pass `docs-link-ssot`.
 * - Clarified that training recommendations and CMA-ES/NN results in this report are **interpretive** and must defer to code/tests on any conflict.
 * +**Link hygiene work:**
-  +- Removed or avoided any residual pseudo-links (`[1](player=1)`-style patterns) and line-suffix paths (e.g. `foo.py:212-222`) that would be mis-parsed as links by `docs-link-ssot`.
+  +- Removed or avoided any residual pseudo-links (e.g. `player=1`-style patterns) and line-suffix paths (e.g. `foo.py:212-222`) that would be mis-parsed as links by `docs-link-ssot`.
   +- Normalized all intra-repo code references to either:
 * - Relative paths from `docs/` that resolve to real files, or
 * - Inline code blocks (backticks) when stability of the path is not guaranteed.

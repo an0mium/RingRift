@@ -9,6 +9,14 @@ This module provides comprehensive integrity checking for sync operations:
 4. Support for multiple hash algorithms
 5. Structured error reporting
 
+Note on checksum_utils relationship:
+    This module provides STRICTER checksum validation than app.utils.checksum_utils:
+    - Raises FileNotFoundError (vs returning empty string)
+    - Validates path is_file()
+    - Handles PermissionError explicitly
+    For simple checksum needs, use app.utils.checksum_utils directly.
+    Use this module for integrity verification contexts where failures must be explicit.
+
 This consolidates checksum validation functionality from:
 - app.distributed.unified_data_sync._compute_file_checksum
 - app.distributed.p2p_sync_client checksum verification

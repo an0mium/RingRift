@@ -158,6 +158,58 @@ class ReplicationManager(BaseRegistry):
             )
             self._sync_policies[host_name] = policy
 
+    def _build_sync_policies_from_cluster_config(self, cluster_cfg) -> None:
+        """Build node sync policies from ClusterConfig object.
+
+        Uses the consolidated cluster config helper instead of raw dict parsing.
+        """
+        from app.config.cluster_config import ClusterConfig
+
+        if not isinstance(cluster_cfg, ClusterConfig):
+            logger.warning("Invalid cluster config type, falling back to dict parsing")
+            return
+
+        hosts = cluster_cfg.hosts_raw
+        sync_routing = cluster_cfg.sync_routing
+        auto_sync = cluster_cfg.auto_sync
+
+        # Read max disk usage from config
+        self._max_disk_usage = sync_routing.max_disk_usage_percent
+
+        # Auto-sync exclusion
+        exclude_hosts = set(auto_sync.exclude_hosts)
+
+        # Process excluded_hosts with detailed policies
+        excluded_host_policies: dict[str, dict] = {}
+        for host_name in sync_routing.excluded_hosts:
+            exclude_hosts.add(host_name)
+
+        # External storage overrides
+        external_storage: dict[str, dict] = {}
+        for storage in sync_routing.allowed_external_storage:
+            external_storage[storage.host] = {
+                "host": storage.host,
+                "path": storage.path,
+                "receive_games": storage.receive_games,
+                "receive_npz": storage.receive_npz,
+                "receive_models": storage.receive_models,
+                "subdirs": storage.subdirs,
+            }
+
+        # Priority hosts
+        self._priority_hosts = set(sync_routing.priority_hosts)
+
+        # Build policies
+        for host_name, host_config in hosts.items():
+            policy = self._build_policy_for_host(
+                host_name,
+                host_config,
+                exclude_hosts,
+                excluded_host_policies,
+                external_storage,
+            )
+            self._sync_policies[host_name] = policy
+
     def _build_policy_for_host(
         self,
         host_name: str,

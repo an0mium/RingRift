@@ -40,6 +40,15 @@ December 2025 Enhancements:
 
 from __future__ import annotations
 
+import warnings
+
+warnings.warn(
+    "model_distribution_daemon module is deprecated as of December 2025. "
+    "Use unified_distribution_daemon module instead for consolidated distribution.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 import asyncio
 import logging
 import os

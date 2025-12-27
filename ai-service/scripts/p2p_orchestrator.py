@@ -4335,67 +4335,8 @@ class P2POrchestrator(
     # Phase 2: P2P Rsync Coordination Methods
     # ============================================
 
-    def _generate_sync_plan(self) -> ClusterSyncPlan | None:
-        """DEPRECATED: Use self.sync_planner.generate_sync_plan() instead.
-
-        Leader generates a sync plan from the cluster manifest.
-        Identifies which files are missing from which nodes and creates sync jobs.
-
-        Note: This inline method is kept for backward compatibility. All new code
-        should use self.sync_planner.generate_sync_plan(cluster_manifest).
-        Scheduled for removal: Q2 2026.
-        """
-        if not self.cluster_data_manifest:
-            logger.info("No cluster manifest available, cannot generate sync plan")
-            return None
-
-        if not self.cluster_data_manifest.missing_from_nodes:
-            logger.info("All nodes have all files, no sync needed")
-            return None
-
-        plan = ClusterSyncPlan(
-            plan_id=str(uuid.uuid4()),
-            created_at=time.time(),
-        )
-
-        # For each missing file, find a source node and create a sync job
-        for file_path, missing_nodes in self.cluster_data_manifest.missing_from_nodes.items():
-            # Find a node that has this file (any node not in missing_nodes)
-            source_node = None
-            for node_id in self.cluster_data_manifest.manifests_by_node:
-                if node_id not in missing_nodes:
-                    node_manifest = self.cluster_data_manifest.manifests_by_node[node_id]
-                    if file_path in node_manifest.files_by_path:
-                        source_node = node_id
-                        break
-
-            if not source_node:
-                continue  # No node has this file (shouldn't happen)
-
-            # Create sync jobs for each target node
-            for target_node in missing_nodes:
-                job = DataSyncJob(
-                    job_id=str(uuid.uuid4()),
-                    source_node=source_node,
-                    target_node=target_node,
-                    files=[file_path],
-                    status="pending",
-                )
-
-                # Get file size for tracking
-                node_manifest = self.cluster_data_manifest.manifests_by_node[source_node]
-                if file_path in node_manifest.files_by_path:
-                    file_info = node_manifest.files_by_path[file_path]
-                    plan.total_bytes_to_sync += file_info.size_bytes
-
-                plan.sync_jobs.append(job)
-                plan.total_files_to_sync += 1
-
-        logger.info(f"Generated sync plan: {len(plan.sync_jobs)} jobs, "
-              f"{plan.total_files_to_sync} files, "
-              f"{plan.total_bytes_to_sync / (1024*1024):.1f} MB total")
-
-        return plan
+    # NOTE: _generate_sync_plan() removed Dec 2025 (61 LOC dead code).
+    # Use self.sync_planner.generate_sync_plan(cluster_manifest) instead.
 
     async def _execute_sync_plan(self) -> None:
         """Leader executes the sync plan by dispatching jobs to nodes."""

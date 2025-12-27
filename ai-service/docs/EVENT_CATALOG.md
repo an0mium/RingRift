@@ -2160,7 +2160,6 @@ Complete list of all 159 event types organized by category:
 | ------------------------- | ------------------------ | ---------------- |
 | `ORPHAN_GAMES_DETECTED`   | Unregistered games found | count, databases |
 | `ORPHAN_GAMES_REGISTERED` | Orphans auto-registered  | count            |
-| `REPAIR_STARTED`          | Repair job started       | target           |
 | `REPAIR_COMPLETED`        | Repair succeeded         | target, duration |
 | `REPAIR_FAILED`           | Repair failed            | target, error    |
 | `DATABASE_CREATED`        | New database created     | path, config     |
@@ -2169,8 +2168,6 @@ Complete list of all 159 event types organized by category:
 
 | Event               | Description       | Key Fields        |
 | ------------------- | ----------------- | ----------------- |
-| `LOCK_ACQUIRED`     | Lock acquired     | lock_name, holder |
-| `LOCK_RELEASED`     | Lock released     | lock_name         |
 | `LOCK_TIMEOUT`      | Lock timed out    | lock_name         |
 | `DEADLOCK_DETECTED` | Deadlock detected | locks_involved    |
 

@@ -13,7 +13,7 @@
 
 ### Critical Finding: Full-Suite vs CI Test Profile Gap
 
-A review of [`jest-results.json`](../jest-results.json) reveals **72 failing tests** across 31 test suites in a **broad diagnostic Jest profile** (including AI simulations, deep parity suites, and legacy/diagnostic-only tests). This **does not contradict** PASS19B's "~2,710 passed, 0 failed" claim, which now explicitly refers to **CI-gated** Jest suites only; rather, it highlights that:
+A review of `jest-results.json` reveals **72 failing tests** across 31 test suites in a **broad diagnostic Jest profile** (including AI simulations, deep parity suites, and legacy/diagnostic-only tests). This **does not contradict** PASS19B's "~2,710 passed, 0 failed" claim, which now explicitly refers to **CI-gated** Jest suites only; rather, it highlights that:
 
 1. CI focuses on core/unit/integration/parity suites.
 2. Additional diagnostic/parity suites are expected to fail or flap until their associated TODO/KNOWN_ISSUES items are addressed.
@@ -71,7 +71,7 @@ A review of [`jest-results.json`](../jest-results.json) reveals **72 failing tes
 | TypeScript (Jest) | ~2,710 | 0 | ~170 | ~2,880 | ✅ 94.1% |
 ```
 
-**Actual (from [`jest-results.json`](../jest-results.json), extended/diagnostic profile):**
+**Actual (from `jest-results.json`, extended/diagnostic profile):**
 
 ```json
 {
@@ -89,7 +89,7 @@ A review of [`jest-results.json`](../jest-results.json) reveals **72 failing tes
 The difference suggests:
 
 1. PASS19B counted only CI-gated tests (excluding env-gated diagnostics)
-2. [`jest-results.json`](../jest-results.json) includes diagnostic/env-gated tests
+2. `jest-results.json` includes diagnostic/env-gated tests
 3. Some tests in jest-results.json are expected failures per [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) P1.4
 
 PASS19B has been updated to explicitly scope its TypeScript numbers to the **CI-gated suites**, and to point to this PASS20 report + `jest-results.json` for the extended/diagnostic profile. Several failure categories in the extended profile were not previously called out as such and are now documented either as **diagnostic/expected** (AI simulations, some sandbox/back-end parity probes) or as **true defects** (e.g., specific WebSocket and auth-route assertions) in `KNOWN_ISSUES.md`.
@@ -268,7 +268,7 @@ Python test health appears stable. TypeScript health issues are concentrated in 
 
 **Specific Deficiencies:**
 
-1. Test suite health claims don't match [`jest-results.json`](../jest-results.json)
+1. Test suite health claims don't match `jest-results.json`
 2. No documentation for env-gated test expectations
 3. Missing guidance on which tests are CI-required vs diagnostic
 
@@ -306,7 +306,7 @@ Python test health appears stable. TypeScript health issues are concentrated in 
 
 #### Specific Evidence
 
-From [`jest-results.json`](../jest-results.json):
+From `jest-results.json`:
 
 ```json
 {

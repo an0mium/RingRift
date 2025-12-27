@@ -155,22 +155,123 @@ class VastCpuPipelineDaemon:
     async def _get_available_instances(self) -> list[dict[str, Any]]:
         """Get list of available Vast.ai CPU instances.
 
+        December 2025: Queries distributed_hosts.yaml for vast.ai instances
+        that are marked as CPU-capable or have no GPU.
+
         Returns:
-            List of instance info dicts with 'id', 'host', 'ssh_port' keys.
+            List of instance info dicts with 'id', 'host', 'ssh_port', 'ssh_user', 'ssh_key' keys.
         """
-        # TODO: Integrate with Vast.ai API to get running instances
-        # For now, return empty list (stub implementation)
-        return []
+        instances = []
+
+        try:
+            from app.distributed.host_config import get_configured_hosts
+
+            hosts = get_configured_hosts()
+            for name, host in hosts.items():
+                # Check if it's a Vast.ai instance
+                if not name.startswith("vast-") and host.provider != "vast":
+                    continue
+
+                # Check if instance is suitable for CPU work
+                # (either no GPU or explicitly marked as cpu_capable)
+                is_cpu_capable = (
+                    getattr(host, "cpu_capable", False)
+                    or not getattr(host, "has_gpu", True)
+                    or host.gpu_count == 0
+                )
+
+                if is_cpu_capable and host.best_ip:
+                    instances.append({
+                        "id": name,
+                        "host": host.best_ip,
+                        "ssh_port": host.ssh_port or 22,
+                        "ssh_user": host.ssh_user or "root",
+                        "ssh_key": host.ssh_key,
+                        "ringrift_path": host.ringrift_path or "~/ringrift/ai-service",
+                    })
+
+            # Filter to instances that are reachable (quick health check)
+            reachable = []
+            for inst in instances[:5]:  # Limit to first 5 to avoid delays
+                try:
+                    from app.core.ssh import run_ssh_command_async
+
+                    result = await run_ssh_command_async(
+                        inst["id"],
+                        "echo ok",
+                        timeout=5,
+                    )
+                    if result.returncode == 0:
+                        reachable.append(inst)
+                except Exception:
+                    pass  # Instance not reachable
+
+            return reachable
+
+        except ImportError as e:
+            logger.debug(f"host_config not available: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Failed to get available instances: {e}")
+            return []
 
     async def _get_pending_cpu_jobs(self) -> list[CPUJob]:
         """Get pending CPU-suitable jobs from the work queue.
 
+        December 2025: Queries the work queue for jobs that match CPU capabilities.
+
         Returns:
             List of CPUJob objects ready for dispatch.
         """
-        # TODO: Integrate with work queue to get pending jobs
-        # For now, return empty list (stub implementation)
-        return []
+        jobs = []
+
+        try:
+            from app.coordination.work_queue import get_work_queue
+
+            queue = get_work_queue()
+            if queue is None:
+                return []
+
+            # Get pending items that match CPU capabilities
+            pending = queue.get_pending_items(
+                capabilities=["cpu", "npz_export", "data_validation", "database_merge"],
+                limit=self.config.max_concurrent_jobs,
+            )
+
+            for item in pending:
+                # Map work_type to CPUJobType
+                work_type = item.work_type
+                try:
+                    if "export" in work_type.lower() or "npz" in work_type.lower():
+                        job_type = CPUJobType.NPZ_EXPORT
+                    elif "merge" in work_type.lower():
+                        job_type = CPUJobType.DATABASE_MERGE
+                    elif "valid" in work_type.lower() or "quality" in work_type.lower():
+                        job_type = CPUJobType.DATA_VALIDATION
+                    elif "cleanup" in work_type.lower():
+                        job_type = CPUJobType.DATABASE_CLEANUP
+                    else:
+                        continue  # Skip unsupported job types
+
+                    jobs.append(CPUJob(
+                        job_id=item.work_id,
+                        job_type=job_type,
+                        params=item.config or {},
+                        priority=item.priority or 0,
+                        created_at=item.created_at or time.time(),
+                    ))
+
+                except Exception as e:
+                    logger.debug(f"Failed to convert work item to CPUJob: {e}")
+
+            return jobs
+
+        except ImportError as e:
+            logger.debug(f"work_queue not available: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Failed to get pending CPU jobs: {e}")
+            return []
 
     async def _dispatch_job(self, job: CPUJob, instance: dict[str, Any]) -> None:
         """Dispatch a job to a Vast.ai instance."""
@@ -197,19 +298,151 @@ class VastCpuPipelineDaemon:
             logger.error(f"Job {job.job_id} failed: {e}")
 
     async def _run_npz_export(self, job: CPUJob, instance: dict[str, Any]) -> None:
-        """Run NPZ export job on instance."""
-        # TODO: SSH to instance and run export script
+        """Run NPZ export job on instance.
+
+        December 2025: Executes export_replay_dataset.py via SSH.
+        """
         logger.info(f"Running NPZ export: {job.params}")
 
+        try:
+            from app.core.ssh import run_ssh_command_async
+
+            ringrift_path = instance.get("ringrift_path", "~/ringrift/ai-service")
+
+            # Build export command from job params
+            board_type = job.params.get("board_type", "hex8")
+            num_players = job.params.get("num_players", 2)
+            output_path = job.params.get("output_path", f"data/training/{board_type}_{num_players}p.npz")
+            db_path = job.params.get("db_path", "")
+
+            cmd = (
+                f"cd {ringrift_path} && "
+                f"PYTHONPATH=. python scripts/export_replay_dataset.py "
+                f"--board-type {board_type} --num-players {num_players} "
+                f"--output {output_path}"
+            )
+            if db_path:
+                cmd += f" --db {db_path}"
+            else:
+                cmd += " --use-discovery"
+
+            # Run as background process with nohup
+            bg_cmd = f"nohup {cmd} > /tmp/export_{job.job_id}.log 2>&1 & echo $!"
+
+            result = await run_ssh_command_async(
+                instance["id"],
+                bg_cmd,
+                timeout=60,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                pid = result.stdout.strip()
+                job.result["pid"] = pid
+                job.result["log_file"] = f"/tmp/export_{job.job_id}.log"
+                logger.info(f"NPZ export started on {instance['id']} with PID {pid}")
+            else:
+                job.error = f"Failed to start export: {result.stderr}"
+
+        except Exception as e:
+            job.error = str(e)
+            logger.error(f"NPZ export failed: {e}")
+
     async def _run_database_merge(self, job: CPUJob, instance: dict[str, Any]) -> None:
-        """Run database merge job on instance."""
-        # TODO: SSH to instance and run merge script
+        """Run database merge job on instance.
+
+        December 2025: Executes database merge via SSH.
+        """
         logger.info(f"Running database merge: {job.params}")
 
+        try:
+            from app.core.ssh import run_ssh_command_async
+
+            ringrift_path = instance.get("ringrift_path", "~/ringrift/ai-service")
+
+            # Build merge command
+            source_dbs = job.params.get("source_dbs", [])
+            target_db = job.params.get("target_db", "data/games/merged.db")
+
+            if not source_dbs:
+                job.error = "No source databases specified"
+                return
+
+            sources_str = " ".join(source_dbs)
+            cmd = (
+                f"cd {ringrift_path} && "
+                f"PYTHONPATH=. python scripts/merge_databases.py "
+                f"--sources {sources_str} --target {target_db}"
+            )
+
+            bg_cmd = f"nohup {cmd} > /tmp/merge_{job.job_id}.log 2>&1 & echo $!"
+
+            result = await run_ssh_command_async(
+                instance["id"],
+                bg_cmd,
+                timeout=60,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                pid = result.stdout.strip()
+                job.result["pid"] = pid
+                job.result["log_file"] = f"/tmp/merge_{job.job_id}.log"
+                logger.info(f"Database merge started on {instance['id']} with PID {pid}")
+            else:
+                job.error = f"Failed to start merge: {result.stderr}"
+
+        except Exception as e:
+            job.error = str(e)
+            logger.error(f"Database merge failed: {e}")
+
     async def _run_data_validation(self, job: CPUJob, instance: dict[str, Any]) -> None:
-        """Run data validation job on instance."""
-        # TODO: SSH to instance and run validation script
+        """Run data validation job on instance.
+
+        December 2025: Executes data quality validation via SSH.
+        """
         logger.info(f"Running data validation: {job.params}")
+
+        try:
+            from app.core.ssh import run_ssh_command_async
+
+            ringrift_path = instance.get("ringrift_path", "~/ringrift/ai-service")
+
+            # Build validation command
+            db_path = job.params.get("db_path", "")
+            npz_path = job.params.get("npz_path", "")
+
+            if db_path:
+                cmd = (
+                    f"cd {ringrift_path} && "
+                    f"PYTHONPATH=. python -m app.training.data_quality --db {db_path}"
+                )
+            elif npz_path:
+                cmd = (
+                    f"cd {ringrift_path} && "
+                    f"PYTHONPATH=. python -m app.training.data_quality --npz {npz_path} --detailed"
+                )
+            else:
+                job.error = "No db_path or npz_path specified"
+                return
+
+            bg_cmd = f"nohup {cmd} > /tmp/validation_{job.job_id}.log 2>&1 & echo $!"
+
+            result = await run_ssh_command_async(
+                instance["id"],
+                bg_cmd,
+                timeout=60,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                pid = result.stdout.strip()
+                job.result["pid"] = pid
+                job.result["log_file"] = f"/tmp/validation_{job.job_id}.log"
+                logger.info(f"Data validation started on {instance['id']} with PID {pid}")
+            else:
+                job.error = f"Failed to start validation: {result.stderr}"
+
+        except Exception as e:
+            job.error = str(e)
+            logger.error(f"Data validation failed: {e}")
 
     async def _check_job_status(self) -> None:
         """Check status of active jobs and handle completions."""

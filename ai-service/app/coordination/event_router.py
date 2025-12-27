@@ -244,7 +244,11 @@ def _compute_content_hash(event_type: str, payload: dict[str, Any]) -> str:
 
 @dataclass
 class RouterEvent:
-    """Unified event representation across all bus types."""
+    """Unified event representation across all bus types.
+
+    Phase 12 (December 2025): Added trace_id, correlation_id, parent_event_id
+    for distributed tracing and request correlation across the cluster.
+    """
     event_type: str  # String representation of the event type
     payload: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
@@ -252,15 +256,30 @@ class RouterEvent:
     origin: EventSource = EventSource.ROUTER  # Which bus it came from
     event_id: str = field(default_factory=_generate_event_id)  # Unique ID for deduplication
 
+    # Phase 12: Distributed tracing and correlation fields
+    trace_id: str = ""  # Trace ID for distributed tracing (propagated across services)
+    correlation_id: str = ""  # Correlation ID for request grouping (e.g., all events from one user action)
+    parent_event_id: str = ""  # Parent event ID for event causality chains
+
     # Original event objects (for type-specific handling)
     data_event: Any | None = None
     stage_result: Any | None = None
     cross_process_event: Any | None = None
 
     def __post_init__(self):
-        """Compute content hash after initialization."""
+        """Compute content hash after initialization and auto-populate trace context."""
         # Content hash for detecting duplicate events forwarded through different buses
         self._content_hash: str = _compute_content_hash(self.event_type, self.payload)
+
+        # Phase 12: Auto-populate trace_id from current context if not set
+        if not self.trace_id:
+            try:
+                from app.coordination.tracing import get_trace_id
+                current_trace = get_trace_id()
+                if current_trace:
+                    object.__setattr__(self, 'trace_id', current_trace)
+            except ImportError:
+                pass  # Tracing module not available
 
     @property
     def content_hash(self) -> str:

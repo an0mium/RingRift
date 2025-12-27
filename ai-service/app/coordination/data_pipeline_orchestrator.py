@@ -1690,6 +1690,38 @@ class DataPipelineOrchestrator:
             logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: backpressure active")
             return False
 
+        # Check unified health manager (December 2025)
+        # This provides comprehensive health scoring including node availability,
+        # circuit health, error rates, and recovery status
+        try:
+            from app.coordination.unified_health_manager import should_pause_pipeline
+
+            should_pause, reason = should_pause_pipeline()
+            if should_pause:
+                logger.debug(
+                    f"[DataPipelineOrchestrator] Auto-trigger blocked by health manager: {reason}"
+                )
+                # Emit event for monitoring/alerting
+                try:
+                    from app.distributed.data_events import DataEventType, emit_event
+
+                    emit_event(
+                        DataEventType.TRAINING_BLOCKED_BY_QUALITY,  # Reuse existing event type
+                        payload={
+                            "reason": reason,
+                            "blocked_by": "health_manager",
+                            "source": "data_pipeline_orchestrator",
+                        },
+                    )
+                except Exception:
+                    pass  # Event emission is best-effort
+                return False
+        except ImportError:
+            pass  # UnifiedHealthManager not available, skip this check
+        except Exception as e:
+            logger.debug(f"[DataPipelineOrchestrator] Health manager check failed: {e}")
+            # Continue on health check failure - don't block training
+
         # Check cluster resources (December 2025)
         if not self._check_cluster_resources():
             logger.debug("[DataPipelineOrchestrator] Auto-trigger blocked: cluster resources constrained")

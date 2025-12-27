@@ -11,7 +11,7 @@
 
 ## Executive Summary
 
-Pass 15 confirms significant improvements across previously weak areas. **DevOps/CI**, **OpenAPI**, **Database Config**, **Move Animations**, and **Accessibility** have all risen above the 4/5 threshold. Documentation across [`docs/drafts/`](docs/drafts/), [`../../supplementary`](../../supplementary), and [`../../incidents`](../../incidents) is comprehensive and current (all updated within Nov 2025). Pass 13 shared helpers ([`movementApplication.ts`](../../../src/shared/engine/movementApplication.ts), [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts)) and Pass 14 UX work are fully verified. The primary remaining gap is **client component unit testing** (~2.5/5), with several React components lacking isolated tests.
+Pass 15 confirms significant improvements across previously weak areas. **DevOps/CI**, **OpenAPI**, **Database Config**, **Move Animations**, and **Accessibility** have all risen above the 4/5 threshold. Documentation across `docs/drafts/` (removed), [`../../supplementary`](../../supplementary), and [`../../incidents`](../../incidents) is comprehensive and current (all updated within Nov 2025). Pass 13 shared helpers ([`movementApplication.ts`](../../../src/shared/engine/movementApplication.ts), [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts)) and Pass 14 UX work are fully verified. The primary remaining gap is **client component unit testing** (~2.5/5), with several React components lacking isolated tests.
 
 ---
 
@@ -80,7 +80,7 @@ Pass 15 confirms significant improvements across previously weak areas. **DevOps
 
 ## Focus Area 2: Documentation Verification
 
-### docs/drafts/ Status
+### docs/drafts/ Status (removed)
 
 <<<<<<< Updated upstream
 | Document                                                                                     | Lines | Status    | Last Updated | Notes                                     |
@@ -358,7 +358,7 @@ The [`../../../src/shared/engine`](../../../src/shared/engine) directory contain
 1. **Three parallel rules implementations** exist:
    - Backend [`../../../src/server/game/GameEngine.ts`](../../../src/server/game/GameEngine.ts)
    - Sandbox [`../../../src/client/sandbox/ClientSandboxEngine.ts`](../../../src/client/sandbox/ClientSandboxEngine.ts)
-   - Python [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py)
+   - Python [`ai-service/app/game_engine/`](../../../ai-service/app/game_engine/__init__.py)
 
 2. **Design exists but not implemented**: [`../RULES_ENGINE_CONSOLIDATION_DESIGN.md`](../RULES_ENGINE_CONSOLIDATION_DESIGN.md) outlines 8-10 week migration
 

@@ -410,26 +410,22 @@ async def get_cluster_config():
     Returns configured hosts and sync settings.
     """
     try:
-        from pathlib import Path
-        import yaml
+        from app.config.cluster_config import load_cluster_config
 
-        config_path = Path(__file__).resolve().parent.parent.parent / "config" / "distributed_hosts.yaml"
+        cluster_cfg = load_cluster_config()
 
-        if not config_path.exists():
+        if not cluster_cfg.hosts_raw:
             return {"configured": False, "hosts": [], "sync_routing": {}}
 
-        with open(config_path) as f:
-            config = yaml.safe_load(f)
-
-        hosts = list(config.get("hosts", {}).keys())
-        sync_routing = config.get("sync_routing", {})
+        hosts = list(cluster_cfg.hosts_raw.keys())
+        sync_routing = cluster_cfg.sync_routing
 
         return {
             "configured": True,
             "host_count": len(hosts),
             "hosts": hosts,
-            "priority_hosts": sync_routing.get("priority_hosts", []),
-            "max_disk_usage_percent": sync_routing.get("max_disk_usage_percent", 70),
+            "priority_hosts": sync_routing.priority_hosts,
+            "max_disk_usage_percent": sync_routing.max_disk_usage_percent,
         }
 
     except Exception as e:

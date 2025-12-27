@@ -29,6 +29,23 @@ Direct submodule imports like `from app.config.ports import X` skip this __init_
 from __future__ import annotations
 
 __all__ = [
+    # Cluster config (distributed_hosts.yaml)
+    "AutoSyncConfig",
+    "ClusterConfig",
+    "SyncRoutingConfig",
+    "filter_hosts_by_provider",
+    "filter_hosts_by_role",
+    "filter_hosts_by_status",
+    "get_auto_sync_config",
+    "get_host_bandwidth_limit",
+    "get_host_provider",
+    "get_p2p_voters",
+    "get_priority_sync_targets",
+    "get_ready_hosts",
+    "get_sync_routing",
+    "get_underserved_configs",
+    "is_host_sync_excluded",
+    "load_cluster_config",
     # Port configuration (centralized)
     "DATA_SERVER_PORT",
     "GOSSIP_PORT",
@@ -93,6 +110,52 @@ HAS_UNIFIED_CONFIG = True
 def __getattr__(name: str):
     """Lazy import for all config exports."""
     global HAS_UNIFIED_CONFIG
+
+    # Cluster config (distributed_hosts.yaml - lightweight)
+    if name in ("AutoSyncConfig", "ClusterConfig", "SyncRoutingConfig",
+                "filter_hosts_by_provider", "filter_hosts_by_role", "filter_hosts_by_status",
+                "get_auto_sync_config", "get_host_bandwidth_limit", "get_host_provider",
+                "get_p2p_voters", "get_priority_sync_targets", "get_ready_hosts",
+                "get_sync_routing", "get_underserved_configs", "is_host_sync_excluded",
+                "load_cluster_config"):
+        if "cluster_config" not in _lazy_cache:
+            from app.config.cluster_config import (
+                AutoSyncConfig as _ASC,
+                ClusterConfig as _CC,
+                SyncRoutingConfig as _SRC,
+                filter_hosts_by_provider as _fhbp,
+                filter_hosts_by_role as _fhbr,
+                filter_hosts_by_status as _fhbs,
+                get_auto_sync_config as _gasc,
+                get_host_bandwidth_limit as _ghbl,
+                get_host_provider as _ghp,
+                get_p2p_voters as _gpv,
+                get_priority_sync_targets as _gpst,
+                get_ready_hosts as _grh,
+                get_sync_routing as _gsr,
+                get_underserved_configs as _guc,
+                is_host_sync_excluded as _ihse,
+                load_cluster_config as _lcc,
+            )
+            _lazy_cache["cluster_config"] = {
+                "AutoSyncConfig": _ASC,
+                "ClusterConfig": _CC,
+                "SyncRoutingConfig": _SRC,
+                "filter_hosts_by_provider": _fhbp,
+                "filter_hosts_by_role": _fhbr,
+                "filter_hosts_by_status": _fhbs,
+                "get_auto_sync_config": _gasc,
+                "get_host_bandwidth_limit": _ghbl,
+                "get_host_provider": _ghp,
+                "get_p2p_voters": _gpv,
+                "get_priority_sync_targets": _gpst,
+                "get_ready_hosts": _grh,
+                "get_sync_routing": _gsr,
+                "get_underserved_configs": _guc,
+                "is_host_sync_excluded": _ihse,
+                "load_cluster_config": _lcc,
+            }
+        return _lazy_cache["cluster_config"][name]
 
     # Port configuration (lightweight)
     if name in ("DATA_SERVER_PORT", "GOSSIP_PORT", "HEALTH_CHECK_PORT", "METRICS_PORT",
