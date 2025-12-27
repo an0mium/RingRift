@@ -958,7 +958,7 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
 
     except (AttributeError, TypeError, RuntimeError) as e:
         results["plateau_to_curriculum"] = False
-        logger.debug(f"[Bootstrap] Failed to wire plateau to curriculum: {e}")
+        logger.warning(f"[Bootstrap] Failed to wire plateau to curriculum: {e}")
 
     # 7. Wire TRAINING_EARLY_STOPPED to curriculum boost (December 2025)
     # When training early-stops due to stagnation, boost that config's curriculum weight
@@ -973,7 +973,7 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
 
     except (AttributeError, TypeError, RuntimeError) as e:
         results["early_stop_to_curriculum"] = False
-        logger.debug(f"[Bootstrap] Failed to wire early stop to curriculum: {e}")
+        logger.warning(f"[Bootstrap] Failed to wire early stop to curriculum: {e}")
 
     # 8. Wire DAEMON_STARTED/DAEMON_STOPPED to DaemonManager for lifecycle tracking
     # December 2025: These events were orphaned - emitted but never tracked
@@ -1012,7 +1012,7 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
 
     except (AttributeError, TypeError, KeyError, RuntimeError) as e:
         results["daemon_lifecycle_tracking"] = False
-        logger.debug(f"[Bootstrap] Failed to wire daemon lifecycle: {e}")
+        logger.warning(f"[Bootstrap] Failed to wire daemon lifecycle: {e}")
 
     # 9. Wire MODEL_DISTRIBUTION_FAILED to alert/tracking system
     # December 2025: Critical for handling distribution failures
@@ -1058,7 +1058,7 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
 
     except (AttributeError, TypeError, KeyError, RuntimeError) as e:
         results["model_distribution_failed_handler"] = False
-        logger.debug(f"[Bootstrap] Failed to wire model distribution failed: {e}")
+        logger.warning(f"[Bootstrap] Failed to wire model distribution failed: {e}")
 
     # 10. Wire EVALUATION_STARTED to metrics tracking
     # December 2025: Complements EVALUATION_COMPLETED for full lifecycle tracking
@@ -1084,7 +1084,7 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
 
     except (AttributeError, TypeError, KeyError, RuntimeError) as e:
         results["evaluation_started_tracking"] = False
-        logger.debug(f"[Bootstrap] Failed to wire evaluation started: {e}")
+        logger.warning(f"[Bootstrap] Failed to wire evaluation started: {e}")
 
     # 11. Wire PROMOTION_REJECTED to curriculum weight increase
     # December 2025: Similar to PROMOTION_FAILED but for models that didn't meet thresholds

@@ -1696,7 +1696,9 @@ class DaemonManager:
         return manual_metrics
 
     # =========================================================================
-    # Default Daemon Factories
+    # DEPRECATED: Old Daemon Factories (December 2025)
+    # These methods are no longer used - runner functions moved to daemon_runners.py
+    # TODO: Remove after verifying no external callers (Q1 2026)
     # =========================================================================
 
     async def _create_sync_coordinator(self) -> None:
