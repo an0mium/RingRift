@@ -397,7 +397,10 @@ from app.config.coordination_defaults import (
 
 ## Environment Variables
 
-All environment variables use the `RINGRIFT_` prefix. Values are accessed via `app.config.env.env`.
+Most internal environment variables use the `RINGRIFT_` prefix and are accessed via
+`app.config.env.env`. A small set of runtime and provider integrations use
+non-prefixed variables (for example `AI_SERVICE_PORT`, `CORS_ORIGINS`, or
+`AWS_REGION`), which are read directly where they are needed.
 
 ### Node Identity
 
@@ -461,8 +464,8 @@ All environment variables use the `RINGRIFT_` prefix. Values are accessed via `a
 
 | Variable          | Type  | Default | Description       |
 | ----------------- | ----- | ------- | ----------------- |
-| `RINGRIFT_PID_KP` | float | 0.3     | Proportional gain |
-| `RINGRIFT_PID_KI` | float | 0.05    | Integral gain     |
+| `RINGRIFT_PID_KP` | float | 0.5     | Proportional gain |
+| `RINGRIFT_PID_KI` | float | 0.1     | Integral gain     |
 | `RINGRIFT_PID_KD` | float | 0.1     | Derivative gain   |
 
 ### Process Management
@@ -478,7 +481,7 @@ All environment variables use the `RINGRIFT_` prefix. Values are accessed via `a
 | Variable                         | Type   | Default | Description                     |
 | -------------------------------- | ------ | ------- | ------------------------------- |
 | `RINGRIFT_SKIP_SHADOW_CONTRACTS` | bool   | false   | Skip shadow contract validation |
-| `RINGRIFT_PARITY_VALIDATION`     | string | "warn"  | Parity validation mode          |
+| `RINGRIFT_PARITY_VALIDATION`     | string | "off"   | Parity validation mode          |
 | `RINGRIFT_IDLE_RESOURCE_ENABLED` | bool   | true    | Idle resource daemon enabled    |
 | `RINGRIFT_SELFPLAY_ENABLED`      | bool   | true    | Selfplay enabled on this node   |
 | `RINGRIFT_TRAINING_ENABLED`      | bool   | true    | Training enabled on this node   |
@@ -490,6 +493,30 @@ All environment variables use the `RINGRIFT_` prefix. Values are accessed via `a
 | Variable                      | Type | Default | Description                        |
 | ----------------------------- | ---- | ------- | ---------------------------------- |
 | `RINGRIFT_TRAINING_THRESHOLD` | int  | 500     | Training trigger threshold (games) |
+
+### Non-prefixed / Integration Variables
+
+Some runtime and provider settings are intentionally **not** prefixed with `RINGRIFT_`
+because they map to framework or cloud-provider conventions. Common examples:
+
+| Variable                | Default                  | Description                                         |
+| ----------------------- | ------------------------ | --------------------------------------------------- |
+| `AI_SERVICE_PORT`       | 8001                     | Port for the FastAPI AI service (`app/main.py`)     |
+| `CORS_ORIGINS`          | `*`                      | CORS allow-list for the AI service (`app/main.py`)  |
+| `ADMIN_API_KEY`         | auto-generated           | Admin key for protected AI-service endpoints        |
+| `GAME_REPLAY_DB_PATH`   | `data/games/selfplay.db` | Replay API DB path (`app/routes/replay.py`)         |
+| `AI_SERVICE_DATA_DIR`   | (unset)                  | Override base data directory (`app/utils/paths.py`) |
+| `AI_SERVICE_MODELS_DIR` | (unset)                  | Override models directory (`app/utils/paths.py`)    |
+| `AI_SERVICE_LOGS_DIR`   | (unset)                  | Override logs directory (`app/utils/paths.py`)      |
+| `STORAGE_BACKEND`       | `local`                  | Storage backend (`app/storage/backends.py`)         |
+| `STORAGE_BUCKET`        | (unset)                  | S3 bucket (when `STORAGE_BACKEND=s3`)               |
+| `STORAGE_PREFIX`        | `ringrift-ai`            | S3 prefix for artifacts                             |
+| `STORAGE_BASE_PATH`     | `.`                      | Base path for local storage                         |
+
+Provider credentials and observability flags (for example `VAST_API_KEY`,
+`RUNPOD_API_KEY`, `LAMBDA_API_KEY`, `HCLOUD_TOKEN`, `AWS_REGION`, `OTEL_*`)
+are consumed directly by their respective integration modules. Search
+`os.getenv` usage in `ai-service/app` for the full list.
 
 ### Timeouts (via coordination_defaults.py)
 

@@ -128,8 +128,7 @@ class ModelPerformanceWatchdog:
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EVALUATION_COMPLETED events."""
         try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_router
+            from app.coordination.event_router import DataEventType, get_router
 
             router = get_router()
             self._unsubscribe = router.subscribe(
@@ -242,8 +241,7 @@ class ModelPerformanceWatchdog:
             return
 
         try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_router
+            from app.coordination.event_router import DataEventType, get_router
 
             router = get_router()
 

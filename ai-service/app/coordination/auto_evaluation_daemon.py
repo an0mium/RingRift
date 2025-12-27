@@ -216,7 +216,7 @@ class AutoEvaluationDaemon:
         # Also subscribe to direct data events (Phase 1.3)
         # This ensures we receive TRAINING_COMPLETED from train.py
         try:
-            from app.distributed.data_events import DataEventType, get_event_bus
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             # Subscribe to MODEL_UPDATED

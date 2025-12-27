@@ -137,6 +137,57 @@ DEFAULT_HANDLER_TIMEOUT_SECONDS = float(
 )
 
 
+def _validate_event_subsystems() -> None:
+    """Validate event subsystem availability at startup.
+
+    Logs warnings for missing subsystems and raises if all are unavailable.
+    Called at module import time to catch configuration issues early.
+    """
+    available = []
+    missing = []
+
+    if HAS_DATA_EVENTS:
+        available.append("data_events")
+    else:
+        missing.append("data_events (app.distributed.data_events)")
+
+    if HAS_STAGE_EVENTS:
+        available.append("stage_events")
+    else:
+        missing.append("stage_events (app.coordination.stage_events)")
+
+    if HAS_CROSS_PROCESS:
+        available.append("cross_process")
+    else:
+        missing.append("cross_process (app.coordination.cross_process_events)")
+
+    # Log status
+    if missing:
+        if len(missing) >= 2:
+            logger.error(
+                f"[EventRouter] Multiple event subsystems unavailable: {', '.join(missing)}. "
+                f"Events may be silently dropped. Available: {', '.join(available) or 'NONE'}"
+            )
+        else:
+            logger.warning(
+                f"[EventRouter] Event subsystem unavailable: {missing[0]}. "
+                f"Some event routing features disabled."
+            )
+
+    if not available:
+        raise ImportError(
+            "EventRouter: All event subsystems failed to import. "
+            "At least one of data_events, stage_events, or cross_process_events is required. "
+            "Check PYTHONPATH and module dependencies."
+        )
+
+    logger.debug(f"[EventRouter] Available subsystems: {', '.join(available)}")
+
+
+# Validate at module load time
+_validate_event_subsystems()
+
+
 class EventSource(str, Enum):
     """Source system for events."""
     DATA_BUS = "data_bus"           # From EventBus (data_events.py)

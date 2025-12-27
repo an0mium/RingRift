@@ -128,8 +128,7 @@ class OrphanDetectionDaemon:
         instead of waiting for the 5-minute periodic scan.
         """
         try:
-            from app.coordination.event_router import subscribe
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import subscribe, DataEventType
 
             def on_database_created(event):
                 """Handle DATABASE_CREATED event - register immediately."""
@@ -356,8 +355,7 @@ class OrphanDetectionDaemon:
     async def _emit_registration_event(self, registered: list[OrphanInfo]) -> None:
         """Emit ORPHAN_GAMES_REGISTERED event."""
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
             if router is None:
@@ -384,8 +382,7 @@ class OrphanDetectionDaemon:
     async def _emit_detection_event(self, orphans: list[OrphanInfo]) -> None:
         """Emit ORPHAN_GAMES_DETECTED event."""
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
             if router is None:

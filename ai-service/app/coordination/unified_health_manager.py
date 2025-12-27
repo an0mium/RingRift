@@ -59,7 +59,7 @@ from app.distributed.circuit_breaker import CircuitBreaker, CircuitState
 
 # Event emission for node health feedback loops (Phase 21.2 - Dec 2025)
 try:
-    from app.distributed.data_events import emit_node_overloaded
+    from app.coordination.event_router import emit_node_overloaded
     HAS_NODE_EVENTS = True
 except ImportError:
     emit_node_overloaded = None
@@ -739,8 +739,7 @@ class UnifiedHealthManager(CoordinatorBase):
                 )
                 # Emit rollback event
                 try:
-                    from app.coordination.event_router import get_router
-                    from app.distributed.data_events import DataEventType
+                    from app.coordination.event_router import get_router, DataEventType
 
                     router = get_router()
                     await router.publish(

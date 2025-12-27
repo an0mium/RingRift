@@ -709,7 +709,7 @@ class TrainingNodeWatcher:
             logger.error(f"Failed to trigger sync for training: {e}")
             # Emit DATA_SYNC_FAILED event
             try:
-                from app.distributed.data_events import emit_data_sync_failed
+                from app.coordination.event_router import emit_data_sync_failed
                 from app.core.async_context import fire_and_forget
                 fire_and_forget(
                     emit_data_sync_failed(
@@ -763,7 +763,7 @@ class TrainingNodeWatcher:
             logger.error(f"Priority sync failed: {e}")
             # Emit DATA_SYNC_FAILED event
             try:
-                from app.distributed.data_events import emit_data_sync_failed
+                from app.coordination.event_router import emit_data_sync_failed
                 from app.core.async_context import fire_and_forget
                 fire_and_forget(
                     emit_data_sync_failed(

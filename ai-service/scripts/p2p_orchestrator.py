@@ -581,6 +581,15 @@ except ImportError:
     SyncCoordinator = None
     full_cluster_sync = None
 
+# SyncRouter: Intelligent data routing with quality-based priority (December 2025)
+try:
+    from app.coordination.sync_router import get_sync_router, SyncRouter
+    HAS_SYNC_ROUTER = True
+except ImportError:
+    HAS_SYNC_ROUTER = False
+    get_sync_router = None
+    SyncRouter = None
+
 # Phase 3.1: Curriculum weights integration for selfplay prioritization
 try:
     from scripts.unified_loop.curriculum import load_curriculum_weights

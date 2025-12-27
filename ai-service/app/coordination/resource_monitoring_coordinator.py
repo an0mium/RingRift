@@ -632,7 +632,7 @@ class ResourceMonitoringCoordinator:
         if change_ratio >= self._capacity_change_threshold or total_gpus != last["total_gpus"]:
             # Emit event
             try:
-                from app.distributed.data_events import emit_cluster_capacity_changed
+                from app.coordination.event_router import emit_cluster_capacity_changed
                 from app.core.async_context import fire_and_forget
 
                 fire_and_forget(

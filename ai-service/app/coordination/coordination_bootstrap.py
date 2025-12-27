@@ -1816,7 +1816,7 @@ def run_bootstrap_smoke_test() -> dict[str, Any]:
 
     # 7. Check key event types are defined
     try:
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import DataEventType
 
         critical_events = [
             "PLATEAU_DETECTED",

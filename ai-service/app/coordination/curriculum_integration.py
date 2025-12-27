@@ -115,7 +115,7 @@ class MomentumToCurriculumBridge:
 
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             if router is None:
@@ -147,7 +147,7 @@ class MomentumToCurriculumBridge:
 
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             if router:
@@ -489,7 +489,7 @@ class PFSPWeaknessWatcher:
         """Emit OPPONENT_MASTERED event."""
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             # P1.4 Dec 2025: Use DataEventType enum for type-safe emission
@@ -766,7 +766,7 @@ class QualityPenaltyToCurriculumWatcher:
 
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             if router is None:
@@ -793,7 +793,7 @@ class QualityPenaltyToCurriculumWatcher:
 
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             if router:
@@ -955,7 +955,7 @@ class QualityToTemperatureWatcher:
 
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             # P0.6 Dec 2025: Use DataEventType enum for type-safe subscriptions
@@ -979,7 +979,7 @@ class QualityToTemperatureWatcher:
 
         try:
             from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType
 
             router = get_router()
             # P0.6 Dec 2025: Use DataEventType enum for type-safe unsubscriptions

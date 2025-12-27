@@ -66,6 +66,9 @@ from app.coordination.daemon_types import (
     mark_daemon_ready,
 )
 
+# Lifecycle management extracted to dedicated module (Dec 2025)
+from app.coordination.daemon_lifecycle import DaemonLifecycleManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -106,6 +109,18 @@ class DaemonManager:
 
         # Register default factories
         self._register_default_factories()
+
+        # Lifecycle management extracted to DaemonLifecycleManager (Dec 2025)
+        self._lifecycle = DaemonLifecycleManager(
+            daemons=self._daemons,
+            factories=self._factories,
+            config=self.config,
+            shutdown_event=self._shutdown_event,
+            lock=self._lock,
+            update_daemon_state=self._update_daemon_state,
+            running_flag_getter=lambda: self._running,
+            running_flag_setter=lambda v: setattr(self, "_running", v),
+        )
 
     @classmethod
     def get_instance(cls, config: DaemonManagerConfig | None = None) -> DaemonManager:
@@ -165,20 +180,40 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # Auto sync (December 2025)
-        self.register_factory(DaemonType.AUTO_SYNC, self._create_auto_sync)
+        # Auto sync (December 2025) - emits 12+ event types including DATA_SYNC_*
+        self.register_factory(
+            DaemonType.AUTO_SYNC,
+            self._create_auto_sync,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
-        # Training node watcher (Phase 6, December 2025)
-        self.register_factory(DaemonType.TRAINING_NODE_WATCHER, self._create_training_node_watcher)
+        # Training node watcher (Phase 6, December 2025) - emits training detection events
+        self.register_factory(
+            DaemonType.TRAINING_NODE_WATCHER,
+            self._create_training_node_watcher,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
-        # Ephemeral sync for Vast.ai (Phase 4, December 2025)
-        self.register_factory(DaemonType.EPHEMERAL_SYNC, self._create_ephemeral_sync)
+        # Ephemeral sync for Vast.ai (Phase 4, December 2025) - emits sync events
+        self.register_factory(
+            DaemonType.EPHEMERAL_SYNC,
+            self._create_ephemeral_sync,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
-        # Replication monitor (December 2025)
-        self.register_factory(DaemonType.REPLICATION_MONITOR, self._create_replication_monitor)
+        # Replication monitor (December 2025) - emits REPLICATION_ALERT events
+        self.register_factory(
+            DaemonType.REPLICATION_MONITOR,
+            self._create_replication_monitor,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
-        # Replication repair (December 2025)
-        self.register_factory(DaemonType.REPLICATION_REPAIR, self._create_replication_repair)
+        # Replication repair (December 2025) - emits REPAIR_COMPLETED/FAILED events
+        self.register_factory(
+            DaemonType.REPLICATION_REPAIR,
+            self._create_replication_repair,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Tournament daemon (December 2025) - depends on EVENT_ROUTER for event subscriptions
         self.register_factory(
