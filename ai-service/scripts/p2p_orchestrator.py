@@ -682,6 +682,122 @@ async def _emit_task_abandoned(
         logger.debug(f"[P2P Event] Failed to emit TASK_ABANDONED: {e}")
 
 
+# =============================================================================
+# Cluster Health Event Emission (December 2025)
+# =============================================================================
+
+# Track previous cluster health state for transition detection
+_previous_cluster_healthy: bool | None = None
+
+
+async def _emit_p2p_cluster_healthy(
+    healthy_nodes: int,
+    node_count: int,
+) -> None:
+    """Emit P2P_CLUSTER_HEALTHY when cluster transitions to healthy state.
+
+    December 2025: Enables pipeline coordination to resume operations
+    when cluster health is restored.
+
+    Args:
+        healthy_nodes: Number of healthy nodes
+        node_count: Total node count
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        from app.coordination.event_emitters import emit_p2p_cluster_healthy
+        await emit_p2p_cluster_healthy(
+            healthy_nodes=healthy_nodes,
+            node_count=node_count,
+            source="p2p_orchestrator",
+        )
+        logger.info(f"[P2P Event] Emitted P2P_CLUSTER_HEALTHY: {healthy_nodes}/{node_count} nodes")
+    except ImportError:
+        pass  # Event emitters not available
+    except (AttributeError, RuntimeError, TypeError) as e:
+        logger.debug(f"[P2P Event] Failed to emit P2P_CLUSTER_HEALTHY: {e}")
+
+
+async def _emit_p2p_cluster_unhealthy(
+    healthy_nodes: int,
+    node_count: int,
+    alerts: list[str] | None = None,
+) -> None:
+    """Emit P2P_CLUSTER_UNHEALTHY when cluster transitions to unhealthy state.
+
+    December 2025: Enables pipeline coordination to pause operations
+    and trigger recovery when cluster health degrades.
+
+    Args:
+        healthy_nodes: Number of healthy nodes
+        node_count: Total node count
+        alerts: List of alert messages describing the issue
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        from app.coordination.event_emitters import emit_p2p_cluster_unhealthy
+        await emit_p2p_cluster_unhealthy(
+            healthy_nodes=healthy_nodes,
+            node_count=node_count,
+            alerts=alerts,
+            source="p2p_orchestrator",
+        )
+        logger.warning(f"[P2P Event] Emitted P2P_CLUSTER_UNHEALTHY: {healthy_nodes}/{node_count} nodes")
+    except ImportError:
+        pass  # Event emitters not available
+    except (AttributeError, RuntimeError, TypeError) as e:
+        logger.debug(f"[P2P Event] Failed to emit P2P_CLUSTER_UNHEALTHY: {e}")
+
+
+def _emit_cluster_health_event_sync(
+    healthy_nodes: int,
+    node_count: int,
+    alerts: list[str] | None = None,
+) -> None:
+    """Synchronous version: check cluster health and emit event if state changed.
+
+    Cluster is considered healthy if >50% of nodes are alive and we have at least 2 nodes.
+    Events are only emitted on state transitions (healthy->unhealthy or vice versa).
+
+    For use in sync code paths like _check_dead_peers().
+    """
+    global _previous_cluster_healthy
+
+    if not _check_event_emitters():
+        return
+
+    # Calculate health status
+    # Cluster is healthy if >50% alive and at least 2 nodes
+    is_healthy = node_count >= 2 and healthy_nodes > node_count / 2
+
+    # Only emit on state transitions
+    if _previous_cluster_healthy is None:
+        # First check - just record state, don't emit
+        _previous_cluster_healthy = is_healthy
+        return
+
+    if is_healthy == _previous_cluster_healthy:
+        # No state change
+        return
+
+    # State changed - update and emit
+    _previous_cluster_healthy = is_healthy
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            if is_healthy:
+                asyncio.create_task(_emit_p2p_cluster_healthy(healthy_nodes, node_count))
+            else:
+                asyncio.create_task(_emit_p2p_cluster_unhealthy(healthy_nodes, node_count, alerts))
+    except RuntimeError:
+        pass
+
+
 async def _emit_data_sync_started(
     host: str,
     sync_type: str = "incremental",
@@ -21220,6 +21336,22 @@ print(json.dumps({{
                 del self.peers[node_id]
                 logger.info(f"Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
 
+            # December 2025: Emit cluster health event if state changed
+            # This enables pipeline coordination to pause/resume based on cluster health
+            final_alive_count = sum(
+                1 for p in self.peers.values()
+                if p.is_alive() and not getattr(p, "retired", False)
+            )
+            final_node_count = len([
+                p for p in self.peers.values()
+                if not getattr(p, "retired", False)
+            ])
+            # Add self if not in peers
+            if self.node_id not in self.peers:
+                final_alive_count += 1
+                final_node_count += 1
+            _emit_cluster_health_event_sync(final_alive_count, final_node_count)
+
         # Clear stale leader IDs after restarts/partitions
         if self.leader_id and not self._is_leader_lease_valid():
             logger.info(f"Clearing stale/expired leader lease: leader_id={self.leader_id}")
@@ -21332,6 +21464,22 @@ print(json.dumps({{
             for node_id in peers_to_purge:
                 del self.peers[node_id]
                 logger.info(f"Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
+
+            # December 2025: Emit cluster health event if state changed
+            # This enables pipeline coordination to pause/resume based on cluster health
+            final_alive_count = sum(
+                1 for p in self.peers.values()
+                if p.is_alive() and not getattr(p, "retired", False)
+            )
+            final_node_count = len([
+                p for p in self.peers.values()
+                if not getattr(p, "retired", False)
+            ])
+            # Add self if not in peers
+            if self.node_id not in self.peers:
+                final_alive_count += 1
+                final_node_count += 1
+            _emit_cluster_health_event_sync(final_alive_count, final_node_count)
 
         # LEARNED LESSONS - Clear stale leader IDs after restarts/partitions.
         #

@@ -182,14 +182,15 @@ Incident response and post-mortems.
 
 Operational configuration and infrastructure documentation.
 
-| Document                                                             | Purpose                     |
-| -------------------------------------------------------------------- | --------------------------- |
-| [ALERTING_THRESHOLDS.md](docs/operations/ALERTING_THRESHOLDS.md)     | Monitoring alert thresholds |
-| [ENVIRONMENT_VARIABLES.md](docs/operations/ENVIRONMENT_VARIABLES.md) | Environment configuration   |
-| [OPERATIONS_DB.md](docs/operations/OPERATIONS_DB.md)                 | Database operations         |
-| [SECRETS_MANAGEMENT.md](docs/operations/SECRETS_MANAGEMENT.md)       | Secrets and credentials     |
-| [STAGING_ENVIRONMENT.md](docs/operations/STAGING_ENVIRONMENT.md)     | Staging environment setup   |
-| [SLO_VERIFICATION.md](docs/operations/SLO_VERIFICATION.md)           | SLO verification framework  |
+| Document                                                                               | Purpose                       |
+| -------------------------------------------------------------------------------------- | ----------------------------- |
+| [ALERTING_THRESHOLDS.md](docs/operations/ALERTING_THRESHOLDS.md)                       | Monitoring alert thresholds   |
+| [ENVIRONMENT_VARIABLES.md](docs/operations/ENVIRONMENT_VARIABLES.md)                   | Environment configuration     |
+| [ENVIRONMENT_VARIABLES_INTERNAL.md](docs/operations/ENVIRONMENT_VARIABLES_INTERNAL.md) | Auto-extracted internal flags |
+| [OPERATIONS_DB.md](docs/operations/OPERATIONS_DB.md)                                   | Database operations           |
+| [SECRETS_MANAGEMENT.md](docs/operations/SECRETS_MANAGEMENT.md)                         | Secrets and credentials       |
+| [STAGING_ENVIRONMENT.md](docs/operations/STAGING_ENVIRONMENT.md)                       | Staging environment setup     |
+| [SLO_VERIFICATION.md](docs/operations/SLO_VERIFICATION.md)                             | SLO verification framework    |
 
 ### Cluster Monitoring Infrastructure
 

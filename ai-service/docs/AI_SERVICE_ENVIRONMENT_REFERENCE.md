@@ -2,6 +2,9 @@
 
 This document covers environment variables specific to the Python AI service cluster operations, coordination, and training infrastructure. For TypeScript/server variables, see the main `docs/operations/ENVIRONMENT_VARIABLES.md`.
 
+For internal/experimental AI-service flags discovered in code but not yet fully described,
+see `docs/operations/ENVIRONMENT_VARIABLES_INTERNAL.md`.
+
 ## Table of Contents
 
 - [Node Identity & Roles](#node-identity--roles)

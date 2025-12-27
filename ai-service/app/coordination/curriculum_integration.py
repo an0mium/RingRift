@@ -75,6 +75,8 @@ class MomentumToCurriculumBridge:
         self._last_weights: dict[str, float] = {}
         # December 2025: Track selfplay allocation shares for curriculum alignment
         self._last_allocation_share: dict[str, float] = {}
+        # December 2025: Fix AttributeError in health_check() - initialize missing attrs
+        self._last_sync_time: float = 0.0
 
     def start(self) -> None:
         """Start the momentum-to-curriculum bridge.
@@ -410,6 +412,7 @@ class MomentumToCurriculumBridge:
                 feedback._current_weights[config_key] = weight
 
             self._last_weights = dict(accelerator_weights)
+            self._last_sync_time = time.time()  # Track last sync for health_check
 
             # Emit event
             self._emit_rebalance_event(changed_configs, accelerator_weights)
@@ -459,31 +462,53 @@ class MomentumToCurriculumBridge:
 
         Returns:
             HealthCheckResult with current status
-        """
-        active_configs = sum(1 for w in self._last_weights.values() if w > 0.01)
 
-        if self._sync_thread and self._sync_thread.is_alive():
+        December 2025: Fixed AttributeError by using _fallback_thread (not _sync_thread)
+        and added exception handling to prevent crash loops.
+        """
+        try:
+            active_configs = sum(1 for w in self._last_weights.values() if w > 0.01)
+
+            # Use _fallback_thread (the actual attribute) or check event subscription
+            thread_active = (
+                self._fallback_thread is not None and self._fallback_thread.is_alive()
+            )
+            is_active = thread_active or self._event_subscribed
+
+            if is_active:
+                return HealthCheckResult(
+                    healthy=True,
+                    status=CoordinatorStatus.RUNNING,
+                    message=f"Sync active, {active_configs} configs with weight",
+                    details={
+                        "running": self._running,
+                        "event_subscribed": self._event_subscribed,
+                        "fallback_thread_active": thread_active,
+                        "last_sync": self._last_sync_time,
+                        "active_configs": active_configs,
+                    },
+                )
+
             return HealthCheckResult(
                 healthy=True,
-                status=CoordinatorStatus.RUNNING,
-                message=f"Sync active, {active_configs} configs with weight",
+                status=CoordinatorStatus.IDLE,
+                message=f"Sync idle, {active_configs} configs with weight",
                 details={
                     "running": self._running,
+                    "event_subscribed": self._event_subscribed,
                     "last_sync": self._last_sync_time,
                     "active_configs": active_configs,
                 },
             )
-
-        return HealthCheckResult(
-            healthy=True,
-            status=CoordinatorStatus.IDLE,
-            message=f"Sync idle, {active_configs} configs with weight",
-            details={
-                "running": self._running,
-                "last_sync": self._last_sync_time,
-                "active_configs": active_configs,
-            },
-        )
+        except Exception as e:
+            # Prevent health_check crashes from causing daemon restart loops
+            logger.warning(f"[MomentumToCurriculumBridge] health_check error: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
+            )
 
 
 # =============================================================================
