@@ -70,30 +70,41 @@ ModelVersioningError = _BaseModelVersioningError
 
 
 class VersionMismatchError(ModelVersioningError):
-    """Raised when checkpoint version doesn't match current model."""
+    """Raised when checkpoint version doesn't match current model.
+
+    Notes
+    -----
+    The canonical error base ([`app.errors.RingRiftError`](ai-service/app/errors/__init__.py:119))
+    uses `details: dict[str, Any]` for structured context. This class therefore
+    accepts a `reason` string (human-friendly) plus optional structured details.
+    """
 
     def __init__(
         self,
         checkpoint_version: str,
         current_version: str,
         checkpoint_path: str,
-        details: str | None = None,
+        reason: str | None = None,
+        details: dict[str, Any] | None = None,
     ):
         self.checkpoint_version = checkpoint_version
         self.current_version = current_version
         self.checkpoint_path = checkpoint_path
-        self.details = details
+
+        merged_details: dict[str, Any] = dict(details or {})
+        if reason:
+            merged_details.setdefault("reason", reason)
 
         message = (
-            f"Architecture version mismatch!\n"
+            "Architecture version mismatch!\n"
             f"  Checkpoint version: {checkpoint_version}\n"
             f"  Current version: {current_version}\n"
             f"  Checkpoint path: {checkpoint_path}"
         )
-        if details:
-            message += f"\n  Details: {details}"
+        if reason:
+            message += f"\n  Details: {reason}"
 
-        super().__init__(message)
+        super().__init__(message, details=merged_details)
 
 
 class ChecksumMismatchError(ModelVersioningError):
@@ -796,7 +807,7 @@ class ModelVersionManager:
                     checkpoint_version=f"{metadata.model_class}",
                     current_version=f"{expected_class}",
                     checkpoint_path=path,
-                    details="Model class mismatch",
+                    reason="Model class mismatch",
                 )
             else:
                 logger.warning(

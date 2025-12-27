@@ -355,8 +355,7 @@ class TestModelVersionManager:
                 expected_class="DifferentModel",
             )
 
-        details = exc_info.value.details or ""
-        assert "Model class mismatch" in details
+        assert exc_info.value.details.get("reason") == "Model class mismatch"
 
     def test_checksum_validation(
         self, manager, simple_model, temp_checkpoint_path

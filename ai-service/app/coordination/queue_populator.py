@@ -10,6 +10,7 @@ Work distribution:
 - 10% tournament (Elo measurement)
 """
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from app.coordination.selfplay_scheduler import SelfplayScheduler
     from app.coordination.work_queue import WorkItem, WorkQueue
 
 logger = logging.getLogger(__name__)
@@ -230,10 +232,12 @@ class QueuePopulator:
         config: PopulatorConfig | None = None,
         work_queue: Optional["WorkQueue"] = None,
         elo_db_path: str | None = None,
+        selfplay_scheduler: Optional["SelfplayScheduler"] = None,
     ):
         self.config = config or PopulatorConfig()
         self._work_queue = work_queue
         self._elo_db_path = elo_db_path
+        self._selfplay_scheduler = selfplay_scheduler
 
         # Scale queue depth to cluster size (Phase 2B.1 - December 2025)
         self._scale_queue_depth_to_cluster()
@@ -379,6 +383,85 @@ class QueuePopulator:
     def set_work_queue(self, work_queue: "WorkQueue") -> None:
         """Set the work queue reference."""
         self._work_queue = work_queue
+
+    def set_selfplay_scheduler(self, scheduler: "SelfplayScheduler") -> None:
+        """Set the selfplay scheduler reference for priority-based allocation.
+
+        When a scheduler is set, the queue populator will use scheduler
+        priorities to determine work item priorities and config ordering.
+        """
+        self._selfplay_scheduler = scheduler
+        logger.info("[QueuePopulator] SelfplayScheduler integration enabled")
+
+    def _get_scheduler_priorities(self) -> dict[str, float]:
+        """Get priority scores from the SelfplayScheduler.
+
+        Returns:
+            Dict mapping config_key -> priority_score (higher = more priority).
+            Empty dict if scheduler not available or async call fails.
+        """
+        if self._selfplay_scheduler is None:
+            return {}
+
+        try:
+            # Run async method in sync context
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Can't use run_until_complete in running loop
+                # Fall back to cached priorities if available
+                priorities_list = getattr(self._selfplay_scheduler, "_cached_priorities", [])
+                if priorities_list:
+                    return dict(priorities_list)
+                return {}
+            else:
+                priorities_list = loop.run_until_complete(
+                    self._selfplay_scheduler.get_priority_configs(top_n=12)
+                )
+                return dict(priorities_list)
+        except RuntimeError:
+            # No event loop - try creating one
+            try:
+                priorities_list = asyncio.run(
+                    self._selfplay_scheduler.get_priority_configs(top_n=12)
+                )
+                return dict(priorities_list)
+            except Exception as e:
+                logger.debug(f"[QueuePopulator] Failed to get scheduler priorities: {e}")
+                return {}
+        except Exception as e:
+            logger.debug(f"[QueuePopulator] Failed to get scheduler priorities: {e}")
+            return {}
+
+    def _compute_work_priority(
+        self,
+        base_priority: int,
+        config_key: str,
+        scheduler_priorities: dict[str, float],
+    ) -> int:
+        """Compute adjusted work priority based on scheduler priorities.
+
+        Args:
+            base_priority: Base priority from config
+            config_key: Config key like "hex8_2p"
+            scheduler_priorities: Scheduler priority scores
+
+        Returns:
+            Adjusted priority (higher = more urgent)
+        """
+        if not scheduler_priorities:
+            return base_priority
+
+        scheduler_score = scheduler_priorities.get(config_key, 0.0)
+        if scheduler_score <= 0:
+            return base_priority
+
+        # Scale scheduler score (typically 0-10) to priority boost (0-50)
+        # Top priority configs get +50 boost
+        max_score = max(scheduler_priorities.values()) if scheduler_priorities else 1.0
+        normalized = scheduler_score / max(max_score, 0.01)
+        priority_boost = int(normalized * 50)
+
+        return base_priority + priority_boost
 
     def update_target_elo(
         self,
@@ -607,6 +690,10 @@ class QueuePopulator:
     def populate(self) -> int:
         """Populate the work queue to maintain minimum depth.
 
+        Uses SelfplayScheduler priorities (if available) to:
+        1. Order configs by priority (staleness, velocity, training needs)
+        2. Boost work item priorities for high-priority configs
+
         Returns:
             Number of items added
         """
@@ -625,6 +712,13 @@ class QueuePopulator:
         if items_needed <= 0:
             return 0
 
+        # Get scheduler priorities for intelligent ordering (December 2025)
+        scheduler_priorities = self._get_scheduler_priorities()
+        if scheduler_priorities:
+            logger.debug(
+                f"[QueuePopulator] Using scheduler priorities for {len(scheduler_priorities)} configs"
+            )
+
         # Calculate distribution
         selfplay_count = int(items_needed * self.config.selfplay_ratio)
         training_count = int(items_needed * self.config.training_ratio)
@@ -635,35 +729,57 @@ class QueuePopulator:
         if not unmet:
             return 0
 
+        # Sort unmet configs by scheduler priority (December 2025 integration)
+        if scheduler_priorities:
+            unmet.sort(
+                key=lambda t: scheduler_priorities.get(t.config_key, 0.0),
+                reverse=True,  # Higher priority first
+            )
+
         added = 0
 
-        # Add selfplay items
+        # Add selfplay items with priority boosting
         for i in range(selfplay_count):
             target = unmet[i % len(unmet)]
             try:
                 item = self._create_selfplay_item(target.board_type, target.num_players)
+                # Boost priority based on scheduler (December 2025)
+                if scheduler_priorities:
+                    item.priority = self._compute_work_priority(
+                        item.priority, target.config_key, scheduler_priorities
+                    )
                 self._work_queue.add_work(item)
                 self._queued_work_ids.add(item.work_id)
                 added += 1
             except Exception as e:
                 logger.error(f"Failed to add selfplay item: {e}")
 
-        # Add training items
+        # Add training items with priority boosting
         for i in range(training_count):
             target = unmet[i % len(unmet)]
             try:
                 item = self._create_training_item(target.board_type, target.num_players)
+                # Boost priority based on scheduler (December 2025)
+                if scheduler_priorities:
+                    item.priority = self._compute_work_priority(
+                        item.priority, target.config_key, scheduler_priorities
+                    )
                 self._work_queue.add_work(item)
                 self._queued_work_ids.add(item.work_id)
                 added += 1
             except Exception as e:
                 logger.error(f"Failed to add training item: {e}")
 
-        # Add tournament items
+        # Add tournament items with priority boosting
         for i in range(tournament_count):
             target = unmet[i % len(unmet)]
             try:
                 item = self._create_tournament_item(target.board_type, target.num_players)
+                # Boost priority based on scheduler (December 2025)
+                if scheduler_priorities:
+                    item.priority = self._compute_work_priority(
+                        item.priority, target.config_key, scheduler_priorities
+                    )
                 self._work_queue.add_work(item)
                 self._queued_work_ids.add(item.work_id)
                 added += 1

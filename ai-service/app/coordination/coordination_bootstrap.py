@@ -81,6 +81,94 @@ _state = BootstrapState()
 
 
 # =============================================================================
+# Critical Import Validation (Phase 8 - December 2025)
+# =============================================================================
+
+# Critical modules that must be importable for coordination to work
+_CRITICAL_MODULES = [
+    # Event system (core to all coordination)
+    ("app.coordination.event_router", "Event routing"),
+    ("app.distributed.data_events", "Data events"),
+    # Pipeline actions (required for automation)
+    ("app.coordination.pipeline_actions", "Pipeline triggers"),
+    # Core coordinators
+    ("app.coordination.sync_coordinator", "Sync scheduling"),
+    ("app.coordination.training_coordinator", "Training management"),
+]
+
+# Optional modules that enhance functionality but aren't required
+_OPTIONAL_MODULES = [
+    ("app.coordination.sync_router", "Intelligent sync routing"),
+    ("app.coordination.sync_bandwidth", "Bandwidth management"),
+    ("app.coordination.ephemeral_sync", "Ephemeral host sync"),
+    ("app.coordination.training_freshness", "Data freshness checks"),
+]
+
+
+def _validate_critical_imports() -> dict[str, Any]:
+    """Validate that critical modules can be imported.
+
+    Phase 8 (December 2025): Startup validation catches missing modules early,
+    preventing silent failures where features are disabled due to ImportError.
+
+    Returns:
+        Dict with 'critical_failures', 'optional_failures', and 'validated' lists
+    """
+    import os
+
+    result = {
+        "critical_failures": [],
+        "optional_failures": [],
+        "validated": [],
+    }
+
+    # Check if strict mode is enabled
+    strict_mode = os.environ.get("RINGRIFT_REQUIRE_CRITICAL_IMPORTS", "0") == "1"
+
+    # Validate critical modules
+    for module_path, description in _CRITICAL_MODULES:
+        try:
+            __import__(module_path)
+            result["validated"].append(f"{description} ({module_path})")
+        except ImportError as e:
+            failure_msg = f"{description} ({module_path}): {e}"
+            result["critical_failures"].append(failure_msg)
+
+    # Validate optional modules (just log warnings)
+    for module_path, description in _OPTIONAL_MODULES:
+        try:
+            __import__(module_path)
+            result["validated"].append(f"{description} ({module_path})")
+        except ImportError as e:
+            failure_msg = f"{description} ({module_path}): {e}"
+            result["optional_failures"].append(failure_msg)
+            logger.debug(f"[Bootstrap] Optional module not available: {failure_msg}")
+
+    # Log summary
+    total_validated = len(result["validated"])
+    critical_failed = len(result["critical_failures"])
+    optional_failed = len(result["optional_failures"])
+
+    if critical_failed == 0:
+        logger.info(
+            f"[Bootstrap] Import validation passed: {total_validated} modules validated"
+        )
+    else:
+        logger.warning(
+            f"[Bootstrap] Import validation: {total_validated} passed, "
+            f"{critical_failed} critical failed, {optional_failed} optional failed"
+        )
+
+    # Raise if strict mode and critical failures
+    if strict_mode and result["critical_failures"]:
+        raise RuntimeError(
+            f"Critical imports failed in strict mode: {result['critical_failures']}"
+        )
+
+    return result
+
+
+# =============================================================================
 # Initialization Functions
 # =============================================================================
 
@@ -1168,6 +1256,19 @@ def bootstrap_coordination(
     _state.errors = []
 
     logger.info("[Bootstrap] Starting coordination bootstrap...")
+
+    # Phase 8 (December 2025): Validate critical imports at startup
+    # This catches missing modules early before they cause silent failures
+    import_status = _validate_critical_imports()
+    if import_status.get("critical_failures"):
+        for failure in import_status["critical_failures"]:
+            _state.errors.append(f"Critical import failed: {failure}")
+            logger.error(f"[Bootstrap] CRITICAL: {failure}")
+        # Log warning but don't fail - allows partial operation
+        logger.warning(
+            f"[Bootstrap] {len(import_status['critical_failures'])} critical imports failed. "
+            f"Some coordination features will be unavailable."
+        )
 
     # Initialize in dependency order
     # Foundational coordinators first (no dependencies), then dependents
