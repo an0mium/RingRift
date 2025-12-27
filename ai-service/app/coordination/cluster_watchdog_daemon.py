@@ -422,8 +422,11 @@ class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
                     gpu_memory_gb=gpu_memory,
                 ))
 
-        except Exception as e:
-            logger.debug(f"[ClusterWatchdog] Vast discovery error: {e}")
+        except FileNotFoundError:
+            # vastai CLI not installed - expected on non-coordinator nodes
+            logger.debug("[ClusterWatchdog] Vast CLI not installed")
+        except (subprocess.SubprocessError, ValueError, KeyError) as e:
+            logger.info(f"[ClusterWatchdog] Vast discovery error: {e}")
 
         return nodes
 
@@ -471,8 +474,11 @@ class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
                     gpu_memory_gb=80,  # Assume A100/H100
                 ))
 
-        except Exception as e:
-            logger.debug(f"[ClusterWatchdog] RunPod discovery error: {e}")
+        except FileNotFoundError:
+            # runpodctl CLI not installed - expected on non-coordinator nodes
+            logger.debug("[ClusterWatchdog] RunPod CLI not installed")
+        except (subprocess.SubprocessError, ValueError, IndexError) as e:
+            logger.info(f"[ClusterWatchdog] RunPod discovery error: {e}")
 
         return nodes
 
@@ -519,8 +525,11 @@ class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
                     gpu_memory_gb=20,  # Vultr A100 vGPU
                 ))
 
-        except Exception as e:
-            logger.debug(f"[ClusterWatchdog] Vultr discovery error: {e}")
+        except FileNotFoundError:
+            # vultr-cli not installed - expected on non-coordinator nodes
+            logger.debug("[ClusterWatchdog] Vultr CLI not installed")
+        except (subprocess.SubprocessError, ValueError, KeyError) as e:
+            logger.info(f"[ClusterWatchdog] Vultr discovery error: {e}")
 
         return nodes
 

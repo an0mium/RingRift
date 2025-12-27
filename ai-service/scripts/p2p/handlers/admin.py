@@ -92,7 +92,18 @@ class AdminHandlersMixin:
         """Manually trigger a git update on this node.
 
         This will stop jobs, pull updates, and restart the orchestrator.
+
+        Dec 2025: Added optional auth token check for security.
+        Set RINGRIFT_ADMIN_TOKEN to require auth, or leave unset for open access.
         """
+        import os
+        admin_token = os.environ.get("RINGRIFT_ADMIN_TOKEN")
+        if admin_token:
+            request_token = request.headers.get("X-Admin-Token", "")
+            if request_token != admin_token:
+                logger.warning("Unauthorized git update attempt")
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
         try:
             # Check for updates first
             has_updates, local_commit, remote_commit = self._check_for_updates()
@@ -130,7 +141,18 @@ class AdminHandlersMixin:
 
         Useful after code updates when /git/update shows "already up to date"
         but the running process hasn't picked up the changes.
+
+        Dec 2025: Added optional auth token check for security.
+        Set RINGRIFT_ADMIN_TOKEN to require auth, or leave unset for open access.
         """
+        import os
+        admin_token = os.environ.get("RINGRIFT_ADMIN_TOKEN")
+        if admin_token:
+            request_token = request.headers.get("X-Admin-Token", "")
+            if request_token != admin_token:
+                logger.warning("Unauthorized admin restart attempt")
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
         try:
             logger.info("Admin restart requested via API")
             # Schedule restart (gives time to return response)

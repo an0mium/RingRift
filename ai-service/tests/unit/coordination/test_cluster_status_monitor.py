@@ -277,20 +277,14 @@ class TestClusterMonitorNodeStatus:
 
         # Mock connectivity check to succeed
         with patch.object(monitor, "_check_connectivity", return_value=True):
-            # Mock _run_ssh_command for various status checks
-            with patch.object(
-                monitor,
-                "_run_ssh_command",
-                return_value=(0, "50\n60.0\n200.0", ""),
-            ):
-                status = monitor.get_node_status(
-                    "test-node",
-                    include_game_counts=False,
-                    include_training_status=False,
-                    include_disk_usage=False,
-                    include_gpu_metrics=False,
-                    include_sync_status=False,
-                )
+            status = monitor.get_node_status(
+                "test-node",
+                include_game_counts=False,
+                include_training_status=False,
+                include_disk_usage=False,
+                include_gpu_metrics=False,
+                include_sync_status=False,
+            )
 
         assert status.host_name == "test-node"
         assert status.reachable is True
@@ -526,17 +520,12 @@ class TestClusterMonitorIntegration:
 
         # Mock all external calls
         with patch.object(monitor, "_check_connectivity", return_value=True):
-            with patch.object(
-                monitor,
-                "_run_ssh_command",
-                return_value=(0, "", ""),
-            ):
-                status = monitor.get_cluster_status(
-                    include_game_counts=False,
-                    include_training_status=False,
-                    include_disk_usage=False,
-                    include_sync_status=False,
-                )
+            status = monitor.get_cluster_status(
+                include_game_counts=False,
+                include_training_status=False,
+                include_disk_usage=False,
+                include_sync_status=False,
+            )
 
         assert status.total_nodes == 2
         assert status.active_nodes == 2

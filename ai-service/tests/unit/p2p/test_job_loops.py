@@ -807,6 +807,9 @@ class TestJobLoopIntegration:
 
         # Start in background
         task = loop.start_background()
+
+        # Wait for task to actually start running
+        await asyncio.sleep(0.05)
         assert loop.running is True
 
         # Let it run a few cycles
@@ -831,6 +834,9 @@ class TestJobLoopIntegration:
 
         # Start in background
         task = loop.start_background()
+
+        # Wait for task to actually start running
+        await asyncio.sleep(0.05)
         assert loop.running is True
 
         # Let it run a few cycles
