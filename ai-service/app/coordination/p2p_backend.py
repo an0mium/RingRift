@@ -558,19 +558,67 @@ class P2PBackend:
         except aiohttp.ClientError as e:
             raise RuntimeError(f"Error cancelling job {job_id}: {e}") from e
 
-    async def health_check(self) -> bool:
+    async def health_check(self) -> "HealthCheckResult":
         """Check if the P2P leader is healthy.
 
         Returns:
-            True if leader is healthy
+            HealthCheckResult with P2P backend status
+
+        December 2025: Updated to return HealthCheckResult for DaemonManager integration.
         """
+        # Import here to avoid circular dependency
+        from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+
         try:
             session = await self._get_session()
             async with session.get(f"{self.leader_url}/health") as resp:
-                return resp.status == 200
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+                if resp.status == 200:
+                    # Try to get additional status info
+                    try:
+                        status = await self.get_cluster_status()
+                        leader_id = status.get("leader_id", "unknown")
+                        alive_peers = status.get("alive_peers", 0)
+                        return HealthCheckResult(
+                            healthy=True,
+                            status=CoordinatorStatus.RUNNING,
+                            message="P2P backend connected",
+                            details={
+                                "leader_url": self.leader_url,
+                                "leader_id": leader_id,
+                                "alive_peers": alive_peers,
+                            },
+                        )
+                    except (RuntimeError, asyncio.TimeoutError, OSError):
+                        # Health endpoint OK but status failed - still healthy
+                        return HealthCheckResult(
+                            healthy=True,
+                            status=CoordinatorStatus.RUNNING,
+                            message="P2P backend connected (status unavailable)",
+                            details={"leader_url": self.leader_url},
+                        )
+                else:
+                    return HealthCheckResult(
+                        healthy=False,
+                        status=CoordinatorStatus.ERROR,
+                        message=f"P2P health endpoint returned {resp.status}",
+                        details={"leader_url": self.leader_url, "status_code": resp.status},
+                    )
+        except asyncio.TimeoutError as e:
+            logger.debug(f"P2P health check timed out: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"P2P health check timed out: {e}",
+                details={"leader_url": self.leader_url, "error": "timeout"},
+            )
+        except (aiohttp.ClientError, OSError) as e:
             logger.debug(f"P2P health check failed: {e}")
-            return False
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"P2P health check failed: {e}",
+                details={"leader_url": self.leader_url, "error": str(e)},
+            )
 
 
 def _normalize_p2p_seed_url(raw: str) -> str:

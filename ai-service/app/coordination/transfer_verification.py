@@ -50,6 +50,7 @@ from app.utils.checksum_utils import (
     compute_file_checksum as _compute_file_checksum,
 )
 from app.utils.paths import DATA_DIR
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
