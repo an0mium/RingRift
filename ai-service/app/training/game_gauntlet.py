@@ -127,9 +127,25 @@ def _allow_parallel_opponents() -> bool:
 
 
 class BaselineOpponent(Enum):
-    """Standard baseline opponents for evaluation."""
+    """Standard baseline opponents for evaluation.
+
+    December 2025: Extended with stronger tiers to measure Elo above 1600.
+    Previous baselines (RANDOM@400, HEURISTIC@1200) capped measurable Elo.
+
+    Baseline Elo ladder:
+        RANDOM:           ~400 Elo (random legal moves)
+        HEURISTIC:       ~1200 Elo (handcrafted evaluation, difficulty 5)
+        HEURISTIC_STRONG: ~1400 Elo (difficulty 8, deeper search)
+        MCTS_LIGHT:      ~1500 Elo (MCTS with 32 simulations)
+        MCTS_MEDIUM:     ~1700 Elo (MCTS with 128 simulations)
+        MCTS_STRONG:     ~1900 Elo (MCTS with 512 simulations)
+    """
     RANDOM = "random"
     HEURISTIC = "heuristic"
+    HEURISTIC_STRONG = "heuristic_strong"
+    MCTS_LIGHT = "mcts_light"
+    MCTS_MEDIUM = "mcts_medium"
+    MCTS_STRONG = "mcts_strong"
 
 
 # ============================================
@@ -250,15 +266,30 @@ except ImportError:
     def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 2) -> float:
         return get_min_win_rate_vs_heuristic(num_players)
 
+# December 2025: Extended baseline Elo ladder
+BASELINE_ELO_HEURISTIC_STRONG = 1400
+BASELINE_ELO_MCTS_LIGHT = 1500
+BASELINE_ELO_MCTS_MEDIUM = 1700
+BASELINE_ELO_MCTS_STRONG = 1900
+
 BASELINE_ELOS = {
     BaselineOpponent.RANDOM: BASELINE_ELO_RANDOM,
     BaselineOpponent.HEURISTIC: BASELINE_ELO_HEURISTIC,
+    BaselineOpponent.HEURISTIC_STRONG: BASELINE_ELO_HEURISTIC_STRONG,
+    BaselineOpponent.MCTS_LIGHT: BASELINE_ELO_MCTS_LIGHT,
+    BaselineOpponent.MCTS_MEDIUM: BASELINE_ELO_MCTS_MEDIUM,
+    BaselineOpponent.MCTS_STRONG: BASELINE_ELO_MCTS_STRONG,
 }
 
 # Static fallback (use get_min_win_rate_* functions for player-aware thresholds)
+# For stronger baselines, 50% is the promotion threshold (beat at parity)
 MIN_WIN_RATES = {
     BaselineOpponent.RANDOM: MIN_WIN_RATE_VS_RANDOM,
     BaselineOpponent.HEURISTIC: MIN_WIN_RATE_VS_HEURISTIC,
+    BaselineOpponent.HEURISTIC_STRONG: 0.50,  # Beat at parity
+    BaselineOpponent.MCTS_LIGHT: 0.50,
+    BaselineOpponent.MCTS_MEDIUM: 0.50,
+    BaselineOpponent.MCTS_STRONG: 0.50,
 }
 
 

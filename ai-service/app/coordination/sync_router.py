@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from app.config.cluster_config import load_cluster_config, get_host_provider, get_cluster_nodes
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 from app.distributed.cluster_manifest import (
@@ -161,8 +163,12 @@ class SyncRouter:
                         f"{storage.get('host')} -> {storage.get('path')}"
                     )
 
-        except Exception as e:
-            logger.error(f"Failed to load config: {e}")
+        except (yaml.YAMLError, OSError) as e:
+            # Config file errors (malformed YAML, file not found, permission denied)
+            logger.error(f"Failed to load config file: {e}")
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            # Config structure errors (invalid values, missing keys, type mismatches)
+            logger.error(f"Failed to parse config structure: {e}")
 
     def _build_node_capabilities(self) -> None:
         """Build node capability information from config."""
