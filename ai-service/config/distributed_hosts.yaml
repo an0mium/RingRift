@@ -47,7 +47,8 @@ auto_sync:
   # Dec 2025: Reduced from 60s to 15s for faster gossip propagation
   gossip_interval_seconds: 15
   skip_nfs_sync: true
-  max_concurrent_syncs: 4
+  # Dec 2025: Increased from 4 to 8 for better cluster utilization (31 nodes)
+  max_concurrent_syncs: 8
   min_games_to_sync: 10
   bandwidth_limit_mbps: 100
   # Dec 2025: Removed mac-studio from exclude_hosts to enable coordinator backup

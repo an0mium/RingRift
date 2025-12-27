@@ -2354,34 +2354,42 @@ class DaemonManager:
     async def _create_queue_populator(self) -> None:
         """Create and run queue populator daemon.
 
+        December 2025: Now uses UnifiedQueuePopulatorDaemon which consolidates
+        queue_populator.py and queue_populator_daemon.py.
+
+        Features:
+        - Elo-based target tracking with velocity calculations
+        - P2P cluster health integration
+        - Curriculum-weighted prioritization
+        - Backpressure-aware population
+        - SelfplayScheduler integration
+
         Continuously monitors cluster state and populates the work queue
-        with selfplay, training, and tournament jobs based on:
-        - Current model ELO and target ELO
-        - Available GPU capacity
-        - Training data freshness
-        - Game count per configuration
+        with selfplay, training, and tournament jobs.
         """
         try:
-            from app.coordination.queue_populator import QueuePopulator
+            from app.coordination.unified_queue_populator import (
+                UnifiedQueuePopulatorDaemon,
+            )
             from app.coordination.selfplay_scheduler import get_selfplay_scheduler
 
             scheduler = get_selfplay_scheduler()
-            populator = QueuePopulator(selfplay_scheduler=scheduler)
-            logger.info("Queue populator daemon started")
+            daemon = UnifiedQueuePopulatorDaemon(selfplay_scheduler=scheduler)
+            logger.info("Queue populator daemon started (unified)")
 
+            await daemon.start()
+
+            # Keep alive until cancelled
             while True:
-                try:
-                    # Populate queue based on cluster needs
-                    added = populator.populate()  # sync method
-                    if added:
-                        logger.debug(f"Queue populator added {added} work items")
-                except (RuntimeError, OSError, ConnectionError) as e:
-                    logger.error(f"Queue populator error: {e}")
-
-                await asyncio.sleep(30.0)  # Check every 30 seconds
+                await asyncio.sleep(60.0)
 
         except ImportError as e:
-            logger.warning(f"QueuePopulator dependencies not available: {e}")
+            logger.warning(f"UnifiedQueuePopulatorDaemon dependencies not available: {e}")
+        except asyncio.CancelledError:
+            # Graceful shutdown
+            if 'daemon' in locals():
+                await daemon.stop()
+            raise
         except (RuntimeError, OSError, ConnectionError) as e:
             logger.error(f"QueuePopulator failed: {e}")
 
@@ -3056,6 +3064,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
     "coordinator": [
         DaemonType.EVENT_ROUTER,
         DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
+        DaemonType.DAEMON_WATCHDOG,  # Dec 2025: Monitor daemon health & auto-restart failed daemons
         DaemonType.P2P_BACKEND,
         DaemonType.TOURNAMENT_DAEMON,
         DaemonType.MODEL_DISTRIBUTION,
@@ -3086,6 +3095,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.CLUSTER_DATA_SYNC,  # Dec 2025: Cluster-wide data distribution
         DaemonType.CLUSTER_WATCHDOG,  # Dec 2025: Self-healing cluster utilization
         DaemonType.METRICS_ANALYSIS,  # Phase 21.2: Analyze training metrics for feedback
+        DaemonType.ELO_SYNC,  # Dec 2025: Sync Elo ratings across cluster nodes
     ],
 
     # Training node profile - runs on GPU nodes

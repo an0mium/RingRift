@@ -1716,6 +1716,13 @@ class P2POrchestrator(
             save_state_callback=lambda: self._save_state(),
         )
 
+        # December 2025: Wire feedback loops for self-improvement
+        # This connects curriculum adjustments to Elo changes, evaluation results, etc.
+        self._wire_feedback_loops()
+
+        # December 2025: Subscribe to daemon status events for observability
+        self._subscribe_to_daemon_events()
+
         print(
             f"[P2P] Initialized node {node_id} on {host}:{port} "
             f"(advertise {self.advertise_host}:{self.advertise_port})"
@@ -1778,6 +1785,86 @@ class P2POrchestrator(
         except Exception as e:
             logger.warning(f"SyncRouter: failed to wire events: {e}")
         return False
+
+    def _wire_feedback_loops(self) -> bool:
+        """Wire curriculum feedback loops for self-improvement.
+
+        December 2025: Connects P2P orchestrator to the training feedback system:
+        - Curriculum weights adjust based on Elo velocity
+        - Weak configs get boosted/penalized based on evaluation results
+        - Quality scores influence exploration temperature
+        - Failed promotions reduce config priority
+
+        Returns True if wiring succeeded, False otherwise.
+        """
+        try:
+            from app.coordination.curriculum_integration import wire_all_feedback_loops
+
+            status = wire_all_feedback_loops()
+            if status.get("success", False):
+                wired_count = status.get("wired_count", 0)
+                logger.info(f"Feedback loops: wired {wired_count} bridges successfully")
+                return True
+            else:
+                error = status.get("error", "Unknown error")
+                logger.warning(f"Feedback loops: partial wiring - {error}")
+                return False
+        except ImportError as e:
+            logger.debug(f"Feedback loops: curriculum_integration not available: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Feedback loops: failed to wire: {e}")
+            return False
+
+    def _subscribe_to_daemon_events(self) -> bool:
+        """Subscribe to daemon status events for observability.
+
+        December 2025: Receives DAEMON_STATUS_CHANGED events from daemon_manager
+        to track daemon health across the cluster. This enables:
+        - Tracking which daemons are running/crashed on each node
+        - Auto-recovery of critical daemons
+        - Cluster-wide daemon health reporting via /status endpoint
+
+        Returns True if subscription succeeded, False otherwise.
+        """
+        try:
+            from app.coordination.event_router import subscribe
+
+            def handle_daemon_status(event) -> None:
+                """Handle daemon status change events."""
+                try:
+                    payload = event.payload if hasattr(event, "payload") else event
+                    daemon_name = payload.get("daemon_name", "unknown")
+                    new_status = payload.get("new_status", "unknown")
+                    hostname = payload.get("hostname", "unknown")
+                    error = payload.get("error")
+
+                    # Track daemon states for cluster health reporting
+                    if not hasattr(self, "_daemon_states"):
+                        self._daemon_states = {}
+                    self._daemon_states[f"{hostname}:{daemon_name}"] = {
+                        "status": new_status,
+                        "last_update": time.time(),
+                        "error": error,
+                    }
+
+                    # Log critical daemon failures
+                    if new_status in ("crashed", "failed") and error:
+                        logger.warning(
+                            f"Daemon {daemon_name} on {hostname} {new_status}: {error}"
+                        )
+                except Exception as e:
+                    logger.debug(f"Error handling daemon status event: {e}")
+
+            subscribe("DAEMON_STATUS_CHANGED", handle_daemon_status)
+            logger.info("Subscribed to daemon status events")
+            return True
+        except ImportError as e:
+            logger.debug(f"Daemon events: event_router not available: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Daemon events: failed to subscribe: {e}")
+            return False
 
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease."""
@@ -4105,9 +4192,14 @@ class P2POrchestrator(
     # ============================================
 
     def _generate_sync_plan(self) -> ClusterSyncPlan | None:
-        """
+        """DEPRECATED: Use self.sync_planner.generate_sync_plan() instead.
+
         Leader generates a sync plan from the cluster manifest.
         Identifies which files are missing from which nodes and creates sync jobs.
+
+        Note: This inline method is kept for backward compatibility. All new code
+        should use self.sync_planner.generate_sync_plan(cluster_manifest).
+        Scheduled for removal: Q2 2026.
         """
         if not self.cluster_data_manifest:
             logger.info("No cluster manifest available, cannot generate sync plan")
@@ -4472,8 +4564,8 @@ class P2POrchestrator(
         logger.info("Collecting cluster manifest for sync...")
         self.cluster_data_manifest = await self._collect_cluster_manifest()
 
-        # Generate sync plan
-        self.current_sync_plan = self._generate_sync_plan()
+        # Generate sync plan (using SyncPlanner manager for consolidated logic)
+        self.current_sync_plan = self.sync_planner.generate_sync_plan(self.cluster_data_manifest)
         if not self.current_sync_plan:
             return {"success": True, "message": "No sync needed, all nodes in sync"}
 
