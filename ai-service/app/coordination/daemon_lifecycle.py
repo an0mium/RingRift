@@ -253,11 +253,13 @@ class DaemonLifecycleManager:
                 info.start_time = time.time()
                 info.state = DaemonState.RUNNING
 
-                # Dec 2025: Auto-set readiness after brief delay for backward compatibility.
+                # Dec 2025: Auto-set readiness after delay for backward compatibility.
                 # Daemons can call mark_daemon_ready() earlier for explicit signaling.
                 # This delay allows daemons to complete critical initialization.
+                # Dec 27, 2025: Increased from 0.5s to 2s - some daemons need more time
+                # for database connections, event subscriptions, and other I/O.
                 async def _auto_set_ready():
-                    await asyncio.sleep(0.5)  # Brief delay for initialization
+                    await asyncio.sleep(2.0)  # Allow initialization to complete
                     if info.ready_event and not info.ready_event.is_set():
                         info.ready_event.set()
                         logger.debug(f"{daemon_type.value} auto-marked as ready")

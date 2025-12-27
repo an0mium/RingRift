@@ -512,7 +512,7 @@ class DaemonManager:
         """Explicitly mark a daemon as ready for dependent daemons.
 
         Daemons should call this after completing critical initialization.
-        This is safer than relying on auto-ready (which triggers after 0.5s).
+        This is safer than relying on auto-ready (which triggers after 2s).
 
         Dec 2025: Added for explicit readiness signaling to prevent
         race conditions where dependent daemons start before their

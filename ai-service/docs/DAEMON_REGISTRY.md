@@ -2,8 +2,9 @@
 
 This document provides a comprehensive reference for all daemons managed by the RingRift AI service `DaemonManager`.
 
-**Last updated:** December 27, 2025
+**Last updated:** December 27, 2025 (Session 3)
 **Total Daemon Types:** 65 registered runners (see `daemon_runners.py`)
+**Startup Order:** 18 daemons in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`)
 
 > **Architecture Note (December 2025):** Factory methods have been extracted from `daemon_manager.py` to `daemon_runners.py`. Factory methods named `create_*()` are in `daemon_runners.py`; methods named `_create_*()` remain in `daemon_manager.py` for legacy or special cases.
 
@@ -567,47 +568,52 @@ Standalone (no dependencies):
 
 **Critical:** Event subscribers must start before event emitters to prevent lost events.
 
-The correct startup order for coordinator nodes (December 2025 fix):
+The canonical startup order is defined in `DAEMON_STARTUP_ORDER` (daemon_types.py:367-403).
+This ensures daemons start in dependency-safe order.
 
 ```
-Phase 1: Core Infrastructure
-├── EVENT_ROUTER (must be first - all coordination depends on this)
+============================================================================
+DAEMON_STARTUP_ORDER (18 daemons) - December 27, 2025 fix
+============================================================================
 
-Phase 2: Health Monitoring
-├── NODE_HEALTH_MONITOR
-├── CLUSTER_MONITOR
-├── SYSTEM_HEALTH_MONITOR
-└── HEALTH_SERVER
+Core Infrastructure (positions 1-4)
+ 1. EVENT_ROUTER        # Event system must be first
+ 2. DAEMON_WATCHDOG     # Self-healing for daemon crashes
+ 3. DATA_PIPELINE       # Pipeline processor (before sync!)
+ 4. FEEDBACK_LOOP       # Training feedback (before sync!)
 
-Phase 3: Event Subscribers (BEFORE emitters!)
-├── FEEDBACK_LOOP     # Subscribes to: TRAINING_COMPLETED, EVALUATION_COMPLETED
-└── DATA_PIPELINE     # Subscribes to: DATA_SYNC_COMPLETED, SELFPLAY_COMPLETE
+Sync and Queue Management (positions 5-10)
+ 5. AUTO_SYNC           # Data sync (emits events)
+ 6. QUEUE_POPULATOR     # Work queue maintenance
+ 7. WORK_QUEUE_MONITOR  # Queue visibility (after populator)
+ 8. COORDINATOR_HEALTH  # Coordinator visibility
+ 9. IDLE_RESOURCE       # GPU utilization
+10. TRAINING_TRIGGER    # Training trigger (after pipeline)
 
-Phase 4: Event Emitters (sync daemons)
-├── AUTO_SYNC         # Emits: DATA_SYNC_COMPLETED
-├── CLUSTER_DATA_SYNC # Emits: DATA_SYNC_COMPLETED
-└── ELO_SYNC
+Monitoring Daemons (positions 11-15)
+11. CLUSTER_MONITOR     # Cluster monitoring (depends on EVENT_ROUTER)
+12. NODE_HEALTH_MONITOR # Node health (depends on EVENT_ROUTER)
+13. HEALTH_SERVER       # Health endpoints (depends on EVENT_ROUTER)
+14. CLUSTER_WATCHDOG    # Cluster watchdog (depends on CLUSTER_MONITOR)
+15. NODE_RECOVERY       # Node recovery (depends on NODE_HEALTH_MONITOR)
 
-Phase 5: Automation Layer
-├── MODEL_DISTRIBUTION
-├── IDLE_RESOURCE
-├── UTILIZATION_OPTIMIZER
-├── QUEUE_POPULATOR
-├── AUTO_EXPORT
-├── EVALUATION
-├── AUTO_PROMOTION
-├── TOURNAMENT_DAEMON
-├── CURRICULUM_INTEGRATION
-├── NODE_RECOVERY
-├── TRAINING_NODE_WATCHER
-└── QUALITY_MONITOR
+Evaluation and Promotion Chain (positions 16-18)
+16. EVALUATION          # Model evaluation (depends on TRAINING_TRIGGER)
+17. AUTO_PROMOTION      # Auto-promotion (depends on EVALUATION)
+18. MODEL_DISTRIBUTION  # Model distribution (depends on AUTO_PROMOTION)
 ```
 
-**Why this matters:** If `AUTO_SYNC` starts before `DATA_PIPELINE`, the `DATA_SYNC_COMPLETED`
+**Validation:** The startup order is validated against `DAEMON_DEPENDENCIES` at startup
+using `validate_startup_order_consistency()`. Any violations cause startup failure.
+
+**Why order matters:** If `AUTO_SYNC` starts before `DATA_PIPELINE`, the `DATA_SYNC_COMPLETED`
 events are lost because the subscriber isn't running yet. This causes the pipeline to miss
 sync completions and never trigger NPZ exports.
 
-**Implementation:** See `scripts/master_loop.py:_get_daemon_list()` for the canonical startup order.
+**Auto-ready timeout:** Daemons are marked "ready" after 2s initialization delay (increased
+from 0.5s in Dec 27, 2025 fix). Daemons can call `mark_daemon_ready()` earlier for explicit signaling.
+
+**Implementation:** See `daemon_types.py:DAEMON_STARTUP_ORDER` and `scripts/master_loop.py:_get_daemon_list()`.
 
 ---
 

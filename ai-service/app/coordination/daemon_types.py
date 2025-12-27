@@ -365,16 +365,41 @@ CRITICAL_DAEMONS: set[DaemonType] = {
 # DATA_PIPELINE and FEEDBACK_LOOP must start BEFORE AUTO_SYNC to avoid event loss.
 # Events emitted by AUTO_SYNC (DATA_SYNC_COMPLETED) need handlers ready.
 DAEMON_STARTUP_ORDER: list[DaemonType] = [
+    # =========================================================================
+    # Core infrastructure (positions 1-4)
+    # =========================================================================
     DaemonType.EVENT_ROUTER,           # 1. Event system must be first
     DaemonType.DAEMON_WATCHDOG,        # 2. Self-healing for daemon crashes
     DaemonType.DATA_PIPELINE,          # 3. Pipeline processor (before sync!)
     DaemonType.FEEDBACK_LOOP,          # 4. Training feedback (before sync!)
+
+    # =========================================================================
+    # Sync and queue management (positions 5-10)
+    # =========================================================================
     DaemonType.AUTO_SYNC,              # 5. Data sync (emits events)
     DaemonType.QUEUE_POPULATOR,        # 6. Work queue maintenance
     DaemonType.WORK_QUEUE_MONITOR,     # 7. Queue visibility (after populator)
     DaemonType.COORDINATOR_HEALTH_MONITOR,  # 8. Coordinator visibility
     DaemonType.IDLE_RESOURCE,          # 9. GPU utilization
     DaemonType.TRAINING_TRIGGER,       # 10. Training trigger (after pipeline)
+
+    # =========================================================================
+    # Monitoring daemons (positions 11-15) - Dec 27, 2025
+    # Added: 8 daemons missing from startup order per exploration analysis
+    # =========================================================================
+    DaemonType.CLUSTER_MONITOR,        # 11. Cluster monitoring (depends on EVENT_ROUTER)
+    DaemonType.NODE_HEALTH_MONITOR,    # 12. Node health (depends on EVENT_ROUTER)
+    DaemonType.HEALTH_SERVER,          # 13. Health endpoints (depends on EVENT_ROUTER)
+    DaemonType.CLUSTER_WATCHDOG,       # 14. Cluster watchdog (depends on CLUSTER_MONITOR)
+    DaemonType.NODE_RECOVERY,          # 15. Node recovery (depends on NODE_HEALTH_MONITOR)
+
+    # =========================================================================
+    # Evaluation and promotion chain (positions 16-18)
+    # Must be in order: EVALUATION -> AUTO_PROMOTION -> MODEL_DISTRIBUTION
+    # =========================================================================
+    DaemonType.EVALUATION,             # 16. Model evaluation (depends on TRAINING_TRIGGER)
+    DaemonType.AUTO_PROMOTION,         # 17. Auto-promotion (depends on EVALUATION)
+    DaemonType.MODEL_DISTRIBUTION,     # 18. Model distribution (depends on AUTO_PROMOTION)
 ]
 
 

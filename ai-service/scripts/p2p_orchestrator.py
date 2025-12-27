@@ -2548,16 +2548,16 @@ class P2POrchestrator(
                         job_info["status"] = "reaped"
                     del jobs[job_id]
 
-                    # Emit event for coordination
+                    # Emit event for coordination (fire-and-forget async task)
                     try:
-                        from app.coordination.event_router import emit_sync
-                        emit_sync("TASK_ABANDONED", {
-                            "job_id": job_id,
-                            "job_type": job_type,
-                            "reason": "reaped_by_job_reaper",
-                        })
-                    except ImportError:
-                        pass  # Event system not available
+                        asyncio.create_task(_emit_task_abandoned(
+                            task_id=job_id,
+                            task_type=job_type,
+                            reason="reaped_by_job_reaper",
+                            node_id=job_info.get("node_id", "") if isinstance(job_info, dict) else "",
+                        ))
+                    except RuntimeError:
+                        pass  # No event loop running
 
                     logger.info(f"[JobReaper] Cancelled job {job_id} (type: {job_type})")
                     return True

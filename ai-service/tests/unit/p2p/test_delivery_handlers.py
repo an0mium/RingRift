@@ -251,6 +251,8 @@ class TestDeliveryStatusHandler:
     @pytest.mark.asyncio
     async def test_status_with_ledger(self, orchestrator):
         """Test status when ledger is available."""
+        import sys
+
         request = MagicMock()
         request.match_info = {"node_id": "runpod-h100"}
 
@@ -266,26 +268,29 @@ class TestDeliveryStatusHandler:
         mock_delivery.to_dict.return_value = {"delivery_id": "test-123"}
         mock_ledger.get_deliveries_for_node.return_value = [mock_delivery]
 
-        with patch(
-            "scripts.p2p.handlers.delivery.get_delivery_ledger",
-            return_value=mock_ledger,
-        ):
-            # Need to make the import work
-            import sys
-            mock_module = MagicMock()
-            mock_module.get_delivery_ledger = MagicMock(return_value=mock_ledger)
+        # Create mock module
+        mock_module = MagicMock()
+        mock_module.get_delivery_ledger = MagicMock(return_value=mock_ledger)
+
+        # Save original module state
+        original_module = sys.modules.get("app.coordination.delivery_ledger")
+
+        try:
             sys.modules["app.coordination.delivery_ledger"] = mock_module
 
             response = await orchestrator.handle_delivery_status(request)
 
-            # Clean up
-            del sys.modules["app.coordination.delivery_ledger"]
-
-        assert response.status == 200
-        data = await self._get_json_response(response)
-        assert data["node_id"] == "runpod-h100"
-        assert data["total_verified"] == 15
-        assert data["failure_rate_24h"] == 0.05
+            assert response.status == 200
+            data = await self._get_json_response(response)
+            assert data["node_id"] == "runpod-h100"
+            assert data["total_verified"] == 15
+            assert data["failure_rate_24h"] == 0.05
+        finally:
+            # Restore original module state
+            if original_module is not None:
+                sys.modules["app.coordination.delivery_ledger"] = original_module
+            else:
+                sys.modules.pop("app.coordination.delivery_ledger", None)
 
     async def _get_json_response(self, response: web.Response) -> dict:
         """Helper to extract JSON from web.Response."""

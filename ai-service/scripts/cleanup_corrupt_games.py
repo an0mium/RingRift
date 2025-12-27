@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Cleanup tool for corrupt game data in selfplay databases.
 
-Identifies and removes games with corrupt move data (e.g., from_pos=None
-for move_stack moves).
+Identifies and removes games with corrupt move data:
+- from_pos=None on move_stack moves (legacy corruption)
+- to=None on place_ring moves (Dec 2025 bug - phase extracted from post-move state)
 
 Usage:
     # Analyze corruption in a database
@@ -34,6 +35,31 @@ from scripts.lib.logging_config import setup_script_logging
 logger = setup_script_logging("cleanup_corrupt_games")
 
 
+def is_move_corrupted(move) -> bool:
+    """Check if a move has corrupted data.
+
+    Corruption patterns:
+    - move_stack with from_pos=None (legacy corruption)
+    - place_ring with to=None (Dec 2025 bug: phase extracted from post-move state)
+
+    Returns:
+        True if move is corrupted, False otherwise.
+    """
+    move_type = getattr(move, "type", None)
+
+    # Legacy corruption: move_stack with no from_pos
+    if move_type == "move_stack" and getattr(move, "from_pos", None) is None:
+        return True
+
+    # Dec 2025 bug: place_ring with no to position
+    # Root cause: Phase was extracted from post-move state instead of pre-move state,
+    # causing terminal game moves (game_over phase) to serialize incorrectly.
+    if move_type == "place_ring" and getattr(move, "to", None) is None:
+        return True
+
+    return False
+
+
 def analyze_move_corruption(db_path: str, sample_size: int = 1000) -> dict:
     """Analyze move data corruption in a database.
 
@@ -54,7 +80,8 @@ def analyze_move_corruption(db_path: str, sample_size: int = 1000) -> dict:
         "sample_valid_ids": [],
     }
 
-    board_types = [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL]
+    # Include all board types including hex8
+    board_types = [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL, BoardType.HEX8]
 
     for board_type in board_types:
         for num_players in [2, 3, 4]:
@@ -71,15 +98,15 @@ def analyze_move_corruption(db_path: str, sample_size: int = 1000) -> dict:
                     continue
 
                 stats["games_with_moves"] += 1
-                is_corrupt = False
+                game_is_corrupt = False
 
-                # Check for corrupt move_stack moves (from_pos=None)
+                # Check for any corrupted moves using unified checker
                 for m in moves:
-                    if getattr(m, "type", None) == "move_stack" and m.from_pos is None:
-                        is_corrupt = True
+                    if is_move_corrupted(m):
+                        game_is_corrupt = True
                         break
 
-                if is_corrupt:
+                if game_is_corrupt:
                     stats["corrupt_games"] += 1
                     key = f"{board_type.value}_{num_players}p"
                     stats["corrupt_by_type"][key] = stats["corrupt_by_type"].get(key, 0) + 1
@@ -116,7 +143,8 @@ def delete_corrupt_games(db_path: str, dry_run: bool = True) -> int:
     db = GameReplayDB(db_path)
     corrupt_ids: list[str] = []
 
-    board_types = [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL]
+    # Include all board types including hex8
+    board_types = [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL, BoardType.HEX8]
 
     logger.info("Scanning for corrupt games...")
 
@@ -132,9 +160,9 @@ def delete_corrupt_games(db_path: str, dry_run: bool = True) -> int:
                 if not moves:
                     continue
 
-                # Check for corrupt move_stack moves
+                # Check for any corrupted moves using unified checker
                 for m in moves:
-                    if getattr(m, "type", None) == "move_stack" and m.from_pos is None:
+                    if is_move_corrupted(m):
                         corrupt_ids.append(game_id)
                         type_count += 1
                         break
@@ -217,12 +245,14 @@ def export_valid_games(
         os.remove(output_path)
     dest_db = GameReplayDB(output_path)
 
-    board_types = [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL]
+    # Include all board types including hex8
+    board_types = [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL, BoardType.HEX8]
     if board_type:
         board_type_map = {
             "square8": BoardType.SQUARE8,
             "square19": BoardType.SQUARE19,
             "hexagonal": BoardType.HEXAGONAL,
+            "hex8": BoardType.HEX8,
         }
         board_types = [board_type_map[board_type]]
 
@@ -246,14 +276,14 @@ def export_valid_games(
                 if not moves:
                     continue
 
-                # Check for corrupt move_stack moves
-                is_corrupt = False
+                # Check for any corrupted moves using unified checker
+                game_is_corrupt = False
                 for m in moves:
-                    if getattr(m, "type", None) == "move_stack" and m.from_pos is None:
-                        is_corrupt = True
+                    if is_move_corrupted(m):
+                        game_is_corrupt = True
                         break
 
-                if is_corrupt:
+                if game_is_corrupt:
                     type_skipped += 1
                     skipped += 1
                     continue
@@ -307,7 +337,7 @@ def main():
     export_parser = subparsers.add_parser("export-valid", help="Export only valid games")
     export_parser.add_argument("--db", required=True, help="Source database path")
     export_parser.add_argument("--output", required=True, help="Destination database path")
-    export_parser.add_argument("--board-type", choices=["square8", "square19", "hexagonal"])
+    export_parser.add_argument("--board-type", choices=["square8", "square19", "hexagonal", "hex8"])
     export_parser.add_argument("--num-players", type=int, choices=[2, 3, 4])
 
     args = parser.parse_args()

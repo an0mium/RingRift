@@ -51,6 +51,26 @@ from app.coordination.protocols import (
     unregister_coordinator,
 )
 
+# Delivery ledger for persistent tracking (Dec 2025 Phase 3)
+try:
+    from app.coordination.delivery_ledger import (
+        DeliveryLedger,
+        DeliveryStatus,
+        get_delivery_ledger,
+    )
+    from app.coordination.delivery_retry_queue import (
+        DeliveryRetryQueue,
+        get_delivery_retry_queue,
+    )
+    DELIVERY_LEDGER_AVAILABLE = True
+except ImportError:
+    DELIVERY_LEDGER_AVAILABLE = False
+    DeliveryLedger = None  # type: ignore
+    DeliveryStatus = None  # type: ignore
+    get_delivery_ledger = None  # type: ignore
+    DeliveryRetryQueue = None  # type: ignore
+    get_delivery_retry_queue = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Add parent to path for imports
@@ -172,6 +192,17 @@ class UnifiedDistributionDaemon:
         # Delivery history
         self._delivery_history: list[DeliveryResult] = []
         self._checksum_cache: dict[str, str] = {}
+
+        # Persistent delivery ledger (Dec 2025 Phase 3)
+        self._delivery_ledger: DeliveryLedger | None = None
+        self._retry_queue: DeliveryRetryQueue | None = None
+        if DELIVERY_LEDGER_AVAILABLE:
+            try:
+                self._delivery_ledger = get_delivery_ledger()
+                self._retry_queue = get_delivery_retry_queue()
+                logger.debug("[UnifiedDistributionDaemon] Delivery ledger initialized")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[UnifiedDistributionDaemon] Failed to init ledger: {e}")
 
     # =========================================================================
     # CoordinatorProtocol Implementation
@@ -1021,7 +1052,7 @@ class UnifiedDistributionDaemon:
         method: str,
         error: str = "",
     ) -> None:
-        """Record delivery result in history."""
+        """Record delivery result in history and persistent ledger."""
         result = DeliveryResult(
             node_id=node_id,
             host=host,
@@ -1036,6 +1067,56 @@ class UnifiedDistributionDaemon:
         self._delivery_history.append(result)
         if len(self._delivery_history) > 200:
             self._delivery_history = self._delivery_history[-200:]
+
+        # Persist to delivery ledger (Dec 2025 Phase 3)
+        if self._delivery_ledger is not None:
+            try:
+                # Map DataType to ledger data_type string
+                data_type_str = data_type.value if hasattr(data_type, 'value') else str(data_type)
+
+                # Record to ledger
+                record = self._delivery_ledger.record_delivery_started(
+                    data_type=data_type_str,
+                    data_path=path,
+                    target_node=node_id,
+                )
+
+                if success and checksum_ok:
+                    # Calculate checksum for verified delivery
+                    checksum = self._checksum_cache.get(path, "")
+                    self._delivery_ledger.record_delivery_transferred(
+                        delivery_id=record.delivery_id,
+                        checksum=checksum,
+                    )
+                    self._delivery_ledger.record_delivery_verified(record.delivery_id)
+                elif success and not checksum_ok:
+                    # Transferred but checksum failed
+                    self._delivery_ledger.record_delivery_transferred(
+                        delivery_id=record.delivery_id,
+                        checksum="",
+                    )
+                    self._delivery_ledger.record_delivery_failed(
+                        record.delivery_id,
+                        "Checksum verification failed",
+                    )
+                else:
+                    # Failed to transfer
+                    self._delivery_ledger.record_delivery_failed(
+                        record.delivery_id,
+                        error or "Transfer failed",
+                    )
+
+                    # Enqueue for retry if eligible
+                    if self._retry_queue is not None:
+                        updated = self._delivery_ledger.get_delivery(record.delivery_id)
+                        if updated and updated.can_retry:
+                            self._retry_queue.enqueue_retry(updated)
+                            logger.debug(
+                                f"[UnifiedDistributionDaemon] Enqueued {record.delivery_id[:8]} for retry"
+                            )
+
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[UnifiedDistributionDaemon] Failed to record to ledger: {e}")
 
     async def _emit_completion_event(
         self, data_type: DataType, items: list[dict[str, Any]]

@@ -621,7 +621,9 @@ class ClusterManifest:
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.executescript(f"""
+
+        # Phase 1: Create tables (without indexes that depend on new columns)
+        cursor.executescript("""
             -- Game locations table
             CREATE TABLE IF NOT EXISTS game_locations (
                 game_id TEXT NOT NULL,
@@ -730,7 +732,16 @@ class ClusterManifest:
                 value TEXT NOT NULL,
                 updated_at REAL NOT NULL
             );
+        """)
+        conn.commit()
 
+        # Phase 2: Migrate existing databases to add new columns
+        # This handles databases created before is_consolidated was added
+        # Must run BEFORE creating indexes that depend on these columns
+        self._migrate_schema(conn)
+
+        # Phase 3: Create indexes (including ones that depend on migrated columns)
+        cursor.executescript(f"""
             -- Indexes for efficient queries
             CREATE INDEX IF NOT EXISTS idx_game_locations_node
                 ON game_locations(node_id);
@@ -769,11 +780,6 @@ class ClusterManifest:
                 ('created_at', '{time.time()}', {time.time()});
         """)
         conn.commit()
-
-        # December 2025: Migrate existing databases to add new columns
-        # This handles databases created before is_consolidated was added
-        self._migrate_schema(conn)
-
         conn.close()
 
         logger.debug(f"Initialized cluster manifest at {self.db_path}")
