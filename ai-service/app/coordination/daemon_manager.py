@@ -2203,6 +2203,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.ORPHAN_DETECTION,  # Phase 21.2: Detect orphaned databases before termination
         DaemonType.AUTO_SYNC,  # Phase 21.2: Ensure regular sync alongside ephemeral sync
         DaemonType.FEEDBACK_LOOP,  # Phase 21.2: Orchestrate all feedback signals
+        DaemonType.DISK_SPACE_MANAGER,  # Dec 27, 2025: Manage disk space (critical for ephemeral)
     ],
 
     # Selfplay-only profile - just generates games
