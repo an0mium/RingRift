@@ -1721,13 +1721,16 @@ class AutoSyncDaemon:
         )
         # December 2025: Removed --partial to prevent corruption from stitched segments
         # on connection resets. Fresh transfers are safer than resumed partial ones.
+        # December 27, 2025: Removed --inplace as it conflicts with --delay-updates
+        # --delay-updates provides atomic file updates (safer for databases)
+        # --inplace writes directly to file (faster but not atomic)
+        # These are mutually exclusive - choose safety over speed
         cmd = [
             "rsync",
             "-avz",
             "--progress",
             f"--bwlimit={bandwidth_kbps}",
             "--timeout=60",
-            "--inplace",
             "--delay-updates",
             "--checksum",
             "-e", ssh_opts,
