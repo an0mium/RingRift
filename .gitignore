@@ -240,6 +240,9 @@ test_output/
 # Root-level test/debug scripts (should be in tests/ or scripts/)
 ai-service/test_*.py
 test_*.py
+# But DO track test files in the tests/ directories
+!tests/**/test_*.py
+!ai-service/tests/**/test_*.py
 
 # One-off debug scripts with specific seeds/moves (local debugging only)
 ai-service/scripts/debug_seed*.py
