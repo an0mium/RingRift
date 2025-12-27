@@ -636,16 +636,101 @@ class UnifiedScheduler:
             except (ValueError, TypeError):
                 pass
         elif status.backend == Backend.VAST:
-            # Vast cancellation via API
-            logger.warning("[Vast] Job cancellation not implemented")
+            # Vast cancellation via vastai CLI
+            success = await self._cancel_vast_job(status.backend_job_id)
         else:
-            # P2P cancellation
-            logger.warning("[P2P] Job cancellation not implemented")
+            # P2P cancellation via P2P backend
+            success = await self._cancel_p2p_job(status.backend_job_id)
 
         if success:
             self._update_job(unified_id, state=JobState.CANCELLED)
 
         return success
+
+    async def _cancel_vast_job(self, backend_job_id: str | None) -> bool:
+        """Cancel a Vast.ai job by stopping the instance.
+
+        Since Vast jobs are SSH commands running on instances, we stop the
+        instance to cancel the job. This is more reliable than trying to
+        kill specific processes.
+
+        Args:
+            backend_job_id: Job ID in format "vast-{instance_id}-{timestamp}"
+
+        Returns:
+            True if cancellation successful
+        """
+        instance_id = self._parse_vast_instance_id(backend_job_id)
+        if not instance_id:
+            logger.error(f"[Vast] Cannot parse instance ID from {backend_job_id}")
+            return False
+
+        try:
+            # First try to kill processes gracefully via execute
+            proc = await asyncio.create_subprocess_exec(
+                "vastai", "execute", instance_id,
+                "pkill -TERM -f 'selfplay|training|gauntlet' || true",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+
+            if proc.returncode == 0:
+                logger.info(f"[Vast] Cancelled job on instance {instance_id}")
+                return True
+
+            # Fallback: stop the instance entirely
+            logger.warning(f"[Vast] Execute failed, stopping instance {instance_id}")
+            proc = await asyncio.create_subprocess_exec(
+                "vastai", "stop", "instance", instance_id,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.communicate()
+
+            if proc.returncode == 0:
+                logger.info(f"[Vast] Stopped instance {instance_id}")
+                return True
+
+            logger.error(f"[Vast] Failed to cancel job on instance {instance_id}")
+            return False
+
+        except Exception as e:
+            logger.error(f"[Vast] Cancellation error: {e}")
+            return False
+
+    async def _cancel_p2p_job(self, backend_job_id: str | None) -> bool:
+        """Cancel a P2P job via the P2P backend.
+
+        Args:
+            backend_job_id: Job ID to cancel
+
+        Returns:
+            True if cancellation successful
+        """
+        if not backend_job_id:
+            return False
+
+        try:
+            backend = await self._get_p2p_backend()
+            if not backend:
+                logger.warning("[P2P] No P2P backend available for cancellation")
+                return False
+
+            result = await backend.cancel_job(backend_job_id)
+            success = result.get("success", False)
+
+            if success:
+                logger.info(f"[P2P] Cancelled job {backend_job_id}")
+            else:
+                error = result.get("error", "Unknown error")
+                logger.error(f"[P2P] Cancellation failed: {error}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"[P2P] Cancellation error: {e}")
+            return False
 
     def _map_slurm_state(self, state: SlurmJobState) -> JobState:
         from app.coordination.slurm_backend import SlurmJobState

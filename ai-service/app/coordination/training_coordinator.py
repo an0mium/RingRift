@@ -69,7 +69,7 @@ from app.utils.paths import DATA_DIR
 # Note: event_emitters.py handles all routing to stage_events and cross-process buses
 from app.coordination.event_emitters import (
     emit_training_complete_sync,
-    emit_training_started,
+    emit_training_started_sync,
 )
 
 # CoordinatorProtocol support (December 2025 - Phase 14)
@@ -1571,32 +1571,15 @@ class TrainingCoordinator:
             num_players: Number of players
             **kwargs: Additional event data
         """
-        import asyncio
-
         if event_type == "started":
-            # emit_training_started is async, try to run it
-            try:
-                loop = asyncio.get_running_loop()
-                asyncio.create_task(
-                    emit_training_started(
-                        job_id=job_id,
-                        board_type=board_type,
-                        num_players=num_players,
-                        model_version=kwargs.get("model_version", ""),
-                        node_name=self._node_name,
-                    )
-                )
-            except RuntimeError:
-                # No event loop - run synchronously
-                asyncio.run(
-                    emit_training_started(
-                        job_id=job_id,
-                        board_type=board_type,
-                        num_players=num_players,
-                        model_version=kwargs.get("model_version", ""),
-                        node_name=self._node_name,
-                    )
-                )
+            # Use sync version for reliable emission from sync context
+            emit_training_started_sync(
+                job_id=job_id,
+                board_type=board_type,
+                num_players=num_players,
+                model_version=kwargs.get("model_version", ""),
+                node_name=self._node_name,
+            )
             logger.debug(f"Emitted TRAINING_STARTED for job {job_id}")
 
         elif event_type in ("complete", "failed"):

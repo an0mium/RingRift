@@ -569,6 +569,27 @@ class DataCatalog:
 
         return stats
 
+    def get_pending_sample_count(
+        self,
+        samples_per_game: int = 30,
+    ) -> int:
+        """Get estimated count of training samples pending processing.
+
+        Training samples are individual moves (state-action pairs) from games.
+        Each game typically has 20-60 moves depending on board size and game length.
+
+        This is used by the idle resource daemon to estimate training backlog
+        and implement backpressure when selfplay outpaces training.
+
+        Args:
+            samples_per_game: Average training samples per game (default: 30)
+
+        Returns:
+            Estimated total training samples available
+        """
+        stats = self.get_stats()
+        return stats.total_games * samples_per_game
+
     def get_sources_by_quality(
         self,
         min_quality: float = 0.5,

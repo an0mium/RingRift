@@ -401,6 +401,48 @@ def emit_training_complete_sync(
     return _emit_stage_event_sync(event, result)
 
 
+def emit_training_started_sync(
+    job_id: str,
+    board_type: str,
+    num_players: int,
+    model_version: str = "",
+    node_name: str = "",
+    **metadata,
+) -> bool:
+    """Synchronous version of emit_training_started.
+
+    Args:
+        job_id: Training job ID
+        board_type: Board type (e.g., "square8")
+        num_players: Number of players
+        model_version: Model version string
+        node_name: Node running the training
+        **metadata: Additional metadata
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_STAGE_EVENTS:
+        return False
+
+    result = StageCompletionResult(
+        event=StageEvent.TRAINING_STARTED,
+        success=True,
+        iteration=0,
+        timestamp=_get_timestamp(),
+        board_type=board_type,
+        num_players=num_players,
+        metadata={
+            "job_id": job_id,
+            "model_version": model_version,
+            "node_name": node_name,
+            **metadata,
+        },
+    )
+
+    return _emit_stage_event_sync(StageEvent.TRAINING_STARTED, result)
+
+
 # =============================================================================
 # Selfplay Events
 # =============================================================================
@@ -2457,5 +2499,6 @@ __all__ = [
     "emit_training_rollback_needed",
     # Training events
     "emit_training_started",
+    "emit_training_started_sync",
     "emit_training_triggered",
 ]
