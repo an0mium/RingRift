@@ -49,6 +49,23 @@ from app.coordination.sync_integrity import (
 from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
 from app.core.async_context import fire_and_forget, safe_create_task
 
+# Circuit breaker for fault-tolerant sync operations (December 2025)
+try:
+    from app.distributed.circuit_breaker import CircuitBreaker, CircuitState
+    HAS_CIRCUIT_BREAKER = True
+except ImportError:
+    HAS_CIRCUIT_BREAKER = False
+    CircuitBreaker = None
+    CircuitState = None
+
+# Resilient handler wrapper for fault-tolerant event handling (December 2025)
+try:
+    from app.coordination.handler_resilience import resilient_handler
+    HAS_RESILIENT_HANDLER = True
+except ImportError:
+    HAS_RESILIENT_HANDLER = False
+    resilient_handler = None
+
 if TYPE_CHECKING:
     from app.distributed.cluster_manifest import ClusterManifest
 
@@ -289,6 +306,18 @@ class AutoSyncDaemon:
                 logger.warning(f"Failed to initialize quality extraction: {e}")
                 self.config.enable_quality_extraction = False
 
+        # Circuit breaker for node-level fault tolerance (December 2025)
+        self._circuit_breaker: CircuitBreaker | None = None
+        if HAS_CIRCUIT_BREAKER and CircuitBreaker:
+            self._circuit_breaker = CircuitBreaker(
+                failure_threshold=3,  # Open circuit after 3 consecutive failures
+                recovery_timeout=60.0,  # Wait 60s before testing recovery
+                half_open_max_calls=2,  # Allow 2 test calls in half-open state
+                operation_type="sync",
+                on_state_change=self._on_circuit_state_change,
+            )
+            logger.info("Circuit breaker enabled for sync fault tolerance")
+
         logger.info(
             f"AutoSyncDaemon initialized: node={self.node_id}, "
             f"provider={self._provider}, nfs={self._is_nfs_node}, "
@@ -325,6 +354,39 @@ class AutoSyncDaemon:
         # Default to hybrid
         logger.info("Using default HYBRID strategy")
         return SyncStrategy.HYBRID
+
+    def _on_circuit_state_change(
+        self, target: str, old_state: "CircuitState", new_state: "CircuitState"
+    ) -> None:
+        """Handle circuit breaker state changes (December 2025).
+
+        Logs state transitions and emits events for monitoring.
+        """
+        if old_state == new_state:
+            return
+
+        logger.warning(
+            f"[AutoSyncDaemon] Circuit breaker for {target}: {old_state.value} -> {new_state.value}"
+        )
+
+        # Emit event for monitoring dashboards
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                event_type=DataEventType.SYNC_NODE_UNREACHABLE
+                if new_state.value == "open"
+                else DataEventType.DATA_SYNC_COMPLETED,
+                source="AutoSyncDaemon",
+                metadata={
+                    "target_node": target,
+                    "old_state": old_state.value,
+                    "new_state": new_state.value,
+                    "event": "circuit_state_change",
+                },
+            )
+        except (ImportError, RuntimeError, AttributeError):
+            pass  # Event emission is best-effort
 
     def _detect_ephemeral_host(self) -> bool:
         """Detect if running on an ephemeral host.
@@ -879,6 +941,7 @@ class AutoSyncDaemon:
 
         December 2025: Consolidated from ephemeral_sync.py
         December 2025: Added sync mutex to prevent concurrent syncs to same target
+        December 2025: Added circuit breaker for fault tolerance
 
         Args:
             db_path: Local database path
@@ -887,6 +950,13 @@ class AutoSyncDaemon:
         Returns:
             True if successful
         """
+        # Check circuit breaker before attempting sync (December 2025)
+        if self._circuit_breaker and not self._circuit_breaker.allow_request(target_node):
+            logger.debug(
+                f"[AutoSyncDaemon] Circuit open for {target_node}, skipping sync"
+            )
+            return False
+
         # Create lock key: target_node + filename to prevent concurrent writes
         db_name = Path(db_path).name if db_path else "unknown"
         lock_key = f"{target_node}:{db_name}"
@@ -896,6 +966,7 @@ class AutoSyncDaemon:
             logger.debug(f"[AutoSyncDaemon] Could not acquire lock for {lock_key}, skipping")
             return False
 
+        success = False
         try:
             from app.coordination.sync_bandwidth import rsync_with_bandwidth_limit
             from app.coordination.sync_router import get_sync_router
@@ -912,16 +983,25 @@ class AutoSyncDaemon:
                 timeout=30,
             )
 
-            return result.success
+            success = result.success
+            return success
 
         except ImportError:
-            return await self._direct_rsync(db_path, target_node)
+            success = await self._direct_rsync(db_path, target_node)
+            return success
         except (RuntimeError, OSError, asyncio.TimeoutError) as e:
             logger.debug(f"[AutoSyncDaemon] Rsync error: {e}")
+            success = False
             return False
         finally:
             # Always release the lock
             release_sync_lock(lock_key)
+            # Record success/failure with circuit breaker (December 2025)
+            if self._circuit_breaker:
+                if success:
+                    self._circuit_breaker.record_success(target_node)
+                else:
+                    self._circuit_breaker.record_failure(target_node)
 
     async def _direct_rsync(self, db_path: str, target_node: str) -> bool:
         """Direct rsync without bandwidth management.
@@ -1419,8 +1499,23 @@ class AutoSyncDaemon:
 
         return 0
 
+    def _wrap_handler(self, handler):
+        """Wrap handler with resilient_handler for fault tolerance (December 2025).
+
+        Args:
+            handler: The async event handler to wrap
+
+        Returns:
+            Wrapped handler with exception boundary and metrics, or original if unavailable
+        """
+        if HAS_RESILIENT_HANDLER and resilient_handler:
+            return resilient_handler(handler, coordinator="AutoSyncDaemon")
+        return handler
+
     def _subscribe_to_events(self) -> None:
         """Subscribe to events that trigger sync (Phase 9).
+
+        December 2025: Handlers wrapped with resilient_handler for fault tolerance.
 
         Subscribes to:
         - DATA_STALE: Training data is stale, trigger urgent sync
@@ -1435,37 +1530,39 @@ class AutoSyncDaemon:
 
             # Subscribe to DATA_STALE to trigger urgent sync
             if hasattr(DataEventType, 'DATA_STALE'):
-                bus.subscribe(DataEventType.DATA_STALE, self._on_data_stale)
+                bus.subscribe(DataEventType.DATA_STALE, self._wrap_handler(self._on_data_stale))
                 logger.info("[AutoSyncDaemon] Subscribed to DATA_STALE")
 
             # Subscribe to SYNC_TRIGGERED for external requests
             if hasattr(DataEventType, 'SYNC_TRIGGERED'):
-                bus.subscribe(DataEventType.SYNC_TRIGGERED, self._on_sync_triggered)
+                bus.subscribe(DataEventType.SYNC_TRIGGERED, self._wrap_handler(self._on_sync_triggered))
                 logger.info("[AutoSyncDaemon] Subscribed to SYNC_TRIGGERED")
 
             # Subscribe to NEW_GAMES_AVAILABLE for push-on-generate (Dec 2025)
             # Layer 1: Immediate push to neighbors when games are generated
             if hasattr(DataEventType, 'NEW_GAMES_AVAILABLE'):
-                bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games_available)
+                bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._wrap_handler(self._on_new_games_available))
                 logger.info("[AutoSyncDaemon] Subscribed to NEW_GAMES_AVAILABLE (push-on-generate)")
 
             # Subscribe to DATA_SYNC_STARTED for sync coordination (Dec 2025)
             if hasattr(DataEventType, 'DATA_SYNC_STARTED'):
-                bus.subscribe(DataEventType.DATA_SYNC_STARTED, self._on_data_sync_started)
+                bus.subscribe(DataEventType.DATA_SYNC_STARTED, self._wrap_handler(self._on_data_sync_started))
                 logger.info("[AutoSyncDaemon] Subscribed to DATA_SYNC_STARTED")
 
             # Subscribe to MODEL_DISTRIBUTION_COMPLETE for model sync tracking (Dec 2025)
             if hasattr(DataEventType, 'MODEL_DISTRIBUTION_COMPLETE'):
-                bus.subscribe(DataEventType.MODEL_DISTRIBUTION_COMPLETE, self._on_model_distribution_complete)
+                bus.subscribe(DataEventType.MODEL_DISTRIBUTION_COMPLETE, self._wrap_handler(self._on_model_distribution_complete))
                 logger.info("[AutoSyncDaemon] Subscribed to MODEL_DISTRIBUTION_COMPLETE")
 
             # Subscribe to SELFPLAY_COMPLETE for immediate sync on selfplay completion (Dec 2025)
             # Phase F: Trigger sync immediately when selfplay batch finishes
             if hasattr(DataEventType, 'SELFPLAY_COMPLETE'):
-                bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
+                bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._wrap_handler(self._on_selfplay_complete))
                 logger.info("[AutoSyncDaemon] Subscribed to SELFPLAY_COMPLETE (immediate sync)")
 
             self._subscribed = True
+            if HAS_RESILIENT_HANDLER:
+                logger.info("[AutoSyncDaemon] Event handlers wrapped with resilient_handler")
         except (ImportError, RuntimeError, AttributeError) as e:
             logger.warning(f"[AutoSyncDaemon] Failed to subscribe to events: {e}")
 

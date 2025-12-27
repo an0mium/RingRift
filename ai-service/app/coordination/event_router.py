@@ -145,6 +145,14 @@ try:
 except ImportError:
     HAS_CROSS_PROCESS = False
 
+# Dead Letter Queue for capturing failed event handlers (December 2025)
+try:
+    from app.coordination.dead_letter_queue import get_dead_letter_queue
+    HAS_DLQ = True
+except ImportError:
+    HAS_DLQ = False
+    get_dead_letter_queue = None
+
 
 # Handler timeout to prevent hung event handlers from blocking dispatch
 # Environment variable override: RINGRIFT_EVENT_HANDLER_TIMEOUT
@@ -655,7 +663,21 @@ class UnifiedEventRouter:
                             f"{callback_name} exceeded {DEFAULT_HANDLER_TIMEOUT_SECONDS}s"
                         )
             except Exception as e:
+                callback_name = getattr(callback, "__name__", str(callback))
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
+                # Capture to DLQ for retry/analysis (December 2025)
+                if HAS_DLQ and get_dead_letter_queue:
+                    try:
+                        dlq = get_dead_letter_queue()
+                        dlq.capture(
+                            event_type=str(event.event_type),
+                            payload=event.payload,
+                            handler_name=callback_name,
+                            error=str(e),
+                            source="EventRouter.async",
+                        )
+                    except Exception:
+                        pass  # DLQ capture is best-effort
 
     def _dispatch_sync(
         self,
@@ -744,7 +766,21 @@ class UnifiedEventRouter:
                         f"for {event.event_type} to thread pool"
                     )
             except Exception as e:
+                callback_name = getattr(callback, "__name__", str(callback))
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
+                # Capture to DLQ for retry/analysis (December 2025)
+                if HAS_DLQ and get_dead_letter_queue:
+                    try:
+                        dlq = get_dead_letter_queue()
+                        dlq.capture(
+                            event_type=str(event.event_type),
+                            payload=event.payload,
+                            handler_name=callback_name,
+                            error=str(e),
+                            source="EventRouter.sync",
+                        )
+                    except Exception:
+                        pass  # DLQ capture is best-effort
 
     def _handle_dispatch_task_error(self, task: asyncio.Task) -> None:
         """Handle errors from async dispatch tasks (December 2025 hardening).
