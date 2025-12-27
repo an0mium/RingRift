@@ -37,6 +37,10 @@ HEARTBEAT_INTERVAL = 15  # seconds
 # Dec 2025: Reduced from 90s to 60s - with 15s heartbeats, 4 missed = dead
 # Previous 90s with 30s heartbeat meant 3 missed = dead, keeping same ratio
 PEER_TIMEOUT = 60  # seconds without heartbeat = node considered dead
+# SUSPECT grace period: nodes transition ALIVE -> SUSPECT -> DEAD
+# Dec 2025: 30s grace prevents transient network issues from causing failover
+# With 15s heartbeats, this means 2 missed = suspect, 4 missed = dead
+SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "30") or 30)
 ELECTION_TIMEOUT = 10  # seconds to wait for election responses
 
 # Leader lease must be comfortably larger than the heartbeat cadence

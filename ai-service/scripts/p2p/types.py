@@ -14,6 +14,22 @@ class NodeRole(str, Enum):
     CANDIDATE = "candidate"
 
 
+class NodeHealthState(str, Enum):
+    """Health state of a node based on heartbeat timing.
+
+    Dec 2025: Added SUSPECT state to reduce false-positive failures.
+    Nodes transition: ALIVE -> SUSPECT -> DEAD
+
+    With 15s heartbeats and 30s suspect timeout:
+    - ALIVE: heartbeat within last 30s (2 heartbeats)
+    - SUSPECT: heartbeat 30-60s ago (grace period)
+    - DEAD: no heartbeat for 60s+ (4 missed heartbeats)
+    """
+    ALIVE = "alive"
+    SUSPECT = "suspect"  # Grace period - node may be experiencing transient issues
+    DEAD = "dead"
+
+
 class JobType(str, Enum):
     """Types of jobs nodes can run."""
     SELFPLAY = "selfplay"

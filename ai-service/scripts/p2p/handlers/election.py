@@ -22,6 +22,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Event bridge import (with fallback)
+try:
+    from scripts.p2p.p2p_event_bridge import (
+        emit_p2p_leader_changed,
+        emit_p2p_cluster_healthy,
+        emit_p2p_cluster_unhealthy,
+    )
+    HAS_EVENT_BRIDGE = True
+except ImportError:
+    HAS_EVENT_BRIDGE = False
+
+    async def emit_p2p_leader_changed(*args, **kwargs):
+        pass
+
+    async def emit_p2p_cluster_healthy(*args, **kwargs):
+        pass
+
+    async def emit_p2p_cluster_unhealthy(*args, **kwargs):
+        pass
+
 # Import constants
 try:
     from scripts.p2p.constants import LEADER_LEASE_DURATION
@@ -310,6 +330,14 @@ class ElectionHandlersMixin:
 
                 self._increment_cluster_epoch()
                 self._save_state()
+
+                # Emit leader change event to coordination EventRouter
+                if HAS_EVENT_BRIDGE:
+                    await emit_p2p_leader_changed(
+                        new_leader_id=self.node_id,
+                        old_leader_id="",  # Unknown previous leader in force mode
+                        term=getattr(self, "cluster_epoch", 0),
+                    )
 
                 logger.warning(
                     f"FORCED LEADERSHIP: {self.node_id} is now leader via override"

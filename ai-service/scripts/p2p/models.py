@@ -26,8 +26,9 @@ from .constants import (
     PEER_TIMEOUT,
     RETRY_DEAD_NODE_INTERVAL,
     RETRY_RETIRED_NODE_INTERVAL,
+    SUSPECT_TIMEOUT,
 )
-from .types import JobType, NodeRole
+from .types import JobType, NodeHealthState, NodeRole
 
 
 @dataclass
@@ -86,9 +87,35 @@ class NodeInfo:
     disk_free_gb: float = 0.0  # Absolute free disk space
     active_job_count: int = 0  # Total active jobs (selfplay + training + external)
 
+    def get_health_state(self) -> NodeHealthState:
+        """Get detailed health state based on heartbeat timing.
+
+        Dec 2025: Added SUSPECT state for grace period handling.
+        This reduces false-positive failures from transient network issues.
+
+        Returns:
+            NodeHealthState.ALIVE if heartbeat within SUSPECT_TIMEOUT (30s)
+            NodeHealthState.SUSPECT if heartbeat between SUSPECT_TIMEOUT and PEER_TIMEOUT
+            NodeHealthState.DEAD if no heartbeat for PEER_TIMEOUT (60s+)
+        """
+        elapsed = time.time() - self.last_heartbeat
+        if elapsed < SUSPECT_TIMEOUT:
+            return NodeHealthState.ALIVE
+        elif elapsed < PEER_TIMEOUT:
+            return NodeHealthState.SUSPECT
+        return NodeHealthState.DEAD
+
     def is_alive(self) -> bool:
-        """Check if node is considered alive based on last heartbeat."""
-        return time.time() - self.last_heartbeat < PEER_TIMEOUT
+        """Check if node is considered alive based on last heartbeat.
+
+        Note: SUSPECT nodes are still considered alive for job execution
+        but may be treated differently for leader election.
+        """
+        return self.get_health_state() != NodeHealthState.DEAD
+
+    def is_suspect(self) -> bool:
+        """Check if node is in SUSPECT state (grace period)."""
+        return self.get_health_state() == NodeHealthState.SUSPECT
 
     def is_healthy(self) -> bool:
         """Check if node is healthy for new jobs (not just reachable)."""
