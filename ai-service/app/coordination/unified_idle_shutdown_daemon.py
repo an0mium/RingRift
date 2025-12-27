@@ -294,7 +294,7 @@ class UnifiedIdleShutdownDaemon:
 
             router = get_event_router()
             router.subscribe(DataEventType.TRAINING_STARTED, self._on_training_started)
-            router.subscribe(DataEventType.SELFPLAY_COMPLETED, self._on_selfplay_completed)
+            router.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_completed)
             logger.info(f"[{self._daemon_name}] Subscribed to events")
         except ImportError:
             logger.debug(f"[{self._daemon_name}] Event router not available")

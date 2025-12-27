@@ -47,6 +47,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -752,6 +754,35 @@ class MetricsAnalysisOrchestrator:
             },
             "subscribed": self._subscribed,
         }
+
+    def health_check(self) -> HealthCheckResult:
+        """Perform health check for daemon manager integration.
+
+        Returns:
+            HealthCheckResult with current status
+        """
+        status = self.get_status()
+
+        # Count metrics with anomalies
+        anomaly_count = sum(
+            1 for tracker in self._trackers.values()
+            if tracker.anomaly and tracker.anomaly.confidence > 0.8
+        )
+
+        if anomaly_count > 5:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"High anomaly count: {anomaly_count} metrics with anomalies",
+                details=status,
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {len(self._trackers)} metrics",
+            details=status,
+        )
 
 
 # =============================================================================

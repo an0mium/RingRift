@@ -378,7 +378,28 @@ except ImportError:
 # =============================================================================
 
 def _serialize_value(value: Any, include_type: bool = False) -> Any:
-    """Serialize a single value."""
+    """Serialize a single value to JSON-compatible form.
+
+    Handles the following types:
+    - None, str, int, float, bool: Passed through unchanged
+    - Enum: Converted to value (or wrapped with type info)
+    - Registered codec types: Encoded via codec.encode()
+    - Dataclasses: Recursively serialized to dict
+    - dict: Recursively serialized values
+    - list/tuple: Recursively serialized items
+    - set/frozenset: Converted to list
+
+    Args:
+        value: The value to serialize
+        include_type: If True, wraps non-primitive types with __type__ metadata
+                     for accurate reconstruction during deserialization
+
+    Returns:
+        JSON-serializable representation of the value
+
+    Raises:
+        No exceptions - falls back to str() for unknown types
+    """
     if value is None:
         return None
 
@@ -439,7 +460,26 @@ def _deserialize_value(
     data: Any,
     target_type: type | None = None,
 ) -> Any:
-    """Deserialize a single value."""
+    """Deserialize a single value from JSON-compatible form.
+
+    Handles reconstruction based on:
+    1. Embedded __type__ metadata (if present in dict)
+    2. Explicit target_type parameter
+    3. Primitive type inference
+
+    Args:
+        data: JSON-compatible data to deserialize
+        target_type: Optional type hint for reconstruction. When provided,
+                    enables proper dataclass/enum reconstruction.
+
+    Returns:
+        Reconstructed Python object
+
+    Note:
+        Without target_type, dataclasses serialize to dicts and cannot
+        be automatically reconstructed. Use include_type=True during
+        serialization or provide target_type for full reconstruction.
+    """
     if data is None:
         return None
 
@@ -491,7 +531,26 @@ def _deserialize_value(
 
 
 def _deserialize_to_type(data: Any, target_type: type[T]) -> T:
-    """Deserialize data to a specific type."""
+    """Deserialize data to a specific Python type.
+
+    Handles type coercion and reconstruction for:
+    - Primitives (str, int, float, bool): Direct construction
+    - Enums: Reconstruction from value
+    - Registered codec types: Decoded via codec.decode()
+    - Dataclasses: Recursive field reconstruction
+    - Generic containers (List, Dict, Set, Tuple): Recursive item reconstruction
+
+    Args:
+        data: JSON-compatible data to deserialize
+        target_type: The Python type to construct
+
+    Returns:
+        Instance of target_type
+
+    Raises:
+        SerializationError: If dataclass reconstruction fails
+        ValueError/TypeError: If type coercion fails
+    """
     # Handle None
     if data is None:
         return None  # type: ignore
@@ -558,7 +617,22 @@ def _deserialize_to_type(data: Any, target_type: type[T]) -> T:
 
 
 def _deserialize_dataclass(data: dict[str, Any], cls: type[T]) -> T:
-    """Deserialize a dict to a dataclass."""
+    """Deserialize a dictionary to a dataclass instance.
+
+    Uses type hints from the dataclass to properly reconstruct nested
+    objects, including other dataclasses, enums, and codec-registered types.
+
+    Args:
+        data: Dictionary with field names as keys
+        cls: The dataclass type to construct
+
+    Returns:
+        New instance of the dataclass
+
+    Raises:
+        SerializationError: If cls is not a dataclass
+        TypeError: If required fields are missing from data
+    """
     if not dataclasses.is_dataclass(cls):
         raise SerializationError(f"{cls} is not a dataclass")
 

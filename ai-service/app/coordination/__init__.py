@@ -1716,6 +1716,7 @@ __all__ = [
     "EventCoordinatorStats",
     "EventSource",
     "HandlerResilienceConfig",
+    "HealthCheckOrchestrator",  # Health Facade (December 2025)
     "HealthStatus",
     "HealthStats",
     "HeartbeatConfig",
@@ -1750,6 +1751,7 @@ __all__ = [
     "ModelState",
     "NodeCacheState",
     "NodeConfig",
+    "NodeHealthDetails",  # Health Facade (December 2025)
     "NodeHealthState",
     "NodeResourceState",
     "NodeResources",
@@ -2076,6 +2078,7 @@ __all__ = [
     "is_sync_locked",
     "is_unified_loop_running",
     "mark_host_unhealthy",
+    "mark_node_retired",  # Health Facade (December 2025)
     "merge_transaction",
     "new_trace",
     "orchestrator_role",

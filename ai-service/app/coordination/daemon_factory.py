@@ -58,11 +58,11 @@ def _build_registry() -> dict[str, DaemonSpec]:
         # =================================================================
         DaemonType.EVENT_ROUTER.name: DaemonSpec(
             import_path="app.coordination.event_router",
-            class_name="EventRouter",
+            class_name="UnifiedEventRouter",
             factory_fn="get_router",
         ),
         DaemonType.CROSS_PROCESS_POLLER.name: DaemonSpec(
-            import_path="app.coordination.event_router",
+            import_path="app.coordination.cross_process_events",
             class_name="CrossProcessEventPoller",
         ),
         DaemonType.DAEMON_WATCHDOG.name: DaemonSpec(
@@ -82,14 +82,18 @@ def _build_registry() -> dict[str, DaemonSpec]:
             import_path="app.distributed.gossip_sync",
             class_name="GossipSyncDaemon",
         ),
+        # EPHEMERAL_SYNC: Updated Dec 2025 to use unified auto_sync_daemon
         DaemonType.EPHEMERAL_SYNC.name: DaemonSpec(
-            import_path="app.coordination.ephemeral_sync",
-            class_name="EphemeralSyncDaemon",
+            import_path="app.coordination.auto_sync_daemon",
+            class_name="AutoSyncDaemon",
             factory_fn="get_ephemeral_sync_daemon",
         ),
+        # MODEL_SYNC: Deprecated (Dec 2025) - use MODEL_DISTRIBUTION instead
+        # The unified distribution daemon handles both model and NPZ sync
         DaemonType.MODEL_SYNC.name: DaemonSpec(
-            import_path="app.coordination.daemon_adapters",
-            class_name="ModelSyncDaemon",
+            import_path="app.coordination.unified_distribution_daemon",
+            class_name="UnifiedDistributionDaemon",
+            factory_fn="create_model_distribution_daemon",
         ),
         DaemonType.MODEL_DISTRIBUTION.name: DaemonSpec(
             import_path="app.coordination.unified_distribution_daemon",
@@ -135,8 +139,8 @@ def _build_registry() -> dict[str, DaemonSpec]:
             factory_fn="get_auto_promotion_daemon",
         ),
         DaemonType.DISTILLATION.name: DaemonSpec(
-            import_path="app.training.distillation_daemon",
-            class_name="DistillationDaemon",
+            import_path="app.coordination.daemon_adapters",
+            class_name="DistillationDaemonAdapter",
         ),
         DaemonType.CONTINUOUS_TRAINING_LOOP.name: DaemonSpec(
             import_path="app.coordination.continuous_loop",
@@ -198,12 +202,12 @@ def _build_registry() -> dict[str, DaemonSpec]:
         # Cluster Management Daemons
         # =================================================================
         DaemonType.CLUSTER_MONITOR.name: DaemonSpec(
-            import_path="app.distributed.cluster_monitor",
+            import_path="app.coordination.cluster_status_monitor",
             class_name="ClusterMonitor",
         ),
         DaemonType.P2P_BACKEND.name: DaemonSpec(
-            import_path="app.distributed.p2p",
-            class_name="P2PNode",
+            import_path="app.coordination.p2p_backend",
+            class_name="P2PBackend",
         ),
         DaemonType.P2P_AUTO_DEPLOY.name: DaemonSpec(
             import_path="app.coordination.p2p_auto_deployer",
@@ -243,7 +247,7 @@ def _build_registry() -> dict[str, DaemonSpec]:
         # =================================================================
         DaemonType.JOB_SCHEDULER.name: DaemonSpec(
             import_path="app.coordination.job_scheduler",
-            class_name="JobScheduler",
+            class_name="PriorityJobScheduler",
         ),
         DaemonType.RESOURCE_OPTIMIZER.name: DaemonSpec(
             import_path="app.coordination.resource_optimizer",

@@ -309,6 +309,16 @@ class BaseDaemon(ABC, Generic[ConfigT]):
         """
         return self.__class__.__name__
 
+    @property
+    def name(self) -> str:
+        """Return daemon name (CoordinatorProtocol compliance)."""
+        return self._get_daemon_name()
+
+    @property
+    def status(self) -> CoordinatorStatus:
+        """Return current status (CoordinatorProtocol compliance)."""
+        return self._coordinator_status
+
     # =========================================================================
     # Status and Health
     # =========================================================================
@@ -375,15 +385,9 @@ class BaseDaemon(ABC, Generic[ConfigT]):
     def _coordinator_register(self) -> None:
         """Register with coordinator protocol."""
         try:
-            register_coordinator(
-                self._get_daemon_name(),
-                CoordinatorStatus(
-                    coordinator_type=self._get_daemon_name(),
-                    is_running=True,
-                    host=self._hostname,
-                    start_time=self._start_time,
-                ),
-            )
+            # Register self - BaseDaemon now implements CoordinatorProtocol
+            # via name and status properties
+            register_coordinator(self)
         except Exception as e:
             logger.debug(f"[{self._get_daemon_name()}] Failed to register coordinator: {e}")
 

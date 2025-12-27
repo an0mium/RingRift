@@ -94,6 +94,13 @@ DATA_SOURCES = {
 # Download timeout in seconds (larger files need more time)
 DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", "600"))  # 10 minutes
 
+# Large file threshold - use rsync for files > 100MB
+LARGE_FILE_THRESHOLD_MB = int(os.getenv("LARGE_FILE_THRESHOLD_MB", "100"))
+
+# Mac-studio OWC path for rsync fallback
+OWC_DATA_PATH = "/Volumes/RingRift-Data"
+MAC_STUDIO_HOST = "mac-studio"
+
 
 @dataclass
 class NodeConfig:
@@ -355,25 +362,101 @@ class DataDistributionDaemon:
         file_info: dict,
         stats: DistributionStats,
     ) -> bool:
-        """Download a file to a node via wget."""
+        """Download a file to a node via wget, rsync, or aria2 fallback."""
         dest_path = f"{node.data_path}/data/{file_info['dest']}/"
         filename = file_info["name"]
+        file_size_mb = file_info.get("size_mb", 0)
 
         if self.dry_run:
             logger.info(f"  [DRY-RUN] Would download {filename} to {node.name}")
             return True
 
+        # Use rsync for large files (> 100MB) to avoid HTTP timeouts
+        if file_size_mb > LARGE_FILE_THRESHOLD_MB:
+            return await self._download_large_file_rsync(node, file_info, stats)
+
+        # Standard wget for smaller files
         cmd = f"mkdir -p {dest_path} && wget -q -O {dest_path}{filename} '{file_info['url']}'"
-        code, _, stderr = await self._run_ssh_command(node, cmd, timeout=300)
+        timeout = min(600, max(120, int(file_size_mb * 3)))  # Scale timeout with size
+        code, _, stderr = await self._run_ssh_command(node, cmd, timeout=timeout)
 
         if code == 0:
             logger.info(f"  Downloaded {filename} to {node.name}")
             stats.files_distributed += 1
             return True
-        else:
-            logger.error(f"  Failed to download {filename} to {node.name}: {stderr}")
-            stats.errors.append(f"{node.name}:{filename}:{stderr[:100]}")
-            return False
+
+        # Fallback 1: Try aria2 if available (supports resume, chunked downloads)
+        logger.warning(f"  wget failed for {filename}, trying aria2...")
+        aria2_cmd = f"which aria2c && mkdir -p {dest_path} && aria2c -q -d {dest_path} -o {filename} '{file_info['url']}'"
+        code, _, stderr = await self._run_ssh_command(node, aria2_cmd, timeout=timeout * 2)
+
+        if code == 0:
+            logger.info(f"  Downloaded {filename} to {node.name} (via aria2)")
+            stats.files_distributed += 1
+            return True
+
+        # Fallback 2: Try curl with resume support
+        logger.warning(f"  aria2 failed for {filename}, trying curl...")
+        curl_cmd = f"mkdir -p {dest_path} && curl -sS -C - -o {dest_path}{filename} '{file_info['url']}'"
+        code, _, stderr = await self._run_ssh_command(node, curl_cmd, timeout=timeout * 2)
+
+        if code == 0:
+            logger.info(f"  Downloaded {filename} to {node.name} (via curl)")
+            stats.files_distributed += 1
+            return True
+
+        logger.error(f"  Failed to download {filename} to {node.name}: {stderr}")
+        stats.errors.append(f"{node.name}:{filename}:{stderr[:100]}")
+        return False
+
+    async def _download_large_file_rsync(
+        self,
+        node: NodeConfig,
+        file_info: dict,
+        stats: DistributionStats,
+    ) -> bool:
+        """Download large file via rsync from mac-studio (more reliable than HTTP)."""
+        dest_path = f"{node.data_path}/data/{file_info['dest']}/"
+        filename = file_info["name"]
+        source_path = file_info.get("source_path", "")
+
+        if not source_path:
+            # Derive source path from URL
+            url_path = file_info["url"].replace(self.data_source_url, "")
+            source_path = f"{OWC_DATA_PATH}{url_path}"
+
+        logger.info(f"  Large file ({file_info.get('size_mb', 0):.0f}MB), using rsync: {filename}")
+
+        # Use rsync via mac-studio with bandwidth limit
+        import subprocess
+        try:
+            # First ensure dest dir exists
+            mkdir_cmd = f"ssh {node.ssh_target} 'mkdir -p {dest_path}'"
+            subprocess.run(mkdir_cmd, shell=True, timeout=30, capture_output=True)
+
+            # Rsync from mac-studio to target node
+            rsync_cmd = [
+                "rsync", "-avz", "--progress",
+                "--bwlimit=50m",  # 50 MB/s limit
+                f"{MAC_STUDIO_HOST}:{source_path}",
+                f"{node.ssh_target}:{dest_path}",
+            ]
+            result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=1800)
+
+            if result.returncode == 0:
+                logger.info(f"  Downloaded {filename} to {node.name} (via rsync)")
+                stats.files_distributed += 1
+                return True
+            else:
+                logger.error(f"  rsync failed for {filename}: {result.stderr[:200]}")
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"  rsync timeout for {filename}")
+        except Exception as e:
+            logger.error(f"  rsync error for {filename}: {e}")
+
+        stats.errors.append(f"{node.name}:{filename}:rsync_failed")
+        return False
 
     async def _distribute_to_node(
         self,

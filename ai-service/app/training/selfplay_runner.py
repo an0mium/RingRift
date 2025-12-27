@@ -1107,9 +1107,12 @@ class SelfplayRunner(ABC):
 
         Phase 4A.5 (December 2025): Ensures games on ephemeral hosts (Vast.ai)
         are immediately synced to prevent data loss on termination.
+
+        December 2025: Migrated from deprecated ephemeral_sync module to
+        unified auto_sync_daemon.
         """
         try:
-            from app.coordination.ephemeral_sync import get_ephemeral_sync_daemon
+            from app.coordination.auto_sync_daemon import get_ephemeral_sync_daemon
 
             daemon = get_ephemeral_sync_daemon()
             if not daemon.is_ephemeral:

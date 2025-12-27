@@ -258,81 +258,88 @@ def _encode_single_game(
         current_state = initial_state
         total_moves = len(moves)
 
+        # December 2025 fix: Encode samples BEFORE apply_move to capture partial games.
+        # Previously, when apply_move() failed, samples from that move were lost.
+        # Now we encode first, then try to apply. This fixes hex8_4p export where
+        # chain capture FSM mismatches caused 89% of games to fail mid-replay.
+        replay_error_at_move: int | None = None
+
         for move_idx, move in enumerate(moves):
             state_before = current_state
 
-            # Apply move to get next state
+            # Check if we should sample this move
+            should_sample = sample_every == 1 or (move_idx % sample_every) == 0
+
+            # PARTIAL SAMPLE FIX: Encode sample BEFORE applying move
+            # This ensures we capture samples even if apply_move fails for this move
+            if should_sample:
+                # Encode state
+                if is_hex:
+                    features, globals_vec = encoder.encode_state(state_before)
+                else:
+                    features, globals_vec = encoder._extract_features(state_before)
+
+                # Build stacked features with history
+                stacked = _build_stacked_features(features, history_frames, history_length)
+
+                # Update history for next iteration
+                history_frames.append(features.copy())
+                if len(history_frames) > history_length + 1:
+                    history_frames.pop(0)
+
+                # Encode move
+                if use_board_aware_encoding:
+                    idx = encode_move_for_board(move, state_before.board)
+                elif is_hex:
+                    idx = encoder.encode_move(move, state_before.board)
+                else:
+                    idx = encoder.encode_move(move, state_before.board)
+
+                if idx != INVALID_MOVE_INDEX:
+                    # Get phase string
+                    phase_str = (
+                        str(state_before.current_phase.value)
+                        if hasattr(state_before.current_phase, "value")
+                        else str(state_before.current_phase)
+                    )
+
+                    # Get move type for chain-aware sample weighting
+                    move_type_raw = getattr(move, "type", None)
+                    if hasattr(move_type_raw, "value"):
+                        move_type_str = str(move_type_raw.value)
+                    else:
+                        move_type_str = str(move_type_raw) if move_type_raw else "unknown"
+
+                    # Extract heuristic features if requested
+                    heuristics_arr: np.ndarray | None = None
+                    if heuristic_extractor is not None:
+                        try:
+                            heuristics_arr = heuristic_extractor(state_before)
+                        except Exception as e:
+                            # Log but don't fail on heuristic extraction errors
+                            logger.debug(f"Heuristic extraction failed: {e}")
+                            heuristics_arr = np.zeros(num_heuristic_features, dtype=np.float32)
+
+                    perspective = state_before.current_player
+                    pending_samples.append((
+                        stacked.astype(np.float32),
+                        globals_vec.astype(np.float32),
+                        idx,
+                        move_idx,
+                        perspective,
+                        phase_str,
+                        num_players,
+                        move_type_str,
+                        heuristics_arr,
+                    ))
+
+            # Now apply the move (AFTER encoding)
             try:
                 current_state = GameEngine.apply_move(current_state, move, trace_mode=True)
             except (RuntimeError, ValueError):
-                # Skip rest of game on replay error
+                # Track where replay failed but keep samples collected so far
+                replay_error_at_move = move_idx
                 break
-
-            # Skip if not sampling this move
-            if sample_every > 1 and (move_idx % sample_every) != 0:
-                continue
-
-            # Encode state
-            if is_hex:
-                features, globals_vec = encoder.encode_state(state_before)
-            else:
-                features, globals_vec = encoder._extract_features(state_before)
-
-            # Build stacked features with history
-            stacked = _build_stacked_features(features, history_frames, history_length)
-
-            # Update history
-            history_frames.append(features.copy())
-            if len(history_frames) > history_length + 1:
-                history_frames.pop(0)
-
-            # Encode move
-            if use_board_aware_encoding:
-                idx = encode_move_for_board(move, state_before.board)
-            elif is_hex:
-                idx = encoder.encode_move(move, state_before.board)
-            else:
-                idx = encoder.encode_move(move, state_before.board)
-
-            if idx == INVALID_MOVE_INDEX:
-                continue
-
-            # Get phase string
-            phase_str = (
-                str(state_before.current_phase.value)
-                if hasattr(state_before.current_phase, "value")
-                else str(state_before.current_phase)
-            )
-
-            # Get move type for chain-aware sample weighting
-            move_type_raw = getattr(move, "type", None)
-            if hasattr(move_type_raw, "value"):
-                move_type_str = str(move_type_raw.value)
-            else:
-                move_type_str = str(move_type_raw) if move_type_raw else "unknown"
-
-            # Extract heuristic features if requested
-            heuristics_arr: np.ndarray | None = None
-            if heuristic_extractor is not None:
-                try:
-                    heuristics_arr = heuristic_extractor(state_before)
-                except Exception as e:
-                    # Log but don't fail on heuristic extraction errors
-                    logger.debug(f"Heuristic extraction failed: {e}")
-                    heuristics_arr = np.zeros(num_heuristic_features, dtype=np.float32)
-
-            perspective = state_before.current_player
-            pending_samples.append((
-                stacked.astype(np.float32),
-                globals_vec.astype(np.float32),
-                idx,
-                move_idx,
-                perspective,
-                phase_str,
-                num_players,
-                move_type_str,
-                heuristics_arr,
-            ))
 
         # Use current_state as final_state if not provided (computed during replay)
         if compute_final_state:
@@ -347,6 +354,10 @@ def _encode_single_game(
 
         # Skip games without valid winner - these produce value=0 which corrupts training
         if final_state is None or getattr(final_state, "winner", None) is None:
+            if pending_samples:
+                logger.debug(
+                    f"Game {game_id}: Discarding {len(pending_samples)} samples - no valid winner"
+                )
             return GameEncodingResult(game_id=game_id, samples=[])
 
         # Now compute values using final_state
@@ -375,7 +386,16 @@ def _encode_single_game(
                 heuristics=heuristics_arr,
             ))
 
-        return GameEncodingResult(game_id=game_id, samples=samples)
+        # Track partial games (replay error but samples collected)
+        partial_info = None
+        if replay_error_at_move is not None and samples:
+            partial_info = f"partial:{replay_error_at_move}/{total_moves}"
+            logger.debug(
+                f"Game {game_id}: Partial replay - {len(samples)} samples from "
+                f"{replay_error_at_move}/{total_moves} moves (error at move {replay_error_at_move})"
+            )
+
+        return GameEncodingResult(game_id=game_id, samples=samples, error=partial_info)
 
     except Exception as e:
         return GameEncodingResult(game_id=game_id, samples=[], error=str(e))

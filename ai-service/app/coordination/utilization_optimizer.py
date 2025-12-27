@@ -42,14 +42,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from app.providers import (
-    Provider,
-    ProviderInstance,
-)
+from app.providers import Provider
 from app.coordination.health_check_orchestrator import (
     HealthCheckOrchestrator,
     NodeHealthDetails,
-    NodeHealthState,
     get_health_orchestrator,
 )
 

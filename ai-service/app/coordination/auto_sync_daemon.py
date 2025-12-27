@@ -971,10 +971,12 @@ class AutoSyncDaemon:
             if not cap:
                 return False
 
+            # Use centralized timeout (Dec 2025)
+            from app.config.thresholds import RSYNC_TIMEOUT
             result = rsync_with_bandwidth_limit(
                 source=db_path,
                 target_host=target_node,
-                timeout=30,
+                timeout=RSYNC_TIMEOUT,
             )
 
             success = result.success
@@ -986,6 +988,8 @@ class AutoSyncDaemon:
         except (RuntimeError, OSError, asyncio.TimeoutError) as e:
             logger.debug(f"[AutoSyncDaemon] Rsync error: {e}")
             success = False
+            # Emit sync failure event (Dec 2025)
+            await self._emit_sync_failure(target_node, db_path, str(e))
             return False
         finally:
             # Always release the lock
@@ -1036,20 +1040,27 @@ class AutoSyncDaemon:
                 remote_full,
             ]
 
+            # Use centralized timeout (Dec 2025)
+            from app.config.thresholds import RSYNC_TIMEOUT
             result = await asyncio.to_thread(
                 subprocess.run,
                 rsync_cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=RSYNC_TIMEOUT,
             )
             return result.returncode == 0
 
         except subprocess.TimeoutExpired:
             logger.warning(f"[AutoSyncDaemon] Rsync timeout to {target_node}")
+            # Emit sync failure event (Dec 2025)
+            from app.config.thresholds import RSYNC_TIMEOUT
+            await self._emit_sync_failure(target_node, db_path, f"Rsync timeout after {RSYNC_TIMEOUT}s")
             return False
         except (OSError, subprocess.SubprocessError, ValueError) as e:
             logger.debug(f"[AutoSyncDaemon] Rsync error: {e}")
+            # Emit sync failure event (Dec 2025)
+            await self._emit_sync_failure(target_node, db_path, str(e))
             return False
 
     async def _emit_game_synced(
@@ -1081,6 +1092,28 @@ class AutoSyncDaemon:
                 )
         except (RuntimeError, AttributeError, ImportError) as e:
             logger.debug(f"[AutoSyncDaemon] Could not emit GAME_SYNCED event: {e}")
+
+    async def _emit_sync_failure(
+        self,
+        target_node: str,
+        db_path: str,
+        error: str,
+    ) -> None:
+        """Emit DATA_SYNC_FAILED event when rsync fails.
+
+        December 2025: Added for sync failure visibility and feedback loops.
+        """
+        try:
+            from app.distributed.data_events import emit_data_sync_failed
+
+            await emit_data_sync_failed(
+                host=target_node,
+                error=error,
+                retry_count=0,
+                source="AutoSyncDaemon",
+            )
+        except (RuntimeError, AttributeError, ImportError) as e:
+            logger.debug(f"[AutoSyncDaemon] Could not emit DATA_SYNC_FAILED event: {e}")
 
     # =========================================================================
     # Broadcast Mode Methods (December 2025 - from cluster_data_sync.py)

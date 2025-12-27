@@ -54,6 +54,7 @@ from app.core.async_context import fire_and_forget, safe_create_task
 # Daemon types extracted to dedicated module (Dec 2025)
 from app.coordination.daemon_types import (
     CRITICAL_DAEMONS,
+    DAEMON_STARTUP_ORDER,
     DaemonInfo,
     DaemonManagerConfig,
     DaemonState,
@@ -65,6 +66,24 @@ from app.coordination.daemon_types import (
 from app.coordination.daemon_lifecycle import DaemonLifecycleManager
 
 logger = logging.getLogger(__name__)
+
+
+# Lazy import for daemon lifecycle events to avoid circular imports
+def _get_daemon_event_emitters():
+    """Lazy import daemon event emitters.
+
+    Returns tuple of (emit_daemon_started, emit_daemon_stopped) or (None, None)
+    if import fails.
+    """
+    try:
+        from app.distributed.data_events import (
+            emit_daemon_started,
+            emit_daemon_stopped,
+        )
+        return emit_daemon_started, emit_daemon_stopped
+    except ImportError:
+        logger.debug("data_events not available for daemon lifecycle events")
+        return None, None
 
 # Note: Deprecated daemon tracking is now in daemon_types.py._DEPRECATED_DAEMON_TYPES
 # The legacy re-export was removed Dec 2025 as it was unused dead code.
@@ -670,7 +689,33 @@ class DaemonManager:
             # Previously only started via start_all() callback, causing health loop
             # to never start when master_loop.py called start() individually.
             await self._ensure_health_loop_running()
+
+            # Dec 2025: Emit DAEMON_STARTED event for coordination_bootstrap handlers
+            await self._emit_daemon_started(daemon_type)
         return result
+
+    async def _emit_daemon_started(self, daemon_type: DaemonType) -> None:
+        """Emit DAEMON_STARTED event after successful daemon start.
+
+        December 2025: Wires the orphaned DAEMON_STARTED event that has
+        handlers in coordination_bootstrap.py but was never emitted.
+        """
+        emit_started, _ = _get_daemon_event_emitters()
+        if emit_started is None:
+            return
+
+        import socket
+        try:
+            await emit_started(
+                daemon_name=daemon_type.value,
+                hostname=socket.gethostname(),
+                pid=os.getpid(),
+                source="DaemonManager",
+            )
+            logger.debug(f"Emitted DAEMON_STARTED for {daemon_type.value}")
+        except Exception as e:
+            # Non-critical - log and continue
+            logger.debug(f"Failed to emit DAEMON_STARTED: {e}")
 
     async def _ensure_health_loop_running(self) -> None:
         """Ensure the health monitoring loop is running.
@@ -734,7 +779,36 @@ class DaemonManager:
         Returns:
             True if stopped successfully (or was already stopped)
         """
-        return await self._lifecycle.stop(daemon_type)
+        result = await self._lifecycle.stop(daemon_type)
+        if result:
+            # Dec 2025: Emit DAEMON_STOPPED event for coordination_bootstrap handlers
+            await self._emit_daemon_stopped(daemon_type, reason="normal")
+        return result
+
+    async def _emit_daemon_stopped(
+        self, daemon_type: DaemonType, reason: str = "normal"
+    ) -> None:
+        """Emit DAEMON_STOPPED event after successful daemon stop.
+
+        December 2025: Wires the orphaned DAEMON_STOPPED event that has
+        handlers in coordination_bootstrap.py but was never emitted.
+        """
+        _, emit_stopped = _get_daemon_event_emitters()
+        if emit_stopped is None:
+            return
+
+        import socket
+        try:
+            await emit_stopped(
+                daemon_name=daemon_type.value,
+                hostname=socket.gethostname(),
+                reason=reason,
+                source="DaemonManager",
+            )
+            logger.debug(f"Emitted DAEMON_STOPPED for {daemon_type.value}")
+        except Exception as e:
+            # Non-critical - log and continue
+            logger.debug(f"Failed to emit DAEMON_STOPPED: {e}")
 
     async def restart_failed_daemon(
         self,
@@ -1896,19 +1970,33 @@ class DaemonManager:
 
         Monitors for training activity across the cluster and triggers
         priority sync to ensure training nodes have fresh data.
+
+        December 2025: Migrated from deprecated cluster_data_sync module to
+        use AutoSyncDaemon with BROADCAST strategy for sync triggering.
+        The watcher functionality (detecting training processes) is now handled
+        by TrainingTriggerDaemon which provides more comprehensive monitoring.
         """
         try:
-            from app.coordination.cluster_data_sync import get_training_node_watcher
+            from app.coordination.auto_sync_daemon import (
+                AutoSyncConfig,
+                AutoSyncDaemon,
+                SyncStrategy,
+            )
 
-            watcher = get_training_node_watcher()
-            await watcher.start()
+            # Training node watcher uses BROADCAST strategy to push data to training nodes
+            # with reduced sync interval for training priority
+            config = AutoSyncConfig.from_config_file()
+            config.strategy = SyncStrategy.BROADCAST
+            config.sync_interval = 30.0  # Check every 30 seconds for training freshness
+            daemon = AutoSyncDaemon(config=config)
+            await daemon.start()
 
-            # Wait for watcher to complete (or be stopped)
-            while watcher._running:
+            # Wait for daemon to complete (or be stopped)
+            while daemon.is_running():
                 await asyncio.sleep(10)
 
         except ImportError as e:
-            logger.error(f"TrainingNodeWatcher not available: {e}")
+            logger.error(f"AutoSyncDaemon not available for training watcher: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_ephemeral_sync(self) -> None:
@@ -1916,19 +2004,28 @@ class DaemonManager:
 
         Provides aggressive sync for Vast.ai and spot instances with
         short termination notice (15-30 seconds).
+
+        December 2025: Migrated from deprecated ephemeral_sync module to
+        unified AutoSyncDaemon with EPHEMERAL strategy.
         """
         try:
-            from app.coordination.ephemeral_sync import get_ephemeral_sync_daemon
+            from app.coordination.auto_sync_daemon import (
+                AutoSyncConfig,
+                AutoSyncDaemon,
+                SyncStrategy,
+            )
 
-            daemon = get_ephemeral_sync_daemon()
+            config = AutoSyncConfig.from_config_file()
+            config.strategy = SyncStrategy.EPHEMERAL
+            daemon = AutoSyncDaemon(config=config)
             await daemon.start()
 
             # Wait for daemon to complete (or be stopped)
-            while daemon._running:
+            while daemon.is_running():
                 await asyncio.sleep(5)
 
         except ImportError as e:
-            logger.error(f"EphemeralSyncDaemon not available: {e}")
+            logger.error(f"AutoSyncDaemon not available: {e}")
             raise  # Propagate error so DaemonManager marks as FAILED
 
     async def _create_replication_monitor(self) -> None:

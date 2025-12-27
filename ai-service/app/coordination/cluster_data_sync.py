@@ -330,12 +330,14 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
     # December 2025: Removed --partial to prevent corruption from stitched segments
     # on connection resets. Fresh transfers are safer than resumed partial ones.
     # See: resilient_transfer.py for background on the 955MB NPZ corruption incident.
+    # Dec 2025: Use centralized timeout from thresholds.py
+    from app.config.thresholds import RSYNC_BATCH_TIMEOUT
     cmd = [
         "rsync",
         "-avz",
         "--progress",
         f"--bwlimit={bandwidth_kbps}",  # Per-provider bandwidth limit
-        "--timeout=60",           # Per-file I/O timeout (shorter, more granular)
+        f"--timeout={RSYNC_BATCH_TIMEOUT}",  # Per-file I/O timeout (centralized)
         "--inplace",              # Direct write without temp file (faster, but need checksum)
         "--delay-updates",        # Atomic: put files in place at end
         "--checksum",             # Verify integrity during transfer

@@ -2109,12 +2109,20 @@ def resolve_hosts_config_path(config_path: Path | None = None) -> Path:
         if config_path.name == "distributed_hosts.yaml":
             fallback = config_path.parent / "remote_hosts.yaml"
             if fallback.exists():
+                logger.warning(
+                    "distributed_hosts.yaml not found; falling back to deprecated remote_hosts.yaml"
+                )
                 return fallback
         return config_path
     distributed = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
     if distributed.exists():
         return distributed
-    return AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+    fallback = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+    if fallback.exists():
+        logger.warning(
+            "distributed_hosts.yaml not found; falling back to deprecated remote_hosts.yaml"
+        )
+    return fallback
 
 
 def _load_hosts_from_distributed_hosts(data: dict) -> list[HostConfig]:

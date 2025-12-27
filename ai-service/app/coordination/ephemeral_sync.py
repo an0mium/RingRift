@@ -89,7 +89,8 @@ class EphemeralSyncConfig:
     termination_handler_enabled: bool = True
     min_games_before_push: int = 1  # Push even single games
     max_concurrent_syncs: int = 2
-    sync_timeout_seconds: int = 30
+    # Dec 2025: Use centralized timeout from thresholds.py
+    sync_timeout_seconds: int = 30  # Overridden at runtime by EPHEMERAL_SYNC_TIMEOUT
     # December 2025: Write-through mode for zero data loss
     write_through_enabled: bool = True  # Wait for push confirmation
     # P1.3 Dec 2025: Increased from 30s to 60s for Vast.ai high-latency nodes (50-500ms)
@@ -678,11 +679,12 @@ class EphemeralSyncDaemon:
             if not cap:
                 return False
 
-            # Use sync_bandwidth for rate-limited rsync
+            # Use sync_bandwidth for rate-limited rsync (Dec 2025: centralized timeout)
+            from app.config.thresholds import EPHEMERAL_SYNC_TIMEOUT
             result = rsync_with_bandwidth_limit(
                 source=db_path,
                 target_host=target_node,
-                timeout=self.config.sync_timeout_seconds,
+                timeout=EPHEMERAL_SYNC_TIMEOUT,
             )
 
             return result.success
@@ -732,12 +734,14 @@ class EphemeralSyncDaemon:
         ]
 
         try:
+            # Dec 2025: Use centralized timeout from thresholds.py
+            from app.config.thresholds import EPHEMERAL_SYNC_TIMEOUT
             result = await asyncio.to_thread(
                 subprocess.run,
                 rsync_cmd,
                 capture_output=True,
                 text=True,
-                timeout=self.config.sync_timeout_seconds,
+                timeout=EPHEMERAL_SYNC_TIMEOUT,
             )
             return result.returncode == 0
         except subprocess.TimeoutExpired:

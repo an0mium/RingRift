@@ -55,6 +55,7 @@ from app.coordination.health_check_orchestrator import (
     NodeHealthState,
     get_health_orchestrator,
 )
+from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -615,6 +616,31 @@ echo "Key deployed"
 
         logger.error(f"[RecoveryOrchestrator] SSH key deploy failed on {node_id}: {stderr}")
         return False
+
+    def health_check(self) -> HealthCheckResult:
+        """Perform health check for daemon manager integration.
+
+        Returns:
+            HealthCheckResult with current status
+        """
+        stats = self.get_recovery_stats()
+        circuit_open_count = stats.get("nodes_with_circuit_open", 0)
+
+        # Unhealthy if too many circuits are open
+        if circuit_open_count > 5:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Too many circuits open: {circuit_open_count}",
+                details=stats,
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {stats.get('total_nodes_tracked', 0)} nodes",
+            details=stats,
+        )
 
 
 # Global instance

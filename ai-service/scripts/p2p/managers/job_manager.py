@@ -1088,114 +1088,17 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
         # Placeholder for gauntlet logic
         return True
 
-    async def run_parity_validation(
-        self,
-        job_id: str,
-        board_type: str,
-        num_players: int,
-        num_seeds: int = 100,
-    ) -> None:
-        """Run parity validation against TypeScript engine.
-
-        Args:
-            job_id: Job ID
-            board_type: Board type
-            num_players: Number of players
-            num_seeds: Number of random seeds to test
-        """
-        logger.info(f"Running parity validation for {board_type}_{num_players}p with {num_seeds} seeds")
-        # Placeholder for parity validation logic
-
-    async def run_npz_export(
-        self,
-        job_id: str,
-        board_type: str,
-        num_players: int,
-        output_dir: str,
-    ) -> None:
-        """Export games to NPZ training format.
-
-        Args:
-            job_id: Job ID
-            board_type: Board type
-            num_players: Number of players
-            output_dir: Output directory for NPZ files
-        """
-        logger.info(f"Exporting NPZ for {board_type}_{num_players}p to {output_dir}")
-        # Placeholder for NPZ export logic
-
     # =========================================================================
     # Job Lifecycle and Metrics
     # =========================================================================
-
-    def get_job_count_for_node(self, node_id: str) -> int:
-        """Get total job count for a specific node.
-
-        Args:
-            node_id: Node ID
-
-        Returns:
-            Total number of running jobs on the node
-        """
-        count = 0
-        with self.jobs_lock:
-            for job_type, jobs in self.active_jobs.items():
-                for job in jobs.values():
-                    if isinstance(job, dict) and job.get("node_id") == node_id:
-                        count += 1
-                    elif hasattr(job, "node_id") and job.node_id == node_id:
-                        count += 1
-        return count
-
-    def get_selfplay_job_count_for_node(self, node_id: str) -> int:
-        """Get selfplay job count for a specific node.
-
-        Args:
-            node_id: Node ID
-
-        Returns:
-            Number of running selfplay jobs on the node
-        """
-        count = 0
-        with self.jobs_lock:
-            selfplay_jobs = self.active_jobs.get("selfplay", {})
-            for job in selfplay_jobs.values():
-                if isinstance(job, dict) and job.get("node_id") == node_id:
-                    count += 1
-                elif hasattr(job, "node_id") and job.node_id == node_id:
-                    count += 1
-        return count
-
-    def get_training_job_count_for_node(self, node_id: str) -> int:
-        """Get training job count for a specific node.
-
-        Args:
-            node_id: Node ID
-
-        Returns:
-            Number of running training jobs on the node
-        """
-        count = 0
-        with self.jobs_lock:
-            training_jobs = self.active_jobs.get("training", {})
-            for job in training_jobs.values():
-                if isinstance(job, dict) and job.get("node_id") == node_id:
-                    count += 1
-                elif hasattr(job, "node_id") and job.node_id == node_id:
-                    count += 1
-        return count
-
-    def get_all_jobs(self) -> dict[str, dict[str, Any]]:
-        """Get all active jobs.
-
-        Returns:
-            Dict of job_type -> {job_id -> job_info}
-        """
-        with self.jobs_lock:
-            return {
-                job_type: dict(jobs)
-                for job_type, jobs in self.active_jobs.items()
-            }
+    # NOTE: The following methods were removed Dec 2025 as dead code:
+    # - run_parity_validation() - placeholder stub, never called
+    # - run_npz_export() - placeholder stub, never called
+    # - get_job_count_for_node() - no production callers
+    # - get_selfplay_job_count_for_node() - no production callers
+    # - get_training_job_count_for_node() - no production callers
+    # - get_all_jobs() - no production callers
+    # Use orchestrator's job tracking or SelfplayScheduler for job counts.
 
     def cleanup_completed_jobs(self) -> int:
         """Clean up completed jobs from tracking.

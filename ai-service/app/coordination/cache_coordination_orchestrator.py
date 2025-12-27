@@ -47,6 +47,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -671,6 +673,30 @@ class CacheCoordinationOrchestrator:
             "models_cached": list(self._by_model.keys()),
             "subscribed": self._subscribed,
         }
+
+    def health_check(self) -> HealthCheckResult:
+        """Perform health check for daemon manager integration.
+
+        Returns:
+            HealthCheckResult with current status
+        """
+        stats = self.get_stats()
+
+        # Unhealthy if hit rate drops below 20% (indicates cache inefficiency)
+        if stats.total_entries > 100 and stats.overall_hit_rate < 0.2:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Low cache hit rate: {stats.overall_hit_rate:.1%}",
+                details=self.get_status(),
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {stats.total_entries} entries, {stats.overall_hit_rate:.1%} hit rate",
+            details=self.get_status(),
+        )
 
 
 # =============================================================================

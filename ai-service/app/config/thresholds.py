@@ -710,6 +710,15 @@ MAX_BATCH_TIMEOUT = 1800  # 30 minutes
 # Maximum timeout per file (seconds)
 MAX_PER_FILE_TIMEOUT = 120  # 2 minutes
 
+# Rsync operation timeouts (December 2025 - consolidated)
+RSYNC_TIMEOUT = 30  # Per-file I/O timeout (seconds)
+RSYNC_BATCH_TIMEOUT = 60  # Batch rsync timeout (seconds)
+RSYNC_MAX_TIMEOUT = 600  # Maximum transfer time (seconds)
+
+# Ephemeral sync configuration
+EPHEMERAL_SYNC_TIMEOUT = 30  # Quick sync timeout for volatile hosts
+EPHEMERAL_SYNC_INTERVAL = 5  # Aggressive polling interval (seconds)
+
 # =============================================================================
 # Shadow Validation
 # =============================================================================

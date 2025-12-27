@@ -81,6 +81,445 @@ _state = BootstrapState()
 
 
 # =============================================================================
+# Coordinator Registry (December 2025 Refactoring)
+# =============================================================================
+
+from enum import Enum
+
+
+class InitPattern(Enum):
+    """Initialization patterns for coordinators."""
+
+    WIRE = "wire"  # Call wire_*() function, check _subscribed
+    GET = "get"  # Call get_*() singleton, check _subscribed
+    IMPORT = "import"  # Just import class to verify availability
+    SKIP = "skip"  # Deprecated, return skip status
+    DELEGATE = "delegate"  # Delegate to another coordinator
+
+
+@dataclass
+class CoordinatorSpec:
+    """Specification for a coordinator to be initialized.
+
+    Attributes:
+        name: Registry key and internal identifier
+        display_name: Human-readable name for logging
+        module_path: Full import path for the module
+        pattern: Initialization pattern to use
+        func_name: Function/class name to import (wire function, get function, or class)
+        delegate_to: For DELEGATE pattern, name of coordinator to delegate to
+        extra_wiring: Additional wiring function to call after main init
+        check_subscribed: Whether to check _subscribed attribute (default True)
+    """
+
+    name: str
+    display_name: str
+    module_path: str
+    pattern: InitPattern
+    func_name: str | None = None
+    delegate_to: str | None = None
+    extra_wiring: tuple[str, str] | None = None  # (module_path, func_name)
+    check_subscribed: bool = True
+
+
+# Registry of all coordinators with their initialization specs
+# Organized by initialization order (dependencies first)
+COORDINATOR_REGISTRY: dict[str, CoordinatorSpec] = {
+    # === Foundational layer (no dependencies) ===
+    "task_coordinator": CoordinatorSpec(
+        name="task_coordinator",
+        display_name="TaskLifecycleCoordinator",
+        module_path="app.coordination.task_lifecycle_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_task_events",
+    ),
+    "global_task_coordinator": CoordinatorSpec(
+        name="global_task_coordinator",
+        display_name="Global TaskCoordinator",
+        module_path="app.coordination.task_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_task_coordinator_events",
+    ),
+    "resource_coordinator": CoordinatorSpec(
+        name="resource_coordinator",
+        display_name="ResourceMonitoringCoordinator",
+        module_path="app.coordination.resource_monitoring_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_resource_events",
+    ),
+    "cache_orchestrator": CoordinatorSpec(
+        name="cache_orchestrator",
+        display_name="CacheCoordinationOrchestrator",
+        module_path="app.coordination.cache_coordination_orchestrator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_cache_events",
+    ),
+    # === Infrastructure support layer ===
+    "health_manager": CoordinatorSpec(
+        name="health_manager",
+        display_name="UnifiedHealthManager",
+        module_path="app.coordination.unified_health_manager",
+        pattern=InitPattern.WIRE,
+        func_name="wire_health_events",
+    ),
+    "error_coordinator": CoordinatorSpec(
+        name="error_coordinator",
+        display_name="ErrorRecoveryCoordinator",
+        module_path="",  # Not used - delegates
+        pattern=InitPattern.DELEGATE,
+        delegate_to="health_manager",
+    ),
+    "recovery_manager": CoordinatorSpec(
+        name="recovery_manager",
+        display_name="RecoveryManager",
+        module_path="",  # Not used - skip
+        pattern=InitPattern.SKIP,
+    ),
+    "model_coordinator": CoordinatorSpec(
+        name="model_coordinator",
+        display_name="ModelLifecycleCoordinator",
+        module_path="app.coordination.model_lifecycle_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_model_events",
+    ),
+    # === Sync and training layer ===
+    "sync_coordinator": CoordinatorSpec(
+        name="sync_coordinator",
+        display_name="SyncCoordinator",
+        module_path="app.coordination.cluster.sync",
+        pattern=InitPattern.WIRE,
+        func_name="wire_sync_events",
+        extra_wiring=("app.coordination.sync_router", "get_sync_router"),
+    ),
+    "training_coordinator": CoordinatorSpec(
+        name="training_coordinator",
+        display_name="TrainingCoordinator",
+        module_path="app.coordination.training_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_training_events",
+    ),
+    # === Data integrity layer ===
+    "transfer_verifier": CoordinatorSpec(
+        name="transfer_verifier",
+        display_name="TransferVerifier",
+        module_path="app.coordination.transfer_verification",
+        pattern=InitPattern.WIRE,
+        func_name="wire_transfer_verifier_events",
+    ),
+    "ephemeral_guard": CoordinatorSpec(
+        name="ephemeral_guard",
+        display_name="EphemeralDataGuard",
+        module_path="app.coordination.ephemeral_data_guard",
+        pattern=InitPattern.WIRE,
+        func_name="wire_ephemeral_guard_events",
+    ),
+    "queue_populator": CoordinatorSpec(
+        name="queue_populator",
+        display_name="QueuePopulator",
+        module_path="app.coordination.unified_queue_populator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_queue_populator_events",
+    ),
+    # === Selfplay layer ===
+    "selfplay_orchestrator": CoordinatorSpec(
+        name="selfplay_orchestrator",
+        display_name="SelfplayOrchestrator",
+        module_path="app.coordination.selfplay_orchestrator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_selfplay_events",
+    ),
+    "selfplay_scheduler": CoordinatorSpec(
+        name="selfplay_scheduler",
+        display_name="SelfplayScheduler",
+        module_path="app.coordination.selfplay_scheduler",
+        pattern=InitPattern.GET,
+        func_name="get_selfplay_scheduler",
+    ),
+    # === Pipeline and job layer ===
+    # Note: pipeline_orchestrator has special handling for extra args
+    "multi_provider": CoordinatorSpec(
+        name="multi_provider",
+        display_name="MultiProviderOrchestrator",
+        module_path="app.coordination.multi_provider_orchestrator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_orchestrator_events",
+    ),
+    "job_scheduler": CoordinatorSpec(
+        name="job_scheduler",
+        display_name="JobScheduler",
+        module_path="app.coordination.job_scheduler",
+        pattern=InitPattern.WIRE,
+        func_name="wire_host_dead_to_job_migration",
+        check_subscribed=False,  # Returns None, not a coordinator
+    ),
+    # === Daemon layer (December 2025) ===
+    "auto_export_daemon": CoordinatorSpec(
+        name="auto_export_daemon",
+        display_name="AutoExportDaemon",
+        module_path="app.coordination.auto_export_daemon",
+        pattern=InitPattern.GET,
+        func_name="get_auto_export_daemon",
+    ),
+    "evaluation_daemon": CoordinatorSpec(
+        name="evaluation_daemon",
+        display_name="EvaluationDaemon",
+        module_path="app.coordination.evaluation_daemon",
+        pattern=InitPattern.GET,
+        func_name="get_evaluation_daemon",
+    ),
+    "model_distribution_daemon": CoordinatorSpec(
+        name="model_distribution_daemon",
+        display_name="UnifiedDistributionDaemon",
+        module_path="app.coordination.unified_distribution_daemon",
+        pattern=InitPattern.IMPORT,
+        func_name="UnifiedDistributionDaemon",
+    ),
+    "idle_resource_daemon": CoordinatorSpec(
+        name="idle_resource_daemon",
+        display_name="IdleResourceDaemon",
+        module_path="app.coordination.idle_resource_daemon",
+        pattern=InitPattern.IMPORT,
+        func_name="IdleResourceDaemon",
+    ),
+    "quality_monitor_daemon": CoordinatorSpec(
+        name="quality_monitor_daemon",
+        display_name="QualityMonitorDaemon",
+        module_path="app.coordination.quality_monitor_daemon",
+        pattern=InitPattern.IMPORT,
+        func_name="QualityMonitorDaemon",
+    ),
+    "orphan_detection_daemon": CoordinatorSpec(
+        name="orphan_detection_daemon",
+        display_name="OrphanDetectionDaemon",
+        module_path="app.coordination.orphan_detection_daemon",
+        pattern=InitPattern.IMPORT,
+        func_name="OrphanDetectionDaemon",
+    ),
+    "curriculum_integration": CoordinatorSpec(
+        name="curriculum_integration",
+        display_name="CurriculumIntegration",
+        module_path="app.coordination.curriculum_integration",
+        pattern=InitPattern.WIRE,
+        func_name="wire_all_feedback_loops",
+        check_subscribed=False,  # Returns None, not a coordinator
+    ),
+    # === Metrics and optimization layer ===
+    "metrics_orchestrator": CoordinatorSpec(
+        name="metrics_orchestrator",
+        display_name="MetricsAnalysisOrchestrator",
+        module_path="app.coordination.metrics_analysis_orchestrator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_metrics_events",
+    ),
+    "optimization_coordinator": CoordinatorSpec(
+        name="optimization_coordinator",
+        display_name="OptimizationCoordinator",
+        module_path="app.coordination.optimization_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_optimization_events",
+    ),
+    # === Leadership layer (coordinates all others) ===
+    "leadership_coordinator": CoordinatorSpec(
+        name="leadership_coordinator",
+        display_name="LeadershipCoordinator",
+        module_path="app.coordination.leadership_coordinator",
+        pattern=InitPattern.WIRE,
+        func_name="wire_leadership_events",
+    ),
+}
+
+
+def _init_coordinator_from_spec(
+    spec: CoordinatorSpec,
+    **kwargs,
+) -> BootstrapCoordinatorStatus:
+    """Initialize a coordinator from its specification.
+
+    Generic initialization function that handles all coordinator patterns:
+    - WIRE: Import module, call wire_*(), check _subscribed
+    - GET: Import module, call get_*(), check for singleton
+    - IMPORT: Just import class to verify availability
+    - SKIP: Return skip status for deprecated coordinators
+    - DELEGATE: Delegate to another coordinator
+
+    Args:
+        spec: CoordinatorSpec defining how to initialize
+        **kwargs: Additional arguments passed to wire/get function
+
+    Returns:
+        BootstrapCoordinatorStatus with initialization result
+    """
+    status = BootstrapCoordinatorStatus(name=spec.name)
+
+    # Handle delegation pattern
+    if spec.pattern == InitPattern.DELEGATE:
+        if spec.delegate_to and spec.delegate_to in COORDINATOR_REGISTRY:
+            delegate_spec = COORDINATOR_REGISTRY[spec.delegate_to]
+            return _init_coordinator_from_spec(delegate_spec, **kwargs)
+        else:
+            status.error = f"Delegate target not found: {spec.delegate_to}"
+            logger.warning(f"[Bootstrap] {spec.display_name} delegate not found")
+            return status
+
+    # Handle skip pattern (deprecated coordinators)
+    if spec.pattern == InitPattern.SKIP:
+        status.initialized = True
+        status.subscribed = True
+        status.initialized_at = datetime.now()
+        logger.debug(f"[Bootstrap] {spec.display_name} skipped - using unified replacement")
+        return status
+
+    try:
+        # Import the module
+        module = __import__(spec.module_path, fromlist=[spec.func_name or ""])
+
+        if spec.pattern == InitPattern.WIRE:
+            # Call wire function
+            wire_func = getattr(module, spec.func_name)
+            result = wire_func(**kwargs) if kwargs else wire_func()
+
+            status.initialized = True
+            if spec.check_subscribed and result is not None:
+                status.subscribed = getattr(result, "_subscribed", True)
+            else:
+                status.subscribed = True
+            status.initialized_at = datetime.now()
+            logger.info(f"[Bootstrap] {spec.display_name} initialized")
+
+        elif spec.pattern == InitPattern.GET:
+            # Call get/singleton function
+            get_func = getattr(module, spec.func_name)
+            result = get_func()
+
+            status.initialized = result is not None
+            if spec.check_subscribed and result is not None:
+                status.subscribed = getattr(result, "_subscribed", False)
+            else:
+                status.subscribed = True
+            status.initialized_at = datetime.now()
+            logger.info(f"[Bootstrap] {spec.display_name} initialized")
+
+        elif spec.pattern == InitPattern.IMPORT:
+            # Just import to verify availability
+            _ = getattr(module, spec.func_name)
+            status.initialized = True
+            status.subscribed = True  # Will subscribe when started by DaemonManager
+            status.initialized_at = datetime.now()
+            logger.info(f"[Bootstrap] {spec.display_name} registered")
+
+        # Handle extra wiring if specified
+        if spec.extra_wiring and status.initialized:
+            try:
+                extra_module_path, extra_func_name = spec.extra_wiring
+                extra_module = __import__(extra_module_path, fromlist=[extra_func_name])
+                extra_func = getattr(extra_module, extra_func_name)
+
+                # Special handling for sync_router
+                if extra_func_name == "get_sync_router":
+                    sync_router = extra_func()
+                    if hasattr(sync_router, "wire_to_event_router"):
+                        sync_router.wire_to_event_router()
+                        logger.info("[Bootstrap] SyncRouter wired to event router")
+                else:
+                    extra_func()
+                    logger.debug(f"[Bootstrap] Extra wiring completed: {extra_func_name}")
+
+            except ImportError:
+                logger.debug(f"[Bootstrap] Extra wiring module not available: {spec.extra_wiring[0]}")
+            except Exception as e:
+                logger.warning(f"[Bootstrap] Extra wiring failed: {e}")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] {spec.display_name} not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize {spec.display_name}: {e}")
+
+    return status
+
+
+def _init_pipeline_orchestrator(
+    auto_trigger: bool = False,
+    training_epochs: int | None = None,
+    training_batch_size: int | None = None,
+    training_model_version: str | None = None,
+) -> BootstrapCoordinatorStatus:
+    """Initialize DataPipelineOrchestrator.
+
+    Special handler for pipeline_orchestrator that takes additional arguments.
+    Not part of the registry pattern due to its unique parameter requirements.
+    """
+    status = BootstrapCoordinatorStatus(name="pipeline_orchestrator")
+    try:
+        from app.coordination.data_pipeline_orchestrator import wire_pipeline_events
+
+        orchestrator = wire_pipeline_events(
+            auto_trigger=auto_trigger,
+            training_epochs=training_epochs,
+            training_batch_size=training_batch_size,
+            training_model_version=training_model_version,
+        )
+        status.initialized = True
+        status.subscribed = orchestrator._subscribed
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] DataPipelineOrchestrator initialized")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] DataPipelineOrchestrator not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize DataPipelineOrchestrator: {e}")
+
+    return status
+
+
+def _init_curriculum_integration_with_verification() -> BootstrapCoordinatorStatus:
+    """Initialize CurriculumIntegration with OpponentTracker verification.
+
+    Special handler that includes verification logic not suitable for the registry.
+    """
+    status = BootstrapCoordinatorStatus(name="curriculum_integration")
+    try:
+        from app.coordination.curriculum_integration import wire_all_feedback_loops
+
+        wire_all_feedback_loops()
+        status.initialized = True
+        status.subscribed = True
+        status.initialized_at = datetime.now()
+        logger.info("[Bootstrap] CurriculumIntegration initialized")
+
+        # Dec 2025: Verify OpponentTrackerIntegration was wired
+        try:
+            from app.training.curriculum_feedback import get_curriculum_feedback
+
+            feedback = get_curriculum_feedback()
+            if hasattr(feedback, "_opponent_tracker") and feedback._opponent_tracker is not None:
+                logger.info("[Bootstrap] OpponentTrackerIntegration verified - wired to curriculum")
+            else:
+                # Attempt direct wiring as fallback
+                from app.training.curriculum_feedback import wire_opponent_tracker_to_curriculum
+
+                wire_opponent_tracker_to_curriculum()
+                if hasattr(feedback, "_opponent_tracker") and feedback._opponent_tracker is not None:
+                    logger.info("[Bootstrap] OpponentTrackerIntegration wired via fallback")
+                else:
+                    logger.warning("[Bootstrap] OpponentTrackerIntegration not available")
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"[Bootstrap] OpponentTrackerIntegration verification skipped: {e}")
+
+    except ImportError as e:
+        status.error = f"Import error: {e}"
+        logger.warning(f"[Bootstrap] CurriculumIntegration not available: {e}")
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+        status.error = str(e)
+        logger.error(f"[Bootstrap] Failed to initialize CurriculumIntegration: {e}")
+
+    return status
+
+
+# =============================================================================
 # Critical Import Validation (Phase 8 - December 2025)
 # =============================================================================
 
@@ -169,693 +608,9 @@ def _validate_critical_imports() -> dict[str, Any]:
 
 
 # =============================================================================
-# Initialization Functions
+# Helper Functions
 # =============================================================================
 
-def _init_resource_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize ResourceMonitoringCoordinator."""
-    status = BootstrapCoordinatorStatus(name="resource_coordinator")
-    try:
-        from app.coordination.resource_monitoring_coordinator import wire_resource_events
-
-        coordinator = wire_resource_events()
-        status.initialized = True
-        status.subscribed = coordinator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] ResourceMonitoringCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] ResourceMonitoringCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize ResourceMonitoringCoordinator: {e}")
-
-    return status
-
-
-def _init_metrics_orchestrator() -> BootstrapCoordinatorStatus:
-    """Initialize MetricsAnalysisOrchestrator."""
-    status = BootstrapCoordinatorStatus(name="metrics_orchestrator")
-    try:
-        from app.coordination.metrics_analysis_orchestrator import wire_metrics_events
-
-        orchestrator = wire_metrics_events()
-        status.initialized = True
-        status.subscribed = orchestrator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] MetricsAnalysisOrchestrator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] MetricsAnalysisOrchestrator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize MetricsAnalysisOrchestrator: {e}")
-
-    return status
-
-
-def _init_optimization_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize OptimizationCoordinator."""
-    status = BootstrapCoordinatorStatus(name="optimization_coordinator")
-    try:
-        from app.coordination.optimization_coordinator import wire_optimization_events
-
-        coordinator = wire_optimization_events()
-        status.initialized = True
-        status.subscribed = coordinator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] OptimizationCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] OptimizationCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize OptimizationCoordinator: {e}")
-
-    return status
-
-
-def _init_cache_orchestrator() -> BootstrapCoordinatorStatus:
-    """Initialize CacheCoordinationOrchestrator."""
-    status = BootstrapCoordinatorStatus(name="cache_orchestrator")
-    try:
-        from app.coordination.cache_coordination_orchestrator import wire_cache_events
-
-        orchestrator = wire_cache_events()
-        status.initialized = True
-        status.subscribed = orchestrator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] CacheCoordinationOrchestrator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] CacheCoordinationOrchestrator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize CacheCoordinationOrchestrator: {e}")
-
-    return status
-
-
-def _init_model_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize ModelLifecycleCoordinator."""
-    status = BootstrapCoordinatorStatus(name="model_coordinator")
-    try:
-        from app.coordination.model_lifecycle_coordinator import wire_model_events
-
-        coordinator = wire_model_events()
-        status.initialized = True
-        status.subscribed = coordinator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] ModelLifecycleCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] ModelLifecycleCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize ModelLifecycleCoordinator: {e}")
-
-    return status
-
-
-def _init_health_manager() -> BootstrapCoordinatorStatus:
-    """Initialize UnifiedHealthManager (replaces ErrorRecoveryCoordinator + RecoveryManager)."""
-    status = BootstrapCoordinatorStatus(name="health_manager")
-    try:
-        from app.coordination.unified_health_manager import wire_health_events
-
-        manager = wire_health_events()
-        status.initialized = True
-        status.subscribed = manager._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] UnifiedHealthManager initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] UnifiedHealthManager not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize UnifiedHealthManager: {e}")
-
-    return status
-
-
-def _init_error_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize ErrorRecoveryCoordinator (DEPRECATED - use _init_health_manager)."""
-    # For backward compatibility, delegate to health manager
-    return _init_health_manager()
-
-
-def _init_leadership_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize LeadershipCoordinator."""
-    status = BootstrapCoordinatorStatus(name="leadership_coordinator")
-    try:
-        from app.coordination.leadership_coordinator import wire_leadership_events
-
-        coordinator = wire_leadership_events()
-        status.initialized = True
-        status.subscribed = coordinator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] LeadershipCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] LeadershipCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize LeadershipCoordinator: {e}")
-
-    return status
-
-
-def _init_selfplay_orchestrator() -> BootstrapCoordinatorStatus:
-    """Initialize SelfplayOrchestrator."""
-    status = BootstrapCoordinatorStatus(name="selfplay_orchestrator")
-    try:
-        from app.coordination.selfplay_orchestrator import wire_selfplay_events
-
-        orchestrator = wire_selfplay_events()
-        status.initialized = True
-        status.subscribed = orchestrator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] SelfplayOrchestrator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] SelfplayOrchestrator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize SelfplayOrchestrator: {e}")
-
-    return status
-
-
-def _init_selfplay_scheduler() -> BootstrapCoordinatorStatus:
-    """Initialize SelfplayScheduler and wire its event subscriptions.
-
-    December 2025: Ensures SelfplayScheduler receives feedback events:
-    - SELFPLAY_COMPLETE: Updates config completion counts
-    - TRAINING_COMPLETE: Adjusts priority based on training outcomes
-    - ELO_VELOCITY_CHANGED: Modifies allocation based on momentum
-    - QUALITY_DEGRADED: Triggers exploration boost
-    - NODE_UNHEALTHY/NODE_RECOVERED: Adjusts cluster capacity
-    """
-    status = BootstrapCoordinatorStatus(name="selfplay_scheduler")
-    try:
-        from app.coordination.selfplay_scheduler import get_selfplay_scheduler
-
-        scheduler = get_selfplay_scheduler()
-        # subscribe_to_events() is called in get_selfplay_scheduler()
-        # but we verify the subscription state here
-        status.initialized = scheduler is not None
-        status.subscribed = getattr(scheduler, '_subscribed', False)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] SelfplayScheduler initialized and subscribed to events")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] SelfplayScheduler not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize SelfplayScheduler: {e}")
-
-    return status
-
-
-def _init_pipeline_orchestrator(
-    auto_trigger: bool = False,
-    training_epochs: int | None = None,
-    training_batch_size: int | None = None,
-    training_model_version: str | None = None,
-) -> BootstrapCoordinatorStatus:
-    """Initialize DataPipelineOrchestrator."""
-    status = BootstrapCoordinatorStatus(name="pipeline_orchestrator")
-    try:
-        from app.coordination.data_pipeline_orchestrator import wire_pipeline_events
-
-        orchestrator = wire_pipeline_events(
-            auto_trigger=auto_trigger,
-            training_epochs=training_epochs,
-            training_batch_size=training_batch_size,
-            training_model_version=training_model_version,
-        )
-        status.initialized = True
-        status.subscribed = orchestrator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] DataPipelineOrchestrator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] DataPipelineOrchestrator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize DataPipelineOrchestrator: {e}")
-
-    return status
-
-
-def _init_task_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize TaskLifecycleCoordinator."""
-    status = BootstrapCoordinatorStatus(name="task_coordinator")
-    try:
-        from app.coordination.task_lifecycle_coordinator import wire_task_events
-
-        coordinator = wire_task_events()
-        status.initialized = True
-        status.subscribed = coordinator._subscribed
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] TaskLifecycleCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] TaskLifecycleCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize TaskLifecycleCoordinator: {e}")
-
-    return status
-
-
-def _init_sync_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize SyncCoordinator (SyncScheduler) and SyncRouter."""
-    status = BootstrapCoordinatorStatus(name="sync_coordinator")
-    try:
-        from app.coordination.cluster.sync import wire_sync_events
-
-        coordinator = wire_sync_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] SyncCoordinator initialized")
-
-        # Dec 2025: Also wire SyncRouter to event system (P0 integration gap fix)
-        try:
-            from app.coordination.sync_router import get_sync_router
-
-            sync_router = get_sync_router()
-            sync_router.wire_to_event_router()
-            logger.info("[Bootstrap] SyncRouter wired to event router")
-        except ImportError:
-            logger.debug("[Bootstrap] SyncRouter not available")
-        except Exception as e:
-            logger.warning(f"[Bootstrap] Failed to wire SyncRouter: {e}")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] SyncCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize SyncCoordinator: {e}")
-
-    return status
-
-
-def _init_training_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize TrainingCoordinator."""
-    status = BootstrapCoordinatorStatus(name="training_coordinator")
-    try:
-        from app.coordination.training_coordinator import wire_training_events
-
-        coordinator = wire_training_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] TrainingCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] TrainingCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize TrainingCoordinator: {e}")
-
-    return status
-
-
-def _init_recovery_manager() -> BootstrapCoordinatorStatus:
-    """Initialize RecoveryManager (DEPRECATED - use _init_health_manager).
-
-    RecoveryManager functionality is now consolidated into UnifiedHealthManager.
-    This function exists for backward compatibility and returns a skip status.
-    """
-    status = BootstrapCoordinatorStatus(name="recovery_manager")
-    status.initialized = True
-    status.subscribed = True
-    status.initialized_at = datetime.now()
-    # Recovery functionality is handled by UnifiedHealthManager
-    logger.debug("[Bootstrap] RecoveryManager skipped - using UnifiedHealthManager")
-    return status
-
-
-def _init_transfer_verifier() -> BootstrapCoordinatorStatus:
-    """Initialize TransferVerifier."""
-    status = BootstrapCoordinatorStatus(name="transfer_verifier")
-    try:
-        from app.coordination.transfer_verification import wire_transfer_verifier_events
-
-        coordinator = wire_transfer_verifier_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] TransferVerifier initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] TransferVerifier not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize TransferVerifier: {e}")
-
-    return status
-
-
-def _init_ephemeral_guard() -> BootstrapCoordinatorStatus:
-    """Initialize EphemeralDataGuard."""
-    status = BootstrapCoordinatorStatus(name="ephemeral_guard")
-    try:
-        from app.coordination.ephemeral_data_guard import wire_ephemeral_guard_events
-
-        coordinator = wire_ephemeral_guard_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] EphemeralDataGuard initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] EphemeralDataGuard not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize EphemeralDataGuard: {e}")
-
-    return status
-
-
-def _init_queue_populator() -> BootstrapCoordinatorStatus:
-    """Initialize QueuePopulator."""
-    status = BootstrapCoordinatorStatus(name="queue_populator")
-    try:
-        from app.coordination.unified_queue_populator import wire_queue_populator_events
-
-        coordinator = wire_queue_populator_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] QueuePopulator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] QueuePopulator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize QueuePopulator: {e}")
-
-    return status
-
-
-def _init_multi_provider() -> BootstrapCoordinatorStatus:
-    """Initialize MultiProviderOrchestrator."""
-    status = BootstrapCoordinatorStatus(name="multi_provider")
-    try:
-        from app.coordination.multi_provider_orchestrator import wire_orchestrator_events
-
-        coordinator = wire_orchestrator_events()
-        status.initialized = True
-        status.subscribed = getattr(coordinator, "_subscribed", True)
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] MultiProviderOrchestrator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] MultiProviderOrchestrator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize MultiProviderOrchestrator: {e}")
-
-    return status
-
-
-def _init_job_scheduler() -> BootstrapCoordinatorStatus:
-    """Initialize JobScheduler host-dead migration wiring."""
-    status = BootstrapCoordinatorStatus(name="job_scheduler")
-    try:
-        from app.coordination.job_scheduler import wire_host_dead_to_job_migration
-
-        wire_host_dead_to_job_migration()
-        status.initialized = True
-        status.subscribed = True
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] JobScheduler host-dead migration wired")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] JobScheduler not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize JobScheduler: {e}")
-
-    return status
-
-
-def _init_global_task_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize global TaskCoordinator (separate from TaskLifecycleCoordinator)."""
-    status = BootstrapCoordinatorStatus(name="global_task_coordinator")
-    try:
-        from app.coordination.task_coordinator import wire_task_coordinator_events
-
-        _ = wire_task_coordinator_events()
-        status.initialized = True
-        status.subscribed = True  # wire function always subscribes
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] Global TaskCoordinator initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] Global TaskCoordinator not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize global TaskCoordinator: {e}")
-
-    return status
-
-
-def _init_auto_export_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize AutoExportDaemon (December 2025).
-
-    Automatically exports NPZ training data when game thresholds are met.
-    Subscribes to SELFPLAY_COMPLETE events.
-    """
-    status = BootstrapCoordinatorStatus(name="auto_export_daemon")
-    try:
-        from app.coordination.auto_export_daemon import get_auto_export_daemon
-
-        daemon = get_auto_export_daemon()
-        # Note: Daemon start is async, so we just get the singleton here
-        # The daemon will be started by DaemonManager
-        status.initialized = True
-        status.subscribed = True
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] AutoExportDaemon initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] AutoExportDaemon not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize AutoExportDaemon: {e}")
-
-    return status
-
-
-def _init_auto_evaluation_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize AutoEvaluationDaemon (December 2025).
-
-    Automatically triggers model evaluation after training completes.
-    Subscribes to TRAINING_COMPLETE events.
-
-    December 2025: Uses canonical EvaluationDaemon (via daemon_manager.py).
-    AutoEvaluationDaemon is deprecated - use EvaluationDaemon + AutoPromotionDaemon.
-    """
-    status = BootstrapCoordinatorStatus(name="evaluation_daemon")
-    try:
-        from app.coordination.evaluation_daemon import get_evaluation_daemon
-
-        daemon = get_evaluation_daemon()
-        status.initialized = True
-        status.subscribed = True
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] EvaluationDaemon initialized")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] EvaluationDaemon not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize EvaluationDaemon: {e}")
-
-    return status
-
-
-def _init_model_distribution_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize UnifiedDistributionDaemon (consolidated Dec 26, 2025).
-
-    Automatically distributes models AND NPZ files to cluster nodes.
-    Subscribes to MODEL_PROMOTED and DATA_SYNCED events.
-    Note: Just registers the daemon class; actual start happens via DaemonManager.
-    """
-    status = BootstrapCoordinatorStatus(name="model_distribution_daemon")
-    try:
-        from app.coordination.unified_distribution_daemon import (
-            UnifiedDistributionDaemon,
-        )
-
-        # Just import to verify availability - DaemonManager will start it
-        _ = UnifiedDistributionDaemon
-        status.initialized = True
-        status.subscribed = True  # Will subscribe when started by DaemonManager
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] UnifiedDistributionDaemon registered")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] UnifiedDistributionDaemon not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize UnifiedDistributionDaemon: {e}")
-
-    return status
-
-
-def _init_idle_resource_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize IdleResourceDaemon (December 2025).
-
-    Monitors idle GPUs and spawns selfplay jobs to maximize utilization.
-    Critical for cluster efficiency.
-    Note: Just registers the daemon class; actual start happens via DaemonManager.
-    """
-    status = BootstrapCoordinatorStatus(name="idle_resource_daemon")
-    try:
-        from app.coordination.idle_resource_daemon import IdleResourceDaemon
-
-        # Just import to verify availability - DaemonManager will start it
-        _ = IdleResourceDaemon
-        status.initialized = True
-        status.subscribed = True  # Will subscribe when started by DaemonManager
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] IdleResourceDaemon registered")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] IdleResourceDaemon not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize IdleResourceDaemon: {e}")
-
-    return status
-
-
-def _init_quality_monitor_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize QualityMonitorDaemon (December 2025).
-
-    Continuously monitors selfplay quality and emits warnings for low-quality data.
-    Critical for training data quality.
-    Note: Just registers the daemon class; actual start happens via DaemonManager.
-    """
-    status = BootstrapCoordinatorStatus(name="quality_monitor_daemon")
-    try:
-        from app.coordination.quality_monitor_daemon import QualityMonitorDaemon
-
-        # Just import to verify availability - DaemonManager will start it
-        _ = QualityMonitorDaemon
-        status.initialized = True
-        status.subscribed = True  # Will subscribe when started by DaemonManager
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] QualityMonitorDaemon registered")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] QualityMonitorDaemon not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize QualityMonitorDaemon: {e}")
-
-    return status
-
-
-def _init_orphan_detection_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize OrphanDetectionDaemon (December 2025).
-
-    Detects orphaned game databases not tracked in cluster manifest.
-    Ensures all training data is discoverable.
-    Note: Just registers the daemon class; actual start happens via DaemonManager.
-    """
-    status = BootstrapCoordinatorStatus(name="orphan_detection_daemon")
-    try:
-        from app.coordination.orphan_detection_daemon import OrphanDetectionDaemon
-
-        # Just import to verify availability - DaemonManager will start it
-        _ = OrphanDetectionDaemon
-        status.initialized = True
-        status.subscribed = True  # Will subscribe when started by DaemonManager
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] OrphanDetectionDaemon registered")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] OrphanDetectionDaemon not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize OrphanDetectionDaemon: {e}")
-
-    return status
-
-
-def _init_curriculum_integration() -> BootstrapCoordinatorStatus:
-    """Initialize CurriculumIntegration (December 2025).
-
-    Bridges all feedback loops (quality, evaluation, plateau detection) to curriculum.
-    Critical for self-improving training loop.
-    """
-    status = BootstrapCoordinatorStatus(name="curriculum_integration")
-    try:
-        from app.coordination.curriculum_integration import wire_all_feedback_loops
-
-        wire_all_feedback_loops()
-        status.initialized = True
-        status.subscribed = True
-        status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] CurriculumIntegration initialized")
-
-        # Dec 2025: Verify OpponentTrackerIntegration was wired
-        # This closes a critical feedback loop for weak opponent targeting
-        try:
-            from app.training.curriculum_feedback import get_curriculum_feedback
-            feedback = get_curriculum_feedback()
-            if hasattr(feedback, '_opponent_tracker') and feedback._opponent_tracker is not None:
-                logger.info("[Bootstrap] OpponentTrackerIntegration verified - wired to curriculum")
-            else:
-                # Attempt direct wiring as fallback
-                from app.training.curriculum_feedback import wire_opponent_tracker_to_curriculum
-                wire_opponent_tracker_to_curriculum()
-                if hasattr(feedback, '_opponent_tracker') and feedback._opponent_tracker is not None:
-                    logger.info("[Bootstrap] OpponentTrackerIntegration wired via fallback")
-                else:
-                    logger.warning("[Bootstrap] OpponentTrackerIntegration not available")
-        except (ImportError, AttributeError) as e:
-            logger.debug(f"[Bootstrap] OpponentTrackerIntegration verification skipped: {e}")
-
-    except ImportError as e:
-        status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] CurriculumIntegration not available: {e}")
-    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize CurriculumIntegration: {e}")
-
-    return status
 
 
 def _register_coordinators() -> bool:
@@ -1116,6 +871,165 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     except (AttributeError, TypeError, RuntimeError) as e:
         results["early_stop_to_curriculum"] = False
         logger.debug(f"[Bootstrap] Failed to wire early stop to curriculum: {e}")
+
+    # 8. Wire DAEMON_STARTED/DAEMON_STOPPED to DaemonManager for lifecycle tracking
+    # December 2025: These events were orphaned - emitted but never tracked
+    try:
+        from app.coordination.daemon_manager import get_daemon_manager
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        daemon_mgr = get_daemon_manager()
+        bus = get_event_bus()
+
+        async def on_daemon_started(event):
+            """Track daemon startup in metrics."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            daemon_name = payload.get("daemon_name", "unknown")
+            hostname = payload.get("hostname", "unknown")
+            logger.info(f"[Bootstrap] Daemon started: {daemon_name} on {hostname}")
+            # Update daemon manager internal tracking if available
+            if hasattr(daemon_mgr, "_track_daemon_started"):
+                daemon_mgr._track_daemon_started(daemon_name, hostname)
+
+        async def on_daemon_stopped(event):
+            """Track daemon shutdown in metrics."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            daemon_name = payload.get("daemon_name", "unknown")
+            hostname = payload.get("hostname", "unknown")
+            reason = payload.get("reason", "normal")
+            logger.info(f"[Bootstrap] Daemon stopped: {daemon_name} on {hostname} ({reason})")
+            # Update daemon manager internal tracking if available
+            if hasattr(daemon_mgr, "_track_daemon_stopped"):
+                daemon_mgr._track_daemon_stopped(daemon_name, hostname, reason)
+
+        bus.subscribe(DataEventType.DAEMON_STARTED, on_daemon_started)
+        bus.subscribe(DataEventType.DAEMON_STOPPED, on_daemon_stopped)
+        results["daemon_lifecycle_tracking"] = True
+        logger.debug("[Bootstrap] Wired DAEMON_STARTED/DAEMON_STOPPED -> DaemonManager")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["daemon_lifecycle_tracking"] = False
+        logger.debug(f"[Bootstrap] Failed to wire daemon lifecycle: {e}")
+
+    # 9. Wire MODEL_DISTRIBUTION_FAILED to alert/tracking system
+    # December 2025: Critical for handling distribution failures
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_model_distribution_failed(event):
+            """Handle model distribution failure - log alert for monitoring."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            model_path = payload.get("model_path", "unknown")
+            error = payload.get("error", "unknown")
+            failed_nodes = payload.get("failed_nodes", [])
+
+            logger.warning(
+                f"[Bootstrap] Model distribution failed for {model_path}: {error} "
+                f"(failed nodes: {failed_nodes})"
+            )
+
+            # Emit health alert for monitoring systems
+            try:
+                from app.coordination.event_router import RouterEvent, EventSource
+                alert_event = RouterEvent(
+                    event_type="HEALTH_ALERT",
+                    payload={
+                        "alert_type": "model_distribution_failed",
+                        "model_path": model_path,
+                        "error": error,
+                        "failed_nodes": failed_nodes,
+                        "severity": "warning",
+                    },
+                    source="coordination_bootstrap",
+                    origin=EventSource.ROUTER,
+                )
+                await bus.publish(alert_event)
+            except (AttributeError, TypeError, RuntimeError) as alert_err:
+                logger.debug(f"[Bootstrap] Could not emit alert: {alert_err}")
+
+        bus.subscribe(DataEventType.MODEL_DISTRIBUTION_FAILED, on_model_distribution_failed)
+        results["model_distribution_failed_handler"] = True
+        logger.debug("[Bootstrap] Wired MODEL_DISTRIBUTION_FAILED -> alert handler")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["model_distribution_failed_handler"] = False
+        logger.debug(f"[Bootstrap] Failed to wire model distribution failed: {e}")
+
+    # 10. Wire EVALUATION_STARTED to metrics tracking
+    # December 2025: Complements EVALUATION_COMPLETED for full lifecycle tracking
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_evaluation_started(event):
+            """Track evaluation start for metrics/dashboard."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            config = payload.get("config", "unknown")
+            model_id = payload.get("model_id", "unknown")
+            games_planned = payload.get("games_planned", 0)
+            logger.info(
+                f"[Bootstrap] Evaluation started: {model_id} for {config} "
+                f"({games_planned} games planned)"
+            )
+
+        bus.subscribe(DataEventType.EVALUATION_STARTED, on_evaluation_started)
+        results["evaluation_started_tracking"] = True
+        logger.debug("[Bootstrap] Wired EVALUATION_STARTED -> metrics tracking")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["evaluation_started_tracking"] = False
+        logger.debug(f"[Bootstrap] Failed to wire evaluation started: {e}")
+
+    # 11. Wire PROMOTION_REJECTED to curriculum weight increase
+    # December 2025: Similar to PROMOTION_FAILED but for models that didn't meet thresholds
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+        from app.training.curriculum_feedback import get_curriculum_feedback
+
+        bus = get_event_bus()
+
+        async def on_promotion_rejected(event):
+            """Handle promotion rejection - increase curriculum weight for the config.
+
+            When a model is rejected (didn't meet promotion thresholds), we increase
+            the curriculum weight for that config to generate more training data.
+            """
+            payload = event.payload if hasattr(event, "payload") else {}
+            config = payload.get("config", "")
+            model_id = payload.get("model_id", "unknown")
+            reason = payload.get("reason", "unknown")
+            elo_improvement = payload.get("elo_improvement", 0)
+
+            logger.info(
+                f"[Bootstrap] Promotion rejected: {model_id} for {config} "
+                f"(reason: {reason}, Elo improvement: {elo_improvement})"
+            )
+
+            # Increase curriculum weight if we have a valid config
+            if config:
+                try:
+                    curriculum = get_curriculum_feedback()
+                    if curriculum and hasattr(curriculum, "increase_weight"):
+                        # Smaller boost than PROMOTION_FAILED since rejection is expected
+                        boost_factor = 1.1  # 10% boost
+                        curriculum.increase_weight(config, boost_factor)
+                        logger.info(
+                            f"[Bootstrap] Boosted curriculum weight for {config} "
+                            f"by {boost_factor}x after promotion rejection"
+                        )
+                except (AttributeError, TypeError, RuntimeError) as curr_err:
+                    logger.debug(f"[Bootstrap] Could not boost curriculum: {curr_err}")
+
+        bus.subscribe(DataEventType.PROMOTION_REJECTED, on_promotion_rejected)
+        results["promotion_rejected_handler"] = True
+        logger.debug("[Bootstrap] Wired PROMOTION_REJECTED -> curriculum weight increase")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["promotion_rejected_handler"] = False
+        logger.debug(f"[Bootstrap] Failed to wire promotion rejected: {e}")
 
     wired = sum(1 for v in results.values() if v)
     total = len(results)
@@ -1386,61 +1300,82 @@ def bootstrap_coordination(
             f"Some coordination features will be unavailable."
         )
 
-    # Initialize in dependency order
-    # Foundational coordinators first (no dependencies), then dependents
-    init_order = [
+    # Initialize in dependency order using registry-based pattern
+    # Format: (name, enabled_flag) - uses COORDINATOR_REGISTRY
+    # Special cases have custom handlers below the loop
+    init_order: list[tuple[str, bool]] = [
         # Foundational layer (no dependencies)
-        ("task_coordinator", enable_task, _init_task_coordinator),
-        ("global_task_coordinator", enable_global_task, _init_global_task_coordinator),
-        ("resource_coordinator", enable_resources, _init_resource_coordinator),
-        ("cache_orchestrator", enable_cache, _init_cache_orchestrator),
+        ("task_coordinator", enable_task),
+        ("global_task_coordinator", enable_global_task),
+        ("resource_coordinator", enable_resources),
+        ("cache_orchestrator", enable_cache),
         # Infrastructure support layer - UnifiedHealthManager replaces error + recovery
-        ("health_manager", enable_health or enable_error, _init_health_manager),
-        ("model_coordinator", enable_model, _init_model_coordinator),
+        ("health_manager", enable_health or enable_error),
+        ("model_coordinator", enable_model),
         # Sync and training layer
-        ("sync_coordinator", enable_sync, _init_sync_coordinator),
-        ("training_coordinator", enable_training, _init_training_coordinator),
+        ("sync_coordinator", enable_sync),
+        ("training_coordinator", enable_training),
         # Data integrity layer
-        ("transfer_verifier", enable_transfer, _init_transfer_verifier),
-        ("ephemeral_guard", enable_ephemeral, _init_ephemeral_guard),
-        ("queue_populator", enable_queue, _init_queue_populator),
+        ("transfer_verifier", enable_transfer),
+        ("ephemeral_guard", enable_ephemeral),
+        ("queue_populator", enable_queue),
         # Selfplay layer (depends on task_lifecycle, resources)
-        ("selfplay_orchestrator", enable_selfplay, _init_selfplay_orchestrator),
-        ("selfplay_scheduler", enable_selfplay, _init_selfplay_scheduler),  # Dec 2025: Feedback loop
-        # Pipeline layer (depends on selfplay, cache)
-        ("pipeline_orchestrator", enable_pipeline, lambda: _init_pipeline_orchestrator(
-            pipeline_auto_trigger, training_epochs, training_batch_size, training_model_version
-        )),
+        ("selfplay_orchestrator", enable_selfplay),
+        ("selfplay_scheduler", enable_selfplay),
         # Multi-provider layer
-        ("multi_provider", enable_multi_provider, _init_multi_provider),
+        ("multi_provider", enable_multi_provider),
         # Job scheduler layer
-        ("job_scheduler", enable_job_scheduler, _init_job_scheduler),
+        ("job_scheduler", enable_job_scheduler),
         # Daemon layer (December 2025 - critical automation daemons)
-        ("auto_export_daemon", enable_auto_export, _init_auto_export_daemon),
-        ("auto_evaluation_daemon", enable_auto_evaluation, _init_auto_evaluation_daemon),
-        ("model_distribution_daemon", enable_model_distribution, _init_model_distribution_daemon),
-        ("idle_resource_daemon", enable_idle_resource, _init_idle_resource_daemon),
-        ("quality_monitor_daemon", enable_quality_monitor, _init_quality_monitor_daemon),
-        ("orphan_detection_daemon", enable_orphan_detection, _init_orphan_detection_daemon),
-        ("curriculum_integration", enable_curriculum_integration, _init_curriculum_integration),
+        ("auto_export_daemon", enable_auto_export),
+        ("evaluation_daemon", enable_auto_evaluation),  # Note: renamed from auto_evaluation_daemon
+        ("model_distribution_daemon", enable_model_distribution),
+        ("idle_resource_daemon", enable_idle_resource),
+        ("quality_monitor_daemon", enable_quality_monitor),
+        ("orphan_detection_daemon", enable_orphan_detection),
         # Metrics layer (depends on pipeline)
-        ("metrics_orchestrator", enable_metrics, _init_metrics_orchestrator),
+        ("metrics_orchestrator", enable_metrics),
         # Optimization layer (depends on metrics)
-        ("optimization_coordinator", enable_optimization, _init_optimization_coordinator),
+        ("optimization_coordinator", enable_optimization),
         # Leadership layer (coordinates all others)
-        ("leadership_coordinator", enable_leadership, _init_leadership_coordinator),
+        ("leadership_coordinator", enable_leadership),
     ]
 
-    for name, enabled, init_func in init_order:
+    # Initialize coordinators from registry
+    for name, enabled in init_order:
         if not enabled:
             logger.debug(f"[Bootstrap] Skipping {name} (disabled)")
             continue
 
-        status = init_func()
+        if name not in COORDINATOR_REGISTRY:
+            logger.warning(f"[Bootstrap] Unknown coordinator: {name}")
+            continue
+
+        spec = COORDINATOR_REGISTRY[name]
+        status = _init_coordinator_from_spec(spec)
         _state.coordinators[name] = status
 
         if status.error:
             _state.errors.append(f"{name}: {status.error}")
+
+    # Special case: pipeline_orchestrator (takes extra args)
+    if enable_pipeline:
+        status = _init_pipeline_orchestrator(
+            auto_trigger=pipeline_auto_trigger,
+            training_epochs=training_epochs,
+            training_batch_size=training_batch_size,
+            training_model_version=training_model_version,
+        )
+        _state.coordinators["pipeline_orchestrator"] = status
+        if status.error:
+            _state.errors.append(f"pipeline_orchestrator: {status.error}")
+
+    # Special case: curriculum_integration (has verification logic)
+    if enable_curriculum_integration:
+        status = _init_curriculum_integration_with_verification()
+        _state.coordinators["curriculum_integration"] = status
+        if status.error:
+            _state.errors.append(f"curriculum_integration: {status.error}")
 
     # Register with OrchestratorRegistry
     if register_with_registry:
@@ -1788,17 +1723,29 @@ def run_bootstrap_smoke_test() -> dict[str, Any]:
             error=str(e),
         ))
 
-    # 3. Check quality rollback watcher
+    # 3. Check quality rollback watcher class availability (structural check)
+    # Note: We verify the CLASS exists and has required methods. Singleton wiring
+    # happens later in bootstrap, so we can't check instantiation here.
     try:
-        from app.training.rollback_manager import get_quality_rollback_watcher
+        from app.training.rollback_manager import (
+            QualityRollbackWatcher,
+            wire_quality_to_rollback,
+        )
 
-        watcher = get_quality_rollback_watcher()
+        # Verify the class has required methods
+        has_subscribe = hasattr(QualityRollbackWatcher, "subscribe_to_quality_events")
+        has_handler = hasattr(QualityRollbackWatcher, "_on_low_quality")
+        has_wire_func = callable(wire_quality_to_rollback)
+        handlers_ready = has_subscribe and has_handler and has_wire_func
+
         checks.append(SmokeTestResult(
             name="quality_rollback_wired",
-            passed=watcher is not None,
+            passed=handlers_ready,
             details={
-                "has_watcher": watcher is not None,
-                "subscribed": getattr(watcher, "_subscribed", False) if watcher else False,
+                "has_class": True,
+                "has_subscribe_method": has_subscribe,
+                "has_handler_method": has_handler,
+                "has_wire_function": has_wire_func,
             },
         ))
     except ImportError:
@@ -1945,6 +1892,42 @@ def run_bootstrap_smoke_test() -> dict[str, Any]:
     except (AttributeError, TypeError, RuntimeError) as e:
         checks.append(SmokeTestResult(
             name="daemon_manager_available",
+            passed=False,
+            error=str(e),
+        ))
+
+    # 9. Check UnifiedHealthManager coordinator lifecycle handlers exist (Dec 2025)
+    # Note: We verify handlers EXIST (structural check). Subscription happens at runtime.
+    try:
+        from app.coordination.unified_health_manager import get_health_manager
+
+        health_mgr = get_health_manager()
+        # Verify the P0 lifecycle event handlers exist (added Dec 2025)
+        has_shutdown = hasattr(health_mgr, "_on_coordinator_shutdown")
+        has_heartbeat = hasattr(health_mgr, "_on_coordinator_heartbeat")
+        has_subscribe = hasattr(health_mgr, "subscribe_to_events")
+        handlers_ready = has_shutdown and has_heartbeat and has_subscribe
+        checks.append(SmokeTestResult(
+            name="health_manager_coordinator_lifecycle",
+            passed=handlers_ready,
+            details={
+                "has_shutdown_handler": has_shutdown,
+                "has_heartbeat_handler": has_heartbeat,
+                "has_subscribe_method": has_subscribe,
+            },
+            error=None if handlers_ready
+            else "Missing coordinator lifecycle handlers",
+        ))
+    except ImportError:
+        warnings.append("unified_health_manager not available")
+        checks.append(SmokeTestResult(
+            name="health_manager_coordinator_lifecycle",
+            passed=True,
+            error="Module not available",
+        ))
+    except (AttributeError, TypeError, RuntimeError) as e:
+        checks.append(SmokeTestResult(
+            name="health_manager_coordinator_lifecycle",
             passed=False,
             error=str(e),
         ))

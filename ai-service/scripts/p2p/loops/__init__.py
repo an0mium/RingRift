@@ -70,6 +70,7 @@ from .network_loops import (
     TailscaleRecoveryConfig,
     TailscaleRecoveryLoop,
 )
+from .manifest_collection_loop import ManifestCollectionLoop
 from .queue_populator_loop import QueuePopulatorLoop
 from .training_sync_loop import TrainingSyncLoop
 
@@ -105,4 +106,6 @@ __all__ = [
     "JobReaperLoop",
     # Training
     "TrainingSyncLoop",
+    # Manifest
+    "ManifestCollectionLoop",
 ]

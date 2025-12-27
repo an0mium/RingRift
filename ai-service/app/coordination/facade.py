@@ -488,8 +488,12 @@ class CoordinationFacade:
             return True  # No monitor, assume available
         return monitor.is_node_available(node_id)
 
-    def _get_task_coordinator(self):
-        """Lazy load task coordinator."""
+    def _get_task_coordinator(self) -> "Any | None":
+        """Lazy load task coordinator.
+
+        Returns:
+            TaskCoordinator instance or None if unavailable
+        """
         if self._task_coordinator is None:
             try:
                 from app.coordination.task_coordinator import get_task_coordinator
@@ -498,8 +502,12 @@ class CoordinationFacade:
                 logger.debug(f"Could not load task coordinator: {e}")
         return self._task_coordinator
 
-    def _get_training_coordinator(self):
-        """Lazy load training coordinator."""
+    def _get_training_coordinator(self) -> "Any | None":
+        """Lazy load training coordinator.
+
+        Returns:
+            TrainingCoordinator instance or None if unavailable
+        """
         if self._training_coordinator is None:
             try:
                 from app.coordination.training_coordinator import get_training_coordinator
@@ -508,12 +516,15 @@ class CoordinationFacade:
                 logger.debug(f"Could not load training coordinator: {e}")
         return self._training_coordinator
 
-    def _get_node_monitor(self):
+    def _get_node_monitor(self) -> "Any | None":
         """Lazy load node health monitor.
 
         December 2025: node_health_monitor is deprecated in favor of
         health_check_orchestrator, but this facade method is kept for
         backward compatibility with existing callers.
+
+        Returns:
+            HealthCheckOrchestrator instance or None if unavailable
         """
         if self._node_monitor is None:
             try:
@@ -524,8 +535,12 @@ class CoordinationFacade:
                 logger.debug(f"Could not load health orchestrator: {e}")
         return self._node_monitor
 
-    def _get_event_router(self):
-        """Lazy load event router."""
+    def _get_event_router(self) -> "Any | None":
+        """Lazy load event router.
+
+        Returns:
+            EventRouter instance or None if unavailable
+        """
         if self._event_router is None:
             try:
                 from app.coordination.event_router import get_event_router

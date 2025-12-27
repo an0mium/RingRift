@@ -523,6 +523,293 @@ class RingRiftEnv:
         return os.environ.get("RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K")
 
     # ==========================================================================
+    # P2P Protocol Settings (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def p2p_startup_grace_period(self) -> int:
+        """Grace period in seconds during P2P startup."""
+        return int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "120"))
+
+    @cached_property
+    def consensus_mode(self) -> str:
+        """Consensus protocol mode (bully, raft, hybrid)."""
+        return os.environ.get("RINGRIFT_CONSENSUS_MODE", "bully")
+
+    @cached_property
+    def membership_mode(self) -> str:
+        """Membership protocol mode (http, swim, hybrid)."""
+        return os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "http")
+
+    @cached_property
+    def raft_enabled(self) -> bool:
+        """Whether Raft consensus is enabled."""
+        return os.environ.get("RINGRIFT_RAFT_ENABLED", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def swim_enabled(self) -> bool:
+        """Whether SWIM membership is enabled."""
+        return os.environ.get("RINGRIFT_SWIM_ENABLED", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def extracted_loops(self) -> bool:
+        """Whether to use extracted loop managers (December 2025)."""
+        return os.environ.get("RINGRIFT_EXTRACTED_LOOPS", "true").lower() in ("1", "true", "yes")
+
+    # ==========================================================================
+    # Timeouts and Intervals (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def http_timeout(self) -> int:
+        """HTTP request timeout in seconds."""
+        return int(os.environ.get("RINGRIFT_HTTP_TIMEOUT", "30"))
+
+    @cached_property
+    def rsync_timeout(self) -> int:
+        """Rsync transfer timeout in seconds."""
+        return int(os.environ.get("RINGRIFT_RSYNC_TIMEOUT", "300"))
+
+    @cached_property
+    def heartbeat_interval(self) -> int:
+        """P2P heartbeat interval in seconds."""
+        return int(os.environ.get("RINGRIFT_HEARTBEAT_INTERVAL", "15"))
+
+    @cached_property
+    def heartbeat_timeout(self) -> int:
+        """P2P heartbeat timeout in seconds."""
+        return int(os.environ.get("RINGRIFT_HEARTBEAT_TIMEOUT", "60"))
+
+    @cached_property
+    def elo_sync_interval(self) -> int:
+        """Elo database sync interval in seconds."""
+        return int(os.environ.get("RINGRIFT_ELO_SYNC_INTERVAL", "300"))
+
+    @cached_property
+    def event_handler_timeout(self) -> int:
+        """Event handler timeout in seconds."""
+        return int(os.environ.get("RINGRIFT_EVENT_HANDLER_TIMEOUT", "30"))
+
+    @cached_property
+    def lock_timeout(self) -> int:
+        """Distributed lock timeout in seconds."""
+        return int(os.environ.get("RINGRIFT_LOCK_TIMEOUT", "60"))
+
+    @cached_property
+    def work_queue_db(self) -> Path | None:
+        """Work queue database path override."""
+        path = os.environ.get("RINGRIFT_WORK_QUEUE_DB")
+        return Path(path) if path else None
+
+    # ==========================================================================
+    # Circuit Breaker Settings (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def cb_failure_threshold(self) -> int:
+        """Circuit breaker failure threshold before opening."""
+        return int(os.environ.get("RINGRIFT_CB_FAILURE_THRESHOLD", "5"))
+
+    @cached_property
+    def cb_recovery_timeout(self) -> int:
+        """Circuit breaker recovery timeout in seconds."""
+        return int(os.environ.get("RINGRIFT_CB_RECOVERY_TIMEOUT", "60"))
+
+    @cached_property
+    def cb_half_open_max_calls(self) -> int:
+        """Circuit breaker half-open max test calls."""
+        return int(os.environ.get("RINGRIFT_CB_HALF_OPEN_MAX_CALLS", "3"))
+
+    # ==========================================================================
+    # Backpressure Settings (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def backpressure_gpu_threshold(self) -> float:
+        """GPU utilization threshold for backpressure."""
+        return float(os.environ.get("RINGRIFT_BACKPRESSURE_GPU_THRESHOLD", "90"))
+
+    @cached_property
+    def backpressure_memory_threshold(self) -> float:
+        """Memory utilization threshold for backpressure."""
+        return float(os.environ.get("RINGRIFT_BACKPRESSURE_MEMORY_THRESHOLD", "85"))
+
+    @cached_property
+    def backpressure_disk_threshold(self) -> float:
+        """Disk utilization threshold for backpressure."""
+        return float(os.environ.get("RINGRIFT_BACKPRESSURE_DISK_THRESHOLD", "90"))
+
+    # ==========================================================================
+    # Parity and Validation (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def allow_pending_gate(self) -> bool:
+        """Allow databases with pending parity gate status."""
+        return os.environ.get("RINGRIFT_ALLOW_PENDING_GATE", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def require_critical_imports(self) -> bool:
+        """Require all critical imports to succeed at startup."""
+        return os.environ.get("RINGRIFT_REQUIRE_CRITICAL_IMPORTS", "").lower() in ("1", "true", "yes")
+
+    # ==========================================================================
+    # Alerting (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def discord_webhook_url(self) -> str | None:
+        """Discord webhook URL for alerts."""
+        return os.environ.get("RINGRIFT_DISCORD_WEBHOOK_URL") or os.environ.get("RINGRIFT_DISCORD_WEBHOOK")
+
+    @cached_property
+    def slack_webhook_url(self) -> str | None:
+        """Slack webhook URL for alerts."""
+        return os.environ.get("RINGRIFT_SLACK_WEBHOOK_URL") or os.environ.get("RINGRIFT_SLACK_WEBHOOK")
+
+    # ==========================================================================
+    # P2P Network Settings (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def p2p_port(self) -> int:
+        """P2P orchestrator port (default 8770)."""
+        return int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
+
+    @cached_property
+    def p2p_seeds(self) -> list[str]:
+        """P2P seed nodes (comma-separated host:port)."""
+        seeds = os.environ.get("RINGRIFT_P2P_SEEDS", "")
+        return [s.strip() for s in seeds.split(",") if s.strip()]
+
+    @cached_property
+    def p2p_url(self) -> str | None:
+        """P2P orchestrator URL (for connecting to remote P2P)."""
+        return os.environ.get("RINGRIFT_P2P_URL")
+
+    @cached_property
+    def node_role(self) -> str:
+        """Node role (coordinator, training, selfplay, voter)."""
+        return os.environ.get("RINGRIFT_NODE_ROLE", "selfplay")
+
+    # ==========================================================================
+    # Neural Network / GPU Settings (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def disable_torch_compile(self) -> bool:
+        """Disable torch.compile() for debugging."""
+        return os.environ.get("RINGRIFT_DISABLE_TORCH_COMPILE", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def disable_neural_net(self) -> bool:
+        """Disable neural network loading entirely."""
+        return os.environ.get("RINGRIFT_DISABLE_NEURAL_NET", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def require_neural_net(self) -> bool:
+        """Fail if neural network cannot be loaded."""
+        return os.environ.get("RINGRIFT_REQUIRE_NEURAL_NET", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def force_cpu(self) -> bool:
+        """Force CPU-only mode even if GPU is available."""
+        return os.environ.get("RINGRIFT_FORCE_CPU", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def gpu_gumbel_disable(self) -> bool:
+        """Disable GPU Gumbel MCTS (use CPU version)."""
+        return os.environ.get("RINGRIFT_GPU_GUMBEL_DISABLE", "").lower() in ("1", "true", "yes")
+
+    # ==========================================================================
+    # Game Engine Optimization Flags (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def use_fast_territory(self) -> bool:
+        """Use fast territory scoring algorithm."""
+        return os.environ.get("RINGRIFT_USE_FAST_TERRITORY", "true").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def use_make_unmake(self) -> bool:
+        """Use make/unmake move optimization."""
+        return os.environ.get("RINGRIFT_USE_MAKE_UNMAKE", "true").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def fsm_validation_mode(self) -> str:
+        """FSM validation mode (strict, lenient, disabled)."""
+        return os.environ.get("RINGRIFT_FSM_VALIDATION_MODE", "strict")
+
+    @cached_property
+    def strict_no_move_invariant(self) -> bool:
+        """Enforce strict no-move invariant checking."""
+        return os.environ.get("RINGRIFT_STRICT_NO_MOVE_INVARIANT", "").lower() in ("1", "true", "yes")
+
+    # ==========================================================================
+    # Task and Process Control (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def disable_local_tasks(self) -> bool:
+        """Disable running tasks on coordinator node."""
+        return os.environ.get("RINGRIFT_DISABLE_LOCAL_TASKS", "").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def parallel_workers(self) -> int:
+        """Number of parallel workers for batch operations."""
+        return int(os.environ.get("RINGRIFT_PARALLEL_WORKERS", "4"))
+
+    @cached_property
+    def record_selfplay_games(self) -> bool:
+        """Record selfplay games to database."""
+        return os.environ.get("RINGRIFT_RECORD_SELFPLAY_GAMES", "true").lower() in ("1", "true", "yes")
+
+    @cached_property
+    def job_origin(self) -> str | None:
+        """Origin identifier for jobs (for tracking)."""
+        return os.environ.get("RINGRIFT_JOB_ORIGIN")
+
+    # ==========================================================================
+    # Staging and Deployment (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def staging_root(self) -> Path | None:
+        """Staging directory root for deployments."""
+        path = os.environ.get("RINGRIFT_STAGING_ROOT")
+        return Path(path) if path else None
+
+    @cached_property
+    def staging_ssh_host(self) -> str | None:
+        """Staging SSH host for deployments."""
+        return os.environ.get("RINGRIFT_STAGING_SSH_HOST")
+
+    @cached_property
+    def s3_bucket(self) -> str | None:
+        """S3 bucket for backups and model storage."""
+        return os.environ.get("RINGRIFT_S3_BUCKET")
+
+    @cached_property
+    def cluster_api(self) -> str | None:
+        """Cluster API endpoint URL."""
+        return os.environ.get("RINGRIFT_CLUSTER_API")
+
+    # ==========================================================================
+    # Project Root Paths (December 2025)
+    # ==========================================================================
+
+    @cached_property
+    def root_dir(self) -> Path | None:
+        """RingRift root directory (monorepo root)."""
+        path = os.environ.get("RINGRIFT_ROOT") or os.environ.get("RINGRIFT_DIR")
+        return Path(path) if path else None
+
+    @cached_property
+    def npx_path(self) -> str | None:
+        """Path to npx binary (for parity tests)."""
+        return os.environ.get("RINGRIFT_NPX_PATH")
+
+    # ==========================================================================
     # Helper Methods
     # ==========================================================================
 

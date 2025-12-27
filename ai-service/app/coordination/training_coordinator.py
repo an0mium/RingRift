@@ -208,6 +208,7 @@ class TrainingCoordinator:
         # Cluster health state (December 2025 - feedback loop integration)
         self._cluster_healthy = True
         self._cluster_capacity = 1.0  # 0.0-1.0, affects training decisions
+        self._subscribed = False  # Tracks event subscription state for smoke tests
         self._subscribe_to_cluster_events()
 
         # CoordinatorProtocol state (December 2025 - Phase 14)
@@ -396,8 +397,10 @@ class TrainingCoordinator:
             # Subscribe to data sync events (December 2025 - Phase 7.1.1 integration)
             bus.subscribe(DataEventType.DATA_SYNC_COMPLETED, self._on_data_sync_completed)
 
+            self._subscribed = True
             logger.info("[TrainingCoordinator] Subscribed to cluster health, regression, rollback, quality, and sync events")
         except Exception as e:
+            self._subscribed = False
             logger.warning(f"[TrainingCoordinator] Failed to subscribe to cluster events: {e}")
 
     def _on_cluster_healthy(self, event: Any) -> None:

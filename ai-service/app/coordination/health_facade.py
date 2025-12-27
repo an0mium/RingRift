@@ -192,10 +192,13 @@ def get_cluster_health_summary() -> dict[str, Any]:
 # Backward Compatibility (deprecated functions)
 # =============================================================================
 
-def get_node_health_monitor():
+def get_node_health_monitor() -> "HealthCheckOrchestrator":
     """DEPRECATED: Use get_health_orchestrator() instead.
 
     Returns the HealthCheckOrchestrator for backward compatibility.
+
+    Returns:
+        HealthCheckOrchestrator instance
     """
     warnings.warn(
         "get_node_health_monitor() is deprecated. Use get_health_orchestrator() instead.",
@@ -205,10 +208,13 @@ def get_node_health_monitor():
     return get_health_orchestrator()
 
 
-def get_system_health():
+def get_system_health() -> "UnifiedHealthManager":
     """DEPRECATED: Use get_health_manager() instead.
 
     Returns the UnifiedHealthManager for backward compatibility.
+
+    Returns:
+        UnifiedHealthManager instance
     """
     warnings.warn(
         "get_system_health() is deprecated. Use get_health_manager() instead.",

@@ -409,12 +409,13 @@ class DatabaseSyncManager(SyncManagerBase):
             with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
                 tmp_path = Path(tmp.name)
 
-            # Build rsync command
+            # Build rsync command (Dec 2025: use centralized timeout)
+            from app.config.thresholds import RSYNC_TIMEOUT
             ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
             rsync_cmd = [
                 "rsync",
                 "-avz",
-                "--timeout=30",
+                f"--timeout={RSYNC_TIMEOUT}",
                 "-e", ssh_cmd,
                 f"root@{host}:{remote_path}",
                 str(tmp_path),
@@ -486,12 +487,13 @@ class DatabaseSyncManager(SyncManagerBase):
                 logger.warning(f"[{self.db_type}] Local database not found: {self.db_path}")
                 return False
 
-            # Build rsync command
+            # Build rsync command (Dec 2025: use centralized timeout)
+            from app.config.thresholds import RSYNC_TIMEOUT
             ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
             rsync_cmd = [
                 "rsync",
                 "-avz",
-                "--timeout=30",
+                f"--timeout={RSYNC_TIMEOUT}",
                 "-e", ssh_cmd,
                 str(self.db_path),
                 f"root@{host}:{remote_path}",

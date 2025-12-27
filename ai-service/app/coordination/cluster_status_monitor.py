@@ -184,7 +184,24 @@ class ClusterMonitor:
             self.game_discovery = None
 
     def _load_hosts(self):
-        """Load hosts configuration from YAML."""
+        """Load hosts configuration from cluster_config helpers.
+
+        Updated Dec 2025 to use consolidated cluster_config helpers instead of
+        inline YAML parsing, while preserving backward compatibility.
+        """
+        # Try cluster_config helpers first (Dec 2025 consolidation)
+        try:
+            from app.config.cluster_config import load_cluster_config
+            config = load_cluster_config(self.hosts_config_path)
+            self._hosts = config.hosts_raw
+            logger.info(f"Loaded {len(self._hosts)} hosts via cluster_config")
+            return
+        except ImportError:
+            logger.debug("cluster_config not available, falling back to direct YAML")
+        except Exception as e:
+            logger.debug(f"cluster_config load failed, falling back: {e}")
+
+        # Fallback: direct YAML parsing for backward compatibility
         if not self.hosts_config_path or not self.hosts_config_path.exists():
             logger.warning(f"Hosts config not found: {self.hosts_config_path}")
             return

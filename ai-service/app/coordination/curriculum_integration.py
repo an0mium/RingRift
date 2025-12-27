@@ -28,6 +28,8 @@ import threading
 import time
 from typing import Any
 
+from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -351,6 +353,37 @@ class MomentumToCurriculumBridge:
         """Force immediate weight sync."""
         self._sync_weights()
         return self._last_weights
+
+    def health_check(self) -> HealthCheckResult:
+        """Perform health check for daemon manager integration.
+
+        Returns:
+            HealthCheckResult with current status
+        """
+        active_configs = sum(1 for w in self._last_weights.values() if w > 0.01)
+
+        if self._sync_thread and self._sync_thread.is_alive():
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"Sync active, {active_configs} configs with weight",
+                details={
+                    "running": self._running,
+                    "last_sync": self._last_sync_time,
+                    "active_configs": active_configs,
+                },
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.IDLE,
+            message=f"Sync idle, {active_configs} configs with weight",
+            details={
+                "running": self._running,
+                "last_sync": self._last_sync_time,
+                "active_configs": active_configs,
+            },
+        )
 
 
 # =============================================================================

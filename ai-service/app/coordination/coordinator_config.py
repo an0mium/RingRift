@@ -453,7 +453,10 @@ def get_exclusion_policy() -> DaemonExclusionConfig:
 
 
 def _load_exclusion_config() -> DaemonExclusionConfig:
-    """Load exclusion configuration from config files."""
+    """Load exclusion configuration from config files.
+
+    Updated Dec 2025 to use cluster_config helpers instead of inline YAML parsing.
+    """
     from pathlib import Path
 
     config = DaemonExclusionConfig()
@@ -462,7 +465,7 @@ def _load_exclusion_config() -> DaemonExclusionConfig:
     base_dir = Path(__file__).resolve().parents[2]  # ai-service root
     config_dir = base_dir / "config"
 
-    # Load from unified_loop.yaml
+    # Load from unified_loop.yaml (legacy config, may not exist)
     unified_config_path = config_dir / "unified_loop.yaml"
     if unified_config_path.exists():
         try:
@@ -483,29 +486,36 @@ def _load_exclusion_config() -> DaemonExclusionConfig:
         except Exception as e:
             logger.debug(f"Could not load unified_loop.yaml: {e}")
 
-    # Load from distributed_hosts.yaml
-    hosts_config_path = config_dir / "distributed_hosts.yaml"
-    if hosts_config_path.exists():
-        try:
-            import yaml
-            with open(hosts_config_path) as f:
-                data = yaml.safe_load(f) or {}
+    # Load from distributed_hosts.yaml via cluster_config helpers
+    # (Dec 2025: Replaced inline YAML parsing with consolidated helpers)
+    try:
+        from app.config.cluster_config import (
+            get_auto_sync_config,
+            get_cluster_nodes,
+            get_sync_routing,
+        )
 
-            # Find NFS nodes
-            for host in data.get("hosts", []):
-                if host.get("is_nfs", False):
-                    node_id = host.get("node_id") or host.get("name", "")
-                    if node_id:
-                        config.nfs_nodes.add(node_id)
+        # Get excluded hosts from auto_sync config
+        auto_sync_cfg = get_auto_sync_config()
+        for node in auto_sync_cfg.exclude_hosts:
+            config.excluded_nodes.add(node)
 
-                # Find retired nodes
-                if host.get("retired", False):
-                    node_id = host.get("node_id") or host.get("name", "")
-                    if node_id:
-                        config.retired_nodes.add(node_id)
+        # Get NFS nodes from allowed_external_storage
+        sync_routing = get_sync_routing()
+        for ext_storage in sync_routing.allowed_external_storage:
+            if ext_storage.host:
+                config.nfs_nodes.add(ext_storage.host)
 
-        except Exception as e:
-            logger.debug(f"Could not load distributed_hosts.yaml: {e}")
+        # Get retired/offline nodes (not active)
+        nodes = get_cluster_nodes()
+        for name, node in nodes.items():
+            if not node.is_active:
+                config.retired_nodes.add(name)
+
+    except ImportError:
+        logger.debug("cluster_config not available, skipping distributed_hosts.yaml")
+    except Exception as e:
+        logger.debug(f"Could not load distributed_hosts.yaml via cluster_config: {e}")
 
     return config
 

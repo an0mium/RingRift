@@ -47,8 +47,9 @@ auto_sync:
   # Dec 2025: Reduced from 60s to 15s for faster gossip propagation
   gossip_interval_seconds: 15
   skip_nfs_sync: true
-  # Dec 2025: Increased from 4 to 8 for better cluster utilization (31 nodes)
-  max_concurrent_syncs: 8
+  # Dec 2025: Increased to 12 for faster gossip propagation across 31-node cluster
+  # With 12 concurrent syncs, data reaches all nodes in ~3 rounds vs ~5 rounds with 8
+  max_concurrent_syncs: 12
   min_games_to_sync: 10
   bandwidth_limit_mbps: 100
   # Dec 2025: Removed mac-studio from exclude_hosts to enable coordinator backup
@@ -558,11 +559,11 @@ hosts:
     gpu: H100 SXM
     gpu_vram_gb: 80
     role: gpu_training_primary
-    status: pending_setup
+    status: retired  # Dec 27, 2025: Unreachable via ProxyJump, no public IP
     nebius_id: computeinstance-e00xsba9efvkpvk8wy
     region: eu-north1
     p2p_enabled: false
-    note: H100 80GB - requires ProxyJump through nebius-backbone-1 (no public IP)
+    note: H100 80GB - RETIRED Dec 27 2025 (internal IP only, ProxyJump fails)
 
   # Nebius H100 #3 - 500GB storage, H100 80GB
   # Provisioned Dec 26, 2025 to replace deleted nodes

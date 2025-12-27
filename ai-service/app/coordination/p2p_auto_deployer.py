@@ -305,12 +305,20 @@ class P2PAutoDeployer:
                 if host:
                     peers.append(f"http://{host}:{self.config.p2p_port}")
 
-        # Fallback to some known stable nodes
+        # Fallback: use cluster config to get voter IPs (December 2025 fix)
         if not peers:
-            peers = [
-                "http://89.169.112.47:8770",  # nebius-backbone-1
-                "http://46.62.147.150:8770",  # hetzner-cpu1
-            ]
+            try:
+                from app.config.cluster_config import get_p2p_voters, get_cluster_nodes
+                voters = get_p2p_voters()
+                nodes = get_cluster_nodes()
+                for voter in voters[:2]:  # Use first 2 voters as fallback
+                    if voter in nodes:
+                        node = nodes[voter]
+                        ip = node.best_ip or node.ssh_host
+                        if ip:
+                            peers.append(f"http://{ip}:{self.config.p2p_port}")
+            except (ImportError, OSError, ValueError) as e:
+                logger.warning(f"Could not load cluster config for P2P fallback: {e}")
 
         return ",".join(peers)
 

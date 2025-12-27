@@ -2180,8 +2180,17 @@ class P2POrchestrator(
         # December 2025: Subscribe to manager lifecycle events for coordination
         manager_events_ok = self._subscribe_to_manager_events()
 
+        # Dec 2025: Store subscription status for health checks via /status endpoint
+        self._event_subscription_status = {
+            "daemon_events": daemon_events_ok,
+            "feedback_signals": feedback_signals_ok,
+            "manager_events": manager_events_ok,
+            "all_healthy": daemon_events_ok and feedback_signals_ok and manager_events_ok,
+            "timestamp": time.time(),
+        }
+
         # Log subscription status for debugging integration issues
-        if daemon_events_ok and feedback_signals_ok and manager_events_ok:
+        if self._event_subscription_status["all_healthy"]:
             logger.info("[P2P] Event subscriptions: daemon=✓, feedback=✓, manager=✓")
         else:
             logger.warning(
@@ -7236,6 +7245,15 @@ class P2POrchestrator(
         # Phase 5: SWIM/Raft protocol status (Dec 26, 2025)
         swim_raft_status = self._get_swim_raft_status()
 
+        # Dec 2025: Get event subscription status for health monitoring
+        event_subscriptions = getattr(self, "_event_subscription_status", {
+            "daemon_events": False,
+            "feedback_signals": False,
+            "manager_events": False,
+            "all_healthy": False,
+            "timestamp": 0,
+        })
+
         return web.json_response({
             "node_id": self.node_id,
             "role": self.role.value,
@@ -7264,6 +7282,7 @@ class P2POrchestrator(
             "tournament_scheduling": tournament_scheduling,
             "data_dedup": data_dedup,
             "swim_raft": swim_raft_status,
+            "event_subscriptions": event_subscriptions,
         })
 
     async def handle_external_work(self, request: web.Request) -> web.Response:

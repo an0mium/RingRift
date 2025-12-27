@@ -722,6 +722,26 @@ class SelfplayOrchestrator:
                 reason="quality_feedback",
             )
 
+            # Emit QUALITY_FEEDBACK_ADJUSTED (Dec 2025 - closes feedback loop)
+            # This enables FeedbackLoopController to react to quality-based adjustments
+            adjustment_type = "boost" if multiplier > 1.0 else "reduce"
+            try:
+                from app.distributed.data_events import DataEventType
+                from app.coordination.event_router import get_event_router
+
+                router = get_event_router()
+                if router:
+                    router.publish(DataEventType.QUALITY_FEEDBACK_ADJUSTED.value, {
+                        "config_key": config_key,
+                        "quality_score": quality_score,
+                        "adjustment_type": adjustment_type,
+                        "budget_multiplier": multiplier,
+                        "old_multiplier": old_multiplier,
+                        "timestamp": time.time(),
+                    })
+            except Exception as e:
+                logger.debug(f"Failed to emit QUALITY_FEEDBACK_ADJUSTED: {e}")
+
     async def _on_idle_resource_detected(self, event) -> None:
         """Handle IDLE_RESOURCE_DETECTED - spawn selfplay on idle GPUs.
 

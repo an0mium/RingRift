@@ -2062,10 +2062,13 @@ def is_component_healthy(component: str) -> bool:
 # =============================================================================
 
 
-def get_error_coordinator():
+def get_error_coordinator() -> "UnifiedHealthManager":
     """DEPRECATED: Use get_health_manager() instead.
 
     Returns the UnifiedHealthManager for backward compatibility.
+
+    Returns:
+        UnifiedHealthManager instance
     """
     warnings.warn(
         "get_error_coordinator() is deprecated. Use get_health_manager() instead.",
@@ -2075,10 +2078,13 @@ def get_error_coordinator():
     return get_health_manager()
 
 
-def wire_error_events():
+def wire_error_events() -> "UnifiedHealthManager":
     """DEPRECATED: Use wire_health_events() instead.
 
     Returns the UnifiedHealthManager for backward compatibility.
+
+    Returns:
+        UnifiedHealthManager instance
     """
     warnings.warn(
         "wire_error_events() is deprecated. Use wire_health_events() instead.",
@@ -2088,10 +2094,13 @@ def wire_error_events():
     return wire_health_events()
 
 
-def get_recovery_manager():
+def get_recovery_manager() -> "UnifiedHealthManager":
     """DEPRECATED: Use get_health_manager() instead.
 
     Returns the UnifiedHealthManager for backward compatibility.
+
+    Returns:
+        UnifiedHealthManager instance
     """
     warnings.warn(
         "get_recovery_manager() is deprecated. Use get_health_manager() instead.",
@@ -2101,10 +2110,13 @@ def get_recovery_manager():
     return get_health_manager()
 
 
-def wire_recovery_events():
+def wire_recovery_events() -> "UnifiedHealthManager":
     """DEPRECATED: Use wire_health_events() instead.
 
     Returns the UnifiedHealthManager for backward compatibility.
+
+    Returns:
+        UnifiedHealthManager instance
     """
     warnings.warn(
         "wire_recovery_events() is deprecated. Use wire_health_events() instead.",
