@@ -74,8 +74,9 @@ def _safe_create_task(coro, context: str = "") -> asyncio.Task | None:
 
 
 # Event emission for selfplay feedback loops (Phase 21.2 - Dec 2025)
+# December 2025: Use canonical event_router imports
 try:
-    from app.distributed.data_events import emit_selfplay_target_updated
+    from app.coordination.event_router import emit_selfplay_target_updated
     HAS_SELFPLAY_EVENTS = True
 except ImportError:
     emit_selfplay_target_updated = None
@@ -388,8 +389,7 @@ class FeedbackLoopController:
         created by new selfplay processes would miss feedback events.
         """
         try:
-            from app.coordination.event_router import get_event_bus
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             if bus is None:
@@ -762,7 +762,7 @@ class FeedbackLoopController:
         """
         try:
             import asyncio
-            from app.distributed.data_events import emit_quality_check_requested
+            from app.coordination.event_router import emit_quality_check_requested
 
             logger.info(
                 f"[FeedbackLoopController] Triggering quality check for {config_key}: {reason}"

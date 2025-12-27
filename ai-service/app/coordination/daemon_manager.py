@@ -543,7 +543,7 @@ class DaemonManager:
             return
 
         try:
-            from app.distributed.data_events import emit_daemon_status_changed
+            from app.coordination.event_router import emit_daemon_status_changed
             hostname = socket.gethostname()
 
             # Fire and forget - don't block state transitions on event emission

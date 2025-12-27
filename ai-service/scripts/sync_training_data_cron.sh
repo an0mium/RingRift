@@ -36,7 +36,7 @@ for ssh_host in "$SYNC_PRIMARY_HOST" "$SYNC_FALLBACK_HOST"; do
   [ -z "$ssh_host" ] && continue
   if ssh -o ConnectTimeout=5 $ssh_host "test -f ~/ringrift/ai-service/data/games/jsonl_aggregated.db" 2>/dev/null; then
     echo "[$TIMESTAMP] Using host $ssh_host for sync" >> "$LOG_FILE"
-    rsync -avz --timeout=120 $ssh_host:~/ringrift/ai-service/data/games/jsonl_aggregated.db \
+    rsync -avz --checksum --timeout=120 $ssh_host:~/ringrift/ai-service/data/games/jsonl_aggregated.db \
       data/games/cluster_synced.db >> "$LOG_FILE" 2>&1
     sync_success=true
     break
@@ -55,7 +55,7 @@ ln -sf cluster_synced.db data/games/jsonl_aggregated.db
 mkdir -p data/selfplay/mcts_cluster
 for ssh_host in "$SYNC_PRIMARY_HOST" "$SYNC_FALLBACK_HOST"; do
   [ -z "$ssh_host" ] && continue
-  rsync -avz --timeout=60 $ssh_host:~/ringrift/ai-service/data/selfplay/mcts_*/games.jsonl \
+  rsync -avz --checksum --timeout=60 $ssh_host:~/ringrift/ai-service/data/selfplay/mcts_*/games.jsonl \
     data/selfplay/mcts_cluster/ >> "$LOG_FILE" 2>&1 && break || true
 done
 

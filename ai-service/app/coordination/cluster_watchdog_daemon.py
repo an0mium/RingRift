@@ -42,19 +42,12 @@ from app.core.async_context import safe_create_task
 
 logger = logging.getLogger(__name__)
 
-# Health event emission imports (December 2025 - Phase 21)
-try:
-    from app.distributed.data_events import (
-        emit_health_check_failed,
-        emit_health_check_passed,
-        emit_node_unhealthy,
-    )
-    HAS_HEALTH_EVENTS = True
-except ImportError:
-    HAS_HEALTH_EVENTS = False
-    emit_health_check_failed = None
-    emit_health_check_passed = None
-    emit_node_unhealthy = None
+# Health event emission (uses safe fallbacks internally)
+from app.coordination.event_emitters import (
+    emit_health_check_failed,
+    emit_health_check_passed,
+    emit_node_unhealthy,
+)
 
 
 # =============================================================================

@@ -1,4 +1,28 @@
-"""SystemHealthMonitorDaemon - Global system health monitoring with pipeline pause (December 2025).
+"""SystemHealthMonitorDaemon - Global system health monitoring with pipeline pause.
+
+.. deprecated:: December 2025
+    This module is deprecated. Use unified_health_manager.py instead:
+
+    from app.coordination.unified_health_manager import (
+        get_system_health_score,
+        get_system_health_level,
+        should_pause_pipeline,
+        SystemHealthLevel,
+        SystemHealthConfig,
+        SystemHealthScore,
+    )
+
+MIGRATION GUIDE:
+    Old (deprecated):
+        from app.coordination.system_health_monitor import get_system_health, is_pipeline_paused
+        monitor = get_system_health()
+        score = monitor.get_health_score()
+        paused = is_pipeline_paused()
+
+    New (recommended):
+        from app.coordination.unified_health_manager import get_system_health_score, should_pause_pipeline
+        score = get_system_health_score()
+        paused = should_pause_pipeline()
 
 This module provides cluster-wide health aggregation and automatic pipeline pause
 when critical failures occur. It wraps UnifiedHealthManager and adds:
@@ -20,7 +44,7 @@ Pipeline Pause Triggers (any one triggers pause):
 - Critical circuits broken (training, evaluation, promotion)
 - >10 unrecovered errors in 5 minutes
 
-Usage:
+Usage (DEPRECATED - see migration guide above):
     from app.coordination.system_health_monitor import (
         SystemHealthMonitorDaemon,
         get_system_health,
@@ -45,9 +69,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+# Emit deprecation warning on import
+warnings.warn(
+    "system_health_monitor is deprecated. Use unified_health_manager instead:\n"
+    "  from app.coordination.unified_health_manager import get_system_health_score, should_pause_pipeline",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

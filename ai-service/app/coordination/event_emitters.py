@@ -2143,6 +2143,263 @@ async def emit_training_triggered(
         return False
 
 
+# =============================================================================
+# Cluster Health Events (December 2025)
+# =============================================================================
+# These emitters consolidate the try/except boilerplate from:
+# - cluster_watchdog_daemon.py
+# - unified_node_health_daemon.py
+# - node_recovery_daemon.py
+# - unified_health_manager.py
+
+
+async def emit_node_unhealthy(
+    node_id: str,
+    reason: str,
+    *,
+    node_ip: str = "",
+    gpu_utilization: float | None = None,
+    disk_used_percent: float | None = None,
+    consecutive_failures: int = 0,
+    source: str = "",
+) -> bool:
+    """Emit NODE_UNHEALTHY event when a node is detected as unhealthy.
+
+    Args:
+        node_id: Identifier for the node
+        reason: Why the node is unhealthy
+        node_ip: Node IP address
+        gpu_utilization: GPU utilization percentage (0-100)
+        disk_used_percent: Disk usage percentage (0-100)
+        consecutive_failures: Number of consecutive health check failures
+        source: Component emitting this event
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.NODE_UNHEALTHY,
+            payload={
+                "node_id": node_id,
+                "reason": reason,
+                "node_ip": node_ip,
+                "gpu_utilization": gpu_utilization,
+                "disk_used_percent": disk_used_percent,
+                "consecutive_failures": consecutive_failures,
+                "timestamp": _get_timestamp(),
+            },
+            source=source or "event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.warning(f"Emitted node_unhealthy for {node_id}: {reason}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit node_unhealthy event: {e}")
+        return False
+
+
+async def emit_health_check_passed(
+    node_id: str,
+    *,
+    node_ip: str = "",
+    check_type: str = "general",
+    latency_ms: float | None = None,
+    source: str = "",
+) -> bool:
+    """Emit HEALTH_CHECK_PASSED event after successful health check.
+
+    Args:
+        node_id: Identifier for the node
+        node_ip: Node IP address
+        check_type: Type of health check (ssh, p2p, gpu, general)
+        latency_ms: Health check latency in milliseconds
+        source: Component emitting this event
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.HEALTH_CHECK_PASSED,
+            payload={
+                "node_id": node_id,
+                "node_ip": node_ip,
+                "check_type": check_type,
+                "latency_ms": latency_ms,
+                "timestamp": _get_timestamp(),
+            },
+            source=source or "event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.debug(f"Emitted health_check_passed for {node_id}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit health_check_passed event: {e}")
+        return False
+
+
+async def emit_health_check_failed(
+    node_id: str,
+    reason: str,
+    *,
+    node_ip: str = "",
+    check_type: str = "general",
+    error: str = "",
+    source: str = "",
+) -> bool:
+    """Emit HEALTH_CHECK_FAILED event after failed health check.
+
+    Args:
+        node_id: Identifier for the node
+        reason: Why the health check failed
+        node_ip: Node IP address
+        check_type: Type of health check (ssh, p2p, gpu, general)
+        error: Error message if any
+        source: Component emitting this event
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.HEALTH_CHECK_FAILED,
+            payload={
+                "node_id": node_id,
+                "reason": reason,
+                "node_ip": node_ip,
+                "check_type": check_type,
+                "error": error,
+                "timestamp": _get_timestamp(),
+            },
+            source=source or "event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.warning(f"Emitted health_check_failed for {node_id}: {reason}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit health_check_failed event: {e}")
+        return False
+
+
+async def emit_p2p_cluster_healthy(
+    healthy_nodes: int,
+    node_count: int,
+    *,
+    source: str = "",
+) -> bool:
+    """Emit P2P_CLUSTER_HEALTHY event when cluster becomes healthy.
+
+    Args:
+        healthy_nodes: Number of healthy nodes
+        node_count: Total node count
+        source: Component emitting this event
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.P2P_CLUSTER_HEALTHY,
+            payload={
+                "healthy": True,
+                "healthy_nodes": healthy_nodes,
+                "node_count": node_count,
+                "timestamp": _get_timestamp(),
+            },
+            source=source or "event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.info(f"Emitted p2p_cluster_healthy: {healthy_nodes}/{node_count} nodes")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit p2p_cluster_healthy event: {e}")
+        return False
+
+
+async def emit_p2p_cluster_unhealthy(
+    healthy_nodes: int,
+    node_count: int,
+    *,
+    alerts: list[str] | None = None,
+    source: str = "",
+) -> bool:
+    """Emit P2P_CLUSTER_UNHEALTHY event when cluster becomes unhealthy.
+
+    Args:
+        healthy_nodes: Number of healthy nodes
+        node_count: Total node count
+        alerts: List of alert messages
+        source: Component emitting this event
+
+    Returns:
+        True if emitted successfully
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        event = DataEvent(
+            event_type=DataEventType.P2P_CLUSTER_UNHEALTHY,
+            payload={
+                "healthy": False,
+                "healthy_nodes": healthy_nodes,
+                "node_count": node_count,
+                "alerts": alerts or [],
+                "timestamp": _get_timestamp(),
+            },
+            source=source or "event_emitters",
+        )
+
+        await bus.publish(event)
+        logger.warning(f"Emitted p2p_cluster_unhealthy: {healthy_nodes}/{node_count} nodes")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit p2p_cluster_unhealthy event: {e}")
+        return False
+
+
 __all__ = [
     # Backpressure events (December 2025)
     "emit_backpressure_activated",
@@ -2168,6 +2425,12 @@ __all__ = [
     # New games events (December 2025)
     "emit_new_games",
     "emit_node_recovered",
+    "emit_node_unhealthy",
+    # Cluster health events (December 2025)
+    "emit_health_check_passed",
+    "emit_health_check_failed",
+    "emit_p2p_cluster_healthy",
+    "emit_p2p_cluster_unhealthy",
     # Optimization events (December 2025)
     "emit_optimization_triggered",
     # Metrics events (December 2025)

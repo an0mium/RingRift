@@ -238,20 +238,20 @@ do_rsync_sync() {
 
     local synced_any=false
 
-    # Try standard path first
-    if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_path/data/games/"*.db "$dest/" 2>/dev/null; then
+    # Try standard path first (--checksum: December 2025 - resilient sync)
+    if rsync -avz --checksum --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_path/data/games/"*.db "$dest/" 2>/dev/null; then
         synced_any=true
     fi
-    if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_path/data/games/"*.jsonl "$dest/" 2>/dev/null; then
+    if rsync -avz --checksum --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_path/data/games/"*.jsonl "$dest/" 2>/dev/null; then
         synced_any=true
     fi
 
     # For Vast.ai instances, also try RAM storage at /dev/shm
     if [[ "$ssh_user" == "root" ]]; then
-        if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:/dev/shm/games/"*.db "$dest/" 2>/dev/null; then
+        if rsync -avz --checksum --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:/dev/shm/games/"*.db "$dest/" 2>/dev/null; then
             synced_any=true
         fi
-        if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:/dev/shm/games/"*.jsonl "$dest/" 2>/dev/null; then
+        if rsync -avz --checksum --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:/dev/shm/games/"*.jsonl "$dest/" 2>/dev/null; then
             synced_any=true
         fi
     fi
@@ -261,10 +261,10 @@ do_rsync_sync() {
         local daemon_dest="$dest/daemon"
         mkdir -p "$daemon_dest"
 
-        # Sync all daemon_* directories
+        # Sync all daemon_* directories (--checksum: December 2025 - resilient sync)
         for daemon_dir in square8_2p square8_3p square8_4p square19_2p square19_3p square19_4p hexagonal_2p hexagonal_3p hexagonal_4p; do
             local remote_daemon="$remote_path/data/selfplay/daemon_${daemon_dir}"
-            if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_daemon/*.jsonl" "$daemon_dest/${daemon_dir}/" 2>/dev/null; then
+            if rsync -avz --checksum --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_daemon/*.jsonl" "$daemon_dest/${daemon_dir}/" 2>/dev/null; then
                 synced_any=true
             fi
         done
@@ -272,7 +272,7 @@ do_rsync_sync() {
         # Also sync asymmetric variants
         for daemon_dir in square8_2p_asymmetric square8_3p_asymmetric square8_4p_asymmetric square19_2p_asymmetric square19_3p_asymmetric square19_4p_asymmetric hexagonal_2p_asymmetric hexagonal_3p_asymmetric hexagonal_4p_asymmetric; do
             local remote_daemon="$remote_path/data/selfplay/daemon_${daemon_dir}"
-            if rsync -avz --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_daemon/*.jsonl" "$daemon_dest/${daemon_dir}/" 2>/dev/null; then
+            if rsync -avz --checksum --progress -e "ssh $ssh_opts" "$ssh_user@$ssh_host:$remote_daemon/*.jsonl" "$daemon_dest/${daemon_dir}/" 2>/dev/null; then
                 synced_any=true
             fi
         done

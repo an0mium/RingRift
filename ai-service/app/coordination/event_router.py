@@ -66,6 +66,19 @@ try:
         DataEventType,
         EventBus,
         get_event_bus as get_data_event_bus,
+        # Emit functions used by coordination modules (December 2025 consolidation)
+        emit_daemon_status_changed,
+        emit_data_event,
+        emit_elo_velocity_changed,
+        emit_exploration_boost,
+        emit_idle_resource_detected,
+        emit_promotion_candidate,
+        emit_quality_check_requested,
+        emit_quality_degraded,
+        emit_selfplay_target_updated,
+        emit_training_early_stopped,
+        emit_training_loss_anomaly,
+        emit_training_loss_trend,
     )
     HAS_DATA_EVENTS = True
 except ImportError:
@@ -73,6 +86,19 @@ except ImportError:
     DataEventType = None
     DataEvent = None
     EventBus = None
+    # Stubs for when data_events not available
+    emit_daemon_status_changed = None
+    emit_data_event = None
+    emit_elo_velocity_changed = None
+    emit_exploration_boost = None
+    emit_idle_resource_detected = None
+    emit_promotion_candidate = None
+    emit_quality_check_requested = None
+    emit_quality_degraded = None
+    emit_selfplay_target_updated = None
+    emit_training_early_stopped = None
+    emit_training_loss_anomaly = None
+    emit_training_loss_trend = None
 
 try:
     from app.coordination.stage_events import (
@@ -952,6 +978,19 @@ __all__ = [
     "DataEventType",
     "EventBus",
     "get_event_bus",
+    # Emit functions re-exported from data_events (December 2025 consolidation)
+    "emit_daemon_status_changed",
+    "emit_data_event",
+    "emit_elo_velocity_changed",
+    "emit_exploration_boost",
+    "emit_idle_resource_detected",
+    "emit_promotion_candidate",
+    "emit_quality_check_requested",
+    "emit_quality_degraded",
+    "emit_selfplay_target_updated",
+    "emit_training_early_stopped",
+    "emit_training_loss_anomaly",
+    "emit_training_loss_trend",
     # Re-exports from stage_events for migration
     "StageEvent",
     "StageCompletionResult",

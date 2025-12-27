@@ -366,7 +366,7 @@ done
    ssh gpu-primary 'cd ~/ringrift/ai-service && \
      PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py \
        --node-id gpu-node-1 --port 8770 \
-       --ringrift-path ~/ringrift/ai-service > /tmp/p2p_orchestrator.log 2>&1 &'
+       --ringrift-path ~/ringrift > /tmp/p2p_orchestrator.log 2>&1 &'
 
    # Or use vast_lifecycle for automated worker management
    ssh gpu-primary 'cd ~/ringrift/ai-service && \

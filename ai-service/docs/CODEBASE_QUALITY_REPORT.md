@@ -276,18 +276,18 @@ Notable TODOs:
 
 ```
 app/logs/README.md                - MISSING
-scripts/cluster/README.md         - MISSING
-scripts/monitor/README.md         - MISSING
-scripts/hooks/README.md           - MISSING
+scripts/cluster/README.md         - ✅ Created (Dec 26)
+scripts/monitor/README.md         - ✅ Created (Dec 26)
+scripts/hooks/README.md           - ✅ Created (Dec 26)
 scripts/unified_loop/README.md    - MISSING
-scripts/p2p/README.md             - MISSING
-scripts/automation/README.md      - MISSING
-scripts/dashboard_assets/README.md - MISSING
-docs/archive/README.md            - MISSING
-docs/plans/README.md              - MISSING
-docs/planning/README.md           - MISSING
-docs/ai/README.md                 - MISSING
-docs/issues/README.md             - MISSING
+scripts/p2p/README.md             - ✅ Already exists
+scripts/automation/README.md      - ✅ Created (Dec 26)
+scripts/dashboard_assets/README.md - ✅ Created (Dec 26)
+docs/archive/README.md            - ✅ Created (Dec 26)
+docs/plans/README.md              - ✅ Created (Dec 26)
+docs/planning/README.md           - ✅ Created (Dec 26)
+docs/ai/README.md                 - ✅ Created (Dec 26)
+docs/issues/README.md             - (empty directory)
 ```
 
 ### CLAUDE.md Accuracy
