@@ -103,7 +103,9 @@ async def create_elo_sync() -> None:
 
         manager = EloSyncManager()
         await manager.initialize()
-        await manager.sync_loop()
+        # December 27, 2025: Fixed - was calling sync_loop() which doesn't exist
+        # The start() method from SyncManagerBase runs the sync loop
+        await manager.start()
     except ImportError as e:
         logger.error(f"EloSyncManager not available: {e}")
         raise
