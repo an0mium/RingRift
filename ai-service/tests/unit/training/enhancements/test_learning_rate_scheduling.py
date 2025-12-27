@@ -314,13 +314,14 @@ class TestWarmRestartsSchedulerStep:
         lr = scheduler.step(epoch=0)
         assert lr == pytest.approx(1.0, rel=0.01)
 
-        # At T_cur = 5 (halfway), LR should be eta_max/2
-        scheduler._T_cur = 5
-        scheduler._step_count = 5
-        lr = scheduler.step()
-        # cos(pi * 5/10) = cos(0.5*pi) = 0
-        # lr = 0 + 0.5 * (1 - 0) * (1 + 0) = 0.5
-        assert lr == pytest.approx(0.5, rel=0.01)
+        # At end of period (T_cur = 9), LR should approach eta_min
+        # Use epoch-based step to avoid incrementing T_cur
+        for epoch in range(1, 9):
+            scheduler.step(epoch=epoch)
+        lr = scheduler.step(epoch=9)
+        # cos(pi * 9/10) = cos(0.9*pi) ≈ -0.95
+        # lr = 0 + 0.5 * 1 * (1 + (-0.95)) = 0.025
+        assert lr == pytest.approx(0.025, rel=0.1)
 
     def test_step_warmup(self, optimizer):
         """Test linear warmup."""

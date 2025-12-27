@@ -71,10 +71,10 @@ Based on audits in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementar
    - 180° reversal and cyclic capture scenarios in FAQ tests (not listed here but referenced in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md)).
 
 6. **Landing on own marker and self‑elimination**
-   - Movement / capture that lands on a marker of your colour and immediately eliminates your top ring (`RR‑CANON‑R092`](RULES_CANONICAL_SPEC.md:418)).
+   - Movement / capture that lands on a marker of your colour and immediately eliminates your top ring (`RR‑CANON‑R092`](../../RULES_CANONICAL_SPEC.md)).
 
 7. **Structural stalemate and tiebreak ladder**
-   - Global stalemate, tie‑break by territory → eliminated rings (including rings in hand) → markers → last actor (`RR‑CANON‑R173`](RULES_CANONICAL_SPEC.md:619)).
+   - Global stalemate, tie‑break by territory → eliminated rings (including rings in hand) → markers → last actor (`RR‑CANON‑R173`](../../RULES_CANONICAL_SPEC.md)).
 
 8. **Last‑Player‑Standing (LPS) vs “just keep playing”**
    - Clarifying that LPS is a distinct rule; implementation currently treats it as a compromise (CCE‑006 in [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md)).

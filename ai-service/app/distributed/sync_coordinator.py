@@ -419,8 +419,10 @@ class SyncCoordinator:
         try:
             from app.distributed.hosts import load_remote_hosts
             hosts = list(load_remote_hosts().values())
-        except Exception as e:
-            return 0, 0, [f"failed to load hosts: {e}"]
+        except (ImportError, AttributeError) as e:
+            return 0, 0, [f"failed to import hosts module: {e}"]
+        except (OSError, ValueError, KeyError) as e:
+            return 0, 0, [f"failed to load hosts config: {e}"]
 
         hostname = socket.gethostname().lower()
         files_synced = 0
@@ -460,7 +462,7 @@ class SyncCoordinator:
                     )
                     errors.append(f"rsync verification failed for {host.name}, files quarantined")
                     continue
-            except Exception as e:
+            except (OSError, asyncio.TimeoutError, RuntimeError) as e:
                 errors.append(f"rsync error for {host.name}: {e}")
                 continue
 
@@ -484,8 +486,10 @@ class SyncCoordinator:
         try:
             from app.distributed.hosts import load_remote_hosts
             hosts = list(load_remote_hosts().values())
-        except Exception as e:
-            return 0, 0, [f"failed to load hosts: {e}"]
+        except (ImportError, AttributeError) as e:
+            return 0, 0, [f"failed to import hosts module: {e}"]
+        except (OSError, ValueError, KeyError) as e:
+            return 0, 0, [f"failed to load hosts config: {e}"]
 
         try:
             from app.config.unified_config import get_config

@@ -50,7 +50,8 @@ sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 # Configuration
 EXPERIMENTS_DB = AI_SERVICE_ROOT / "data" / "hyperparameter_experiments.db"
-ORCHESTRATOR_URL = os.environ.get("RINGRIFT_ORCHESTRATOR_URL", "http://localhost:8770")
+# Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
+ORCHESTRATOR_URL = os.environ.get("RINGRIFT_P2P_URL") or os.environ.get("RINGRIFT_ORCHESTRATOR_URL", "http://localhost:8770")
 
 # Hyperparameter experiment definitions
 EXPERIMENT_DEFINITIONS = {

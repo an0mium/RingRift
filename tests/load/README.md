@@ -130,7 +130,7 @@ npm run test:load:websocket-stress
 
 All k6 scenarios share a common login helper:
 
-- [`auth/helpers.js`](auth/helpers.js:1)
+- [`auth/helpers.js`](auth/helpers.js)
 
 This helper:
 
@@ -346,7 +346,7 @@ k6 run \
 
 **Purpose:** Exercise the canonical WebSocket gameplay path end to end:
 
-- Auth via `POST /api/auth/login` using the shared helper [`auth/helpers.js`](auth/helpers.js:1).
+- Auth via `POST /api/auth/login` using the shared helper [`auth/helpers.js`](auth/helpers.js).
 - Game creation via `POST /api/games` (human vs AI) using the same payload shape as the frontend.
 - WebSocket connect to `/socket.io` using the Socket.IO v4 / Engine.IO v4 framing model.
 - `join_game` followed by repeated `player_move_by_id` events over WebSockets.
@@ -369,7 +369,7 @@ k6 run \
   - `ws_decision_timeout_failed_total`
   - `ws_decision_timeout_latency_ms`
 
-This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) and follows the strategy described in [`LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md`](../../docs/testing/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md:1) and the transport decision ADR [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../../docs/architecture/PLAYER_MOVE_TRANSPORT_DECISION.md:1).
+This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-gameplay.js) and follows the strategy described in [`LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md`](../../docs/testing/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md) and the transport decision ADR [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../../docs/architecture/PLAYER_MOVE_TRANSPORT_DECISION.md).
 
 **Optional spectator/timeout simulation:**
 
@@ -387,7 +387,7 @@ This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-ga
   - Each VU plays a small number of human-vs-AI games to completion.
   - Intended as a quick sanity check that:
     - The canonical WebSocket move path (auth → game creation → WebSocket connect → `join_game` → `player_move_by_id`) is healthy.
-    - [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) is emitting the expected custom metrics.
+    - [`websocket-gameplay.js`](scenarios/websocket-gameplay.js) is emitting the expected custom metrics.
 
 - **Baseline mode (staging baselines, 10–25 games):**
   - Selected with `WS_GAMEPLAY_MODE=baseline`.
@@ -402,7 +402,7 @@ This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-ga
 
 - **Target-scale mode (~100 games / 300 players, perf/pre‑prod):**
   - Selected with `WS_GAMEPLAY_MODE=target`.
-  - Uses a VU shape aligned with [`target-scale.json`](config/../configs/target-scale.json:1) (≈300 concurrent VUs at peak).
+  - Uses a VU shape aligned with [`target-scale.json`](config/../configs/target-scale.json) (≈300 concurrent VUs at peak).
   - Intended for explicit target-scale validation of WebSocket gameplay without changing default smoke/baseline runs.
 
 **Environment Variables:**
@@ -410,7 +410,7 @@ This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-ga
 This scenario uses the same base variables as other WebSocket tests plus a few gameplay tunables:
 
 - `BASE_URL` – HTTP base URL for API calls (for example `http://localhost:3000` or `http://localhost:3001` depending on how you run dev / Docker).
-- `WS_URL` – WebSocket base URL used to derive the `/socket.io` endpoint. When omitted, [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) derives this from `BASE_URL` by swapping `http` → `ws` and `https` → `wss` (for example `ws://localhost:3000`).
+- `WS_URL` – WebSocket base URL used to derive the `/socket.io` endpoint. When omitted, [`websocket-gameplay.js`](scenarios/websocket-gameplay.js) derives this from `BASE_URL` by swapping `http` → `ws` and `https` → `wss` (for example `ws://localhost:3000`).
 - `WS_GAMEPLAY_MODE` – Explicit mode selector: one of `smoke`, `baseline`, `throughput`, or `target`. When not set, the scenario defaults to `smoke`, unless `ENABLE_WS_GAMEPLAY_THROUGHPUT` is truthy (in which case it falls back to `throughput` for legacy flows).
 - Optional tuning:
   - `GAME_MAX_MOVES` – Maximum moves per game before the scenario retires it (default `40`).
@@ -463,7 +463,7 @@ npx k6 run tests/load/scenarios/websocket-gameplay.js
 
 By default, only the smoke configuration is active; higher-intensity modes are enabled explicitly via `WS_GAMEPLAY_MODE` (preferred) or the legacy `ENABLE_WS_GAMEPLAY_THROUGHPUT` toggle.
 
-The concrete URLs and TLS configuration depend on your deployment topology (for example, whether WebSocket and HTTP traffic are served from the same origin). See [`DEPLOYMENT_REQUIREMENTS.md`](../../docs/planning/DEPLOYMENT_REQUIREMENTS.md:1) and the topology notes in [`TOPOLOGY_MODES.md`](../../docs/architecture/TOPOLOGY_MODES.md:1) for environment-specific details.
+The concrete URLs and TLS configuration depend on your deployment topology (for example, whether WebSocket and HTTP traffic are served from the same origin). See [`DEPLOYMENT_REQUIREMENTS.md`](../../docs/planning/DEPLOYMENT_REQUIREMENTS.md) and the topology notes in [`TOPOLOGY_MODES.md`](../../docs/architecture/TOPOLOGY_MODES.md) for environment-specific details.
 
 ## Configuration
 

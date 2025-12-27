@@ -1247,8 +1247,9 @@ class WebhookNotifier:
                 loop = asyncio.new_event_loop()
                 loop.run_until_complete(self._session.close())
                 loop.close()
-            except Exception:
-                pass  # Best effort
+            except (RuntimeError, OSError, asyncio.CancelledError) as e:
+                # Dec 2025: Narrowed from bare Exception; best effort cleanup
+                logger.debug(f"HTTP session close failed (best effort): {e}")
             self._session = None
 
     def _should_throttle(self, alert_key: str) -> bool:
@@ -2273,11 +2274,40 @@ class P2POrchestrator(
                 except Exception as e:
                     logger.debug(f"Error handling plateau detected event: {e}")
 
+            def handle_exploration_boost(event) -> None:
+                """Handle exploration boost events from training feedback.
+
+                P0.1 (Dec 2025): Added missing handler for EXPLORATION_BOOST events.
+                When training anomalies (loss spikes, stalls) are detected, this
+                signals that we should boost exploration in selfplay to generate
+                more diverse training data.
+                """
+                try:
+                    payload = event.payload if hasattr(event, "payload") else event
+                    config_key = payload.get("config_key", payload.get("config", "unknown"))
+                    boost_factor = payload.get("boost_factor", payload.get("boost", 1.0))
+                    reason = payload.get("reason", "training_anomaly")
+                    duration = payload.get("duration_seconds", 900)
+
+                    logger.info(
+                        f"Exploration boost for {config_key}: {boost_factor:.2f}x "
+                        f"(reason={reason}, duration={duration}s)"
+                    )
+
+                    # Forward to selfplay scheduler if available
+                    if hasattr(self, "selfplay_scheduler") and self.selfplay_scheduler:
+                        self.selfplay_scheduler.set_exploration_boost(
+                            config_key, boost_factor, duration
+                        )
+                except Exception as e:
+                    logger.debug(f"Error handling exploration boost event: {e}")
+
             # Subscribe to all feedback signals
             subscribe("QUALITY_DEGRADED", handle_quality_degraded)
             subscribe("ELO_VELOCITY_CHANGED", handle_elo_velocity_changed)
             subscribe("EVALUATION_COMPLETED", handle_evaluation_completed)
             subscribe("PLATEAU_DETECTED", handle_plateau_detected)
+            subscribe("EXPLORATION_BOOST", handle_exploration_boost)
 
             logger.info("Subscribed to training feedback signals")
             return True
@@ -2856,8 +2886,9 @@ class P2POrchestrator(
                 if voters:
                     self.voter_config_source = "config"
                     return voters
-        except Exception:
-            pass
+        except (OSError, yaml.YAMLError, ValueError, KeyError) as e:
+            # Dec 2025: Narrowed from bare Exception; config file may not exist
+            logger.debug(f"Failed to load voter config from file: {e}")
 
         self.voter_config_source = "none"
         return []
@@ -26529,8 +26560,9 @@ def main():
             try:
                 if hasattr(orchestrator, 'notifier') and orchestrator.notifier:
                     orchestrator.notifier.close_sync()
-            except Exception:
-                pass  # Best effort
+            except (RuntimeError, OSError, AttributeError) as e:
+                # Dec 2025: Narrowed from bare Exception; best effort cleanup
+                logger.debug(f"Notifier close failed (best effort): {e}")
 
 
 if __name__ == "__main__":

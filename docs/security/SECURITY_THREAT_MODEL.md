@@ -13,7 +13,7 @@
 This document summarizes the security threat model and hardening plan for RingRift. It aligns with:
 
 - [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md)
-- [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:1)
+- [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)
 - [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md)
 
 ---
@@ -82,7 +82,7 @@ flowchart LR
 
 ## 2. Threat surfaces, controls, and gaps
 
-This section focuses on concrete threat surfaces and maps each to existing controls and known gaps. It is consistent with the production-readiness analysis in [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md) and [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:18).
+This section focuses on concrete threat surfaces and maps each to existing controls and known gaps. It is consistent with the production-readiness analysis in [`FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md) and [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md).
 
 ### 2.1 Authentication & session management
 
@@ -97,7 +97,7 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 
 - Auth endpoints in [`auth`](../../src/server/routes/auth.ts) implement registration, login, refresh, logout, email verification, and password reset using bcrypt password hashing.
 - Redis-backed rate limiting and login abuse protection via [`rateLimiter`](../../src/server/middleware/rateLimiter.ts) and auth-specific limiters.
-- Account lockout logic and tests are in place to throttle repeated failed login attempts (see [`auth`](../../src/server/routes/auth.ts) and associated test suites referenced from [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:37)).
+- Account lockout logic and tests are in place to throttle repeated failed login attempts (see [`auth`](../../src/server/routes/auth.ts) and associated test suites referenced from [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)).
 - JWT secrets, token lifetimes, and env configuration are validated by [`config`](../../src/server/config.ts) and [`envFlags`](../../src/shared/utils/envFlags.ts), which reject placeholder secrets in production.
 - WebSocket authentication in [`WebSocketServer`](../../src/server/websocket/server.ts) validates JWTs and user status before allowing game joins.
 - Client-side token handling is centralized in [`AuthContext`](../../src/client/contexts/AuthContext.tsx).
@@ -230,7 +230,7 @@ The following items define a focused S-05 security backlog. Each item is intenti
 - **Goal:** Define and implement a clear lifecycle for access and refresh tokens, including rotation and revocation semantics that work consistently across HTTP and WebSocket flows.
 - **Scope:** Backend, frontend, tests, and docs (notably [`auth`](../../src/server/routes/auth.ts), [`AuthContext`](../../src/client/contexts/AuthContext.tsx), [`WebSocketServer`](../../src/server/websocket/server.ts), and [`config`](../../src/server/config.ts)).
 - **Risk level:** High – Directly affects resistance to account takeover and incident response readiness.
-- **Dependencies:** Builds on existing rate limiting and lockout logic documented in [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:37) and complements other auth/Z hardening tasks in the roadmap.
+- **Dependencies:** Builds on existing rate limiting and lockout logic documented in [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) and complements other auth/Z hardening tasks in the roadmap.
 
 Key directions:
 

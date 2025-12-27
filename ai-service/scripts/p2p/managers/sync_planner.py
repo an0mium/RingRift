@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Event emission helper - imported lazily to avoid circular imports
 _publish_sync: Callable[[str, dict], None] | None = None
+_DataEventType: type | None = None  # Lazy-loaded DataEventType enum
 
 
 def _get_event_emitter() -> Callable[[str, dict], None] | None:
@@ -49,6 +50,40 @@ def _get_event_emitter() -> Callable[[str, dict], None] | None:
             # Event system not available - running without coordination
             logger.debug("Event router not available, sync events will not be emitted")
     return _publish_sync
+
+
+def _get_event_type_value(event_name: str) -> str:
+    """Get the actual event type value from DataEventType enum.
+
+    Dec 2025: Fixes event name mismatch where SyncPlanner was emitting
+    "DATA_SYNC_COMPLETED" but subscribers expected "sync_completed" (the enum value).
+
+    Args:
+        event_name: Human-readable event name (e.g., "DATA_SYNC_COMPLETED")
+
+    Returns:
+        The enum value (e.g., "sync_completed") or original name if enum not available
+    """
+    global _DataEventType
+    if _DataEventType is None:
+        try:
+            from app.distributed.data_events import DataEventType
+            _DataEventType = DataEventType
+        except ImportError:
+            logger.debug("DataEventType not available, using raw event names")
+            return event_name
+
+    # Map human-readable names to enum members
+    mapping = {
+        "DATA_SYNC_STARTED": "DATA_SYNC_STARTED",
+        "DATA_SYNC_COMPLETED": "DATA_SYNC_COMPLETED",
+        "DATA_SYNC_FAILED": "DATA_SYNC_FAILED",
+    }
+    enum_name = mapping.get(event_name, event_name)
+    try:
+        return getattr(_DataEventType, enum_name).value
+    except AttributeError:
+        return event_name
 
 
 # Constants (match p2p/constants.py)
@@ -184,11 +219,16 @@ class SyncPlanner:
             **kwargs,
         }
 
+        # Dec 2025: Use correct event type value from DataEventType enum
+        # Fixes mismatch where we emitted "DATA_SYNC_COMPLETED" but subscribers
+        # expected "sync_completed" (the actual enum value)
+        actual_event_type = _get_event_type_value(event_type)
+
         try:
-            emitter(event_type, payload)
-            logger.debug(f"Emitted {event_type}")
+            emitter(actual_event_type, payload)
+            logger.debug(f"Emitted {actual_event_type} (from {event_type})")
         except Exception as e:
-            logger.debug(f"Failed to emit {event_type}: {e}")
+            logger.debug(f"Failed to emit {actual_event_type}: {e}")
 
     # ============================================
     # Local Manifest Collection

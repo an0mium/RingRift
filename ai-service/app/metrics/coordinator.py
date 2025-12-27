@@ -340,18 +340,17 @@ async def collect_all_coordinator_metrics() -> dict[str, Any]:
     except Exception as e:
         logger.debug(f"Could not collect BandwidthManager metrics: {e}")
 
-    # Try to get SyncScheduler stats (scheduling layer for cluster sync)
+    # Try to get SyncFacade stats (unified entry point for cluster sync)
     try:
-        from app.coordination.cluster.sync import SyncScheduler
-        sc = SyncScheduler.get_instance()
-        stats = await sc.get_stats()
-        metrics["coordinators"]["SyncScheduler"] = stats
-        update_coordinator_status("SyncScheduler", stats.get("status", "unknown"))
-        update_coordinator_uptime("SyncScheduler", stats.get("uptime_seconds", 0))
+        from app.coordination.sync_facade import SyncFacade
+        sf = SyncFacade.get_instance()
+        stats = sf.get_stats()  # Sync method, safe to call in async context
+        metrics["coordinators"]["SyncFacade"] = stats
+        update_coordinator_status("SyncFacade", stats.get("status", "unknown"))
+        update_coordinator_uptime("SyncFacade", stats.get("uptime_seconds", 0))
         update_sync_stats(stats)
-        SyncScheduler.reset_instance()  # Clean up singleton
     except Exception as e:
-        logger.debug(f"Could not collect SyncScheduler metrics: {e}")
+        logger.debug(f"Could not collect SyncFacade metrics: {e}")
 
     return metrics
 
@@ -403,14 +402,13 @@ def _collect_sync() -> dict[str, Any]:
         logger.debug(f"Could not collect BandwidthManager metrics (sync): {e}")
 
     try:
-        from app.coordination.cluster.sync import SyncScheduler
-        sc = SyncScheduler.get_instance()
-        stats = sc.get_stats_sync()
-        metrics["coordinators"]["SyncScheduler"] = stats
-        update_coordinator_status("SyncScheduler", stats.get("status", "unknown"))
+        from app.coordination.sync_facade import SyncFacade
+        sf = SyncFacade.get_instance()
+        stats = sf.get_stats()
+        metrics["coordinators"]["SyncFacade"] = stats
+        update_coordinator_status("SyncFacade", stats.get("status", "unknown"))
         update_sync_stats(stats)
-        SyncScheduler.reset_instance()
     except Exception as e:
-        logger.debug(f"Could not collect SyncScheduler metrics (sync): {e}")
+        logger.debug(f"Could not collect SyncFacade metrics (sync): {e}")
 
     return metrics

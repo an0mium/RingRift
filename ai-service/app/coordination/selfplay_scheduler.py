@@ -81,7 +81,10 @@ from app.config.thresholds import (
     is_ephemeral_node,
     get_gpu_weight,
 )
-from app.coordination.backpressure import get_backpressure_monitor
+from app.coordination.protocols import HealthCheckResult
+
+# Note: backpressure import moved to lazy loading in allocate_selfplay_batch()
+# to break circular dependency cycle (Dec 2025)
 
 logger = logging.getLogger(__name__)
 
@@ -826,6 +829,8 @@ class SelfplayScheduler:
         """
         # Check backpressure before allocating (Dec 2025)
         try:
+            # Lazy import to break circular dependency cycle
+            from app.coordination.backpressure import get_backpressure_monitor
             bp_monitor = get_backpressure_monitor()
             bp_signal = await bp_monitor.get_signal()
 
@@ -2188,6 +2193,42 @@ class SelfplayScheduler:
             }
             for p in sorted_configs[:n]
         ]
+
+    def health_check(self) -> HealthCheckResult:
+        """Check scheduler health.
+
+        Returns:
+            Health check result with scheduler status and metrics.
+        """
+        # Calculate games in allocation window
+        current_time = time.time()
+        games_in_window = sum(
+            count for ts, count in self._allocation_history
+            if current_time - ts < self._allocation_window_seconds
+        )
+
+        # Determine health status
+        stale_priority = current_time - self._last_priority_update > 300  # 5 min
+        healthy = self._subscribed and not stale_priority
+
+        message = "Running" if healthy else (
+            "Not subscribed to events" if not self._subscribed else
+            "Priority data stale (>5 min)"
+        )
+
+        return HealthCheckResult(
+            healthy=healthy,
+            message=message,
+            details={
+                "subscribed": self._subscribed,
+                "configs_tracked": len(self._config_priorities),
+                "nodes_tracked": len(self._node_capabilities),
+                "last_priority_update": self._last_priority_update,
+                "priority_age_seconds": current_time - self._last_priority_update,
+                "games_allocated_total": self._games_allocated_total,
+                "games_in_last_hour": games_in_window,
+            },
+        )
 
 
 # =============================================================================

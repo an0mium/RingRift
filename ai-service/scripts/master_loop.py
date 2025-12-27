@@ -716,12 +716,19 @@ class MasterLoopController:
         from app.coordination.daemon_manager import DaemonType
 
         minimal = [
-            # Sync + health baseline
+            # Core event infrastructure (must be first)
             DaemonType.EVENT_ROUTER,
+            # Health monitoring layer
             DaemonType.NODE_HEALTH_MONITOR,
             DaemonType.CLUSTER_MONITOR,
             DaemonType.SYSTEM_HEALTH_MONITOR,
             DaemonType.HEALTH_SERVER,
+            # Dec 2025 fix: DATA_PIPELINE and FEEDBACK_LOOP BEFORE sync daemons
+            # They subscribe to events that sync daemons emit (DATA_SYNC_COMPLETED, etc.)
+            # If sync starts first, events are lost before subscribers are ready
+            DaemonType.FEEDBACK_LOOP,  # Subscribes to: TRAINING_COMPLETED, EVALUATION_COMPLETED, etc.
+            DaemonType.DATA_PIPELINE,  # Subscribes to: DATA_SYNC_COMPLETED, SELFPLAY_COMPLETE, etc.
+            # Sync daemons (emit events that DATA_PIPELINE receives)
             DaemonType.AUTO_SYNC,
             DaemonType.CLUSTER_DATA_SYNC,
             DaemonType.ELO_SYNC,
@@ -729,8 +736,7 @@ class MasterLoopController:
 
         standard = minimal + [
             # Core automation (current default stack)
-            DaemonType.FEEDBACK_LOOP,
-            DaemonType.DATA_PIPELINE,
+            # Note: FEEDBACK_LOOP and DATA_PIPELINE moved to minimal for correct ordering
             DaemonType.MODEL_DISTRIBUTION,
             DaemonType.IDLE_RESOURCE,
             DaemonType.UTILIZATION_OPTIMIZER,

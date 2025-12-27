@@ -94,7 +94,8 @@ class RegistrySyncManager:
         self.registry_path = Path(registry_path)
         self.coordinator_host = coordinator_host
         self.sync_interval = sync_interval
-        self.p2p_url = p2p_url or os.environ.get("P2P_URL", "https://p2p.ringrift.ai")
+        # Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
+        self.p2p_url = p2p_url or os.environ.get("RINGRIFT_P2P_URL") or os.environ.get("P2P_URL", "http://localhost:8770")
 
         self.state = RegistrySyncState()
         self.nodes: dict[str, NodeInfo] = {}

@@ -945,3 +945,37 @@ class SelfplayScheduler:
             Dictionary with diversity metrics including computed statistics
         """
         return self.diversity_metrics.to_dict()
+
+    def on_training_complete(self, config_key: str) -> None:
+        """Handle training completion for a config.
+
+        Called by P2P orchestrator when TRAINING_COMPLETED event fires.
+        Refreshes selfplay priorities to potentially increase allocation
+        for the just-trained config (more data needed for next training cycle).
+
+        P0.1 (Dec 2025): Added to fix missing method referenced at
+        p2p_orchestrator.py:2338.
+
+        Args:
+            config_key: The config key (e.g., "hex8_2p") that completed training.
+        """
+        logger.info(
+            f"[SelfplayScheduler] Training completed for {config_key}, "
+            f"refreshing priorities"
+        )
+
+        # Boost selfplay rate for this config temporarily (just trained = needs more data)
+        try:
+            # Increase rate multiplier for 30 minutes after training
+            boost_duration = 1800  # 30 minutes
+            expiry = time.time() + boost_duration
+            if not hasattr(self, "_training_complete_boosts"):
+                self._training_complete_boosts: dict[str, float] = {}
+            self._training_complete_boosts[config_key] = expiry
+
+            logger.debug(
+                f"[SelfplayScheduler] Boosting {config_key} selfplay priority "
+                f"for {boost_duration}s after training completion"
+            )
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error boosting {config_key}: {e}")

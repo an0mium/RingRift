@@ -41,6 +41,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from app.coordination.protocols import HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -308,6 +310,12 @@ class FeedbackLoopController:
             # Closes feedback loop: quality assessment → training intensity/exploration adjustments
             if hasattr(DataEventType, 'QUALITY_FEEDBACK_ADJUSTED'):
                 bus.subscribe(DataEventType.QUALITY_FEEDBACK_ADJUSTED, self._on_quality_feedback_adjusted)
+                event_count += 1
+
+            # Dec 2025: Subscribe to CPU_PIPELINE_JOB_COMPLETED for Vast.ai CPU selfplay jobs
+            # Closes integration gap: CPU selfplay completions now trigger downstream pipeline
+            if hasattr(DataEventType, 'CPU_PIPELINE_JOB_COMPLETED'):
+                bus.subscribe(DataEventType.CPU_PIPELINE_JOB_COMPLETED, self._on_cpu_pipeline_job_completed)
                 event_count += 1
 
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
@@ -614,6 +622,56 @@ class FeedbackLoopController:
 
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling rate change: {e}")
+
+    def _on_cpu_pipeline_job_completed(self, event: Any) -> None:
+        """Handle CPU_PIPELINE_JOB_COMPLETED from Vast.ai CPU selfplay jobs.
+
+        December 2025: Closes integration gap - CPU selfplay completions now trigger
+        downstream pipeline actions (training readiness, quality assessment, etc.).
+
+        This event is emitted by VastCpuPipelineDaemon when CPU-based selfplay jobs
+        complete on Vast.ai nodes. We treat these like GPU selfplay completions.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            config_key = payload.get("config", "") or payload.get("config_key", "")
+            games_count = payload.get("games_count", 0) or payload.get("games_generated", 0)
+            db_path = payload.get("db_path", "")
+            node_id = payload.get("node_id", "")
+            job_id = payload.get("job_id", "")
+
+            if not config_key:
+                logger.debug("[FeedbackLoopController] CPU pipeline job missing config_key")
+                return
+
+            state = self._get_or_create_state(config_key)
+            state.last_selfplay_time = time.time()
+
+            logger.info(
+                f"[FeedbackLoopController] CPU pipeline job complete for {config_key}: "
+                f"{games_count} games from node={node_id}, job={job_id}"
+            )
+
+            # Assess data quality (same as GPU selfplay)
+            quality_score = self._assess_selfplay_quality(db_path, games_count)
+            state.last_selfplay_quality = quality_score
+
+            # Update training intensity based on quality
+            self._update_training_intensity(config_key, quality_score)
+
+            # Signal training readiness if quality is good
+            try:
+                from app.config.thresholds import MEDIUM_QUALITY_THRESHOLD
+                quality_threshold = MEDIUM_QUALITY_THRESHOLD
+            except ImportError:
+                quality_threshold = 0.6
+
+            if quality_score >= quality_threshold:
+                self._signal_training_ready(config_key, quality_score)
+
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+            logger.error(f"[FeedbackLoopController] Error handling CPU pipeline complete: {e}")
 
     def _on_database_created(self, event: Any) -> None:
         """Handle DATABASE_CREATED event (December 2025 - Phase 4A.3).
@@ -2287,6 +2345,40 @@ class FeedbackLoopController:
 
         if policy_accuracy >= self.policy_accuracy_threshold:
             logger.info(f"Manual training signal: {config_key} ready for evaluation")
+
+    def health_check(self) -> HealthCheckResult:
+        """Check controller health.
+
+        Returns:
+            Health check result with feedback loop status and metrics.
+        """
+        # Calculate active states
+        active_configs = sum(
+            1 for state in self._states.values()
+            if time.time() - state.last_training_time < 3600  # Active in last hour
+        )
+
+        # Determine health status
+        healthy = self._running and self._subscribed
+
+        message = "Running" if healthy else (
+            "Controller stopped" if not self._running else
+            "Not subscribed to events"
+        )
+
+        return HealthCheckResult(
+            healthy=healthy,
+            message=message,
+            details={
+                "running": self._running,
+                "subscribed": self._subscribed,
+                "configs_tracked": len(self._states),
+                "active_configs": active_configs,
+                "cluster_healthy": self._cluster_healthy,
+                "policy_accuracy_threshold": self.policy_accuracy_threshold,
+                "promotion_threshold": self.promotion_threshold,
+            },
+        )
 
 
 # =============================================================================

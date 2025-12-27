@@ -27,13 +27,13 @@ This audit examines SLO threshold definitions across all project configuration s
 
 ### 1.1 Authoritative SLOs from PROJECT_GOALS.md §4.1
 
-| Metric          | Target          | Measurement                               | Source Reference     |
-| --------------- | --------------- | ----------------------------------------- | -------------------- |
-| System uptime   | >99.9%          | Core gameplay surfaces availability       | PROJECT_GOALS.md:159 |
-| AI move latency | <1 second (p95) | Time from AI turn start to move broadcast | PROJECT_GOALS.md:160 |
-| UI frame rate   | <16ms updates   | Smooth 60fps rendering during gameplay    | PROJECT_GOALS.md:161 |
-| Move validation | <200ms (p95)    | Human move submission to broadcast        | PROJECT_GOALS.md:162 |
-| HTTP API        | <500ms (p95)    | Login, game creation, state fetch         | PROJECT_GOALS.md:163 |
+| Metric          | Target          | Measurement                               | Source Reference                           |
+| --------------- | --------------- | ----------------------------------------- | ------------------------------------------ |
+| System uptime   | >99.9%          | Core gameplay surfaces availability       | [PROJECT_GOALS.md](../../PROJECT_GOALS.md) |
+| AI move latency | <1 second (p95) | Time from AI turn start to move broadcast | [PROJECT_GOALS.md](../../PROJECT_GOALS.md) |
+| UI frame rate   | <16ms updates   | Smooth 60fps rendering during gameplay    | [PROJECT_GOALS.md](../../PROJECT_GOALS.md) |
+| Move validation | <200ms (p95)    | Human move submission to broadcast        | [PROJECT_GOALS.md](../../PROJECT_GOALS.md) |
+| HTTP API        | <500ms (p95)    | Login, game creation, state fetch         | [PROJECT_GOALS.md](../../PROJECT_GOALS.md) |
 
 ### 1.2 k6 Thresholds (thresholds.json) - Staging
 
@@ -97,56 +97,56 @@ This audit examines SLO threshold definitions across all project configuration s
 
 ### 1.4 SLO_VERIFICATION.md Thresholds
 
-| Metric                    | Priority | Target          | Measurement                        | Source                 |
-| ------------------------- | -------- | --------------- | ---------------------------------- | ---------------------- |
-| Service Availability      | Critical | ≥99.9%          | successful_requests/total          | SLO_VERIFICATION.md:51 |
-| Error Rate (staging)      | Critical | ≤1%             | http_req_failed rate               | SLO_VERIFICATION.md:54 |
-| Error Rate (prod)         | Critical | ≤0.5%           | http_req_failed rate               | SLO_VERIFICATION.md:54 |
-| True Error Rate           | Critical | ≤0.5% / ≤0.2%   | true_errors_total / total_requests | SLO_VERIFICATION.md:55 |
-| Contract Failures         | Critical | 0               | contract_failures_total            | SLO_VERIFICATION.md:55 |
-| Lifecycle Mismatches      | Critical | 0               | id_lifecycle_mismatches_total      | SLO_VERIFICATION.md:56 |
-| API Latency p95           | High     | <500ms          | http_req_duration p95              | SLO_VERIFICATION.md:60 |
-| Move Latency p95          | High     | ≤300ms / ≤200ms | move_latency p95                   | SLO_VERIFICATION.md:61 |
-| WebSocket Connect p95     | High     | <1000ms         | ws_connecting p95                  | SLO_VERIFICATION.md:62 |
-| AI Response p95           | High     | <1000ms         | ai_response_time p95               | SLO_VERIFICATION.md:63 |
-| Concurrent Games (prod)   | High     | ≥100            | concurrent_games                   | SLO_VERIFICATION.md:64 |
-| Concurrent Players (prod) | High     | ≥300            | concurrent_vus                     | SLO_VERIFICATION.md:65 |
-| WebSocket Success Rate    | High     | ≥99%            | websocket_connection_success_rate  | SLO_VERIFICATION.md:66 |
-| Move Stall Rate           | High     | ≤0.5%           | stalled_moves/total_moves          | SLO_VERIFICATION.md:67 |
-| API Latency p99           | Medium   | <2000ms         | http_req_duration p99              | SLO_VERIFICATION.md:72 |
-| Game Creation p95         | Medium   | <2000ms         | game_creation_time p95             | SLO_VERIFICATION.md:73 |
-| AI Response p99           | Medium   | <2000ms         | ai_response_time p99               | SLO_VERIFICATION.md:74 |
-| AI Fallback Rate          | Medium   | ≤1%             | ai_fallback_total/ai_requests      | SLO_VERIFICATION.md:75 |
+| Metric                    | Priority | Target          | Measurement                        | Source                                                   |
+| ------------------------- | -------- | --------------- | ---------------------------------- | -------------------------------------------------------- |
+| Service Availability      | Critical | ≥99.9%          | successful_requests/total          | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Error Rate (staging)      | Critical | ≤1%             | http_req_failed rate               | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Error Rate (prod)         | Critical | ≤0.5%           | http_req_failed rate               | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| True Error Rate           | Critical | ≤0.5% / ≤0.2%   | true_errors_total / total_requests | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Contract Failures         | Critical | 0               | contract_failures_total            | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Lifecycle Mismatches      | Critical | 0               | id_lifecycle_mismatches_total      | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| API Latency p95           | High     | <500ms          | http_req_duration p95              | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Move Latency p95          | High     | ≤300ms / ≤200ms | move_latency p95                   | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| WebSocket Connect p95     | High     | <1000ms         | ws_connecting p95                  | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| AI Response p95           | High     | <1000ms         | ai_response_time p95               | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Concurrent Games (prod)   | High     | ≥100            | concurrent_games                   | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Concurrent Players (prod) | High     | ≥300            | concurrent_vus                     | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| WebSocket Success Rate    | High     | ≥99%            | websocket_connection_success_rate  | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Move Stall Rate           | High     | ≤0.5%           | stalled_moves/total_moves          | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| API Latency p99           | Medium   | <2000ms         | http_req_duration p99              | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| Game Creation p95         | Medium   | <2000ms         | game_creation_time p95             | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| AI Response p99           | Medium   | <2000ms         | ai_response_time p99               | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
+| AI Fallback Rate          | Medium   | ≤1%             | ai_fallback_total/ai_requests      | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) |
 
 ### 1.5 ALERTING_THRESHOLDS.md Values
 
-| Alert                    | Severity | Threshold | Duration | Source                     |
-| ------------------------ | -------- | --------- | -------- | -------------------------- |
-| HighErrorRate            | critical | >5% 5xx   | 5 min    | ALERTING_THRESHOLDS.md:133 |
-| ElevatedErrorRate        | warning  | >1% 5xx   | 10 min   | ALERTING_THRESHOLDS.md:157 |
-| HighP99Latency           | warning  | >2s       | 5 min    | ALERTING_THRESHOLDS.md:195 |
-| HighP99LatencyCritical   | critical | >5s       | 2 min    | ALERTING_THRESHOLDS.md:205 |
-| HighP95Latency           | warning  | >1s       | 10 min   | ALERTING_THRESHOLDS.md:224 |
-| HighMedianLatency        | warning  | >500ms    | 15 min   | ALERTING_THRESHOLDS.md:235 |
-| HighGameMoveLatency      | warning  | p99 >1s   | 5 min    | ALERTING_THRESHOLDS.md:249 |
-| HighMemoryUsage          | warning  | >1.5GB    | 10 min   | ALERTING_THRESHOLDS.md:269 |
-| HighMemoryUsageCritical  | critical | >2GB      | 5 min    | ALERTING_THRESHOLDS.md:279 |
-| HighEventLoopLag         | warning  | >100ms    | 5 min    | ALERTING_THRESHOLDS.md:299 |
-| HighEventLoopLagCritical | critical | >500ms    | 2 min    | ALERTING_THRESHOLDS.md:310 |
-| HighWebSocketConnections | warning  | >1000     | 5 min    | ALERTING_THRESHOLDS.md:405 |
-| AIFallbackRateHigh       | warning  | >30%      | 10 min   | ALERTING_THRESHOLDS.md:422 |
-| AIFallbackRateCritical   | critical | >50%      | 5 min    | ALERTING_THRESHOLDS.md:435 |
-| AIRequestHighLatency     | warning  | p99 >5s   | 5 min    | ALERTING_THRESHOLDS.md:455 |
+| Alert                    | Severity | Threshold | Duration | Source                                                         |
+| ------------------------ | -------- | --------- | -------- | -------------------------------------------------------------- |
+| HighErrorRate            | critical | >5% 5xx   | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| ElevatedErrorRate        | warning  | >1% 5xx   | 10 min   | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighP99Latency           | warning  | >2s       | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighP99LatencyCritical   | critical | >5s       | 2 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighP95Latency           | warning  | >1s       | 10 min   | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighMedianLatency        | warning  | >500ms    | 15 min   | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighGameMoveLatency      | warning  | p99 >1s   | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighMemoryUsage          | warning  | >1.5GB    | 10 min   | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighMemoryUsageCritical  | critical | >2GB      | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighEventLoopLag         | warning  | >100ms    | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighEventLoopLagCritical | critical | >500ms    | 2 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| HighWebSocketConnections | warning  | >1000     | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| AIFallbackRateHigh       | warning  | >30%      | 10 min   | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| AIFallbackRateCritical   | critical | >50%      | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
+| AIRequestHighLatency     | warning  | p99 >5s   | 5 min    | [ALERTING_THRESHOLDS.md](../operations/ALERTING_THRESHOLDS.md) |
 
 ### 1.6 AI_SLO_BUDGETS.md Values
 
-| Metric           | Target  | Priority | Source               |
-| ---------------- | ------- | -------- | -------------------- |
-| AI Response p95  | <1000ms | High     | AI_SLO_BUDGETS.md:53 |
-| AI Response p99  | <2000ms | Medium   | AI_SLO_BUDGETS.md:54 |
-| AI Fallback Rate | ≤1%     | Medium   | AI_SLO_BUDGETS.md:55 |
-| Move Stall Rate  | ≤0.5%   | High     | AI_SLO_BUDGETS.md:56 |
-| Request Timeout  | 5000ms  | Config   | AI_SLO_BUDGETS.md:19 |
+| Metric           | Target  | Priority | Source                                       |
+| ---------------- | ------- | -------- | -------------------------------------------- |
+| AI Response p95  | <1000ms | High     | [AI_SLO_BUDGETS.md](../ai/AI_SLO_BUDGETS.md) |
+| AI Response p99  | <2000ms | Medium   | [AI_SLO_BUDGETS.md](../ai/AI_SLO_BUDGETS.md) |
+| AI Fallback Rate | ≤1%     | Medium   | [AI_SLO_BUDGETS.md](../ai/AI_SLO_BUDGETS.md) |
+| Move Stall Rate  | ≤0.5%   | High     | [AI_SLO_BUDGETS.md](../ai/AI_SLO_BUDGETS.md) |
+| Request Timeout  | 5000ms  | Config   | [AI_SLO_BUDGETS.md](../ai/AI_SLO_BUDGETS.md) |
 
 ### 1.7 Load Test Classification Thresholds
 
@@ -297,14 +297,14 @@ This gap is intentional - alerts are for operational incidents, not SLO violatio
 
 ### 4.1 Required Changes for SLO Alignment
 
-| Priority | Source                            | Change                                      | Issue   |
-| -------- | --------------------------------- | ------------------------------------------- | ------- |
-| P0       | thresholds.json:129               | Update core_gameplay_uptime to 99.9% (done) | ISSUE-1 |
-| P0       | SLO_VERIFICATION.md:61            | Update Move Latency p95 to <200ms (done)    | ISSUE-2 |
-| P1       | SLO_VERIFICATION.md               | Add true_error_rate SLO (done)              | ISSUE-5 |
-| P1       | ALERTING_THRESHOLDS.md            | Add AIFallbackRateElevated alert at 5%      | ISSUE-3 |
-| P2       | ALERTING_THRESHOLDS.md            | Document alert vs SLO threshold rationale   | ISSUE-7 |
-| P2       | PRODUCTION_READINESS_CHECKLIST.md | Note UI frame rate is client-validated      | ISSUE-4 |
+| Priority | Source                                                   | Change                                      | Issue   |
+| -------- | -------------------------------------------------------- | ------------------------------------------- | ------- |
+| P0       | thresholds.json:129                                      | Update core_gameplay_uptime to 99.9% (done) | ISSUE-1 |
+| P0       | [SLO_VERIFICATION.md](../operations/SLO_VERIFICATION.md) | Update Move Latency p95 to <200ms (done)    | ISSUE-2 |
+| P1       | SLO_VERIFICATION.md                                      | Add true_error_rate SLO (done)              | ISSUE-5 |
+| P1       | ALERTING_THRESHOLDS.md                                   | Add AIFallbackRateElevated alert at 5%      | ISSUE-3 |
+| P2       | ALERTING_THRESHOLDS.md                                   | Document alert vs SLO threshold rationale   | ISSUE-7 |
+| P2       | PRODUCTION_READINESS_CHECKLIST.md                        | Note UI frame rate is client-validated      | ISSUE-4 |
 
 ### 4.2 Documentation Improvements
 

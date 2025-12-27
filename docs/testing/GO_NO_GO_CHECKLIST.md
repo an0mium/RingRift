@@ -70,9 +70,7 @@ These gates ensure the orchestrator, shared rules engine, and cross‑language p
   - **Evidence**
     - Latest CI or local logs showing **100% pass** on contract vectors and parity metrics for the candidate build.
   - **References**
-    - [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASS
-
-ESSMENT.md:258) (§“P0 – Engine Parity & Rules Coverage”).
+    - [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) (§“P0 – Engine Parity & Rules Coverage”).
 
 - Contract/vector test docs referenced there.
 

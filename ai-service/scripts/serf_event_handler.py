@@ -46,7 +46,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # P2P orchestrator endpoint for forwarding events
-P2P_ENDPOINT = os.environ.get("RINGRIFT_P2P_ENDPOINT", "http://127.0.0.1:8770")
+# Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
+P2P_ENDPOINT = os.environ.get("RINGRIFT_P2P_URL") or os.environ.get("RINGRIFT_P2P_ENDPOINT", "http://127.0.0.1:8770")
 
 
 def notify_p2p(event_type: str, payload: dict) -> bool:

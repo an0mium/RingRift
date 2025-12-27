@@ -85,7 +85,14 @@ DATA_SOURCES = {
     "canonical_games": {"path": "/canonical_games/", "dest": "games", "extensions": [".db"]},
     "cluster_games": {"path": "/cluster_games/", "dest": "games", "extensions": [".db"]},
     "canonical_models": {"path": "/canonical_models/", "dest": "models", "extensions": [".pth", ".pt"]},
+    # Merged selfplay data - consolidated from all nodes
+    "selfplay_merged": {"path": "/selfplay_repository/merged/", "dest": "games/synced", "extensions": [".db"]},
+    # Consolidated archives - per-node databases
+    "selfplay_consolidated": {"path": "/selfplay_repository/consolidated_archives/", "dest": "games/synced", "extensions": [".db"], "max_files": 20},
 }
+
+# Download timeout in seconds (larger files need more time)
+DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", "600"))  # 10 minutes
 
 
 @dataclass

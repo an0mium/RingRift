@@ -34,7 +34,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, ItemsView, KeysView, ValuesView
 
 import yaml
 
@@ -72,37 +72,37 @@ except ImportError:
     class ReplDict:  # type: ignore[no-redef]
         """Stub ReplDict when pysyncobj is not installed."""
 
-        def __init__(self):
-            self._data: dict = {}
+        def __init__(self) -> None:
+            self._data: dict[str, Any] = {}
 
-        def __getitem__(self, key):
+        def __getitem__(self, key: str) -> Any:
             return self._data[key]
 
-        def __setitem__(self, key, value):
+        def __setitem__(self, key: str, value: Any) -> None:
             self._data[key] = value
 
-        def __contains__(self, key):
+        def __contains__(self, key: str) -> bool:
             return key in self._data
 
-        def get(self, key, default=None):
+        def get(self, key: str, default: Any = None) -> Any:
             return self._data.get(key, default)
 
-        def items(self):
+        def items(self) -> ItemsView[str, Any]:
             return self._data.items()
 
-        def keys(self):
+        def keys(self) -> KeysView[str]:
             return self._data.keys()
 
-        def values(self):
+        def values(self) -> ValuesView[Any]:
             return self._data.values()
 
     class ReplLockManager:  # type: ignore[no-redef]
         """Stub ReplLockManager when pysyncobj is not installed."""
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
-    def replicated(func):  # type: ignore[no-redef]
+    def replicated(func: Callable[..., Any]) -> Callable[..., Any]:  # type: ignore[no-redef]
         """Stub replicated decorator."""
         return func
 
@@ -378,7 +378,7 @@ class ReplicatedWorkQueue(SyncObj):
             f"ReplicatedWorkQueue initialized: {self_address} -> {partner_addresses}"
         )
 
-    def _handle_ready(self):
+    def _handle_ready(self) -> None:
         """Handle cluster ready event."""
         self._is_ready = True
         leader = self.getLeader()
@@ -389,7 +389,7 @@ class ReplicatedWorkQueue(SyncObj):
             except Exception as e:
                 logger.error(f"Error in on_ready callback: {e}")
 
-    def _handle_leader_change(self):
+    def _handle_leader_change(self) -> None:
         """Handle leader change event."""
         leader = self.getLeader()
         logger.info(f"Raft leader changed to: {leader}")
@@ -777,7 +777,7 @@ class ReplicatedJobAssignments(SyncObj):
             f"ReplicatedJobAssignments initialized: {self_address} -> {partner_addresses}"
         )
 
-    def _handle_ready(self):
+    def _handle_ready(self) -> None:
         """Handle cluster ready event."""
         self._is_ready = True
         leader = self.getLeader()
@@ -788,7 +788,7 @@ class ReplicatedJobAssignments(SyncObj):
             except Exception as e:
                 logger.error(f"Error in on_ready callback: {e}")
 
-    def _handle_leader_change(self):
+    def _handle_leader_change(self) -> None:
         """Handle leader change event."""
         leader = self.getLeader()
         logger.info(f"Job assignments Raft leader changed to: {leader}")

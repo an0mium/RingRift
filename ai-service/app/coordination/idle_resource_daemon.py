@@ -1360,9 +1360,9 @@ class IdleResourceDaemon:
             idle_nodes: List of nodes with idle GPU resources.
         """
         try:
-            from app.coordination.event_router import emit_idle_resource_detected
+            from app.distributed.data_events import emit_idle_resource_detected
         except ImportError:
-            logger.debug("[IdleResourceDaemon] event_router not available for emit")
+            logger.debug("[IdleResourceDaemon] data_events not available for emit")
             return
 
         now = time.time()

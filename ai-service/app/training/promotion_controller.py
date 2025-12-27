@@ -960,7 +960,8 @@ class PromotionController:
             import os
             import urllib.request
 
-            p2p_url = os.environ.get("P2P_ORCHESTRATOR_URL", "http://localhost:8770")
+            # Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
+            p2p_url = os.environ.get("RINGRIFT_P2P_URL") or os.environ.get("P2P_ORCHESTRATOR_URL", "http://localhost:8770")
             url = f"{p2p_url}/api/model/promoted"
 
             data = json.dumps(payload).encode("utf-8")

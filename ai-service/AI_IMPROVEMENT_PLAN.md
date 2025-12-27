@@ -46,10 +46,10 @@ The AI Service implements a multi-tier difficulty system with six AI implementat
 
 For running on Apple Silicon (M1/M2/M3) Macs, an MPS-compatible variant of the neural network architecture is available. See [`docs/architecture/MPS_ARCHITECTURE.md`](./docs/architecture/MPS_ARCHITECTURE.md) for details.
 
-| Architecture                                           | MPS Support | Pooling Method         | Use Case           |
-| ------------------------------------------------------ | ----------- | ---------------------- | ------------------ |
-| [`RingRiftCNN`](app/ai/neural_net/__init__.py:202)     | ❌ No       | `nn.AdaptiveAvgPool2d` | CUDA GPUs, CPU     |
-| [`RingRiftCNN_MPS`](app/ai/neural_net/__init__.py:325) | ✅ Yes      | `torch.mean()`         | Apple Silicon GPUs |
+| Architecture                                       | MPS Support | Pooling Method         | Use Case           |
+| -------------------------------------------------- | ----------- | ---------------------- | ------------------ |
+| [`RingRiftCNN`](app/ai/neural_net/__init__.py)     | ❌ No       | `nn.AdaptiveAvgPool2d` | CUDA GPUs, CPU     |
+| [`RingRiftCNN_MPS`](app/ai/neural_net/__init__.py) | ✅ Yes      | `torch.mean()`         | Apple Silicon GPUs |
 
 **Usage:**
 
@@ -94,13 +94,13 @@ Product-level guidance:
 
 The following items were documented as issues but have been **verified as resolved**:
 
-| Claimed Issue                        | Verification    | Evidence                                                                                                  |
-| ------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------- |
-| Minimax/MCTS not wired to difficulty | ✅ **RESOLVED** | [`main.py:683-754`](app/main.py:683) defines `_CANONICAL_DIFFICULTY_PROFILES` with proper AI type mapping |
-| RNG uses global `random.seed(42)`    | ✅ **RESOLVED** | [`base.py:38-46`](app/ai/base.py:38) uses per-instance `random.Random(self.rng_seed)`                     |
-| MCTS lacks tree reuse                | ✅ **RESOLVED** | [`mcts_ai.py:391-410`](app/ai/mcts_ai.py:391) implements subtree preservation via `last_root`             |
-| Transposition tables unbounded       | ✅ **RESOLVED** | [`BoundedTranspositionTable`](app/ai/bounded_transposition_table.py) with memory limits                   |
-| Minimax depth doesn't scale          | ✅ **RESOLVED** | [`minimax_ai.py:82-89`](app/ai/minimax_ai.py:82) scales `max_depth` 2→5 based on difficulty               |
+| Claimed Issue                        | Verification    | Evidence                                                                                              |
+| ------------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------- |
+| Minimax/MCTS not wired to difficulty | ✅ **RESOLVED** | [`main.py:683-754`](app/main.py) defines `_CANONICAL_DIFFICULTY_PROFILES` with proper AI type mapping |
+| RNG uses global `random.seed(42)`    | ✅ **RESOLVED** | [`base.py:38-46`](app/ai/base.py) uses per-instance `random.Random(self.rng_seed)`                    |
+| MCTS lacks tree reuse                | ✅ **RESOLVED** | [`mcts_ai.py:391-410`](app/ai/mcts_ai.py) implements subtree preservation via `last_root`             |
+| Transposition tables unbounded       | ✅ **RESOLVED** | [`BoundedTranspositionTable`](app/ai/bounded_transposition_table.py) with memory limits               |
+| Minimax depth doesn't scale          | ✅ **RESOLVED** | [`minimax_ai.py:82-89`](app/ai/minimax_ai.py) scales `max_depth` 2→5 based on difficulty              |
 
 ### 1.3 Verified Weaknesses (Status Update)
 
@@ -121,7 +121,7 @@ The make/unmake pattern has been fully implemented in:
 
 #### 1.3.2 Neural Network Architecture Mismatch
 
-**Location:** [`neural_net.py:356-383`](app/ai/neural_net/__init__.py:356)
+**Location:** [`neural_net.py:356-383`](app/ai/neural_net/__init__.py)
 
 ```python
 try:
@@ -139,7 +139,7 @@ except RuntimeError as e:
 
 #### 1.3.3 Zobrist Hash Computation on Demand
 
-**Location:** [`minimax_ai.py:161-165`](app/ai/minimax_ai.py:161), [`zobrist.py:101-126`](app/ai/zobrist.py:101)
+**Location:** [`minimax_ai.py:161-165`](app/ai/minimax_ai.py), [`zobrist.py:101-126`](app/ai/zobrist.py)
 
 ```python
 def _get_state_hash(self, game_state: GameState) -> int:
@@ -152,7 +152,7 @@ def _get_state_hash(self, game_state: GameState) -> int:
 
 #### 1.3.4 Training Self-Play Diversity
 
-**Location:** [`train_loop.py:79-106`](app/training/train_loop.py:79)
+**Location:** [`train_loop.py:79-106`](app/training/train_loop.py)
 
 ```python
 ai1 = DescentAI(1, AIConfig(difficulty=5, think_time=500, randomness=0.1, rngSeed=config.seed))
@@ -172,7 +172,7 @@ reproducible in isolation under a base seed while avoiding correlated streams.
 
 **Status (2025-12-22):** ✅ **UNBLOCKED** — Parity validation complete for all hex boards.
 
-**Location:** [`neural_net.py:1390-1519`](app/ai/neural_net/__init__.py:1390)
+**Location:** [`neural_net.py:1390-1519`](app/ai/neural_net/__init__.py)
 
 The `HexNeuralNet` class exists with proper architecture. As of 2025-12-22:
 
@@ -403,7 +403,7 @@ class IncrementalRulesEngine:
 
 - Enables neural-guided AI for hex boards
 - Improves difficulty 7-10 play quality on hex
-- Leverages existing [`HexNeuralNet`](app/ai/neural_net/__init__.py:1390) infrastructure
+- Leverages existing [`HexNeuralNet`](app/ai/neural_net/__init__.py) infrastructure
 
 **Configuration Example:**
 

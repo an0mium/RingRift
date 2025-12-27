@@ -241,23 +241,25 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 | `PROJECT_GOALS.md`                                                                       | 2025-11-27   | ✅ Accurate: goals align with implementation          |
 | `KNOWN_ISSUES.md`                                                                        | 2025-12-01   | ✅ Accurate: issues match actual code state           |
 | `TODO.md`                                                                                | 2025-11-30   | ✅ Accurate: tracks match roadmap                     |
+
 <<<<<<< Updated upstream
-| `docs/testing/TEST_CATEGORIES.md`                                                                | 2025-12-01   | ✅ Accurate: test categories match actual suites      |
-| `ARCHITECTURE_ASSESSMENT.md`                                                             | 2025-11-27   | ✅ Accurate: architecture matches implementation      |
-| `WEAKNESS_ASSESSMENT_REPORT.md`                                                          | 2025-12-01   | ✅ Accurate: historical assessments documented        |
-| `docs/security/SECURITY_THREAT_MODEL.md`                                                          | 2025-11-27   | ✅ Accurate: threats/controls match code              |
-| `docs/planning/DEPLOYMENT_REQUIREMENTS.md`                                                        | 2025-11-27   | ✅ Accurate: Docker configs match                     |
+| `docs/testing/TEST_CATEGORIES.md` | 2025-12-01 | ✅ Accurate: test categories match actual suites |
+| `ARCHITECTURE_ASSESSMENT.md` | 2025-11-27 | ✅ Accurate: architecture matches implementation |
+| `WEAKNESS_ASSESSMENT_REPORT.md` | 2025-12-01 | ✅ Accurate: historical assessments documented |
+| `docs/security/SECURITY_THREAT_MODEL.md` | 2025-11-27 | ✅ Accurate: threats/controls match code |
+| `docs/planning/DEPLOYMENT_REQUIREMENTS.md` | 2025-11-27 | ✅ Accurate: Docker configs match |
 =======
-| `docs/testing/TEST_CATEGORIES.md`                                                        | 2025-12-01   | ✅ Accurate: test categories match actual suites      |
-| `ARCHITECTURE_ASSESSMENT.md`                                                             | 2025-11-27   | ✅ Accurate: architecture matches implementation      |
-| `WEAKNESS_ASSESSMENT_REPORT.md`                                                          | 2025-12-01   | ✅ Accurate: historical assessments documented        |
-| `docs/security/SECURITY_THREAT_MODEL.md`                                                 | 2025-11-27   | ✅ Accurate: threats/controls match code              |
-| `docs/planning/DEPLOYMENT_REQUIREMENTS.md`                                               | 2025-11-27   | ✅ Accurate: Docker configs match                     |
->>>>>>> Stashed changes
-| `src/server/config/env.ts`                                                               | Current      | ✅ Accurate: schema validated against usage           |
-| `prisma/schema.prisma`                                                                   | Current      | ✅ Accurate: migrations align with schema             |
-| `package.json`                                                                           | Current      | ✅ Accurate: scripts and deps verified                |
-| `ai-service/requirements.txt`                                                            | Current      | ✅ Accurate: Python deps up-to-date                   |
+| `docs/testing/TEST_CATEGORIES.md` | 2025-12-01 | ✅ Accurate: test categories match actual suites |
+| `ARCHITECTURE_ASSESSMENT.md` | 2025-11-27 | ✅ Accurate: architecture matches implementation |
+| `WEAKNESS_ASSESSMENT_REPORT.md` | 2025-12-01 | ✅ Accurate: historical assessments documented |
+| `docs/security/SECURITY_THREAT_MODEL.md` | 2025-11-27 | ✅ Accurate: threats/controls match code |
+| `docs/planning/DEPLOYMENT_REQUIREMENTS.md` | 2025-11-27 | ✅ Accurate: Docker configs match |
+
+> > > > > > > Stashed changes
+> > > > > > > | `src/server/config/env.ts` | Current | ✅ Accurate: schema validated against usage |
+> > > > > > > | `prisma/schema.prisma` | Current | ✅ Accurate: migrations align with schema |
+> > > > > > > | `package.json` | Current | ✅ Accurate: scripts and deps verified |
+> > > > > > > | `ai-service/requirements.txt` | Current | ✅ Accurate: Python deps up-to-date |
 
 ### 4.2 Documents with Inaccuracies
 
@@ -525,7 +527,7 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 
 - 🔴 **Secrets rotation drill not rehearsed** - Documented but never executed
 - 🔴 **Backup/restore drill not rehearsed** - Critical recovery path untested
-- 🟡 **No security review** - Drills "not yet been exercised as part of a formal security review" (../historical/CURRENT_STATE_ASSESSMENT.md:350)
+- 🟡 **No security review** - Drills "not yet been exercised as part of a formal security review" (../historical/CURRENT_STATE_ASSESSMENT.md)
 - 🟡 **Production secrets validation** - Placeholder rejection works but never tested in real deployment
 
 ### 7.5 Performance Bottlenecks
@@ -543,7 +545,7 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
    - No load test to validate whether 16 is sufficient for 100 games
 
 3. **Database Connection Pool**
-   - `DATABASE_POOL_MAX=10` (env.ts:92)
+   - `DATABASE_POOL_MAX=10` (env.ts)
    - Never tested at 100+ concurrent games
    - Potential bottleneck for high-concurrency scenarios
 

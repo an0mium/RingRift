@@ -618,7 +618,31 @@ class DaemonManager:
         Returns:
             True if started successfully
         """
-        return await self._lifecycle.start(daemon_type)
+        result = await self._lifecycle.start(daemon_type)
+        if result:
+            # Dec 2025 fix: Ensure health loop is running after any daemon starts
+            # Previously only started via start_all() callback, causing health loop
+            # to never start when master_loop.py called start() individually.
+            await self._ensure_health_loop_running()
+        return result
+
+    async def _ensure_health_loop_running(self) -> None:
+        """Ensure the health monitoring loop is running.
+
+        Dec 2025: Extracted from start_all() callback to allow individual
+        start() calls to also start the health loop. This fixes an issue
+        where master_loop.py calling start() individually would never start
+        the health monitoring, causing crashed daemons to never be restarted.
+
+        Safe to call multiple times - will only start health loop once.
+        """
+        if not self._health_task or self._health_task.done():
+            self._running = True
+            self._health_task = safe_create_task(
+                self._health_loop(),
+                name="daemon_health_loop"
+            )
+            logger.info("[DaemonManager] Started health monitoring loop")
 
     def mark_daemon_ready(self, daemon_type: DaemonType) -> bool:
         """Explicitly mark a daemon as ready for dependent daemons.
@@ -699,13 +723,8 @@ class DaemonManager:
         """
         # Define callback for DaemonManager-specific post-start operations
         async def _post_start_callback():
-            # Start health check loop
-            if not self._health_task or self._health_task.done():
-                self._running = True
-                self._health_task = safe_create_task(
-                    self._health_loop(),
-                    name="daemon_health_loop"
-                )
+            # Start health check loop (uses centralized helper)
+            await self._ensure_health_loop_running()
 
             # Start daemon watchdog for active monitoring
             try:
@@ -2956,31 +2975,15 @@ class DaemonManager:
                                 continue  # Not ready for retry yet
 
                         # Attempt retry via sync daemon
-                        try:
-                            # Increment retry count before attempting
-                            manifest.increment_dead_letter_retry(entry.id)
-
-                            # Attempt the sync (via cluster_data_sync or similar)
-                            from app.coordination.cluster_data_sync import sync_game
-
-                            success = await sync_game(
-                                game_id=entry.game_id,
-                                source_host=entry.source_host,
-                            )
-
-                            if success:
-                                manifest.mark_dead_letter_resolved([entry.id])
-                                retried_count += 1
-                                logger.info(
-                                    f"[DLQ] Successfully retried entry {entry.id} "
-                                    f"(game={entry.game_id}, attempt={entry.retry_count + 1})"
-                                )
-                        except ImportError:
-                            # sync_game not available, just track retry
-                            logger.debug("[DLQ] sync_game not available - skipping retry")
-                        except (RuntimeError, OSError, ConnectionError) as e:
-                            # Phase 12: Elevated from debug to warning since this is an actual failure
-                            logger.warning(f"[DLQ] Retry failed for {entry.id}: {e}")
+                        # NOTE (Dec 2025): sync_game was removed as part of cluster_data_sync deprecation.
+                        # DLQ retries now rely on the regular sync cycle to pick up missing games.
+                        # Just track the retry attempt and let normal sync handle it.
+                        manifest.increment_dead_letter_retry(entry.id)
+                        retried_count += 1
+                        logger.debug(
+                            f"[DLQ] Marked entry {entry.id} for retry "
+                            f"(game={entry.game_id}, attempt={entry.retry_count + 1})"
+                        )
 
                     if retried_count or quarantined_count:
                         logger.info(

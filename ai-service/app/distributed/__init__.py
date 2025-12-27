@@ -218,9 +218,7 @@ __all__ = [
     "CircuitOpenError",
     "CircuitState",
     "CircuitStatus",
-    # Cluster coordination
-    "ClusterCoordinator",
-    # Deprecated cluster coordination (lazy loaded)
+    # Deprecated cluster coordination (lazy loaded via __getattr__)
     "ClusterCoordinator",
     "ClusterSyncStats",
     "CollectedGame",
@@ -260,7 +258,6 @@ __all__ = [
     "P2PFallbackSync",
     "P2PSyncClient",
     "ProcessLimits",
-    "ProcessLimits",
     "QueueDistributedEvaluator",
     "RedisQueue",
     "RemoteMemoryMonitor",
@@ -283,10 +280,8 @@ __all__ = [
     "SyncResult",
     "SyncStats",
     "TaskInfo",
-    "TaskInfo",
     # Cloud deployment (queue-based)
     "TaskQueue",
-    "TaskRole",
     "TaskRole",
     "TransactionManager",
     "UnifiedDataSyncService",
@@ -305,7 +300,6 @@ __all__ = [
     "atomic_json_update",
     # Database utilities
     "atomic_write",
-    "check_and_abort_if_role_held",
     "check_and_abort_if_role_held",
     "clear_memory_cache",
     "create_deduplicator",

@@ -38,6 +38,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.coordination.protocols import HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 # Circuit breaker integration (Phase 4 - December 2025)

@@ -100,7 +100,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - At all times, the total number of rings of P's colour that are **in play** (on the board in any stack, regardless of which player currently controls those stacks, plus in P's hand) must be ≤ this `ringsPerPlayer` value for the chosen board type.
   - Rings of other colours that P has captured and that are buried in stacks P controls **do not** count against P's `ringsPerPlayer` cap; they continue to belong, by colour, to their original owners for conservation, elimination, and victory accounting.
   - Eliminated rings of P's colour are permanently out of play and do not refresh or expand P's supply beyond `ringsPerPlayer`; they only change how much of that fixed supply is currently eliminated versus still in play.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:18) §1.1, §7.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:340) §§1.2.1, 3.2.1, 16.3–16.4, 16.9.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §1.1, §7.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§1.2.1, 3.2.1, 16.3–16.4, 16.9.2.
 
 - **[RR-CANON-R021] Stack definition.**
   - A stack is an ordered sequence of one or more rings on a single board cell.
@@ -461,7 +461,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Hosts **must not** unilaterally apply a hidden deterministic tie-breaker (such as "smallest cap first" or "first in scan order") to select the target on behalf of a human player.
     - Deterministic policies are permitted only as part of an **agent’s own** decision-making (for example, an AI, bot, or invariant harness that always chooses the smallest cap), not as an invisible host-level rule that bypasses player choice.
     - When deterministic behaviour is desired for reproducibility (e.g., strict-invariant soaks or AI self-play), agents and harnesses should use **seeded RNG or stable policies** to select among eligible targets; the host’s role is to expose the full choice set and apply the selected `eliminate_rings_from_stack` move, not to override that selection.
-  - Current TS and Python engines still auto-select an eligible stack to eliminate in some forced-elimination situations (see [`KNOWN_ISSUES.md` P0.1](KNOWN_ISSUES.md:39)). This behaviour is treated as a **known deviation** from RR-CANON-R206 and must be corrected over time; until then, engines must at least remain aligned with each other and clearly document the heuristic in use.
+  - Current TS and Python engines still auto-select an eligible stack to eliminate in some forced-elimination situations (see [`KNOWN_ISSUES.md` P0.1](KNOWN_ISSUES.md)). This behaviour is treated as a **known deviation** from RR-CANON-R206 and must be corrected over time; until then, engines must at least remain aligned with each other and clearly document the heuristic in use.
 
 - **[RR-CANON-R207] Real actions, ANM, and progress.**
   - For Last-Player-Standing victory (RR-CANON-R172), a player's **real actions** are exactly those listed in RR-CANON-R172:
@@ -473,7 +473,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - For ANM invariants and termination analysis:
     - Forced-elimination actions **do** count as global legal actions (RR-CANON-R200–R203); sequences in which forced elimination is the only available action are legal but must strictly increase the eliminated-ring component `E` of the progress metric `S = M + C + E` in RR-CANON-R191.
     - Because each forced elimination removes at least one ring from the acting player's cap and total rings are finite, any segment of play in which some player is repeatedly forced to eliminate caps must terminate in finitely many steps.
-- The ANM semantics in RR-CANON-R200–R203, together with the progress invariant in RR-CANON-R191, therefore justify the `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, and `INV-TERMINATION` invariants described in [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:119).
+- The ANM semantics in RR-CANON-R200–R203, together with the progress invariant in RR-CANON-R191, therefore justify the `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, and `INV-TERMINATION` invariants described in [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
 
 - **[RR-CANON-R208] Multi-phase turn sequence for line→Territory turns.**
   - For any turn in which an interactive action by the current player P (placement, movement, capture, or chain-capture segment) creates at least one new line owned by P and/or disconnects a Territory region they control, the canonical sequence of phases is:
@@ -510,8 +510,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 > **Cross-references (non-normative but recommended):**
 >
-> - Scenario-level ANM and forced-elimination behaviour, including concrete examples for RR-CANON-R200–R207, is catalogued in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
-> - Invariant and parity expectations for these rules are described in [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:119) under `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, and `PARITY-TS-PY-ACTIVE-NO-MOVES`.
+> - Scenario-level ANM and forced-elimination behaviour, including concrete examples for RR-CANON-R200–R207, is catalogued in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md).
+> - Invariant and parity expectations for these rules are described in [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) under `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, and `PARITY-TS-PY-ACTIVE-NO-MOVES`.
 
 ---
 
@@ -526,21 +526,21 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - `P.ringsInHand > 0` and P controls **no stacks** on the board; or
     - `P.ringsInHand > 0`, P controls at least one stack, but **no legal movement or capture** is available from any controlled stack.
   - Placement is **optional** (may be skipped) if `P.ringsInHand > 0` and P controls at least one stack with a legal movement or capture.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:100) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:362) §§4.1, 6.1, 15.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§4.1, 6.1, 15.2.
 
 - **[RR-CANON-R081] Placement on empty cell.**
   - If placement is allowed:
     - P may choose a non-collapsed, empty cell and place **1–3 rings** there, forming a new stack.
     - P may not exceed `ringsInHand`, and after placement the total number of rings of P's colour that are in play (on the board in any stack, regardless of controlling player, plus in P's hand) must not exceed P's `ringsPerPlayer` own-colour supply cap for the board type (RR-CANON-R020). Captured opponent-colour rings in stacks P controls do **not** affect this check.
     - **No-dead-placement rule:** after hypothetical placement, that new stack must have at least one legal non-capture move or overtaking capture under the standard rules. Otherwise the placement is illegal.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:100) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:366) §§4.1, 6.2, 15.4 Q17.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§4.1, 6.2, 15.4 Q17.
 
 - **[RR-CANON-R082] Placement on existing stack.**
   - P may choose a non-collapsed cell containing any stack (friendly or opponent).
   - P may place **exactly one** ring of their color on top of that stack.
   - The stack's controlling player becomes P; capHeight is recomputed.
   - No-dead-placement rule applies: after placement, the updated stack must have at least one legal move or capture; otherwise the placement is illegal.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:100) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:574) §§4.1, 6.3, 7.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §2.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§4.1, 6.3, 7.2.
 
 ### 5.2 Non-capture movement
 
@@ -548,7 +548,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - After placement (if any), let S be the set of stacks with `controllingPlayer = P`.
   - If S is empty and placement was impossible or forbidden, P has no legal movement and either becomes temporarily inactive or proceeds to forced elimination per RR-CANON-R100 (if they control a stack via some edge case such as future control change).
   - If S is non-empty, any stack in S that satisfies RR-CANON-R091–R092 for at least one direction has at least one legal move.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:166) §§2.2, 3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:385) §§4.2, 8, 16.5.1.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §§2.2, 3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§4.2, 8, 16.5.1.
 
 - **[RR-CANON-R091] Path and distance for non-capture movement.**
   - Let a controlled stack be at `from` with height `H ≥ 1`.
@@ -966,14 +966,14 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 - **[RR-CANON-R170] Ring-elimination victory.**
   - After completing all phases of a player's turn (including line and Territory processing), if any player P has `P.eliminatedRingsTotal ≥ victoryThreshold`, that player wins immediately by elimination.
   - Multiple players cannot simultaneously satisfy this because total eliminated rings cannot exceed 100% of rings in play.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:409) §7.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1204) §§13.1, 16.9.4.5.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §7.1; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§13.1, 16.9.4.5.
 
 - **[RR-CANON-R171] Territory-control victory.**
   - After a full turn, if any player P satisfies BOTH conditions in RR-CANON-R062 (v2), that player wins immediately by Territory:
     1. `territorySpaces[P] >= territoryVictoryMinimum`
     2. `territorySpaces[P] > sum(territorySpaces[Q])` for all opponents Q
   - Multiple players cannot simultaneously satisfy this because condition 2 requires strict dominance over all opponents combined.
-  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md:417) §7.2; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1220) §§13.2, 16.2.
+  - References: [`docs/rules/COMPACT_RULES.md`](docs/rules/COMPACT_RULES.md) §7.2; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §§13.2, 16.2.
 
 - **[RR-CANON-R172] Last-player-standing victory.**
   - Last-player-standing is a third formal victory condition, alongside ring-elimination (RR-CANON-R170) and Territory-control (RR-CANON-R171).
@@ -997,7 +997,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - they do control stacks but have no legal placements, no legal moves or overtaking captures, and no other legal turn actions at all, so their only possible turn action is forced elimination (RR-CANON-R100).
   - **Empty/temporarily inactive seats still take turns:** All non-permanently-eliminated seats, including those with no stacks and no rings in hand, must still traverse every phase of their turn and record the canonical no-action/FE moves required by RR-CANON-R075. Permanently eliminated players are removed from turn rotation (RR‑CANON‑R201) and do not participate in the full-round count.
   - Temporarily inactive players prevent an LPS victory until they have been continuously in this "no real actions" state on each of their turns throughout all three qualifying rounds above. A temporarily inactive player can return to full activity if they regain a real action, most commonly by gaining control of a multicolour stack whose top ring becomes their colour or by reduction of the height of a stack they control so that it can move again. If any such player regains a real action before all three rounds have been completed, the last-player-standing condition is not met and must be re-established from that point.
-  - References: [`docs/rules/HUMAN_RULES.md`](docs/rules/HUMAN_RULES.md:321) §5.3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:1376) §13.3.
+  - References: [`docs/rules/HUMAN_RULES.md`](docs/rules/HUMAN_RULES.md) §5.3; [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md) §13.3.
 
 - **[RR-CANON-R173] Global stalemate and tiebreaks.**
   - If **no** player has any legal placement, movement, capture, or forced elimination available (global stalemate):

@@ -412,9 +412,9 @@ work (stronger heuristics, search/ML) plus potentially additional endpoints.
 
 **Context:**
 
-- The sandbox and backend share a canonical **S-invariant** via [`computeProgressSnapshot()`](src/shared/engine/core.ts:498):
+- The sandbox and backend share a canonical **S-invariant** via [`computeProgressSnapshot()`](src/shared/engine/core.ts):
   `S = markers + collapsed + eliminated`
-- The **aiSimulation** suite [`tests/unit/ClientSandboxEngine.aiSimulation.test.ts`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts:1) runs many seeded AI-vs-AI games entirely in the sandbox and enforces:
+- The **aiSimulation** suite [`tests/unit/ClientSandboxEngine.aiSimulation.test.ts`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts) runs many seeded AI-vs-AI games entirely in the sandbox and enforces:
 
   ```ts
   const beforeProgress = computeProgressSnapshot(stateBefore);
@@ -1109,12 +1109,12 @@ The parity issues were addressed through:
 **Previously failing game (now passing):**
 
 - Game: `915ab7de-ef80-47cd-820d-e9798dd85fdc`
-- Bundle: [`canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json`](ai-service/parity_failures/square19_postfix_bundles/canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json:1)
+- Bundle: [`canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json`](ai-service/parity_failures/square19_postfix_bundles/canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json)
 - Historical divergence at **ts_k=695** after `skip_territory_processing` where Python advanced to `forced_elimination` while TS advanced to `game_over`.
 
 **Fix implemented (TS-side, Dec 26, 2025):**
 
-- Updated the inline replay/turn-ending handler in [`applyMoveWithChainInfo()`](src/shared/engine/orchestration/turnOrchestrator.ts:2000) for [`case 'skip_territory_processing'`](src/shared/engine/orchestration/turnOrchestrator.ts:2411) to mirror the forced-elimination gating used by [`case 'no_territory_action'`](src/shared/engine/orchestration/turnOrchestrator.ts:2330):
+- Updated the inline replay/turn-ending handler in [`applyMoveWithChainInfo()`](src/shared/engine/orchestration/turnOrchestrator.ts) for [`case 'skip_territory_processing'`](src/shared/engine/orchestration/turnOrchestrator.ts) to mirror the forced-elimination gating used by [`case 'no_territory_action'`](src/shared/engine/orchestration/turnOrchestrator.ts):
   - If `!hadAnyActionThisTurn && playerHasStacksOnBoard`, transition to `forced_elimination` and surface an explicit forced-elimination `PendingDecision` (type `elimination_target`).
   - Defer any `toVictoryState()` evaluation and any turn rotation until after the explicit `forced_elimination` move is applied.
 

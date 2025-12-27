@@ -200,7 +200,7 @@ This section defines concrete, narrow S-05.F.x tracks that can be implemented as
 - **Goal:** Establish a lightweight dependency-governance process and produce machine-readable SBOMs for Node and Python stacks in CI.
 - **Risk reduction:** High (supports faster response to upstream CVEs and improves incident response).
 - **Complexity:** Medium (adds CI steps and a small amount of documentation).
-- **Scope (likely files):** [`ci.yml`](../../.github/workflows/ci.yml), [`package.json`](../../package.json), [`ai-service/requirements.txt`](../../ai-service/requirements.txt), release/ops notes in [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../CURRENT_STATE_ASSESSMENT.md:1) or [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md).
+- **Scope (likely files):** [`ci.yml`](../../.github/workflows/ci.yml), [`package.json`](../../package.json), [`ai-service/requirements.txt`](../../ai-service/requirements.txt), release/ops notes in [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) or [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md).
 - **Implementation outline:**
   - Define a simple cadence for dependency updates (for example "apply non-breaking updates monthly; review major upgrades explicitly") and document it in [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
   - Extend the existing `security-scan` and `python-dependency-audit` jobs in [`ci.yml`](../../.github/workflows/ci.yml) to:

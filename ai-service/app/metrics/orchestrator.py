@@ -863,7 +863,8 @@ def update_selfplay_queue_size(
 ) -> None:
     """Update the selfplay job queue size metric.
 
-    This wires the TODO at line 81 - tracks pending selfplay jobs.
+    Tracks the number of pending selfplay jobs awaiting execution.
+    Used by unified_ai_loop.py for pipeline monitoring.
 
     Args:
         queue_size: Current number of pending selfplay jobs/configs
@@ -877,7 +878,8 @@ def record_pipeline_iteration(
 ) -> None:
     """Record completion of a pipeline iteration.
 
-    This wires the TODO at line 198 - tracks main training loop iterations.
+    Increments the counter for main training loop iterations.
+    Used for tracking overall pipeline progress and throughput.
 
     Args:
         orchestrator: Orchestrator identifier

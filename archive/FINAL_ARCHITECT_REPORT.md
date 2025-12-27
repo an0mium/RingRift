@@ -230,7 +230,7 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
 <<<<<<< Updated upstream
 | [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) | Authoritative rulebook | ✅ Current |
 | [`ringrift_compact_rules.md`](../ringrift_compact_rules.md) | Implementation spec | ✅ Current |
-| [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1) | Factual implementation status | ✅ Updated Nov 22 |
+| [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md) | Factual implementation status | ✅ Updated Nov 22 |
 | [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md) | System architecture & design | ✅ Current |
 | [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md) | Phased development plan | ✅ Updated Nov 22 |
 | [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) | P0/P1/P2 issue tracker | ✅ Updated Nov 22 |
@@ -239,7 +239,7 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
 =======
 | [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) | Authoritative rulebook | ✅ Current |
 | [`ringrift_compact_rules.md`](../ringrift_compact_rules.md) | Implementation spec | ✅ Current |
-| [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1) | Factual implementation status | ✅ Updated Nov 22 |
+| [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md) | Factual implementation status | ✅ Updated Nov 22 |
 | [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md) | System architecture & design | ✅ Current |
 | [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md) | Phased development plan | ✅ Updated Nov 22 |
 | [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) | P0/P1/P2 issue tracker | ✅ Updated Nov 22 |
@@ -260,7 +260,7 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
    - Clarified development setup and sandbox usage
    - Added links to all canonical documents
 
-2. **CURRENT_STATE_ASSESSMENT.md** ([[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)):
+2. **CURRENT_STATE_ASSESSMENT.md** ([[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)):
    - Updated assessment date to November 22, 2025
    - Added RNG determinism system coverage
    - Updated AI integration status
@@ -1865,7 +1865,7 @@ Risk levels:
 
 - **Rich type system and documentation**
   - Shared types file [`game.ts`](../src/shared/types/game.ts) is effectively executable documentation of rules and phases.
-  - Detailed architecture docs: [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md), [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md).
+  - Detailed architecture docs: [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md), [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md).
 
 - **Separation of concerns within modules**
   - Rules validation in [`RuleEngine`](../src/server/game/RuleEngine.ts) vs orchestration in [`GameEngine`](../src/server/game/GameEngine.ts).
@@ -1898,7 +1898,7 @@ Risk levels:
 - **R2.1 – Curate and label documentation**
   - Move truly obsolete docs into an `archive/` directory and keep only:
     - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md)
-    - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)
+    - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)
     - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
     - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)
     - Active P0/P1 lists (`KNOWN_ISSUES.md`, TODO/roadmap).
@@ -2440,7 +2440,7 @@ Risk levels:
 - Documentation:
   - Architecture and status:
     - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md)
-    - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)
+    - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)
     - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
     - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)
   - Rules:

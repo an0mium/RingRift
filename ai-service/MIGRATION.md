@@ -121,7 +121,7 @@ from app.coordination.unified_queue_populator import (
 )
 
 populator = UnifiedQueuePopulator()
-await populator.populate_work_queue()
+populator.populate()
 ```
 
 **Key improvements**:

@@ -159,7 +159,8 @@ class EloSyncManager:
         self.db_path = Path(db_path)
         self.coordinator_host = coordinator_host
         self.sync_interval = sync_interval
-        self.p2p_url = p2p_url or os.environ.get("P2P_URL", "https://p2p.ringrift.ai")
+        # Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
+        self.p2p_url = p2p_url or os.environ.get("RINGRIFT_P2P_URL") or os.environ.get("P2P_URL", "http://localhost:8770")
         self.enable_merge = enable_merge
 
         self.state = EloManagerSyncState()
