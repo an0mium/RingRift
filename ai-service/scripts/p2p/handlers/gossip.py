@@ -23,6 +23,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Event bridge import (with fallback)
+try:
+    from scripts.p2p.p2p_event_bridge import emit_p2p_node_online
+    HAS_EVENT_BRIDGE = True
+except ImportError:
+    HAS_EVENT_BRIDGE = False
+
+    async def emit_p2p_node_online(*args, **kwargs):
+        pass
+
 
 class GossipHandlersMixin:
     """Mixin providing gossip protocol HTTP handlers.
@@ -202,14 +212,30 @@ class GossipHandlersMixin:
             # Process ALL states from peer
             peer_states = data.get("all_known_states", {})
             updates = 0
+            new_peers = []
             for node_id, state in peer_states.items():
                 if node_id == self.node_id:
                     continue
                 existing = self._gossip_peer_states.get(node_id, {})
+                is_new_peer = not existing
                 if state.get("version", 0) > existing.get("version", 0):
                     self._gossip_peer_states[node_id] = state
                     updates += 1
                     self._record_gossip_metrics("update", node_id)
+                    if is_new_peer:
+                        new_peers.append((node_id, state))
+
+            # Emit node online events for newly discovered peers
+            if HAS_EVENT_BRIDGE and new_peers:
+                for peer_id, peer_state in new_peers:
+                    await emit_p2p_node_online(
+                        node_id=peer_id,
+                        host_type=peer_state.get("role", ""),
+                        capabilities={
+                            "has_gpu": peer_state.get("has_gpu", False),
+                            "gpu_name": peer_state.get("gpu_name", ""),
+                        },
+                    )
 
             if updates > 0:
                 self._record_gossip_metrics("anti_entropy")

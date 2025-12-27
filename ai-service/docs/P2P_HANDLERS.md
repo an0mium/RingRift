@@ -247,19 +247,67 @@ class P2POrchestrator(
 
 ## Event Integration
 
-Handlers can emit events to the coordination layer:
+P2P handlers are wired to the coordination EventRouter via `scripts/p2p/p2p_event_bridge.py`.
+
+### Event Bridge Functions
+
+| Handler                  | Event Function                  | Event Type Emitted                                                |
+| ------------------------ | ------------------------------- | ----------------------------------------------------------------- |
+| `WorkQueueHandlersMixin` | `emit_p2p_work_completed()`     | `SELFPLAY_COMPLETE`, `TRAINING_COMPLETED`, `EVALUATION_COMPLETED` |
+| `WorkQueueHandlersMixin` | `emit_p2p_work_failed()`        | `TRAINING_FAILED`                                                 |
+| `GauntletHandlersMixin`  | `emit_p2p_gauntlet_completed()` | `EVALUATION_COMPLETED`                                            |
+| `GossipHandlersMixin`    | `emit_p2p_node_online()`        | `HOST_ONLINE`                                                     |
+| `ElectionHandlersMixin`  | `emit_p2p_leader_changed()`     | `LEADER_CHANGED`                                                  |
+| `EloSyncHandlersMixin`   | `emit_p2p_elo_updated()`        | `ELO_UPDATED`                                                     |
+
+### Usage Example
 
 ```python
-from app.coordination.event_router import get_event_router
+from scripts.p2p.p2p_event_bridge import (
+    emit_p2p_work_completed,
+    emit_p2p_node_online,
+    emit_p2p_leader_changed,
+)
 
-router = get_event_router()
-await router.emit("WORK_COMPLETED", {
-    "work_id": work_id,
-    "node_id": self.node_id,
-})
+# After work completes in work_queue handler
+await emit_p2p_work_completed(
+    work_id="abc123",
+    work_type="selfplay",
+    config_key="hex8_2p",
+    result={"games_generated": 500},
+    node_id="runpod-h100",
+)
+
+# When new peer discovered in gossip handler
+await emit_p2p_node_online(
+    node_id="new-node-1",
+    host_type="gpu",
+    capabilities={"has_gpu": True, "gpu_name": "H100"},
+)
+
+# When leadership changes in election handler
+await emit_p2p_leader_changed(
+    new_leader_id="nebius-h100-1",
+    old_leader_id="runpod-h100",
+    term=42,
+)
 ```
 
-See `docs/EVENT_CATALOG.md` for available event types.
+### Direct Event Router Usage
+
+For custom events not covered by the bridge:
+
+```python
+from app.coordination.event_router import publish
+
+await publish(
+    event_type="CUSTOM_P2P_EVENT",
+    payload={"work_id": work_id, "node_id": self.node_id},
+    source="p2p_handler",
+)
+```
+
+See `docs/EVENT_CATALOG.md` for all available event types.
 
 ## Configuration
 
