@@ -119,6 +119,7 @@ class SelfplayScheduler:
         | None = None,
         get_max_selfplay_for_node_fn: Callable[..., int] | None = None,
         get_hybrid_selfplay_limits_fn: Callable[..., dict[str, int]] | None = None,
+        is_emergency_active_fn: Callable[[], bool] | None = None,
         verbose: bool = False,
     ):
         """Initialize the SelfplayScheduler.
@@ -137,6 +138,7 @@ class SelfplayScheduler:
             should_scale_down_fn: Function to check if scaling down is needed
             get_max_selfplay_for_node_fn: Function to get max selfplay jobs for node
             get_hybrid_selfplay_limits_fn: Function to get hybrid selfplay limits
+            is_emergency_active_fn: Function to check if emergency safeguards are active
             verbose: Enable verbose logging
         """
         self.get_cluster_elo = get_cluster_elo_fn or (lambda: {})
@@ -154,6 +156,7 @@ class SelfplayScheduler:
         self.should_scale_down = should_scale_down_fn
         self.get_max_selfplay_for_node = get_max_selfplay_for_node_fn
         self.get_hybrid_selfplay_limits = get_hybrid_selfplay_limits_fn
+        self.is_emergency_active = is_emergency_active_fn
         self.verbose = verbose
 
         # Diversity tracking
@@ -417,6 +420,14 @@ class SelfplayScheduler:
 
         Target: 60-80% CPU/GPU utilization for optimal training throughput.
         """
+        # Check safeguards first - halt all selfplay during emergency
+        if self.is_emergency_active is not None:
+            try:
+                if self.is_emergency_active():
+                    return 0
+            except Exception:
+                pass  # Ignore errors in safeguards check
+
         # Check backpressure - reduce production when training queue is full
         backpressure_factor = 1.0
         if (

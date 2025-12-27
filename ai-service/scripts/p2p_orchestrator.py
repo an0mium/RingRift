@@ -1809,11 +1809,24 @@ class P2POrchestrator(
         )
 
         # Phase 2B Refactoring: SelfplayScheduler for priority-based selfplay allocation
-        # Uses optional dependency injection - callbacks can be wired incrementally
+        # All callbacks wired for full delegation (Dec 2025)
         self.selfplay_scheduler = SelfplayScheduler(
             get_cluster_elo_fn=lambda: self._get_cluster_elo_summary(),
             load_curriculum_weights_fn=lambda: self._load_curriculum_weights(),
             get_board_priority_overrides_fn=lambda: getattr(self, "board_priority_overrides", {}),
+            # Backpressure callbacks (wired Dec 2025)
+            should_stop_production_fn=should_stop_production if HAS_NEW_COORDINATION else None,
+            should_throttle_production_fn=should_throttle_production if HAS_NEW_COORDINATION else None,
+            get_throttle_factor_fn=get_throttle_factor if HAS_NEW_COORDINATION else None,
+            # Resource targeting callbacks (wired Dec 2025)
+            record_utilization_fn=record_utilization if HAS_NEW_COORDINATION else None,
+            get_host_targets_fn=get_host_targets if HAS_NEW_COORDINATION else None,
+            get_target_job_count_fn=get_target_job_count if HAS_NEW_COORDINATION else None,
+            should_scale_up_fn=should_scale_up if HAS_NEW_COORDINATION else None,
+            should_scale_down_fn=should_scale_down if HAS_NEW_COORDINATION else None,
+            # Hardware-aware limits (wired Dec 2025)
+            get_max_selfplay_for_node_fn=get_max_selfplay_for_node if HAS_HW_AWARE_LIMITS else None,
+            get_hybrid_selfplay_limits_fn=get_hybrid_selfplay_limits if HAS_HW_AWARE_LIMITS else None,
             verbose=self.verbose,
         )
 
@@ -1852,10 +1865,20 @@ class P2POrchestrator(
         self._wire_feedback_loops()
 
         # December 2025: Subscribe to daemon status events for observability
-        self._subscribe_to_daemon_events()
+        daemon_events_ok = self._subscribe_to_daemon_events()
 
         # December 2025: Subscribe to training feedback signals for dynamic orchestration
-        self._subscribe_to_feedback_signals()
+        feedback_signals_ok = self._subscribe_to_feedback_signals()
+
+        # Log subscription status for debugging integration issues
+        if daemon_events_ok and feedback_signals_ok:
+            logger.info("[P2P] Event subscriptions: daemon_events=✓, feedback_signals=✓")
+        else:
+            logger.warning(
+                f"[P2P] Event subscriptions incomplete: "
+                f"daemon_events={'✓' if daemon_events_ok else '✗'}, "
+                f"feedback_signals={'✓' if feedback_signals_ok else '✗'}"
+            )
 
         print(
             f"[P2P] Initialized node {node_id} on {host}:{port} "

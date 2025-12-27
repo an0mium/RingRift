@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
@@ -55,6 +54,8 @@ from scripts.p2p.peer_manager import PeerManagerMixin
 
 class TestablePeerManager(PeerManagerMixin, MockOrchestrator):
     """Testable class combining mixin with mock."""
+
+    __test__ = False  # Prevent pytest from collecting this as a test class
 
     def __init__(self, db_path: Path, node_id: str = "test-node"):
         MockOrchestrator.__init__(self, db_path, node_id)
@@ -294,10 +295,9 @@ class TestModuleFunctions:
 
     def test_get_peer_manager_default(self):
         """Should return None by default."""
-        from scripts.p2p.peer_manager import get_peer_manager
-
         # Clear any existing
         from scripts.p2p import peer_manager as pm
+        from scripts.p2p.peer_manager import get_peer_manager
 
         pm._peer_manager = None
 
