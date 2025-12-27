@@ -5,21 +5,25 @@
 # Lambda Labs account terminated Dec 2025. All Lambda nodes permanently removed.
 
 sync_routing:
-  # Dec 2025: Temporarily increased from 70% to 85% to allow syncs while cleaning up
-  # TODO: Reduce back to 70% after freeing disk space on mac-studio
-  max_disk_usage_percent: 85
+  # Dec 2025: Restored to 70% after cleanup freed ~67GB on mac-studio
+  max_disk_usage_percent: 70
   target_disk_usage_percent: 70
   min_free_disk_percent: 15
   replication_target: 2
   # Dec 2025: Removed mac-studio from excluded_hosts - use allowed_external_storage instead
   # This fixes the contradiction where mac-studio was both excluded and allowed
   excluded_hosts: []
+  # OWC external drive mounted as /Volumes/RingRift-Data on mac-studio
   allowed_external_storage:
   - host: mac-studio
-    path: /Volumes/RingRift-Data/selfplay_repository
+    path: /Volumes/RingRift-Data
     receive_games: true
     receive_npz: true
     receive_models: true
+    subdirs:
+      games: selfplay_repository/raw
+      npz: canonical_data
+      models: canonical_models
   priority_hosts: []
 
 auto_sync:
@@ -33,8 +37,10 @@ auto_sync:
   max_concurrent_syncs: 4
   min_games_to_sync: 10
   bandwidth_limit_mbps: 100
-  exclude_hosts:
-  - mac-studio
+  # Dec 2025: Removed mac-studio from exclude_hosts to enable coordinator backup
+  # Coordinator receives data via allowed_external_storage (/Volumes/RingRift-Data)
+  # This prevents data loss if all GPU nodes fail
+  exclude_hosts: []
   host_bandwidth_overrides:
     vast-*: 50
     runpod-*: 100
@@ -60,10 +66,11 @@ elo_sync:
 # Dec 26, 2025: Simplified voters to Nebius nodes only
 # RunPod pods don't expose port 8770 externally, causing network segmentation
 # With 3 voters, quorum = 2 (majority)
+# Updated Dec 26 late: Replaced deleted nodes with new H100s
 p2p_voters:
   - nebius-backbone-1
-  - nebius-l40s-2
   - nebius-h100-1
+  - nebius-h100-3
 
 hosts:
   # ============================================================
@@ -479,14 +486,13 @@ hosts:
     p2p_enabled: true
     note: H100 80GB for training
 
-  # New Nebius H100 #2 provisioned Dec 26, 2025 (80GB VRAM!)
-  # NOTE: Internal IP only - requires SSH jump through nebius-backbone-1
-  nebius-h100-2:
-    ssh_host: 10.0.0.8
+  # Nebius H100 #3 - 500GB storage, H100 80GB
+  # Provisioned Dec 26, 2025 to replace deleted nodes
+  nebius-h100-3:
+    ssh_host: 89.169.110.128
     ssh_port: 22
     ssh_user: ubuntu
     ssh_key: ~/.ssh/id_cluster
-    ssh_proxy: nebius-backbone-1
     ringrift_path: ~/ringrift/ai-service
     venv_activate: source ~/ringrift/ai-service/venv/bin/activate
     memory_gb: 200
@@ -495,30 +501,10 @@ hosts:
     gpu_vram_gb: 80
     role: gpu_training_primary
     status: ready
-    nebius_id: computeinstance-e00xsba9efvkpvk8wy
+    nebius_id: computeinstance-e00hcbnn7s7p0c7bbp
     region: eu-north1
     p2p_enabled: true
-    note: H100 80GB training (pair with nebius-h100-1)
-
-  # Nebius L40S #2
-  # NOTE: Under investigation for unstable network connectivity
-  nebius-l40s-2:
-    ssh_host: 89.169.108.182
-    ssh_port: 22
-    ssh_user: ubuntu
-    ssh_key: ~/.ssh/id_cluster
-    ringrift_path: ~/ringrift/ai-service
-    venv_activate: source ~/ringrift/ai-service/venv/bin/activate
-    memory_gb: 32
-    cpus: 8
-    gpu: L40S
-    gpu_vram_gb: 48
-    role: gpu_selfplay
-    status: ready
-    nebius_id: computeinstance-e00vjmb0t7m5ck02g1
-    region: eu-north1
-    p2p_enabled: true
-    note: Under investigation for unstable network
+    note: H100 80GB with 500GB storage, P2P voter
 
   # ============================================================
   # AWS NODES (proxy only, no GPU)
