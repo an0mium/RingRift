@@ -14,6 +14,7 @@ Loop Categories:
 - discovery_loop.py: UDP broadcast and follower peer discovery
 - coordination_loops.py: Auto-scaling, health aggregation
 - job_loops.py: Job reaper, idle detection
+- resilience_loops.py: Self-healing, predictive monitoring
 
 Usage:
     from scripts.p2p.loops import BaseLoop, BackoffConfig, LoopManager, LoopStats
@@ -64,6 +65,10 @@ from .job_loops import (
     IdleDetectionLoop,
     JobReaperConfig,
     JobReaperLoop,
+    WorkerPullConfig,
+    WorkerPullLoop,
+    WorkQueueMaintenanceConfig,
+    WorkQueueMaintenanceLoop,
 )
 from .network_loops import (
     IpDiscoveryConfig,
@@ -80,6 +85,12 @@ from .discovery_loop import (
 )
 from .manifest_collection_loop import ManifestCollectionLoop
 from .queue_populator_loop import QueuePopulatorLoop
+from .resilience_loops import (
+    PredictiveMonitoringConfig,
+    PredictiveMonitoringLoop,
+    SelfHealingConfig,
+    SelfHealingLoop,
+)
 from .training_sync_loop import TrainingSyncLoop
 
 __all__ = [
@@ -118,8 +129,17 @@ __all__ = [
     "IdleDetectionLoop",
     "JobReaperConfig",
     "JobReaperLoop",
+    "WorkerPullConfig",
+    "WorkerPullLoop",
+    "WorkQueueMaintenanceConfig",
+    "WorkQueueMaintenanceLoop",
     # Training
     "TrainingSyncLoop",
     # Manifest
     "ManifestCollectionLoop",
+    # Resilience
+    "PredictiveMonitoringConfig",
+    "PredictiveMonitoringLoop",
+    "SelfHealingConfig",
+    "SelfHealingLoop",
 ]

@@ -1148,3 +1148,61 @@ class SelfplayScheduler:
             return 1.0
 
         return boost_factor
+
+    # =========================================================================
+    # Health Check (December 2025)
+    # =========================================================================
+
+    def health_check(self) -> dict[str, Any]:
+        """Check health status of SelfplayScheduler.
+
+        Returns:
+            Dict with status, scheduling metrics, and error info
+        """
+        status = "healthy"
+        errors_count = 0
+        last_error: str | None = None
+
+        # Get diversity metrics
+        diversity = self.get_diversity_metrics()
+
+        # Check if subscribed to events
+        if not self._subscribed:
+            if status == "healthy":
+                status = "degraded"
+                last_error = "Not subscribed to events"
+
+        # Check config coverage (all configs should have some targets)
+        configs_with_targets = sum(
+            1 for v in self._previous_targets.values() if v > 0
+        )
+        total_configs = len(self._previous_targets) if self._previous_targets else 0
+
+        if total_configs > 0 and configs_with_targets == 0:
+            status = "degraded"
+            last_error = "No configs have selfplay targets"
+        elif total_configs > 0 and configs_with_targets < total_configs // 2:
+            if status == "healthy":
+                status = "degraded"
+                last_error = f"Only {configs_with_targets}/{total_configs} configs have targets"
+
+        # Count active exploration boosts
+        active_boosts = 0
+        if hasattr(self, "_exploration_boosts"):
+            now = time.time()
+            active_boosts = sum(
+                1 for _, expiry in self._exploration_boosts.values()
+                if expiry > now
+            )
+
+        return {
+            "status": status,
+            "operations_count": total_configs,
+            "errors_count": errors_count,
+            "last_error": last_error,
+            "subscribed": self._subscribed,
+            "configs_tracked": total_configs,
+            "configs_with_targets": configs_with_targets,
+            "active_exploration_boosts": active_boosts,
+            "diversity_metrics": diversity,
+        }

@@ -377,3 +377,54 @@ class NodeSelector:
             node_id: self._unhealthy_reasons.get(node_id, "")
             for node_id in self._unhealthy_nodes
         }
+
+    # =========================================================================
+    # Health Check (December 2025)
+    # =========================================================================
+
+    def health_check(self) -> dict[str, Any]:
+        """Check health status of NodeSelector.
+
+        Returns:
+            Dict with status, node counts, and error info
+        """
+        status = "healthy"
+        errors_count = 0
+        last_error: str | None = None
+
+        # Get node counts
+        all_nodes = self._get_all_nodes(include_self=True)
+        alive_nodes = [n for n in all_nodes if n.is_alive()]
+        healthy_nodes = [n for n in all_nodes if n.is_healthy()]
+        gpu_nodes = [n for n in alive_nodes if n.has_gpu]
+
+        # Check for issues
+        unhealthy_count = len(self._unhealthy_nodes)
+        if unhealthy_count > 0:
+            errors_count = unhealthy_count
+            reasons = list(self._unhealthy_reasons.values())
+            last_error = reasons[0] if reasons else f"{unhealthy_count} nodes marked unhealthy"
+
+        # Degrade if too few nodes
+        if len(alive_nodes) == 0:
+            status = "unhealthy"
+            last_error = "No alive nodes available"
+            errors_count = 1
+        elif len(gpu_nodes) == 0 and len(all_nodes) > 0:
+            status = "degraded"
+            if not last_error:
+                last_error = "No GPU nodes available"
+        elif unhealthy_count > len(all_nodes) // 2:
+            status = "degraded"
+
+        return {
+            "status": status,
+            "operations_count": len(all_nodes),
+            "errors_count": errors_count,
+            "last_error": last_error,
+            "total_nodes": len(all_nodes),
+            "alive_nodes": len(alive_nodes),
+            "healthy_nodes": len(healthy_nodes),
+            "gpu_nodes": len(gpu_nodes),
+            "unhealthy_node_ids": list(self._unhealthy_nodes),
+        }

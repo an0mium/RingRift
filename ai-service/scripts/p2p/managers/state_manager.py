@@ -627,3 +627,50 @@ class StateManager:
             if conn:
                 conn.close()
         return cleared
+
+    # =========================================================================
+    # Health Check (December 2025)
+    # =========================================================================
+
+    def health_check(self) -> dict[str, Any]:
+        """Check health status of StateManager.
+
+        Returns:
+            Dict with status, operations metrics, and error info
+        """
+        status = "healthy"
+        errors_count = 0
+        last_error: str | None = None
+
+        # Check database connectivity
+        try:
+            conn = self._db_connect()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM peers")
+            peer_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
+            job_count = cursor.fetchone()[0]
+            conn.close()
+        except Exception as e:
+            status = "unhealthy"
+            errors_count = 1
+            last_error = f"Database connection failed: {e}"
+            peer_count = 0
+            job_count = 0
+
+        # Check if database file exists
+        if not self.db_path.exists():
+            status = "unhealthy"
+            errors_count += 1
+            last_error = f"Database file not found: {self.db_path}"
+
+        return {
+            "status": status,
+            "operations_count": peer_count + job_count,
+            "errors_count": errors_count,
+            "last_error": last_error,
+            "peer_count": peer_count,
+            "job_count": job_count,
+            "cluster_epoch": self._cluster_epoch,
+            "db_path": str(self.db_path),
+        }

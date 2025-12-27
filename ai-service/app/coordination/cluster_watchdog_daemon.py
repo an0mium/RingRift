@@ -225,6 +225,31 @@ class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
         except Exception as e:
             logger.debug(f"[{self._get_daemon_name()}] Error handling cluster healthy: {e}")
 
+    async def _on_stop(self) -> None:
+        """Graceful shutdown handler.
+
+        December 2025: Added for clean daemon shutdown with event emission.
+        """
+        try:
+            # Emit shutdown event
+            from app.coordination.event_emitters import emit_coordinator_shutdown
+
+            await emit_coordinator_shutdown(
+                coordinator_name=self._get_daemon_name(),
+                reason="graceful",
+                remaining_tasks=0,
+                state_snapshot={
+                    "uptime_seconds": self.uptime_seconds,
+                    "cycles_completed": getattr(self, "_cycles_completed", 0),
+                    "cluster_healthy": self._cluster_healthy,
+                },
+            )
+            logger.info(f"[{self._get_daemon_name()}] Graceful shutdown complete")
+        except ImportError:
+            logger.debug(f"[{self._get_daemon_name()}] Event emitters not available for shutdown")
+        except Exception as e:
+            logger.warning(f"[{self._get_daemon_name()}] Error during shutdown: {e}")
+
     async def _run_cycle(self) -> None:
         """Run a single watchdog cycle."""
         stats = WatchdogCycleStats(cycle_start=time.time())

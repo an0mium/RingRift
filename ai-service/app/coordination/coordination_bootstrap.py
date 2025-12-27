@@ -613,6 +613,9 @@ def _init_curriculum_integration_with_verification() -> BootstrapCoordinatorStat
         status.error = str(e)
         logger.error(f"[Bootstrap] Failed to initialize CurriculumIntegration: {e}")
 
+    # December 2025: Emit coordinator health event
+    _emit_coordinator_health_event(status)
+
     return status
 
 

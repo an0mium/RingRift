@@ -45,6 +45,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# December 2025: Use consolidated daemon stats base class
+from app.coordination.daemon_stats import EvaluationDaemonStats
+
 __all__ = [
     "TournamentDaemon",
     "TournamentDaemonConfig",
@@ -79,15 +82,47 @@ class TournamentDaemonConfig:
 
 
 @dataclass
-class TournamentStats:
-    """Statistics about tournament daemon activity."""
-    tournaments_completed: int = 0
-    games_played: int = 0
-    evaluations_triggered: int = 0
+class TournamentStats(EvaluationDaemonStats):
+    """Statistics about tournament daemon activity.
+
+    December 2025: Now extends EvaluationDaemonStats for consistent tracking.
+    Inherits: evaluations_completed, evaluations_failed, games_played,
+              models_evaluated, promotions_triggered, is_healthy(), etc.
+    """
+
+    # Tournament-specific fields
     event_triggers: int = 0
-    last_tournament_time: float = 0.0
-    last_evaluation_time: float = 0.0
-    errors: list[str] = field(default_factory=list)
+
+    # Backward compatibility aliases
+    @property
+    def tournaments_completed(self) -> int:
+        """Alias for evaluations_completed (backward compatibility)."""
+        return self.evaluations_completed
+
+    @property
+    def last_tournament_time(self) -> float:
+        """Alias for last_evaluation_time (backward compatibility)."""
+        return self.last_evaluation_time
+
+    @property
+    def errors(self) -> list[str]:
+        """Return last error as list for backward compatibility."""
+        if self.last_error:
+            return [self.last_error]
+        return []
+
+    def record_tournament_success(self, games: int = 0) -> None:
+        """Record a successful tournament."""
+        self.record_evaluation_success(duration=0.0, games=games)
+
+    def record_tournament_failure(self, error: str) -> None:
+        """Record a failed tournament."""
+        self.record_evaluation_failure(error)
+
+    def record_event_trigger(self) -> None:
+        """Record an event trigger."""
+        self.event_triggers += 1
+        self.evaluations_triggered += 1
 
 
 class TournamentDaemon:

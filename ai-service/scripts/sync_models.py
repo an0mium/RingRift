@@ -630,6 +630,9 @@ def sync_model_to_host(
         if host.ssh_port and int(host.ssh_port) != 22:
             ssh_opts.extend(["-p", str(int(host.ssh_port))])
 
+        # Dec 2025: Get bandwidth limit from centralized config
+        bwlimit_kbs = get_node_bandwidth_kbs(host.name)
+
         rsync_cmd = [
             "rsync", "-avz", "--progress",
             "--partial",                    # Keep partial transfers
@@ -637,6 +640,7 @@ def sync_model_to_host(
             "--delay-updates",              # Atomic: put files in place at end
             "--checksum",                   # Verify integrity after transfer
             "--timeout=60",                 # Per-file I/O timeout (60s stall)
+            f"--bwlimit={bwlimit_kbs}",     # Dec 2025: Enforce bandwidth limit
             "-e", f"ssh {' '.join(ssh_opts)}",
             str(local_path),
             f"{host.ssh_target}:{remote_dir}",

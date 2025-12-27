@@ -770,3 +770,61 @@ class TrainingCoordinator:
             return False, trigger_hash
 
         return True, trigger_hash
+
+    # =========================================================================
+    # Health Check (December 2025)
+    # =========================================================================
+
+    def health_check(self) -> dict[str, Any]:
+        """Check health status of TrainingCoordinator.
+
+        Returns:
+            Dict with status, training metrics, and error info
+        """
+        status = "healthy"
+        errors_count = 0
+        last_error: str | None = None
+
+        # Check training jobs
+        running_jobs = 0
+        failed_jobs = 0
+        total_jobs = 0
+
+        if self._get_training_jobs:
+            training_jobs = self._get_training_jobs()
+            for job in training_jobs.values():
+                total_jobs += 1
+                job_status = getattr(job, "status", "unknown")
+                if job_status in ("running", "queued"):
+                    running_jobs += 1
+                elif job_status == "failed":
+                    failed_jobs += 1
+                    errors_count += 1
+
+        # Check failure rate
+        if total_jobs > 0:
+            failure_rate = failed_jobs / total_jobs
+            if failure_rate > 0.5:
+                status = "unhealthy"
+                last_error = f"High training job failure rate: {failure_rate:.0%}"
+            elif failure_rate > 0.2:
+                status = "degraded"
+                last_error = f"Elevated training job failure rate: {failure_rate:.0%}"
+
+        # Check trigger cache size (if too large, may indicate stuck triggers)
+        cache_size = len(self._training_trigger_cache)
+        if cache_size > 100:
+            if status == "healthy":
+                status = "degraded"
+                last_error = f"Large trigger cache ({cache_size} entries)"
+
+        return {
+            "status": status,
+            "operations_count": total_jobs,
+            "errors_count": errors_count,
+            "last_error": last_error,
+            "running_jobs": running_jobs,
+            "failed_jobs": failed_jobs,
+            "total_jobs": total_jobs,
+            "trigger_cache_size": cache_size,
+        }

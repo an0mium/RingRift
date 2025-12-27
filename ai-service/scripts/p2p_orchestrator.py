@@ -258,7 +258,11 @@ def get_loop_manager() -> "LoopManager | None":
             from scripts.p2p.loops import LoopManager
             _loop_manager_instance = LoopManager(name="p2p_loops")
             logger.info("LoopManager: initialized for extracted background loops")
-        except Exception as e:  # noqa: BLE001
+        except (ImportError, TypeError, ValueError, AttributeError) as e:
+            # ImportError: loops module not available
+            # TypeError: wrong constructor signature
+            # ValueError: invalid argument
+            # AttributeError: LoopManager not found in module
             logger.error(f"LoopManager: failed to initialize: {e}")
             return None
     return _loop_manager_instance
@@ -352,7 +356,11 @@ async def _emit_p2p_host_offline(node_id: str, reason: str = "timeout", last_see
             source="p2p_orchestrator",
         )
         logger.debug(f"[P2P Event] Emitted HOST_OFFLINE for {node_id}")
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_router not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit HOST_OFFLINE: {e}")
 
 
@@ -374,7 +382,11 @@ async def _emit_p2p_host_online(node_id: str, capabilities: list[str] | None = N
             source="p2p_orchestrator",
         )
         logger.debug(f"[P2P Event] Emitted HOST_ONLINE for {node_id}")
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_router not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit HOST_ONLINE: {e}")
 
 
@@ -396,7 +408,11 @@ async def _emit_p2p_leader_elected(leader_id: str, term: int = 0) -> None:
             source="p2p_orchestrator",
         )
         logger.info(f"[P2P Event] Emitted LEADER_ELECTED for {leader_id}")
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_router not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit LEADER_ELECTED: {e}")
 
 
@@ -421,7 +437,11 @@ async def _emit_p2p_leader_lost(old_leader_id: str, reason: str = "") -> None:
             source="p2p_orchestrator",
         )
         logger.info(f"[P2P Event] Emitted LEADER_LOST for {old_leader_id} (reason: {reason})")
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_router not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit LEADER_LOST: {e}")
 
 
@@ -512,7 +532,11 @@ async def _emit_p2p_node_dead(
             source="p2p_orchestrator",
         )
         logger.info(f"[P2P Event] Emitted P2P_NODE_DEAD for {node_id} (reason: {reason})")
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_emitters not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit P2P_NODE_DEAD: {e}")
 
 
@@ -578,7 +602,11 @@ async def _emit_cluster_capacity_changed(
                 f"[P2P Event] Emitted CLUSTER_CAPACITY_CHANGED: {change_type} "
                 f"node={node_id}, total={total_nodes}, gpu={gpu_nodes}"
             )
-    except Exception as e:  # noqa: BLE001
+    except (ImportError, AttributeError, RuntimeError, TypeError) as e:
+        # ImportError: event_router not available
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit CLUSTER_CAPACITY_CHANGED: {e}")
 
 
@@ -634,7 +662,10 @@ async def _emit_task_abandoned(
         logger.debug(f"[P2P Event] Emitted TASK_ABANDONED for {task_id}")
     except ImportError:
         pass  # Event emitters not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit TASK_ABANDONED: {e}")
 
 
@@ -665,7 +696,10 @@ async def _emit_data_sync_started(
         logger.debug(f"[P2P Event] Emitted DATA_SYNC_STARTED for {host} ({sync_type})")
     except ImportError:
         pass  # Data events module not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit DATA_SYNC_STARTED: {e}")
 
 
@@ -705,7 +739,10 @@ async def _emit_data_sync_completed(
         )
     except ImportError:
         pass  # Data events module not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit DATA_SYNC_COMPLETED: {e}")
 
 
@@ -742,7 +779,10 @@ async def _emit_data_sync_failed(
         )
     except ImportError:
         pass  # Data events module not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit DATA_SYNC_FAILED: {e}")
 
 
@@ -776,7 +816,10 @@ async def _emit_model_distribution_started(
         )
     except ImportError:
         pass  # Data events module not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit MODEL_DISTRIBUTION_STARTED: {e}")
 
 
@@ -816,7 +859,10 @@ async def _emit_model_distribution_complete(
         )
     except ImportError:
         pass  # Data events module not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit MODEL_DISTRIBUTION_COMPLETE: {e}")
 
 
@@ -850,7 +896,10 @@ async def _emit_model_distribution_failed(
         )
     except ImportError:
         pass  # Data events module not available
-    except Exception as e:  # noqa: BLE001
+    except (AttributeError, RuntimeError, TypeError) as e:
+        # AttributeError: emit function doesn't exist
+        # RuntimeError: event bus not initialized
+        # TypeError: wrong function signature
         logger.debug(f"[P2P Event] Failed to emit MODEL_DISTRIBUTION_FAILED: {e}")
 
 

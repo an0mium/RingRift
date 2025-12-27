@@ -1127,60 +1127,82 @@ class SelfplayScheduler:
             from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
-            if bus:
-                bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-                bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
-                bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
-                # Phase 5: Subscribe to feedback events
-                bus.subscribe(DataEventType.SELFPLAY_TARGET_UPDATED, self._on_selfplay_target_updated)
-                bus.subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded)
-                # Phase 4A.1: Subscribe to curriculum rebalancing (December 2025)
-                bus.subscribe(DataEventType.CURRICULUM_REBALANCED, self._on_curriculum_rebalanced)
-                # P0.1 (Dec 2025): Subscribe to SELFPLAY_RATE_CHANGED from FeedbackAccelerator
-                bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
-                # P1.1 (Dec 2025): Subscribe to TRAINING_BLOCKED_BY_QUALITY for selfplay acceleration
-                bus.subscribe(DataEventType.TRAINING_BLOCKED_BY_QUALITY, self._on_training_blocked_by_quality)
-                # P1.4 (Dec 2025): Subscribe to OPPONENT_MASTERED for curriculum advancement
-                if hasattr(DataEventType, 'OPPONENT_MASTERED'):
-                    bus.subscribe(DataEventType.OPPONENT_MASTERED, self._on_opponent_mastered)
-                # P10-LOOP-1 (Dec 2025): Subscribe to TRAINING_EARLY_STOPPED for selfplay boost
-                if hasattr(DataEventType, 'TRAINING_EARLY_STOPPED'):
-                    bus.subscribe(DataEventType.TRAINING_EARLY_STOPPED, self._on_training_early_stopped)
-                # P10-LOOP-3 (Dec 2025): Subscribe to ELO_VELOCITY_CHANGED for selfplay rate adjustment
-                if hasattr(DataEventType, 'ELO_VELOCITY_CHANGED'):
-                    bus.subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
-                # P11-CRITICAL-1 (Dec 2025): Subscribe to EXPLORATION_BOOST for training anomaly feedback
-                if hasattr(DataEventType, 'EXPLORATION_BOOST'):
-                    bus.subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost)
-                # Wire orphaned event: Subscribe to LOW_QUALITY_DATA_WARNING for selfplay throttling
-                if hasattr(DataEventType, 'LOW_QUALITY_DATA_WARNING'):
-                    bus.subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, self._on_low_quality_warning)
+            if not bus:
+                logger.warning("[SelfplayScheduler] No event bus available, skipping subscriptions")
+                return
 
-                # December 2025: Subscribe to P2P cluster health events (Critical Gap Fix)
-                # Prevents allocating selfplay to unhealthy/failing nodes
-                if hasattr(DataEventType, 'NODE_UNHEALTHY'):
-                    bus.subscribe(DataEventType.NODE_UNHEALTHY, self._on_node_unhealthy)
-                if hasattr(DataEventType, 'NODE_RECOVERED'):
-                    bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
-                if hasattr(DataEventType, 'P2P_NODE_DEAD'):
-                    bus.subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_unhealthy)
-                if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
-                    bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_cluster_unhealthy)
-                if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
-                    bus.subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy)
-                # December 2025: Subscribe to HOST_OFFLINE for P2P peer retirement
-                # This triggers when orchestrator retires a peer after ~300s timeout
-                if hasattr(DataEventType, 'HOST_OFFLINE'):
-                    bus.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline)
+            # Dec 2025: Use per-subscription error handling to ensure one failure
+            # doesn't prevent other subscriptions from being registered
+            subscribed_count = 0
+            failed_count = 0
 
-                self._subscribed = True
+            def _safe_subscribe(event_type, handler, name: str) -> bool:
+                """Subscribe with individual error handling."""
+                nonlocal subscribed_count, failed_count
+                try:
+                    if hasattr(DataEventType, event_type.__name__ if hasattr(event_type, '__name__') else str(event_type)):
+                        bus.subscribe(event_type, handler)
+                        subscribed_count += 1
+                        return True
+                    return False
+                except Exception as e:
+                    failed_count += 1
+                    logger.warning(f"[SelfplayScheduler] Failed to subscribe to {name}: {e}")
+                    return False
+
+            # Core subscriptions (always attempt)
+            _safe_subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete, "SELFPLAY_COMPLETE")
+            _safe_subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete, "TRAINING_COMPLETED")
+            _safe_subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete, "MODEL_PROMOTED")
+            # Phase 5: Subscribe to feedback events
+            _safe_subscribe(DataEventType.SELFPLAY_TARGET_UPDATED, self._on_selfplay_target_updated, "SELFPLAY_TARGET_UPDATED")
+            _safe_subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded, "QUALITY_DEGRADED")
+            # Phase 4A.1: Subscribe to curriculum rebalancing (December 2025)
+            _safe_subscribe(DataEventType.CURRICULUM_REBALANCED, self._on_curriculum_rebalanced, "CURRICULUM_REBALANCED")
+            # P0.1 (Dec 2025): Subscribe to SELFPLAY_RATE_CHANGED from FeedbackAccelerator
+            _safe_subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed, "SELFPLAY_RATE_CHANGED")
+            # P1.1 (Dec 2025): Subscribe to TRAINING_BLOCKED_BY_QUALITY for selfplay acceleration
+            _safe_subscribe(DataEventType.TRAINING_BLOCKED_BY_QUALITY, self._on_training_blocked_by_quality, "TRAINING_BLOCKED_BY_QUALITY")
+
+            # Optional subscriptions (graceful degradation if event type doesn't exist)
+            if hasattr(DataEventType, 'OPPONENT_MASTERED'):
+                _safe_subscribe(DataEventType.OPPONENT_MASTERED, self._on_opponent_mastered, "OPPONENT_MASTERED")
+            if hasattr(DataEventType, 'TRAINING_EARLY_STOPPED'):
+                _safe_subscribe(DataEventType.TRAINING_EARLY_STOPPED, self._on_training_early_stopped, "TRAINING_EARLY_STOPPED")
+            if hasattr(DataEventType, 'ELO_VELOCITY_CHANGED'):
+                _safe_subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed, "ELO_VELOCITY_CHANGED")
+            if hasattr(DataEventType, 'EXPLORATION_BOOST'):
+                _safe_subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost, "EXPLORATION_BOOST")
+            if hasattr(DataEventType, 'LOW_QUALITY_DATA_WARNING'):
+                _safe_subscribe(DataEventType.LOW_QUALITY_DATA_WARNING, self._on_low_quality_warning, "LOW_QUALITY_DATA_WARNING")
+
+            # P2P cluster health events (December 2025)
+            if hasattr(DataEventType, 'NODE_UNHEALTHY'):
+                _safe_subscribe(DataEventType.NODE_UNHEALTHY, self._on_node_unhealthy, "NODE_UNHEALTHY")
+            if hasattr(DataEventType, 'NODE_RECOVERED'):
+                _safe_subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered, "NODE_RECOVERED")
+            if hasattr(DataEventType, 'P2P_NODE_DEAD'):
+                _safe_subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_unhealthy, "P2P_NODE_DEAD")
+            if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
+                _safe_subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_cluster_unhealthy, "P2P_CLUSTER_UNHEALTHY")
+            if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
+                _safe_subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy, "P2P_CLUSTER_HEALTHY")
+            if hasattr(DataEventType, 'HOST_OFFLINE'):
+                _safe_subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline, "HOST_OFFLINE")
+
+            self._subscribed = subscribed_count > 0
+            if self._subscribed:
                 logger.info(
-                    "[SelfplayScheduler] Subscribed to pipeline events "
-                    "(including P2P health: NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_*, HOST_OFFLINE)"
+                    f"[SelfplayScheduler] Subscribed to {subscribed_count} pipeline events "
+                    f"(failed: {failed_count}, includes P2P health events)"
                 )
+            else:
+                logger.warning("[SelfplayScheduler] No subscriptions succeeded, reactive scheduling disabled")
 
+        except ImportError as e:
+            logger.warning(f"[SelfplayScheduler] Event router unavailable: {e}")
         except Exception as e:
-            logger.warning(f"[SelfplayScheduler] Failed to subscribe to events (reactive scheduling disabled): {e}")
+            logger.warning(f"[SelfplayScheduler] Failed to subscribe to events: {e}")
 
     def _on_selfplay_complete(self, event: Any) -> None:
         """Handle selfplay completion event."""

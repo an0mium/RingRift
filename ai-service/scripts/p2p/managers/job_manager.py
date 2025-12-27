@@ -1116,3 +1116,52 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
                         del self.active_jobs[job_type][job_id]
                         cleaned += 1
         return cleaned
+
+    # =========================================================================
+    # Health Check (December 2025)
+    # =========================================================================
+
+    def health_check(self) -> dict[str, Any]:
+        """Check health status of JobManager.
+
+        Returns:
+            Dict with status, job counts, and error info
+        """
+        status = "healthy"
+        errors_count = 0
+        last_error: str | None = None
+        total_jobs = 0
+        failed_jobs = 0
+        running_jobs = 0
+
+        with self.jobs_lock:
+            for job_type, jobs in self.active_jobs.items():
+                for job_id, job in jobs.items():
+                    total_jobs += 1
+                    job_status = job.get("status") if isinstance(job, dict) else getattr(job, "status", "running")
+                    if job_status == "running":
+                        running_jobs += 1
+                    elif job_status in ("failed", "error", "timeout"):
+                        failed_jobs += 1
+
+        # Degrade status if high failure rate
+        if total_jobs > 0:
+            failure_rate = failed_jobs / total_jobs
+            if failure_rate > 0.5:
+                status = "unhealthy"
+                last_error = f"High job failure rate: {failure_rate:.0%}"
+                errors_count = failed_jobs
+            elif failure_rate > 0.2:
+                status = "degraded"
+                last_error = f"Elevated job failure rate: {failure_rate:.0%}"
+                errors_count = failed_jobs
+
+        return {
+            "status": status,
+            "operations_count": total_jobs,
+            "errors_count": errors_count,
+            "last_error": last_error,
+            "running_jobs": running_jobs,
+            "failed_jobs": failed_jobs,
+            "job_types": list(self.active_jobs.keys()),
+        }

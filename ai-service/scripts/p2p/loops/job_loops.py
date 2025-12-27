@@ -5,6 +5,8 @@ December 2025: Background loops for job lifecycle management.
 Loops:
 - JobReaperLoop: Cleans up stale/stuck jobs
 - IdleDetectionLoop: Detects idle nodes for potential shutdown
+- WorkerPullLoop: Workers poll leader for work (pull model)
+- WorkQueueMaintenanceLoop: Leader maintains work queue (cleanup, timeouts)
 
 Usage:
     from scripts.p2p.loops import JobReaperLoop, IdleDetectionLoop
@@ -299,9 +301,245 @@ class IdleDetectionLoop(BaseLoop):
         }
 
 
+@dataclass
+class WorkerPullConfig:
+    """Configuration for worker pull loop."""
+
+    pull_interval_seconds: float = 30.0
+    gpu_idle_threshold_percent: float = 15.0
+    cpu_idle_threshold_percent: float = 30.0
+    initial_delay_seconds: float = 30.0
+
+
+class WorkerPullLoop(BaseLoop):
+    """Background loop for workers to poll leader for work (pull model).
+
+    This implements a worker pull model where nodes periodically check
+    if they are idle and pull work from the leader's work queue.
+
+    Benefits:
+    - Workers claim work at their own pace
+    - Naturally load balances across the cluster
+    - Works with NAT-blocked nodes (they initiate connections)
+    - No need to track worker connectivity for pushing
+
+    Only runs on non-leader nodes.
+    """
+
+    def __init__(
+        self,
+        is_leader: Callable[[], bool],
+        get_leader_id: Callable[[], str | None],
+        get_self_metrics: Callable[[], dict[str, Any]],
+        claim_work_from_leader: Callable[[list[str]], Coroutine[Any, Any, dict[str, Any] | None]],
+        execute_work: Callable[[dict[str, Any]], Coroutine[Any, Any, bool]],
+        report_work_result: Callable[[dict[str, Any], bool], Coroutine[Any, Any, None]],
+        get_allowed_work_types: Callable[[], list[str]] | None = None,
+        config: WorkerPullConfig | None = None,
+    ):
+        """Initialize worker pull loop.
+
+        Args:
+            is_leader: Callback returning True if this node is leader
+            get_leader_id: Callback returning current leader node ID
+            get_self_metrics: Callback returning self node metrics (gpu_percent, cpu_percent, etc.)
+            claim_work_from_leader: Async callback to claim work from leader
+            execute_work: Async callback to execute claimed work
+            report_work_result: Async callback to report work completion/failure
+            get_allowed_work_types: Optional callback returning allowed work types
+            config: Loop configuration
+        """
+        self.config = config or WorkerPullConfig()
+        super().__init__(
+            name="worker_pull",
+            interval=self.config.pull_interval_seconds,
+        )
+        self._is_leader = is_leader
+        self._get_leader_id = get_leader_id
+        self._get_self_metrics = get_self_metrics
+        self._claim_work = claim_work_from_leader
+        self._execute_work = execute_work
+        self._report_result = report_work_result
+        self._get_allowed_work_types = get_allowed_work_types
+
+        # Statistics
+        self._work_claimed = 0
+        self._work_completed = 0
+        self._work_failed = 0
+        self._skipped_leader = 0
+        self._skipped_busy = 0
+
+    async def _on_start(self) -> None:
+        """Initial delay for cluster stabilization."""
+        logger.info("Worker pull loop starting...")
+        await asyncio.sleep(self.config.initial_delay_seconds)
+        logger.info("Worker pull loop started")
+
+    async def _run_once(self) -> None:
+        """Check if idle and pull work from leader."""
+        # Skip if we are the leader (leader pushes, doesn't pull)
+        if self._is_leader():
+            self._skipped_leader += 1
+            return
+
+        # Skip if no leader known
+        leader_id = self._get_leader_id()
+        if not leader_id:
+            return
+
+        # Check if we're idle enough to take on work
+        metrics = self._get_self_metrics()
+        gpu_percent = float(metrics.get("gpu_percent", 0) or 0)
+        cpu_percent = float(metrics.get("cpu_percent", 0) or 0)
+        training_jobs = int(metrics.get("training_jobs", 0) or 0)
+        has_gpu = bool(metrics.get("has_gpu", False))
+
+        # Don't pull work if already running training
+        if training_jobs > 0:
+            self._skipped_busy += 1
+            return
+
+        # Check if we're actually idle
+        if has_gpu:
+            is_idle = gpu_percent < self.config.gpu_idle_threshold_percent
+        else:
+            is_idle = cpu_percent < self.config.cpu_idle_threshold_percent
+
+        if not is_idle:
+            self._skipped_busy += 1
+            return
+
+        # Get allowed work types
+        capabilities = ["selfplay", "training", "gpu_cmaes", "tournament"]
+        if self._get_allowed_work_types:
+            try:
+                capabilities = self._get_allowed_work_types()
+            except Exception:
+                pass
+
+        # Try to claim work from the leader
+        work_item = await self._claim_work(capabilities)
+        if work_item:
+            self._work_claimed += 1
+            work_id = work_item.get("work_id", "unknown")
+            work_type = work_item.get("work_type", "unknown")
+            logger.info(f"[WorkerPull] Claimed work {work_id}: {work_type}")
+
+            # Execute the work
+            try:
+                success = await self._execute_work(work_item)
+                if success:
+                    self._work_completed += 1
+                else:
+                    self._work_failed += 1
+
+                # Report completion/failure
+                await self._report_result(work_item, success)
+            except Exception as e:
+                self._work_failed += 1
+                logger.error(f"[WorkerPull] Error executing work {work_id}: {e}")
+                await self._report_result(work_item, False)
+
+    def get_pull_stats(self) -> dict[str, Any]:
+        """Get worker pull statistics."""
+        return {
+            "work_claimed": self._work_claimed,
+            "work_completed": self._work_completed,
+            "work_failed": self._work_failed,
+            "skipped_leader": self._skipped_leader,
+            "skipped_busy": self._skipped_busy,
+            **self.stats.to_dict(),
+        }
+
+
+@dataclass
+class WorkQueueMaintenanceConfig:
+    """Configuration for work queue maintenance loop."""
+
+    maintenance_interval_seconds: float = 300.0  # 5 minutes
+    cleanup_age_seconds: float = 86400.0  # 24 hours
+    initial_delay_seconds: float = 60.0
+
+
+class WorkQueueMaintenanceLoop(BaseLoop):
+    """Background loop for leader to maintain the work queue.
+
+    Runs periodically to:
+    - Check for timed out work items
+    - Clean up old completed items from the database
+
+    Only runs on the leader node.
+    """
+
+    def __init__(
+        self,
+        is_leader: Callable[[], bool],
+        get_work_queue: Callable[[], Any],
+        config: WorkQueueMaintenanceConfig | None = None,
+    ):
+        """Initialize work queue maintenance loop.
+
+        Args:
+            is_leader: Callback returning True if this node is leader
+            get_work_queue: Callback returning work queue instance
+            config: Loop configuration
+        """
+        self.config = config or WorkQueueMaintenanceConfig()
+        super().__init__(
+            name="work_queue_maintenance",
+            interval=self.config.maintenance_interval_seconds,
+        )
+        self._is_leader = is_leader
+        self._get_work_queue = get_work_queue
+
+        # Statistics
+        self._timeouts_processed = 0
+        self._items_cleaned = 0
+
+    async def _on_start(self) -> None:
+        """Initial delay before starting maintenance."""
+        logger.info("Work queue maintenance loop starting...")
+        await asyncio.sleep(self.config.initial_delay_seconds)
+        logger.info("Work queue maintenance loop started")
+
+    async def _run_once(self) -> None:
+        """Perform work queue maintenance."""
+        # Only leader performs maintenance
+        if not self._is_leader():
+            return
+
+        wq = self._get_work_queue()
+        if wq is None:
+            return
+
+        # Check for timeouts
+        timed_out = wq.check_timeouts()
+        if timed_out:
+            self._timeouts_processed += len(timed_out)
+            logger.info(f"[WorkQueueMaintenance] {len(timed_out)} items timed out")
+
+        # Cleanup old items
+        removed = wq.cleanup_old_items(max_age_seconds=self.config.cleanup_age_seconds)
+        if removed:
+            self._items_cleaned += removed
+            logger.info(f"[WorkQueueMaintenance] Cleaned up {removed} old items")
+
+    def get_maintenance_stats(self) -> dict[str, Any]:
+        """Get maintenance statistics."""
+        return {
+            "timeouts_processed": self._timeouts_processed,
+            "items_cleaned": self._items_cleaned,
+            **self.stats.to_dict(),
+        }
+
+
 __all__ = [
     "IdleDetectionConfig",
     "IdleDetectionLoop",
     "JobReaperConfig",
     "JobReaperLoop",
+    "WorkerPullConfig",
+    "WorkerPullLoop",
+    "WorkQueueMaintenanceConfig",
+    "WorkQueueMaintenanceLoop",
 ]

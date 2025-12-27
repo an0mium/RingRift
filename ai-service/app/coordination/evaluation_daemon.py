@@ -226,10 +226,12 @@ class EvaluationDaemon:
             bus = get_event_bus()
             if bus:
                 bus.unsubscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
-            self._subscribed = False
 
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Error unsubscribing: {e}")
+        finally:
+            # Dec 2025: Always reset _subscribed to allow re-subscription after restart
+            self._subscribed = False
 
     def _compute_event_hash(self, model_path: str, board_type: str, num_players: int) -> str:
         """Compute a content hash for deduplication.

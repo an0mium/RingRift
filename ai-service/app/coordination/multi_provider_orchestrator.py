@@ -40,7 +40,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from app.config.cluster_config import get_host_provider
+from app.config.cluster_config import get_cluster_nodes, get_host_provider
 
 logger = logging.getLogger(__name__)
 
@@ -398,34 +398,34 @@ class MultiProviderOrchestrator:
         return nodes
 
     async def _discover_hosts_from_config(self) -> list[ClusterNode]:
-        """Load configured hosts from distributed_hosts.yaml."""
+        """Load configured hosts from distributed_hosts.yaml.
+
+        Dec 2025: Updated to use get_cluster_nodes() from cluster_config
+        instead of inline YAML parsing.
+        """
         nodes = []
-        config_path = Path(__file__).parents[2] / "config" / "distributed_hosts.yaml"
 
         try:
-            import yaml
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
+            # Dec 2025: Use consolidated cluster_config helper
+            config_nodes = get_cluster_nodes()
 
-            hosts = config.get("hosts", {})
-            for name, host_config in hosts.items():
+            for name, cfg_node in config_nodes.items():
                 provider = self._detect_provider(name)
-                gpu_name = host_config.get("gpu")
-                gpu_count = host_config.get("gpu_count", 1)
-                cpu_cores = host_config.get("cpus", 0)
-                memory_gb = host_config.get("memory_gb", 0)
-                gpu_memory_gb = host_config.get("gpu_vram_gb", 0)
+                gpu_name = cfg_node.gpu
+                gpu_count = 1  # Default, cluster_config doesn't track count
+                cpu_cores = 0  # Not in cluster_config
+                memory_gb = 0  # Not in cluster_config
+                gpu_memory_gb = cfg_node.gpu_vram_gb or 0
 
-                status = str(host_config.get("status", "")).lower()
-                is_online = status in {"ready", "online", "running", "active"}
+                is_online = cfg_node.is_active
 
                 node = ClusterNode(
                     name=name,
                     provider=provider,
-                    tailscale_ip=host_config.get("tailscale_ip"),
-                    ssh_host=host_config.get("ssh_host"),
-                    ssh_port=host_config.get("ssh_port", 22),
-                    ssh_user=host_config.get("ssh_user", "ubuntu"),
+                    tailscale_ip=cfg_node.tailscale_ip,
+                    ssh_host=cfg_node.ssh_host,
+                    ssh_port=cfg_node.ssh_port or 22,
+                    ssh_user=cfg_node.ssh_user or "ubuntu",
                     gpu_name=gpu_name,
                     gpu_count=gpu_count,
                     gpu_memory_gb=gpu_memory_gb,
@@ -457,7 +457,7 @@ class MultiProviderOrchestrator:
 
                 nodes.append(node)
 
-            logger.info(f"[Config] Loaded {len(nodes)} nodes from distributed_hosts.yaml")
+            logger.info(f"[Config] Loaded {len(nodes)} nodes via cluster_config")
 
         except Exception as e:
             logger.error(f"[Config] Config load error: {e}")

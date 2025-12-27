@@ -526,43 +526,56 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
             logger.warning(f"[SyncCoordinator] Failed to save state: {e}")
 
     def _load_host_config(self) -> None:
-        """Load host configuration from YAML."""
+        """Load host configuration from cluster config.
+
+        December 2025: Migrated from inline YAML parsing to use cluster_config helpers.
+        """
         try:
-            import yaml
-            if HOST_CONFIG_PATH.exists():
-                with open(HOST_CONFIG_PATH) as f:
-                    config = yaml.safe_load(f)
+            from app.config.cluster_config import get_cluster_nodes
 
-                # Add standard hosts (dict format: {host_name: {config...}})
-                standard_hosts = config.get("standard_hosts", {})
-                if isinstance(standard_hosts, dict):
-                    for host_name, host_config in standard_hosts.items():
-                        if host_name and host_name not in self._host_states:
-                            host_type = HostType.PERSISTENT
-                            if "vast" in host_name.lower():
-                                host_type = HostType.EPHEMERAL
-                            self._host_states[host_name] = HostDataState(
-                                host=host_name,
-                                host_type=host_type,
-                                metadata=host_config if isinstance(host_config, dict) else {},
-                            )
+            nodes = get_cluster_nodes()
+            standard_count = 0
+            ephemeral_count = 0
 
-                # Add vast hosts (ephemeral) - also dict format
-                vast_hosts = config.get("vast_hosts", {})
-                if isinstance(vast_hosts, dict):
-                    for host_name, host_config in vast_hosts.items():
-                        if host_name and host_name not in self._host_states:
-                            self._host_states[host_name] = HostDataState(
-                                host=host_name,
-                                host_type=HostType.EPHEMERAL,
-                                metadata=host_config if isinstance(host_config, dict) else {},
-                            )
+            for node_name, node in nodes.items():
+                if not node_name or node_name in self._host_states:
+                    continue
 
-                standard_count = len(standard_hosts) if isinstance(standard_hosts, dict) else 0
-                vast_count = len(vast_hosts) if isinstance(vast_hosts, dict) else 0
-                logger.info(f"[SyncCoordinator] Loaded {standard_count} standard hosts, "
-                           f"{vast_count} vast hosts from config")
-        except Exception as e:
+                # Determine host type from provider
+                provider = node.provider.lower() if node.provider else ""
+                is_ephemeral = provider in ("vast", "runpod") or "vast" in node_name.lower()
+                host_type = HostType.EPHEMERAL if is_ephemeral else HostType.PERSISTENT
+
+                # Build metadata from ClusterNode attributes
+                metadata = {
+                    "tailscale_ip": node.tailscale_ip,
+                    "ssh_host": node.ssh_host,
+                    "ssh_user": node.ssh_user,
+                    "ssh_port": node.ssh_port,
+                    "gpu": node.gpu,
+                    "status": node.status,
+                    "role": node.role,
+                    "provider": provider,
+                }
+
+                self._host_states[node_name] = HostDataState(
+                    host=node_name,
+                    host_type=host_type,
+                    metadata=metadata,
+                )
+
+                if is_ephemeral:
+                    ephemeral_count += 1
+                else:
+                    standard_count += 1
+
+            logger.info(
+                f"[SyncCoordinator] Loaded {standard_count} persistent hosts, "
+                f"{ephemeral_count} ephemeral hosts from cluster config"
+            )
+        except ImportError as e:
+            logger.warning(f"[SyncCoordinator] cluster_config not available: {e}")
+        except (OSError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[SyncCoordinator] Failed to load host config: {e}")
 
     # =========================================================================

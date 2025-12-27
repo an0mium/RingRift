@@ -54,6 +54,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# December 2025: Use consolidated daemon stats base classes
+from app.coordination.daemon_stats import DaemonStatsBase, JobDaemonStats
+
 __all__ = [
     "UnifiedReplicationDaemon",
     "UnifiedReplicationConfig",
@@ -108,16 +111,37 @@ class ReplicationAlert:
 
 
 @dataclass
-class ReplicationStats:
-    """Statistics about replication health."""
+class ReplicationStats(DaemonStatsBase):
+    """Statistics about replication health.
+
+    December 2025: Now extends DaemonStatsBase for consistent tracking.
+    Inherits: operations_attempted, operations_completed, operations_failed,
+              is_healthy(), to_dict(), etc.
+    """
+
+    # Replication-specific monitoring fields
     total_games: int = 0
     under_replicated_games: int = 0
     single_copy_games: int = 0
     zero_copy_games: int = 0
     avg_replication_factor: float = 0.0
     nodes_with_data: int = 0
-    last_check_time: float = 0.0
     check_duration_seconds: float = 0.0
+
+    # Note: last_check_time is inherited from DaemonStatsBase
+
+    def record_check(self, duration: float, total_games: int, under_replicated: int,
+                     single_copy: int, zero_copy: int, avg_factor: float, nodes: int) -> None:
+        """Record a replication health check."""
+        self.record_attempt()
+        self.record_success(duration_seconds=duration)
+        self.check_duration_seconds = duration
+        self.total_games = total_games
+        self.under_replicated_games = under_replicated
+        self.single_copy_games = single_copy
+        self.zero_copy_games = zero_copy
+        self.avg_replication_factor = avg_factor
+        self.nodes_with_data = nodes
 
 
 @dataclass
@@ -137,15 +161,64 @@ class RepairJob:
 
 
 @dataclass
-class RepairStats:
-    """Statistics about repair operations."""
-    total_repairs_attempted: int = 0
-    total_repairs_successful: int = 0
-    total_repairs_failed: int = 0
+class RepairStats(JobDaemonStats):
+    """Statistics about repair operations.
+
+    December 2025: Now extends JobDaemonStats for consistent tracking.
+    Inherits: jobs_processed, jobs_succeeded, jobs_failed, jobs_timed_out,
+              avg_duration_seconds, last_success_time, record_job_success(), etc.
+    """
+
+    # Repair-specific fields
     active_repairs: int = 0
     queued_repairs: int = 0
-    last_repair_time: float = 0.0
-    avg_repair_duration_seconds: float = 0.0
+
+    # Backward-compatible aliases
+    @property
+    def total_repairs_attempted(self) -> int:
+        """Alias for jobs_processed."""
+        return self.jobs_processed
+
+    @property
+    def total_repairs_successful(self) -> int:
+        """Alias for jobs_succeeded."""
+        return self.jobs_succeeded
+
+    @property
+    def total_repairs_failed(self) -> int:
+        """Alias for jobs_failed."""
+        return self.jobs_failed
+
+    @property
+    def last_repair_time(self) -> float:
+        """Alias for last_success_time."""
+        return self.last_success_time
+
+    @property
+    def avg_repair_duration_seconds(self) -> float:
+        """Alias for avg_duration_seconds."""
+        return self.avg_duration_seconds
+
+    # Convenience methods
+    def record_repair_start(self) -> None:
+        """Record the start of a repair operation."""
+        self.active_repairs += 1
+
+    def record_repair_success(self, duration: float) -> None:
+        """Record a successful repair operation."""
+        self.record_job_success(duration_seconds=duration)
+        if self.active_repairs > 0:
+            self.active_repairs -= 1
+
+    def record_repair_failure(self) -> None:
+        """Record a failed repair operation."""
+        self.record_job_failure()
+        if self.active_repairs > 0:
+            self.active_repairs -= 1
+
+    def set_queue_size(self, size: int) -> None:
+        """Update the queued repairs count."""
+        self.queued_repairs = size
 
 
 @dataclass

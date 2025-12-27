@@ -21,13 +21,18 @@ Events Emitted:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Default path for quality state persistence
+DEFAULT_STATE_PATH = Path("data/coordination/quality_monitor_state.json")
 
 __all__ = [
     "QualityState",
@@ -55,6 +60,8 @@ class QualityMonitorConfig:
     significant_change: float = 0.1  # Change threshold for update events
     data_dir: str = "data/games"  # Directory to monitor
     database_pattern: str = "selfplay*.db"  # Database file pattern
+    state_path: Path | None = None  # Path to persist state (None = use default)
+    persist_interval: float = 60.0  # How often to save state (seconds)
 
 
 class QualityMonitorDaemon:
@@ -80,6 +87,13 @@ class QualityMonitorDaemon:
         self._subscribed: bool = False
         # Phase 9: Track per-config quality for targeted checks
         self._config_quality: dict[str, float] = {}
+        # Dec 2025: State persistence
+        self._state_path = self.config.state_path or DEFAULT_STATE_PATH
+        self._last_persist_time: float = 0.0
+        self._quality_history: list[dict[str, Any]] = []  # Rolling history of quality checks
+        self._max_history_size: int = 100  # Keep last 100 quality checks
+        # Load persisted state
+        self._load_state()
 
     async def start(self) -> None:
         """Start the quality monitor daemon."""
@@ -198,9 +212,89 @@ class QualityMonitorDaemon:
         except asyncio.InvalidStateError:
             pass
 
+    def _load_state(self) -> None:
+        """Load persisted quality state from disk (Dec 2025).
+
+        Restores:
+        - Last quality score
+        - Current state
+        - Per-config quality scores
+        - Quality history (rolling window)
+        """
+        try:
+            if not self._state_path.exists():
+                logger.debug(f"No persisted state at {self._state_path}")
+                return
+
+            with open(self._state_path) as f:
+                data = json.load(f)
+
+            self.last_quality = data.get("last_quality", 1.0)
+            state_str = data.get("current_state", "unknown")
+            self.current_state = QualityState(state_str) if state_str else QualityState.UNKNOWN
+            self._config_quality = data.get("config_quality", {})
+            self._quality_history = data.get("quality_history", [])[-self._max_history_size:]
+            self._last_event_time = data.get("last_event_time", 0.0)
+
+            logger.info(
+                f"Loaded quality state: quality={self.last_quality:.3f}, "
+                f"state={self.current_state.value}, history={len(self._quality_history)} entries"
+            )
+
+        except (json.JSONDecodeError, OSError, ValueError) as e:
+            logger.warning(f"Failed to load quality state: {e}")
+
+    def _save_state(self) -> None:
+        """Save quality state to disk (Dec 2025).
+
+        Persists:
+        - Last quality score
+        - Current state
+        - Per-config quality scores
+        - Quality history (rolling window)
+        """
+        try:
+            # Ensure parent directory exists
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+
+            data = {
+                "last_quality": self.last_quality,
+                "current_state": self.current_state.value,
+                "config_quality": self._config_quality,
+                "quality_history": self._quality_history[-self._max_history_size:],
+                "last_event_time": self._last_event_time,
+                "updated_at": time.time(),
+            }
+
+            # Atomic write: write to temp file then rename
+            temp_path = self._state_path.with_suffix(".tmp")
+            with open(temp_path, "w") as f:
+                json.dump(data, f, indent=2)
+            temp_path.rename(self._state_path)
+
+            self._last_persist_time = time.time()
+            logger.debug(f"Saved quality state to {self._state_path}")
+
+        except OSError as e:
+            logger.warning(f"Failed to save quality state: {e}")
+
+    def _add_to_history(self, quality: float, state: QualityState) -> None:
+        """Add a quality check result to the rolling history."""
+        entry = {
+            "timestamp": time.time(),
+            "quality": quality,
+            "state": state.value,
+        }
+        self._quality_history.append(entry)
+        # Trim to max size
+        if len(self._quality_history) > self._max_history_size:
+            self._quality_history = self._quality_history[-self._max_history_size:]
+
     async def stop(self) -> None:
         """Stop the quality monitor daemon."""
         self._running = False
+        # Save state before stopping (Dec 2025)
+        self._save_state()
         if self._task:
             self._task.cancel()
             try:
@@ -237,6 +331,12 @@ class QualityMonitorDaemon:
 
             self.last_quality = quality
             self.current_state = new_state
+
+            # Dec 2025: Add to history and persist periodically
+            self._add_to_history(quality, new_state)
+            now = time.time()
+            if now - self._last_persist_time >= self.config.persist_interval:
+                self._save_state()
 
         except Exception as e:
             logger.error(f"Error checking quality: {e}")
@@ -389,6 +489,60 @@ class QualityMonitorDaemon:
             "current_state": self.current_state.value,
             "config_quality": self._config_quality,
             "check_interval": self.config.check_interval,
+            # Dec 2025: Persistence info
+            "state_path": str(self._state_path),
+            "history_size": len(self._quality_history),
+            "last_persist_time": self._last_persist_time,
+        }
+
+    def get_quality_trend(self, window_size: int = 10) -> dict[str, Any]:
+        """Get quality trend analysis from history (Dec 2025).
+
+        Args:
+            window_size: Number of recent entries to analyze
+
+        Returns:
+            Dict with trend analysis (direction, average, min, max)
+        """
+        if not self._quality_history:
+            return {
+                "trend": "unknown",
+                "samples": 0,
+                "average": self.last_quality,
+                "min": self.last_quality,
+                "max": self.last_quality,
+            }
+
+        recent = self._quality_history[-window_size:]
+        scores = [entry["quality"] for entry in recent]
+
+        avg = sum(scores) / len(scores)
+        min_score = min(scores)
+        max_score = max(scores)
+
+        # Determine trend direction
+        if len(scores) >= 3:
+            first_half = scores[:len(scores)//2]
+            second_half = scores[len(scores)//2:]
+            first_avg = sum(first_half) / len(first_half)
+            second_avg = sum(second_half) / len(second_half)
+            diff = second_avg - first_avg
+
+            if diff > 0.05:
+                trend = "improving"
+            elif diff < -0.05:
+                trend = "degrading"
+            else:
+                trend = "stable"
+        else:
+            trend = "insufficient_data"
+
+        return {
+            "trend": trend,
+            "samples": len(scores),
+            "average": avg,
+            "min": min_score,
+            "max": max_score,
         }
 
     def health_check(self):

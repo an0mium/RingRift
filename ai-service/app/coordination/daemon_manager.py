@@ -185,24 +185,29 @@ class DaemonManager:
         )
 
         # Auto sync (December 2025) - emits 12+ event types including DATA_SYNC_*
+        # CRITICAL: Must depend on DATA_PIPELINE and FEEDBACK_LOOP to ensure
+        # event handlers are subscribed before AUTO_SYNC emits events.
+        # See DAEMON_STARTUP_ORDER in daemon_types.py for rationale.
         self.register_factory(
             DaemonType.AUTO_SYNC,
             self._create_auto_sync,
-            depends_on=[DaemonType.EVENT_ROUTER],
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE, DaemonType.FEEDBACK_LOOP],
         )
 
         # Training node watcher (Phase 6, December 2025) - emits training detection events
+        # Depends on DATA_PIPELINE to ensure sync events are handled
         self.register_factory(
             DaemonType.TRAINING_NODE_WATCHER,
             self._create_training_node_watcher,
-            depends_on=[DaemonType.EVENT_ROUTER],
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE],
         )
 
         # Ephemeral sync for Vast.ai (Phase 4, December 2025) - emits sync events
+        # Depends on DATA_PIPELINE to ensure sync events are handled
         self.register_factory(
             DaemonType.EPHEMERAL_SYNC,
             self._create_ephemeral_sync,
-            depends_on=[DaemonType.EVENT_ROUTER],
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE],
         )
 
         # Replication monitor (December 2025) - emits REPLICATION_ALERT events
@@ -641,6 +646,7 @@ class DaemonManager:
         errors = []
         critical_modules = [
             ("app.coordination.event_router", "Event routing"),
+            ("app.coordination.sync_router", "Sync routing"),
             ("app.coordination.sync_facade", "Sync coordination"),
             ("app.coordination.protocols", "Health check protocols"),
         ]
