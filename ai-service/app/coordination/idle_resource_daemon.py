@@ -124,12 +124,12 @@ class IdleResourceConfig:
     # Reduced from 300s (5min) to 15s for faster detection (Dec 2025)
     check_interval_seconds: int = 15  # 15 seconds (was 5 minutes, then 1 minute)
     idle_threshold_percent: float = 10.0  # <10% GPU utilization
-    # Reduced from 900s (15min) to 120s (2min) for faster spawning (Dec 2025)
-    idle_duration_seconds: int = 120  # 2 minutes before spawning (was 15 minutes)
-    # Base max concurrent spawns (scaled dynamically based on idle nodes)
-    max_concurrent_spawns: int = 4
-    # Maximum absolute cap for spawns (Phase 2B.2 - December 2025)
-    max_spawns_cap: int = 40
+    # Dec 27 2025: Aggressive spawning - 15s idle before spawn (was 2 min)
+    idle_duration_seconds: int = 15  # 15 seconds for 25-50x throughput boost
+    # Dec 27 2025: 10x increase for ML acceleration (was 4)
+    max_concurrent_spawns: int = 40
+    # Dec 27 2025: Scaled up for high-throughput selfplay (was 40)
+    max_spawns_cap: int = 200
     # Board size to GPU memory mapping (GB)
     gpu_memory_thresholds: dict[str, int] = field(default_factory=lambda: {
         "hexagonal_4p": 80,   # Largest board, 4 players
@@ -149,8 +149,8 @@ class IdleResourceConfig:
     # Queue depth thresholds for scaling
     high_queue_depth: int = 20
     medium_queue_depth: int = 10
-    # Queue backpressure threshold (December 2025) - stop spawning above this
-    max_queue_depth: int = 100
+    # Dec 27 2025: Raised for high-throughput selfplay (was 100)
+    max_queue_depth: int = 500
     # Training backlog threshold in hours - stop spawning if too much unprocessed data
     max_pending_training_hours: float = 24.0
     # Dec 26 2025: Max selfplay processes per node before skipping spawns

@@ -202,6 +202,14 @@ class AutoPromotionDaemon:
                 f"{win_rate:.1%} ({games_played} games)"
             )
 
+        # Dec 27, 2025: Extract Elo information from payload
+        elo_improvement = payload.get("elo_improvement", payload.get("elo_delta", 0.0))
+        estimated_elo = payload.get("estimated_elo", payload.get("elo", 0.0))
+        if elo_improvement:
+            candidate.elo_improvement = float(elo_improvement)
+        if estimated_elo:
+            candidate.estimated_elo = float(estimated_elo)
+
         # Check if ready for promotion decision
         await self._check_promotion(candidate)
 

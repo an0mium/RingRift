@@ -2293,10 +2293,11 @@ class DataPipelineOrchestrator:
         try:
             from app.coordination.sync_facade import get_sync_facade
 
+            # December 27, 2025: Use getattr for safe attribute access
+            metadata = getattr(result, "metadata", {}) or {}
+
             # Get config key for logging
-            config_key = None
-            if hasattr(result, "metadata") and result.metadata:
-                config_key = result.metadata.get("config_key")
+            config_key = metadata.get("config_key")
             if not config_key and self._current_board_type and self._current_num_players:
                 config_key = f"{self._current_board_type}_{self._current_num_players}p"
 
@@ -2327,12 +2328,17 @@ class DataPipelineOrchestrator:
         try:
             from app.coordination.sync_facade import get_sync_facade
 
+            # December 27, 2025: Use getattr for safe attribute access
+            metadata = getattr(result, "metadata", {}) or {}
+
             # Get config key
             config_key = None
-            if hasattr(result, "board_type") and hasattr(result, "num_players"):
-                config_key = f"{result.board_type}_{result.num_players}p"
-            elif hasattr(result, "metadata") and result.metadata:
-                config_key = result.metadata.get("config_key")
+            board_type = getattr(result, "board_type", None)
+            num_players = getattr(result, "num_players", None)
+            if board_type and num_players:
+                config_key = f"{board_type}_{num_players}p"
+            elif metadata:
+                config_key = metadata.get("config_key")
             if not config_key and self._current_board_type and self._current_num_players:
                 config_key = f"{self._current_board_type}_{self._current_num_players}p"
 
@@ -2353,11 +2359,14 @@ class DataPipelineOrchestrator:
 
     async def _on_iteration_complete(self, result) -> None:
         """Handle iteration completion."""
-        iteration = result.iteration
+        # December 27, 2025: Handle both RouterEvent and StageCompletionResult
+        result = self._extract_stage_result(result)
+
+        iteration = getattr(result, "iteration", 0)
         if iteration in self._iteration_records:
             record = self._iteration_records[iteration]
             record.end_time = time.time()
-            record.success = result.success
+            record.success = getattr(result, "success", True)
 
             # Move to completed history
             self._completed_iterations.append(record)
