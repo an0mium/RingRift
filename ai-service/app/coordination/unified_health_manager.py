@@ -85,6 +85,23 @@ class ErrorSeverity(Enum):
     CRITICAL = "critical"
 
 
+class SystemHealthLevel(Enum):
+    """System health levels for aggregate scoring."""
+
+    HEALTHY = "healthy"  # 80-100
+    DEGRADED = "degraded"  # 60-79
+    UNHEALTHY = "unhealthy"  # 40-59
+    CRITICAL = "critical"  # 0-39
+
+
+class PipelineState(Enum):
+    """Pipeline operational state."""
+
+    RUNNING = "running"
+    PAUSED = "paused"
+    RECOVERING = "recovering"
+
+
 class RecoveryStatus(Enum):
     """Recovery attempt status."""
 
@@ -228,6 +245,62 @@ class RecoveryConfig:
 
     # Enabled flag
     enabled: bool = True
+
+
+@dataclass
+class SystemHealthConfig:
+    """Configuration for system health monitoring (from system_health_monitor.py)."""
+
+    # Check interval
+    check_interval_seconds: int = 30
+
+    # Health score thresholds
+    healthy_threshold: int = 80
+    degraded_threshold: int = 60
+    unhealthy_threshold: int = 40
+
+    # Pause triggers
+    pause_health_threshold: int = 40
+    pause_node_offline_percent: float = 0.5  # 50%
+    pause_error_burst_count: int = 10
+    pause_error_burst_window: int = 300  # 5 minutes
+
+    # Critical circuits that trigger immediate pause if broken
+    critical_circuits: list[str] = field(
+        default_factory=lambda: ["training", "evaluation", "promotion"]
+    )
+
+    # Resume thresholds (hysteresis)
+    resume_health_threshold: int = 60
+    resume_delay_seconds: int = 120  # Wait 2 min before resuming
+
+    # Expected nodes (0 = auto-discover)
+    expected_nodes: int = 0
+
+    # Component weights for score calculation
+    node_weight: float = 0.40
+    circuit_weight: float = 0.25
+    error_weight: float = 0.20
+    recovery_weight: float = 0.15
+
+
+@dataclass
+class SystemHealthScore:
+    """Aggregate system health score (from system_health_monitor.py)."""
+
+    score: int  # 0-100
+    level: SystemHealthLevel
+    components: dict[str, float] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+
+    # Component scores (0-100 each)
+    node_availability: float = 100.0
+    circuit_health: float = 100.0
+    error_rate: float = 100.0  # Inverted: 100 = no errors
+    recovery_success: float = 100.0
+
+    # Pause triggers
+    pause_triggers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1670,6 +1743,177 @@ class UnifiedHealthManager(CoordinatorBase):
             "subscribed": self._subscribed,
         }
 
+    # =========================================================================
+    # System Health Scoring (consolidated from system_health_monitor.py)
+    # =========================================================================
+
+    def calculate_system_health_score(
+        self, sys_config: SystemHealthConfig | None = None
+    ) -> SystemHealthScore:
+        """Calculate aggregate system health score.
+
+        Consolidated from system_health_monitor.py - now directly available
+        on the health manager.
+
+        Args:
+            sys_config: Optional system health config, uses defaults if not provided
+
+        Returns:
+            SystemHealthScore with aggregate health data
+        """
+        cfg = sys_config or SystemHealthConfig()
+
+        # Calculate component scores
+        node_availability = self._calculate_node_availability(cfg)
+        circuit_health = self._calculate_circuit_health(cfg)
+        error_rate = self._calculate_error_rate_score(cfg)
+        recovery_success = self._calculate_recovery_success_score()
+
+        # Weighted aggregate
+        score = (
+            node_availability * cfg.node_weight
+            + circuit_health * cfg.circuit_weight
+            + error_rate * cfg.error_weight
+            + recovery_success * cfg.recovery_weight
+        )
+
+        score = int(max(0, min(100, score)))
+
+        # Determine level
+        if score >= cfg.healthy_threshold:
+            level = SystemHealthLevel.HEALTHY
+        elif score >= cfg.degraded_threshold:
+            level = SystemHealthLevel.DEGRADED
+        elif score >= cfg.unhealthy_threshold:
+            level = SystemHealthLevel.UNHEALTHY
+        else:
+            level = SystemHealthLevel.CRITICAL
+
+        # Check pause triggers
+        pause_triggers = self._check_pause_triggers(
+            cfg, score, node_availability, circuit_health, error_rate
+        )
+
+        return SystemHealthScore(
+            score=score,
+            level=level,
+            components={
+                "node_availability": round(node_availability, 1),
+                "circuit_health": round(circuit_health, 1),
+                "error_rate": round(error_rate, 1),
+                "recovery_success": round(recovery_success, 1),
+            },
+            node_availability=node_availability,
+            circuit_health=circuit_health,
+            error_rate=error_rate,
+            recovery_success=recovery_success,
+            pause_triggers=pause_triggers,
+        )
+
+    def _calculate_node_availability(self, cfg: SystemHealthConfig) -> float:
+        """Calculate node availability score (0-100)."""
+        nodes_tracked = len(self._node_states)
+        nodes_online = sum(1 for s in self._node_states.values() if s.is_online)
+
+        # Determine expected nodes
+        expected = cfg.expected_nodes
+        if expected == 0:
+            expected = max(nodes_tracked, 1)
+
+        # Calculate availability
+        availability = (nodes_online / expected) * 100 if expected > 0 else 100.0
+        return min(100.0, availability)
+
+    def _calculate_circuit_health(self, cfg: SystemHealthConfig) -> float:
+        """Calculate circuit breaker health score (0-100)."""
+        total_circuits = len(self._circuit_breakers)
+        if total_circuits == 0:
+            return 100.0
+
+        open_circuits = sum(
+            1
+            for cb in self._circuit_breakers.values()
+            if cb.state == CircuitState.OPEN
+        )
+
+        # Circuits closed percentage
+        closed_percent = ((total_circuits - open_circuits) / total_circuits) * 100
+
+        # Extra penalty for critical circuits
+        critical_open = [
+            c
+            for c in cfg.critical_circuits
+            if c in self._circuit_breakers
+            and self._circuit_breakers[c].state == CircuitState.OPEN
+        ]
+
+        if critical_open:
+            # Heavy penalty for critical circuits
+            penalty = len(critical_open) * 20
+            closed_percent = max(0, closed_percent - penalty)
+
+        return closed_percent
+
+    def _calculate_error_rate_score(self, cfg: SystemHealthConfig) -> float:
+        """Calculate error rate score (0-100, inverted: higher = fewer errors)."""
+        # Check recent errors
+        now = time.time()
+        window = cfg.pause_error_burst_window
+        recent_errors = [e for e in self._errors if now - e.timestamp < window]
+
+        error_count = len(recent_errors)
+
+        # Score based on error count
+        threshold = cfg.pause_error_burst_count
+        if error_count >= threshold:
+            return 0.0
+
+        score = ((threshold - error_count) / threshold) * 100
+        return max(0.0, min(100.0, score))
+
+    def _calculate_recovery_success_score(self) -> float:
+        """Calculate recovery success rate (0-100)."""
+        total = self._total_recoveries
+        successful = self._successful_recoveries
+
+        if total == 0:
+            return 100.0  # No recoveries needed = healthy
+
+        return (successful / total) * 100
+
+    def _check_pause_triggers(
+        self,
+        cfg: SystemHealthConfig,
+        score: int,
+        node_availability: float,
+        circuit_health: float,
+        error_rate: float,
+    ) -> list[str]:
+        """Check for conditions that should trigger pipeline pause."""
+        triggers = []
+
+        # Health score threshold
+        if score < cfg.pause_health_threshold:
+            triggers.append(f"health_score_critical:{score}")
+
+        # Node offline threshold
+        offline_percent = (100 - node_availability) / 100
+        if offline_percent >= cfg.pause_node_offline_percent:
+            triggers.append(f"nodes_offline:{offline_percent:.0%}")
+
+        # Critical circuit broken
+        for circuit_name in cfg.critical_circuits:
+            if circuit_name in self._circuit_breakers:
+                cb = self._circuit_breakers[circuit_name]
+                if cb.state == CircuitState.OPEN:
+                    triggers.append(f"critical_circuit_open:{circuit_name}")
+
+        # Error burst
+        if error_rate == 0:
+            triggers.append("error_burst_detected")
+
+        return triggers
+
 
 # =============================================================================
 # Singleton and convenience functions
@@ -1768,12 +2012,71 @@ def wire_recovery_events():
     return wire_health_events()
 
 
+def get_system_health_score() -> int:
+    """Get current system health score (0-100).
+
+    Convenience function for system health checks.
+    Consolidated from system_health_monitor.py.
+    """
+    return get_health_manager().calculate_system_health_score().score
+
+
+def get_system_health_level() -> SystemHealthLevel:
+    """Get current system health level.
+
+    Convenience function for system health checks.
+    Consolidated from system_health_monitor.py.
+    """
+    return get_health_manager().calculate_system_health_score().level
+
+
+def should_pause_pipeline(
+    sys_config: SystemHealthConfig | None = None,
+) -> tuple[bool, list[str]]:
+    """Check if pipeline should be paused based on system health.
+
+    Convenience function for pipeline control.
+    Consolidated from system_health_monitor.py.
+
+    Returns:
+        Tuple of (should_pause, list of trigger reasons)
+    """
+    score = get_health_manager().calculate_system_health_score(sys_config)
+    return len(score.pause_triggers) > 0, score.pause_triggers
+
+
+# Backward compatibility - import aliases from system_health_monitor.py
+def get_system_health():
+    """DEPRECATED: Use get_health_manager() and calculate_system_health_score().
+
+    Returns the UnifiedHealthManager for backward compatibility.
+    """
+    warnings.warn(
+        "get_system_health() is deprecated. Use get_health_manager() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_health_manager()
+
+
+def is_pipeline_paused() -> bool:
+    """DEPRECATED: Use should_pause_pipeline() instead.
+
+    Check if pipeline should be paused.
+    Consolidated from system_health_monitor.py.
+    """
+    should_pause, _ = should_pause_pipeline()
+    return should_pause
+
+
 __all__ = [
     # Enums
     "ErrorSeverity",
+    "PipelineState",
     "RecoveryAction",
     "RecoveryResult",
     "RecoveryStatus",
+    "SystemHealthLevel",
     # Data classes
     "ErrorRecord",
     "HealthStats",
@@ -1782,16 +2085,23 @@ __all__ = [
     "RecoveryAttempt",
     "RecoveryConfig",
     "RecoveryEvent",
+    "SystemHealthConfig",
+    "SystemHealthScore",
     # Main class
     "UnifiedHealthManager",
     # Functions
     "get_health_manager",
+    "get_system_health_level",
+    "get_system_health_score",
     "is_component_healthy",
     "reset_health_manager",
+    "should_pause_pipeline",
     "wire_health_events",
     # Deprecated (backward compatibility)
     "get_error_coordinator",
     "get_recovery_manager",
+    "get_system_health",
+    "is_pipeline_paused",
     "wire_error_events",
     "wire_recovery_events",
 ]

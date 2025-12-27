@@ -1060,6 +1060,58 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     return results
 
 
+def _start_unified_feedback_orchestrator() -> bool:
+    """Start the unified feedback orchestrator (December 2025 critical integration gap).
+
+    The UnifiedFeedbackOrchestrator is responsible for:
+    1. Computing and emitting feedback signals (exploration, curriculum, etc.)
+    2. Bridging training outcomes to selfplay parameter adjustments
+    3. Coordinating the self-improvement loop across all training configurations
+
+    This was identified as a missing integration during the December 2025 audit -
+    the orchestrator was defined but never started during bootstrap.
+
+    Returns:
+        True if started successfully, False otherwise
+    """
+    try:
+        from app.coordination.unified_feedback import get_unified_feedback
+
+        orchestrator = get_unified_feedback()
+
+        # Check if already running (idempotent)
+        if hasattr(orchestrator, "_running") and orchestrator._running:
+            logger.debug("[Bootstrap] Unified feedback orchestrator already running")
+            return True
+
+        # Start the orchestrator (this subscribes to events and begins processing)
+        if hasattr(orchestrator, "start"):
+            import asyncio
+
+            # Handle sync/async context
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in an async context, schedule the start
+                asyncio.create_task(orchestrator.start())
+                logger.info("[Bootstrap] Unified feedback orchestrator start scheduled")
+            except RuntimeError:
+                # No running loop - run synchronously
+                asyncio.run(orchestrator.start())
+                logger.info("[Bootstrap] Unified feedback orchestrator started")
+        else:
+            # No async start method - just ensure it's initialized
+            logger.info("[Bootstrap] Unified feedback orchestrator initialized (no async start)")
+
+        return True
+
+    except ImportError as e:
+        logger.warning(f"[Bootstrap] Unified feedback module not available: {e}")
+        return False
+    except Exception as e:
+        logger.warning(f"[Bootstrap] Failed to start unified feedback orchestrator: {e}")
+        return False
+
+
 def _validate_event_wiring() -> dict[str, Any]:
     """Validate event flow to detect orphaned or misconfigured events.
 
@@ -1335,6 +1387,9 @@ def bootstrap_coordination(
 
     # Wire missing event subscriptions (December 2025 audit findings)
     _wire_missing_event_subscriptions()
+
+    # Start unified feedback orchestrator (December 2025 - critical integration gap)
+    _start_unified_feedback_orchestrator()
 
     # Phase 21.2 (December 2025): Validate event flow to detect orphaned events
     _validate_event_wiring()
