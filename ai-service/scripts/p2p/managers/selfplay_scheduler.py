@@ -979,3 +979,56 @@ class SelfplayScheduler:
             )
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error boosting {config_key}: {e}")
+
+    def set_exploration_boost(
+        self, config_key: str, boost_factor: float, duration_seconds: float = 900
+    ) -> None:
+        """Set exploration boost for a config due to training anomaly.
+
+        P0.1 (Dec 2025): Added to handle EXPLORATION_BOOST events from
+        FeedbackLoopController when training anomalies are detected.
+
+        When training has loss spikes or stalls, we boost exploration to
+        generate more diverse training data.
+
+        Args:
+            config_key: The config key (e.g., "hex8_2p") to boost.
+            boost_factor: Multiplicative boost factor (e.g., 1.3 for 30% more).
+            duration_seconds: How long the boost should last.
+        """
+        try:
+            expiry = time.time() + duration_seconds
+            if not hasattr(self, "_exploration_boosts"):
+                self._exploration_boosts: dict[str, tuple[float, float]] = {}
+            self._exploration_boosts[config_key] = (boost_factor, expiry)
+
+            logger.info(
+                f"[SelfplayScheduler] Set exploration boost for {config_key}: "
+                f"{boost_factor:.2f}x for {duration_seconds}s"
+            )
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error setting exploration boost: {e}")
+
+    def get_exploration_boost(self, config_key: str) -> float:
+        """Get current exploration boost factor for a config.
+
+        Args:
+            config_key: The config key to check.
+
+        Returns:
+            Boost factor (1.0 = no boost, >1.0 = boosted).
+        """
+        if not hasattr(self, "_exploration_boosts"):
+            return 1.0
+
+        boost_info = self._exploration_boosts.get(config_key)
+        if not boost_info:
+            return 1.0
+
+        boost_factor, expiry = boost_info
+        if time.time() > expiry:
+            # Boost expired, clean up
+            del self._exploration_boosts[config_key]
+            return 1.0
+
+        return boost_factor

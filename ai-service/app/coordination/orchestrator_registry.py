@@ -110,21 +110,17 @@ except ImportError:
 REGISTRY_DIR = Path("/tmp/ringrift_coordination")
 REGISTRY_DB = REGISTRY_DIR / "orchestrator_registry.db"
 
-# Heartbeat settings - import from centralized thresholds (December 2025)
+# Heartbeat settings - import from centralized coordination_defaults (December 2025)
 try:
-    from app.config.thresholds import (
-        HEARTBEAT_INTERVAL,
-        PEER_TIMEOUT,
-        STALE_CLEANUP_INTERVAL as STALE_CLEANUP_INTERVAL_CONFIG,
-    )
-    HEARTBEAT_INTERVAL_SECONDS = HEARTBEAT_INTERVAL
-    HEARTBEAT_TIMEOUT_SECONDS = PEER_TIMEOUT
-    STALE_CLEANUP_INTERVAL = STALE_CLEANUP_INTERVAL_CONFIG
+    from app.config.coordination_defaults import HeartbeatDefaults
+    HEARTBEAT_INTERVAL_SECONDS = HeartbeatDefaults.INTERVAL
+    HEARTBEAT_TIMEOUT_SECONDS = HeartbeatDefaults.TIMEOUT  # 90s, not 60s
+    STALE_CLEANUP_INTERVAL = HeartbeatDefaults.STALE_CLEANUP_INTERVAL
 except ImportError:
     # Fallback for testing/standalone use
     HEARTBEAT_INTERVAL_SECONDS = 30  # How often to update heartbeat
-    HEARTBEAT_TIMEOUT_SECONDS = 60  # Consider dead if no heartbeat (reduced from 90s)
-    STALE_CLEANUP_INTERVAL = 30  # How often to clean up stale entries (reduced from 60s)
+    HEARTBEAT_TIMEOUT_SECONDS = 90  # Fixed: was 60s, now matches HeartbeatDefaults.TIMEOUT
+    STALE_CLEANUP_INTERVAL = 60  # How often to clean up stale entries
 
 # Warning threshold - emit warning at 50% of timeout
 HEARTBEAT_WARNING_THRESHOLD = HEARTBEAT_TIMEOUT_SECONDS * 0.5

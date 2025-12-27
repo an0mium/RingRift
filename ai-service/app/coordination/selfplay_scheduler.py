@@ -1168,11 +1168,15 @@ class SelfplayScheduler:
                     bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_cluster_unhealthy)
                 if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
                     bus.subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy)
+                # December 2025: Subscribe to HOST_OFFLINE for P2P peer retirement
+                # This triggers when orchestrator retires a peer after ~300s timeout
+                if hasattr(DataEventType, 'HOST_OFFLINE'):
+                    bus.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline)
 
                 self._subscribed = True
                 logger.info(
                     "[SelfplayScheduler] Subscribed to pipeline events "
-                    "(including P2P health: NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_*)"
+                    "(including P2P health: NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_*, HOST_OFFLINE)"
                 )
 
         except Exception as e:
@@ -1873,6 +1877,36 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling node recovered: {e}")
+
+    def _on_host_offline(self, event: Any) -> None:
+        """Handle HOST_OFFLINE - mark P2P peer as unavailable after retirement.
+
+        December 2025: P2P orchestrator emits this when a peer is retired after
+        ~300s of being offline. This is a stronger signal than NODE_UNHEALTHY
+        as the node has been definitively removed from the cluster.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            host = payload.get("host", "") or payload.get("node_id", "")
+            reason = payload.get("reason", "retired")
+
+            if host:
+                if not hasattr(self, "_unhealthy_nodes"):
+                    self._unhealthy_nodes: set[str] = set()
+
+                self._unhealthy_nodes.add(host)
+
+                # Mark node as fully loaded to prevent allocation
+                if host in self._node_capabilities:
+                    self._node_capabilities[host].current_load = 1.0
+
+                logger.warning(
+                    f"[SelfplayScheduler] Host {host} offline (reason: {reason}). "
+                    f"Removed from selfplay allocation pool."
+                )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling host offline: {e}")
 
     def _on_cluster_unhealthy(self, event: Any) -> None:
         """Handle P2P_CLUSTER_UNHEALTHY - reduce allocation rate.

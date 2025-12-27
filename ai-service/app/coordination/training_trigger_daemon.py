@@ -1066,6 +1066,43 @@ class TrainingTriggerDaemon:
             },
         }
 
+    def health_check(self) -> HealthCheckResult:
+        """Check daemon health.
+
+        Returns:
+            Health check result with training trigger status and metrics.
+        """
+        # Count active training tasks
+        active_training = sum(
+            1 for state in self._training_states.values()
+            if state.training_in_progress
+        )
+
+        # Count failed configs
+        failed_configs = sum(
+            1 for state in self._training_states.values()
+            if state.consecutive_failures > 0
+        )
+
+        # Determine health status
+        healthy = self._running
+
+        message = "Running" if healthy else "Daemon stopped"
+
+        return HealthCheckResult(
+            healthy=healthy,
+            message=message,
+            details={
+                "running": self._running,
+                "enabled": self.config.enabled,
+                "configs_tracked": len(self._training_states),
+                "active_training_tasks": active_training,
+                "failed_configs": failed_configs,
+                "max_concurrent_training": self.config.max_concurrent_training,
+                "max_data_age_hours": self.config.max_data_age_hours,
+            },
+        )
+
 
 # Singleton instance
 _daemon: TrainingTriggerDaemon | None = None

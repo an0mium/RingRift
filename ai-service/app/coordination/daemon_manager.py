@@ -2885,9 +2885,12 @@ class DaemonManager:
         """
         try:
             # DEPRECATED (Dec 2025): system_health_monitor daemon - Q2 2026 removal
-            # The daemon functionality remains here, but scoring functions should use:
-            # from app.coordination.health_facade import get_system_health_score
-            from app.coordination.system_health_monitor import get_system_health
+            # Migration path:
+            # - Scoring functions: use health_facade (get_system_health_score, should_pause_pipeline)
+            # - Daemon interface: remains in system_health_monitor until unified_health_manager gains
+            #   start()/on_pause()/on_resume() methods. Use health_facade.get_system_health() for
+            #   backward-compat import that will emit DeprecationWarning.
+            from app.coordination.health_facade import get_system_health
 
             monitor = get_system_health()
 

@@ -64,7 +64,9 @@ def _discover_best_npz_for_config(
     except ImportError as e:
         logger.debug(f"[NPZ Discovery] DataCatalog not available: {e}")
         return fallback_path
-    except Exception as e:
+    except (RuntimeError, ConnectionError, TimeoutError, OSError) as e:
+        # Dec 2025: Narrowed from broad Exception to expected error types
+        # These are the specific errors that can occur during catalog discovery
         logger.warning(f"[NPZ Discovery] Error during discovery: {e}")
         return fallback_path
 

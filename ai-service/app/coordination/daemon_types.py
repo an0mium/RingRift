@@ -41,6 +41,10 @@ __all__ = [
 _DEPRECATED_DAEMON_TYPES: dict[str, tuple[str, str]] = {
     "sync_coordinator": ("AUTO_SYNC", "Q2 2026"),
     "health_check": ("NODE_HEALTH_MONITOR", "Q2 2026"),
+    # December 2025: Added missing deprecated types
+    "ephemeral_sync": ("AUTO_SYNC", "Q2 2026"),
+    "cluster_data_sync": ("AUTO_SYNC", "Q2 2026"),
+    "system_health_monitor": ("HEALTH_SERVER", "Q2 2026"),  # Use unified_health_manager
 }
 
 

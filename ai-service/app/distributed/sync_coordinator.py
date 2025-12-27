@@ -522,7 +522,7 @@ class SyncCoordinator:
                     bytes_transferred += result.bytes_transferred
                 else:
                     errors.extend(result.errors)
-            except Exception as e:
+            except (OSError, asyncio.TimeoutError, RuntimeError, ConnectionError) as e:
                 errors.append(f"p2p error for {host.name}: {e}")
 
         return files_synced, bytes_transferred, errors
@@ -555,7 +555,7 @@ class SyncCoordinator:
                     logger.info(f"Loaded manifest from {path}")
                     self._refresh_quality_lookup()
                     return
-                except Exception as e:
+                except (OSError, ValueError, TypeError) as e:
                     logger.warning(f"Failed to load manifest from {path}: {e}")
 
         # Create new manifest if none found
@@ -564,7 +564,7 @@ class SyncCoordinator:
             default_path.parent.mkdir(parents=True, exist_ok=True)
             self._manifest = DataManifest(default_path)
             logger.info(f"Created new manifest at {default_path}")
-        except Exception as e:
+        except (OSError, ValueError, TypeError) as e:
             logger.warning(f"Failed to create manifest: {e}")
             self._manifest = None
 
@@ -603,7 +603,7 @@ class SyncCoordinator:
             logger.debug(f"Refreshed quality lookup: {len(self._quality_lookup)} games")
             return len(self._quality_lookup)
 
-        except Exception as e:
+        except (OSError, ValueError, TypeError, KeyError) as e:
             logger.warning(f"Failed to refresh quality lookup: {e}")
             return 0
 

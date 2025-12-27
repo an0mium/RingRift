@@ -4,7 +4,7 @@
 > **Role:** Derived overview for maintainers; does not introduce new rules semantics or APIs.  
 > **Upstream semantics SSoT:** [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md), `COMPLETE_RULES.md`, `COMPACT_RULES.md`, and the shared TS engine + orchestrator under [`src/shared/engine`](../../src/shared/engine).  
 > **Upstream lifecycle/API SSoT:** [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md), shared types in [`src/shared/types/game.ts`](../../src/shared/types/game.ts), orchestrator types in [`src/shared/engine/orchestration/types.ts`](../../src/shared/engine/orchestration/types.ts), and WebSocket contracts in [`src/shared/types/websocket.ts`](../../src/shared/types/websocket.ts) and [`src/shared/validation/websocketSchemas.ts`](../../src/shared/validation/websocketSchemas.ts).  
-> **Upstream implementation-status SSoT:** [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../archive/historical/CURRENT_STATE_ASSESSMENT.md).  
+> **Upstream implementation-status SSoT:** [`CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md).  
 > **This doc:** Clarifies what is canonical vs historical/diagnostic for rules execution across TS backend, sandbox, and Python, and records known drift items for follow-up tasks.
 
 ---

@@ -534,6 +534,28 @@ Major consolidation effort completed December 2025:
 - Fixed `adaptive_resource_manager.py:414` - was importing non-existent `get_cluster_monitor`
 - Wired `emit_task_abandoned` to job cancellation paths in p2p_orchestrator.py
 
+**P2P Manager Delegation (December 27, 2025):**
+
+All 7 P2P managers fully delegated (100% coverage):
+
+| Manager               | Status      | LOC Removed | Notes                                   |
+| --------------------- | ----------- | ----------- | --------------------------------------- |
+| `StateManager`        | ✅ Complete | ~200        | SQLite persistence, epochs              |
+| `TrainingCoordinator` | ✅ Complete | ~450        | Job dispatch, model promotion           |
+| `JobManager`          | ✅ Complete | ~400        | Selfplay, training, tournaments         |
+| `SyncPlanner`         | ✅ Complete | ~60         | Manifest collection, sync planning      |
+| `SelfplayScheduler`   | ✅ Complete | ~430        | Priority scheduling, curriculum weights |
+| `NodeSelector`        | ✅ Complete | ~50         | Node ranking, job placement             |
+| `LoopManager`         | ✅ Complete | ~400        | Background loops (5 migrated)           |
+
+Total: ~1,990 LOC removed from p2p_orchestrator.py (27,889 → 25,899 lines)
+
+**Circular Dependency Fixes (December 27, 2025):**
+
+- `selfplay_scheduler.py:84` - backpressure import converted to lazy loading
+- `resource_optimizer.py:70` - resource_targets import uses lazy accessor pattern
+- Breaks 8-cycle chain, reduces startup module load by ~4,000 LOC
+
 **Sync Module Status (December 2025):**
 
 | Module                                      | Status     | Notes                                                   |
