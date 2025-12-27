@@ -124,6 +124,27 @@ export function handleDifficultyCalibrationTelemetry(req: Request, res: Response
   res.status(204).send();
 }
 
+/**
+ * @openapi
+ * /telemetry/difficulty-calibration:
+ *   post:
+ *     summary: Record AI difficulty calibration telemetry event
+ *     description: |
+ *       Records coarse difficulty calibration telemetry for AI games.
+ *       Payloads are sanitized to keep metrics low-cardinality.
+ *     tags: [Telemetry]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       204:
+ *         description: Telemetry accepted
+ *       400:
+ *         description: Invalid telemetry payload
+ */
 router.post(
   '/difficulty-calibration',
   telemetryRateLimiter,

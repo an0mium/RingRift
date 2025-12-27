@@ -64,6 +64,8 @@ __all__ = [
     "emit_health_check_failed",
     "emit_p2p_cluster_healthy",
     "emit_p2p_cluster_unhealthy",
+    # Task lifecycle emitters (December 2025 Wave 2)
+    "emit_task_abandoned",
 ]
 
 # Global singleton instance
@@ -2061,6 +2063,41 @@ async def emit_task_orphaned(
             "task_type": task_type,
             "node_id": node_id,
             "last_heartbeat_seconds_ago": last_heartbeat_seconds_ago,
+        },
+        source=source,
+    ))
+
+
+async def emit_task_abandoned(
+    work_id: str,
+    reason: str,
+    component: str = "p2p_orchestrator",
+    node_id: str = "",
+    timestamp: float | None = None,
+    source: str = "",
+) -> None:
+    """Emit a TASK_ABANDONED event for intentionally cancelled tasks.
+
+    December 2025: Added to distinguish intentional cancellations from failures.
+    Use this when a task is deliberately stopped (e.g., user request, superseded
+    by newer version, resource reallocation) rather than failing unexpectedly.
+
+    Args:
+        work_id: The work item ID that was abandoned
+        reason: Why the task was abandoned (e.g., "superseded", "user_request")
+        component: Which component triggered the abandonment
+        node_id: Optional node where the task was running
+        timestamp: When abandonment occurred (defaults to now)
+        source: Event source identifier
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.TASK_ABANDONED,
+        payload={
+            "work_id": work_id,
+            "reason": reason,
+            "component": component,
+            "node_id": node_id,
+            "timestamp": timestamp or time.time(),
         },
         source=source,
     ))

@@ -16,7 +16,7 @@ import time
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from app.config.coordination_defaults import DaemonLoopDefaults
 
@@ -35,6 +35,7 @@ __all__ = [
     "DAEMON_RESTART_RESET_AFTER",
     "get_daemon_startup_position",
     "mark_daemon_ready",
+    "register_mark_ready_callback",
     "validate_daemon_dependencies",
 ]
 
@@ -452,6 +453,29 @@ def get_daemon_startup_position(daemon_type: DaemonType) -> int:
         return -1
 
 
+# =============================================================================
+# Callback Registration Pattern for Breaking Circular Dependencies (Dec 2025)
+# =============================================================================
+# Instead of importing daemon_manager, we use a callback that daemon_manager
+# registers when it initializes. This breaks the daemon_types → daemon_manager
+# circular dependency.
+
+_mark_ready_callback: "Callable[[DaemonType], None] | None" = None
+
+
+def register_mark_ready_callback(callback: "Callable[[DaemonType], None]") -> None:
+    """Register the callback for mark_daemon_ready().
+
+    This is called by DaemonManager.__init__() to provide the implementation
+    without creating a circular import.
+
+    Args:
+        callback: Function that takes a DaemonType and signals readiness.
+    """
+    global _mark_ready_callback
+    _mark_ready_callback = callback
+
+
 def mark_daemon_ready(daemon_type: DaemonType) -> None:
     """Signal that a daemon has completed initialization and is ready.
 
@@ -469,17 +493,19 @@ def mark_daemon_ready(daemon_type: DaemonType) -> None:
             # ... main loop ...
             while True:
                 await asyncio.sleep(60)
+
+    Note:
+        This function uses a callback pattern to avoid circular imports.
+        The callback is registered by DaemonManager.__init__().
     """
-    # Import here to avoid circular dependency
-    from app.coordination.daemon_manager import get_daemon_manager
-
-    manager = get_daemon_manager()
-    if manager is None:
-        return
-
-    info = manager._daemons.get(daemon_type)
-    if info is not None and info.ready_event is not None:
-        info.ready_event.set()
+    if _mark_ready_callback is not None:
+        _mark_ready_callback(daemon_type)
+    else:
+        # Fallback: callback not registered yet (rare race condition at startup)
         import logging
+
         logger = logging.getLogger(__name__)
-        logger.debug(f"[DaemonManager] {daemon_type.value} signaled readiness")
+        logger.debug(
+            f"[DaemonTypes] mark_daemon_ready called for {daemon_type.value} "
+            "before DaemonManager initialized"
+        )

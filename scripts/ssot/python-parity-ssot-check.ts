@@ -39,11 +39,12 @@ function uniqueSorted(values: string[]): string[] {
 
 function extractTsUnionValues(source: string, typeName: string): string[] {
   const regex = new RegExp(`export type ${typeName} =([\\s\\S]*?);`, 'm');
-  const match = regex.exec(source);
+  const cleaned = stripTsComments(source);
+  const match = regex.exec(cleaned);
   if (!match) {
     throw new Error(`Failed to locate TS union for ${typeName}`);
   }
-  const body = stripTsComments(match[1]);
+  const body = match[1];
   const values: string[] = [];
   const valueRegex = /'([^']+)'/g;
   let valueMatch: RegExpExecArray | null;

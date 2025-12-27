@@ -138,7 +138,7 @@ For mapping purposes, the RR‑CANON rules are grouped into the following cluste
 5. **Overtaking capture & chains**
    - Forced elimination (R100), single capture segment legality (R101), application semantics (R102), and chain behaviour (R103).
 6. **Lines and graduated rewards**
-   - Line definition, processing order, and rewards: R120–R122.
+   - Line definition, processing order, and rewards: R120–R123.
 7. **Territory disconnection & region processing**
    - Region discovery, physical disconnection, representation, self‑elimination prerequisite, processing order and mechanics: R140–R145.
 8. **Victory and termination**
@@ -374,7 +374,7 @@ Status legend:
   - Mandatory chain and directional-flexibility examples in capture tests and scenarios (`180° reversal`, cyclic patterns).
   - Tests verifying that lines/territory are only processed after the entire chain completes.
 
-### 3.6 Lines and graduated rewards (R120–R122)
+### 3.6 Lines and graduated rewards (R120–R123)
 
 **R120 Line definition and detection (HC)**
 
@@ -387,7 +387,7 @@ Status legend:
   - Sandbox line tests in [`tests/unit/sandboxLines.test.ts`](../../tests/unit/sandboxLines.test.ts).
   - GameEngine line scenario tests in [`tests/unit/GameEngine.lines.scenarios.test.ts`](../../tests/unit/GameEngine.lines.scenarios.test.ts).
 
-**R121–R122 Line processing order and rewards (HC, with some legacy behaviour retained)**
+**R121–R123 Line processing order and rewards (HC, with some legacy behaviour retained)**
 
 - **Primary implementation**
   - Shared canonical line-decision helpers in [`TypeScript.lineDecisionHelpers`](../../src/shared/engine/lineDecisionHelpers.ts):
@@ -404,6 +404,16 @@ Status legend:
   - AI and WebSocket integration tests for line-reward choices in:
     - [`tests/unit/GameEngine.lines.scenarios.test.ts`](../../tests/unit/GameEngine.lines.scenarios.test.ts).
     - [`tests/unit/GameEngine.lines.scenarios.test.ts`](../../tests/unit/GameEngine.lines.scenarios.test.ts).
+
+**R123 Line elimination requires a separate decision (HC)**
+
+- **Primary implementation**
+  - Explicit pending elimination state emitted by [`TypeScript.lineDecisionHelpers`](../../src/shared/engine/lineDecisionHelpers.ts) (`pendingLineRewardElimination` from `applyProcessLineDecision` / `applyChooseLineRewardDecision`).
+  - Orchestrator enforcement in [`TypeScript.TurnStateMachine`](../../src/shared/engine/fsm/TurnStateMachine.ts) and [`TypeScript.turnOrchestrator`](../../src/shared/engine/orchestration/turnOrchestrator.ts), which keep the turn in `line_processing` until an explicit `eliminate_rings_from_stack` move is recorded when elimination is required.
+  - Backend decision handling in [`TypeScript.GameEngine.applyDecisionMove`](../../src/server/game/GameEngine.ts) and `getValidLineProcessingMoves`, which surface explicit `eliminate_rings_from_stack` moves after `process_line` / `choose_line_option`.
+  - Sandbox parity path in [`TypeScript.ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts), which mirrors the pending elimination gate and records explicit elimination moves.
+- **Supporting / tests**
+  - Line elimination sequencing and pending-elimination behaviour in [`tests/unit/lineDecisionHelpers.shared.test.ts`](../../tests/unit/lineDecisionHelpers.shared.test.ts) and [`tests/unit/GameEngine.lines.scenarios.test.ts`](../../tests/unit/GameEngine.lines.scenarios.test.ts).
 
 ### 3.7 Territory disconnection and region processing (R140–R145)
 

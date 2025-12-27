@@ -2430,6 +2430,59 @@ class FeedbackLoopController:
             },
         )
 
+    def get_status(self) -> dict[str, Any]:
+        """Get comprehensive controller status for monitoring dashboards (Dec 2025).
+
+        Returns:
+            Dictionary with controller status, metrics, and config state.
+            Used by DaemonManager for monitoring and dashboards.
+        """
+        # Calculate metrics
+        now = time.time()
+        active_configs = []
+        pending_configs = []
+
+        for config_key, state in self._states.items():
+            hours_since_training = (now - state.last_training_time) / 3600 if state.last_training_time > 0 else float("inf")
+
+            config_info = {
+                "config": config_key,
+                "current_elo": state.current_elo,
+                "last_training": state.last_training_time,
+                "hours_since_training": round(hours_since_training, 2),
+                "games_since_training": state.games_since_training,
+                "training_triggered_count": state.training_triggered_count,
+            }
+
+            if hours_since_training < 1.0:  # Active in last hour
+                active_configs.append(config_info)
+            else:
+                pending_configs.append(config_info)
+
+        return {
+            "name": "FeedbackLoopController",
+            "running": self._running,
+            "subscribed": self._subscribed,
+            "healthy": self._running and self._subscribed,
+            "cluster_healthy": self._cluster_healthy,
+            "thresholds": {
+                "policy_accuracy": self.policy_accuracy_threshold,
+                "promotion": self.promotion_threshold,
+                "game_count": self.game_count_threshold,
+                "max_retries": self.max_retry_attempts,
+            },
+            "configs": {
+                "total": len(self._states),
+                "active": len(active_configs),
+                "pending": len(pending_configs),
+            },
+            "active_configs": active_configs[:10],  # Limit for dashboard
+            "metrics": {
+                "total_trainings_triggered": sum(s.training_triggered_count for s in self._states.values()),
+                "total_games_tracked": sum(s.games_since_training for s in self._states.values()),
+            },
+        }
+
 
 # =============================================================================
 # Singleton

@@ -2027,6 +2027,98 @@ async def emit_p2p_node_dead(
     )
 
 
+# =============================================================================
+# Replication Repair Events (December 2025)
+# =============================================================================
+
+
+async def emit_repair_completed(
+    game_id: str,
+    source_nodes: list[str],
+    target_nodes: list[str],
+    duration_seconds: float,
+    new_replica_count: int,
+    source: str = "",
+    **metadata,
+) -> bool:
+    """Emit REPAIR_COMPLETED event when a replication repair succeeds.
+
+    December 2025: Wired into unified_replication_daemon.py for pipeline
+    coordination of successful repair operations.
+
+    Args:
+        game_id: ID of the game that was repaired
+        source_nodes: Nodes that provided the data
+        target_nodes: Nodes that received the data
+        duration_seconds: How long the repair took
+        new_replica_count: Current replica count after repair
+        source: Event source identifier
+        **metadata: Additional event metadata
+
+    Returns:
+        True if emitted successfully
+    """
+    return await _emit_data_event(
+        DataEventType.REPAIR_COMPLETED,
+        {
+            "game_id": game_id,
+            "source_nodes": source_nodes,
+            "target_nodes": target_nodes,
+            "duration_seconds": duration_seconds,
+            "new_replica_count": new_replica_count,
+            **metadata,
+        },
+        source=source or "unified_replication_daemon",
+        log_message=f"Emitted repair_completed for {game_id}",
+        log_level="info",
+    )
+
+
+async def emit_repair_failed(
+    game_id: str,
+    source_nodes: list[str],
+    target_nodes: list[str],
+    error: str,
+    duration_seconds: float = 0.0,
+    current_replica_count: int = 0,
+    source: str = "",
+    **metadata,
+) -> bool:
+    """Emit REPAIR_FAILED event when a replication repair fails.
+
+    December 2025: Wired into unified_replication_daemon.py for pipeline
+    coordination of failed repair operations.
+
+    Args:
+        game_id: ID of the game that failed repair
+        source_nodes: Nodes that were supposed to provide data
+        target_nodes: Nodes that were supposed to receive data
+        error: Error message describing failure
+        duration_seconds: How long before failure
+        current_replica_count: Current replica count (unchanged)
+        source: Event source identifier
+        **metadata: Additional event metadata
+
+    Returns:
+        True if emitted successfully
+    """
+    return await _emit_data_event(
+        DataEventType.REPAIR_FAILED,
+        {
+            "game_id": game_id,
+            "source_nodes": source_nodes,
+            "target_nodes": target_nodes,
+            "error": error,
+            "duration_seconds": duration_seconds,
+            "current_replica_count": current_replica_count,
+            **metadata,
+        },
+        source=source or "unified_replication_daemon",
+        log_message=f"Emitted repair_failed for {game_id}: {error}",
+        log_level="warning",
+    )
+
+
 __all__ = [
     # Backpressure events (December 2025)
     "emit_backpressure_activated",
@@ -2072,6 +2164,9 @@ __all__ = [
     "emit_quality_updated",
     "emit_game_quality_score",
     "emit_regression_detected",
+    # Replication repair events (December 2025)
+    "emit_repair_completed",
+    "emit_repair_failed",
     # Selfplay events
     "emit_selfplay_complete",
     # Sync events

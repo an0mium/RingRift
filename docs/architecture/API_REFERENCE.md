@@ -40,7 +40,7 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 
 ### Login Lockout
 
-Repeated failed logins trigger a temporary lockout and a `429 AUTH_LOGIN_LOCKED_OUT` response. Thresholds and durations are configurable via `AUTH_MAX_FAILED_LOGIN_ATTEMPTS`, `AUTH_FAILED_LOGIN_WINDOW_SECONDS`, `AUTH_LOCKOUT_DURATION_SECONDS`, and `AUTH_LOGIN_LOCKOUT_ENABLED` in [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md).
+Repeated failed logins trigger a temporary lockout and a `429 AUTH_LOGIN_LOCKED_OUT` response. Thresholds and durations are configurable via AUTH_MAX_FAILED_LOGIN_ATTEMPTS, AUTH_FAILED_LOGIN_WINDOW_SECONDS, AUTH_LOCKOUT_DURATION_SECONDS, and AUTH_LOGIN_LOCKOUT_ENABLED in [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md).
 
 ---
 
@@ -156,7 +156,7 @@ Notes:
 
 > Sandbox helper endpoints are intended for local/dev tooling (the client sandbox
 > host and diagnostics panels). They are unauthenticated but gated by environment
-> flags or dev/test mode. See `ENABLE_SANDBOX_AI_ENDPOINTS` in
+> flags or dev/test mode. See ENABLE_SANDBOX_AI_ENDPOINTS in
 > [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md).
 
 | Method | Endpoint                          | Description                                    | Auth Required |
@@ -225,7 +225,7 @@ Notes:
 > in certain environments (for example, local, CI, dedicated loadtest, or tightly
 > scoped staging) to support load testing and internal tools. It is a thin adapter
 > over the same shared domain `applyMove` API used by WebSocket move handlers, is
-> gated by `ENABLE_HTTP_MOVE_HARNESS` (see [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md)
+> gated by ENABLE_HTTP_MOVE_HARNESS (see [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md)
 > for details), and is **not** a general public HTTP move API for interactive clients.
 > See [`PLAYER_MOVE_TRANSPORT_DECISION.md`](PLAYER_MOVE_TRANSPORT_DECISION.md) for
 > the canonical scope and constraints.

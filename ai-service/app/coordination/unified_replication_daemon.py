@@ -783,13 +783,18 @@ class UnifiedReplicationDaemon:
             success = await self._perform_repair_transfer(job)
             job.success = success
             job.completed_at = time.time()
+            duration = job.completed_at - job.started_at
 
             if success:
                 self._repair_stats.total_repairs_successful += 1
                 logger.info(f"[UnifiedReplicationDaemon] Repaired {job.game_id}")
+                # December 2025: Emit REPAIR_COMPLETED event
+                await self._emit_repair_event(job, success=True, duration=duration)
             else:
                 self._repair_stats.total_repairs_failed += 1
                 logger.warning(f"[UnifiedReplicationDaemon] Repair failed: {job.game_id}")
+                # December 2025: Emit REPAIR_FAILED event
+                await self._emit_repair_event(job, success=False, duration=duration)
 
         except Exception as e:
             job.success = False
@@ -797,6 +802,10 @@ class UnifiedReplicationDaemon:
             job.completed_at = time.time()
             self._repair_stats.total_repairs_failed += 1
             logger.error(f"[UnifiedReplicationDaemon] Repair error for {job.game_id}: {e}")
+            # December 2025: Emit REPAIR_FAILED event for exceptions
+            await self._emit_repair_event(
+                job, success=False, duration=job.completed_at - job.started_at
+            )
 
         finally:
             self._repair_stats.total_repairs_attempted += 1
@@ -858,6 +867,47 @@ class UnifiedReplicationDaemon:
             await manifest.add_game_location(game_id, target_node)
         except (ImportError, AttributeError) as e:
             logger.debug(f"[UnifiedReplicationDaemon] Manifest update failed: {e}")
+
+    async def _emit_repair_event(
+        self, job: RepairJob, success: bool, duration: float
+    ) -> None:
+        """Emit REPAIR_COMPLETED or REPAIR_FAILED event.
+
+        December 2025: Added for pipeline coordination of repair operations.
+        Events allow other coordinators (e.g., DataPipelineOrchestrator) to
+        react to repair status changes.
+        """
+        if not self.config.emit_events:
+            return
+
+        try:
+            if success:
+                from app.coordination.event_emitters import emit_repair_completed
+
+                await emit_repair_completed(
+                    game_id=job.game_id,
+                    source_nodes=job.source_nodes,
+                    target_nodes=job.target_nodes,
+                    duration_seconds=duration,
+                    new_replica_count=job.target_copies,
+                    priority=job.priority.name,
+                )
+            else:
+                from app.coordination.event_emitters import emit_repair_failed
+
+                await emit_repair_failed(
+                    game_id=job.game_id,
+                    source_nodes=job.source_nodes,
+                    target_nodes=job.target_nodes,
+                    error=job.error or "Unknown error",
+                    duration_seconds=duration,
+                    current_replica_count=job.current_copies,
+                    priority=job.priority.name,
+                )
+        except ImportError:
+            logger.debug("[UnifiedReplicationDaemon] Event emitters not available")
+        except Exception as e:
+            logger.debug(f"[UnifiedReplicationDaemon] Failed to emit repair event: {e}")
 
     # =========================================================================
     # Public API

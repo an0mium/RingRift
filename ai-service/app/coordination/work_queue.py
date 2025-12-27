@@ -750,7 +750,10 @@ class WorkQueue:
             item.completed_at = time.time()
             self._save_item(item)
             logger.info(f"Work {work_id} cancelled")
-            return True
+
+        # Dec 2025: Emit WORK_CANCELLED event for unified coordination (outside lock)
+        self._emit_work_event("WORK_CANCELLED", item)
+        return True
 
     def check_timeouts(self) -> list[str]:
         """Check for timed out work and reset for retry. Returns list of timed out work_ids."""
@@ -780,6 +783,13 @@ class WorkQueue:
         # Notify (outside lock)
         for item, permanent in to_notify:
             self.notifier.on_work_timeout(item, permanent=permanent)
+            # Dec 2025: Emit WORK_TIMEOUT event for unified coordination
+            self._emit_work_event(
+                "WORK_TIMEOUT",
+                item,
+                permanent=permanent,
+                error="timeout",
+            )
 
         return timed_out
 

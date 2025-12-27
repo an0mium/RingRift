@@ -116,6 +116,43 @@ const assertUserIsGameParticipant = (userId: string, game: GameParticipantSnapsh
 };
 
 /**
+ * @openapi
+ * /games/fixtures/decision-phase:
+ *   post:
+ *     summary: Create decision-phase fixture game (dev/test only)
+ *     description: |
+ *       Creates a game in a known decision phase for E2E and diagnostics.
+ *       Only available in development/test; returns 404 otherwise.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               scenario:
+ *                 type: string
+ *                 enum: [line_processing, territory_processing, chain_capture_choice, near_victory_elimination, near_victory_territory]
+ *               isRated:
+ *                 type: boolean
+ *               shortTimeoutMs:
+ *                 type: integer
+ *               shortWarningBeforeMs:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Fixture game created
+ *       400:
+ *         description: Invalid fixture payload
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+/**
  * Test/dev-only fixture endpoint for creating games that start in a
  * known decision phase (currently line_processing). This is primarily
  * used by Playwright E2E scenarios that need to exercise decision-phase
@@ -207,6 +244,35 @@ router.post(
 // Maximum size for serialized game state in sandbox endpoints (100KB)
 const MAX_SERIALIZED_STATE_SIZE = 100 * 1024;
 
+/**
+ * @openapi
+ * /games/sandbox/evaluate:
+ *   post:
+ *     summary: Evaluate sandbox position (dev/test only)
+ *     description: |
+ *       Evaluates a serialized sandbox GameState via the AI service.
+ *       Available only in development/test; returns 404 otherwise.
+ *     tags: [Games]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               state:
+ *                 type: object
+ *             required: [state]
+ *     responses:
+ *       200:
+ *         description: Evaluation result
+ *       400:
+ *         description: Invalid request payload
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 sandboxHelperRoutes.post(
   '/sandbox/evaluate',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -268,6 +334,41 @@ sandboxHelperRoutes.post(
  * then returns the selected Move. It is primarily used by the client-side
  * /sandbox host so that local sandbox games can use the same canonical
  * difficulty ladder (minimax/mcts/descent + neural variants) as backend games.
+ */
+/**
+ * @openapi
+ * /games/sandbox/ai/move:
+ *   post:
+ *     summary: Get sandbox AI move (dev/test or feature-flagged)
+ *     description: |
+ *       Returns an AI move for a serialized sandbox GameState.
+ *       Enabled in development/test or when sandbox AI endpoints are explicitly enabled.
+ *     tags: [Games]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               state:
+ *                 type: object
+ *               difficulty:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 10
+ *               playerNumber:
+ *                 type: integer
+ *             required: [state]
+ *     responses:
+ *       200:
+ *         description: AI move response
+ *       400:
+ *         description: Invalid request payload
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
  */
 sandboxHelperRoutes.post(
   '/sandbox/ai/move',
@@ -346,6 +447,40 @@ sandboxHelperRoutes.post(
  * Proxies `/internal/ladder/health` so the sandbox UI can verify that the
  * expected NN/NNUE checkpoints + heuristic profiles are available for the
  * current board type / player count.
+ */
+/**
+ * @openapi
+ * /games/sandbox/ai/ladder/health:
+ *   get:
+ *     summary: Get sandbox AI ladder health (dev/test or feature-flagged)
+ *     description: |
+ *       Proxies the AI service ladder health for sandbox diagnostics.
+ *       Enabled in development/test or when sandbox AI endpoints are explicitly enabled.
+ *     tags: [Games]
+ *     parameters:
+ *       - in: query
+ *         name: boardType
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: numPlayers
+ *         schema:
+ *           type: integer
+ *           minimum: 2
+ *           maximum: 4
+ *       - in: query
+ *         name: difficulty
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 10
+ *     responses:
+ *       200:
+ *         description: Ladder health response
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
  */
 sandboxHelperRoutes.get(
   '/sandbox/ai/ladder/health',
@@ -1578,6 +1713,52 @@ router.get(
  * RulesBackendFacade pipeline used by WebSocket moves. It is guarded
  * by the ENABLE_HTTP_MOVE_HARNESS feature flag and is not intended
  * as a public client API.
+ */
+/**
+ * @openapi
+ * /games/{gameId}/moves:
+ *   post:
+ *     summary: Internal HTTP move harness (feature-flagged)
+ *     description: |
+ *       Feature-flagged HTTP move submission used for load tests and diagnostics.
+ *       Returns 404 when the move harness is disabled.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: gameId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Game ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             oneOf:
+ *               - $ref: '#/components/schemas/Move'
+ *               - type: object
+ *                 properties:
+ *                   move:
+ *                     $ref: '#/components/schemas/Move'
+ *     responses:
+ *       200:
+ *         description: Move applied successfully
+ *       400:
+ *         description: Invalid move
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ *       504:
+ *         description: Move application timed out
  */
 router.post(
   '/:gameId/moves',

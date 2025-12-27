@@ -23,6 +23,25 @@ logger = logging.getLogger(__name__)
 # Event emission helper - imported lazily to avoid circular imports
 _emit_event: Callable[[str, dict], None] | None = None
 
+# Default P2P port - cached to avoid repeated imports
+_default_p2p_port: int | None = None
+
+
+def _get_default_port() -> int:
+    """Get the default P2P port from centralized config.
+
+    Dec 2025: Replaced hardcoded 8770 with centralized constant.
+    Falls back to 8770 if constants not available.
+    """
+    global _default_p2p_port
+    if _default_p2p_port is None:
+        try:
+            from scripts.p2p.constants import DEFAULT_PORT
+            _default_p2p_port = DEFAULT_PORT
+        except ImportError:
+            _default_p2p_port = 8770  # Fallback if constants unavailable
+    return _default_p2p_port
+
 
 def _get_event_emitter() -> Callable[[str, dict], None] | None:
     """Get the event emitter function, initializing if needed."""
@@ -502,7 +521,7 @@ class JobManager:
 
                 # Get worker endpoint
                 worker_ip = getattr(worker, "best_ip", None) or getattr(worker, "ip", None)
-                worker_port = getattr(worker, "port", 8770)
+                worker_port = getattr(worker, "port", None) or _get_default_port()
 
                 if not worker_ip:
                     results[worker_id] = {"success": False, "error": "no_ip"}
@@ -1012,7 +1031,7 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
                     continue
 
                 worker_ip = getattr(worker, "best_ip", None) or getattr(worker, "ip", None)
-                worker_port = getattr(worker, "port", 8770)
+                worker_port = getattr(worker, "port", None) or _get_default_port()
 
                 if not worker_ip:
                     continue

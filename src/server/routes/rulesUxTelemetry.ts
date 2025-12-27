@@ -306,6 +306,29 @@ export function handleRulesUxTelemetry(req: Request, res: Response): void {
   res.status(204).send();
 }
 
+/**
+ * @openapi
+ * /telemetry/rules-ux:
+ *   post:
+ *     summary: Record rules UX telemetry event
+ *     description: |
+ *       Lightweight telemetry for rules UX events. No user identifiers or raw positions
+ *       are recorded; payloads are sanitised to keep metrics low-cardinality.
+ *     tags: [Telemetry]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       204:
+ *         description: Telemetry accepted
+ *       400:
+ *         description: Invalid telemetry payload
+ *       413:
+ *         description: Payload too large
+ */
 router.post(
   '/rules-ux',
   telemetryRateLimiter,

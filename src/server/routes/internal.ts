@@ -56,6 +56,20 @@ if (config.healthChecks?.enabled) {
  * bounded subset of the payload so that local monitoring stacks can deliver
  * alerts without external integrations.
  */
+/**
+ * @openapi
+ * /internal/alert-webhook:
+ *   post:
+ *     summary: Alertmanager webhook receiver (dev/local)
+ *     description: |
+ *       Receives Alertmanager webhooks for local/dev monitoring stacks.
+ *       Logs a bounded subset of the payload.
+ *     tags:
+ *       - Internal
+ *     responses:
+ *       204:
+ *         description: Webhook accepted
+ */
 router.post('/alert-webhook', alertWebhookRateLimiter, (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const receiver = typeof body.receiver === 'string' ? body.receiver.slice(0, 200) : undefined;

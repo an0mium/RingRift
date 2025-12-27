@@ -87,6 +87,7 @@ try:
         emit_quality_degraded,
         emit_quality_score_updated,
         emit_selfplay_target_updated,
+        emit_task_abandoned,  # December 2025 Wave 2
         emit_training_early_stopped,
         emit_training_loss_anomaly,
         emit_training_loss_trend,
@@ -117,6 +118,7 @@ except ImportError:
     emit_quality_degraded = None
     emit_quality_score_updated = None
     emit_selfplay_target_updated = None
+    emit_task_abandoned = None  # December 2025 Wave 2
     emit_training_early_stopped = None
     emit_training_loss_anomaly = None
     emit_training_loss_trend = None
@@ -1057,6 +1059,46 @@ class UnifiedEventRouter:
                     "buses_available": validation["buses_available"],
                 },
             )
+
+    def get_status(self) -> dict[str, Any]:
+        """Get comprehensive router status for monitoring dashboards (Dec 2025).
+
+        Returns:
+            Dictionary with router status, stats, and health information.
+            Used by DaemonManager for monitoring and dashboards.
+        """
+        stats = self.get_stats()
+        validation = self.validate_event_flow()
+        orphan_analysis = self.get_orphaned_events()
+
+        return {
+            "name": "UnifiedEventRouter",
+            "running": True,  # Router is always running once initialized
+            "healthy": validation["healthy"],
+            "stats": {
+                "total_events_routed": stats["total_events_routed"],
+                "events_by_type": stats["events_routed_by_type"],
+                "subscriber_count": stats["subscriber_count"],
+                "global_subscriber_count": stats["global_subscriber_count"],
+                "duplicates_prevented": stats["total_duplicates_prevented"],
+                "history_size": stats["history_size"],
+            },
+            "capabilities": {
+                "data_events": stats["has_data_events"],
+                "stage_events": stats["has_stage_events"],
+                "cross_process": stats["has_cross_process"],
+                "cross_process_polling": stats["cross_process_polling"],
+            },
+            "health": {
+                "issues": validation.get("issues", []),
+                "recommendations": validation.get("recommendations", []),
+                "buses_available": validation.get("buses_available", {}),
+            },
+            "orphan_events": {
+                "count": len(orphan_analysis.get("orphaned_events", [])),
+                "types": orphan_analysis.get("orphaned_events", [])[:10],  # Limit to 10
+            },
+        }
 
     def stop(self) -> None:
         """Stop the router (cleanup cross-process poller and thread pool)."""

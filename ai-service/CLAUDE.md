@@ -585,6 +585,37 @@ Major consolidation effort completed December 2025:
 | `distributed/cluster_monitor.py`                              | `coordination/cluster_status_monitor.py` | ~40 (shim) | Complete |
 | `EloSyncManager` + `RegistrySyncManager`                      | `DatabaseSyncManager` base class         | ~567       | Complete |
 | 28 `_init_*()` functions in `coordination_bootstrap.py`       | `COORDINATOR_REGISTRY` + generic handler | ~17        | Complete |
+| 5× NodeStatus definitions                                     | `node_status.py`                         | ~200       | Complete |
+| DaemonManager factory methods (8 of 61)                       | `daemon_factory_implementations.py`      | ~100       | Complete |
+
+**New Canonical Modules (December 2025 Wave 2):**
+
+| Module                            | Purpose                                                              |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `node_status.py`                  | Unified NodeHealthState enum + NodeMonitoringStatus dataclass       |
+| `daemon_factory_implementations.py` | Standalone factory functions for daemon creation                   |
+
+**`node_status.py`** consolidates 5 duplicate NodeStatus definitions:
+- `NodeHealthState` enum: HEALTHY, DEGRADED, UNHEALTHY, EVICTED, UNKNOWN, OFFLINE
+- `NodeMonitoringStatus` dataclass: 20+ fields for node identity, health, GPU, workload
+- Backward-compatible aliases: `NodeStatus`, `ClusterNodeStatus`
+- Migration: `from app.coordination.node_status import NodeMonitoringStatus as NodeStatus`
+
+**`daemon_factory_implementations.py`** extracts factory methods from DaemonManager:
+- 8 factory functions: `create_auto_sync`, `create_model_distribution`, etc.
+- `FACTORY_REGISTRY` dict for lookup by DaemonType name
+- Pattern for extracting remaining 53 factories incrementally
+- Benefits: Reduces daemon_manager.py from ~3,600 LOC, factories testable in isolation
+
+**Infrastructure Improvements (December 2025 Wave 2):**
+
+| Improvement                      | Description                                               |
+| -------------------------------- | --------------------------------------------------------- |
+| DaemonAdapter.health_check()     | Added to base class; all 9 adapter subclasses now comply  |
+| Hardcoded port 8770 → P2P_DEFAULT_PORT | node_status.py, unified_node_health_daemon.py fixed |
+| health_check() added to 6 classes | ClusterMonitor, BandwidthManager, BackpressureMonitor, etc. |
+| BaseDaemon deprecation           | protocols.py BaseDaemon → use base_daemon.py version      |
+| CoordinatorStatus/Protocol       | coordinator_base.py now imports from protocols.py         |
 
 **Coordination Bootstrap Refactoring (December 2025):**
 
@@ -680,6 +711,8 @@ Daemon health check coverage and code quality improvements:
 | DB connection leak fix            | `auto_sync_daemon.py` uses context managers            | ✅ Complete         |
 | SyncRouter NODE_RECOVERED         | Added event subscription for node recovery             | ✅ Complete         |
 | FeedbackLoopController fix        | `_subscribed` flag now reset in `finally` block        | ✅ Complete         |
+| P2P_BACKEND health_check          | Added `P2PIntegration` class to `p2p_integration.py`   | ✅ Complete         |
+| Config template archival          | Archived 13 example/template files to deprecated_config| ✅ Complete         |
 
 Daemon health check coverage increased from 22% to ~60%+ for critical daemons.
 

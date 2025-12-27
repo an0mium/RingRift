@@ -208,6 +208,9 @@ class NodeRecoveryState:
     the NodeHealthState enum in node_status.py which represents health grades
     (HEALTHY, DEGRADED, UNHEALTHY, etc.). This dataclass tracks recovery
     attempts and failure counts, not health grades.
+
+    December 2025 Wave 2: Extended with additional fields for coordinator
+    lifecycle tracking (heartbeats, responsiveness).
     """
 
     node_id: str
@@ -218,6 +221,44 @@ class NodeRecoveryState:
     is_escalated: bool = False
     last_escalation_time: float = 0.0
     offline_since: float = 0.0
+    # December 2025 Wave 2: Coordinator lifecycle tracking
+    last_heartbeat: float = 0.0
+    last_health_update: float = 0.0
+
+    @property
+    def is_healthy(self) -> bool:
+        """Alias for is_online (backward compat)."""
+        return self.is_online
+
+    @is_healthy.setter
+    def is_healthy(self, value: bool) -> None:
+        """Set is_online via is_healthy alias."""
+        self.is_online = value
+
+    @property
+    def is_responsive(self) -> bool:
+        """Node is responsive if online and recently sent heartbeat."""
+        if not self.is_online:
+            return False
+        if self.last_heartbeat == 0.0:
+            return True  # No heartbeat tracking yet, assume responsive
+        return (time.time() - self.last_heartbeat) < 120.0  # 2 min threshold
+
+    @is_responsive.setter
+    def is_responsive(self, value: bool) -> None:
+        """Setting responsive to False marks node offline."""
+        if not value:
+            self.is_online = False
+
+    @property
+    def failure_count(self) -> int:
+        """Alias for consecutive_failures (backward compat)."""
+        return self.consecutive_failures
+
+    @failure_count.setter
+    def failure_count(self, value: int) -> None:
+        """Set consecutive_failures via failure_count alias."""
+        self.consecutive_failures = value
 
 
 # Backward-compat alias (deprecated - use NodeRecoveryState)
