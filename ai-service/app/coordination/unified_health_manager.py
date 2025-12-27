@@ -303,11 +303,11 @@ class RecoveryConfig:
     # Recovery attempt limits
     max_recovery_attempts_per_node: int = 3
     max_recovery_attempts_per_job: int = 2
-    recovery_attempt_cooldown: int = 300  # 5 min between attempts
+    recovery_attempt_cooldown: int = 300  # 5 min (see TIMEOUTS.RECOVERY_COOLDOWN)
 
     # Escalation thresholds
     consecutive_failures_for_escalation: int = 3
-    escalation_cooldown: int = 3600  # 1 hour
+    escalation_cooldown: int = 3600  # 1 hour (see TIMEOUTS.ESCALATION_COOLDOWN)
 
     # Node health thresholds
     node_unhealthy_after_failures: int = 3
@@ -342,7 +342,7 @@ class SystemHealthConfig:
     pause_health_threshold: int = 40
     pause_node_offline_percent: float = 0.5  # 50%
     pause_error_burst_count: int = 10
-    pause_error_burst_window: int = 300  # 5 minutes
+    pause_error_burst_window: int = 300  # 5 min (see TIMEOUTS.PAUSE_ERROR_BURST_WINDOW)
 
     # Critical circuits that trigger immediate pause if broken
     critical_circuits: list[str] = field(
@@ -351,7 +351,7 @@ class SystemHealthConfig:
 
     # Resume thresholds (hysteresis)
     resume_health_threshold: int = 60
-    resume_delay_seconds: int = 120  # Wait 2 min before resuming
+    resume_delay_seconds: int = 120  # 2 min (see TIMEOUTS.RESUME_DELAY_SECONDS)
 
     # Expected nodes (0 = auto-discover)
     expected_nodes: int = 0

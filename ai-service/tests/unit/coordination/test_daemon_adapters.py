@@ -255,10 +255,11 @@ class TestNPZDistributionDaemonAdapter:
         adapter = NPZDistributionDaemonAdapter()
         assert adapter.daemon_type == DaemonType.NPZ_DISTRIBUTION
 
-    def test_role(self):
-        """Test role property."""
+    def test_role_is_none(self):
+        """Test role property returns None (deprecated adapter)."""
         adapter = NPZDistributionDaemonAdapter()
-        assert adapter.role == OrchestratorRole.DATA_DISTRIBUTOR
+        # No exclusive role since this is deprecated and delegates to unified daemon
+        assert adapter.role is None
 
     def test_depends_on(self):
         """Test depends_on property."""

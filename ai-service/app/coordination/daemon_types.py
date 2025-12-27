@@ -270,9 +270,14 @@ try:
     )
     MAX_RESTART_DELAY = DAEMON_RESTART_DELAY_MAX  # Legacy alias
 except ImportError:
-    # Fallback if thresholds not available
-    DAEMON_RESTART_RESET_AFTER = 3600  # Reset restart count after 1 hour of stability
-    MAX_RESTART_DELAY = 300  # Cap exponential backoff at 5 minutes
+    # Fallback if thresholds not available (see app.config.timeout_config)
+    try:
+        from app.config.timeout_config import TIMEOUTS
+        DAEMON_RESTART_RESET_AFTER = TIMEOUTS.RESTART_RESET_AFTER
+        MAX_RESTART_DELAY = TIMEOUTS.MAX_RESTART_DELAY
+    except ImportError:
+        DAEMON_RESTART_RESET_AFTER = 3600  # Reset restart count after 1 hour of stability
+        MAX_RESTART_DELAY = 300  # Cap exponential backoff at 5 minutes
 
 
 @dataclass

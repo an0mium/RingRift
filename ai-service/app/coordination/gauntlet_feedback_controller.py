@@ -75,9 +75,9 @@ class GauntletFeedbackConfig:
     extra_selfplay_games: int = 5000  # Games to trigger for weak models
     epoch_extension_factor: float = 1.5  # Multiply epochs by this
 
-    # Cooldowns (seconds)
-    adjustment_cooldown: float = 300.0  # Between adjustments to same config
-    curriculum_cooldown: float = 600.0  # Between curriculum advancements
+    # Cooldowns (seconds) - see app.config.timeout_config.TIMEOUTS
+    adjustment_cooldown: float = 300.0  # TIMEOUTS.ADJUSTMENT_COOLDOWN
+    curriculum_cooldown: float = 600.0  # TIMEOUTS.CURRICULUM_COOLDOWN
 
     # Rollback thresholds
     regression_elo_drop: float = 50.0  # ELO drop to consider regression
