@@ -162,6 +162,11 @@ class SelfplayScheduler:
         # Diversity tracking
         self.diversity_metrics = DiversityMetrics()
 
+        # Rate adjustment state (December 2025 - feedback loop integration)
+        # Maps config_key -> current rate multiplier (1.0 = normal, >1 = boost, <1 = throttle)
+        self._rate_multipliers: dict[str, float] = {}
+        self._subscribed = False
+
     def get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
         """Get priority boost based on ELO performance for this config.
 
@@ -207,6 +212,71 @@ class SelfplayScheduler:
             pass
 
         return min(5, boost)  # Cap at +5
+
+    def subscribe_to_events(self) -> None:
+        """Subscribe to feedback loop events (December 2025).
+
+        Subscribes to:
+        - SELFPLAY_RATE_CHANGED: Adjust scheduling priority for configs
+        """
+        if self._subscribed:
+            return
+
+        try:
+            from app.coordination.event_router import DataEventType, get_event_bus
+
+            bus = get_event_bus()
+
+            # Subscribe to SELFPLAY_RATE_CHANGED for dynamic rate adjustment
+            if hasattr(DataEventType, "SELFPLAY_RATE_CHANGED"):
+                bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
+                logger.info("[SelfplayScheduler] Subscribed to SELFPLAY_RATE_CHANGED")
+
+            self._subscribed = True
+        except ImportError:
+            logger.debug("[SelfplayScheduler] Event router not available")
+        except (RuntimeError, AttributeError) as e:
+            logger.warning(f"[SelfplayScheduler] Failed to subscribe: {e}")
+
+    async def _on_selfplay_rate_changed(self, event) -> None:
+        """Handle SELFPLAY_RATE_CHANGED events from feedback loop.
+
+        Adjusts rate multipliers for configs based on Elo velocity and performance.
+
+        Args:
+            event: Event with payload containing config_key, new_rate, reason
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            config_key = payload.get("config_key", "")
+            new_rate = payload.get("new_rate", 1.0)
+            reason = payload.get("reason", "unknown")
+
+            if not config_key:
+                return
+
+            old_rate = self._rate_multipliers.get(config_key, 1.0)
+            self._rate_multipliers[config_key] = new_rate
+
+            if abs(new_rate - old_rate) > 0.01:
+                logger.info(
+                    f"[SelfplayScheduler] Rate changed for {config_key}: "
+                    f"{old_rate:.2f} -> {new_rate:.2f} ({reason})"
+                )
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[SelfplayScheduler] Error handling rate change: {e}")
+
+    def get_rate_multiplier(self, config_key: str) -> float:
+        """Get current rate multiplier for a config.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+
+        Returns:
+            Rate multiplier (1.0 = normal, >1 = boost, <1 = throttle)
+        """
+        return self._rate_multipliers.get(config_key, 1.0)
 
     def pick_weighted_config(self, node: NodeInfo) -> dict[str, Any] | None:
         """Pick a selfplay config weighted by priority and node capabilities.
@@ -388,11 +458,18 @@ class SelfplayScheduler:
             )  # Default to LOW (3)
             board_priority_boost = (3 - board_priority) * 2  # 0->6, 1->4, 2->2, 3->0
 
+            # Apply rate multiplier from feedback loop (December 2025)
+            # Rate multiplier > 1 = boost priority, < 1 = reduce priority
+            rate_multiplier = self.get_rate_multiplier(config_key)
+            rate_boost = int((rate_multiplier - 1.0) * 5)  # ±5 priority max
+            rate_boost = max(-3, min(5, rate_boost))  # Clamp to -3..+5
+
             cfg["effective_priority"] = (
                 cfg.get("priority", 1)
                 + elo_boost
                 + curriculum_boost
                 + board_priority_boost
+                + rate_boost
             )
 
         # Build weighted list by effective priority

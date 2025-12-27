@@ -4853,8 +4853,10 @@ class P2POrchestrator(
                     "target_nodes": [n.node_id for n in eligible_training_nodes],
                 },
             )
-        except Exception:
-            pass  # Event emission is best-effort
+        except ImportError:
+            pass  # Module not available (optional dependency)
+        except Exception as e:
+            logger.debug(f"DATA_SYNC_STARTED event emission failed (best-effort): {e}")
 
         # Collect current cluster manifest if stale
         if (time.time() - self.last_manifest_collection > self.manifest_collection_interval
@@ -4960,8 +4962,10 @@ class P2POrchestrator(
                     "target_nodes": [n.node_id for n in eligible_training_nodes],
                 },
             )
-        except Exception:
-            pass  # Event emission is best-effort
+        except ImportError:
+            pass  # Module not available (optional dependency)
+        except Exception as e:
+            logger.debug(f"DATA_SYNC_COMPLETED event emission failed (best-effort): {e}")
 
         return {
             "success": True,
