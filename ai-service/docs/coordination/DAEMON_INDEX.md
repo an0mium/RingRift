@@ -100,6 +100,7 @@ The `DaemonManager` (`app/coordination/daemon_manager.py`) provides lifecycle ma
 | Replication Repair  | `REPLICATION_REPAIR`  | EVENT_ROUTER | Repairs under-replicated data          |
 | Orphan Detection    | `ORPHAN_DETECTION`    | EVENT_ROUTER | Detects unregistered game databases    |
 | Data Cleanup        | `DATA_CLEANUP`        | EVENT_ROUTER | Auto-quarantine poor quality data      |
+| Disk Space Manager  | `DISK_SPACE_MANAGER`  | EVENT_ROUTER | Proactive disk cleanup at 60% usage    |
 | Health Check        | `HEALTH_CHECK`        | None         | _Deprecated_ - Use NODE_HEALTH_MONITOR |
 
 ### Backup & Recovery

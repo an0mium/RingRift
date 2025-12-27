@@ -206,18 +206,6 @@ class NodeRecoveryDaemon(BaseDaemon[NodeRecoveryConfig]):
         # Subscribe to P2P node death events
         self._subscribe_to_events()
 
-    async def _on_stop(self) -> None:
-        """Cleanup on shutdown."""
-        # Close HTTP session
-        if self._http_session:
-            await self._http_session.close()
-
-        logger.info(
-            f"[{self._get_daemon_name()}] Stats: "
-            f"{self._stats.nodes_recovered} recovered, "
-            f"{self._stats.recovery_failures} failures"
-        )
-
     def _subscribe_to_events(self) -> None:
         """Subscribe to cluster health events."""
         try:

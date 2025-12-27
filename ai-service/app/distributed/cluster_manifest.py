@@ -632,6 +632,10 @@ class ClusterManifest:
                 engine_mode TEXT,
                 registered_at REAL NOT NULL,
                 last_seen REAL NOT NULL,
+                -- December 2025: Consolidation tracking for training pipeline
+                is_consolidated INTEGER DEFAULT 0,
+                consolidated_at REAL DEFAULT 0,
+                canonical_db TEXT,
                 PRIMARY KEY (game_id, node_id)
             );
 

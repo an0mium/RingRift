@@ -1450,12 +1450,14 @@ class TestMaintenanceCycleFeatureFlags:
         daemon = MaintenanceDaemon(config=config)
         daemon._stats.last_db_vacuum = 0  # Very old
 
-        with patch.object(
-            daemon, "_vacuum_databases", new_callable=AsyncMock
-        ) as mock_vacuum:
-            with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock):
-                await daemon._run_maintenance_cycle()
-                mock_vacuum.assert_not_called()
+        with patch.object(daemon, "_vacuum_databases", new_callable=AsyncMock) as mock_vacuum:
+            with patch.object(daemon, "_rotate_logs", new_callable=AsyncMock):
+                with patch.object(daemon, "_archive_old_games", new_callable=AsyncMock):
+                    with patch.object(daemon, "_cleanup_dlq", new_callable=AsyncMock):
+                        with patch.object(daemon, "_cleanup_stale_queue_items", new_callable=AsyncMock):
+                            with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock):
+                                await daemon._run_maintenance_cycle()
+                                mock_vacuum.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cycle_respects_archive_disabled(self):
@@ -1464,12 +1466,14 @@ class TestMaintenanceCycleFeatureFlags:
         daemon = MaintenanceDaemon(config=config)
         daemon._stats.last_archive_run = 0  # Very old
 
-        with patch.object(
-            daemon, "_archive_old_games", new_callable=AsyncMock
-        ) as mock_archive:
-            with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock):
-                await daemon._run_maintenance_cycle()
-                mock_archive.assert_not_called()
+        with patch.object(daemon, "_archive_old_games", new_callable=AsyncMock) as mock_archive:
+            with patch.object(daemon, "_rotate_logs", new_callable=AsyncMock):
+                with patch.object(daemon, "_vacuum_databases", new_callable=AsyncMock):
+                    with patch.object(daemon, "_cleanup_dlq", new_callable=AsyncMock):
+                        with patch.object(daemon, "_cleanup_stale_queue_items", new_callable=AsyncMock):
+                            with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock):
+                                await daemon._run_maintenance_cycle()
+                                mock_archive.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cycle_respects_queue_cleanup_disabled(self):
@@ -1478,12 +1482,14 @@ class TestMaintenanceCycleFeatureFlags:
         daemon = MaintenanceDaemon(config=config)
         daemon._stats.last_queue_cleanup = 0  # Very old
 
-        with patch.object(
-            daemon, "_cleanup_stale_queue_items", new_callable=AsyncMock
-        ) as mock_cleanup:
-            with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock):
-                await daemon._run_maintenance_cycle()
-                mock_cleanup.assert_not_called()
+        with patch.object(daemon, "_cleanup_stale_queue_items", new_callable=AsyncMock) as mock_cleanup:
+            with patch.object(daemon, "_rotate_logs", new_callable=AsyncMock):
+                with patch.object(daemon, "_vacuum_databases", new_callable=AsyncMock):
+                    with patch.object(daemon, "_archive_old_games", new_callable=AsyncMock):
+                        with patch.object(daemon, "_cleanup_dlq", new_callable=AsyncMock):
+                            with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock):
+                                await daemon._run_maintenance_cycle()
+                                mock_cleanup.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cycle_respects_orphan_detection_disabled(self):
@@ -1492,8 +1498,11 @@ class TestMaintenanceCycleFeatureFlags:
         daemon = MaintenanceDaemon(config=config)
         daemon._stats.last_orphan_detection = 0  # Very old
 
-        with patch.object(
-            daemon, "_detect_orphan_files", new_callable=AsyncMock
-        ) as mock_orphan:
-            await daemon._run_maintenance_cycle()
-            mock_orphan.assert_not_called()
+        with patch.object(daemon, "_detect_orphan_files", new_callable=AsyncMock) as mock_orphan:
+            with patch.object(daemon, "_rotate_logs", new_callable=AsyncMock):
+                with patch.object(daemon, "_vacuum_databases", new_callable=AsyncMock):
+                    with patch.object(daemon, "_archive_old_games", new_callable=AsyncMock):
+                        with patch.object(daemon, "_cleanup_dlq", new_callable=AsyncMock):
+                            with patch.object(daemon, "_cleanup_stale_queue_items", new_callable=AsyncMock):
+                                await daemon._run_maintenance_cycle()
+                                mock_orphan.assert_not_called()
