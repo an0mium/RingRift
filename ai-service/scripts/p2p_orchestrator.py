@@ -2303,6 +2303,8 @@ class P2POrchestrator(
             return False
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
             logger.info("Leadership without voter quorum, stepping down")
+            # Dec 2025: Emit LEADER_LOST before clearing leader_id
+            old_leader_id = self.leader_id
             self.role = NodeRole.FOLLOWER
             self.leader_id = None
             self.leader_lease_id = ""
@@ -2310,6 +2312,7 @@ class P2POrchestrator(
             self.last_lease_renewal = 0.0
             self._release_voter_grant_if_self()
             self._save_state()
+            _emit_p2p_leader_lost_sync(old_leader_id, "quorum_lost")
             with contextlib.suppress(RuntimeError):
                 asyncio.get_running_loop().create_task(self._start_election())
             return False
