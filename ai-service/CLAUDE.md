@@ -537,6 +537,18 @@ Major consolidation effort completed December 2025:
 | 3× GumbelAction/GumbelNode copies                             | `gumbel_common.py`                       | ~150       | Complete |
 | `distributed/cluster_monitor.py`                              | `coordination/cluster_status_monitor.py` | ~40 (shim) | Complete |
 | `EloSyncManager` + `RegistrySyncManager`                      | `DatabaseSyncManager` base class         | ~567       | Complete |
+| 28 `_init_*()` functions in `coordination_bootstrap.py`       | `COORDINATOR_REGISTRY` + generic handler | ~17        | Complete |
+
+**Coordination Bootstrap Refactoring (December 2025):**
+
+Replaced 28 individual `_init_*()` functions with registry-based pattern:
+
+- `COORDINATOR_REGISTRY`: Dict[str, CoordinatorSpec] with 27 coordinator entries
+- `_init_coordinator_from_spec()`: Generic initialization handler
+- `InitPattern` enum: WIRE, GET, IMPORT, SKIP, DELEGATE patterns
+- Benefits: Adding new coordinators now requires 6-8 lines (vs 20-25 for full function)
+
+Special handlers retained for `_init_pipeline_orchestrator` (extra args) and `_init_curriculum_integration_with_verification` (verification logic).
 
 **Event System Improvements (December 2025):**
 
