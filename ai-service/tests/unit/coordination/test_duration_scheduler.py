@@ -358,7 +358,7 @@ class TestScheduleTask:
             task_id="task-future",
             task_type="training",
             host="gpu-1",
-            start_time=now + 3600,  # 1 hour from now
+            scheduled_start=now + 3600,  # 1 hour from now
         )
 
         assert scheduled is True
@@ -370,6 +370,27 @@ class TestScheduleTask:
         )
         row = cursor.fetchone()
         assert row is not None
+
+    def test_schedule_task_with_priority(self, scheduler):
+        """Test scheduling with priority."""
+        now = time.time()
+        scheduled = scheduler.schedule_task(
+            task_id="task-priority",
+            task_type="training",
+            host="gpu-1",
+            scheduled_start=now + 3600,
+            priority=10,
+        )
+
+        assert scheduled is True
+
+        # Verify priority is stored
+        conn = scheduler._get_connection()
+        cursor = conn.execute(
+            "SELECT priority FROM scheduled_tasks WHERE task_id = ?", ("task-priority",)
+        )
+        row = cursor.fetchone()
+        assert row["priority"] == 10
 
 
 class TestDurationStats:

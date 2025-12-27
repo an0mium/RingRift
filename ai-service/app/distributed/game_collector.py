@@ -62,8 +62,10 @@ class InMemoryGameCollector:
     rather than write them to SQLite.
     """
 
-    def __init__(self):
+    def __init__(self, enable_quality_gate: bool = True):
         self._games: list[CollectedGame] = []
+        self._rejected_games: int = 0
+        self._enable_quality_gate = enable_quality_gate
 
     def store_game(
         self,
