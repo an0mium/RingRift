@@ -16,7 +16,7 @@
 
 Pass 13 conducted a comprehensive assessment across four key areas. Key findings:
 
-1. **Shared Helpers:** [`movementApplication.ts`](../../../src/shared/engine/movementApplication.ts) and [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts) contain P0 TODO stubs requiring implementation. [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts) is fully implemented despite Pass 12 claims.
+1. **Shared Helpers:** [`movementApplication.ts`](../../../src/shared/engine/movementApplication.ts) and [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts) contain P0 TODO stubs requiring implementation. Chain-capture helpers now live in [`CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts).
 
 2. **React Tests:** Many React component tests already exist (GameHUD, VictoryModal, BoardView, etc.). Remaining gaps are primarily in hooks and minor components. Pass 12's "160 component tests" claim is inaccurate - the tests are distributed across many files.
 
@@ -46,7 +46,7 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 - `CaptureSegmentParams` interface
 - `MovementApplicationOutcome` type
 
-**Notes:** This file provides the type definitions but the actual implementation functions are stubs. These need to be implemented to match the patterns in [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts:1).
+**Notes:** This file provides the type definitions but the actual implementation functions are stubs. These need to be implemented to match the patterns in [`CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:1).
 
 ### [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts)
 
@@ -68,7 +68,7 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 - `SkipPlacementEligibilityResult` type
 - `PlacementValidityForCell` interface
 
-### [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts) - REFERENCE
+### [`CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) - REFERENCE
 
 **Status:** COMPLETE ✅  
 **Lines:** 494  
@@ -77,13 +77,13 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 **Functions (5 total):**
 | Function | Status | Lines |
 |----------|--------|-------|
-| [`enumerateChainCaptureSegments()`](../src/shared/engine/captureChainHelpers.ts:122) | COMPLETE | Enumerates all valid capture segments |
-| [`getChainCaptureContinuationInfo()`](../src/shared/engine/captureChainHelpers.ts:205) | COMPLETE | Gets continuation info for chain captures |
-| [`canCapture()`](../src/shared/engine/captureChainHelpers.ts:278) | COMPLETE | Validates if capture is possible |
-| [`getValidCaptureTargets()`](../src/shared/engine/captureChainHelpers.ts:330) | COMPLETE | Gets all valid capture targets |
-| [`processChainCapture()`](../src/shared/engine/captureChainHelpers.ts:380) | COMPLETE | Processes a chain capture sequentially |
+| [`enumerateChainCaptureSegments()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:534) | COMPLETE | Enumerates all valid capture segments |
+| [`getChainCaptureContinuationInfo()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:578) | COMPLETE | Gets continuation info for chain captures |
+| [`enumerateChainCaptures()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:605) | COMPLETE | Enumerates continuation capture targets |
+| [`updateChainCaptureStateAfterCapture()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:795) | COMPLETE | Updates chain capture state after a segment |
+| [`applyCaptureSegment()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:839) | COMPLETE | Applies a capture segment mutation |
 
-**Test Coverage:** [`tests/unit/captureChainHelpers.shared.test.ts`](../tests/unit/captureChainHelpers.shared.test.ts) - 587 lines with comprehensive tests
+**Test Coverage:** [`tests/unit/CaptureAggregate.chainCapture.shared.test.ts`](../../../tests/unit/CaptureAggregate.chainCapture.shared.test.ts) - comprehensive chain-capture tests
 
 ---
 

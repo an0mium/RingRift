@@ -274,3 +274,81 @@ This functionality is now provided by `UnifiedEventRouter` in `event_router.py`,
 - Has a cleaner API with unified `publish()` and `subscribe()` methods
 - Includes event history and metrics
 - Supports cross-process polling
+
+---
+
+## Batch Archive: December 27, 2025 (3,339 LOC)
+
+The following 8 modules were archived from `app/coordination/deprecated/`:
+
+### _deprecated_auto_evaluation_daemon.py
+
+**Original Purpose**: Background daemon for automatic model evaluation.
+
+**Superseded By**: Integrated into `daemon_manager.py` with EVALUATION_DAEMON type and modern event-driven triggers.
+
+### _deprecated_cross_process_events.py
+
+**Original Purpose**: SQLite-backed inter-process event queue.
+
+**Superseded By**: `app/coordination/event_router.py` with unified event routing.
+
+### _deprecated_event_emitters.py
+
+**Original Purpose**: Helper functions for emitting training pipeline events.
+
+**Superseded By**: `app/coordination/event_router.py` emit_* functions.
+
+### _deprecated_health_check_orchestrator.py
+
+**Original Purpose**: Orchestrated health checks across cluster nodes.
+
+**Superseded By**: `app/coordination/unified_health_manager.py` with SystemHealthScore tracking.
+
+### _deprecated_host_health_policy.py
+
+**Original Purpose**: Policy-based health evaluation for cluster hosts.
+
+**Superseded By**: `app/coordination/unified_health_manager.py` with configurable thresholds.
+
+### _deprecated_queue_populator_daemon.py
+
+**Original Purpose**: Background daemon for maintaining work queues.
+
+**Superseded By**: `app/coordination/queue_populator.py` active implementation with Elo-based targets.
+
+### _deprecated_sync_coordinator.py
+
+**Original Purpose**: Scheduling layer for sync operations (1,344 LOC).
+
+**Superseded By**:
+- `app/coordination/auto_sync_daemon.py` - Automated sync scheduling
+- `app/coordination/sync_router.py` - Intelligent routing
+- `app/distributed/sync_coordinator.py` - Active execution layer (2,204 LOC)
+
+**Note**: Two files named "sync_coordinator.py" existed with different purposes:
+- `app/coordination/sync_coordinator.py` (DEPRECATED) - Scheduling layer
+- `app/distributed/sync_coordinator.py` (ACTIVE) - Execution layer
+
+### _deprecated_system_health_monitor.py
+
+**Original Purpose**: System-wide health monitoring and scoring.
+
+**Superseded By**: Health scoring consolidated into `app/coordination/unified_health_manager.py`:
+- `get_system_health_score()` - Calculate system health
+- `get_system_health_level()` - Classify health level
+- `should_pause_pipeline()` - Check if pipeline should pause
+
+---
+
+## Verification
+
+All 8 modules had **zero external imports** verified by:
+
+```bash
+grep -r "from app.coordination.deprecated._deprecated" --include="*.py" .
+# Result: No matches found
+```
+
+**Total LOC Archived**: 3,339 lines
+**Date**: December 27, 2025

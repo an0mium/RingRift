@@ -278,6 +278,13 @@ class WorkQueue:
                 conn = sqlite3.connect(str(self.db_path), timeout=10.0)
                 cursor = conn.cursor()
 
+                # Enable WAL mode for better crash recovery and concurrent access
+                # WAL (Write-Ahead Logging) ensures data integrity on crash
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")  # Good balance of safety/performance
+                cursor.execute("PRAGMA wal_autocheckpoint=1000")  # Checkpoint every 1000 pages
+                cursor.execute("PRAGMA busy_timeout=10000")  # 10s timeout for locked db
+
                 # Work items table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS work_items (
