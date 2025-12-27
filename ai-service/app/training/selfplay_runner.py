@@ -1073,6 +1073,9 @@ class SelfplayRunner(ABC):
     def _save_game_to_db(self, result: GameResult) -> None:
         """Save a completed game to the database.
 
+        Uses a write lock to prevent sync operations from capturing incomplete data.
+        The lock is held for the duration of the database write.
+
         Args:
             result: Game result with initial_state, final_state, and move_objects
         """
@@ -1087,24 +1090,31 @@ class SelfplayRunner(ABC):
             logger.debug(f"Skipping DB write for {result.game_id}: no move objects")
             return
 
-        try:
-            # Check if we have MCTS distribution data - use incremental storage
-            has_mcts_data = result.move_probs and any(p is not None for p in result.move_probs)
+        # Get database path for write lock
+        db_path = Path(self.config.record_db) if self.config.record_db else None
+        if db_path is None:
+            return
 
-            if has_mcts_data:
-                # Use incremental storage to preserve MCTS distribution data
-                self._save_game_with_mcts_data(result)
-            else:
-                # Use bulk storage for games without MCTS data
-                self._db.store_game(
-                    game_id=result.game_id,
-                    initial_state=result.initial_state,
-                    final_state=result.final_state,
-                    moves=result.move_objects,
-                    metadata=result.metadata,
-                    store_history_entries=self.config.store_history_entries,
-                    snapshot_interval=getattr(self.config, 'snapshot_interval', 20),
-                )
+        try:
+            # Acquire write lock to prevent sync during database write
+            with DatabaseWriteLock(db_path):
+                # Check if we have MCTS distribution data - use incremental storage
+                has_mcts_data = result.move_probs and any(p is not None for p in result.move_probs)
+
+                if has_mcts_data:
+                    # Use incremental storage to preserve MCTS distribution data
+                    self._save_game_with_mcts_data(result)
+                else:
+                    # Use bulk storage for games without MCTS data
+                    self._db.store_game(
+                        game_id=result.game_id,
+                        initial_state=result.initial_state,
+                        final_state=result.final_state,
+                        moves=result.move_objects,
+                        metadata=result.metadata,
+                        store_history_entries=self.config.store_history_entries,
+                        snapshot_interval=getattr(self.config, 'snapshot_interval', 20),
+                    )
             logger.debug(f"Saved game {result.game_id} to database")
         except (OSError, sqlite3.Error, ValueError, TypeError) as e:
             logger.warning(f"Failed to save game {result.game_id} to database: {e}")

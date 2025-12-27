@@ -481,17 +481,8 @@ class Safeguards(SingletonMixin):
         Returns:
             HealthCheckResult indicating safeguards health status.
         """
-        try:
-            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
-        except ImportError:
-            from dataclasses import dataclass as _dc
-            @_dc
-            class HealthCheckResult:
-                healthy: bool
-                status: str = "unknown"
-                message: str = ""
-                details: dict = None
-            return HealthCheckResult(healthy=True, status="unknown")
+        # Import from contracts (zero-dependency module)
+        from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
         warnings = []
 

@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from app.utils.yaml_utils import safe_load_yaml
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 

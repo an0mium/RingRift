@@ -537,17 +537,8 @@ class WorkDistributor:
         Returns:
             HealthCheckResult indicating distributor health status.
         """
-        try:
-            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
-        except ImportError:
-            from dataclasses import dataclass as _dc
-            @_dc
-            class HealthCheckResult:
-                healthy: bool
-                status: str = "unknown"
-                message: str = ""
-                details: dict = None
-            return HealthCheckResult(healthy=True, status="unknown")
+        # Import from contracts (zero-dependency module)
+        from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
         # Check if queue is available
         queue_available = self._ensure_queue()

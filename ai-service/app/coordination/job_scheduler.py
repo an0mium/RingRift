@@ -941,18 +941,8 @@ class PriorityJobScheduler:
         Returns:
             HealthCheckResult indicating scheduler health status.
         """
-        try:
-            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
-        except ImportError:
-            # Fallback for when protocols not available
-            from dataclasses import dataclass as _dc
-            @_dc
-            class HealthCheckResult:
-                healthy: bool
-                status: str = "unknown"
-                message: str = ""
-                details: dict = None
-            return HealthCheckResult(healthy=True, status="unknown")
+        # Import from contracts (zero-dependency module)
+        from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
         queue_stats = self.get_queue_stats()
         allocation_stats = self.get_allocation_stats()

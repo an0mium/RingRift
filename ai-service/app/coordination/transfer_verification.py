@@ -116,11 +116,11 @@ class BatchChecksum:
     created_at: float
 
 
-class TransferVerifier:
-    """Verifies integrity of data transfers with checksum validation."""
+class TransferVerifier(SingletonMixin):
+    """Verifies integrity of data transfers with checksum validation.
 
-    _instance: TransferVerifier | None = None
-    _lock = threading.RLock()
+    December 27, 2025: Migrated to SingletonMixin (Wave 4 Phase 1).
+    """
 
     def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or DEFAULT_VERIFIER_DB
@@ -129,20 +129,6 @@ class TransferVerifier:
         self.quarantine_dir.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._init_db()
-
-    @classmethod
-    def get_instance(cls, db_path: Path | None = None) -> TransferVerifier:
-        """Get or create singleton instance."""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls(db_path)
-            return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton for testing."""
-        with cls._lock:
-            cls._instance = None
 
     # =========================================================================
     # Database Management
