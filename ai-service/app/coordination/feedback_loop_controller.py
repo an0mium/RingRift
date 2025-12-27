@@ -2260,7 +2260,8 @@ class FeedbackLoopController:
                         ),
                         "quality_exploration_boost_emit"
                     )
-                except (ImportError, Exception) as e:
+                except (ImportError, RuntimeError, asyncio.CancelledError) as e:
+                    # Dec 2025: Narrowed from bare Exception to specific event emission errors
                     logger.debug(f"Failed to emit exploration boost: {e}")
         else:
             # Quality is normal

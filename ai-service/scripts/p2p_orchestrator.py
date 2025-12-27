@@ -1944,7 +1944,7 @@ class P2POrchestrator(
             games_at_last_cmaes_train=getattr(self, "games_at_last_cmaes_train", None),
             improvement_cycle_manager=getattr(self, "improvement_cycle_manager", None),
             auth_headers=lambda: self._auth_headers(),
-            urls_for_peer=lambda node_id: self._urls_for_peer(node_id),
+            urls_for_peer=lambda node_id, endpoint: self._urls_for_peer(node_id, endpoint),
             save_state_callback=lambda: self._save_state(),
         )
 
@@ -26202,7 +26202,7 @@ print(json.dumps({{
             app.router.add_post('/heartbeat', self.handle_heartbeat)
             app.router.add_get('/status', self.handle_status)
             app.router.add_get('/external_work', self.handle_external_work)
-            # Work queue routes (centralized work distribution)
+                # Work queue routes (centralized work distribution)
             app.router.add_post('/work/add', self.handle_work_add)
             app.router.add_post('/work/add_batch', self.handle_work_add_batch)
             app.router.add_get('/work/claim', self.handle_work_claim)
@@ -26210,206 +26210,206 @@ print(json.dumps({{
             app.router.add_post('/work/complete', self.handle_work_complete)
             app.router.add_post('/work/fail', self.handle_work_fail)
             app.router.add_get('/work/status', self.handle_work_status)
-        app.router.add_get('/work/populator', self.handle_populator_status)
-        app.router.add_get('/work/node/{node_id}', self.handle_work_for_node)
-        app.router.add_post('/work/cancel', self.handle_work_cancel)
-        app.router.add_get('/work/history', self.handle_work_history)
+            app.router.add_get('/work/populator', self.handle_populator_status)
+            app.router.add_get('/work/node/{node_id}', self.handle_work_for_node)
+            app.router.add_post('/work/cancel', self.handle_work_cancel)
+            app.router.add_get('/work/history', self.handle_work_history)
 
-        app.router.add_post('/election', self.handle_election)
-        app.router.add_post('/election/lease', self.handle_lease_request)
-        app.router.add_get('/election/grant', self.handle_voter_grant_status)
-        app.router.add_post('/election/reset', self.handle_election_reset)
-        app.router.add_post('/election/force_leader', self.handle_election_force_leader)
+            app.router.add_post('/election', self.handle_election)
+            app.router.add_post('/election/lease', self.handle_lease_request)
+            app.router.add_get('/election/grant', self.handle_voter_grant_status)
+            app.router.add_post('/election/reset', self.handle_election_reset)
+            app.router.add_post('/election/force_leader', self.handle_election_force_leader)
 
-        # Serf integration routes (battle-tested SWIM gossip)
-        app.router.add_post('/serf/event', self.handle_serf_event)
+            # Serf integration routes (battle-tested SWIM gossip)
+            app.router.add_post('/serf/event', self.handle_serf_event)
 
-        # Native SWIM integration (swim-p2p library) - Phase 5 Dec 26, 2025
-        app.router.add_get('/swim/status', self.handle_swim_status)
-        app.router.add_get('/swim/members', self.handle_swim_members)
+            # Native SWIM integration (swim-p2p library) - Phase 5 Dec 26, 2025
+            app.router.add_get('/swim/status', self.handle_swim_status)
+            app.router.add_get('/swim/members', self.handle_swim_members)
 
-        # Raft consensus integration (PySyncObj) - Phase 5 Dec 26, 2025
-        app.router.add_get('/raft/status', self.handle_raft_status)
-        app.router.add_get('/raft/work', self.handle_raft_work_queue)
-        app.router.add_get('/raft/jobs', self.handle_raft_jobs)
-        app.router.add_post('/raft/lock/{name}', self.handle_raft_lock)
-        app.router.add_delete('/raft/lock/{name}', self.handle_raft_unlock)
+            # Raft consensus integration (PySyncObj) - Phase 5 Dec 26, 2025
+            app.router.add_get('/raft/status', self.handle_raft_status)
+            app.router.add_get('/raft/work', self.handle_raft_work_queue)
+            app.router.add_get('/raft/jobs', self.handle_raft_jobs)
+            app.router.add_post('/raft/lock/{name}', self.handle_raft_lock)
+            app.router.add_delete('/raft/lock/{name}', self.handle_raft_unlock)
 
-        app.router.add_post('/coordinator', self.handle_coordinator)
-        app.router.add_post('/start_job', self.handle_start_job)
-        app.router.add_post('/stop_job', self.handle_stop_job)
-        app.router.add_post('/job/kill', self.handle_job_kill)
-        app.router.add_post('/cleanup', self.handle_cleanup)
-        app.router.add_post('/restart_stuck_jobs', self.handle_restart_stuck_jobs)
-        app.router.add_post('/reduce_selfplay', self.handle_reduce_selfplay)
-        app.router.add_post('/selfplay/start', self.handle_selfplay_start)  # GPU selfplay dispatch endpoint
-        app.router.add_get('/health', self.handle_health)
-        app.router.add_get('/cluster/health', self.handle_cluster_health)
-        app.router.add_get('/git/status', self.handle_git_status)
-        app.router.add_post('/git/update', self.handle_git_update)
+            app.router.add_post('/coordinator', self.handle_coordinator)
+            app.router.add_post('/start_job', self.handle_start_job)
+            app.router.add_post('/stop_job', self.handle_stop_job)
+            app.router.add_post('/job/kill', self.handle_job_kill)
+            app.router.add_post('/cleanup', self.handle_cleanup)
+            app.router.add_post('/restart_stuck_jobs', self.handle_restart_stuck_jobs)
+            app.router.add_post('/reduce_selfplay', self.handle_reduce_selfplay)
+            app.router.add_post('/selfplay/start', self.handle_selfplay_start)  # GPU selfplay dispatch endpoint
+            app.router.add_get('/health', self.handle_health)
+            app.router.add_get('/cluster/health', self.handle_cluster_health)
+            app.router.add_get('/git/status', self.handle_git_status)
+            app.router.add_post('/git/update', self.handle_git_update)
 
-        # Dynamic host registry routes (for IP auto-updates)
-        app.router.add_post('/register', self.handle_register)
-        app.router.add_get('/registry/status', self.handle_registry_status)
-        app.router.add_post('/registry/update_vast', self.handle_registry_update_vast)
-        app.router.add_post('/registry/update_aws', self.handle_registry_update_aws)
-        app.router.add_post('/registry/update_tailscale', self.handle_registry_update_tailscale)
-        app.router.add_post('/registry/save_yaml', self.handle_registry_save_yaml)
+            # Dynamic host registry routes (for IP auto-updates)
+            app.router.add_post('/register', self.handle_register)
+            app.router.add_get('/registry/status', self.handle_registry_status)
+            app.router.add_post('/registry/update_vast', self.handle_registry_update_vast)
+            app.router.add_post('/registry/update_aws', self.handle_registry_update_aws)
+            app.router.add_post('/registry/update_tailscale', self.handle_registry_update_tailscale)
+            app.router.add_post('/registry/save_yaml', self.handle_registry_save_yaml)
 
-        # Connectivity diagnosis routes (SSH/HTTP fallback)
-        app.router.add_get('/connectivity/diagnose/{node_id}', self.handle_connectivity_diagnose)
-        app.router.add_get('/connectivity/transport_stats', self.handle_transport_stats)
-        app.router.add_post('/connectivity/probe_vast', self.handle_probe_vast_nodes)
+            # Connectivity diagnosis routes (SSH/HTTP fallback)
+            app.router.add_get('/connectivity/diagnose/{node_id}', self.handle_connectivity_diagnose)
+            app.router.add_get('/connectivity/transport_stats', self.handle_transport_stats)
+            app.router.add_post('/connectivity/probe_vast', self.handle_probe_vast_nodes)
 
-        # Gauntlet evaluation routes
-        app.router.add_post('/gauntlet/execute', self.handle_gauntlet_execute)
-        app.router.add_get('/gauntlet/status', self.handle_gauntlet_status)
-        app.router.add_post('/gauntlet/quick-eval', self.handle_gauntlet_quick_eval)
+            # Gauntlet evaluation routes
+            app.router.add_post('/gauntlet/execute', self.handle_gauntlet_execute)
+            app.router.add_get('/gauntlet/status', self.handle_gauntlet_status)
+            app.router.add_post('/gauntlet/quick-eval', self.handle_gauntlet_quick_eval)
 
-        # Relay/Hub routes for NAT-blocked nodes
-        app.router.add_post('/relay/heartbeat', self.handle_relay_heartbeat)
-        app.router.add_get('/relay/peers', self.handle_relay_peers)
-        app.router.add_get('/relay/status', self.handle_relay_status)
-        app.router.add_post('/relay/enqueue', self.handle_relay_enqueue)
+            # Relay/Hub routes for NAT-blocked nodes
+            app.router.add_post('/relay/heartbeat', self.handle_relay_heartbeat)
+            app.router.add_get('/relay/peers', self.handle_relay_peers)
+            app.router.add_get('/relay/status', self.handle_relay_status)
+            app.router.add_post('/relay/enqueue', self.handle_relay_enqueue)
 
-        # Gossip protocol for decentralized state sharing
-        app.router.add_post('/gossip', self.handle_gossip)
-        app.router.add_post('/gossip/anti-entropy', self.handle_gossip_anti_entropy)
+            # Gossip protocol for decentralized state sharing
+            app.router.add_post('/gossip', self.handle_gossip)
+            app.router.add_post('/gossip/anti-entropy', self.handle_gossip_anti_entropy)
 
-        # Phase 2: Distributed data manifest routes
-        app.router.add_get('/data_manifest', self.handle_data_manifest)
-        app.router.add_get('/cluster_data_manifest', self.handle_cluster_data_manifest)
-        app.router.add_post('/refresh_manifest', self.handle_refresh_manifest)
+            # Phase 2: Distributed data manifest routes
+            app.router.add_get('/data_manifest', self.handle_data_manifest)
+            app.router.add_get('/cluster_data_manifest', self.handle_cluster_data_manifest)
+            app.router.add_post('/refresh_manifest', self.handle_refresh_manifest)
 
-        # Distributed CMA-ES routes
-        app.router.add_post('/cmaes/start', self.handle_cmaes_start)
-        app.router.add_post('/cmaes/evaluate', self.handle_cmaes_evaluate)
-        app.router.add_get('/cmaes/status', self.handle_cmaes_status)
-        app.router.add_post('/cmaes/result', self.handle_cmaes_result)
+            # Distributed CMA-ES routes
+            app.router.add_post('/cmaes/start', self.handle_cmaes_start)
+            app.router.add_post('/cmaes/evaluate', self.handle_cmaes_evaluate)
+            app.router.add_get('/cmaes/status', self.handle_cmaes_status)
+            app.router.add_post('/cmaes/result', self.handle_cmaes_result)
 
-        # Distributed tournament routes
-        app.router.add_post('/tournament/start', self.handle_tournament_start)
-        app.router.add_post('/tournament/match', self.handle_tournament_match)
-        app.router.add_post('/tournament/play_elo_match', self.handle_play_elo_match)
-        app.router.add_get('/tournament/status', self.handle_tournament_status)
-        app.router.add_post('/tournament/result', self.handle_tournament_result)
-        app.router.add_post('/tournament/ssh_start', self.handle_ssh_tournament_start)
-        app.router.add_get('/tournament/ssh_status', self.handle_ssh_tournament_status)
-        app.router.add_post('/tournament/ssh_cancel', self.handle_ssh_tournament_cancel)
+            # Distributed tournament routes
+            app.router.add_post('/tournament/start', self.handle_tournament_start)
+            app.router.add_post('/tournament/match', self.handle_tournament_match)
+            app.router.add_post('/tournament/play_elo_match', self.handle_play_elo_match)
+            app.router.add_get('/tournament/status', self.handle_tournament_status)
+            app.router.add_post('/tournament/result', self.handle_tournament_result)
+            app.router.add_post('/tournament/ssh_start', self.handle_ssh_tournament_start)
+            app.router.add_get('/tournament/ssh_status', self.handle_ssh_tournament_status)
+            app.router.add_post('/tournament/ssh_cancel', self.handle_ssh_tournament_cancel)
 
-        # Improvement loop routes
-        app.router.add_post('/improvement/start', self.handle_improvement_start)
-        app.router.add_get('/improvement/status', self.handle_improvement_status)
-        app.router.add_post('/improvement/phase_complete', self.handle_improvement_phase_complete)
+            # Improvement loop routes
+            app.router.add_post('/improvement/start', self.handle_improvement_start)
+            app.router.add_get('/improvement/status', self.handle_improvement_status)
+            app.router.add_post('/improvement/phase_complete', self.handle_improvement_phase_complete)
 
-        # Phase 2: P2P data sync routes
-        app.router.add_post('/sync/start', self.handle_sync_start)
-        app.router.add_get('/sync/status', self.handle_sync_status)
-        app.router.add_post('/sync/pull', self.handle_sync_pull)
-        app.router.add_get('/sync/file', self.handle_sync_file)
-        app.router.add_post('/sync/job_update', self.handle_sync_job_update)
-        app.router.add_post('/sync/training', self.handle_training_sync)  # Training node priority sync
-        app.router.add_get('/gpu/rankings', self.handle_gpu_rankings)      # GPU power rankings
-        app.router.add_post('/cleanup/files', self.handle_cleanup_files)   # File-specific cleanup
-        app.router.add_get('/admin/purge_retired', self.handle_purge_retired_peers)  # Purge retired peers (GET for auth bypass)
-        app.router.add_get('/admin/purge_stale', self.handle_purge_stale_peers)      # Purge stale peers by heartbeat age
-        app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
-        app.router.add_post('/admin/restart', self.handle_admin_restart)             # Force restart orchestrator
+            # Phase 2: P2P data sync routes
+            app.router.add_post('/sync/start', self.handle_sync_start)
+            app.router.add_get('/sync/status', self.handle_sync_status)
+            app.router.add_post('/sync/pull', self.handle_sync_pull)
+            app.router.add_get('/sync/file', self.handle_sync_file)
+            app.router.add_post('/sync/job_update', self.handle_sync_job_update)
+            app.router.add_post('/sync/training', self.handle_training_sync)  # Training node priority sync
+            app.router.add_get('/gpu/rankings', self.handle_gpu_rankings)      # GPU power rankings
+            app.router.add_post('/cleanup/files', self.handle_cleanup_files)   # File-specific cleanup
+            app.router.add_get('/admin/purge_retired', self.handle_purge_retired_peers)  # Purge retired peers (GET for auth bypass)
+            app.router.add_get('/admin/purge_stale', self.handle_purge_stale_peers)      # Purge stale peers by heartbeat age
+            app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
+            app.router.add_post('/admin/restart', self.handle_admin_restart)             # Force restart orchestrator
 
-        # Phase 5: Event subscription visibility (December 2025)
-        app.router.add_get('/subscriptions', self.handle_subscriptions)              # Show event subscriptions
+            # Phase 5: Event subscription visibility (December 2025)
+            app.router.add_get('/subscriptions', self.handle_subscriptions)              # Show event subscriptions
 
-        # Phase 3: Training pipeline routes
-        app.router.add_post('/training/start', self.handle_training_start)
-        app.router.add_get('/training/status', self.handle_training_status)
-        app.router.add_post('/training/update', self.handle_training_update)
-        app.router.add_post('/training/nnue/start', self.handle_nnue_start)
-        app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
+            # Phase 3: Training pipeline routes
+            app.router.add_post('/training/start', self.handle_training_start)
+            app.router.add_get('/training/status', self.handle_training_status)
+            app.router.add_post('/training/update', self.handle_training_update)
+            app.router.add_post('/training/nnue/start', self.handle_nnue_start)
+            app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
 
-        # Phase 5: Improvement cycle routes
-        app.router.add_get('/improvement_cycles/status', self.handle_improvement_cycles_status)
-        app.router.add_get('/improvement_cycles/leaderboard', self.handle_improvement_cycles_leaderboard)
-        app.router.add_post('/improvement_cycles/training_complete', self.handle_improvement_training_complete)
-        app.router.add_post('/improvement_cycles/evaluation_complete', self.handle_improvement_evaluation_complete)
+            # Phase 5: Improvement cycle routes
+            app.router.add_get('/improvement_cycles/status', self.handle_improvement_cycles_status)
+            app.router.add_get('/improvement_cycles/leaderboard', self.handle_improvement_cycles_leaderboard)
+            app.router.add_post('/improvement_cycles/training_complete', self.handle_improvement_training_complete)
+            app.router.add_post('/improvement_cycles/evaluation_complete', self.handle_improvement_evaluation_complete)
 
-        # Metrics observability routes
-        app.router.add_get('/metrics', self.handle_metrics)
-        app.router.add_get('/metrics/prometheus', self.handle_metrics_prometheus)
+            # Metrics observability routes
+            app.router.add_get('/metrics', self.handle_metrics)
+            app.router.add_get('/metrics/prometheus', self.handle_metrics_prometheus)
 
-        # Canonical pipeline routes (for pipeline_orchestrator.py integration)
-        app.router.add_post('/pipeline/start', self.handle_pipeline_start)
-        app.router.add_get('/pipeline/status', self.handle_pipeline_status)
-        app.router.add_post('/pipeline/selfplay_worker', self.handle_pipeline_selfplay_worker)
+            # Canonical pipeline routes (for pipeline_orchestrator.py integration)
+            app.router.add_post('/pipeline/start', self.handle_pipeline_start)
+            app.router.add_get('/pipeline/status', self.handle_pipeline_status)
+            app.router.add_post('/pipeline/selfplay_worker', self.handle_pipeline_selfplay_worker)
 
-        # Phase 4: REST API and Dashboard routes
-        app.router.add_get('/', self.handle_root)
-        app.router.add_get('/api/cluster/status', self.handle_api_cluster_status)
-        app.router.add_post('/api/cluster/git/update', self.handle_api_cluster_git_update)
-        app.router.add_get('/api/selfplay/stats', self.handle_api_selfplay_stats)
-        app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
-        app.router.add_get('/elo/table', self.handle_elo_table)
-        app.router.add_get('/elo/history', self.handle_elo_history)
+            # Phase 4: REST API and Dashboard routes
+            app.router.add_get('/', self.handle_root)
+            app.router.add_get('/api/cluster/status', self.handle_api_cluster_status)
+            app.router.add_post('/api/cluster/git/update', self.handle_api_cluster_git_update)
+            app.router.add_get('/api/selfplay/stats', self.handle_api_selfplay_stats)
+            app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
+            app.router.add_get('/elo/table', self.handle_elo_table)
+            app.router.add_get('/elo/history', self.handle_elo_history)
 
-        # Elo Database Sync routes (cluster-wide Elo consistency)
-        app.router.add_get('/elo/sync/status', self.handle_elo_sync_status)
-        app.router.add_post('/elo/sync/trigger', self.handle_elo_sync_trigger)
-        app.router.add_get('/elo/sync/db', self.handle_elo_sync_download)
-        app.router.add_post('/elo/sync/upload', self.handle_elo_sync_upload)
-        app.router.add_get('/nodes/table', self.handle_nodes_table)
-        app.router.add_get('/victory/table', self.handle_victory_table)
-        app.router.add_get('/games/analytics', self.handle_games_analytics)
-        app.router.add_get('/training/metrics', self.handle_training_metrics)
-        app.router.add_get('/holdout/metrics', self.handle_holdout_metrics)
-        app.router.add_get('/holdout/table', self.handle_holdout_table)
-        app.router.add_get('/mcts/stats', self.handle_mcts_stats)
-        app.router.add_get('/mcts/table', self.handle_mcts_table)
-        # Feature endpoints
-        app.router.add_get('/matchups/matrix', self.handle_matchup_matrix)
-        app.router.add_get('/matchups/table', self.handle_matchup_table)
-        app.router.add_get('/models/lineage', self.handle_model_lineage)
-        app.router.add_get('/models/lineage/table', self.handle_model_lineage_table)
-        app.router.add_get('/data/quality', self.handle_data_quality)
-        app.router.add_get('/data/quality/table', self.handle_data_quality_table)
-        app.router.add_get('/data/quality/issues', self.handle_data_quality_issues)
-        app.router.add_get('/training/efficiency', self.handle_training_efficiency)
-        app.router.add_get('/training/efficiency/table', self.handle_training_efficiency_table)
-        app.router.add_get('/rollback/status', self.handle_rollback_status)
-        app.router.add_get('/rollback/candidates', self.handle_rollback_candidates)
-        app.router.add_post('/rollback/execute', self.handle_rollback_execute)
-        app.router.add_post('/rollback/auto', self.handle_rollback_auto)
-        app.router.add_get('/autoscale/metrics', self.handle_autoscale_metrics)
-        app.router.add_get('/autoscale/recommendations', self.handle_autoscale_recommendations)
-        app.router.add_get('/resource/optimizer', self.handle_resource_optimizer)
-        app.router.add_get('/resource/history', self.handle_resource_utilization_history)
-        app.router.add_post('/webhook/test', self.handle_webhook_test)
-        app.router.add_get('/trends/summary', self.handle_trends_summary)
-        app.router.add_get('/trends/history', self.handle_trends_history)
-        app.router.add_get('/trends/table', self.handle_trends_table)
+            # Elo Database Sync routes (cluster-wide Elo consistency)
+            app.router.add_get('/elo/sync/status', self.handle_elo_sync_status)
+            app.router.add_post('/elo/sync/trigger', self.handle_elo_sync_trigger)
+            app.router.add_get('/elo/sync/db', self.handle_elo_sync_download)
+            app.router.add_post('/elo/sync/upload', self.handle_elo_sync_upload)
+            app.router.add_get('/nodes/table', self.handle_nodes_table)
+            app.router.add_get('/victory/table', self.handle_victory_table)
+            app.router.add_get('/games/analytics', self.handle_games_analytics)
+            app.router.add_get('/training/metrics', self.handle_training_metrics)
+            app.router.add_get('/holdout/metrics', self.handle_holdout_metrics)
+            app.router.add_get('/holdout/table', self.handle_holdout_table)
+            app.router.add_get('/mcts/stats', self.handle_mcts_stats)
+            app.router.add_get('/mcts/table', self.handle_mcts_table)
+            # Feature endpoints
+            app.router.add_get('/matchups/matrix', self.handle_matchup_matrix)
+            app.router.add_get('/matchups/table', self.handle_matchup_table)
+            app.router.add_get('/models/lineage', self.handle_model_lineage)
+            app.router.add_get('/models/lineage/table', self.handle_model_lineage_table)
+            app.router.add_get('/data/quality', self.handle_data_quality)
+            app.router.add_get('/data/quality/table', self.handle_data_quality_table)
+            app.router.add_get('/data/quality/issues', self.handle_data_quality_issues)
+            app.router.add_get('/training/efficiency', self.handle_training_efficiency)
+            app.router.add_get('/training/efficiency/table', self.handle_training_efficiency_table)
+            app.router.add_get('/rollback/status', self.handle_rollback_status)
+            app.router.add_get('/rollback/candidates', self.handle_rollback_candidates)
+            app.router.add_post('/rollback/execute', self.handle_rollback_execute)
+            app.router.add_post('/rollback/auto', self.handle_rollback_auto)
+            app.router.add_get('/autoscale/metrics', self.handle_autoscale_metrics)
+            app.router.add_get('/autoscale/recommendations', self.handle_autoscale_recommendations)
+            app.router.add_get('/resource/optimizer', self.handle_resource_optimizer)
+            app.router.add_get('/resource/history', self.handle_resource_utilization_history)
+            app.router.add_post('/webhook/test', self.handle_webhook_test)
+            app.router.add_get('/trends/summary', self.handle_trends_summary)
+            app.router.add_get('/trends/history', self.handle_trends_history)
+            app.router.add_get('/trends/table', self.handle_trends_table)
 
-        # A/B Testing endpoints
-        app.router.add_post('/abtest/create', self.handle_abtest_create)
-        app.router.add_post('/abtest/result', self.handle_abtest_result)
-        app.router.add_get('/abtest/status', self.handle_abtest_status)
-        app.router.add_get('/abtest/list', self.handle_abtest_list)
-        app.router.add_post('/abtest/cancel', self.handle_abtest_cancel)
-        app.router.add_get('/abtest/table', self.handle_abtest_table)
-        app.router.add_post('/abtest/run', self.handle_abtest_run)
+            # A/B Testing endpoints
+            app.router.add_post('/abtest/create', self.handle_abtest_create)
+            app.router.add_post('/abtest/result', self.handle_abtest_result)
+            app.router.add_get('/abtest/status', self.handle_abtest_status)
+            app.router.add_get('/abtest/list', self.handle_abtest_list)
+            app.router.add_post('/abtest/cancel', self.handle_abtest_cancel)
+            app.router.add_get('/abtest/table', self.handle_abtest_table)
+            app.router.add_post('/abtest/run', self.handle_abtest_run)
 
-        app.router.add_get('/api/training/status', self.handle_api_training_status)
-        app.router.add_get('/api/canonical/health', self.handle_api_canonical_health)
-        app.router.add_get('/api/canonical/jobs', self.handle_api_canonical_jobs_list)
-        app.router.add_get('/api/canonical/jobs/{job_id}', self.handle_api_canonical_job_get)
-        app.router.add_get('/api/canonical/jobs/{job_id}/log', self.handle_api_canonical_job_log)
-        app.router.add_get('/api/canonical/logs', self.handle_api_canonical_logs_list)
-        app.router.add_get('/api/canonical/logs/{log_name}/tail', self.handle_api_canonical_log_tail)
-        app.router.add_post('/api/canonical/generate', self.handle_api_canonical_generate)
-        app.router.add_post('/api/canonical/jobs/{job_id}/cancel', self.handle_api_canonical_job_cancel)
-        app.router.add_get('/api/jobs', self.handle_api_jobs_list)
-        app.router.add_post('/api/jobs/submit', self.handle_api_jobs_submit)
-        app.router.add_get('/api/jobs/{job_id}', self.handle_api_job_get)
-        app.router.add_post('/api/jobs/{job_id}/cancel', self.handle_api_job_cancel)
-        app.router.add_get('/dashboard', self.handle_dashboard)
-        app.router.add_get('/work_queue', self.handle_work_queue_dashboard)
+            app.router.add_get('/api/training/status', self.handle_api_training_status)
+            app.router.add_get('/api/canonical/health', self.handle_api_canonical_health)
+            app.router.add_get('/api/canonical/jobs', self.handle_api_canonical_jobs_list)
+            app.router.add_get('/api/canonical/jobs/{job_id}', self.handle_api_canonical_job_get)
+            app.router.add_get('/api/canonical/jobs/{job_id}/log', self.handle_api_canonical_job_log)
+            app.router.add_get('/api/canonical/logs', self.handle_api_canonical_logs_list)
+            app.router.add_get('/api/canonical/logs/{log_name}/tail', self.handle_api_canonical_log_tail)
+            app.router.add_post('/api/canonical/generate', self.handle_api_canonical_generate)
+            app.router.add_post('/api/canonical/jobs/{job_id}/cancel', self.handle_api_canonical_job_cancel)
+            app.router.add_get('/api/jobs', self.handle_api_jobs_list)
+            app.router.add_post('/api/jobs/submit', self.handle_api_jobs_submit)
+            app.router.add_get('/api/jobs/{job_id}', self.handle_api_job_get)
+            app.router.add_post('/api/jobs/{job_id}/cancel', self.handle_api_job_cancel)
+            app.router.add_get('/dashboard', self.handle_dashboard)
+            app.router.add_get('/work_queue', self.handle_work_queue_dashboard)
 
         runner = web.AppRunner(app)
         await runner.setup()
