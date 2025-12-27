@@ -237,7 +237,7 @@ python scripts/cluster_health_check.py --verbose
 3. Run cluster orchestrator:
 
 ```bash
-python scripts/p2p_orchestrator.py --node-id mac-studio
+PYTHONPATH=. ./venv/bin/python scripts/p2p_orchestrator.py --node-id mac-studio --port 8770 --peers <url-list>
 ```
 
 ### Slurm HPC Setup

@@ -113,10 +113,10 @@ The P2P orchestrator manages all cluster operations:
 
 ```bash
 # Start orchestrator daemon
-python scripts/p2p_orchestrator.py start
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id <name> --port 8770 --peers <url-list>
 
 # Stop orchestrator
-python scripts/p2p_orchestrator.py stop
+pkill -f p2p_orchestrator.py
 
 # Submit self-play job
 curl -X POST localhost:8770/jobs/selfplay \

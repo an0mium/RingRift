@@ -790,10 +790,10 @@ git clone <repo> && cd ai-service
 pip install -r requirements.txt
 
 # 3. Start P2P orchestrator
-python scripts/p2p_orchestrator.py --node-id $(hostname) --peers <coordinator>:8770
+PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id $(hostname) --port 8770 --peers <coordinator_urls>
 
 # 4. Verify connectivity
-python scripts/p2p_orchestrator.py --status
+curl -s http://localhost:8770/status
 ```
 
 ### Vast.ai Specific

@@ -114,7 +114,7 @@ ssh -p PORT root@SSH_HOST "echo OK"
 ssh -p PORT root@SSH_HOST "curl -s localhost:8770/health"
 
 # 3. Manually start P2P (COORDINATOR_IP = your Tailscale coordinator IP)
-ssh -p PORT root@SSH_HOST "cd ~/ringrift/ai-service && pkill -f p2p_orchestrator; nohup python scripts/p2p_orchestrator.py --node-id vast-INSTANCE_ID --port 8770 --peers COORDINATOR_IP:8770 > logs/p2p.log 2>&1 &"
+ssh -p PORT root@SSH_HOST "cd ~/ringrift/ai-service && pkill -f p2p_orchestrator; PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py --node-id vast-INSTANCE_ID --port 8770 --peers COORDINATOR_IP:8770 > logs/p2p.log 2>&1 &"
 
 # 4. Or use the sync script
 python scripts/vast_p2p_sync.py --full

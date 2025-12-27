@@ -221,7 +221,7 @@ ssh $HOST 'lsof -i :8770'
 ssh $HOST 'pkill -f p2p_orchestrator'
 
 # Wait 5 seconds, then restart
-ssh $HOST 'sleep 5 && cd ~/ringrift/ai-service && nohup python scripts/p2p_orchestrator.py > logs/p2p.log 2>&1 &'
+ssh $HOST 'sleep 5 && cd ~/ringrift/ai-service && PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py > logs/p2p.log 2>&1 &'
 ```
 
 **Problem: Slow startup (loading state files)**

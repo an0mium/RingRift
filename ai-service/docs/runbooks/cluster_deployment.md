@@ -26,8 +26,8 @@ This runbook covers the complete process for deploying and managing the RingRift
 #### On Control Node (Coordinator)
 
 ```bash
-# Python 3.9+ with dependencies
-python3 --version  # Should be 3.9 or higher
+# Python 3.10+ with dependencies
+python3 --version  # Should be 3.10 or higher
 
 # Install core dependencies
 cd ai-service
@@ -46,7 +46,7 @@ ssh -V
 #### On Worker Nodes
 
 ```bash
-# Python 3.9+ with PyTorch
+# Python 3.10+ with PyTorch
 python3 --version
 
 # Virtual environment (recommended)
@@ -290,24 +290,21 @@ The P2P cluster uses **Raft consensus** with designated voter nodes for leader e
 
 #### Configure Voters (Important!)
 
-Edit `scripts/p2p_orchestrator.py` to set voter nodes:
+Set voter nodes in `ai-service/config/distributed_hosts.yaml` (authoritative):
 
-```python
-# scripts/p2p_orchestrator.py (around line 100)
-
-VOTER_NODES = [
-    "nebius-backbone-1",    # Stable backbone node
-    "runpod-h100",          # High-memory training node
-    "runpod-a100-1",        # GPU worker
-    "runpod-a100-2",        # GPU worker
-    "vultr-a100-20gb",      # Cloud GPU
-]
+```yaml
+p2p_voters:
+  - nebius-backbone-1
+  - nebius-h100-3
+  - hetzner-cpu1
+  - hetzner-cpu2
+  - vultr-a100-20gb
 ```
 
 **Voter Selection Criteria:**
 
 - Choose 3-5 stable nodes (not ephemeral Vast.ai instances)
-- Prefer nodes with high uptime (Lambda, Nebius, RunPod persistent instances)
+- Prefer nodes with high uptime (Nebius, Hetzner, Vultr persistent instances)
 - Avoid nodes that may be terminated frequently
 - Quorum requires `(n/2) + 1` voters online (e.g., 3 of 5)
 
@@ -327,7 +324,7 @@ python3 scripts/start_p2p_cluster.py --check
 python3 scripts/start_p2p_cluster.py --restart
 
 # Start on specific node
-python3 scripts/start_p2p_cluster.py --node lambda-gh200-a
+python3 scripts/start_p2p_cluster.py --node nebius-backbone-1
 ```
 
 **Expected Output:**
@@ -336,8 +333,8 @@ python3 scripts/start_p2p_cluster.py --node lambda-gh200-a
 Processing 43 hosts (starting P2P)
 ------------------------------------------------------------
 Results:
-  ✓ lambda-gh200-a: Started (PID 12345, advertise=100.88.35.19)
-  ✓ lambda-gh200-b: Started (PID 12346, advertise=100.88.35.20)
+  ✓ nebius-backbone-1: Started (PID 12345, advertise=89.169.110.128)
+  ✓ nebius-h100-3: Started (PID 12346, advertise=89.169.111.139)
   ✓ vast-rtx5090-1: Started (PID 12347, advertise=38.128.233.145)
   ...
   ✗ hetzner-cpu-1: Connection timeout
@@ -360,7 +357,7 @@ source venv/bin/activate
 
 # Start P2P with nohup
 export RINGRIFT_ADVERTISE_HOST=$(hostname -I | awk '{print $1}')
-nohup python3 scripts/p2p_orchestrator.py --node-id $(hostname) > logs/p2p.log 2>&1 &
+PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py --node-id $(hostname) --port 8770 --peers <coordinator_urls> > logs/p2p.log 2>&1 &
 
 # Verify it's running
 pgrep -f p2p_orchestrator
@@ -398,19 +395,19 @@ If no leader is elected:
 ```bash
 # Check voter quorum
 python3 -c "
-voters = ['nebius-backbone-1', 'runpod-h100', 'runpod-a100-1', 'runpod-a100-2', 'vultr-a100-20gb']
+voters = ['nebius-backbone-1', 'nebius-h100-3', 'hetzner-cpu1', 'hetzner-cpu2', 'vultr-a100-20gb']
 required = (len(voters) // 2) + 1
 print(f'Voter quorum: {required} of {len(voters)} voters required')
 "
 
 # Verify voters are online
-for node in nebius-backbone-1 runpod-h100 runpod-a100-1; do
+for node in nebius-backbone-1 nebius-h100-3 hetzner-cpu1; do
     echo "Checking $node..."
     ssh $node "pgrep -f p2p_orchestrator && curl -s http://localhost:8770/status" || echo "DOWN"
 done
 
 # Force restart voters (if needed)
-python3 scripts/start_p2p_cluster.py --restart --node nebius-backbone
+python3 scripts/start_p2p_cluster.py --restart --node nebius-backbone-1
 ```
 
 ---
@@ -815,7 +812,7 @@ ssh worker-node "df -h"
 
 ```bash
 # Check voter status
-for voter in nebius-backbone-1 runpod-h100 runpod-a100-1 runpod-a100-2 vultr-a100-20gb; do
+for voter in nebius-backbone-1 nebius-h100-3 hetzner-cpu1 hetzner-cpu2 vultr-a100-20gb; do
     echo "=== $voter ==="
     ssh $voter "curl -s http://localhost:8770/status | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f\"Role: {d.get(\\\"role\\\")}, Leader: {d.get(\\\"leader_id\\\")}\")' 2>&1" || echo "UNREACHABLE"
 done
@@ -827,7 +824,7 @@ done
 
    ```bash
    # Start P2P on missing voters
-   python3 scripts/start_p2p_cluster.py --node runpod-h100
+   python3 scripts/start_p2p_cluster.py --node nebius-h100-3
    python3 scripts/start_p2p_cluster.py --node nebius-backbone-1
    ```
 
@@ -840,14 +837,7 @@ done
 
 3. **Update voter list (if voters changed):**
 
-   ```python
-   # Edit scripts/p2p_orchestrator.py
-   VOTER_NODES = [
-       "new-stable-node-1",
-       "new-stable-node-2",
-       "new-stable-node-3",
-   ]
-   ```
+   Update `p2p_voters` in `ai-service/config/distributed_hosts.yaml`.
 
    Then restart all P2P nodes:
 
@@ -945,7 +935,7 @@ rsync -avz worker-node-2:~/ringrift/ai-service/data/games/selfplay.db data/games
    ```
 
 3. **Remove from voter list (if applicable):**
-   Edit `scripts/p2p_orchestrator.py` and restart P2P on remaining voters.
+   Remove the node ID from `p2p_voters` in `ai-service/config/distributed_hosts.yaml` and restart P2P on remaining voters.
 
 ### Updating Code on All Nodes
 

@@ -57,17 +57,16 @@ heartbeat_interval = HeartbeatDefaults.INTERVAL
 
 **Canonical Sources:**
 
-- Scripts: `scripts/lib/logging_config.py`
-- App modules: `app/core/logging_config.py`
+- **Canonical Source:** `app/core/logging_config.py`
 
 ```python
-# In script entry points
-from scripts.lib.logging_config import setup_script_logging
-logger = setup_script_logging("my_script")
-
-# In app modules
+# In all modules (December 2025 - unified approach)
 from app.core.logging_config import get_logger
 logger = get_logger(__name__)
+
+# Or use standard Python logging (also acceptable)
+import logging
+logger = logging.getLogger(__name__)
 ```
 
 **Do NOT:**
