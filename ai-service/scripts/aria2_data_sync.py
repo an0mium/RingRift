@@ -240,26 +240,34 @@ def build_local_inventory() -> NodeDataInventory:
             if db_file.name in seen_game_names:
                 continue
             seen_game_names.add(db_file.name)
-            stat = db_file.stat()
-            inventory.add_file(DataFile(
-                name=db_file.name,
-                path=f"games/{db_file.name}",
-                size_bytes=stat.st_size,
-                mtime=stat.st_mtime,
-                category="games",
-            ))
+            try:
+                stat = db_file.stat()
+                inventory.add_file(DataFile(
+                    name=db_file.name,
+                    path=f"games/{db_file.name}",
+                    size_bytes=stat.st_size,
+                    mtime=stat.st_mtime,
+                    category="games",
+                ))
+            except OSError:
+                continue  # Skip inaccessible files
 
     # Scan models
     if MODELS_DIR.exists():
         for model_file in list(MODELS_DIR.glob("*.pth")) + list(MODELS_DIR.glob("*.onnx")):
-            stat = model_file.stat()
-            inventory.add_file(DataFile(
-                name=model_file.name,
-                path=f"models/{model_file.name}",
-                size_bytes=stat.st_size,
-                mtime=stat.st_mtime,
-                category="models",
-            ))
+            if not model_file.exists() or model_file.is_symlink():
+                continue  # Skip broken symlinks
+            try:
+                stat = model_file.stat()
+                inventory.add_file(DataFile(
+                    name=model_file.name,
+                    path=f"models/{model_file.name}",
+                    size_bytes=stat.st_size,
+                    mtime=stat.st_mtime,
+                    category="models",
+                ))
+            except OSError:
+                continue  # Skip inaccessible files
 
     # Scan ELO databases
     for elo_db in ELO_DB_PATHS:
@@ -277,14 +285,17 @@ def build_local_inventory() -> NodeDataInventory:
     # Scan training data
     if TRAINING_DIR.exists():
         for batch_file in TRAINING_DIR.glob("*.npz"):
-            stat = batch_file.stat()
-            inventory.add_file(DataFile(
-                name=batch_file.name,
-                path=f"training/{batch_file.name}",
-                size_bytes=stat.st_size,
-                mtime=stat.st_mtime,
-                category="training",
-            ))
+            try:
+                stat = batch_file.stat()
+                inventory.add_file(DataFile(
+                    name=batch_file.name,
+                    path=f"training/{batch_file.name}",
+                    size_bytes=stat.st_size,
+                    mtime=stat.st_mtime,
+                    category="training",
+                ))
+            except OSError:
+                continue  # Skip inaccessible files
 
     return inventory
 
