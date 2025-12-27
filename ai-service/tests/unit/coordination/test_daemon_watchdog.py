@@ -17,8 +17,8 @@ Created: December 2025
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 import time
+from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,7 +33,6 @@ from app.coordination.daemon_watchdog import (
     start_watchdog,
     stop_watchdog,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -566,7 +565,12 @@ class TestStartStop:
         ) as mock_create_task:
             mock_task = MagicMock()
             mock_task.add_done_callback = MagicMock()
-            mock_create_task.return_value = mock_task
+
+            def _fake_create_task(coro, name=None):
+                coro.close()
+                return mock_task
+
+            mock_create_task.side_effect = _fake_create_task
 
             await watchdog.start()  # start() is async
 
@@ -740,9 +744,11 @@ class TestIntegration:
     ):
         """Test detecting and tracking a failed daemon over multiple checks.
 
-        Tests that successful auto-restarts emit DAEMON_AUTO_RESTARTED alerts.
+        Tests that successful auto-restarts emit DAEMON_AUTO_RESTARTED alerts,
+        and eventually DAEMON_RESTART_EXHAUSTED when max restarts is exceeded.
         """
         fast_config.auto_restart_cooldown_seconds = 0.01
+        fast_config.max_auto_restarts = 3
         mock_manager.get_daemon_info.return_value = mock_daemon_info_failed
         # Return True for successful restart (alert is only emitted on success)
         mock_manager.restart_failed_daemon = AsyncMock(return_value=True)
@@ -755,14 +761,23 @@ class TestIntegration:
 
         watchdog.add_alert_callback(capture_alert)
 
-        # Multiple checks - should trigger restarts
+        # Multiple checks - should trigger restarts until max reached
         for _ in range(4):
             await watchdog._check_daemon_health("auto_sync")
             await asyncio.sleep(0.02)
 
-        # Should have received alerts for successful restarts
+        # Should have received alerts
         assert len(alerts_received) >= 1
-        # All alerts should be DAEMON_AUTO_RESTARTED
-        for alert_type, daemon_name, details in alerts_received:
-            assert alert_type == WatchdogAlert.DAEMON_AUTO_RESTARTED
+
+        # Count alert types
+        auto_restarted = [a for a in alerts_received if a[0] == WatchdogAlert.DAEMON_AUTO_RESTARTED]
+        exhausted = [a for a in alerts_received if a[0] == WatchdogAlert.DAEMON_RESTART_EXHAUSTED]
+
+        # Should have 3 auto-restart alerts (up to max_auto_restarts)
+        assert len(auto_restarted) == 3
+        # Should have 1 exhausted alert (when max exceeded)
+        assert len(exhausted) == 1
+
+        # All alerts should reference auto_sync
+        for _alert_type, daemon_name, _details in alerts_received:
             assert daemon_name == "auto_sync"
