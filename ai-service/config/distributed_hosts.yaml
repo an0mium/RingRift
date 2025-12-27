@@ -24,7 +24,20 @@ sync_routing:
       games: selfplay_repository/raw
       npz: canonical_data
       models: canonical_models
-  priority_hosts: []
+  # Dec 2025: Priority hosts for data distribution (receive data first)
+  # These training nodes have high capacity or currently lack data
+  priority_hosts:
+    - runpod-a100-1          # 0 games - urgent need for training data
+    - runpod-a100-storage-1  # 500GB volume for large datasets
+    - nebius-h100-3          # Primary training node, 452GB storage
+    - nebius-h100-1          # Secondary training node
+  # Underserved configs that need more selfplay data generation
+  underserved_configs:
+    - square19_4p    # 0 games in canonical
+    - hexagonal_3p   # 0 games in canonical
+    - hexagonal_4p   # 3 games in canonical
+    - square19_3p    # 150 games
+    - square19_2p    # 77 games
 
 auto_sync:
   enabled: true
@@ -438,8 +451,8 @@ hosts:
     ssh_port: 29473
     ssh_user: root
     ssh_key: ~/.runpod/ssh/RunPod-Key-Go
-    ringrift_path: ~/ringrift/ai-service
-    venv_activate: source ~/ringrift/ai-service/venv/bin/activate
+    ringrift_path: /root/ringrift/ai-service
+    venv_activate: source /root/ringrift/ai-service/venv/bin/activate
     memory_gb: 24
     cpus: 32
     gpu: RTX 3090 Ti

@@ -138,8 +138,12 @@ class NodeInventory:
 
 
 @dataclass
-class SyncResult:
-    """Result of an aria2 sync operation."""
+class Aria2SyncResult:
+    """Result of an aria2 sync operation.
+
+    Dec 2025: Renamed from SyncResult to avoid confusion with
+    app.coordination.sync_constants.SyncResult (general-purpose sync result).
+    """
     success: bool
     files_synced: int = 0
     files_failed: int = 0
@@ -147,6 +151,10 @@ class SyncResult:
     duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
     method: str = "aria2"
+
+
+# Backwards compatibility alias
+SyncResult = Aria2SyncResult
 
 
 def check_aria2_available() -> bool:

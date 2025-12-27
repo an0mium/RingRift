@@ -194,8 +194,12 @@ class DriftHistory:
 
 
 @dataclass
-class SyncResult:
-    """Result of syncing from a remote node."""
+class EloSyncResult:
+    """Result of syncing Elo data from a remote node.
+
+    Dec 2025: Renamed from SyncResult to avoid confusion with
+    app.coordination.sync_constants.SyncResult (general-purpose sync result).
+    """
     remote_host: str
     synced_at: str
     matches_added: int
@@ -216,6 +220,10 @@ class SyncResult:
             "participants_added": self.participants_added,
             "error": self.error,
         }
+
+
+# Backwards compatibility alias
+SyncResult = EloSyncResult
 
 
 @dataclass

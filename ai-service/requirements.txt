@@ -99,6 +99,10 @@ zeroconf>=0.100.0
 # Provides leaderless failure detection with O(1) bandwidth, <5s failure detection
 swim-p2p>=1.2.0
 
+# PySyncObj - Raft consensus for replicated state (work queue, job assignments)
+# Provides automatic leader election with sub-second failover, distributed locks
+pysyncobj>=0.3.14
+
 # OpenTelemetry for distributed tracing (per Section 4.3)
 opentelemetry-api==1.29.0
 opentelemetry-sdk==1.29.0

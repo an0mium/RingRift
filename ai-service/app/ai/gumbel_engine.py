@@ -1,5 +1,19 @@
 """Unified Gumbel MCTS Search Engine.
 
+.. deprecated:: December 2025
+    This module is deprecated. Use ``app.ai.gumbel_search_engine`` instead.
+
+    The canonical Gumbel MCTS search engine is in ``gumbel_search_engine.py``.
+    This file is kept for backwards compatibility but will be removed in a future version.
+
+    Migrate by updating imports::
+
+        # Old (deprecated)
+        from app.ai.gumbel_engine import GumbelSearchEngine, GumbelSearchMode
+
+        # New (canonical)
+        from app.ai.gumbel_search_engine import GumbelSearchEngine, SearchMode
+
 This module provides a unified interface for all Gumbel MCTS implementations,
 allowing callers to use different search modes through a consistent API.
 
