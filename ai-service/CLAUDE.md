@@ -505,13 +505,14 @@ Three main options - use the recommended one:
 
 Major consolidation effort completed December 2025:
 
-| Original Modules                                              | Consolidated To                   | LOC Saved | Status   |
-| ------------------------------------------------------------- | --------------------------------- | --------- | -------- |
-| `model_distribution_daemon.py` + `npz_distribution_daemon.py` | `unified_distribution_daemon.py`  | ~1,100    | Complete |
-| `lambda_idle_daemon.py` + `vast_idle_daemon.py`               | `unified_idle_shutdown_daemon.py` | ~318      | Complete |
-| `replication_monitor.py` + `replication_repair_daemon.py`     | `unified_replication_daemon.py`   | ~600      | Complete |
-| `system_health_monitor.py` (scoring)                          | `unified_health_manager.py`       | ~200      | Complete |
-| 3× GumbelAction/GumbelNode copies                             | `gumbel_common.py`                | ~150      | Complete |
+| Original Modules                                              | Consolidated To                          | LOC Saved  | Status   |
+| ------------------------------------------------------------- | ---------------------------------------- | ---------- | -------- |
+| `model_distribution_daemon.py` + `npz_distribution_daemon.py` | `unified_distribution_daemon.py`         | ~1,100     | Complete |
+| `lambda_idle_daemon.py` + `vast_idle_daemon.py`               | `unified_idle_shutdown_daemon.py`        | ~318       | Complete |
+| `replication_monitor.py` + `replication_repair_daemon.py`     | `unified_replication_daemon.py`          | ~600       | Complete |
+| `system_health_monitor.py` (scoring)                          | `unified_health_manager.py`              | ~200       | Complete |
+| 3× GumbelAction/GumbelNode copies                             | `gumbel_common.py`                       | ~150       | Complete |
+| `distributed/cluster_monitor.py`                              | `coordination/cluster_status_monitor.py` | ~40 (shim) | Complete |
 
 **Event System Improvements (December 2025):**
 
@@ -521,12 +522,27 @@ Major consolidation effort completed December 2025:
 
 **Remaining Consolidation Opportunities (Q1 2026):**
 
-| Opportunity                    | Current LOC | Savings | Priority |
-| ------------------------------ | ----------- | ------- | -------- |
-| Merge 3 cluster monitors       | 2,485       | ~1,000  | HIGH     |
-| Unify sync managers            | 1,580       | ~500    | HIGH     |
-| Split daemon_manager.py        | 3,253       | ~1,000  | MEDIUM   |
-| Archive node_health_monitor.py | 386         | ~350    | LOW      |
+| Opportunity                          | Current LOC | Savings | Priority |
+| ------------------------------------ | ----------- | ------- | -------- |
+| Unify sync managers (Elo + Registry) | 1,580       | ~410    | HIGH     |
+| Archive unified_cluster_monitor.py   | 951         | ~951    | MEDIUM   |
+| Split daemon_manager.py              | 3,253       | ~1,000  | MEDIUM   |
+| Archive node_health_monitor.py       | 386         | ~350    | LOW      |
+
+**Bug Fixes (December 2025):**
+
+- Fixed `adaptive_resource_manager.py:414` - was importing non-existent `get_cluster_monitor`
+- Wired `emit_task_abandoned` to job cancellation paths in p2p_orchestrator.py
+
+**Sync Module Status (December 2025):**
+
+| Module                                      | Status     | Notes                                                   |
+| ------------------------------------------- | ---------- | ------------------------------------------------------- |
+| `app/distributed/sync_coordinator.py`       | **ACTIVE** | Main sync layer for P2P orchestrator                    |
+| `app/coordination/sync_coordinator.py`      | DEPRECATED | Archive Q2 2026                                         |
+| `app/coordination/cluster_data_sync.py`     | DEPRECATED | Has callers, use `AutoSyncDaemon(strategy="broadcast")` |
+| `app/coordination/ephemeral_sync.py`        | DEPRECATED | Has callers, use `AutoSyncDaemon(strategy="ephemeral")` |
+| `app/coordination/system_health_monitor.py` | DEPRECATED | Has callers, use `unified_health_manager.py`            |
 
 See ADR-007 for P2P orchestrator decomposition details.
 

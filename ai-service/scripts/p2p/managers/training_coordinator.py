@@ -404,15 +404,8 @@ class TrainingCoordinator:
         try:
             from aiohttp import ClientTimeout
 
-            # Import get_client_session from orchestrator's context
-            # This is a bit hacky but avoids duplicating the session management
-            try:
-                from scripts.p2p_orchestrator import get_client_session
-            except ImportError:
-                # Fallback: create session inline
-                import aiohttp
-                async def get_client_session(timeout):
-                    return aiohttp.ClientSession(timeout=timeout)
+            # Use shared network utility to avoid circular import with p2p_orchestrator
+            from scripts.p2p.network import get_client_session
 
             endpoint = f"/training/{job_type}/start"
             timeout = ClientTimeout(total=30)
