@@ -236,6 +236,21 @@ class SelfplayScheduler:
                 bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
                 logger.info("[SelfplayScheduler] Subscribed to SELFPLAY_RATE_CHANGED")
 
+            # Dec 2025: Subscribe to EXPLORATION_BOOST for training anomaly feedback
+            if hasattr(DataEventType, "EXPLORATION_BOOST"):
+                bus.subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost)
+                logger.info("[SelfplayScheduler] Subscribed to EXPLORATION_BOOST")
+
+            # Dec 2025: Subscribe to TRAINING_COMPLETED to boost selfplay after training
+            if hasattr(DataEventType, "TRAINING_COMPLETED"):
+                bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_completed)
+                logger.info("[SelfplayScheduler] Subscribed to TRAINING_COMPLETED")
+
+            # Dec 2025: Subscribe to ELO_VELOCITY_CHANGED for selfplay rate adjustment
+            if hasattr(DataEventType, "ELO_VELOCITY_CHANGED"):
+                bus.subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
+                logger.info("[SelfplayScheduler] Subscribed to ELO_VELOCITY_CHANGED")
+
             self._subscribed = True
         except ImportError:
             logger.debug("[SelfplayScheduler] Event router not available")
@@ -281,6 +296,107 @@ class SelfplayScheduler:
             Rate multiplier (1.0 = normal, >1 = boost, <1 = throttle)
         """
         return self._rate_multipliers.get(config_key, 1.0)
+
+    async def _on_exploration_boost(self, event) -> None:
+        """Handle EXPLORATION_BOOST events from FeedbackLoopController.
+
+        Dec 2025: React to training anomalies (loss spikes, stalls) by increasing
+        exploration to generate more diverse training data.
+
+        Args:
+            event: Event with payload containing config_key, boost_factor, reason
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            config_key = payload.get("config_key", "")
+            boost_factor = payload.get("boost_factor", 1.3)
+            duration = payload.get("duration_seconds", 900)
+            reason = payload.get("reason", "training_anomaly")
+
+            if not config_key:
+                return
+
+            # Delegate to existing set_exploration_boost method
+            self.set_exploration_boost(config_key, boost_factor, duration)
+
+            logger.info(
+                f"[SelfplayScheduler] Exploration boost from event: {config_key} "
+                f"{boost_factor:.2f}x for {duration}s ({reason})"
+            )
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[SelfplayScheduler] Error handling exploration boost: {e}")
+
+    async def _on_training_completed(self, event) -> None:
+        """Handle TRAINING_COMPLETED events to boost selfplay after training.
+
+        Dec 2025: When training completes, boost selfplay for that config to
+        generate more data for the next training cycle.
+
+        Args:
+            event: Event with payload containing config_key
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            config_key = payload.get("config_key", "")
+
+            if not config_key:
+                return
+
+            # Delegate to existing on_training_complete method
+            self.on_training_complete(config_key)
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[SelfplayScheduler] Error handling training completed: {e}")
+
+    async def _on_elo_velocity_changed(self, event) -> None:
+        """Handle ELO_VELOCITY_CHANGED events for selfplay rate adjustment.
+
+        Dec 2025: Adjusts selfplay rate based on Elo velocity trends.
+        - accelerating: Increase selfplay to capitalize on momentum
+        - decelerating: Reduce selfplay, shift focus to training quality
+        - stable: Maintain current allocation
+
+        Args:
+            event: Event with payload containing config_key, velocity, trend
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            config_key = payload.get("config_key", "")
+            velocity = payload.get("velocity", 0.0)
+            trend = payload.get("trend", "stable")
+
+            if not config_key:
+                return
+
+            old_rate = self._rate_multipliers.get(config_key, 1.0)
+
+            # Adjust rate based on velocity trend
+            if trend == "accelerating":
+                # Capitalize on positive momentum - increase selfplay rate
+                new_rate = min(1.5, old_rate * 1.2)
+            elif trend == "decelerating":
+                # Slow down and focus on quality
+                new_rate = max(0.6, old_rate * 0.85)
+            else:  # stable
+                # Slight adjustment toward 1.0
+                if old_rate > 1.0:
+                    new_rate = max(1.0, old_rate * 0.95)
+                elif old_rate < 1.0:
+                    new_rate = min(1.0, old_rate * 1.05)
+                else:
+                    new_rate = 1.0
+
+            self._rate_multipliers[config_key] = new_rate
+
+            if abs(new_rate - old_rate) > 0.01:
+                logger.info(
+                    f"[SelfplayScheduler] Elo velocity {trend} for {config_key}: "
+                    f"velocity={velocity:.1f}, rate {old_rate:.2f} -> {new_rate:.2f}"
+                )
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[SelfplayScheduler] Error handling Elo velocity change: {e}")
 
     def _emit_selfplay_target_updated(
         self,
