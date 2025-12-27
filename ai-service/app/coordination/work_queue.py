@@ -934,7 +934,7 @@ class WorkQueue:
             List of work items as dicts, most recent first
         """
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_connection()
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
