@@ -51,26 +51,23 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Try to import swim-p2p, fall back gracefully if not available
-# Note: swim-p2p v1.2.x uses Node/Member classes with a complex builder pattern.
-# Full integration requires proper factory setup which is deferred to future work.
-# For now, SWIM_AVAILABLE is False to use HTTP heartbeats as fallback.
+# swim-p2p v1.2.x uses Node.create() factory method with UDPTransport
 try:
     from swim import Node as SwimNode, Member as SwimMember, MemberState
-    # Check if the API matches our expected interface
-    # swim-p2p 1.2.x requires complex builder pattern, not simple constructor
-    if not hasattr(SwimNode, '__init__'):
-        raise ImportError("swim-p2p API mismatch")
-    # Defer full SWIM integration - the library needs builder pattern setup
-    # See https://pypi.org/project/swim-p2p/ for full API documentation
-    SWIM_AVAILABLE = False  # Temporarily disabled pending factory implementation
-    logger.info("swim-p2p installed but SWIM integration deferred (using HTTP heartbeats)")
-except ImportError:
+    from swim.transport.udp import UDPTransport
+    # Verify the factory method exists
+    if not hasattr(SwimNode, 'create'):
+        raise ImportError("swim-p2p API mismatch: Node.create not found")
+    SWIM_AVAILABLE = True
+    logger.info("swim-p2p loaded successfully (SWIM membership available)")
+except ImportError as e:
     SWIM_AVAILABLE = False
-    logger.warning("swim-p2p not installed. Install with: pip install swim-p2p")
+    logger.warning(f"swim-p2p not available: {e}. Install with: pip install swim-p2p")
     # Define stub classes for type hints
     SwimNode = None
     SwimMember = None
     MemberState = None
+    UDPTransport = None
 
 
 @dataclass
@@ -230,29 +227,31 @@ class SwimMembershipManager:
             return True
 
         try:
-            self._swim = SwimNode(
-                node_id=self.node_id,
-                bind_address=(self.config.bind_host, self.config.bind_port),
-                failure_timeout=self.config.failure_timeout,
-                suspicion_timeout=self.config.suspicion_timeout,
-                ping_interval=self.config.ping_interval,
-                ping_request_group_size=self.config.ping_request_group_size,
-                max_transmissions=self.config.max_transmissions,
-            )
+            # swim-p2p 1.2.x uses factory pattern with UDPTransport
+            transport = UDPTransport()
+            bind_addr = (self.config.bind_host, self.config.bind_port)
 
-            # Register callbacks
-            if self.on_member_alive:
-                self._swim.on_member_alive(self._handle_member_alive)
-            if self.on_member_failed:
-                self._swim.on_member_failed(self._handle_member_failed)
+            # Configuration for SWIM protocol tuning
+            config = {
+                "failure_timeout": self.config.failure_timeout,
+                "suspicion_timeout": self.config.suspicion_timeout,
+                "ping_interval": self.config.ping_interval,
+                "ping_request_group_size": self.config.ping_request_group_size,
+                "max_transmissions": self.config.max_transmissions,
+            }
+
+            # Create node using factory method
+            self._swim = SwimNode.create(
+                bind_addr=bind_addr,
+                transport=transport,
+                seed_addrs=self.config.seeds if self.config.seeds else None,
+                config=config,
+                validate_ports=False,  # We handle port validation ourselves
+            )
 
             # Start the SWIM node
             await self._swim.start()
-
-            # Bootstrap from seeds
-            if self.config.seeds:
-                await self._swim.bootstrap(self.config.seeds)
-                logger.info(f"SWIM bootstrapped from {len(self.config.seeds)} seeds")
+            logger.info(f"SWIM bootstrapped from {len(self.config.seeds)} seeds" if self.config.seeds else "SWIM started (no seeds)")
 
             self._started = True
             logger.info(

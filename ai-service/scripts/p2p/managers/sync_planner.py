@@ -152,6 +152,10 @@ class SyncStats:
     bytes_synced: int = 0
     last_manifest_collection: float = 0.0
     last_sync_execution: float = 0.0
+    # Dec 2025: Track event emission for observability
+    events_emitted: int = 0
+    events_failed: int = 0
+    last_event_error: str = ""
 
 
 class SyncPlanner:
@@ -245,6 +249,9 @@ class SyncPlanner:
     def _emit_sync_event(self, event_type: str, **kwargs) -> None:
         """Emit a sync lifecycle event if the event system is available.
 
+        Dec 2025: Improved error handling with stats tracking and warning-level
+        logging for production visibility.
+
         Args:
             event_type: One of DATA_SYNC_STARTED, DATA_SYNC_COMPLETED, DATA_SYNC_FAILED
             **kwargs: Additional event data
@@ -264,11 +271,30 @@ class SyncPlanner:
         # expected "sync_completed" (the actual enum value)
         actual_event_type = _get_event_type_value(event_type)
 
-        try:
-            emitter(actual_event_type, payload)
-            logger.debug(f"Emitted {actual_event_type} (from {event_type})")
-        except Exception as e:
-            logger.debug(f"Failed to emit {actual_event_type}: {e}")
+        # Dec 2025: Track event emission with retry for transient errors
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                emitter(actual_event_type, payload)
+                self.stats.events_emitted += 1
+                logger.debug(f"Emitted {actual_event_type} (from {event_type})")
+                return  # Success
+            except (OSError, ConnectionError, TimeoutError) as e:
+                # Transient errors - retry once
+                if attempt < max_retries - 1:
+                    logger.debug(f"Retry emit {actual_event_type}: {e}")
+                    time.sleep(0.1)
+                    continue
+                # Final failure
+                self.stats.events_failed += 1
+                self.stats.last_event_error = f"{actual_event_type}: {e}"
+                logger.warning(f"[SyncPlanner] Failed to emit {actual_event_type} after {max_retries} attempts: {e}")
+            except Exception as e:
+                # Non-transient errors - don't retry
+                self.stats.events_failed += 1
+                self.stats.last_event_error = f"{actual_event_type}: {e}"
+                logger.warning(f"[SyncPlanner] Failed to emit {actual_event_type}: {e}")
+                break
 
     # ============================================
     # Local Manifest Collection
