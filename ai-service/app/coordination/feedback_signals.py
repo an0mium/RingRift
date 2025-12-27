@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # Import event bus for cross-process propagation (P0.1 Dec 2025)
 try:
-    from app.distributed.data_events import (
+    from app.coordination.event_router import (
         DataEventType,
         emit_event,
     )

@@ -377,6 +377,177 @@ assert len(nodes) == 1
 
 ---
 
+## State Machine: Job Lifecycle
+
+Jobs progress through states managed by JobManager and TrainingCoordinator:
+
+```
+┌─────────┐   dispatch   ┌─────────┐   started   ┌─────────┐
+│ PENDING │──────────────▶ RUNNING │─────────────▶ COMPLETE│
+└─────────┘              └─────────┘              └─────────┘
+     │                        │                        │
+     │ timeout               │ error                  │ gauntlet
+     ▼                        ▼                        ▼
+┌─────────┐              ┌─────────┐              ┌─────────┐
+│ EXPIRED │              │ FAILED  │              │ PROMOTED│
+└─────────┘              └─────────┘              └─────────┘
+```
+
+**State Transitions**:
+
+- `PENDING → RUNNING`: Job dispatched to node
+- `RUNNING → COMPLETE`: Job finished successfully
+- `RUNNING → FAILED`: Job encountered error
+- `PENDING → EXPIRED`: Dispatch timeout (5 min)
+- `COMPLETE → PROMOTED`: Model passed gauntlet evaluation
+
+---
+
+## State Machine: Sync Workflow
+
+SyncPlanner manages data synchronization across the cluster:
+
+```
+┌──────────────┐   collect    ┌──────────────┐
+│ IDLE         │──────────────▶ COLLECTING   │
+└──────────────┘              └──────────────┘
+       ▲                             │
+       │                             │ manifests ready
+       │                             ▼
+┌──────────────┐   complete   ┌──────────────┐
+│ SYNCED       │◀─────────────│ SYNCING      │
+└──────────────┘              └──────────────┘
+       │                             │
+       │ cache expire                │ error
+       ▼                             ▼
+┌──────────────┐              ┌──────────────┐
+│ IDLE         │              │ RETRY        │
+└──────────────┘              └──────────────┘
+```
+
+**Key Timing**:
+
+- Manifest cache: 5 minutes
+- Collection interval: 1 minute
+- Retry backoff: Exponential (1s → 30s)
+
+---
+
+## Error Handling Strategies
+
+### 1. StateManager: Database Errors
+
+```python
+# Retry with exponential backoff
+for attempt in range(3):
+    try:
+        self._execute_query(sql)
+        break
+    except sqlite3.OperationalError as e:
+        if "locked" in str(e):
+            time.sleep(0.1 * (2 ** attempt))
+        else:
+            raise
+```
+
+**Recovery**: WAL mode + busy_timeout prevent most locking issues.
+
+### 2. NodeSelector: Missing Nodes
+
+```python
+# Graceful degradation when no nodes match criteria
+nodes = self.get_training_nodes_ranked()
+if not nodes:
+    logger.warning("No GPU nodes available for training")
+    return None  # Caller handles empty case
+```
+
+### 3. SyncPlanner: Network Failures
+
+```python
+# Individual peer failures don't fail entire sync
+for peer_id, peer in peers.items():
+    try:
+        manifest = await self._fetch_manifest(peer)
+        manifests[peer_id] = manifest
+    except Exception as e:
+        logger.warning(f"Failed to fetch manifest from {peer_id}: {e}")
+        # Continue with other peers
+```
+
+### 4. JobManager: Spawn Failures
+
+```python
+# Job dispatch failures are logged but don't crash
+try:
+    result = self._spawn_job(node, config)
+    self._track_job(result)
+except Exception as e:
+    logger.error(f"Job spawn failed: {e}")
+    # Job marked as failed, not retried automatically
+```
+
+### 5. TrainingCoordinator: Hash-Based Deduplication
+
+```python
+# Prevent duplicate training triggers
+job_hash = hashlib.sha256(f"{config}:{data_hash}".encode()).hexdigest()[:16]
+if job_hash in self._recent_hashes:
+    logger.info(f"Skipping duplicate training: {job_hash}")
+    return None
+self._recent_hashes.add(job_hash)
+```
+
+---
+
+## Common Failure Scenarios
+
+| Scenario                    | Manager             | Recovery                             |
+| --------------------------- | ------------------- | ------------------------------------ |
+| Leader election race        | StateManager        | Epoch comparison, higher epoch wins  |
+| Node goes offline           | NodeSelector        | Filtered from rankings automatically |
+| Manifest collection timeout | SyncPlanner         | 30s timeout, peer marked unhealthy   |
+| Job process dies            | JobManager          | Cleanup on next status check         |
+| Training cooldown           | TrainingCoordinator | 5-minute minimum between runs        |
+| Database corruption         | StateManager        | WAL checkpoint + VACUUM recovery     |
+
+---
+
+## Performance Considerations
+
+### StateManager
+
+- WAL mode for concurrent reads during writes
+- Batch operations with explicit transactions
+- 30-second busy timeout for lock contention
+
+### NodeSelector
+
+- Caches node rankings for 10 seconds
+- O(n log n) sorting, acceptable for <100 nodes
+
+### SyncPlanner
+
+- Manifest diffing is O(n) per file
+- Max 50 files per sync job to limit bandwidth
+
+### JobManager
+
+- Job cleanup runs every 60 seconds
+- Stale job detection after 5 minutes of no heartbeat
+
+### SelfplayScheduler
+
+- Config weights cached for 60 seconds
+- Diversity tracking limited to last 1000 selections
+
+### TrainingCoordinator
+
+- Recent job hashes limited to 100 entries
+- Cooldown state persisted in StateManager
+
+---
+
 ## Related Documentation
 
 - [SELFPLAY_SCHEDULER_USAGE.md](./SELFPLAY_SCHEDULER_USAGE.md) - Detailed selfplay scheduler guide

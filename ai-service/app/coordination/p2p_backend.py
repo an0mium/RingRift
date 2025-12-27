@@ -46,6 +46,12 @@ P2P_HTTP_TIMEOUT = 30  # seconds
 P2P_JOB_POLL_INTERVAL = 10  # seconds
 MAX_PHASE_WAIT_MINUTES = 120  # Maximum wait for any phase
 
+# Retry configuration
+P2P_MAX_RETRIES = 3
+P2P_INITIAL_BACKOFF = 1.0  # seconds
+P2P_BACKOFF_MULTIPLIER = 2.0
+P2P_MAX_BACKOFF = 30.0  # seconds
+
 # Try to import aiohttp
 try:
     import aiohttp
@@ -53,6 +59,81 @@ try:
 except ImportError:
     aiohttp = None  # type: ignore
     HAS_AIOHTTP = False
+
+
+async def _retry_request(
+    coro_factory,
+    operation: str,
+    max_retries: int = P2P_MAX_RETRIES,
+    initial_backoff: float = P2P_INITIAL_BACKOFF,
+    backoff_multiplier: float = P2P_BACKOFF_MULTIPLIER,
+    max_backoff: float = P2P_MAX_BACKOFF,
+    retryable_status_codes: tuple[int, ...] = (429, 500, 502, 503, 504),
+):
+    """Execute an async HTTP request with exponential backoff retry.
+
+    Args:
+        coro_factory: Callable that returns a coroutine (the request to execute)
+        operation: Description of the operation for logging
+        max_retries: Maximum number of retry attempts
+        initial_backoff: Initial backoff delay in seconds
+        backoff_multiplier: Multiplier for backoff on each retry
+        max_backoff: Maximum backoff delay in seconds
+        retryable_status_codes: HTTP status codes that should trigger a retry
+
+    Returns:
+        The result of the successful request
+
+    Raises:
+        RuntimeError: If all retries are exhausted
+    """
+    last_error = None
+    backoff = initial_backoff
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_factory()
+        except aiohttp.ClientError as e:
+            last_error = e
+            if attempt < max_retries:
+                logger.warning(
+                    f"P2P {operation} failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                    f"Retrying in {backoff:.1f}s..."
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * backoff_multiplier, max_backoff)
+            else:
+                logger.error(f"P2P {operation} failed after {max_retries + 1} attempts: {e}")
+        except asyncio.TimeoutError as e:
+            last_error = e
+            if attempt < max_retries:
+                logger.warning(
+                    f"P2P {operation} timed out (attempt {attempt + 1}/{max_retries + 1}). "
+                    f"Retrying in {backoff:.1f}s..."
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * backoff_multiplier, max_backoff)
+            else:
+                logger.error(f"P2P {operation} timed out after {max_retries + 1} attempts")
+        except RuntimeError as e:
+            # Check if it's a retryable HTTP status
+            error_str = str(e)
+            for code in retryable_status_codes:
+                if str(code) in error_str:
+                    last_error = e
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"P2P {operation} got retryable error (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                            f"Retrying in {backoff:.1f}s..."
+                        )
+                        await asyncio.sleep(backoff)
+                        backoff = min(backoff * backoff_multiplier, max_backoff)
+                        break
+            else:
+                # Non-retryable error - re-raise immediately
+                raise
+
+    raise RuntimeError(f"P2P {operation} failed after {max_retries + 1} attempts: {last_error}")
 
 
 @dataclass
@@ -138,12 +219,18 @@ class P2PBackend:
         await self.close()
 
     async def get_cluster_status(self) -> dict[str, Any]:
-        """Get cluster status from the leader node."""
-        session = await self._get_session()
-        async with session.get(f"{self.leader_url}/api/cluster/status") as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"Failed to get cluster status: {resp.status}")
-            return await resp.json()
+        """Get cluster status from the leader node.
+
+        Uses exponential backoff retry for transient failures.
+        """
+        async def _do_request() -> dict[str, Any]:
+            session = await self._get_session()
+            async with session.get(f"{self.leader_url}/api/cluster/status") as resp:
+                if resp.status != 200:
+                    raise RuntimeError(f"Failed to get cluster status: {resp.status}")
+                return await resp.json()
+
+        return await _retry_request(_do_request, "get_cluster_status")
 
     async def get_nodes(self) -> list[P2PNodeInfo]:
         """Get all nodes in the cluster."""
@@ -192,6 +279,8 @@ class P2PBackend:
     ) -> dict[str, Any]:
         """Start canonical selfplay across the cluster.
 
+        Uses exponential backoff retry for transient failures.
+
         Args:
             board_type: Board type (square8, square19, hexagonal)
             num_players: Number of players (2, 3, 4)
@@ -201,7 +290,6 @@ class P2PBackend:
         Returns:
             Dict with job_id and other metadata
         """
-        session = await self._get_session()
         payload = {
             "phase": "canonical_selfplay",
             "board_type": board_type,
@@ -209,11 +297,16 @@ class P2PBackend:
             "games_per_node": games_per_node,
             "seed": seed,
         }
-        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
-            result = await resp.json()
-            if not result.get("success"):
-                raise RuntimeError(f"Failed to start canonical selfplay: {result.get('error')}")
-            return result
+
+        async def _do_request() -> dict[str, Any]:
+            session = await self._get_session()
+            async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+                result = await resp.json()
+                if not result.get("success"):
+                    raise RuntimeError(f"Failed to start canonical selfplay: {result.get('error')}")
+                return result
+
+        return await _retry_request(_do_request, "start_canonical_selfplay")
 
     async def start_parity_validation(
         self,
@@ -223,6 +316,8 @@ class P2PBackend:
     ) -> dict[str, Any]:
         """Start parity validation on generated games.
 
+        Uses exponential backoff retry for transient failures.
+
         Args:
             board_type: Board type
             num_players: Number of players
@@ -231,19 +326,23 @@ class P2PBackend:
         Returns:
             Dict with job_id and other metadata
         """
-        session = await self._get_session()
-        payload = {
+        payload: dict[str, Any] = {
             "phase": "parity_validation",
             "board_type": board_type,
             "num_players": num_players,
         }
         if db_paths:
             payload["db_paths"] = db_paths
-        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
-            result = await resp.json()
-            if not result.get("success"):
-                raise RuntimeError(f"Failed to start parity validation: {result.get('error')}")
-            return result
+
+        async def _do_request() -> dict[str, Any]:
+            session = await self._get_session()
+            async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+                result = await resp.json()
+                if not result.get("success"):
+                    raise RuntimeError(f"Failed to start parity validation: {result.get('error')}")
+                return result
+
+        return await _retry_request(_do_request, "start_parity_validation")
 
     async def start_npz_export(
         self,
@@ -253,6 +352,8 @@ class P2PBackend:
     ) -> dict[str, Any]:
         """Start NPZ export of validated games.
 
+        Uses exponential backoff retry for transient failures.
+
         Args:
             board_type: Board type
             num_players: Number of players
@@ -261,18 +362,22 @@ class P2PBackend:
         Returns:
             Dict with job_id and other metadata
         """
-        session = await self._get_session()
         payload = {
             "phase": "npz_export",
             "board_type": board_type,
             "num_players": num_players,
             "output_dir": output_dir,
         }
-        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
-            result = await resp.json()
-            if not result.get("success"):
-                raise RuntimeError(f"Failed to start NPZ export: {result.get('error')}")
-            return result
+
+        async def _do_request() -> dict[str, Any]:
+            session = await self._get_session()
+            async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+                result = await resp.json()
+                if not result.get("success"):
+                    raise RuntimeError(f"Failed to start NPZ export: {result.get('error')}")
+                return result
+
+        return await _retry_request(_do_request, "start_npz_export")
 
     async def start_training(
         self,
@@ -282,6 +387,8 @@ class P2PBackend:
     ) -> dict[str, Any]:
         """Start neural network training.
 
+        Uses exponential backoff retry for transient failures.
+
         Args:
             board_type: Board type
             num_players: Number of players
@@ -290,18 +397,22 @@ class P2PBackend:
         Returns:
             Dict with job_id and other metadata
         """
-        session = await self._get_session()
         payload = {
             "phase": "training",
             "board_type": board_type,
             "num_players": num_players,
             **kwargs,
         }
-        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
-            result = await resp.json()
-            if not result.get("success"):
-                raise RuntimeError(f"Failed to start training: {result.get('error')}")
-            return result
+
+        async def _do_request() -> dict[str, Any]:
+            session = await self._get_session()
+            async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+                result = await resp.json()
+                if not result.get("success"):
+                    raise RuntimeError(f"Failed to start training: {result.get('error')}")
+                return result
+
+        return await _retry_request(_do_request, "start_training")
 
     async def get_pipeline_status(self) -> dict[str, Any]:
         """Get current pipeline status."""

@@ -209,7 +209,7 @@ class QueuePopulatorDaemon:
 
         # Subscribe to work events
         try:
-            from app.distributed.data_events import DataEventType, get_event_bus
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             unsub = bus.subscribe(DataEventType.WORK_COMPLETED, self._on_work_completed)
@@ -237,8 +237,7 @@ class QueuePopulatorDaemon:
         - P2P_CLUSTER_HEALTHY: Restore normal population
         """
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
 

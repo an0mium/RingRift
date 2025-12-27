@@ -279,8 +279,7 @@ class ModelDistributionDaemon:
 
         # Subscribe to MODEL_PROMOTED events for automatic distribution
         try:
-            from app.coordination.event_router import subscribe
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import subscribe, DataEventType
 
             subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
             logger.info("Subscribed to MODEL_PROMOTED events via event_router")
@@ -1340,8 +1339,7 @@ async def wait_for_model_distribution(
 
     # Subscribe to distribution events
     try:
-        from app.coordination.event_router import subscribe
-        from app.distributed.data_events import DataEventType
+        from app.coordination.event_router import subscribe, DataEventType
 
         subscribe(DataEventType.MODEL_DISTRIBUTION_COMPLETE, on_distribution_complete)
 

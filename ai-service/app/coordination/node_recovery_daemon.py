@@ -233,8 +233,7 @@ class NodeRecoveryDaemon:
     def _subscribe_to_events(self) -> None:
         """Subscribe to cluster health events."""
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
 

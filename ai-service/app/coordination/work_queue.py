@@ -1189,8 +1189,7 @@ class WorkQueue:
             **extra: Additional payload fields
         """
         try:
-            from app.coordination.event_router import get_event_bus
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_event_bus, DataEventType
 
             bus = get_event_bus()
             if bus is None:

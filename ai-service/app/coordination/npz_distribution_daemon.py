@@ -276,7 +276,7 @@ class NPZDistributionDaemon:
 
             # Also try DataEventType for cross-process compatibility
             try:
-                from app.distributed.data_events import DataEventType
+                from app.coordination.event_router import DataEventType
                 # Use string matching for events that may come from other processes
                 subscribe("npz_export_complete", self._on_npz_exported)
                 logger.info("Also subscribed to npz_export_complete string events")

@@ -21079,10 +21079,19 @@ print(json.dumps({{
                         info.retired = True
                         info.retired_at = now
                         logger.info(f"Retiring peer {node_id} (offline for {int(dead_for)}s)")
+                        # CRITICAL: Emit HOST_OFFLINE event (Dec 2025 fix)
+                        last_hb = getattr(info, "last_heartbeat", None)
+                        asyncio.create_task(_emit_p2p_host_offline(node_id, "retired", last_hb))
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
                     info.retired = False
                     info.retired_at = 0.0
+                    # CRITICAL: Emit HOST_ONLINE event (Dec 2025 fix)
+                    caps = []
+                    if hasattr(info, "gpu_type") and info.gpu_type:
+                        caps.append(f"gpu:{info.gpu_type}")
+                    asyncio.create_task(_emit_p2p_host_online(node_id, caps))
+                    logger.info(f"Peer {node_id} recovered from retirement")
 
             for node_id in dead_peers:
                 info = self.peers.get(node_id)
@@ -21154,10 +21163,19 @@ print(json.dumps({{
                         info.retired = True
                         info.retired_at = now
                         logger.info(f"Retiring peer {node_id} (offline for {int(dead_for)}s)")
+                        # CRITICAL: Emit HOST_OFFLINE event (Dec 2025 fix) - sync version
+                        last_hb = getattr(info, "last_heartbeat", None)
+                        _emit_p2p_host_offline_sync(node_id, "retired", last_hb)
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
                     info.retired = False
                     info.retired_at = 0.0
+                    # CRITICAL: Emit HOST_ONLINE event (Dec 2025 fix) - sync version
+                    caps = []
+                    if hasattr(info, "gpu_type") and info.gpu_type:
+                        caps.append(f"gpu:{info.gpu_type}")
+                    _emit_p2p_host_online_sync(node_id, caps)
+                    logger.info(f"Peer {node_id} recovered from retirement")
 
             for node_id in dead_peers:
                 info = self.peers.get(node_id)
@@ -21347,6 +21365,10 @@ print(json.dumps({{
         # Phase 29: Increment cluster epoch on leadership change
         # This helps resolve split-brain when partitions merge
         self._increment_cluster_epoch()
+
+        # CRITICAL: Emit LEADER_ELECTED event (Dec 2025 fix)
+        # This enables LeadershipCoordinator and other components to track leadership changes
+        asyncio.create_task(_emit_p2p_leader_elected(self.node_id, getattr(self, "cluster_epoch", 0)))
 
         # Lease-based leadership (voter-backed when enabled).
         self.leader_lease_id = lease_id

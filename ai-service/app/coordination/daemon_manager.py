@@ -684,8 +684,7 @@ class DaemonManager:
     ) -> bool:
         """Restart a failed daemon, optionally resetting its restart count.
 
-        This method allows manual recovery of daemons that have exceeded their
-        restart limit or have import errors.
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
 
         Args:
             daemon_type: Type of daemon to restart
@@ -694,41 +693,14 @@ class DaemonManager:
         Returns:
             True if restart initiated successfully
         """
-        async with self._lock:
-            info = self._daemons.get(daemon_type)
-            if info is None:
-                logger.error(f"Unknown daemon type: {daemon_type}")
-                return False
-
-            if info.state not in (DaemonState.FAILED, DaemonState.IMPORT_FAILED, DaemonState.STOPPED):
-                logger.warning(
-                    f"Cannot restart {daemon_type.value}: state is {info.state.value}, "
-                    f"expected FAILED, IMPORT_FAILED, or STOPPED"
-                )
-                return False
-
-            # Import failures need force=True to retry
-            if info.state == DaemonState.IMPORT_FAILED and not force:
-                logger.warning(
-                    f"{daemon_type.value} has import error: {info.import_error}. "
-                    f"Use force=True to retry after fixing the import."
-                )
-                return False
-
-            if force:
-                logger.info(f"Force restarting {daemon_type.value}, resetting counters")
-                info.restart_count = 0
-                info.import_error = None
-                info.last_error = None
-                info.last_failure_time = 0.0
-
-            logger.info(f"Restarting failed daemon: {daemon_type.value}")
-
-        # Release lock before starting (start() acquires its own lock)
-        return await self.start(daemon_type)
+        return await self._lifecycle.restart_failed_daemon(daemon_type, force=force)
 
     async def start_all(self, types: list[DaemonType] | None = None) -> dict[DaemonType, bool]:
         """Start all (or specified) daemons in dependency order.
+
+        Delegates core lifecycle to DaemonLifecycleManager (Dec 2025 extraction).
+        DaemonManager-specific post-start hooks (health loop, watchdog, events)
+        are passed via callback.
 
         Args:
             types: Specific daemon types to start (all if None)
@@ -736,54 +708,38 @@ class DaemonManager:
         Returns:
             Dict mapping daemon type to start success
         """
-        # Check if master loop is running (December 2025)
-        # Warn user if starting daemons outside of master loop
-        try:
-            from app.coordination.master_loop_guard import check_or_warn
-
-            if not check_or_warn("daemon management"):
-                logger.warning(
-                    "[DaemonManager] For full automation, use: python scripts/master_loop.py"
+        # Define callback for DaemonManager-specific post-start operations
+        async def _post_start_callback():
+            # Start health check loop
+            if not self._health_task or self._health_task.done():
+                self._running = True
+                self._health_task = safe_create_task(
+                    self._health_loop(),
+                    name="daemon_health_loop"
                 )
-        except ImportError:
-            pass  # master_loop_guard not available
 
-        results: dict[DaemonType, bool] = {}
-        types_to_start = types or list(self._factories.keys())
+            # Start daemon watchdog for active monitoring
+            try:
+                from app.coordination.daemon_watchdog import start_watchdog
+                safe_create_task(start_watchdog(), name="daemon_watchdog")
+                logger.info("Daemon watchdog started")
+            except (ImportError, RuntimeError) as e:
+                logger.warning(f"Failed to start daemon watchdog: {e}")
 
-        # Sort by dependencies (topological sort)
-        sorted_types = self._sort_by_dependencies(types_to_start)
+            # Phase 8 (Dec 2025): Wire ALL coordination event subscriptions at startup
+            # This ensures daemons receive events they need before verification
+            await self._wire_coordination_events()
 
-        for daemon_type in sorted_types:
-            results[daemon_type] = await self.start(daemon_type)
+            # Phase 5: Subscribe to REGRESSION_CRITICAL events for centralized handling
+            await self._subscribe_to_critical_events()
 
-        # Start health check loop
-        if not self._health_task or self._health_task.done():
-            self._running = True
-            self._health_task = safe_create_task(
-                self._health_loop(),
-                name="daemon_health_loop"
-            )
+            # Phase 5: Verify critical subscriptions are active
+            await self._verify_subscriptions()
 
-        # Start daemon watchdog for active monitoring
-        try:
-            from app.coordination.daemon_watchdog import start_watchdog
-            safe_create_task(start_watchdog(), name="daemon_watchdog")
-            logger.info("Daemon watchdog started")
-        except (ImportError, RuntimeError) as e:
-            logger.warning(f"Failed to start daemon watchdog: {e}")
-
-        # Phase 8 (Dec 2025): Wire ALL coordination event subscriptions at startup
-        # This ensures daemons receive events they need before verification
-        await self._wire_coordination_events()
-
-        # Phase 5: Subscribe to REGRESSION_CRITICAL events for centralized handling
-        await self._subscribe_to_critical_events()
-
-        # Phase 5: Verify critical subscriptions are active
-        await self._verify_subscriptions()
-
-        return results
+        return await self._lifecycle.start_all(
+            types=types,
+            on_started_callback=_post_start_callback,
+        )
 
     async def _subscribe_to_critical_events(self) -> None:
         """Subscribe to REGRESSION_CRITICAL and other critical events.
@@ -1016,43 +972,31 @@ class DaemonManager:
     async def stop_all(self) -> dict[DaemonType, bool]:
         """Stop all running daemons.
 
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
+
         Returns:
             Dict mapping daemon type to stop success
         """
-        self._running = False
-        results: dict[DaemonType, bool] = {}
-
-        # Stop in reverse dependency order
-        sorted_types = list(reversed(self._sort_by_dependencies(list(self._daemons.keys()))))
-
-        for daemon_type in sorted_types:
-            results[daemon_type] = await self.stop(daemon_type)
-
-        return results
+        return await self._lifecycle.stop_all()
 
     async def shutdown(self) -> None:
-        """Gracefully shutdown all daemons."""
-        logger.info("DaemonManager shutting down...")
-        self._shutdown_event.set()
-        self._running = False
+        """Gracefully shutdown all daemons.
 
-        # Stop watchdog first
-        try:
-            from app.coordination.daemon_watchdog import stop_watchdog
-            await stop_watchdog()
-        except (ImportError, RuntimeError, AttributeError) as e:
-            logger.debug(f"Watchdog stop error (expected if not started): {e}")
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
+        DaemonManager-specific pre-shutdown hooks (watchdog) are passed via callback.
+        """
+        # Define callback for DaemonManager-specific pre-shutdown operations
+        async def _pre_shutdown_callback():
+            try:
+                from app.coordination.daemon_watchdog import stop_watchdog
+                await stop_watchdog()
+            except (ImportError, RuntimeError, AttributeError) as e:
+                logger.debug(f"Watchdog stop error (expected if not started): {e}")
 
-        # Stop health check
-        if self._health_task:
-            self._health_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._health_task
-
-        # Stop all daemons
-        await self.stop_all()
-
-        logger.info("DaemonManager shutdown complete")
+        await self._lifecycle.shutdown(
+            health_task=self._health_task,
+            pre_shutdown_callback=_pre_shutdown_callback,
+        )
 
     def _sync_shutdown(self) -> None:
         """Synchronous shutdown for atexit."""
@@ -1068,45 +1012,18 @@ class DaemonManager:
             pass
 
     def _sort_by_dependencies(self, types: list[DaemonType]) -> list[DaemonType]:
-        """Sort daemon types by dependencies (topological sort)."""
-        result: list[DaemonType] = []
-        visited: set[DaemonType] = set()
-        visiting: set[DaemonType] = set()
+        """Sort daemon types by dependencies (topological sort).
 
-        def visit(dt: DaemonType) -> None:
-            if dt in visited:
-                return
-            if dt in visiting:
-                logger.warning(f"Circular dependency detected for {dt.value}")
-                return
-
-            visiting.add(dt)
-            info = self._daemons.get(dt)
-            if info:
-                for dep in info.depends_on:
-                    if dep in types:
-                        visit(dep)
-
-            visiting.remove(dt)
-            visited.add(dt)
-            result.append(dt)
-
-        for dt in types:
-            visit(dt)
-
-        return result
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
+        """
+        return self._lifecycle._sort_by_dependencies(types)
 
     def _get_dependents(self, daemon_type: DaemonType) -> list[DaemonType]:
         """Get all daemons that depend on the given daemon type.
 
-        Used for cascading restarts when a dependency fails.
-        Returns daemons in order so that direct dependents come first.
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
         """
-        dependents: list[DaemonType] = []
-        for dt, info in self._daemons.items():
-            if daemon_type in info.depends_on:
-                dependents.append(dt)
-        return dependents
+        return self._lifecycle._get_dependents(daemon_type)
 
     async def _health_loop(self) -> None:
         """Background health check loop."""
@@ -3038,7 +2955,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
     # Coordinator node profile - runs on central MacBook
     "coordinator": [
         DaemonType.EVENT_ROUTER,
-        DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
+        # NOTE: HEALTH_SERVER removed - not registered in factory (Dec 26, 2025)
         DaemonType.P2P_BACKEND,
         DaemonType.TOURNAMENT_DAEMON,
         DaemonType.MODEL_DISTRIBUTION,

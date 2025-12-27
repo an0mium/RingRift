@@ -124,9 +124,117 @@ await shutdown_all_coordinators()
 | Module                      | Purpose                        | Key Classes/Functions                        |
 | --------------------------- | ------------------------------ | -------------------------------------------- |
 | `daemon_manager.py`         | Unified daemon lifecycle       | `DaemonManager`, `DaemonType`                |
+| `daemon_types.py`           | Daemon type definitions        | `DaemonType`, `DaemonInfo`, `DaemonState`    |
+| `daemon_lifecycle.py`       | Daemon lifecycle management    | `DaemonLifecycleManager`                     |
+| `daemon_factory.py`         | Daemon factory functions       | Creates daemon coroutines                    |
 | `daemon_adapters.py`        | Daemon wrappers                | (sync, promotion, distillation adapters)     |
 | `unified_health_manager.py` | Error recovery                 | `UnifiedHealthManager`, `RecoveryAction`     |
 | `ephemeral_data_guard.py`   | Ephemeral host data protection | `checkpoint_games()`, `request_evacuation()` |
+
+#### Daemon Types Reference
+
+40+ daemon types organized by category:
+
+**Core Infrastructure:**
+| Daemon Type | Purpose | Critical | Auto-Restart |
+|-------------|---------|----------|--------------|
+| `EVENT_ROUTER` | Core event bus - all coordination depends on this | ✓ | Yes |
+| `CROSS_PROCESS_POLLER` | Cross-process event polling | | Yes |
+| `DLQ_RETRY` | Dead letter queue retry daemon | | Yes |
+| `DAEMON_WATCHDOG` | Monitors daemon health & restarts | | Yes |
+
+**Sync & Data Transfer:**
+| Daemon Type | Purpose | Critical | Dependencies |
+|-------------|---------|----------|--------------|
+| `AUTO_SYNC` | Automated P2P data sync (canonical) | ✓ | `EVENT_ROUTER` |
+| `HIGH_QUALITY_SYNC` | Sync high-quality game data | | |
+| `ELO_SYNC` | Elo rating synchronization | | |
+| `MODEL_SYNC` | Model file synchronization | | |
+| `MODEL_DISTRIBUTION` | Auto-distribute models after promotion | | |
+| `NPZ_DISTRIBUTION` | Sync NPZ training data after export | | |
+| `CLUSTER_DATA_SYNC` | Cluster-wide data synchronization | | |
+| `EPHEMERAL_SYNC` | Aggressive sync for Vast.ai ephemeral hosts | | |
+| `EXTERNAL_DRIVE_SYNC` | Sync to external drives | | |
+
+**Health & Monitoring:**
+| Daemon Type | Purpose | Notes |
+|-------------|---------|-------|
+| `NODE_HEALTH_MONITOR` | Canonical health daemon | Replaces `HEALTH_CHECK` |
+| `CLUSTER_MONITOR` | Cluster-wide health monitoring | |
+| `QUEUE_MONITOR` | Work queue depth monitoring | |
+| `SYSTEM_HEALTH_MONITOR` | Global health with pipeline pause | |
+| `HEALTH_SERVER` | HTTP endpoints `/health`, `/ready`, `/metrics` | |
+| `REPLICATION_MONITOR` | Data replication health | |
+| `REPLICATION_REPAIR` | Repair under-replicated data | |
+| `QUALITY_MONITOR` | Continuous selfplay quality monitoring | |
+| `MODEL_PERFORMANCE_WATCHDOG` | Model win rate monitoring | |
+
+**Pipeline & Training:**
+| Daemon Type | Purpose | Critical | Dependencies |
+|-------------|---------|----------|--------------|
+| `DATA_PIPELINE` | Data pipeline stage tracking | | `EVENT_ROUTER` |
+| `SELFPLAY_COORDINATOR` | Selfplay task coordination | | |
+| `CONTINUOUS_TRAINING_LOOP` | Continuous training orchestration | | |
+| `TRAINING_NODE_WATCHER` | Detects training, triggers priority sync | | |
+| `AUTO_EXPORT` | Triggers NPZ export when thresholds met | | |
+| `TRAINING_TRIGGER` | Decides when to trigger training | | |
+| `EVALUATION` | Auto-evaluation after training completes | | |
+| `AUTO_PROMOTION` | Auto-promote based on evaluation results | | |
+| `UNIFIED_PROMOTION` | Unified model promotion | | |
+| `DISTILLATION` | Knowledge distillation daemon | | |
+
+**Work Queue & Resources:**
+| Daemon Type | Purpose | Critical |
+|-------------|---------|----------|
+| `QUEUE_POPULATOR` | Auto-populates work queue | ✓ |
+| `IDLE_RESOURCE` | Monitors idle GPUs, spawns selfplay | ✓ |
+| `JOB_SCHEDULER` | Centralized job scheduling | |
+| `RESOURCE_OPTIMIZER` | Optimizes resource allocation | |
+| `UTILIZATION_OPTIMIZER` | Optimizes cluster workloads | |
+| `ADAPTIVE_RESOURCES` | Dynamic resource scaling | |
+
+**Feedback & Learning:**
+| Daemon Type | Purpose | Critical | Dependencies |
+|-------------|---------|----------|--------------|
+| `FEEDBACK_LOOP` | Orchestrates all feedback signals | ✓ | `EVENT_ROUTER` |
+| `GAUNTLET_FEEDBACK` | Bridges gauntlet to training feedback | | `FEEDBACK_LOOP` |
+| `CURRICULUM_INTEGRATION` | Bridges feedback loops for self-improvement | | |
+| `METRICS_ANALYSIS` | Metrics monitoring, plateau detection | | |
+| `TOURNAMENT_DAEMON` | Automatic tournament scheduling | | |
+
+**P2P & Cluster:**
+| Daemon Type | Purpose | Notes |
+|-------------|---------|-------|
+| `P2P_BACKEND` | P2P REST client | |
+| `GOSSIP_SYNC` | Gossip protocol sync | |
+| `DATA_SERVER` | P2P data server | Port from `DATA_SERVER_PORT` |
+| `P2P_AUTO_DEPLOY` | Ensure P2P runs on all nodes | |
+| `MULTI_PROVIDER` | Coordinates across Lambda/Vast/etc | |
+
+**Provider-Specific:**
+| Daemon Type | Purpose | Notes |
+|-------------|---------|-------|
+| `LAMBDA_IDLE` | Lambda idle shutdown | Saves costs |
+| `VAST_IDLE` | Vast.ai idle shutdown | Hourly billing |
+| `VAST_CPU_PIPELINE` | Vast.ai CPU pipeline | |
+| `NODE_RECOVERY` | Auto-recovers terminated nodes | |
+
+**Maintenance:**
+| Daemon Type | Purpose |
+|-------------|---------|
+| `MAINTENANCE` | Log rotation, DB vacuum, cleanup |
+| `DATA_CLEANUP` | Quarantine/delete poor quality DBs |
+| `ORPHAN_DETECTION` | Detect orphaned games not in manifest |
+| `S3_BACKUP` | Backup models to S3 after promotion |
+| `CACHE_COORDINATION` | Coordinates model caching |
+| `RECOVERY_ORCHESTRATOR` | Model/training state recovery |
+| `CLUSTER_WATCHDOG` | Self-healing cluster monitor |
+
+**Deprecated (Q2 2026 removal):**
+| Daemon Type | Replacement |
+|-------------|-------------|
+| `SYNC_COORDINATOR` | `AUTO_SYNC` |
+| `HEALTH_CHECK` | `NODE_HEALTH_MONITOR` |
 
 ### Configuration & Persistence
 

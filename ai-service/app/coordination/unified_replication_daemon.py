@@ -450,7 +450,7 @@ class UnifiedReplicationDaemon:
     async def _emit_alert_events(self, alerts: list[ReplicationAlert]) -> None:
         """Emit events for alerts."""
         try:
-            from app.distributed.data_events import DataEvent, DataEventType, get_event_bus
+            from app.coordination.event_router import DataEvent, DataEventType, get_event_bus
 
             bus = get_event_bus()
             for alert in alerts:

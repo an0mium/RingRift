@@ -1,5 +1,13 @@
 """SSH command execution utilities for scripts.
 
+NOTE (December 2025): The canonical SSH utility is now `app.core.ssh`.
+For new code, prefer importing from there:
+
+    from app.core.ssh import SSHClient, run_ssh_command_async, run_ssh_command_sync
+
+This module (`scripts/lib/ssh.py`) remains for backwards compatibility with
+existing scripts but may be deprecated in a future release.
+
 Provides unified SSH command execution with common patterns:
 - Configurable host, port, user
 - Optional SSH key

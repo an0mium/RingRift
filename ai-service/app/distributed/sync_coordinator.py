@@ -132,7 +132,7 @@ except ImportError:
 
 # Event emission for sync feedback loops (Phase 21.2 - Dec 2025)
 try:
-    from app.distributed.data_events import emit_sync_stalled
+    from app.coordination.event_router import emit_sync_stalled
     HAS_SYNC_EVENTS = True
 except ImportError:
     emit_sync_stalled = None
@@ -2105,7 +2105,7 @@ class HighQualityDataSyncWatcher:
             logger.error(f"[HighQualityDataSyncWatcher] Priority sync failed: {e}")
             # Emit DATA_SYNC_FAILED event
             try:
-                from app.distributed.data_events import emit_data_sync_failed
+                from app.coordination.event_router import emit_data_sync_failed
                 from app.core.async_context import fire_and_forget
                 fire_and_forget(
                     emit_data_sync_failed(

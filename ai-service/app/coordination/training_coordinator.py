@@ -98,7 +98,7 @@ except ImportError:
 # Cluster event integration (December 2025)
 # Subscribe to cluster health events for training decisions
 try:
-    from app.distributed.data_events import DataEventType, EventBus, get_event_bus
+    from app.coordination.event_router import DataEventType, EventBus, get_event_bus
     HAS_CLUSTER_EVENTS = True
 except ImportError:
     HAS_CLUSTER_EVENTS = False
@@ -506,7 +506,7 @@ class TrainingCoordinator:
         if not self._cluster_healthy:
             # Query current cluster health
             try:
-                from app.distributed.data_events import get_event_bus
+                from app.coordination.event_router import get_event_bus
                 # The cluster will emit P2P_CLUSTER_HEALTHY if quorum restored
                 # We don't auto-resume here - wait for the healthy event
                 logger.info(
@@ -1105,7 +1105,7 @@ class TrainingCoordinator:
         - quality < 0.7: 1.5x boost (minor issues)
         """
         try:
-            from app.distributed.data_events import emit_selfplay_target_updated
+            from app.coordination.event_router import emit_selfplay_target_updated
 
             # Calculate boost based on how bad quality is
             if quality_score < 0.3:

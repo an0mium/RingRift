@@ -259,6 +259,12 @@ class DataEventType(Enum):
     CHECKPOINT_SAVED = "checkpoint_saved"
     CHECKPOINT_LOADED = "checkpoint_loaded"
 
+    # Backup events (December 2025)
+    DATA_BACKUP_COMPLETED = "data_backup_completed"  # External drive backup finished
+
+    # CPU Pipeline events (December 2025)
+    CPU_PIPELINE_JOB_COMPLETED = "cpu_pipeline_job_completed"  # Vast CPU job finished
+
     # Task lifecycle events (December 2025)
     TASK_SPAWNED = "task_spawned"
     TASK_HEARTBEAT = "task_heartbeat"

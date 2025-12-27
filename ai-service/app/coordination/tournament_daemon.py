@@ -178,8 +178,7 @@ class TournamentDaemon:
             return
 
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
 
@@ -587,8 +586,7 @@ class TournamentDaemon:
     async def _emit_evaluation_completed(self, results: dict[str, Any]) -> None:
         """Emit EVALUATION_COMPLETED event."""
         try:
-            from app.coordination.event_router import publish
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import publish, DataEventType
 
             await publish(
                 event_type=DataEventType.EVALUATION_COMPLETED,

@@ -557,8 +557,7 @@ class TrainingFreshnessChecker:
             result: Freshness check result
         """
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             event_type_map = {
                 "fresh": DataEventType.DATA_FRESH,

@@ -148,6 +148,19 @@ except ImportError:
     verify_npz_checksums = None
     HAS_CHECKSUM_VERIFICATION = False
 
+# NPZ structure validation for corruption detection (December 2025)
+# Catches issues like rsync --partial creating files with unreasonable dimensions
+try:
+    from app.coordination.npz_validation import (
+        validate_npz_structure,
+        NPZValidationResult,
+    )
+    HAS_NPZ_STRUCTURE_VALIDATION = True
+except ImportError:
+    validate_npz_structure = None
+    NPZValidationResult = None
+    HAS_NPZ_STRUCTURE_VALIDATION = False
+
 # December 2025: Extracted validation utilities
 try:
     from app.training.train_validation import (
@@ -860,9 +873,58 @@ def train_model(
             )
 
     # ==========================================================================
-    # Data Validation (2025-12)
+    # NPZ Structure Validation (December 2025)
     # ==========================================================================
-    # Validate training data before loading to catch corruption early
+    # Validate NPZ file structure BEFORE loading to catch corruption early
+    # This catches issues like rsync --partial creating files with unreasonable
+    # dimensions (e.g., 22 billion elements instead of 6.3 million)
+    if validate_data and HAS_NPZ_STRUCTURE_VALIDATION and not use_streaming:
+        structure_paths = []
+        if isinstance(data_path, list):
+            structure_paths = [p for p in data_path if p and os.path.exists(p)]
+        elif data_path and os.path.exists(data_path):
+            structure_paths = [data_path]
+
+        if structure_paths:
+            if not distributed or is_main_process():
+                logger.info(f"Validating NPZ structure for {len(structure_paths)} file(s)...")
+
+            structure_failed = False
+            for path in structure_paths:
+                from pathlib import Path
+                struct_result = validate_npz_structure(Path(path), require_policy=True)
+                if not distributed or is_main_process():
+                    if struct_result.valid:
+                        logger.info(
+                            f"  ✓ {path}: {struct_result.sample_count} samples, "
+                            f"{len(struct_result.array_shapes)} arrays"
+                        )
+                    else:
+                        logger.error(f"  ✗ {path}: CORRUPTED")
+                        for error in struct_result.errors:
+                            logger.error(f"    - {error}")
+                        structure_failed = True
+
+            if structure_failed:
+                if fail_on_invalid_data:
+                    raise ValueError(
+                        "NPZ structure validation FAILED - files may be corrupted. "
+                        "Do NOT proceed with training. Check rsync/transfer logs for issues."
+                    )
+                else:
+                    if not distributed or is_main_process():
+                        logger.error(
+                            "=" * 70 + "\n"
+                            "WARNING: NPZ files appear CORRUPTED but proceeding anyway.\n"
+                            "This will likely produce garbage models.\n"
+                            "Set fail_on_invalid_data=True to prevent this.\n"
+                            "=" * 70
+                        )
+
+    # ==========================================================================
+    # Data Content Validation (2025-12)
+    # ==========================================================================
+    # Validate training data content (policy sums, value ranges) after structure check
     if validate_data and HAS_DATA_VALIDATION and not use_streaming:
         data_paths_to_validate = []
         if isinstance(data_path, list):
@@ -872,7 +934,7 @@ def train_model(
 
         if data_paths_to_validate:
             if not distributed or is_main_process():
-                logger.info(f"Validating {len(data_paths_to_validate)} training data file(s)...")
+                logger.info(f"Validating data content for {len(data_paths_to_validate)} file(s)...")
 
             validation_failed = False
             for path in data_paths_to_validate:
