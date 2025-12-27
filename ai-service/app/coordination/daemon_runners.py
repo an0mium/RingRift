@@ -264,6 +264,26 @@ async def create_system_health_monitor() -> None:
         raise
 
 
+async def create_health_server() -> None:
+    """Create and run HTTP health server (December 2025).
+
+    This runner wraps the DaemonManager's _create_health_server method.
+    The health server exposes endpoints at port 8790:
+    - GET /health: Liveness probe
+    - GET /ready: Readiness probe
+    - GET /metrics: Prometheus-style metrics
+    - GET /status: Detailed daemon status
+    """
+    try:
+        from app.coordination.daemon_manager import get_daemon_manager
+
+        dm = get_daemon_manager()
+        await dm._create_health_server()
+    except ImportError as e:
+        logger.error(f"DaemonManager not available for health server: {e}")
+        raise
+
+
 async def create_quality_monitor() -> None:
     """Create and run quality monitor daemon (December 2025)."""
     try:
@@ -1061,6 +1081,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.DAEMON_WATCHDOG.name: create_daemon_watchdog,
         DaemonType.NODE_HEALTH_MONITOR.name: create_node_health_monitor,
         DaemonType.SYSTEM_HEALTH_MONITOR.name: create_system_health_monitor,
+        DaemonType.HEALTH_SERVER.name: create_health_server,
         DaemonType.QUALITY_MONITOR.name: create_quality_monitor,
         DaemonType.MODEL_PERFORMANCE_WATCHDOG.name: create_model_performance_watchdog,
         DaemonType.CLUSTER_MONITOR.name: create_cluster_monitor,

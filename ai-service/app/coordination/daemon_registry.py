@@ -173,7 +173,15 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.QUEUE_POPULATOR),
         category="health",
     ),
-    # Note: HEALTH_SERVER requires self access, registered separately
+    # December 2025: HEALTH_SERVER now has a runner in daemon_runners.py
+    # that wraps the DaemonManager._create_health_server method.
+    DaemonType.HEALTH_SERVER: DaemonSpec(
+        runner_name="create_health_server",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="health",
+        auto_restart=True,
+        health_check_interval=30.0,
+    ),
     # =========================================================================
     # Training & Pipeline
     # =========================================================================
@@ -440,9 +448,6 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
         category="pipeline",
     ),
-    # Note: HEALTH_SERVER is registered inline in daemon_manager.py because
-    # it requires access to `self.liveness_probe()`. It's intentionally
-    # omitted from this registry.
 }
 
 
