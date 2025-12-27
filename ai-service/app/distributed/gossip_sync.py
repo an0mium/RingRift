@@ -365,8 +365,8 @@ class GossipSyncDaemon:
                 for row in cursor:
                     games.append(dict(zip(columns, row, strict=False)))
                 conn.close()
-            except (sqlite3.Error, OSError):
-                pass
+            except (sqlite3.Error, OSError) as e:
+                logger.debug(f"[GossipSync] Failed to fetch games from {db_path}: {e}")
         return games
 
     def _store_games(self, games: list[dict]) -> int:
@@ -420,8 +420,8 @@ class GossipSyncDaemon:
             logger.warning(f"[GossipSync] Transaction failed, rolling back: {e}")
             try:
                 conn.rollback()
-            except sqlite3.Error:
-                pass
+            except sqlite3.Error as rollback_err:
+                logger.debug(f"[GossipSync] Rollback also failed: {rollback_err}")
             return 0
         finally:
             conn.close()

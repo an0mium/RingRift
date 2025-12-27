@@ -2518,6 +2518,7 @@ class P2POrchestrator(
                 JobReaperLoop,
                 IdleDetectionLoop,
                 AutoScalingLoop,
+                WorkQueueMaintenanceLoop,
             )
 
             # QueuePopulatorLoop - maintains 50+ work items until 2000 Elo
@@ -2563,6 +2564,14 @@ class P2POrchestrator(
                 get_peers=lambda: self.peers,
             )
             manager.register(auto_scaling)
+
+            # WorkQueueMaintenanceLoop - leader cleans up timeouts and old items
+            # December 27, 2025: Migrated from inline _work_queue_maintenance_loop
+            work_queue_maint = WorkQueueMaintenanceLoop(
+                is_leader=lambda: self.role == NodeRole.LEADER,
+                get_work_queue=get_work_queue,
+            )
+            manager.register(work_queue_maint)
 
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
@@ -27353,8 +27362,8 @@ print(json.dumps({{
         # Add worker pull loop (workers poll leader for work)
         tasks.append(self._create_safe_task(self._worker_pull_loop(), "worker_pull"))
 
-        # Add work queue maintenance loop (leader cleans up timeouts and old items)
-        tasks.append(self._create_safe_task(self._work_queue_maintenance_loop(), "work_queue_maintenance"))
+        # NOTE: _work_queue_maintenance_loop removed Dec 2025 - now runs via LoopManager (WorkQueueMaintenanceLoop)
+        # See scripts/p2p/loops/job_loops.py for implementation
 
         # NOTE: _idle_detection_loop removed Dec 2025 - now runs via LoopManager (IdleDetectionLoop)
 

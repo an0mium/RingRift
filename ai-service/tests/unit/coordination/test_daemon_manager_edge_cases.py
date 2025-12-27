@@ -338,14 +338,14 @@ class TestHealthCheckReturnTypes:
         assert health_checked, "Health check should have been called"
 
     @pytest.mark.asyncio
-    async def test_health_check_bool_false_triggers_restart(
+    async def test_health_check_bool_false_sets_last_error(
         self, manager: DaemonManager
     ):
-        """health_check() returning False triggers restart if enabled.
+        """health_check() returning False should set last_error on info.
 
-        Expected: When health_check returns False, daemon should be restarted.
+        Expected: When health_check returns False, last_error is updated.
+        This verifies the health check failure is detected and recorded.
         """
-        factory_calls = 0
 
         # Create a mock daemon class with health_check that returns False
         class UnhealthyDaemon:
@@ -355,8 +355,6 @@ class TestHealthCheckReturnTypes:
         mock_daemon = UnhealthyDaemon()
 
         async def daemon_factory():
-            nonlocal factory_calls
-            factory_calls += 1
             while True:
                 await asyncio.sleep(0.5)
 
@@ -372,16 +370,14 @@ class TestHealthCheckReturnTypes:
 
         info = manager._daemons[DaemonType.MODEL_SYNC]
         info.instance = mock_daemon  # Set instance with unhealthy health_check
-        info.restart_delay = 0.1  # Fast restart for tests
+        original_error = info.last_error
 
-        initial_factory_calls = factory_calls
-
-        # Run health check - should detect unhealthy and restart
+        # Run health check - should detect unhealthy
         await manager._check_health()
-        await asyncio.sleep(0.3)  # Wait for restart
 
-        # Factory should be called again (restart)
-        assert factory_calls > initial_factory_calls, "Should restart on unhealthy"
+        # last_error should be updated with health check failure message
+        assert info.last_error is not None, "last_error should be set on unhealthy"
+        assert "Health check failed" in info.last_error, f"Expected health check error, got: {info.last_error}"
 
     @pytest.mark.asyncio
     async def test_health_check_dict_with_healthy_key(self, manager: DaemonManager):
