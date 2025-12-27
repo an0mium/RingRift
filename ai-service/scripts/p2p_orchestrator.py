@@ -789,6 +789,15 @@ class WebhookNotifier:
             self._session = ClientSession(timeout=ClientTimeout(total=10))
         return self._session
 
+    async def close(self) -> None:
+        """Close the HTTP session to prevent memory leaks.
+
+        December 2025: Added to fix memory leak from unclosed sessions.
+        """
+        if self._session is not None and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
     def _should_throttle(self, alert_key: str) -> bool:
         """Check if this alert should be throttled (duplicate within window)."""
         now = time.time()
@@ -1310,6 +1319,8 @@ class P2POrchestrator(
         self.pending_relay_acks: set[str] = set()
         self.pending_relay_results: list[dict[str, Any]] = []
         self.relay_command_attempts: dict[str, int] = {}
+        # Background tasks list for graceful shutdown (Dec 2025)
+        self._background_tasks: list[asyncio.Task] = []
 
         # SAFEGUARDS - Rate limiting and coordinator integration (added 2025-12-15)
         self.spawn_timestamps: list[float] = []  # Timestamps of recent process spawns
@@ -3782,7 +3793,20 @@ class P2POrchestrator(
             ]
 
         tasks = [self._request_peer_manifest(peer) for peer in peers]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # December 2025: Add timeout to prevent hang if peers are unresponsive
+        # Individual requests have 10s timeout, but aggregate needs overall limit
+        # to prevent blocking leader loop. 45s covers ~30 peers with some slack.
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=45.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[ManifestCollection] Timed out after 45s collecting from {len(peers)} peers. "
+                "Proceeding with partial data."
+            )
+            results = []  # Proceed with only local manifest
 
         for peer, result in zip(peers, results, strict=False):
             if isinstance(result, NodeDataManifest):
@@ -16158,7 +16182,16 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             async with get_client_session(timeout) as session:
                 tasks = [send_selfplay_request(session, cfg) for cfg in job_configs]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                started = sum(1 for r in results if r is True)
+                started = 0
+                failed = 0
+                for r in results:
+                    if isinstance(r, Exception):
+                        failed += 1
+                        logger.debug(f"Selfplay request failed with exception: {r}")
+                    elif r is True:
+                        started += 1
+                if failed > 0:
+                    logger.warning(f"Auto-start on {peer.node_id}: {failed}/{len(results)} requests failed")
 
                 # Log profile distribution
                 from collections import Counter
@@ -19878,15 +19911,15 @@ print(json.dumps({{
                     err = f"unknown_command_type:{cmd_type}"
 
                 if ok:
-                    self.pending_relay_acks.add(cmd_id)
-                    self.pending_relay_results.append({"id": cmd_id, "ok": True})
+                    self._add_pending_relay_ack(cmd_id)
+                    self._add_pending_relay_result({"id": cmd_id, "ok": True})
                     self.relay_command_attempts.pop(cmd_id, None)
                 else:
                     if not err:
                         err = "command_failed"
                     if attempts >= RELAY_COMMAND_MAX_ATTEMPTS:
-                        self.pending_relay_acks.add(cmd_id)
-                        self.pending_relay_results.append({"id": cmd_id, "ok": False, "error": err})
+                        self._add_pending_relay_ack(cmd_id)
+                        self._add_pending_relay_result({"id": cmd_id, "ok": False, "error": err})
                         self.relay_command_attempts.pop(cmd_id, None)
             except Exception as exc:
                 try:
@@ -19894,8 +19927,8 @@ print(json.dumps({{
                     if cmd_id:
                         attempts = int(self.relay_command_attempts.get(cmd_id, 0) or 0)
                         if attempts >= RELAY_COMMAND_MAX_ATTEMPTS:
-                            self.pending_relay_acks.add(cmd_id)
-                            self.pending_relay_results.append({"id": cmd_id, "ok": False, "error": str(exc)})
+                            self._add_pending_relay_ack(cmd_id)
+                            self._add_pending_relay_result({"id": cmd_id, "ok": False, "error": str(exc)})
                             self.relay_command_attempts.pop(cmd_id, None)
                 except (ValueError, AttributeError):
                     continue
@@ -20644,8 +20677,11 @@ print(json.dumps({{
         tasks = [self._probe_nat_blocked_peer(p) for p in nat_blocked_peers[:10]]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for result in results:
-            if result is True:
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                peer_id = nat_blocked_peers[i].node_id if i < len(nat_blocked_peers) else "unknown"
+                logger.debug(f"NAT probe failed for {peer_id}: {result}")
+            elif result is True:
                 recovered += 1
 
         if recovered > 0:
@@ -27127,66 +27163,69 @@ print(json.dumps({{
 
         # Add git update loop if enabled
         if AUTO_UPDATE_ENABLED:
-            tasks.append(asyncio.create_task(self._git_update_loop()))
+            tasks.append(self._create_safe_task(self._git_update_loop(), "git_update"))
 
         # Add training node priority sync loop (leader-only sync to high-GPU nodes)
-        tasks.append(asyncio.create_task(self._training_sync_loop()))
+        tasks.append(self._create_safe_task(self._training_sync_loop(), "training_sync"))
 
         # Add cloud IP refresh loops (best-effort; no-op if not configured).
         if HAS_DYNAMIC_REGISTRY:
-            tasks.append(asyncio.create_task(self._vast_ip_update_loop()))
-            tasks.append(asyncio.create_task(self._aws_ip_update_loop()))
-            tasks.append(asyncio.create_task(self._tailscale_ip_update_loop()))
+            tasks.append(self._create_safe_task(self._vast_ip_update_loop(), "vast_ip_update"))
+            tasks.append(self._create_safe_task(self._aws_ip_update_loop(), "aws_ip_update"))
+            tasks.append(self._create_safe_task(self._tailscale_ip_update_loop(), "tailscale_ip_update"))
 
         # Peer recovery loop - ensures all Tailscale nodes stay in P2P network
-        tasks.append(asyncio.create_task(self._tailscale_peer_recovery_loop()))
+        tasks.append(self._create_safe_task(self._tailscale_peer_recovery_loop(), "tailscale_peer_recovery"))
 
         # Phase 26: Continuous bootstrap loop - ensures isolated nodes can rejoin
-        tasks.append(asyncio.create_task(self._continuous_bootstrap_loop()))
+        tasks.append(self._create_safe_task(self._continuous_bootstrap_loop(), "continuous_bootstrap"))
 
         # Phase 30: Follower discovery loop - non-leaders actively discover peers
-        tasks.append(asyncio.create_task(self._follower_discovery_loop()))
+        tasks.append(self._create_safe_task(self._follower_discovery_loop(), "follower_discovery"))
 
         # Add automatic data management loop (export triggers, training triggers, data sync)
-        tasks.append(asyncio.create_task(self._data_management_loop()))
+        tasks.append(self._create_safe_task(self._data_management_loop(), "data_management"))
 
         # Add model sync loop (syncs NN/NNUE models across cluster)
         if HAS_MODEL_SYNC:
-            tasks.append(asyncio.create_task(self._model_sync_loop()))
+            tasks.append(self._create_safe_task(self._model_sync_loop(), "model_sync"))
 
         # Add Elo database sync loop (cluster-wide Elo consistency)
         if HAS_ELO_SYNC and self.elo_sync_manager:
-            tasks.append(asyncio.create_task(self._elo_sync_loop()))
+            tasks.append(self._create_safe_task(self._elo_sync_loop(), "elo_sync"))
 
         # Add worker pull loop (workers poll leader for work)
-        tasks.append(asyncio.create_task(self._worker_pull_loop()))
+        tasks.append(self._create_safe_task(self._worker_pull_loop(), "worker_pull"))
 
         # Add work queue maintenance loop (leader cleans up timeouts and old items)
-        tasks.append(asyncio.create_task(self._work_queue_maintenance_loop()))
+        tasks.append(self._create_safe_task(self._work_queue_maintenance_loop(), "work_queue_maintenance"))
 
         # Add idle detection loop (leader auto-assigns work to idle nodes)
-        tasks.append(asyncio.create_task(self._idle_detection_loop()))
+        tasks.append(self._create_safe_task(self._idle_detection_loop(), "idle_detection"))
 
         # === AUTOMATION LOOPS (2024-12) ===
         # These loops enable hands-free cluster operation
 
         # Auto-scaling loop: provision/deprovision Vast.ai instances based on queue depth
-        tasks.append(asyncio.create_task(self._auto_scaling_loop()))
+        tasks.append(self._create_safe_task(self._auto_scaling_loop(), "auto_scaling"))
 
         # Predictive monitoring loop: alert before problems occur
-        tasks.append(asyncio.create_task(self._predictive_monitoring_loop()))
+        tasks.append(self._create_safe_task(self._predictive_monitoring_loop(), "predictive_monitoring"))
 
         # Self-healing loop: recover stuck jobs and unhealthy nodes
-        tasks.append(asyncio.create_task(self._self_healing_loop()))
+        tasks.append(self._create_safe_task(self._self_healing_loop(), "self_healing"))
 
         # Job reaper loop: enforce job timeouts with SSH kill and work reassignment (leader-only)
-        tasks.append(asyncio.create_task(self._job_reaper_loop()))
+        tasks.append(self._create_safe_task(self._job_reaper_loop(), "job_reaper"))
 
         # Validation loop: auto-queue validation for newly trained models
-        tasks.append(asyncio.create_task(self._validation_loop()))
+        tasks.append(self._create_safe_task(self._validation_loop(), "validation"))
 
         # Queue populator loop: maintain 50+ work items until 2000 Elo target met
-        tasks.append(asyncio.create_task(self._queue_populator_loop()))
+        tasks.append(self._create_safe_task(self._queue_populator_loop(), "queue_populator"))
+
+        # Store tasks for shutdown handling
+        self._background_tasks = tasks
 
         # Best-effort bootstrap from seed peers before running elections. This
         # helps newly started cloud nodes quickly learn about the full cluster.
@@ -27291,6 +27330,11 @@ def main():
         logger.info("Shutdown requested, stopping gracefully...")
         if orchestrator:
             orchestrator.running = False
+            # Cancel all background tasks for graceful shutdown (Dec 2025)
+            if hasattr(orchestrator, '_background_tasks'):
+                for task in orchestrator._background_tasks:
+                    if not task.done():
+                        task.cancel()
             # Schedule ramdrive sync in a thread to avoid blocking signal handler
             # Don't call sys.exit() - let asyncio loop exit cleanly
 
