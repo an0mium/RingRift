@@ -935,6 +935,63 @@ class PriorityJobScheduler:
         self._queue.clear()
         return count
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the job scheduler.
+
+        Returns:
+            HealthCheckResult indicating scheduler health status.
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback for when protocols not available
+            from dataclasses import dataclass as _dc
+            @_dc
+            class HealthCheckResult:
+                healthy: bool
+                status: str = "unknown"
+                message: str = ""
+                details: dict = None
+            return HealthCheckResult(healthy=True, status="unknown")
+
+        queue_stats = self.get_queue_stats()
+        allocation_stats = self.get_allocation_stats()
+
+        # Check for warning conditions
+        warnings = []
+
+        # Queue too deep?
+        if queue_stats["total"] > self._max_queue_size * 0.9:
+            warnings.append(f"Queue near capacity: {queue_stats['total']}/{self._max_queue_size}")
+
+        # Starvation detected?
+        if allocation_stats.get("starvation_boosted_count", 0) > 10:
+            warnings.append(f"High starvation count: {allocation_stats['starvation_boosted_count']}")
+
+        # Check for over-quota configs
+        over_quota_configs = [
+            cfg for cfg, data in allocation_stats.get("configs", {}).items()
+            if data.get("over_quota", False)
+        ]
+        if len(over_quota_configs) > 3:
+            warnings.append(f"Multiple configs over quota: {len(over_quota_configs)}")
+
+        is_healthy = len(warnings) == 0
+        status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message="; ".join(warnings) if warnings else "Scheduler healthy",
+            details={
+                "queue_total": queue_stats["total"],
+                "running_jobs": queue_stats["running"],
+                "critical_pending": queue_stats["critical"],
+                "starvation_boosted": allocation_stats.get("starvation_boosted_count", 0),
+                "over_quota_configs": len(over_quota_configs),
+            },
+        )
+
 
 # Global scheduler instance
 _scheduler: PriorityJobScheduler | None = None

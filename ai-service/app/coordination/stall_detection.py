@@ -435,6 +435,58 @@ class JobStallDetector:
         """
         return self._stall_history[-limit:]
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the stall detector.
+
+        Returns:
+            HealthCheckResult indicating detector health status.
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            from dataclasses import dataclass as _dc
+            @_dc
+            class HealthCheckResult:
+                healthy: bool
+                status: str = "unknown"
+                message: str = ""
+                details: dict = None
+            return HealthCheckResult(healthy=True, status="unknown")
+
+        stats = self.get_statistics()
+        warnings = []
+
+        # Check for concerning conditions
+        unhealthy_nodes = stats.get("unhealthy_nodes", 0)
+        penalized_nodes = stats.get("penalized_nodes", 0)
+        recent_stalls = stats.get("recent_stalls", 0)
+
+        if unhealthy_nodes > 0:
+            warnings.append(f"{unhealthy_nodes} unhealthy nodes (exceeded max stalls)")
+
+        if penalized_nodes > 5:
+            warnings.append(f"High penalty count: {penalized_nodes} nodes")
+
+        if recent_stalls > 20:
+            warnings.append(f"High recent stall rate: {recent_stalls} in last hour")
+
+        is_healthy = len(warnings) == 0
+        status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message="; ".join(warnings) if warnings else "Stall detector healthy",
+            details={
+                "total_stalls": stats.get("total_stalls", 0),
+                "total_recoveries": stats.get("total_recoveries", 0),
+                "active_jobs": stats.get("active_jobs", 0),
+                "penalized_nodes": penalized_nodes,
+                "unhealthy_nodes": unhealthy_nodes,
+                "recent_stalls": recent_stalls,
+            },
+        )
+
 
 # Module-level singleton
 _stall_detector: JobStallDetector | None = None

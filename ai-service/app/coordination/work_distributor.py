@@ -527,6 +527,74 @@ class WorkDistributor:
         return work_ids
 
     # =========================================================================
+    # Health Check
+    # =========================================================================
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the work distributor.
+
+        Returns:
+            HealthCheckResult indicating distributor health status.
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            from dataclasses import dataclass as _dc
+            @_dc
+            class HealthCheckResult:
+                healthy: bool
+                status: str = "unknown"
+                message: str = ""
+                details: dict = None
+            return HealthCheckResult(healthy=True, status="unknown")
+
+        # Check if queue is available
+        queue_available = self._ensure_queue()
+        if not queue_available:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="Work queue not available",
+                details={"queue_available": False},
+            )
+
+        # Get queue stats
+        stats = self.get_queue_stats()
+        if not stats.get("available", True):
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="Work queue stats unavailable",
+                details=stats,
+            )
+
+        # Check for warning conditions
+        warnings = []
+        pending_count = stats.get("pending", 0)
+        failed_count = stats.get("failed", 0)
+
+        if pending_count > 500:
+            warnings.append(f"High pending count: {pending_count}")
+
+        if failed_count > 50:
+            warnings.append(f"High failure count: {failed_count}")
+
+        is_healthy = len(warnings) == 0
+        status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message="; ".join(warnings) if warnings else "Distributor healthy",
+            details={
+                "queue_available": True,
+                "local_submissions": len(self._local_submissions),
+                "pending_work": pending_count,
+                "failed_work": failed_count,
+            },
+        )
+
+    # =========================================================================
     # Event Integration
     # =========================================================================
 
