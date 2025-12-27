@@ -5,6 +5,7 @@ Uses P2P network data as ground truth and cross-validates with SSH checks.
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def parse_ssh_key(key_path: str) -> str:
@@ -36,8 +39,10 @@ def get_p2p_cluster_status() -> Optional[Dict]:
         )
         if result.returncode == 0 and result.stdout.strip():
             return json.loads(result.stdout)
-    except Exception:
-        pass
+    except subprocess.TimeoutExpired:
+        logger.debug("Local P2P status check timed out")
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
+        logger.debug(f"Local P2P status check failed: {e}")
 
     # Try known stable nodes
     stable_nodes = [
@@ -68,7 +73,11 @@ def get_p2p_cluster_status() -> Optional[Dict]:
             )
             if result.returncode == 0 and result.stdout.strip():
                 return json.loads(result.stdout)
-        except Exception:
+        except subprocess.TimeoutExpired:
+            logger.debug(f"SSH status check to {ssh_user_host} timed out")
+            continue
+        except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
+            logger.debug(f"SSH status check to {ssh_user_host} failed: {e}")
             continue
 
     return None

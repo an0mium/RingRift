@@ -30,8 +30,10 @@ def _configure_multiprocessing() -> None:
             mp.set_start_method("spawn")
         except RuntimeError:
             pass  # Start method already set
-    except Exception:
-        pass
+    except ImportError as e:
+        logger.debug(f"Multiprocessing not available: {e}")
+    except Exception as e:
+        logger.debug(f"Could not configure multiprocessing: {e}")
 
 
 def parse_args() -> argparse.Namespace:

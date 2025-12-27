@@ -156,8 +156,10 @@ class ScheduledExportDaemon:
                 if count > 10:  # Only include if it has meaningful data
                     databases.append(db_path)
                     logger.info(f"  Found {count} {board_type}_{num_players}p games in {db_path.parent.name}")
-            except Exception:
-                pass
+            except sqlite3.Error as e:
+                logger.debug(f"Could not query {db_path}: {e}")
+            except OSError as e:
+                logger.debug(f"Could not access {db_path}: {e}")
 
         return list(set(databases))
 

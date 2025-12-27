@@ -59,8 +59,10 @@ def _configure_multiprocessing() -> None:
             mp.set_start_method("spawn")
         except RuntimeError:
             pass  # Start method already set
-    except Exception:
-        pass
+    except ImportError as e:
+        logger.debug(f"Multiprocessing not available: {e}")
+    except OSError as e:
+        logger.debug(f"Could not configure multiprocessing: {e}")
 
 
 # Default timeout for gauntlet execution (30 minutes)
