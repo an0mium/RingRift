@@ -34,33 +34,47 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# December 2025: Use consolidated daemon stats base class
+from app.coordination.daemon_stats import EvaluationDaemonStats
+
 __all__ = [
-    "EvaluationStats",
     "EvaluationConfig",
     "EvaluationDaemon",
+    "EvaluationStats",
     "get_evaluation_daemon",
     "start_evaluation_daemon",
 ]
 
 # Singleton instance
-_daemon: "EvaluationDaemon | None" = None
+_daemon: EvaluationDaemon | None = None
 
 
 @dataclass
-class EvaluationStats:
-    """Statistics for the evaluation daemon."""
+class EvaluationStats(EvaluationDaemonStats):
+    """Statistics for the evaluation daemon.
 
-    evaluations_triggered: int = 0
-    evaluations_completed: int = 0
-    evaluations_failed: int = 0
-    total_games_played: int = 0
-    average_evaluation_time: float = 0.0
-    last_evaluation_time: float = 0.0
+    December 2025: Now extends EvaluationDaemonStats for consistent tracking.
+    Inherits: evaluations_triggered, evaluations_completed, evaluations_failed,
+              games_played, models_evaluated, promotions_triggered,
+              last_evaluation_time, avg_evaluation_duration, is_healthy(), etc.
+    """
+
+    # Note: All fields now inherited from base class.
+    # Backward compatibility aliases below.
+
+    @property
+    def total_games_played(self) -> int:
+        """Alias for games_played (backward compatibility)."""
+        return self.games_played
+
+    @property
+    def average_evaluation_time(self) -> float:
+        """Alias for avg_evaluation_duration (backward compatibility)."""
+        return self.avg_evaluation_duration
 
 
 @dataclass
@@ -147,13 +161,44 @@ class EvaluationDaemon:
         """Check if daemon is running."""
         return self._running
 
+    def get_status(self) -> dict[str, Any]:
+        """Get daemon status for DaemonManager health monitoring.
+
+        December 2025: Added to fix missing status method (P0 gap).
+
+        Returns:
+            Status dict with running state, stats, and dedup metrics.
+        """
+        return {
+            "running": self._running,
+            "subscribed": self._subscribed,
+            "queue_size": self._evaluation_queue.qsize(),
+            "active_evaluations": list(self._active_evaluations),
+            "stats": {
+                "evaluations_triggered": self.stats.evaluations_triggered,
+                "evaluations_completed": self.stats.evaluations_completed,
+                "evaluations_failed": self.stats.evaluations_failed,
+                "games_played": self.stats.games_played,
+                "models_evaluated": self.stats.models_evaluated,
+                "promotions_triggered": self.stats.promotions_triggered,
+                "last_evaluation_time": self.stats.last_evaluation_time,
+            },
+            "dedup_stats": dict(self._dedup_stats),
+            "config": {
+                "games_per_baseline": self.config.games_per_baseline,
+                "baselines": self.config.baselines,
+                "early_stopping_enabled": self.config.early_stopping_enabled,
+                "dedup_cooldown_seconds": self.config.dedup_cooldown_seconds,
+            },
+        }
+
     def _subscribe_to_events(self) -> None:
         """Subscribe to training completion events."""
         if self._subscribed:
             return
 
         try:
-            from app.coordination.event_router import get_event_bus, DataEventType
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             if bus is None:
@@ -167,7 +212,7 @@ class EvaluationDaemon:
 
         except ImportError as e:
             logger.warning(f"[EvaluationDaemon] Event system not available: {e}")
-        except Exception as e:
+        except (RuntimeError, AttributeError) as e:
             logger.error(f"[EvaluationDaemon] Failed to subscribe: {e}")
 
     def _unsubscribe_from_events(self) -> None:
@@ -176,14 +221,14 @@ class EvaluationDaemon:
             return
 
         try:
-            from app.coordination.event_router import get_event_bus, DataEventType
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             if bus:
                 bus.unsubscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
             self._subscribed = False
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Error unsubscribing: {e}")
 
     def _compute_event_hash(self, model_path: str, board_type: str, num_players: int) -> str:
@@ -228,10 +273,7 @@ class EvaluationDaemon:
 
         # Check if model is in cooldown
         last_eval = self._recently_evaluated.get(model_path)
-        if last_eval and now - last_eval < self.config.dedup_cooldown_seconds:
-            return True
-
-        return False
+        return last_eval is not None and now - last_eval < self.config.dedup_cooldown_seconds
 
     async def _on_training_complete(self, event: Any) -> None:
         """Handle TRAINING_COMPLETE event."""
@@ -299,7 +341,7 @@ class EvaluationDaemon:
 
         except (ValueError, KeyError, TypeError) as e:
             logger.warning(f"[EvaluationDaemon] Invalid event data: {e}")
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error(f"[EvaluationDaemon] I/O error handling training complete: {e}")
 
     async def _evaluation_worker(self) -> None:
@@ -336,7 +378,7 @@ class EvaluationDaemon:
                 continue  # Normal - check running status
             except asyncio.CancelledError:
                 break
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"[EvaluationDaemon] Worker error: {e}")
                 await asyncio.sleep(1.0)
 
@@ -391,7 +433,7 @@ class EvaluationDaemon:
             logger.error(f"[EvaluationDaemon] Evaluation timed out: {model_path}")
             # Emit EVALUATION_FAILED event (Dec 2025 - critical gap fix)
             await self._emit_evaluation_failed(model_path, board_type, num_players, "timeout")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.stats.evaluations_failed += 1
             logger.error(f"[EvaluationDaemon] Evaluation failed: {model_path}: {e}")
             # Emit EVALUATION_FAILED event (Dec 2025 - critical gap fix)
@@ -404,7 +446,7 @@ class EvaluationDaemon:
         num_players: int,
     ) -> dict:
         """Run baseline gauntlet with optional early stopping."""
-        from app.training.game_gauntlet import run_baseline_gauntlet, BaselineOpponent
+        from app.training.game_gauntlet import BaselineOpponent, run_baseline_gauntlet
 
         # Map baseline names to enum values
         baseline_map = {
@@ -471,7 +513,7 @@ class EvaluationDaemon:
             )
         except ImportError:
             logger.debug("[EvaluationDaemon] Event emitters not available")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Failed to emit event: {e}")
 
     async def _emit_evaluation_failed(
@@ -497,7 +539,7 @@ class EvaluationDaemon:
             logger.info(f"[EvaluationDaemon] Emitted EVALUATION_FAILED: {model_path}")
         except ImportError:
             logger.debug("[EvaluationDaemon] Event emitters not available")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Failed to emit failure event: {e}")
 
     def _update_average_time(self, elapsed: float) -> None:
@@ -537,7 +579,7 @@ class EvaluationDaemon:
         Returns:
             HealthCheckResult with status and details
         """
-        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
         if not self._running:
             return HealthCheckResult(

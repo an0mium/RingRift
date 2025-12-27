@@ -22,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import socket
@@ -40,14 +41,12 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
-from app.coordination.sync_integrity import (
-    IntegrityReport,
-    check_sqlite_integrity,
-    compute_file_checksum,
-    verify_sync_integrity,
-)
+from app.coordination.sync_integrity import check_sqlite_integrity
 from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
 from app.core.async_context import fire_and_forget, safe_create_task
+
+# December 2025: Use consolidated daemon stats base class
+from app.coordination.daemon_stats import SyncDaemonStats
 
 # Circuit breaker for fault-tolerant sync operations (December 2025)
 try:
@@ -213,15 +212,16 @@ class AutoSyncConfig:
 
 
 @dataclass
-class SyncStats:
-    """Statistics for sync operations."""
-    total_syncs: int = 0
-    successful_syncs: int = 0
-    failed_syncs: int = 0
+class SyncStats(SyncDaemonStats):
+    """Statistics for sync operations.
+
+    December 2025: Now extends SyncDaemonStats for consistent tracking.
+    Inherits: syncs_completed, syncs_failed, bytes_synced, last_sync_duration,
+              errors_count, last_error, consecutive_failures, is_healthy(), etc.
+    """
+
+    # AutoSync-specific fields (not in base class)
     games_synced: int = 0
-    bytes_transferred: int = 0
-    last_sync_time: float = 0.0
-    last_error: str | None = None
     # Quality filtering stats (December 2025)
     databases_skipped_quality: int = 0
     databases_quality_checked: int = 0
@@ -232,6 +232,54 @@ class SyncStats:
     databases_verified: int = 0
     databases_verification_failed: int = 0
     last_verification_time: float = 0.0
+
+    # Backward compatibility aliases
+    @property
+    def total_syncs(self) -> int:
+        """Alias for operations_attempted (backward compatibility)."""
+        return self.operations_attempted
+
+    @property
+    def successful_syncs(self) -> int:
+        """Alias for syncs_completed (backward compatibility)."""
+        return self.syncs_completed
+
+    @property
+    def failed_syncs(self) -> int:
+        """Alias for syncs_failed (backward compatibility)."""
+        return self.syncs_failed
+
+    @property
+    def bytes_transferred(self) -> int:
+        """Alias for bytes_synced (backward compatibility)."""
+        return self.bytes_synced
+
+    @property
+    def last_sync_time(self) -> float:
+        """Alias for last_check_time (backward compatibility)."""
+        return self.last_check_time
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert stats to dictionary with AutoSync-specific fields."""
+        base = super().to_dict()
+        base.update({
+            # AutoSync-specific
+            "games_synced": self.games_synced,
+            "databases_skipped_quality": self.databases_skipped_quality,
+            "databases_quality_checked": self.databases_quality_checked,
+            "games_quality_extracted": self.games_quality_extracted,
+            "games_added_to_priority": self.games_added_to_priority,
+            "databases_verified": self.databases_verified,
+            "databases_verification_failed": self.databases_verification_failed,
+            "last_verification_time": self.last_verification_time,
+            # Backward compat aliases
+            "total_syncs": self.total_syncs,
+            "successful_syncs": self.successful_syncs,
+            "failed_syncs": self.failed_syncs,
+            "bytes_transferred": self.bytes_transferred,
+            "last_sync_time": self.last_sync_time,
+        })
+        return base
 
 
 class AutoSyncDaemon:
@@ -356,7 +404,7 @@ class AutoSyncDaemon:
         return SyncStrategy.HYBRID
 
     def _on_circuit_state_change(
-        self, target: str, old_state: "CircuitState", new_state: "CircuitState"
+        self, target: str, old_state: CircuitState, new_state: CircuitState
     ) -> None:
         """Handle circuit breaker state changes (December 2025).
 
@@ -409,10 +457,7 @@ class AutoSyncDaemon:
             return True
 
         # Check RAM disk (Vast.ai uses /dev/shm for temp storage)
-        if Path("/dev/shm/ringrift").exists():
-            return True
-
-        return False
+        return Path("/dev/shm/ringrift").exists()
 
     def _is_cluster_leader(self) -> bool:
         """Check if this node is the cluster leader.
@@ -420,7 +465,6 @@ class AutoSyncDaemon:
         December 2025: Used for broadcast strategy auto-detection.
         """
         try:
-            import json
             from urllib.request import Request, urlopen
             from app.config.ports import get_p2p_status_url
 
@@ -438,7 +482,6 @@ class AutoSyncDaemon:
 
         December 2025: Consolidated from ephemeral_sync.py
         """
-        import json
 
         try:
             wal_path = Path("data/ephemeral_sync_wal.jsonl")
@@ -463,7 +506,6 @@ class AutoSyncDaemon:
 
         December 2025: Consolidated from ephemeral_sync.py
         """
-        import json
 
         if not self._wal_initialized or not hasattr(self, "_wal_path"):
             return
@@ -473,7 +515,7 @@ class AutoSyncDaemon:
                 return
 
             loaded_count = 0
-            with open(self._wal_path, 'r') as f:
+            with open(self._wal_path) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -500,7 +542,6 @@ class AutoSyncDaemon:
         December 2025: Consolidated from ephemeral_sync.py
         Called when a game is added to pending list, before sync attempt.
         """
-        import json
         import os as os_module
 
         if not self._wal_initialized or not hasattr(self, "_wal_path"):
@@ -662,7 +703,7 @@ class AutoSyncDaemon:
         def handle_termination(sig, frame):
             logger.warning(f"[AutoSyncDaemon] Received termination signal {sig}")
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 safe_create_task(
                     self._handle_termination(),
                     name="auto_sync_termination",
@@ -1253,7 +1294,6 @@ class AutoSyncDaemon:
         - Not retired
         - Is reachable (recent heartbeat)
         """
-        import json
         from urllib.request import Request, urlopen
 
         try:
@@ -1413,7 +1453,7 @@ class AutoSyncDaemon:
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            stdout, stderr = await asyncio.wait_for(
+            _stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
                 timeout=dynamic_timeout,
             )
@@ -1497,11 +1537,10 @@ class AutoSyncDaemon:
             for item in partial_dir.iterdir():
                 try:
                     mtime = datetime.datetime.fromtimestamp(item.stat().st_mtime)
-                    if mtime < cutoff:
-                        if item.is_file():
-                            item.unlink()
-                            cleaned += 1
-                            logger.debug(f"[AutoSyncDaemon] Cleaned stale partial: {item}")
+                    if mtime < cutoff and item.is_file():
+                        item.unlink()
+                        cleaned += 1
+                        logger.debug(f"[AutoSyncDaemon] Cleaned stale partial: {item}")
                 except OSError as e:
                     logger.debug(f"[AutoSyncDaemon] Error cleaning {item}: {e}")
 
@@ -1808,7 +1847,6 @@ class AutoSyncDaemon:
             payload = event.payload if hasattr(event, "payload") else {}
             config_key = payload.get("config_key", "")
             games_played = payload.get("games_played", 0)
-            db_path = payload.get("db_path", "")
 
             # Only sync if we have a meaningful batch
             min_games = self.config.min_games_to_sync or 5
@@ -1965,10 +2003,8 @@ class AutoSyncDaemon:
         # Stop sync task
         if self._sync_task:
             self._sync_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._sync_task
-            except asyncio.CancelledError:
-                pass
 
         # Stop gossip daemon
         if self._gossip_daemon:
@@ -2332,18 +2368,17 @@ class AutoSyncDaemon:
         try:
             from app.quality.unified_quality import compute_game_quality_from_params
 
-            conn = sqlite3.connect(str(db_path), timeout=5)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT game_id, game_status, winner, termination_reason,
-                       total_moves, board_type
-                FROM games
-                ORDER BY created_at DESC
-                LIMIT ?
-            """, (self.config.quality_sample_size,))
-
-            games = cursor.fetchall()
-            conn.close()
+            # Dec 2025: Use context manager to ensure connection is closed
+            with sqlite3.connect(str(db_path), timeout=5) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("""
+                    SELECT game_id, game_status, winner, termination_reason,
+                           total_moves, board_type
+                    FROM games
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (self.config.quality_sample_size,))
+                games = cursor.fetchall()
 
             if len(games) < 5:
                 # Too few games - sync anyway, small DBs aren't worth filtering
@@ -2489,10 +2524,10 @@ class AutoSyncDaemon:
                 continue
 
             try:
-                conn = sqlite3.connect(db_path)
-                cursor = conn.execute("SELECT COUNT(*) FROM games")
-                total_games += cursor.fetchone()[0]
-                conn.close()
+                # Dec 2025: Use context manager to ensure connection is closed
+                with sqlite3.connect(db_path) as conn:
+                    cursor = conn.execute("SELECT COUNT(*) FROM games")
+                    total_games += cursor.fetchone()[0]
             except (OSError, RuntimeError) as e:
                 logger.debug(f"Failed to count games in {db_path}: {e}")
 
