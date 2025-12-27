@@ -950,7 +950,7 @@ def main() -> None:
         # Training data freshness check (2025-12) - mandatory by default
         skip_freshness_check=getattr(args, 'skip_freshness_check', False),
         max_data_age_hours=getattr(args, 'max_data_age_hours', 1.0),
-        allow_stale_data=getattr(args, 'allow_stale_data', False),
+        allow_stale_data=getattr(args, 'allow_stale_data', False) or getattr(args, 'autonomous', False),
         # Quality-aware sample filtering (December 2025)
         min_quality_score=getattr(args, 'min_quality_score', 0.0),
         # Hard example mining for curriculum learning (2025-12)
