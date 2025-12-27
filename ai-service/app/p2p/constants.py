@@ -97,19 +97,12 @@ LOAD_MAX_FOR_NEW_JOBS = min(80, int(os.environ.get("RINGRIFT_P2P_LOAD_MAX_FOR_NE
 # GPU Configuration
 # ============================================
 
-# GPU utilization targets (unified source preferred)
-try:
-    from app.coordination.resource_targets import get_resource_targets
-    _unified_targets = get_resource_targets()
-except ImportError:
-    _unified_targets = None
-
-if _unified_targets is not None:
-    TARGET_GPU_UTIL_MIN = int(_unified_targets.gpu_min)
-    TARGET_GPU_UTIL_MAX = min(80, int(_unified_targets.gpu_max))  # 80% hard cap
-else:
-    TARGET_GPU_UTIL_MIN = int(os.environ.get("RINGRIFT_P2P_TARGET_GPU_UTIL_MIN", "60") or 60)
-    TARGET_GPU_UTIL_MAX = min(80, int(os.environ.get("RINGRIFT_P2P_TARGET_GPU_UTIL_MAX", "80") or 80))
+# GPU utilization targets from environment variables
+# NOTE: Previously called get_resource_targets() here at import time, but that
+# triggered database writes which fail on readonly cluster nodes. Use env vars
+# at import time; call get_resource_targets() at runtime if DB-backed values needed.
+TARGET_GPU_UTIL_MIN = int(os.environ.get("RINGRIFT_P2P_TARGET_GPU_UTIL_MIN", "60") or 60)
+TARGET_GPU_UTIL_MAX = min(80, int(os.environ.get("RINGRIFT_P2P_TARGET_GPU_UTIL_MAX", "80") or 80))
 
 GH200_MIN_SELFPLAY = int(os.environ.get("RINGRIFT_P2P_GH200_MIN_SELFPLAY", "20") or 20)
 GH200_MAX_SELFPLAY = int(os.environ.get("RINGRIFT_P2P_GH200_MAX_SELFPLAY", "100") or 100)

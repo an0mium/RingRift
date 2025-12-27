@@ -17,6 +17,10 @@ Backpressure uses the unified `BackpressureLevel` enum from `app/coordination/ty
 - **Queue backpressure**: `NONE`, `SOFT`, `HARD`, `STOP`
 - **Resource backpressure**: `NONE`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
 
+When `BACKPRESSURE_ACTIVATED`/`BACKPRESSURE_RELEASED` events fire, the
+`DaemonManager` will pause/resume non-essential daemons where supported to
+reduce cluster load.
+
 ## Overview
 
 The RingRift AI service uses a multi-layered event-driven coordination system for

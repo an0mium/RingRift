@@ -581,6 +581,9 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
             "new_ids": set(),
         }
 
+        # December 27, 2025: Use try/finally to prevent connection leaks
+        source_conn = None
+        target_conn = None
         try:
             source_conn = sqlite3.connect(str(source_db), timeout=30.0)
             source_conn.row_factory = sqlite3.Row
@@ -655,11 +658,15 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
                     stats["invalid"] += 1
 
             target_conn.commit()
-            source_conn.close()
-            target_conn.close()
 
         except sqlite3.Error as e:
             logger.warning(f"[DataConsolidationDaemon] Database error during merge: {e}")
+        finally:
+            # December 27, 2025: Ensure connections are always closed
+            if source_conn:
+                source_conn.close()
+            if target_conn:
+                target_conn.close()
 
         return stats
 

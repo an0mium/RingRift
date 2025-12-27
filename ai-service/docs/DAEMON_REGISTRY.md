@@ -35,6 +35,8 @@ This document provides a comprehensive reference for all daemons managed by the 
 ## Overview
 
 The `DaemonManager` coordinates the lifecycle of 60+ background services across the RingRift cluster. Daemons are organized into profiles based on node roles (coordinator, training_node, ephemeral, selfplay).
+It also listens for backpressure events (`BACKPRESSURE_ACTIVATED`/`BACKPRESSURE_RELEASED`) and
+pauses or resumes non-essential daemons when supported to reduce cluster load.
 
 **Key Concepts:**
 

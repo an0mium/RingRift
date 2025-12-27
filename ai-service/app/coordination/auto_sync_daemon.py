@@ -740,34 +740,33 @@ class AutoSyncDaemon:
             return False, f"Database does not exist: {db_path}"
 
         try:
-            conn = sqlite3.connect(str(db_path), timeout=10.0)
-            cursor = conn.cursor()
+            # December 27, 2025: Use context manager to prevent connection leaks
+            with sqlite3.connect(str(db_path), timeout=10.0) as conn:
+                cursor = conn.cursor()
 
-            # Get games with their move counts
-            cursor.execute("""
-                SELECT g.game_id, g.board_type, g.num_players,
-                       COUNT(m.move_number) as move_count
-                FROM games g
-                LEFT JOIN game_moves m ON g.game_id = m.game_id
-                GROUP BY g.game_id
-            """)
+                # Get games with their move counts
+                cursor.execute("""
+                    SELECT g.game_id, g.board_type, g.num_players,
+                           COUNT(m.move_number) as move_count
+                    FROM games g
+                    LEFT JOIN game_moves m ON g.game_id = m.game_id
+                    GROUP BY g.game_id
+                """)
 
-            incomplete_games = []
-            for row in cursor.fetchall():
-                game_id, board_type, num_players, move_count = row
+                incomplete_games = []
+                for row in cursor.fetchall():
+                    game_id, board_type, num_players, move_count = row
 
-                # Get minimum moves for this configuration
-                min_moves = MIN_MOVES_PER_GAME.get(
-                    (board_type, num_players),
-                    DEFAULT_MIN_MOVES
-                )
-
-                if move_count < min_moves:
-                    incomplete_games.append(
-                        f"{game_id[:8]}... ({board_type}_{num_players}p): {move_count}/{min_moves} moves"
+                    # Get minimum moves for this configuration
+                    min_moves = MIN_MOVES_PER_GAME.get(
+                        (board_type, num_players),
+                        DEFAULT_MIN_MOVES
                     )
 
-            conn.close()
+                    if move_count < min_moves:
+                        incomplete_games.append(
+                            f"{game_id[:8]}... ({board_type}_{num_players}p): {move_count}/{min_moves} moves"
+                        )
 
             if incomplete_games:
                 # Limit message to first 5 incomplete games

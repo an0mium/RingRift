@@ -349,6 +349,10 @@ if level in (BackpressureLevel.HARD, BackpressureLevel.STOP):
     pass
 ```
 
+When `BACKPRESSURE_ACTIVATED` or `BACKPRESSURE_RELEASED` events fire, the
+`DaemonManager` will pause/resume non-essential daemons (when they implement
+`pause()`/`resume()`) to reduce load during sustained backpressure.
+
 ### 6. Distributed Tracing
 
 Track requests across nodes:

@@ -184,14 +184,14 @@ await bus.publish(DataEvent(
 
 ### Resource Events
 
-| Event                      | Value                      | Emitters            | Subscribers                   | Purpose             |
-| -------------------------- | -------------------------- | ------------------- | ----------------------------- | ------------------- |
-| `CLUSTER_CAPACITY_CHANGED` | `cluster_capacity_changed` | ClusterMonitor      | ResourceMonitoringCoordinator | Adjust allocations  |
-| `NODE_CAPACITY_UPDATED`    | `node_capacity_updated`    | NodeHealthMonitor   | UtilizationOptimizer          | Update capacity map |
-| `BACKPRESSURE_ACTIVATED`   | `backpressure_activated`   | BackpressureMonitor | SelfplayScheduler             | Reduce generation   |
-| `BACKPRESSURE_RELEASED`    | `backpressure_released`    | BackpressureMonitor | SelfplayScheduler             | Resume normal rate  |
-| `IDLE_RESOURCE_DETECTED`   | `idle_resource_detected`   | IdleResourceDaemon  | SelfplayScheduler             | Spawn work          |
-| `DISK_SPACE_LOW`           | `disk_space_low`           | DiskSpaceManager    | CleanupDaemon                 | Trigger cleanup     |
+| Event                      | Value                      | Emitters            | Subscribers                      | Purpose             |
+| -------------------------- | -------------------------- | ------------------- | -------------------------------- | ------------------- |
+| `CLUSTER_CAPACITY_CHANGED` | `cluster_capacity_changed` | ClusterMonitor      | ResourceMonitoringCoordinator    | Adjust allocations  |
+| `NODE_CAPACITY_UPDATED`    | `node_capacity_updated`    | NodeHealthMonitor   | UtilizationOptimizer             | Update capacity map |
+| `BACKPRESSURE_ACTIVATED`   | `backpressure_activated`   | BackpressureMonitor | SelfplayScheduler, DaemonManager | Reduce generation   |
+| `BACKPRESSURE_RELEASED`    | `backpressure_released`    | BackpressureMonitor | SelfplayScheduler, DaemonManager | Resume normal rate  |
+| `IDLE_RESOURCE_DETECTED`   | `idle_resource_detected`   | IdleResourceDaemon  | SelfplayScheduler                | Spawn work          |
+| `DISK_SPACE_LOW`           | `disk_space_low`           | DiskSpaceManager    | CleanupDaemon                    | Trigger cleanup     |
 
 Backpressure events include a `level` string from `BackpressureLevel` in
 `app/coordination/types.py`. Queue-based backpressure emits `none/soft/hard/stop`,

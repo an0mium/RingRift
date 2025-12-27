@@ -1026,20 +1026,20 @@ def get_config_game_counts(
         return {}
 
     try:
-        conn = sqlite3.connect(str(db_path), timeout=5.0)
-        cursor = conn.execute(
+        # December 27, 2025: Use context manager to prevent connection leaks
+        with sqlite3.connect(str(db_path), timeout=5.0) as conn:
+            cursor = conn.execute(
+                """
+                SELECT board_type, num_players, COUNT(*) as game_count
+                FROM match_history
+                GROUP BY board_type, num_players
             """
-            SELECT board_type, num_players, COUNT(*) as game_count
-            FROM match_history
-            GROUP BY board_type, num_players
-        """
-        )
-        counts = {}
-        for row in cursor.fetchall():
-            key = f"{row[0]}_{row[1]}p"
-            counts[key] = row[2]
-        conn.close()
-        return counts
+            )
+            counts = {}
+            for row in cursor.fetchall():
+                key = f"{row[0]}_{row[1]}p"
+                counts[key] = row[2]
+            return counts
     except Exception as e:
         logger.warning(f"Failed to get game counts: {e}")
         return {}

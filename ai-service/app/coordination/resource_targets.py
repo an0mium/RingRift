@@ -226,7 +226,47 @@ class ResourceTargetManager(SingletonMixin):
         self._utilization_history: dict[str, list[tuple[float, float, float]]] = {}
         self._backpressure_factor: float = 1.0
         self._last_adaptive_update: float = 0.0
-        self._init_db()
+        # Lazy DB initialization - don't call _init_db() here to avoid
+        # import-time writes that fail on readonly filesystems
+        self._db_initialized: bool = False
+        self._readonly_mode: bool = False
+
+    def _ensure_db(self) -> bool:
+        """Lazily initialize database, returns True if writable.
+
+        This method is called before any database operation to ensure
+        the database is initialized. On readonly filesystems, it sets
+        _readonly_mode=True and returns False.
+        """
+        if self._db_initialized:
+            return not self._readonly_mode
+
+        # Check if parent directory is writable
+        try:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logger.debug(f"Cannot create DB directory: {self._db_path.parent}")
+            self._readonly_mode = True
+            self._db_initialized = True
+            return False
+
+        if not os.access(self._db_path.parent, os.W_OK):
+            logger.debug(f"DB directory not writable: {self._db_path.parent}")
+            self._readonly_mode = True
+            self._db_initialized = True
+            return False
+
+        try:
+            self._init_db()
+            self._db_initialized = True
+            return True
+        except sqlite3.OperationalError as e:
+            if "readonly" in str(e).lower():
+                logger.debug(f"Database is readonly: {e}")
+                self._readonly_mode = True
+                self._db_initialized = True
+                return False
+            raise
 
     def _load_targets_from_config(self) -> UtilizationTargets:
         """Load utilization targets from config file."""
@@ -316,21 +356,21 @@ class ResourceTargetManager(SingletonMixin):
     def _get_node_hardware(self, host: str) -> dict[str, Any] | None:
         """Get hardware info for a node from the coordination DB."""
         try:
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT gpu_count, gpu_name, cpu_count, memory_gb, has_gpu FROM node_resources WHERE node_id = ?",
-                (host,)
-            ).fetchone()
-            conn.close()
-            if row:
-                return {
-                    "gpu_count": row["gpu_count"] or 0,
-                    "gpu_name": row["gpu_name"] or "",
-                    "cpu_count": row["cpu_count"] or 0,
-                    "memory_gb": row["memory_gb"] or 0,
-                    "has_gpu": bool(row["has_gpu"]),
-                }
+            # December 27, 2025: Use context manager to prevent connection leaks
+            with sqlite3.connect(self._db_path, timeout=5.0) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT gpu_count, gpu_name, cpu_count, memory_gb, has_gpu FROM node_resources WHERE node_id = ?",
+                    (host,)
+                ).fetchone()
+                if row:
+                    return {
+                        "gpu_count": row["gpu_count"] or 0,
+                        "gpu_name": row["gpu_name"] or "",
+                        "cpu_count": row["cpu_count"] or 0,
+                        "memory_gb": row["memory_gb"] or 0,
+                        "has_gpu": bool(row["has_gpu"]),
+                    }
         except (sqlite3.Error, OSError, KeyError):
             pass
         return None

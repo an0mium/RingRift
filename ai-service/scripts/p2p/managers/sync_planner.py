@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from app.config.coordination_defaults import SQLiteDefaults
+
 if TYPE_CHECKING:
     from ..models import (
         ClusterDataManifest,
@@ -492,7 +494,7 @@ class SyncPlanner:
         """Count games in a SQLite database."""
         db_conn = None
         try:
-            db_conn = sqlite3.connect(str(file_path), timeout=5)
+            db_conn = sqlite3.connect(str(file_path), timeout=SQLiteDefaults.READ_TIMEOUT)
             cursor = db_conn.execute("SELECT COUNT(*) FROM games")
             return cursor.fetchone()[0]
         except (sqlite3.Error, IndexError):

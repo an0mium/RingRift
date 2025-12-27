@@ -672,6 +672,8 @@ class DatabaseSyncManager(SyncManagerBase):
         December 2025: Added for unified health monitoring. Inherited by
         EloSyncManager and RegistrySyncManager. Added exception handling to
         prevent health_check crashes from causing daemon restart loops.
+
+        December 2025 (Session 2): Added P2P connectivity check to health details.
         """
         from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
@@ -699,14 +701,22 @@ class DatabaseSyncManager(SyncManagerBase):
             )
             is_recent = time.time() - self._db_state.last_sync_timestamp < self.sync_interval * 2
 
+            # Check P2P connectivity (December 2025 - Critical Gap Fix)
+            p2p_healthy = self._check_p2p_health_sync()
+
             # Healthy if: sync rate > 50% AND last sync is recent
+            # Degraded if P2P is down but sync is working (can still sync via SSH)
             is_healthy = sync_rate >= 0.5 and is_recent
+            status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+            if not p2p_healthy and is_healthy:
+                status = CoordinatorStatus.DEGRADED  # Degrade if P2P is down
 
             return HealthCheckResult(
                 healthy=is_healthy,
-                status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED,
+                status=status,
                 message=f"Syncing {self.db_type}: {self._db_state.local_record_count} records, "
-                        f"{self._db_state.successful_syncs}/{self._db_state.total_syncs} syncs ok",
+                        f"{self._db_state.successful_syncs}/{self._db_state.total_syncs} syncs ok"
+                        f"{'' if p2p_healthy else ' (P2P unavailable)'}",
                 details={
                     "db_type": self.db_type,
                     "db_path": str(self.db_path),
@@ -715,6 +725,8 @@ class DatabaseSyncManager(SyncManagerBase):
                     "last_sync_age_seconds": time.time() - self._db_state.last_sync_timestamp,
                     "synced_from": self._db_state.synced_from,
                     "node_count": len(self.nodes),
+                    "p2p_healthy": p2p_healthy,
+                    "p2p_url": self.p2p_url,
                 },
             )
         except Exception as e:
@@ -726,6 +738,30 @@ class DatabaseSyncManager(SyncManagerBase):
                 message=f"Health check error: {e}",
                 details={"error": str(e)},
             )
+
+    def _check_p2p_health_sync(self) -> bool:
+        """Synchronous P2P health check.
+
+        Returns:
+            True if P2P is reachable, False otherwise.
+
+        December 2025: Added for health_check() P2P status reporting.
+        Uses a quick HTTP GET with short timeout.
+        """
+        import urllib.request
+        import urllib.error
+
+        try:
+            url = f"{self.p2p_url}/health"
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                if resp.status == 200:
+                    return True
+        except urllib.error.URLError:
+            pass
+        except Exception:
+            pass
+        return False
 
 
 # =============================================================================
