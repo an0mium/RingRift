@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-    from app.coordination.queue_populator import QueuePopulator
+    from app.coordination.unified_queue_populator import UnifiedQueuePopulator as QueuePopulator
     from app.coordination.p2p_auto_deployer import P2PAutoDeployer
     from scripts.p2p.loops import LoopManager
 
@@ -6937,8 +6937,8 @@ class P2POrchestrator(
             except Exception as e:
                 improvement_status = {"error": str(e)}
 
-        # Get diversity metrics
-        diversity_metrics = self._get_diversity_metrics()
+        # Get diversity metrics (delegated to SelfplayScheduler)
+        diversity_metrics = self.selfplay_scheduler.get_diversity_metrics()
 
         voter_ids = list(getattr(self, "voter_node_ids", []) or [])
         voters_alive = 0
@@ -7699,7 +7699,8 @@ class P2POrchestrator(
             job_id = f"selfplay-{self.node_id}-{int(time.time())}"
 
             # Start the selfplay job in background
-            asyncio.create_task(self._run_gpu_selfplay_job(
+            # Delegate to JobManager (Phase 2B refactoring, Dec 2025)
+            asyncio.create_task(self.job_manager.run_gpu_selfplay_job(
                 job_id=job_id,
                 board_type=board_type,
                 num_players=num_players,
@@ -10866,113 +10867,12 @@ print(json.dumps(result))
     async def _run_post_training_gauntlet(self, job: TrainingJob) -> bool:
         """Run quick gauntlet evaluation for newly trained model.
 
-        Model must beat the median-rated model with 50%+ win rate to pass.
-        Runs 8 games total (4 as player 1, 4 as player 2) for fairness.
-
-        OPTIMIZATION: Dispatches gauntlet to CPU-rich nodes (Vast instances)
-        to avoid blocking GPU nodes. Falls back to local execution if no
-        CPU nodes are available.
-
-        Returns True if model passes, False if it should be archived.
-
         .. deprecated:: December 2025
-            This method duplicates TrainingCoordinator._run_post_training_gauntlet()
-            and JobManager.run_post_training_gauntlet().
-            Future versions should delegate to self.training_coordinator.
-            Scheduled for removal in Q2 2026.
+            Delegates to TrainingCoordinator._run_post_training_gauntlet().
+            This wrapper method will be removed in Q2 2026.
         """
-        # Check for skip flag
-        if os.environ.get("RINGRIFT_SKIP_POST_TRAINING_GAUNTLET", "0") == "1":
-            logger.info("Post-training gauntlet skipped (RINGRIFT_SKIP_POST_TRAINING_GAUNTLET=1)")
-            return True
-
-        config_key = f"{job.board_type}_{job.num_players}p"
-        model_path = job.output_model_path
-
-        if not model_path or not os.path.exists(model_path):
-            logger.info(f"Model path not found: {model_path}, skipping gauntlet")
-            return True
-
-        model_id = os.path.splitext(os.path.basename(model_path))[0]
-
-        # Get median model from ELO database
-        median_model = self._get_median_model(config_key)
-        if not median_model:
-            logger.info(f"No median model for {config_key}, skipping gauntlet")
-            return True  # Pass if no baseline to compare against
-
-        logger.info(f"Running post-training gauntlet: {model_id} vs {median_model} (median)")
-
-        GAMES_PER_SIDE = 4
-
-        # OPTIMIZATION: Try to dispatch gauntlet to a CPU-rich node first
-        # This keeps GPU nodes free for training while Vast nodes handle evaluation
-        try:
-            remote_result = await self._dispatch_gauntlet_to_cpu_node(
-                config_key=config_key,
-                model_id=model_id,
-                baseline_id=median_model,
-                games_per_side=GAMES_PER_SIDE,
-            )
-            if remote_result and remote_result.get("success"):
-                # Remote gauntlet completed successfully
-                wins = remote_result.get("wins", 0)
-                total_games = remote_result.get("total_games", 0)
-                win_rate = remote_result.get("win_rate", 0)
-                passed = remote_result.get("passed", False)
-                remote_node = remote_result.get("node_id", "unknown")
-                logger.info(f"Post-training gauntlet (remote on {remote_node}): "
-                      f"{wins}/{total_games} ({win_rate:.1%}) {'PASSED' if passed else 'FAILED'}")
-                return passed
-        except Exception as e:
-            logger.info(f"Remote gauntlet dispatch failed: {e}, falling back to local")
-
-        # Fallback: Run locally if remote dispatch failed or we're the best CPU node
-        model_dir = Path(self.ringrift_path) / "ai-service" / "models"
-
-        wins = 0
-        total_games = 0
-
-        loop = asyncio.get_event_loop()
-
-        for game_num in range(GAMES_PER_SIDE * 2):
-            try:
-                # First 4 games: new model as player 1
-                # Last 4 games: new model as player 2
-                if game_num < GAMES_PER_SIDE:
-                    result = await loop.run_in_executor(
-                        None,
-                        self._run_gauntlet_game_sync,
-                        f"gauntlet_{game_num}", model_id, median_model,
-                        job.board_type, job.num_players, model_dir
-                    )
-                    if result.get("model_won"):
-                        wins += 1
-                else:
-                    result = await loop.run_in_executor(
-                        None,
-                        self._run_gauntlet_game_sync,
-                        f"gauntlet_{game_num}", median_model, model_id,
-                        job.board_type, job.num_players, model_dir
-                    )
-                    # When new model is "baseline", baseline_won means we won
-                    if result.get("baseline_won"):
-                        wins += 1
-                total_games += 1
-            except Exception as e:
-                logger.info(f"Gauntlet game {game_num} error: {e}")
-                total_games += 1  # Count as played but not won
-
-        win_rate = wins / total_games if total_games > 0 else 0
-
-        # Pass criteria: beat median with 50%+ win rate
-        MIN_WIN_RATE = 0.50
-        passed = win_rate >= MIN_WIN_RATE
-
-        logger.info(f"Post-training gauntlet vs median (local): {wins}/{total_games} "
-              f"({win_rate:.1%}) {'PASSED' if passed else 'FAILED'}")
-
-        return passed
+        # Delegate to TrainingCoordinator (December 2025 refactoring)
+        return await self.training_coordinator._run_post_training_gauntlet(job)
 
     async def _archive_failed_model(self, model_path: str, board_type: str,
                                      num_players: int, reason: str) -> None:
@@ -15608,7 +15508,11 @@ print(json.dumps(result))
     # - _trigger_elo_sync_after_matches
 
     async def _elo_sync_loop(self):
-        """Background loop for periodic Elo database synchronization."""
+        """Background loop for periodic Elo database synchronization.
+
+        .. deprecated:: Dec 2025
+            Use :class:`scripts.p2p.loops.EloSyncLoop` via LoopManager instead.
+        """
         if not self.elo_sync_manager:
             return
 
@@ -15865,6 +15769,9 @@ print(json.dumps(result))
 
     async def _idle_detection_loop(self):
         """Background loop for leader to detect idle nodes and auto-assign work.
+
+        .. deprecated:: Dec 2025
+            Use :class:`scripts.p2p.loops.IdleDetectionLoop` via LoopManager instead.
 
         Uses the unified inventory to discover ALL nodes (Vast, Tailscale, Lambda, Hetzner)
         and automatically assigns work to nodes that have been idle for too long.
@@ -16236,6 +16143,9 @@ print(json.dumps(result))
     async def _auto_scaling_loop(self):
         """Background loop for auto-scaling Vast.ai instances based on queue depth.
 
+        .. deprecated:: Dec 2025
+            Use :class:`scripts.p2p.loops.AutoScalingLoop` via LoopManager instead.
+
         Only runs on the leader node. Evaluates scaling decisions every 5 minutes.
         """
         SCALING_INTERVAL = 300  # 5 minutes
@@ -16506,6 +16416,9 @@ print(json.dumps(result))
     async def _job_reaper_loop(self):
         """Background loop for job timeout enforcement (leader-only).
 
+        .. deprecated:: Dec 2025
+            Use :class:`scripts.p2p.loops.JobReaperLoop` via LoopManager instead.
+
         The JobReaperDaemon provides:
         1. Detection of jobs that exceeded their timeout
         2. SSH-based process termination on remote nodes
@@ -16681,6 +16594,9 @@ print(json.dumps(result))
     async def _queue_populator_loop(self):
         """Background loop to maintain minimum work queue depth.
 
+        .. deprecated:: Dec 2025
+            Use :class:`scripts.p2p.loops.QueuePopulatorLoop` via LoopManager instead.
+
         Ensures there are always at least 50 work items in the queue until
         all board/player configurations reach 2000 Elo. Only runs on leader.
         """
@@ -16693,7 +16609,7 @@ print(json.dumps(result))
         try:
             import yaml
 
-            from app.coordination.queue_populator import QueuePopulator, load_populator_config_from_yaml
+            from app.coordination.unified_queue_populator import UnifiedQueuePopulator as QueuePopulator, load_populator_config_from_yaml
 
             # Load config from YAML
             config_path = Path(__file__).parent.parent / "config" / "unified_loop.yaml"
@@ -25733,8 +25649,8 @@ print(json.dumps({{
                         config_idx = i % len(unique_configs)
                         config = unique_configs[config_idx]
 
-                    # Track diversity metrics for monitoring
-                    self._track_selfplay_diversity(config)
+                    # Track diversity metrics for monitoring (delegated to SelfplayScheduler)
+                    self.selfplay_scheduler.track_diversity(config)
 
                     if node.node_id == self.node_id:
                         await self._start_local_job(
@@ -27446,6 +27362,15 @@ print(json.dumps({{
         # Store tasks for shutdown handling
         self._background_tasks = tasks
 
+        # Phase 4: Start extracted loops via LoopManager (Dec 2025)
+        # These run alongside inline loops during gradual migration.
+        # Once verified, inline loops will be deprecated.
+        if EXTRACTED_LOOPS_ENABLED and self._register_extracted_loops():
+            loop_manager = self._get_loop_manager()
+            if loop_manager is not None:
+                await loop_manager.start_all()
+                logger.info(f"LoopManager: started {len(loop_manager.loop_names)} extracted loops")
+
         # Best-effort bootstrap from seed peers before running elections. This
         # helps newly started cloud nodes quickly learn about the full cluster.
         with contextlib.suppress(Exception):
@@ -27468,6 +27393,15 @@ print(json.dumps({{
             pass
         finally:
             self.running = False
+            # Stop extracted loops via LoopManager (Dec 2025)
+            loop_manager = self._get_loop_manager()
+            if loop_manager is not None and loop_manager.is_started:
+                try:
+                    results = await loop_manager.stop_all(timeout=15.0)
+                    stopped = sum(1 for ok in results.values() if ok)
+                    logger.info(f"LoopManager: stopped {stopped}/{len(results)} loops")
+                except Exception as e:
+                    logger.warning(f"LoopManager: stop failed: {e}")
             try:
                 await asyncio.wait_for(runner.cleanup(), timeout=30)
             except asyncio.TimeoutError:
