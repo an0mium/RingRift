@@ -622,6 +622,39 @@ class UnifiedIdleShutdownDaemon:
                 f"Total: {self._terminated_count} terminated, ${self._cost_saved:.2f}/hr saved"
             )
 
+    def health_check(self):
+        """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with status and details
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message=f"{self._daemon_name} not running",
+            )
+
+        # Check if checks are running
+        if self._last_check_time > 0:
+            time_since_last = time.time() - self._last_check_time
+            if time_since_last > self.config.check_interval_seconds * 3:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.DEGRADED,
+                    message=f"{self._daemon_name} stale ({time_since_last:.0f}s since last check)",
+                    details=self.get_stats(),
+                )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"{self._daemon_name} running ({self._terminated_count} terminated, ${self._cost_saved:.2f}/hr saved)",
+            details=self.get_stats(),
+        )
+
     def get_stats(self) -> dict[str, Any]:
         """Get current daemon statistics."""
         return {

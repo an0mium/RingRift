@@ -150,6 +150,42 @@ class QualityMonitorDaemon:
 
         except Exception as e:
             logger.error(f"[QualityMonitorDaemon] Error handling quality check request: {e}")
+            # Dec 2025: Emit QUALITY_CHECK_FAILED for critical gap fix
+            await self._emit_quality_check_failed(
+                reason=str(e),
+                config_key=config_key if 'config_key' in dir() else "unknown",
+                check_type="on_demand",
+            )
+
+    async def _emit_quality_check_failed(
+        self,
+        reason: str,
+        config_key: str = "",
+        check_type: str = "periodic",
+    ) -> None:
+        """Emit QUALITY_CHECK_FAILED event (Dec 2025 - critical gap fix).
+
+        Called when quality checks fail due to errors or critical thresholds.
+        Enables FeedbackLoopController to react to quality failures.
+        """
+        try:
+            from app.coordination.event_router import DataEventType, get_router
+
+            router = get_router()
+            await router.publish(
+                DataEventType.QUALITY_CHECK_FAILED,
+                {
+                    "reason": reason,
+                    "config_key": config_key,
+                    "check_type": check_type,
+                    "last_quality": self.last_quality,
+                    "current_state": self.current_state.value,
+                    "timestamp": time.time(),
+                },
+            )
+            logger.warning(f"[QualityMonitorDaemon] Quality check failed: {reason}")
+        except (ImportError, RuntimeError, TypeError) as e:
+            logger.debug(f"[QualityMonitorDaemon] Failed to emit QUALITY_CHECK_FAILED: {e}")
 
     def _handle_task_error(self, task: asyncio.Task) -> None:
         """Handle errors from the monitor task."""
@@ -204,6 +240,11 @@ class QualityMonitorDaemon:
 
         except Exception as e:
             logger.error(f"Error checking quality: {e}")
+            # Dec 2025: Emit QUALITY_CHECK_FAILED when periodic checks fail
+            await self._emit_quality_check_failed(
+                reason=str(e),
+                check_type="periodic",
+            )
 
     async def _get_current_quality(self) -> float:
         """Get current quality score from recent selfplay data using UnifiedQualityScorer.

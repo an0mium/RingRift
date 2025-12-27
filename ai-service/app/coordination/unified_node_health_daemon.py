@@ -33,7 +33,7 @@ import os
 import signal
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -66,6 +66,12 @@ from app.coordination.event_emitters import (
 )
 
 
+def _get_default_p2p_port() -> int:
+    """Get default P2P port from centralized config."""
+    from app.config.cluster_config import get_p2p_port
+    return get_p2p_port()
+
+
 @dataclass
 class DaemonConfig:
     """Configuration for the health daemon."""
@@ -93,8 +99,8 @@ class DaemonConfig:
     enable_alerting: bool = True
     enable_p2p_auto_deploy: bool = True  # Auto-deploy P2P to missing nodes
 
-    # P2P port
-    p2p_port: int = 8770
+    # P2P port (December 2025: Use centralized port config)
+    p2p_port: int = field(default_factory=_get_default_p2p_port)
 
 
 class UnifiedNodeHealthDaemon:
@@ -447,6 +453,38 @@ class UnifiedNodeHealthDaemon:
     def stop(self) -> None:
         """Stop the daemon."""
         self._running = False
+
+    def health_check(self):
+        """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with status and details
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="UnifiedNodeHealthDaemon not running",
+            )
+
+        # Check if health checks are running successfully
+        time_since_last_check = time.time() - self._last_health_check
+        if time_since_last_check > self.config.health_check_interval * 3:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Health checks stale ({time_since_last_check:.0f}s since last check)",
+                details=self.get_stats(),
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"UnifiedNodeHealthDaemon running ({self._health_checks_run} checks)",
+            details=self.get_stats(),
+        )
 
     def get_stats(self) -> dict[str, Any]:
         """Get daemon statistics."""

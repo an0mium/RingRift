@@ -901,6 +901,47 @@ class UnifiedReplicationDaemon:
 
         return {"score": round(score, 1), "status": status}
 
+    def health_check(self):
+        """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with status and details
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="UnifiedReplicationDaemon not running",
+            )
+
+        # Use existing health score computation
+        health = self._compute_health_score()
+
+        if health["status"] == "critical":
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Replication critical: {self._stats.zero_copy_games} zero-copy games",
+                details=self.get_status(),
+            )
+
+        if health["status"] == "unhealthy":
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Replication unhealthy: {self._stats.under_replicated_games} under-replicated",
+                details=self.get_status(),
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Replication daemon running (score={health['score']:.0f}%)",
+            details=self.get_status(),
+        )
+
     def get_alerts_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get alert history."""
         alerts = self._alerts[-limit:] if limit else self._alerts
