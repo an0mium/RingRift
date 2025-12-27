@@ -500,3 +500,207 @@ class P2PMixinBase:
             True if timestamp is older than TTL
         """
         return (self._get_timestamp() - timestamp) > ttl_seconds
+
+
+class EventSubscriptionMixin:
+    """Mixin providing standardized event subscription for P2P managers.
+
+    This mixin consolidates the duplicated event subscription pattern found
+    across 6 P2P managers (~100 LOC duplicated). It provides:
+    - Thread-safe double-checked locking for subscription
+    - Safe event router import with graceful fallback
+    - Declarative event subscription via _get_event_subscriptions()
+    - Health check integration for subscription status
+
+    Usage:
+        class MyManager(EventSubscriptionMixin):
+            def _get_event_subscriptions(self) -> dict:
+                '''Return mapping of event types to handlers.'''
+                return {
+                    "HOST_OFFLINE": self._on_host_offline,
+                    "NODE_RECOVERED": self._on_node_recovered,
+                }
+
+            async def _on_host_offline(self, event) -> None:
+                '''Handle HOST_OFFLINE event.'''
+                pass
+
+        # Then call during initialization:
+        manager.subscribe_to_events()
+
+    Subclasses MUST implement:
+        _get_event_subscriptions() -> dict[str, Callable]
+
+    Created: December 27, 2025
+    Consolidates patterns from: job_manager.py, training_coordinator.py,
+                               selfplay_scheduler.py, node_selector.py,
+                               state_manager.py, sync_planner.py
+    """
+
+    # Type hints for IDE support - actual values set by __init__ or subscribe_to_events
+    _subscribed: bool
+    _subscription_lock: "threading.RLock"
+
+    # Override in subclass for logging prefix
+    _subscription_log_prefix: str = "EventSubscriptionMixin"
+
+    def _init_subscription_state(self) -> None:
+        """Initialize subscription state. Call from __init__.
+
+        Sets up the _subscribed flag and _subscription_lock if not already present.
+        This method is idempotent - safe to call multiple times.
+        """
+        import threading
+
+        if not hasattr(self, "_subscribed"):
+            self._subscribed = False
+        if not hasattr(self, "_subscription_lock"):
+            self._subscription_lock = threading.RLock()
+
+    def _get_event_subscriptions(self) -> dict:
+        """Return mapping of event type names to handler methods.
+
+        Subclasses MUST override this method to declare their subscriptions.
+
+        Returns:
+            Dict mapping event type names (strings matching DataEventType attrs)
+            to async handler callables.
+
+        Example:
+            def _get_event_subscriptions(self) -> dict:
+                return {
+                    "HOST_OFFLINE": self._on_host_offline,
+                    "NODE_RECOVERED": self._on_node_recovered,
+                    "TRAINING_COMPLETED": self._on_training_completed,
+                }
+        """
+        return {}
+
+    def subscribe_to_events(self) -> None:
+        """Subscribe to events declared in _get_event_subscriptions().
+
+        Thread-safe with double-checked locking. Gracefully handles:
+        - Event router not available (ImportError)
+        - Missing event types (AttributeError)
+        - Runtime errors during subscription
+
+        On failure, _subscribed remains False and health_check will report degraded.
+        """
+        # Ensure state is initialized
+        self._init_subscription_state()
+
+        # Fast path without lock
+        if self._subscribed:
+            return
+
+        # Slow path with lock to prevent race condition
+        with self._subscription_lock:
+            if self._subscribed:
+                return
+
+            prefix = getattr(self, "_subscription_log_prefix", "EventSubscriptionMixin")
+            subscriptions = self._get_event_subscriptions()
+
+            if not subscriptions:
+                # No subscriptions declared, mark as subscribed (vacuously true)
+                self._subscribed = True
+                return
+
+            try:
+                from app.coordination.event_router import DataEventType, get_event_bus
+
+                bus = get_event_bus()
+                if bus is None:
+                    logger.debug(f"[{prefix}] Event bus not available")
+                    return
+
+                subscribed_count = 0
+                for event_name, handler in subscriptions.items():
+                    if hasattr(DataEventType, event_name):
+                        event_type = getattr(DataEventType, event_name)
+                        bus.subscribe(event_type, handler)
+                        subscribed_count += 1
+                        logger.info(f"[{prefix}] Subscribed to {event_name}")
+                    else:
+                        logger.debug(f"[{prefix}] Event type {event_name} not found")
+
+                self._subscribed = True
+                if subscribed_count > 0:
+                    logger.info(f"[{prefix}] Event subscriptions complete ({subscribed_count} events)")
+
+            except ImportError:
+                logger.debug(f"[{prefix}] Event router not available")
+                self._subscribed = False
+            except (RuntimeError, AttributeError) as e:
+                logger.warning(f"[{prefix}] Failed to subscribe: {e}")
+                self._subscribed = False
+
+    def is_subscribed(self) -> bool:
+        """Check if event subscriptions are active.
+
+        Returns:
+            True if subscribe_to_events() completed successfully.
+        """
+        return getattr(self, "_subscribed", False)
+
+    def get_subscription_status(self) -> dict:
+        """Get subscription status for health check inclusion.
+
+        Returns:
+            Dict with subscription state suitable for health check details.
+
+        Example usage in health_check():
+            def health_check(self) -> dict:
+                status = "healthy"
+                sub_status = self.get_subscription_status()
+                if not sub_status["subscribed"]:
+                    status = "degraded"
+                return {"status": status, **sub_status}
+        """
+        self._init_subscription_state()
+        return {
+            "subscribed": self._subscribed,
+            "subscription_count": len(self._get_event_subscriptions()),
+        }
+
+
+class P2PManagerBase(P2PMixinBase, EventSubscriptionMixin):
+    """Combined base class for P2P managers with event subscription support.
+
+    This class combines:
+    - P2PMixinBase: Database helpers, state initialization, peer management, logging
+    - EventSubscriptionMixin: Thread-safe event subscription with health integration
+
+    Usage:
+        class MyManager(P2PManagerBase):
+            MIXIN_TYPE = "my_manager"
+            _subscription_log_prefix = "MyManager"
+
+            def __init__(self, ...):
+                # Manager-specific initialization
+                self._init_subscription_state()
+
+            def _get_event_subscriptions(self) -> dict:
+                return {
+                    "HOST_OFFLINE": self._on_host_offline,
+                    "TRAINING_COMPLETED": self._on_training_completed,
+                }
+
+            async def _on_host_offline(self, event) -> None:
+                self._log_info(f"Host went offline: {event}")
+
+            def health_check(self) -> dict:
+                status = "healthy"
+                sub_status = self.get_subscription_status()
+                if not sub_status["subscribed"]:
+                    status = "degraded"
+                return {
+                    "status": status,
+                    "manager": self.MIXIN_TYPE,
+                    **sub_status,
+                }
+
+    Created: December 27, 2025
+    """
+
+    pass  # All functionality inherited from parent classes

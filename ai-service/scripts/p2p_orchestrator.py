@@ -23067,6 +23067,16 @@ print(json.dumps({{
             "total_unique_models": len(all_models),
         }
 
+    def _load_curriculum_weights(self) -> dict[str, float]:
+        """Load curriculum weights for selfplay prioritization."""
+        if not HAS_CURRICULUM_WEIGHTS or load_curriculum_weights is None:
+            return {}
+        try:
+            return load_curriculum_weights()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[P2P] Failed to load curriculum weights: {e}")
+            return {}
+
     # =========================================================================
     # AUTOMATIC NODE RECOVERY
     # =========================================================================

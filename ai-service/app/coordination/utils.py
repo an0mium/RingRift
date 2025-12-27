@@ -138,6 +138,8 @@ class BoundedHistory(Generic[T]):
         Returns:
             List of most recent items (newest last)
         """
+        if n <= 0:
+            return []
         entries = list(self._entries)[-n:]
         return [e.value for e in entries]
 

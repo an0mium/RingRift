@@ -977,10 +977,21 @@ class SyncRouter:
                 self._on_sync_stalled,
             )
 
+            # Dec 27, 2025: Subscribe to backpressure events
+            router.subscribe(
+                DataEventType.BACKPRESSURE_ACTIVATED.value,
+                self._on_backpressure_activated,
+            )
+            router.subscribe(
+                DataEventType.BACKPRESSURE_RELEASED.value,
+                self._on_backpressure_released,
+            )
+
             logger.info(
                 "[SyncRouter] Wired to event router "
                 "(NEW_GAMES_AVAILABLE, TRAINING_STARTED, HOST_ONLINE/OFFLINE, "
-                "NODE_RECOVERED, CLUSTER_CAPACITY_CHANGED, MODEL_SYNC_REQUESTED, SYNC_STALLED)"
+                "NODE_RECOVERED, CLUSTER_CAPACITY_CHANGED, MODEL_SYNC_REQUESTED, "
+                "SYNC_STALLED, BACKPRESSURE_ACTIVATED/RELEASED)"
             )
 
         except ImportError as e:
@@ -1287,6 +1298,106 @@ class SyncRouter:
 
         except (AttributeError, KeyError) as e:
             logger.debug(f"[SyncRouter] Error handling sync stalled: {e}")
+
+    async def _on_backpressure_activated(self, event: Any) -> None:
+        """Handle BACKPRESSURE_ACTIVATED event - pause or slow sync operations.
+
+        December 27, 2025: Added to prevent overwhelming nodes under pressure.
+        When backpressure is activated, we reduce sync throughput to allow
+        the system to recover.
+
+        Args:
+            event: Event with payload containing source_node, queue_depth, threshold
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+            source_node = payload.get("source_node", "")
+            queue_depth = payload.get("queue_depth", 0)
+            threshold = payload.get("threshold", 100)
+
+            # Track backpressure state
+            if not hasattr(self, '_backpressure_active'):
+                self._backpressure_active: set[str] = set()
+
+            if source_node:
+                self._backpressure_active.add(source_node)
+                logger.warning(
+                    f"[SyncRouter] Backpressure activated on {source_node}: "
+                    f"queue_depth={queue_depth}, threshold={threshold}"
+                )
+
+                # Reduce routing priority for this node temporarily
+                if source_node in self._node_capabilities:
+                    cap = self._node_capabilities[source_node]
+                    # Store original priority if not already stored
+                    if not hasattr(cap, '_original_priority'):
+                        cap._original_priority = getattr(cap, 'priority', 0)
+                    # Reduce priority to deprioritize this node
+                    cap.priority = max(0, cap._original_priority - 2)
+            else:
+                # Global backpressure - mark all nodes
+                self._backpressure_active.add("__global__")
+                logger.warning(
+                    f"[SyncRouter] Global backpressure activated: "
+                    f"queue_depth={queue_depth}"
+                )
+
+        except (AttributeError, KeyError) as e:
+            logger.debug(f"[SyncRouter] Error handling backpressure activated: {e}")
+
+    async def _on_backpressure_released(self, event: Any) -> None:
+        """Handle BACKPRESSURE_RELEASED event - resume normal sync operations.
+
+        December 27, 2025: Added to restore sync throughput after recovery.
+
+        Args:
+            event: Event with payload containing source_node
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+            source_node = payload.get("source_node", "")
+
+            if not hasattr(self, '_backpressure_active'):
+                return
+
+            if source_node:
+                self._backpressure_active.discard(source_node)
+                logger.info(
+                    f"[SyncRouter] Backpressure released on {source_node}"
+                )
+
+                # Restore original priority
+                if source_node in self._node_capabilities:
+                    cap = self._node_capabilities[source_node]
+                    if hasattr(cap, '_original_priority'):
+                        cap.priority = cap._original_priority
+            else:
+                # Global backpressure released
+                self._backpressure_active.discard("__global__")
+                logger.info("[SyncRouter] Global backpressure released")
+
+        except (AttributeError, KeyError) as e:
+            logger.debug(f"[SyncRouter] Error handling backpressure released: {e}")
+
+    def is_under_backpressure(self, node_id: str = "") -> bool:
+        """Check if a node (or globally) is under backpressure.
+
+        Args:
+            node_id: Specific node to check, or empty for global check
+
+        Returns:
+            True if under backpressure
+        """
+        if not hasattr(self, '_backpressure_active'):
+            return False
+
+        if "__global__" in self._backpressure_active:
+            return True
+
+        if node_id:
+            return node_id in self._backpressure_active
+
+        return len(self._backpressure_active) > 0
 
     async def _emit_capacity_refresh(
         self,

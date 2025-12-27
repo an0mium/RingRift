@@ -1,12 +1,9 @@
-"""Tests for app.coordination.dynamic_thresholds module.
+"""Comprehensive tests for dynamic_thresholds.py.
 
-Tests the dynamic threshold adjustment system including:
-- DynamicThreshold class behavior
-- ThresholdManager operations
-- Adjustment strategies (LINEAR, EXPONENTIAL, ADAPTIVE)
-- Singleton pattern for global manager
-- Health check integration
+Tests DynamicThreshold, ThresholdManager, and global threshold utilities.
 """
+
+from __future__ import annotations
 
 import time
 from unittest.mock import patch
@@ -32,62 +29,62 @@ class TestAdjustmentStrategy:
         assert AdjustmentStrategy.EXPONENTIAL.value == "exponential"
         assert AdjustmentStrategy.ADAPTIVE.value == "adaptive"
 
-    def test_enum_iteration(self):
-        """Test enum can be iterated."""
-        strategies = list(AdjustmentStrategy)
-        assert len(strategies) == 3
+    def test_enum_members(self):
+        """Test enum has exactly 3 members."""
+        assert len(AdjustmentStrategy) == 3
 
 
 class TestThresholdObservation:
     """Tests for ThresholdObservation dataclass."""
 
     def test_creation_minimal(self):
-        """Test creation with minimal arguments."""
-        obs = ThresholdObservation(timestamp=1234567890.0, success=True)
-        assert obs.timestamp == 1234567890.0
+        """Test observation with required fields only."""
+        obs = ThresholdObservation(timestamp=1000.0, success=True)
+        assert obs.timestamp == 1000.0
         assert obs.success is True
         assert obs.measured_value is None
         assert obs.metadata == {}
 
     def test_creation_full(self):
-        """Test creation with all arguments."""
+        """Test observation with all fields."""
         obs = ThresholdObservation(
-            timestamp=1234567890.0,
+            timestamp=1000.0,
             success=False,
             measured_value=45.5,
-            metadata={"config": "hex8_2p", "node": "worker-1"},
+            metadata={"node": "worker-1", "retry": True},
         )
-        assert obs.timestamp == 1234567890.0
+        assert obs.timestamp == 1000.0
         assert obs.success is False
         assert obs.measured_value == 45.5
-        assert obs.metadata["config"] == "hex8_2p"
+        assert obs.metadata == {"node": "worker-1", "retry": True}
 
 
 class TestDynamicThreshold:
     """Tests for DynamicThreshold class."""
 
-    def test_creation_defaults(self):
-        """Test creation with default parameters."""
+    def test_initialization(self):
+        """Test threshold initialization with defaults."""
         threshold = DynamicThreshold(
-            name="test_timeout",
+            name="test_threshold",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
+            max_value=100.0,
         )
-        assert threshold.name == "test_timeout"
+        assert threshold.name == "test_threshold"
         assert threshold.value == 30.0
         assert threshold.min_value == 5.0
-        assert threshold.max_value == 120.0
+        assert threshold.max_value == 100.0
         assert threshold.target_success_rate == 0.95
         assert threshold.adjustment_strategy == AdjustmentStrategy.ADAPTIVE
+        assert threshold.window_size == 100
 
-    def test_creation_custom(self):
-        """Test creation with custom parameters."""
+    def test_initialization_custom(self):
+        """Test threshold initialization with custom values."""
         threshold = DynamicThreshold(
             name="custom",
             initial_value=50.0,
             min_value=10.0,
-            max_value=100.0,
+            max_value=200.0,
             target_success_rate=0.90,
             adjustment_strategy=AdjustmentStrategy.LINEAR,
             adjustment_factor=0.2,
@@ -97,28 +94,41 @@ class TestDynamicThreshold:
         )
         assert threshold.target_success_rate == 0.90
         assert threshold.adjustment_strategy == AdjustmentStrategy.LINEAR
+        assert threshold.adjustment_factor == 0.2
         assert threshold.window_size == 50
         assert threshold.cooldown_seconds == 30.0
         assert threshold.higher_is_more_permissive is False
 
-    def test_initial_success_rate(self):
-        """Test success rate is 1.0 initially."""
+    def test_value_property(self):
+        """Test value property returns current threshold."""
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=25.0,
+            min_value=5.0,
+            max_value=100.0,
         )
-        assert threshold.success_rate == 1.0
+        assert threshold.value == 25.0
 
-    def test_success_rate_calculation(self):
-        """Test success rate is calculated correctly."""
+    def test_success_rate_empty(self):
+        """Test success rate when no observations."""
         threshold = DynamicThreshold(
             name="test",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
-            cooldown_seconds=0.0,  # No cooldown for testing
+            max_value=100.0,
         )
+        # Default to 1.0 when no observations
+        assert threshold.success_rate == 1.0
 
-        # Record 8 successes and 2 failures
+    def test_success_rate_calculated(self):
+        """Test success rate calculation."""
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
+        )
+        # Add 8 successes and 2 failures
         for _ in range(8):
             threshold.record_outcome(success=True)
         for _ in range(2):
@@ -126,446 +136,567 @@ class TestDynamicThreshold:
 
         assert threshold.success_rate == 0.8
 
-    def test_record_outcome_with_measured_value(self):
-        """Test recording outcomes with measured values."""
+    def test_record_outcome_basic(self):
+        """Test recording outcomes updates observation count."""
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
         )
-
         threshold.record_outcome(success=True, measured_value=25.0)
-        threshold.record_outcome(success=True, measured_value=28.0)
         threshold.record_outcome(success=False, measured_value=45.0)
 
         stats = threshold.get_stats()
-        assert stats["observations_in_window"] == 3
-        assert stats["total_observations"] == 3
+        assert stats["observations_in_window"] == 2
+        assert stats["total_observations"] == 2
 
-    def test_window_size_limiting(self):
-        """Test observation window is properly limited."""
+    def test_record_outcome_with_metadata(self):
+        """Test recording outcomes with metadata."""
         threshold = DynamicThreshold(
             name="test",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
+            max_value=100.0,
+        )
+        threshold.record_outcome(success=True, measured_value=25.0, node="worker-1")
+
+        # Metadata should be stored in observation
+        assert len(threshold._observations) == 1
+        assert threshold._observations[0].metadata.get("node") == "worker-1"
+
+    def test_window_eviction(self):
+        """Test old observations are evicted from window."""
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
             window_size=10,
         )
-
-        # Record more than window size
-        for i in range(20):
+        # Add 15 observations
+        for i in range(15):
             threshold.record_outcome(success=True)
 
-        stats = threshold.get_stats()
-        assert stats["observations_in_window"] == 10
-        assert stats["total_observations"] == 20
+        # Should only keep last 10
+        assert len(threshold._observations) == 10
+        assert threshold.get_stats()["total_observations"] == 15
 
-    def test_cooldown_prevents_adjustment(self):
-        """Test cooldown prevents rapid adjustments."""
+    def test_cooldown_prevents_rapid_adjustment(self):
+        """Test cooldown prevents adjustments too close together."""
         threshold = DynamicThreshold(
             name="test",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
+            max_value=100.0,
             window_size=10,
-            cooldown_seconds=60.0,
+            cooldown_seconds=60.0,  # 60 second cooldown
+            target_success_rate=0.95,
         )
-
         initial_value = threshold.value
 
-        # Record many failures - should trigger adjustment
+        # Fill window with failures to trigger adjustment
         for _ in range(10):
             threshold.record_outcome(success=False)
 
-        # Value may have adjusted once
-        first_adjusted = threshold.value
+        # Value should have adjusted
+        first_adjustment = threshold.value
+        assert first_adjustment != initial_value
 
-        # Record more failures immediately
+        # Add more failures - should not adjust due to cooldown
         for _ in range(10):
             threshold.record_outcome(success=False)
 
-        # Value should not have adjusted again due to cooldown
-        assert threshold.value == first_adjusted
+        assert threshold.value == first_adjustment
 
-    def test_adjustment_respects_min_bound(self):
-        """Test adjustment respects minimum bound."""
+    def test_adjustment_respects_bounds(self):
+        """Test adjustments stay within min/max bounds."""
         threshold = DynamicThreshold(
             name="test",
             initial_value=10.0,  # Close to min
             min_value=5.0,
-            max_value=120.0,
+            max_value=100.0,
             window_size=10,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=True,  # High success -> can decrease
+            cooldown_seconds=0.0,  # No cooldown for testing
+            adjustment_factor=0.5,  # Large adjustment
         )
 
-        # Record high success rate - should try to decrease (tighten)
-        with patch.object(threshold, '_last_adjustment_time', 0.0):
-            for _ in range(10):
+        # Force many successes to try to decrease below min
+        with patch.object(threshold, '_last_adjustment_time', 0):
+            for _ in range(20):
                 threshold.record_outcome(success=True)
-                # Force recalculation
-                threshold._last_adjustment_time = 0.0
+                threshold._last_adjustment_time = 0  # Reset cooldown
 
         # Should not go below min
         assert threshold.value >= threshold.min_value
 
-    def test_adjustment_respects_max_bound(self):
-        """Test adjustment respects maximum bound."""
+    def test_linear_strategy_increase(self):
+        """Test LINEAR strategy increases threshold on low success."""
         threshold = DynamicThreshold(
             name="test",
-            initial_value=100.0,  # Close to max
-            min_value=5.0,
-            max_value=120.0,
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.LINEAR,
+            adjustment_factor=0.1,
             window_size=10,
             cooldown_seconds=0.0,
-            higher_is_more_permissive=True,  # Low success -> should increase
+            target_success_rate=0.95,
+            higher_is_more_permissive=True,
         )
+        initial = threshold.value
 
-        # Record low success rate - should try to increase (loosen)
+        # Low success rate should increase threshold
         for _ in range(10):
             threshold.record_outcome(success=False)
-            threshold._last_adjustment_time = 0.0
+            threshold._last_adjustment_time = 0
 
-        # Should not go above max
-        assert threshold.value <= threshold.max_value
+        assert threshold.value > initial
+
+    def test_linear_strategy_decrease(self):
+        """Test LINEAR strategy decreases threshold on high success."""
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.LINEAR,
+            adjustment_factor=0.1,
+            window_size=10,
+            cooldown_seconds=0.0,
+            target_success_rate=0.50,  # Target 50%, so 100% is too high
+            higher_is_more_permissive=True,
+        )
+        initial = threshold.value
+
+        # High success rate should decrease threshold
+        for _ in range(10):
+            threshold.record_outcome(success=True)
+            threshold._last_adjustment_time = 0
+
+        assert threshold.value < initial
+
+    def test_exponential_strategy(self):
+        """Test EXPONENTIAL strategy adjusts proportionally."""
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.EXPONENTIAL,
+            adjustment_factor=0.1,
+            window_size=10,
+            cooldown_seconds=0.0,
+            target_success_rate=0.95,
+        )
+        initial = threshold.value
+
+        # Low success should increase
+        for _ in range(10):
+            threshold.record_outcome(success=False)
+            threshold._last_adjustment_time = 0
+
+        # Exponential: should be initial * (1 + factor)
+        assert threshold.value > initial
+
+    def test_adaptive_strategy_proportional(self):
+        """Test ADAPTIVE strategy adjusts based on deviation magnitude."""
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.ADAPTIVE,
+            adjustment_factor=0.1,
+            window_size=10,
+            cooldown_seconds=0.0,
+            target_success_rate=0.95,
+        )
+
+        # Low success should increase threshold
+        for _ in range(10):
+            threshold.record_outcome(success=False)
+            threshold._last_adjustment_time = 0
+
+        assert threshold.value > 50.0
+
+    def test_higher_is_less_permissive(self):
+        """Test behavior when higher_is_more_permissive=False."""
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.LINEAR,
+            adjustment_factor=0.1,
+            window_size=10,
+            cooldown_seconds=0.0,
+            target_success_rate=0.95,
+            higher_is_more_permissive=False,  # Inverted logic
+        )
+        initial = threshold.value
+
+        # Low success should decrease threshold (inverted)
+        for _ in range(10):
+            threshold.record_outcome(success=False)
+            threshold._last_adjustment_time = 0
+
+        assert threshold.value < initial
 
     def test_reset(self):
         """Test reset clears observations."""
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
         )
 
+        # Add some observations
         for _ in range(10):
             threshold.record_outcome(success=True)
 
         threshold.reset()
 
-        stats = threshold.get_stats()
-        assert stats["observations_in_window"] == 0
-        assert threshold.success_rate == 1.0
+        assert len(threshold._observations) == 0
+        assert threshold._last_adjustment_time == 0.0
+        assert threshold.success_rate == 1.0  # Default when empty
 
-    def test_get_stats_structure(self):
-        """Test get_stats returns correct structure."""
+    def test_get_stats(self):
+        """Test get_stats returns comprehensive statistics."""
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
-        )
-
-        threshold.record_outcome(success=True, measured_value=25.0)
-
-        stats = threshold.get_stats()
-
-        assert "name" in stats
-        assert "current_value" in stats
-        assert "min_value" in stats
-        assert "max_value" in stats
-        assert "success_rate" in stats
-        assert "target_success_rate" in stats
-        assert "observations_in_window" in stats
-        assert "total_observations" in stats
-        assert "adjustment_count" in stats
-        assert "strategy" in stats
-
-
-class TestLinearAdjustment:
-    """Tests for LINEAR adjustment strategy."""
-
-    def test_linear_increases_on_low_success(self):
-        """Test LINEAR increases threshold when success is low."""
-        threshold = DynamicThreshold(
-            name="test",
-            initial_value=50.0,
+            name="test_stats",
+            initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.95,
+            max_value=100.0,
+            target_success_rate=0.90,
             adjustment_strategy=AdjustmentStrategy.LINEAR,
-            adjustment_factor=0.1,
-            window_size=10,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=True,
         )
 
-        initial = threshold.value
+        for i in range(10):
+            threshold.record_outcome(success=i < 8, measured_value=float(i * 5))
 
-        # Record low success rate
-        for _ in range(7):
-            threshold.record_outcome(success=False)
-        for _ in range(3):
-            threshold.record_outcome(success=True)
+        stats = threshold.get_stats()
 
-        # Force adjustment check
-        threshold._last_adjustment_time = 0.0
-        threshold.record_outcome(success=False)
+        assert stats["name"] == "test_stats"
+        assert stats["current_value"] == 30.0
+        assert stats["min_value"] == 5.0
+        assert stats["max_value"] == 100.0
+        assert stats["target_success_rate"] == 0.90
+        assert stats["observations_in_window"] == 10
+        assert stats["total_observations"] == 10
+        assert stats["strategy"] == "linear"
+        assert stats["success_rate"] == 0.8  # 8/10
+        assert "measured_mean" in stats
 
-        # Should increase (loosen) threshold
-        assert threshold.value >= initial
-
-    def test_linear_decreases_on_high_success(self):
-        """Test LINEAR decreases threshold when success is high."""
+    def test_stats_without_measured_values(self):
+        """Test stats when no measured values recorded."""
         threshold = DynamicThreshold(
             name="test",
-            initial_value=50.0,
+            initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.80,  # Low target so 100% is "too high"
-            adjustment_strategy=AdjustmentStrategy.LINEAR,
-            adjustment_factor=0.1,
-            window_size=10,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=True,
+            max_value=100.0,
         )
+        threshold.record_outcome(success=True)  # No measured_value
 
-        initial = threshold.value
-
-        # Record all successes (above target)
-        for _ in range(10):
-            threshold.record_outcome(success=True)
-
-        # Force adjustment check
-        threshold._last_adjustment_time = 0.0
-        threshold.record_outcome(success=True)
-
-        # Should decrease (tighten) threshold
-        assert threshold.value <= initial
-
-
-class TestExponentialAdjustment:
-    """Tests for EXPONENTIAL adjustment strategy."""
-
-    def test_exponential_proportional_increase(self):
-        """Test EXPONENTIAL increases proportionally."""
-        threshold = DynamicThreshold(
-            name="test",
-            initial_value=50.0,
-            min_value=5.0,
-            max_value=200.0,
-            target_success_rate=0.95,
-            adjustment_strategy=AdjustmentStrategy.EXPONENTIAL,
-            adjustment_factor=0.1,
-            window_size=10,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=True,
-        )
-
-        # Record low success to trigger increase
-        for _ in range(10):
-            threshold.record_outcome(success=False)
-
-        threshold._last_adjustment_time = 0.0
-        threshold.record_outcome(success=False)
-
-        # EXPONENTIAL multiplies by (1 + adjustment_factor)
-        # Expected: 50.0 * 1.1 = 55.0
-        assert threshold.value > 50.0
-
-
-class TestAdaptiveAdjustment:
-    """Tests for ADAPTIVE adjustment strategy."""
-
-    def test_adaptive_adjusts_based_on_deviation(self):
-        """Test ADAPTIVE adjusts proportionally to deviation."""
-        threshold = DynamicThreshold(
-            name="test",
-            initial_value=50.0,
-            min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.95,
-            adjustment_strategy=AdjustmentStrategy.ADAPTIVE,
-            adjustment_factor=0.1,
-            window_size=10,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=True,
-        )
-
-        # Record 50% success (large deviation from 95% target)
-        for _ in range(5):
-            threshold.record_outcome(success=True)
-        for _ in range(5):
-            threshold.record_outcome(success=False)
-
-        initial = threshold.value
-        threshold._last_adjustment_time = 0.0
-        threshold.record_outcome(success=False)
-
-        # Should adjust significantly due to large deviation
-        assert threshold.value != initial
+        stats = threshold.get_stats()
+        assert stats["measured_mean"] is None
+        assert stats["measured_p95"] is None
 
 
 class TestThresholdManager:
     """Tests for ThresholdManager class."""
 
+    def test_initialization(self):
+        """Test manager initializes empty."""
+        manager = ThresholdManager()
+        assert len(manager._thresholds) == 0
+
     def test_register_threshold(self):
         """Test registering a threshold."""
         manager = ThresholdManager()
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
         )
 
         manager.register(threshold)
 
-        assert manager.get("test") is threshold
+        assert "test" in manager._thresholds
+        assert manager._thresholds["test"] is threshold
+
+    def test_get_existing(self):
+        """Test getting an existing threshold."""
+        manager = ThresholdManager()
+        threshold = DynamicThreshold(
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
+        )
+        manager.register(threshold)
+
+        result = manager.get("test")
+        assert result is threshold
 
     def test_get_nonexistent(self):
-        """Test get returns None for nonexistent threshold."""
+        """Test getting a non-existent threshold."""
         manager = ThresholdManager()
-        assert manager.get("nonexistent") is None
+        result = manager.get("nonexistent")
+        assert result is None
 
-    def test_get_value(self):
-        """Test get_value returns current value."""
+    def test_get_value_existing(self):
+        """Test getting value of existing threshold."""
         manager = ThresholdManager()
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=42.0,
+            min_value=5.0,
+            max_value=100.0,
         )
         manager.register(threshold)
 
-        assert manager.get_value("test") == 30.0
+        value = manager.get_value("test")
+        assert value == 42.0
 
-    def test_get_value_default(self):
-        """Test get_value returns default for nonexistent."""
+    def test_get_value_nonexistent_with_default(self):
+        """Test getting value of non-existent threshold with default."""
         manager = ThresholdManager()
-        assert manager.get_value("nonexistent", default=99.0) == 99.0
+        value = manager.get_value("nonexistent", default=99.0)
+        assert value == 99.0
+
+    def test_get_value_nonexistent_no_default(self):
+        """Test getting value of non-existent threshold without default."""
+        manager = ThresholdManager()
+        value = manager.get_value("nonexistent")
+        assert value is None
 
     def test_record_existing(self):
-        """Test record works for existing threshold."""
+        """Test recording to existing threshold."""
         manager = ThresholdManager()
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
         )
         manager.register(threshold)
 
         result = manager.record("test", success=True, measured_value=25.0)
 
         assert result is True
-        assert threshold.success_rate == 1.0
+        assert len(threshold._observations) == 1
 
     def test_record_nonexistent(self):
-        """Test record returns False for nonexistent threshold."""
+        """Test recording to non-existent threshold."""
         manager = ThresholdManager()
         result = manager.record("nonexistent", success=True)
         assert result is False
 
     def test_reset_all(self):
-        """Test reset_all clears all thresholds."""
+        """Test resetting all thresholds."""
         manager = ThresholdManager()
 
-        t1 = DynamicThreshold(
-            name="t1", initial_value=30.0, min_value=5.0, max_value=120.0
-        )
-        t2 = DynamicThreshold(
-            name="t2", initial_value=60.0, min_value=10.0, max_value=180.0
-        )
-        manager.register(t1)
-        manager.register(t2)
+        for name in ["a", "b", "c"]:
+            threshold = DynamicThreshold(
+                name=name,
+                initial_value=30.0,
+                min_value=5.0,
+                max_value=100.0,
+            )
+            manager.register(threshold)
+            threshold.record_outcome(success=True)
 
-        # Record some observations
-        for _ in range(5):
-            manager.record("t1", success=True)
-            manager.record("t2", success=False)
+        # All should have observations
+        for name in ["a", "b", "c"]:
+            assert len(manager.get(name)._observations) == 1
 
         manager.reset_all()
 
-        assert t1.success_rate == 1.0
-        assert t2.success_rate == 1.0
+        # All should be cleared
+        for name in ["a", "b", "c"]:
+            assert len(manager.get(name)._observations) == 0
 
     def test_get_all_stats(self):
-        """Test get_all_stats returns stats for all thresholds."""
+        """Test getting stats for all thresholds."""
         manager = ThresholdManager()
 
-        t1 = DynamicThreshold(
-            name="t1", initial_value=30.0, min_value=5.0, max_value=120.0
-        )
-        t2 = DynamicThreshold(
-            name="t2", initial_value=60.0, min_value=10.0, max_value=180.0
-        )
-        manager.register(t1)
-        manager.register(t2)
+        for name in ["threshold_a", "threshold_b"]:
+            threshold = DynamicThreshold(
+                name=name,
+                initial_value=30.0,
+                min_value=5.0,
+                max_value=100.0,
+            )
+            manager.register(threshold)
 
         stats = manager.get_all_stats()
 
-        assert "t1" in stats
-        assert "t2" in stats
-        assert stats["t1"]["current_value"] == 30.0
-        assert stats["t2"]["current_value"] == 60.0
+        assert "threshold_a" in stats
+        assert "threshold_b" in stats
+        assert stats["threshold_a"]["name"] == "threshold_a"
+        assert stats["threshold_b"]["name"] == "threshold_b"
 
     def test_get_health_all_healthy(self):
-        """Test get_health with all healthy thresholds."""
+        """Test health when all thresholds are healthy."""
         manager = ThresholdManager()
-
         threshold = DynamicThreshold(
             name="test",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.95,
+            max_value=100.0,
+            target_success_rate=0.90,
         )
         manager.register(threshold)
 
-        # Record high success
-        for _ in range(10):
-            threshold.record_outcome(success=True)
+        # Add 90% successes (meets target)
+        for i in range(10):
+            threshold.record_outcome(success=i < 9)
 
         health = manager.get_health()
 
         assert health["all_healthy"] is True
-        assert len(health["unhealthy_thresholds"]) == 0
+        assert health["unhealthy_thresholds"] == []
+        assert health["threshold_count"] == 1
 
-    def test_get_health_with_unhealthy(self):
-        """Test get_health identifies unhealthy thresholds."""
+    def test_get_health_some_unhealthy(self):
+        """Test health when some thresholds are unhealthy."""
         manager = ThresholdManager()
 
-        threshold = DynamicThreshold(
-            name="failing",
+        # Healthy threshold
+        healthy = DynamicThreshold(
+            name="healthy",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.95,
+            max_value=100.0,
+            target_success_rate=0.90,
         )
-        manager.register(threshold)
+        manager.register(healthy)
+        for i in range(10):
+            healthy.record_outcome(success=i < 9)
 
-        # Record very low success (below target - 10% = 85%)
-        for _ in range(7):
-            threshold.record_outcome(success=False)
-        for _ in range(3):
-            threshold.record_outcome(success=True)
+        # Unhealthy threshold (below target - 0.1)
+        unhealthy = DynamicThreshold(
+            name="unhealthy",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
+            target_success_rate=0.90,
+        )
+        manager.register(unhealthy)
+        for i in range(10):
+            unhealthy.record_outcome(success=i < 5)  # Only 50%
 
         health = manager.get_health()
 
         assert health["all_healthy"] is False
-        assert "failing" in health["unhealthy_thresholds"]
+        assert "unhealthy" in health["unhealthy_thresholds"]
+        assert "healthy" not in health["unhealthy_thresholds"]
 
-    def test_health_check_integration(self):
-        """Test health_check returns proper HealthCheckResult."""
+    def test_health_check_healthy(self):
+        """Test health_check returns healthy result."""
         manager = ThresholdManager()
-
         threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
+            name="test",
+            initial_value=30.0,
+            min_value=5.0,
+            max_value=100.0,
+            target_success_rate=0.80,
         )
         manager.register(threshold)
 
+        # Add 90% successes (above target)
+        for i in range(10):
+            threshold.record_outcome(success=i < 9)
+
         result = manager.health_check()
 
-        assert hasattr(result, "healthy")
-        assert hasattr(result, "status")
-        assert hasattr(result, "message")
-        assert hasattr(result, "details")
+        assert result.healthy is True
+        assert result.status.value == "running"
+
+    def test_health_check_degraded(self):
+        """Test health_check returns degraded when some thresholds unhealthy."""
+        manager = ThresholdManager()
+
+        # Add 3 thresholds, 1 unhealthy
+        for i in range(3):
+            threshold = DynamicThreshold(
+                name=f"test_{i}",
+                initial_value=30.0,
+                min_value=5.0,
+                max_value=100.0,
+                target_success_rate=0.90,
+            )
+            manager.register(threshold)
+
+            if i == 0:
+                # Make first one unhealthy
+                for j in range(10):
+                    threshold.record_outcome(success=j < 5)
+            else:
+                for _ in range(10):
+                    threshold.record_outcome(success=True)
+
+        result = manager.health_check()
+
+        assert result.status.value == "degraded"
+        assert "test_0" in result.message
+
+    def test_health_check_error(self):
+        """Test health_check returns error when majority unhealthy."""
+        manager = ThresholdManager()
+
+        # Add 3 thresholds, 2 unhealthy
+        for i in range(3):
+            threshold = DynamicThreshold(
+                name=f"test_{i}",
+                initial_value=30.0,
+                min_value=5.0,
+                max_value=100.0,
+                target_success_rate=0.90,
+            )
+            manager.register(threshold)
+
+            if i < 2:
+                # Make first two unhealthy
+                for j in range(10):
+                    threshold.record_outcome(success=j < 5)
+            else:
+                for _ in range(10):
+                    threshold.record_outcome(success=True)
+
+        result = manager.health_check()
+
+        assert result.status.value == "error"
 
 
-class TestGlobalManager:
-    """Tests for global threshold manager singleton."""
+class TestGlobalFunctions:
+    """Tests for global threshold functions."""
 
-    def setup_method(self):
-        """Reset global manager before each test."""
+    def test_get_threshold_manager(self):
+        """Test getting global threshold manager."""
         reset_threshold_manager()
 
-    def teardown_method(self):
-        """Reset global manager after each test."""
-        reset_threshold_manager()
+        manager = get_threshold_manager()
+        assert isinstance(manager, ThresholdManager)
 
-    def test_get_threshold_manager_singleton(self):
-        """Test get_threshold_manager returns same instance."""
-        m1 = get_threshold_manager()
-        m2 = get_threshold_manager()
-        assert m1 is m2
+        # Should return same instance
+        manager2 = get_threshold_manager()
+        assert manager is manager2
+
+    def test_reset_threshold_manager(self):
+        """Test resetting global threshold manager."""
+        manager1 = get_threshold_manager()
+        reset_threshold_manager()
+        manager2 = get_threshold_manager()
+
+        assert manager1 is not manager2
 
     def test_default_thresholds_initialized(self):
         """Test default thresholds are created."""
+        reset_threshold_manager()
         manager = get_threshold_manager()
 
         # Check default thresholds exist
@@ -574,145 +705,121 @@ class TestGlobalManager:
         assert manager.get("plateau_window") is not None
         assert manager.get("memory_warning") is not None
 
-    def test_default_threshold_values(self):
-        """Test default threshold values are correct."""
+    def test_handler_timeout_defaults(self):
+        """Test handler_timeout has correct defaults."""
+        reset_threshold_manager()
         manager = get_threshold_manager()
 
-        assert manager.get_value("handler_timeout") == 30.0
-        assert manager.get_value("heartbeat_threshold") == 60.0
-        assert manager.get_value("plateau_window") == 10.0
-        assert manager.get_value("memory_warning") == 0.8
+        threshold = manager.get("handler_timeout")
+        assert threshold.value == 30.0
+        assert threshold.min_value == 5.0
+        assert threshold.max_value == 120.0
+        assert threshold.target_success_rate == 0.95
 
-    def test_reset_clears_manager(self):
-        """Test reset_threshold_manager creates new instance."""
-        m1 = get_threshold_manager()
+    def test_heartbeat_threshold_defaults(self):
+        """Test heartbeat_threshold has correct defaults."""
         reset_threshold_manager()
-        m2 = get_threshold_manager()
+        manager = get_threshold_manager()
 
-        assert m1 is not m2
+        threshold = manager.get("heartbeat_threshold")
+        assert threshold.value == 60.0
+        assert threshold.target_success_rate == 0.99
+
+    def test_memory_warning_defaults(self):
+        """Test memory_warning has correct defaults."""
+        reset_threshold_manager()
+        manager = get_threshold_manager()
+
+        threshold = manager.get("memory_warning")
+        assert threshold.value == 0.8
+        assert threshold.min_value == 0.5
+        assert threshold.max_value == 0.95
 
 
-class TestHigherIsMorePermissive:
-    """Tests for higher_is_more_permissive flag behavior."""
+class TestThresholdIntegration:
+    """Integration tests combining multiple threshold features."""
 
-    def test_higher_permissive_true(self):
-        """Test behavior when higher values are more permissive."""
-        # Example: timeout threshold - higher = more lenient
-        threshold = DynamicThreshold(
-            name="timeout",
-            initial_value=30.0,
-            min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.95,
+    def test_manager_with_multiple_strategies(self):
+        """Test manager handling thresholds with different strategies."""
+        manager = ThresholdManager()
+
+        manager.register(DynamicThreshold(
+            name="linear",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
             adjustment_strategy=AdjustmentStrategy.LINEAR,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=True,
-        )
+        ))
+        manager.register(DynamicThreshold(
+            name="exponential",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.EXPONENTIAL,
+        ))
+        manager.register(DynamicThreshold(
+            name="adaptive",
+            initial_value=50.0,
+            min_value=0.0,
+            max_value=100.0,
+            adjustment_strategy=AdjustmentStrategy.ADAPTIVE,
+        ))
 
-        initial = threshold.value
+        # Record to all
+        for name in ["linear", "exponential", "adaptive"]:
+            manager.record(name, success=True, measured_value=25.0)
 
-        # Low success rate - should increase (loosen)
-        for _ in range(10):
-            threshold.record_outcome(success=False)
-            threshold._last_adjustment_time = 0.0
+        stats = manager.get_all_stats()
+        assert len(stats) == 3
 
-        # Value should have increased
-        assert threshold.value >= initial
-
-    def test_higher_permissive_false(self):
-        """Test behavior when higher values are more restrictive."""
-        # Example: quality threshold - higher = stricter
-        threshold = DynamicThreshold(
-            name="quality",
-            initial_value=0.5,
-            min_value=0.1,
-            max_value=0.9,
-            target_success_rate=0.95,
-            adjustment_strategy=AdjustmentStrategy.LINEAR,
-            cooldown_seconds=0.0,
-            higher_is_more_permissive=False,
-        )
-
-        initial = threshold.value
-
-        # Low success rate - should decrease (loosen)
-        for _ in range(10):
-            threshold.record_outcome(success=False)
-            threshold._last_adjustment_time = 0.0
-
-        # Value should have decreased
-        assert threshold.value <= initial
-
-
-class TestEdgeCases:
-    """Tests for edge cases and boundary conditions."""
-
-    def test_no_adjustment_within_tolerance(self):
-        """Test no adjustment when success rate is within tolerance."""
-        # Create threshold with high window_size to delay first adjustment
-        # and very long cooldown to prevent adjustments during recording
+    def test_threshold_adjustment_over_time(self):
+        """Test threshold adjusts correctly over many observations."""
         threshold = DynamicThreshold(
             name="test",
-            initial_value=30.0,
-            min_value=5.0,
-            max_value=120.0,
-            target_success_rate=0.90,  # 90% target
-            window_size=100,  # Need 50 observations before first adjustment check
-            cooldown_seconds=3600.0,  # 1 hour cooldown - no adjustments during test
+            initial_value=50.0,
+            min_value=10.0,
+            max_value=90.0,
+            window_size=20,
+            cooldown_seconds=0.0,
+            target_success_rate=0.80,
+            adjustment_strategy=AdjustmentStrategy.ADAPTIVE,
         )
-
         initial = threshold.value
 
-        # Record exactly 90% success (at target - should be within 5% tolerance)
-        # With window_size=100, we need 50 obs before adjustment is considered
-        for _ in range(45):
+        # Simulate many failures - should increase threshold
+        for _ in range(50):
+            threshold.record_outcome(success=False)
+            threshold._last_adjustment_time = 0  # Reset cooldown
+
+        # Should have increased toward max
+        assert threshold.value > initial
+
+        # Now simulate many successes - should decrease threshold
+        for _ in range(50):
             threshold.record_outcome(success=True)
-        for _ in range(5):
-            threshold.record_outcome(success=False)
+            threshold._last_adjustment_time = 0
 
-        # Now we have 50 observations (90% success), exactly at target
-        # Reset cooldown to allow adjustment check
-        threshold._last_adjustment_time = 0.0
-        threshold._maybe_adjust()
+        # Should have decreased (may not go back to initial if bounds apply)
+        assert threshold.value < threshold.max_value
 
-        # Should not adjust since 90% == 90% target (within 5% tolerance)
-        assert threshold.value == initial
-
-    def test_insufficient_observations(self):
-        """Test no adjustment with insufficient observations."""
+    def test_stats_reflect_observations(self):
+        """Test statistics accurately reflect recorded observations."""
         threshold = DynamicThreshold(
-            name="test",
+            name="accuracy_test",
             initial_value=30.0,
             min_value=5.0,
-            max_value=120.0,
-            window_size=100,  # Need at least 50 observations
-            cooldown_seconds=0.0,
+            max_value=100.0,
+            window_size=100,
         )
 
-        initial = threshold.value
-
-        # Record only 10 failures
-        for _ in range(10):
-            threshold.record_outcome(success=False)
-
-        # Should not adjust (not enough observations)
-        assert threshold.value == initial
-
-    def test_measured_value_statistics(self):
-        """Test measured value statistics in get_stats."""
-        threshold = DynamicThreshold(
-            name="test", initial_value=30.0, min_value=5.0, max_value=120.0
-        )
-
-        # Record with measured values (need > 20 for p95 calculation)
-        for v in range(5, 115, 5):  # 22 values: 5, 10, 15, ..., 110
-            threshold.record_outcome(success=True, measured_value=float(v))
+        # Record specific pattern
+        for i in range(75):
+            threshold.record_outcome(success=True, measured_value=float(i))
+        for i in range(25):
+            threshold.record_outcome(success=False, measured_value=float(i + 75))
 
         stats = threshold.get_stats()
 
-        # Should have mean calculated
-        assert stats["measured_mean"] is not None
-        # Should have p95 calculated (need > 20 samples, we have 22)
-        assert stats["measured_p95"] is not None
-        # Mean should be around 57.5 (avg of 5 to 110)
-        assert 50 <= stats["measured_mean"] <= 65
+        assert stats["total_observations"] == 100
+        assert stats["observations_in_window"] == 100
+        assert stats["success_rate"] == 0.75

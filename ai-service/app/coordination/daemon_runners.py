@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 if TYPE_CHECKING:
@@ -60,7 +61,17 @@ async def _wait_for_daemon(daemon: Any, check_interval: float = 10.0) -> None:
 
 
 async def create_sync_coordinator() -> None:
-    """Create and run sync coordinator daemon."""
+    """Create and run sync coordinator daemon.
+
+    DEPRECATED (December 2025): Use DaemonType.AUTO_SYNC instead.
+    This runner is retained for backward compatibility and will be removed in Q2 2026.
+    """
+    warnings.warn(
+        "DaemonType.SYNC_COORDINATOR is deprecated. Use DaemonType.AUTO_SYNC instead. "
+        "Removal scheduled for Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         from app.distributed.sync_coordinator import SyncCoordinator
 
@@ -138,7 +149,17 @@ async def create_training_node_watcher() -> None:
 
 
 async def create_ephemeral_sync() -> None:
-    """Create and run ephemeral sync daemon (Phase 4, December 2025)."""
+    """Create and run ephemeral sync daemon (Phase 4, December 2025).
+
+    DEPRECATED (December 2025): Use AutoSyncDaemon with strategy="ephemeral" instead.
+    This runner is retained for backward compatibility and will be removed in Q2 2026.
+    """
+    warnings.warn(
+        "DaemonType.EPHEMERAL_SYNC is deprecated. Use AutoSyncDaemon(strategy='ephemeral') instead. "
+        "Removal scheduled for Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         from app.coordination.auto_sync_daemon import (
             AutoSyncConfig,
@@ -237,7 +258,17 @@ async def create_dlq_retry() -> None:
 
 
 async def create_health_check() -> None:
-    """Create and run health check daemon."""
+    """Create and run health check daemon.
+
+    DEPRECATED (December 2025): Use DaemonType.NODE_HEALTH_MONITOR instead.
+    This runner is retained for backward compatibility and will be removed in Q2 2026.
+    """
+    warnings.warn(
+        "DaemonType.HEALTH_CHECK is deprecated. Use DaemonType.NODE_HEALTH_MONITOR instead. "
+        "Removal scheduled for Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         from app.coordination.health_check_orchestrator import HealthCheckOrchestrator
 
@@ -276,7 +307,19 @@ async def create_daemon_watchdog() -> None:
 
 
 async def create_node_health_monitor() -> None:
-    """Create and run node health monitor daemon."""
+    """Create and run node health monitor daemon.
+
+    DEPRECATED (December 2025): Use HealthCheckOrchestrator directly via HEALTH_SERVER.
+    The NODE_HEALTH_MONITOR daemon type is deprecated in favor of the unified
+    health_check_orchestrator. This runner is retained for backward compatibility
+    and will be removed in Q2 2026.
+    """
+    warnings.warn(
+        "DaemonType.NODE_HEALTH_MONITOR is deprecated. Use HealthCheckOrchestrator "
+        "(via DaemonType.HEALTH_SERVER) instead. Removal scheduled for Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         from app.coordination.health_check_orchestrator import HealthCheckOrchestrator
 
@@ -289,7 +332,18 @@ async def create_node_health_monitor() -> None:
 
 
 async def create_system_health_monitor() -> None:
-    """Create and run system health monitor daemon (December 2025)."""
+    """Create and run system health monitor daemon (December 2025).
+
+    DEPRECATED (December 2025): Use unified_health_manager.get_system_health_score() instead.
+    This daemon type is deprecated in favor of unified_health_manager functions.
+    This runner is retained for backward compatibility and will be removed in Q2 2026.
+    """
+    warnings.warn(
+        "DaemonType.SYSTEM_HEALTH_MONITOR is deprecated. Use unified_health_manager."
+        "get_system_health_score() instead. Removal scheduled for Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     try:
         from app.coordination.unified_health_manager import UnifiedHealthManager
 

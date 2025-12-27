@@ -71,6 +71,30 @@ class DatabaseInfo:
 
 
 @dataclass
+class JsonlFileInfo:
+    """Information about a discovered JSONL game file (December 2025).
+
+    JSONL files contain game records from GPU selfplay in JSON lines format.
+    These are converted to NPZ via scripts/jsonl_to_npz.py.
+    """
+
+    path: Path
+    board_type: str | None = None
+    num_players: int | None = None
+    game_count: int = 0
+    source_pattern: str = ""
+
+    def __post_init__(self):
+        """Count games in JSONL file if not already set."""
+        if self.game_count == 0 and self.path.exists():
+            try:
+                with open(self.path) as f:
+                    self.game_count = sum(1 for _ in f)
+            except Exception:
+                pass
+
+
+@dataclass
 class GameCounts:
     """Game counts aggregated by configuration."""
 
@@ -112,6 +136,23 @@ class GameDiscovery:
         # Legacy patterns
         ("data/games/hex8_*.db", False),
         ("data/games/canonical_*.db", True),
+    ]
+
+    # JSONL file patterns (December 2025) - for GPU selfplay data
+    JSONL_PATTERNS = [
+        # Cluster JSONL - GPU selfplay
+        ("data/selfplay/cluster_jsonl/gpu/games_{board_type}_{num_players}p_*.jsonl", False),
+        # P2P GPU selfplay
+        ("data/selfplay/cluster_jsonl/p2p_gpu/{board_type}_{num_players}p/*/games_*.jsonl", False),
+        ("data/selfplay/cluster_jsonl/p2p_gpu/{board_type}_{num_players}/*/games_*.jsonl", False),
+        # Hex variants
+        ("data/selfplay/cluster_jsonl/p2p_gpu/hex_{num_players}p/*/games_hexagonal_*.jsonl", False),
+        # Logs/selfplay (soak tests)
+        ("logs/selfplay/soak.*.{board_type}.{num_players}p.*.jsonl", False),
+        # Cluster JSONL directory - catch-all
+        ("cluster_jsonl/*.jsonl", False),
+        # Legacy GPU training
+        ("data/gpu_training_*.jsonl", False),
     ]
 
     def __init__(self, root_path: Path | str | None = None):

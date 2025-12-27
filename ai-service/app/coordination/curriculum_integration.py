@@ -1512,6 +1512,7 @@ def wire_all_feedback_loops(
     enable_pfsp_weakness: bool = True,
     enable_promotion_failed: bool = True,
     enable_quality_penalty: bool = True,
+    enable_regression_critical: bool = True,
     enable_quality_temperature: bool = True,
     enable_curriculum_feedback: bool = True,
 ) -> dict[str, Any]:
@@ -1525,6 +1526,7 @@ def wire_all_feedback_loops(
         enable_pfsp_weakness: Enable PFSP weak opponent → CurriculumFeedback
         enable_promotion_failed: Enable PROMOTION_FAILED → CurriculumFeedback
         enable_quality_penalty: Enable QUALITY_PENALTY_APPLIED → CurriculumFeedback
+        enable_regression_critical: Enable REGRESSION_CRITICAL → CurriculumFeedback
         enable_quality_temperature: Enable Quality → Temperature
         enable_curriculum_feedback: Enable all curriculum_feedback.py watchers
 
@@ -1598,6 +1600,21 @@ def wire_all_feedback_loops(
                 # RuntimeError: watcher subscribe failed
                 status["quality_penalty_curriculum_error"] = str(e)
                 logger.warning(f"Failed to start quality penalty curriculum watcher: {e}")
+
+        # 2.7. Regression Critical → Curriculum Weight watcher (December 2025)
+        if enable_regression_critical:
+            try:
+                watcher = RegressionCriticalToCurriculumWatcher()
+                watcher.subscribe()
+                _watcher_instances["regression_critical_curriculum"] = watcher
+                status["watchers"].append("regression_critical_curriculum")
+            except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+                # ImportError: event modules not available
+                # AttributeError: watcher method missing
+                # TypeError: invalid configuration
+                # RuntimeError: watcher subscribe failed
+                status["regression_critical_curriculum_error"] = str(e)
+                logger.warning(f"Failed to start regression critical curriculum watcher: {e}")
 
         # 3. Quality → Temperature watcher
         if enable_quality_temperature:
@@ -1763,6 +1780,25 @@ def reset_promotion_failure_count(config_key: str) -> None:
         watcher.reset_failure_count(config_key)
 
 
+def get_regression_critical_counts() -> dict[str, int]:
+    """Get current regression critical counts.
+
+    Returns:
+        Dict mapping config_key to consecutive regression count
+    """
+    watcher = _watcher_instances.get("regression_critical_curriculum")
+    if watcher and isinstance(watcher, RegressionCriticalToCurriculumWatcher):
+        return watcher.get_regression_counts()
+    return {}
+
+
+def reset_regression_critical_count(config_key: str) -> None:
+    """Reset regression critical count for a config (when model recovers)."""
+    watcher = _watcher_instances.get("regression_critical_curriculum")
+    if watcher and isinstance(watcher, RegressionCriticalToCurriculumWatcher):
+        watcher.reset_regression_count(config_key)
+
+
 __all__ = [
     # Main wiring functions
     "wire_all_feedback_loops",
@@ -1773,6 +1809,7 @@ __all__ = [
     "PFSPWeaknessWatcher",
     "PromotionFailedToCurriculumWatcher",
     "QualityPenaltyToCurriculumWatcher",
+    "RegressionCriticalToCurriculumWatcher",
     "QualityToTemperatureWatcher",
     # Convenience functions
     "get_exploration_boost",
@@ -1782,4 +1819,6 @@ __all__ = [
     "reset_quality_penalty",
     "get_promotion_failure_counts",
     "reset_promotion_failure_count",
+    "get_regression_critical_counts",
+    "reset_regression_critical_count",
 ]

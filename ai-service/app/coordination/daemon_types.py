@@ -399,12 +399,20 @@ DAEMON_STARTUP_ORDER: list[DaemonType] = [
     DaemonType.NODE_RECOVERY,          # 15. Node recovery (depends on NODE_HEALTH_MONITOR)
 
     # =========================================================================
-    # Evaluation and promotion chain (positions 16-18)
+    # Quality and training enhancement (positions 16-18) - Dec 27, 2025
+    # Added: 3 daemons missing from startup order per exploration analysis
+    # =========================================================================
+    DaemonType.QUALITY_MONITOR,        # 16. Quality monitoring (depends on DATA_PIPELINE)
+    DaemonType.DISTILLATION,           # 17. Distillation (depends on TRAINING_TRIGGER)
+    DaemonType.UNIFIED_PROMOTION,      # 18. Unified promotion (depends on EVALUATION)
+
+    # =========================================================================
+    # Evaluation and promotion chain (positions 19-21)
     # Must be in order: EVALUATION -> AUTO_PROMOTION -> MODEL_DISTRIBUTION
     # =========================================================================
-    DaemonType.EVALUATION,             # 16. Model evaluation (depends on TRAINING_TRIGGER)
-    DaemonType.AUTO_PROMOTION,         # 17. Auto-promotion (depends on EVALUATION)
-    DaemonType.MODEL_DISTRIBUTION,     # 18. Model distribution (depends on AUTO_PROMOTION)
+    DaemonType.EVALUATION,             # 19. Model evaluation (depends on TRAINING_TRIGGER)
+    DaemonType.AUTO_PROMOTION,         # 20. Auto-promotion (depends on EVALUATION)
+    DaemonType.MODEL_DISTRIBUTION,     # 21. Model distribution (depends on AUTO_PROMOTION)
 ]
 
 
