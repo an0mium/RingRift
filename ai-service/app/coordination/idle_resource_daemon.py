@@ -738,6 +738,9 @@ class IdleResourceDaemon:
             # Update SelfplayScheduler priorities before spawning
             await self._update_scheduler_priorities()
 
+            # Phase 21.5: Refresh backpressure signal for accurate spawn decisions
+            await self._refresh_backpressure_signal()
+
             # December 2025: Enforce process limits before spawning
             # This actively kills excess processes on nodes with runaway counts
             await self._enforce_process_limits()
@@ -805,6 +808,30 @@ class IdleResourceDaemon:
             pass  # Scheduler not available
         except Exception as e:
             logger.debug(f"[IdleResourceDaemon] Failed to update scheduler priorities: {e}")
+
+    async def _refresh_backpressure_signal(self) -> None:
+        """Refresh unified backpressure signal for accurate spawn decisions.
+
+        Phase 21.5 - December 2025: Updates the cached BackpressureSignal so that
+        _should_spawn() can use fresh pressure metrics. This runs asynchronously
+        to collect metrics from queue monitor, daemon manager, P2P, and GPU memory.
+        """
+        if not HAS_BACKPRESSURE or not get_backpressure_monitor:
+            return
+
+        try:
+            monitor = get_backpressure_monitor()
+            signal = await monitor.get_signal(force_refresh=True)
+
+            # Log pressure summary periodically
+            if signal.overall_pressure > 0.3:
+                logger.info(
+                    f"[IdleResourceDaemon] Backpressure: overall={signal.overall_pressure:.2f} "
+                    f"(queue={signal.queue_pressure:.2f}, training={signal.training_pressure:.2f}, "
+                    f"disk={signal.disk_pressure:.2f}), multiplier={signal.spawn_rate_multiplier:.2f}"
+                )
+        except Exception as e:
+            logger.debug(f"[IdleResourceDaemon] Failed to refresh backpressure: {e}")
 
     async def _get_cluster_nodes(self) -> list[NodeStatus]:
         """Get status of all cluster nodes.

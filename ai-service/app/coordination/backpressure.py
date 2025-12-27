@@ -248,21 +248,33 @@ class BackpressureMonitor:
             logger.debug(f"[Backpressure] Daemon manager unavailable: {e}")
 
         # Disk pressure from P2P status
+        # Dec 2025: Fixed import path to use cluster_data_sync.get_p2p_status()
         try:
-            from app.p2p.client import get_p2p_client
+            from app.coordination.cluster_data_sync import get_p2p_status
 
-            client = get_p2p_client()
-            status = await client.get_status()
+            # get_p2p_status() is sync, run in thread pool
+            loop = asyncio.get_running_loop()
+            status = await loop.run_in_executor(None, get_p2p_status)
             if status:
-                disk_usage = status.get("disk_usage_percent", 0) / 100.0
-                signal.disk_pressure = self._normalize(
-                    disk_usage,
-                    self.config.disk_low_threshold,
-                    self.config.disk_high_threshold,
-                )
-                details["disk_usage_percent"] = disk_usage * 100
+                # Aggregate disk usage across all nodes
+                peers = status.get("peers", [])
+                if peers:
+                    disk_usages = [
+                        p.get("disk_usage_percent", 0)
+                        for p in peers
+                        if isinstance(p.get("disk_usage_percent"), (int, float))
+                    ]
+                    if disk_usages:
+                        avg_disk_usage = sum(disk_usages) / len(disk_usages) / 100.0
+                        signal.disk_pressure = self._normalize(
+                            avg_disk_usage,
+                            self.config.disk_low_threshold,
+                            self.config.disk_high_threshold,
+                        )
+                        details["disk_usage_percent"] = avg_disk_usage * 100
+                        details["nodes_reporting_disk"] = len(disk_usages)
         except (ImportError, AttributeError, RuntimeError) as e:
-            logger.debug(f"[Backpressure] P2P client unavailable: {e}")
+            logger.debug(f"[Backpressure] P2P status unavailable: {e}")
 
         # Sync pressure from sync router
         try:
