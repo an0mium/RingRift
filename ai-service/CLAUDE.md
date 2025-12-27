@@ -96,7 +96,7 @@ python scripts/master_loop.py --skip-daemons
 **What it orchestrates:**
 
 - `SelfplayScheduler` - Priority-based selfplay allocation using curriculum weights, Elo velocities
-- `DaemonManager` - Lifecycle for all background daemons (30+ types)
+- `DaemonManager` - Lifecycle for all background daemons (62 types)
 - `ClusterMonitor` - Real-time cluster health
 - `FeedbackLoopController` - Training feedback signals
 - `DataPipelineOrchestrator` - Pipeline stage tracking
@@ -621,11 +621,11 @@ The following components are deprecated and will be removed in future releases:
 
 Three main options - use the recommended one:
 
-| Script                 | Purpose                                  | Recommended?       |
-| ---------------------- | ---------------------------------------- | ------------------ |
-| `master_loop.py`       | Full cluster automation with 30+ daemons | ✅ Yes             |
-| `run_training_loop.py` | Simple 1-config pipeline                 | For single configs |
-| `unified_ai_loop.py`   | Legacy wrapper                           | ❌ Deprecated      |
+| Script                 | Purpose                                 | Recommended?       |
+| ---------------------- | --------------------------------------- | ------------------ |
+| `master_loop.py`       | Full cluster automation with 62 daemons | ✅ Yes             |
+| `run_training_loop.py` | Simple 1-config pipeline                | For single configs |
+| `unified_ai_loop.py`   | Legacy wrapper                          | ❌ Deprecated      |
 
 ### December 2025 Consolidation Summary
 

@@ -17,7 +17,7 @@ Five comprehensive assessments revealed that the RingRift AI training infrastruc
 | **Event System**   | 80+ event types            | 72% (8 orphaned) | Missing handlers            |
 | **Feedback Loops** | All components exist       | 65-70%           | PFSP unused, loose coupling |
 | **Data Sync**      | Multi-layer infrastructure | 75%              | Ephemeral data loss risk    |
-| **Daemon System**  | 30+ daemon types           | 60%              | 8 dormant, no systemd       |
+| **Daemon System**  | 62 daemon types            | 60%              | 8 dormant, no systemd       |
 | **Documentation**  | 6.3/10                     | -                | Missing ADRs, READMEs       |
 
 ---

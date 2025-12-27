@@ -22,6 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from app.coordination.singleton_mixin import SingletonMixin
 from app.utils.checksum_utils import compute_file_checksum
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ class MergeTransaction:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-class TransactionIsolation:
+class TransactionIsolation(SingletonMixin):
     """Manages transaction isolation for merge operations.
 
     Provides ACID-like guarantees for data merge operations:
@@ -76,11 +77,9 @@ class TransactionIsolation:
     - Consistency: Checksums verify data integrity before and after operations
     - Isolation: Concurrent transactions don't interfere with each other
     - Durability: Write-ahead log ensures recoverability after crashes
-    """
 
-    # Class-level singleton
-    _instance: Optional["TransactionIsolation"] = None
-    _lock = threading.RLock()
+    December 27, 2025: Migrated to SingletonMixin (Wave 4 Phase 1).
+    """
 
     def __init__(
         self,
@@ -121,24 +120,6 @@ class TransactionIsolation:
 
         # Recover any incomplete transactions on startup
         self._recover_incomplete_transactions()
-
-    @classmethod
-    def get_instance(
-        cls,
-        db_path: Path | None = None,
-        **kwargs
-    ) -> "TransactionIsolation":
-        """Get singleton instance."""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls(db_path=db_path, **kwargs)
-            return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton for testing."""
-        with cls._lock:
-            cls._instance = None
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get thread-local database connection."""

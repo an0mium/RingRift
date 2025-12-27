@@ -153,7 +153,7 @@ class TestGetSshTarget:
     def test_fallback_to_host_directly(self) -> None:
         """Test fallback when host config not found."""
         with patch(
-            "app.coordination.host_health_policy.load_remote_hosts",
+            "app.distributed.hosts.load_remote_hosts",
             side_effect=ImportError,
         ):
             target, key, port = _get_ssh_target("unknown-host")
@@ -171,7 +171,7 @@ class TestGetSshTarget:
         mock_host.ssh_port = 2222
 
         with patch(
-            "app.coordination.host_health_policy.load_remote_hosts",
+            "app.distributed.hosts.load_remote_hosts",
             return_value={"my-host": mock_host},
         ):
             target, key, port = _get_ssh_target("my-host")

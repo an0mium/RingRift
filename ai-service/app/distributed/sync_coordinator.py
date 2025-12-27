@@ -1671,6 +1671,57 @@ class SyncCoordinator:
             ),
         }
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check coordinator health for DaemonManager integration.
+
+        December 2025: Added for daemon health monitoring protocol compliance.
+        Returns HealthCheckResult for consistent health reporting across all daemons.
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            health = self.get_sync_health()
+            return {
+                "healthy": health.get("health_status") != "unhealthy",
+                "status": "RUNNING" if self._running else "READY",
+                "message": f"SyncCoordinator: {health.get('health_status', 'unknown')}",
+                "details": health,
+            }
+
+        health = self.get_sync_health()
+        is_healthy = health.get("health_status") != "unhealthy"
+        is_running = self._running
+
+        # Build detailed status message
+        failures = health.get("consecutive_failures", 0)
+        data_server_ok = health.get("data_server_healthy", True)
+
+        if is_running and is_healthy:
+            message = "SyncCoordinator: healthy, data sync operational"
+        elif is_running and not is_healthy:
+            message = f"SyncCoordinator: degraded ({failures} consecutive failures)"
+        elif not data_server_ok:
+            message = "SyncCoordinator: data server unhealthy"
+        else:
+            message = "SyncCoordinator: not running"
+
+        return HealthCheckResult(
+            healthy=is_healthy and (not is_running or data_server_ok),
+            status=CoordinatorStatus.RUNNING if is_running else CoordinatorStatus.READY,
+            message=message,
+            details={
+                **health,
+                "sources_discovered": len(self._aria2_sources),
+                "transports_available": sum([
+                    HAS_ARIA2 and check_aria2_available(),
+                    HAS_P2P,
+                    HAS_SSH,
+                    HAS_GOSSIP,
+                ]),
+            },
+        )
+
     async def shutdown(self) -> None:
         """Shutdown the coordinator and all transports."""
         self._running = False

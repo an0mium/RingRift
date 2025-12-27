@@ -20,7 +20,7 @@ This guide documents how RingRift's cluster components integrate together. After
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ LoopManager │  │ EventRouter │  │ DaemonManager (30+)     │ │
+│  │ LoopManager │  │ EventRouter │  │ DaemonManager (62)      │ │
 │  │ (5 loops)   │  │ (unified)   │  │ Lifecycle management    │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
 │                                                                 │

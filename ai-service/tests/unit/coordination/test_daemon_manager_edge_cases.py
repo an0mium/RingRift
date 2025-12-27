@@ -97,9 +97,9 @@ class TestImportErrorHandling:
 
         info = manager._daemons[DaemonType.MODEL_SYNC]
 
-        # ImportError should result in FAILED state with import_error set
-        assert info.state in (DaemonState.FAILED, DaemonState.STOPPED), (
-            f"Expected FAILED or STOPPED state for import error, got {info.state}"
+        # ImportError should result in IMPORT_FAILED or FAILED state with import_error set
+        assert info.state in (DaemonState.FAILED, DaemonState.STOPPED, DaemonState.IMPORT_FAILED), (
+            f"Expected FAILED, STOPPED, or IMPORT_FAILED state for import error, got {info.state}"
         )
         # The error should be captured
         assert info.last_error is not None or info.import_error is not None

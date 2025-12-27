@@ -45,7 +45,7 @@
 
 | Issue                                  | Location               | Impact             | Fix Effort | Action                       |
 | -------------------------------------- | ---------------------- | ------------------ | ---------- | ---------------------------- |
-| DaemonType enum has 30+ types          | `daemon_types.py`      | Many never started | S          | Document which are optional  |
+| DaemonType enum has 62 types           | `daemon_types.py`      | Many never started | S          | Document which are optional  |
 | scripts/ duplicates app/ functionality | Various export scripts | Maintenance burden | M          | Consolidate into unified CLI |
 
 ### Quick Wins
