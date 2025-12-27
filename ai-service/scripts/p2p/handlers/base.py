@@ -222,9 +222,13 @@ class BaseP2PHandler(ABC):
 
         Returns:
             401 error response with consistent formatting
+
+        Note:
+            Keep the top-level "error" field as the short string "unauthorized"
+            for backward compatibility with existing clients/tests.
         """
         return self.error_response(
-            "Unauthorized: Invalid or missing authentication",
+            "unauthorized",
             status=401,
             error_code="UNAUTHORIZED",
         )

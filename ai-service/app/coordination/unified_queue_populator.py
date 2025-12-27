@@ -122,7 +122,7 @@ class QueuePopulatorConfig:
 
     # === Training Settings ===
     training_priority: int = 100
-    min_games_for_training: int = 300
+    min_games_for_training: int = 100  # Dec 27, 2025: Lowered from 300 to accelerate training
 
     # === Tournament Settings ===
     tournament_games: int = 50
