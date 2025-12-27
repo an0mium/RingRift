@@ -139,7 +139,7 @@ tail -f logs/*.log | grep "LocalFileStorage"
 PYTHONPATH=. nohup python scripts/unified_data_sync.py --watchdog > logs/unified_data_sync.log 2>&1 &
 
 # Check unified AI loop status
-PYTHONPATH=. python scripts/unified_ai_loop.py --status
+PYTHONPATH=. python scripts/master_loop.py --status
 
 # Start GPU selfplay on a GPU node (replace gpu-node with your hostname)
 ssh gpu-node "cd ~/ringrift/ai-service && source venv/bin/activate && \
@@ -185,7 +185,7 @@ python scripts/cluster_submit.py gpu-selfplay --board hex8 --players 2 --games 5
 
 **Root Cause**: When `use_external_sync=true`, the loop only checked `data/games/synced/` directory. After disk cleanup, this directory was deleted but games existed in `data/games/*.db`.
 
-**Fix Applied** (in `scripts/unified_ai_loop.py`):
+**Fix Applied** (in legacy `scripts/unified_ai_loop.py`):
 
 - Modified external sync mode to check BOTH directories:
   - `data/games/synced/` (for incoming synced data)

@@ -26,7 +26,7 @@ from app.ai.gumbel_mcts_ai import GumbelMCTSAI
 
 # GMO AI is optional - used for experimental training modes
 try:
-    from archive.deprecated_ai.gmo_ai import GMOAI, GMOConfig
+    from app.ai.gmo_ai import GMOAI, GMOConfig
 except ImportError:
     GMOAI = None
     GMOConfig = None
@@ -490,7 +490,7 @@ def augment_data(
             logger.warning(
                 "RINGRIFT_LEGACY_POLICY_TRANSFORM enabled; using legacy transform for policy indices."
             )
-            from archive.deprecated_ai._neural_net_legacy import (
+            from app.ai._neural_net_legacy import (
                 transform_policy_index_square,
             )
         else:

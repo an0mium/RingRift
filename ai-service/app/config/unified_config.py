@@ -1252,55 +1252,16 @@ class UnifiedConfig:
             config.data_ingestion = _load_dataclass(DataIngestionConfig, data_ingestion)
 
         if "training" in data:
-            training_data = data["training"]
-            config.training = TrainingConfig(
-                trigger_threshold_games=training_data.get("trigger_threshold_games", 500),
-                min_interval_seconds=training_data.get("min_interval_seconds", 1200),
-                max_concurrent_jobs=training_data.get("max_concurrent_jobs", 1),
-                prefer_gpu_hosts=training_data.get("prefer_gpu_hosts", True),
-                nn_training_script=training_data.get("nn_training_script", "scripts/run_nn_training_baseline.py"),
-                export_script=training_data.get("export_script", "scripts/export_replay_dataset.py"),
-                hex_encoder_version=training_data.get("hex_encoder_version", "v3"),
-                warm_start=training_data.get("warm_start", True),
-                validation_split=training_data.get("validation_split", 0.1),
-            )
+            config.training = _load_dataclass(TrainingConfig, data["training"])
 
         if "evaluation" in data:
-            eval_data = data["evaluation"]
-            config.evaluation = EvaluationConfig(
-                shadow_interval_seconds=eval_data.get("shadow_interval_seconds", 900),
-                shadow_games_per_config=eval_data.get("shadow_games_per_config", 15),
-                full_tournament_interval_seconds=eval_data.get("full_tournament_interval_seconds", 3600),
-                full_tournament_games=eval_data.get("full_tournament_games", 50),
-                baseline_models=eval_data.get("baseline_models", ["random", "heuristic", "mcts_100", "mcts_500"]),
-                min_games_for_elo=eval_data.get("min_games_for_elo", 30),
-                elo_k_factor=eval_data.get("elo_k_factor", 32),
-            )
+            config.evaluation = _load_dataclass(EvaluationConfig, data["evaluation"])
 
         if "promotion" in data:
-            promo_data = data["promotion"]
-            config.promotion = PromotionConfig(
-                auto_promote=promo_data.get("auto_promote", True),
-                elo_threshold=promo_data.get("elo_threshold", 25),
-                min_games=promo_data.get("min_games", 50),
-                significance_level=promo_data.get("significance_level", 0.05),
-                sync_to_cluster=promo_data.get("sync_to_cluster", True),
-                hosts_config_path=promo_data.get("hosts_config_path"),
-                cooldown_seconds=promo_data.get("cooldown_seconds", 1800),
-                max_promotions_per_day=promo_data.get("max_promotions_per_day", 10),
-                regression_test=promo_data.get("regression_test", True),
-            )
+            config.promotion = _load_dataclass(PromotionConfig, data["promotion"])
 
         if "curriculum" in data:
-            curr_data = data["curriculum"]
-            config.curriculum = CurriculumConfig(
-                adaptive=curr_data.get("adaptive", True),
-                rebalance_interval_seconds=curr_data.get("rebalance_interval_seconds", 3600),
-                max_weight_multiplier=curr_data.get("max_weight_multiplier", 1.5),
-                min_weight_multiplier=curr_data.get("min_weight_multiplier", 0.7),
-                ema_alpha=curr_data.get("ema_alpha", 0.3),
-                min_games_for_weight=curr_data.get("min_games_for_weight", 100),
-            )
+            config.curriculum = _load_dataclass(CurriculumConfig, data["curriculum"])
 
         if "safeguards" in data:
             safe_data = data["safeguards"]

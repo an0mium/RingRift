@@ -356,7 +356,8 @@ ai-service/
 │   ├── training/           # Training pipeline
 │   └── utils/              # Shared utilities (resource_guard.py)
 ├── scripts/                # CLI tools and daemons
-│   ├── unified_ai_loop.py  # Main training orchestrator
+│   ├── master_loop.py      # Main training orchestrator
+│   ├── unified_ai_loop.py  # Legacy wrapper (redirects to master_loop)
 │   ├── unified_loop/       # Unified loop submodules
 │   └── ...
 ├── config/                 # Configuration files (gitignored if sensitive)
@@ -556,7 +557,7 @@ pytest tests/test_resource_guard.py -v
 
 1. Add config options to `TrainingConfig` in `unified_config.py`
 2. Implement in `app/training/`
-3. Integrate with `unified_ai_loop.py`
+3. Integrate with `master_loop.py`
 4. Add tests
 
 ## Sync System Architecture

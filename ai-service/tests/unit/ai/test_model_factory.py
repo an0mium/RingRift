@@ -122,10 +122,12 @@ class TestCreateModelForBoard:
         assert isinstance(model, torch.nn.Module)
         assert hasattr(model, "forward")
 
-    def test_v4_not_available_for_hex(self):
-        """V4 architecture should not be available for hex boards."""
-        with pytest.raises(ValueError, match="V4 architecture is not yet available"):
-            create_model_for_board(BoardType.HEXAGONAL, memory_tier="v4")
+    def test_v4_available_for_hex(self):
+        """V4 architecture should be available for hex boards."""
+        # V4 is now available for hex boards (Dec 2025)
+        model = create_model_for_board(BoardType.HEXAGONAL, memory_tier="v4")
+        assert isinstance(model, torch.nn.Module)
+        assert "v4" in type(model).__name__.lower() or "V4" in type(model).__name__
 
     def test_custom_res_blocks(self):
         """Should respect custom num_res_blocks parameter."""

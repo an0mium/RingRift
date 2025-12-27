@@ -1,5 +1,8 @@
 # Unified AI Self-Improvement Loop - Deployment Guide
 
+> **Canonical Entrypoint:** `scripts/master_loop.py`
+> **Legacy Entrypoint:** `scripts/unified_ai_loop.py` (requires `RINGRIFT_UNIFIED_LOOP_LEGACY=1`)
+
 This guide covers deploying and operating the unified AI self-improvement loop across the RingRift cluster.
 
 ## Overview
@@ -60,11 +63,11 @@ cd ai-service
 ./scripts/deploy_unified_loop.sh
 ```
 
-### 2. Start the Unified Loop
+### 2. Start the Master Loop
 
 ```bash
 ssh gpu-primary 'cd ~/ringrift/ai-service && \
-  nohup python3 scripts/unified_ai_loop.py --foreground -v \
+  nohup python3 scripts/master_loop.py --config config/unified_loop.yaml \
   > logs/unified_loop/daemon.log 2>&1 &'
 ```
 
@@ -72,7 +75,7 @@ ssh gpu-primary 'cd ~/ringrift/ai-service && \
 
 ```bash
 ssh gpu-primary 'cd ~/ringrift/ai-service && \
-  python3 scripts/unified_ai_loop.py --status'
+  python3 scripts/master_loop.py --status'
 ```
 
 Expected output:
@@ -186,25 +189,25 @@ Or manually:
 
 ```bash
 # On primary host
-sudo cp config/systemd/ringrift-ai-loop.service /etc/systemd/system/
+sudo cp config/systemd/master-loop.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable ringrift-ai-loop
-sudo systemctl start ringrift-ai-loop
+sudo systemctl enable master-loop
+sudo systemctl start master-loop
 ```
 
 ### Manage Service
 
 ```bash
 # Start/stop/restart
-sudo systemctl start ringrift-ai-loop
-sudo systemctl stop ringrift-ai-loop
-sudo systemctl restart ringrift-ai-loop
+sudo systemctl start master-loop
+sudo systemctl stop master-loop
+sudo systemctl restart master-loop
 
 # Check status
-sudo systemctl status ringrift-ai-loop
+sudo systemctl status master-loop
 
 # View logs
-sudo journalctl -u ringrift-ai-loop -f
+sudo journalctl -u master-loop -f
 ```
 
 ### Selfplay Workers (Optional)
@@ -378,7 +381,7 @@ regression:
 ```bash
 # Check for Python errors
 ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && \
-  python3 scripts/unified_ai_loop.py --foreground -v'
+  python3 scripts/master_loop.py --config config/unified_loop.yaml'
 
 # Common issues:
 # - Missing prometheus_client: pip install prometheus_client
@@ -436,8 +439,8 @@ ssh ubuntu@<primary-gpu-ip> 'cat ~/ringrift/ai-service/logs/unified_loop/unified
   jq ".hosts | to_entries[] | select(.value.consecutive_failures > 0)"'
 
 # Reset failure count by restarting loop
-ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && python3 scripts/unified_ai_loop.py --stop'
-ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && python3 scripts/unified_ai_loop.py --start'
+ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && sudo systemctl stop master-loop'
+ssh ubuntu@<primary-gpu-ip> 'cd ~/ringrift/ai-service && sudo systemctl start master-loop'
 ```
 
 ## Architecture
@@ -640,13 +643,13 @@ status = get_utilization_status()
 
 | File                                                 | Purpose                             |
 | ---------------------------------------------------- | ----------------------------------- |
-| `scripts/unified_ai_loop.py`                         | Main daemon coordinator             |
+| `scripts/master_loop.py`                             | Main daemon coordinator             |
 | `scripts/deploy_unified_loop.sh`                     | Cluster deployment script           |
 | `scripts/run_strength_regression_gate.py`            | Pre-promotion regression tests      |
 | `config/unified_loop.yaml`                           | Main configuration                  |
 | `config/distributed_hosts.yaml`                      | Cluster host inventory (canonical)  |
 | `config/remote_hosts.yaml`                           | Data sync host definitions (legacy) |
-| `config/systemd/ringrift-ai-loop.service`            | Systemd service file                |
+| `config/systemd/master-loop.service`                 | Systemd service file                |
 | `config/monitoring/grafana-dashboard.json`           | Grafana dashboard                   |
 | `config/monitoring/alerting-rules.yaml`              | Prometheus alert rules              |
 | `app/coordination/resource_optimizer.py`             | Resource utilization optimizer      |
@@ -654,19 +657,17 @@ status = get_utilization_status()
 | `monitoring/prometheus/rules/utilization_alerts.yml` | Utilization-specific alerts         |
 | `deploy/grafana/unified-ai-loop-dashboard.json`      | Main Grafana dashboard              |
 | `logs/unified_loop/daemon.log`                       | Daemon log file                     |
-| `logs/unified_loop/unified_loop_state.json`          | Persistent state                    |
+| `data/coordination/master_loop_state.db`             | Persistent state                    |
 | `data/coordination/resource_state.db`                | Resource optimizer state DB         |
 
 ## Command Reference
 
 ```bash
-# Start/stop daemon
-python3 scripts/unified_ai_loop.py --start
-python3 scripts/unified_ai_loop.py --stop
-python3 scripts/unified_ai_loop.py --foreground -v  # Run in foreground
+# Start daemon
+python3 scripts/master_loop.py --config config/unified_loop.yaml
 
 # Check status
-python3 scripts/unified_ai_loop.py --status
+python3 scripts/master_loop.py --status
 
 # Deploy to cluster
 ./scripts/deploy_unified_loop.sh

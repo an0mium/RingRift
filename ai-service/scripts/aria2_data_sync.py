@@ -98,6 +98,9 @@ def _resolve_storage_paths() -> tuple[list[Path], Path, Path, list[Path]]:
 
 GAMES_DIRS, MODELS_DIR, TRAINING_DIR, ELO_DB_PATHS = _resolve_storage_paths()
 
+# Torrent cache directory for BitTorrent-based sync (resilient for flaky connections)
+TORRENT_DIR = DATA_DIR / "torrents"
+
 try:
     from app.config.unified_config import get_config
     DEFAULT_DATA_PORT = get_config().distributed.data_server_port
@@ -314,6 +317,12 @@ class DataHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.send_inventory()
         elif self.path == "/health":
             self.send_health()
+        # BitTorrent endpoints for resilient P2P sync
+        elif self.path == "/torrents.json":
+            self.send_torrents_inventory()
+        elif self.path.startswith("/torrents/"):
+            # Serve .torrent files for BitTorrent downloads
+            self.serve_file([TORRENT_DIR], self.path[10:])
         elif self.path.startswith("/games/"):
             # Serve from games directory
             self.serve_file(GAMES_DIRS, self.path[7:])
@@ -402,6 +411,111 @@ class DataHTTPHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({"status": "ok"}).encode())
+
+    def send_torrents_inventory(self):
+        """Send JSON inventory of available torrents for BitTorrent sync.
+
+        BitTorrent is ideal for nodes with flaky connections because:
+        - Downloads resume from any peer after disconnection
+        - Multiple peers provide redundancy
+        - DHT enables decentralized peer discovery
+        - Web seeds provide HTTP fallback
+        """
+        torrents = []
+        if TORRENT_DIR.exists():
+            for torrent_file in sorted(TORRENT_DIR.glob("*.torrent")):
+                try:
+                    stat = torrent_file.stat()
+                    # Parse torrent to get info_hash and magnet link
+                    info = self._parse_torrent_file(torrent_file)
+                    torrents.append({
+                        "name": torrent_file.stem,
+                        "torrent_file": f"/torrents/{torrent_file.name}",
+                        "info_hash": info.get("info_hash", ""),
+                        "magnet": info.get("magnet", ""),
+                        "size_bytes": stat.st_size,
+                        "mtime": stat.st_mtime,
+                        "total_size": info.get("total_size", 0),
+                        "file_count": info.get("file_count", 0),
+                        "web_seeds": info.get("web_seeds", []),
+                    })
+                except Exception as e:
+                    logger.debug(f"Error parsing torrent {torrent_file}: {e}")
+
+        response = {
+            "count": len(torrents),
+            "torrents": torrents,
+            "note": "Use magnet links or .torrent files for BitTorrent downloads",
+        }
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(response, indent=2).encode())
+
+    def _parse_torrent_file(self, torrent_path: Path) -> dict:
+        """Parse a torrent file to extract metadata."""
+        import hashlib
+        try:
+            # Try to use bencodepy if available
+            try:
+                import bencodepy
+                with open(torrent_path, "rb") as f:
+                    data = bencodepy.decode(f.read())
+                info = data.get(b"info", {})
+                info_encoded = bencodepy.encode(info)
+            except ImportError:
+                # Fall back to basic parsing
+                return {"info_hash": "", "magnet": "", "total_size": 0, "file_count": 0}
+
+            info_hash = hashlib.sha1(info_encoded).hexdigest()
+
+            # Get name
+            name = info.get(b"name", b"").decode("utf-8", errors="replace")
+
+            # Get total size
+            if b"length" in info:
+                # Single file
+                total_size = info[b"length"]
+                file_count = 1
+            elif b"files" in info:
+                # Multi-file
+                total_size = sum(f.get(b"length", 0) for f in info[b"files"])
+                file_count = len(info[b"files"])
+            else:
+                total_size = 0
+                file_count = 0
+
+            # Get web seeds
+            web_seeds = []
+            if b"url-list" in data:
+                url_list = data[b"url-list"]
+                if isinstance(url_list, list):
+                    web_seeds = [u.decode("utf-8", errors="replace") for u in url_list]
+                elif isinstance(url_list, bytes):
+                    web_seeds = [url_list.decode("utf-8", errors="replace")]
+
+            # Generate magnet link
+            import urllib.parse
+            magnet_parts = [f"xt=urn:btih:{info_hash}"]
+            if name:
+                magnet_parts.append(f"dn={urllib.parse.quote(name)}")
+            for ws in web_seeds[:3]:  # Limit web seeds in magnet
+                magnet_parts.append(f"ws={urllib.parse.quote(ws)}")
+            magnet = f"magnet:?{'&'.join(magnet_parts)}"
+
+            return {
+                "info_hash": info_hash,
+                "magnet": magnet,
+                "total_size": total_size,
+                "file_count": file_count,
+                "web_seeds": web_seeds,
+                "name": name,
+            }
+
+        except Exception as e:
+            logger.debug(f"Error parsing torrent: {e}")
+            return {"info_hash": "", "magnet": "", "total_size": 0, "file_count": 0}
 
     def log_message(self, format, *args):
         logger.debug(f"HTTP: {args[0]}")

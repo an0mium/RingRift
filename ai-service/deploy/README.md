@@ -9,7 +9,8 @@ This directory contains deployment scripts and configurations for the RingRift A
 ```
 deploy/
 ├── systemd/                    # Systemd service definitions (Linux)
-│   ├── unified-ai-loop.service       # Main unified improvement loop
+│   ├── master-loop.service           # Canonical improvement loop
+│   ├── unified-ai-loop.service       # Legacy name (runs master loop)
 │   ├── model-promoter.service        # Elo-based model promotion
 │   ├── shadow-tournament.service     # Lightweight evaluation tournaments
 │   ├── streaming-data-collector.service  # Incremental data sync
@@ -28,20 +29,20 @@ deploy/
 
 ## Quick Start
 
-### Option 1: Unified AI Loop (Recommended)
+### Option 1: Master Loop (Recommended)
 
-The unified AI loop combines all improvement components into a single daemon:
+The master loop combines all improvement components into a single daemon:
 
 ```bash
-# Install the unified loop service
-sudo ./install-services.sh unified-ai-loop
+# Install the master loop service
+sudo ./install-services.sh master-loop
 
 # Start it
-sudo systemctl start unified-ai-loop
-sudo systemctl enable unified-ai-loop
+sudo systemctl start master-loop
+sudo systemctl enable master-loop
 
 # Monitor logs
-journalctl -u unified-ai-loop -f
+journalctl -u master-loop -f
 ```
 
 ### Option 2: Separate Services
@@ -76,7 +77,8 @@ See [RESILIENCE.md](RESILIENCE.md) for detailed P2P cluster setup.
 
 | Service                    | Port | Description                        |
 | -------------------------- | ---- | ---------------------------------- |
-| `unified-ai-loop`          | 9090 | All-in-one improvement coordinator |
+| `master-loop`              | 9090 | All-in-one improvement coordinator |
+| `unified-ai-loop`          | 9090 | Legacy name (runs master loop)     |
 | `streaming-data-collector` | -    | 60s incremental rsync from hosts   |
 | `shadow-tournament`        | -    | 15min lightweight evaluation       |
 | `model-promoter`           | -    | Auto-deploy on Elo threshold       |
@@ -121,12 +123,12 @@ All compute-intensive scripts require **64GB RAM minimum**:
 
 | Script                       | Min RAM | Notes                         |
 | ---------------------------- | ------- | ----------------------------- |
-| `unified_ai_loop.py`         | 64GB    | Runs evaluations and training |
+| `master_loop.py`             | 64GB    | Runs evaluations and training |
 | `cluster_orchestrator.py`    | 64GB    | Filters hosts by memory       |
 | `run_diverse_tournaments.py` | 64GB    | Filters hosts by memory       |
 | `p2p_orchestrator.py`        | 64GB    | Filters nodes by memory       |
 
-> **Note**: `continuous_improvement_daemon.py` is deprecated. Use `unified_ai_loop.py` instead.
+> **Note**: `continuous_improvement_daemon.py` is deprecated. Use `master_loop.py` instead.
 > See [ORCHESTRATOR_SELECTION.md](../docs/infrastructure/ORCHESTRATOR_SELECTION.md) for guidance.
 
 Scripts will exit with an error message if system memory is below the threshold.

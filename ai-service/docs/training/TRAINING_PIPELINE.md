@@ -95,7 +95,7 @@ python3 scripts/export_replay_dataset.py \
 
 **Host**: Training GPU Node
 
-**Script**: `scripts/unified_ai_loop.py`
+**Script**: `scripts/master_loop.py`
 
 **Config**: `config/unified_loop.yaml`
 
@@ -147,28 +147,23 @@ nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv
 ### Process Status
 
 ```bash
-ps aux | grep -E "unified_ai_loop|selfplay|training"
+ps aux | grep -E "master_loop|selfplay|training"
 ```
 
 ## Troubleshooting
 
 ### Training Not Triggering
 
-1. Check `training_in_progress` flag:
+1. Check master loop status:
 
    ```bash
-   cat logs/unified_loop/unified_loop_state.json | grep training_in_progress
+   python scripts/master_loop.py --status
    ```
 
-2. Reset if stuck:
-   ```python
-   import json
-   with open("logs/unified_loop/unified_loop_state.json", "r+") as f:
-       state = json.load(f)
-       state["training_in_progress"] = False
-       f.seek(0)
-       json.dump(state, f, indent=2)
-       f.truncate()
+2. Inspect heartbeat/state:
+
+   ```bash
+   sqlite3 data/coordination/master_loop_state.db "select * from heartbeat;"
    ```
 
 ### Corrupted Timestamps
@@ -179,20 +174,8 @@ Check for unrealistic "hours since promotion":
 grep "since last promotion" logs/unified_*.log
 ```
 
-Fix by resetting timestamps:
-
-```python
-import json, time
-with open("logs/unified_loop/unified_loop_state.json", "r+") as f:
-    state = json.load(f)
-    now = time.time()
-    for config in state["configs"].values():
-        if config["last_promotion_time"] == 0:
-            config["last_promotion_time"] = now
-    f.seek(0)
-    json.dump(state, f, indent=2)
-    f.truncate()
-```
+Legacy unified loop state is stored at `logs/unified_loop/unified_loop_state.json`.
+Master loop state is stored in `data/coordination/master_loop_state.db`.
 
 ### SSH Key Issues
 
@@ -245,31 +228,33 @@ Key metrics:
 ```bash
 cd ~/ringrift/ai-service
 source venv/bin/activate
-python scripts/unified_ai_loop.py --start
+python scripts/master_loop.py --config config/unified_loop.yaml
 ```
 
 ### Stopping the Training Loop
 
 ```bash
-python scripts/unified_ai_loop.py --stop
+# If running in foreground, Ctrl+C
+# If running under systemd:
+sudo systemctl stop master-loop
 ```
 
 ### Checking Status
 
 ```bash
-python scripts/unified_ai_loop.py --status
+python scripts/master_loop.py --status
 ```
 
 ### Emergency Halt
 
 ```bash
-python scripts/unified_ai_loop.py --halt
+RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --halt
 ```
 
 ### Resume After Halt
 
 ```bash
-python scripts/unified_ai_loop.py --resume
+RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --resume
 ```
 
 ## File Locations
@@ -281,7 +266,8 @@ python scripts/unified_ai_loop.py --resume
 | `data/training/`             | NPZ training files        |
 | `models/`                    | Trained model checkpoints |
 | `models/ringrift_best_*.pth` | Production models         |
-| `logs/unified_loop/`         | Loop logs and state       |
+| `logs/unified_loop/`         | Loop logs                 |
+| `data/coordination/`         | Master loop state         |
 
 ## NNUE Policy Training with MCTS Data
 
@@ -364,7 +350,7 @@ python scripts/auto_training_pipeline.py \
 
 ### Multi-Config Training
 
-Multi-board training is configured in `config/unified_loop.yaml` and run via the unified loop:
+Multi-board training is configured in `config/unified_loop.yaml` and run via the master loop:
 
 ```yaml
 # config/unified_loop.yaml (example)
@@ -374,12 +360,12 @@ training:
 ```
 
 ```bash
-python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml
+python scripts/master_loop.py --config config/unified_loop.yaml
 ```
 
 **Notes:**
 
-- Balance mode and curriculum selection are handled inside `scripts/unified_ai_loop.py`.
+- Balance mode and curriculum selection are handled inside the daemon stack.
 - Policy training passthrough uses the unified loop config (`policy_training` section).
 
 ### Environment Variables
@@ -483,7 +469,7 @@ python scripts/generate_gumbel_selfplay.py \
 
 #### 1. Data Sync Not Running
 
-**Symptom**: `total_data_syncs: 0` in unified loop state
+**Symptom**: No recent syncs in logs or data freshness metrics
 
 **Fix**:
 
@@ -497,25 +483,20 @@ python scripts/unified_data_sync.py --watchdog &
 
 #### 2. Training Not Triggering
 
-**Symptom**: `total_training_runs: 0` despite sufficient games
+**Symptom**: Training never triggers despite sufficient games
 
 **Fix**:
 
 ```bash
-# Reset loop state and restart
-python -c "
-import json
-with open('logs/unified_loop/unified_loop_state.json', 'r+') as f:
-    state = json.load(f)
-    state['training_in_progress'] = False
-    for host in state.get('hosts', {}).values():
-        host['last_sync_time'] = 0.0
-    f.seek(0)
-    json.dump(state, f, indent=2)
-    f.truncate()
-"
-pkill -f unified_ai_loop.py
-python scripts/unified_ai_loop.py --start &
+# Check master loop status
+python scripts/master_loop.py --status
+
+# Restart if needed (systemd)
+sudo systemctl restart master-loop
+
+# Or restart manually if running in foreground
+pkill -f master_loop.py
+python scripts/master_loop.py --config config/unified_loop.yaml &
 ```
 
 #### 3. Underperforming Configs
@@ -557,7 +538,7 @@ Install with: `crontab config/crontab_training.txt`
 
 | Daemon                                    | Host       | Purpose                     |
 | ----------------------------------------- | ---------- | --------------------------- |
-| `unified_ai_loop.py`                      | Local      | Main orchestration          |
+| `master_loop.py`                          | Local      | Main orchestration          |
 | `unified_data_sync.py`                    | Local      | Data collection             |
 | `run_model_elo_tournament.py` (scheduled) | Train Node | Model evaluation            |
 | `baseline_gauntlet.py`                    | GPU Node   | Continuous baseline testing |
@@ -566,7 +547,7 @@ Install with: `crontab config/crontab_training.txt`
 
 ```bash
 # Overall status
-PYTHONPATH=. python scripts/unified_ai_loop.py --status
+PYTHONPATH=. python scripts/master_loop.py --status
 
 # Training jobs
 ps aux | grep -E 'train|selfplay' | grep python | wc -l
@@ -643,5 +624,5 @@ The sync script (`scripts/sync_training_data_cron.sh`) tries Tailscale first, th
 For issues with the training pipeline, check:
 
 1. This documentation
-2. `logs/unified_ai_loop.log`
-3. `logs/unified_loop/unified_loop_state.json`
+2. `logs/unified_loop/` or `journalctl -u master-loop`
+3. `data/coordination/master_loop_state.db`

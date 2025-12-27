@@ -39,8 +39,11 @@ from pathlib import Path
 # Determine paths
 SCRIPT_DIR = Path(__file__).resolve().parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
+
+# Add ai-service to path for imports
 sys.path.insert(0, str(AI_SERVICE_ROOT))
 
+from app.config.ports import UNIFIED_SYNC_API_PORT
 from scripts.lib.logging_config import setup_script_logging
 
 logger = setup_script_logging("unified_data_sync")
@@ -55,7 +58,7 @@ def run_with_watchdog(service_args: list, check_interval: int = 30, max_restarts
 
     restart_count = 0
     process = None
-    http_port = 8772
+    http_port = UNIFIED_SYNC_API_PORT
 
     # Extract http-port from args if specified
     for i, arg in enumerate(service_args):
@@ -180,7 +183,7 @@ Examples:
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--dry-run", action="store_true", help="Check what would sync")
     parser.add_argument("--interval", type=int, help="Override poll interval")
-    parser.add_argument("--http-port", type=int, default=8772, help="HTTP API port")
+    parser.add_argument("--http-port", type=int, default=UNIFIED_SYNC_API_PORT, help="HTTP API port")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--force", action="store_true", help="Force run even if sync_disabled=true")
 
@@ -203,7 +206,7 @@ Examples:
             service_args.extend(["--hosts", args.hosts])
         if args.interval:
             service_args.extend(["--interval", str(args.interval)])
-        if args.http_port != 8772:
+        if args.http_port != UNIFIED_SYNC_API_PORT:
             service_args.extend(["--http-port", str(args.http_port)])
         if args.verbose:
             service_args.append("-v")

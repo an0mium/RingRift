@@ -179,6 +179,7 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_HOT_MIN_GAMES`               | Hot-path min games threshold                        | `75`                             |
 | `RINGRIFT_AUTO_BATCH_SCALE`            | Auto-scale batch size on GPU                        | `true`                           |
 | `RINGRIFT_DISABLE_GPU_DATAGEN`         | Disable GPU data generation                         | `false`                          |
+| `RINGRIFT_LEGACY_POLICY_TRANSFORM`     | Use legacy policy index transform for training data | `false`                          |
 | `RINGRIFT_AUTO_STREAMING_THRESHOLD_GB` | Auto-enable streaming if dataset exceeds (GB)       | `20`                             |
 | `RINGRIFT_DATALOADER_WORKERS`          | Dataloader workers (0 on macOS; else min(4, cpu/2)) | `auto`                           |
 | `RINGRIFT_DISABLE_AUTO_DISCOVERY`      | Disable automatic data discovery                    | `false`                          |
@@ -297,6 +298,7 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_CLUSTER_AUTH_TOKEN_FILE` | Cluster auth token file                | `unset`                 |
 | `RINGRIFT_BUILD_VERSION`           | Build/version label                    | `dev`                   |
 | `RINGRIFT_DISABLE_LOCAL_TASKS`     | Disable local tasks (coordinator-only) | `false`                 |
+| `RINGRIFT_HEALTH_PORT`             | Health server port (daemon manager)    | `8790`                  |
 | `RINGRIFT_DISCOVERY_INTERVAL`      | Discovery interval (seconds)           | `60`                    |
 | `RINGRIFT_IDLE_CHECK_INTERVAL`     | Idle check interval (seconds)          | `30`                    |
 | `RINGRIFT_IDLE_GPU_THRESHOLD`      | Idle GPU utilization threshold (%)     | `10`                    |

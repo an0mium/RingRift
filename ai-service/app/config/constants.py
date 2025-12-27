@@ -4,26 +4,31 @@ Dec 2025: Created to consolidate scattered port/timeout/threshold constants
 that were duplicated across 20+ files.
 
 Usage:
-    from app.config.constants import P2P_DEFAULT_PORT, SSH_CONNECT_TIMEOUT
+    from app.config.constants import SSH_CONNECT_TIMEOUT, DEFAULT_BATCH_SIZE
+
+    # For ports, import from the canonical source:
+    from app.config.ports import P2P_DEFAULT_PORT, HEALTH_CHECK_PORT
 
 Migration:
     Replace hardcoded values like `8770` with `P2P_DEFAULT_PORT`.
+    Import ports from app.config.ports, not from here.
 """
 
 # ==============================================================================
-# Network Ports
+# Network Ports - IMPORT FROM app.config.ports
 # ==============================================================================
+# These are re-exported for backwards compatibility only.
+# New code should import directly from app.config.ports
 
-# P2P orchestrator port - used for leader election, job distribution
-P2P_DEFAULT_PORT = 8770
+from app.config.ports import (
+    P2P_DEFAULT_PORT,
+    GOSSIP_PORT,
+    HEALTH_CHECK_PORT,
+    DATA_SERVER_PORT,
+    UNIFIED_SYNC_API_PORT,
+)
 
-# Gossip protocol port for data sync
-GOSSIP_PORT = 8771
-
-# HTTP health check port
-HEALTH_CHECK_PORT = 8772
-
-# Redis default port (for distributed locking)
+# Redis default port (for distributed locking) - not in ports.py as it's external
 REDIS_DEFAULT_PORT = 6379
 
 # ==============================================================================

@@ -6,17 +6,17 @@ This directory contains scripts for the RingRift AI training and improvement inf
 
 ### Primary Orchestrator
 
-**`unified_ai_loop.py`** - The canonical self-improvement orchestrator. This is the main entry point for the AI improvement loop.
+**`master_loop.py`** - The canonical self-improvement orchestrator. This is the main entry point for the AI improvement loop.
 
 ```bash
-# Start the unified loop
-python scripts/unified_ai_loop.py --start
+# Start the master loop
+python scripts/master_loop.py --config config/unified_loop.yaml
 
-# Run in foreground with verbose output
-python scripts/unified_ai_loop.py --foreground --verbose
+# Watch live status (does not start the loop)
+python scripts/master_loop.py --watch
 
 # Check status
-python scripts/unified_ai_loop.py --status
+python scripts/master_loop.py --status
 ```
 
 Features:
@@ -28,6 +28,9 @@ Features:
 - Adaptive curriculum weighting
 - Value calibration analysis
 - Temperature scheduling for exploration control
+
+Legacy entrypoint: `unified_ai_loop.py` now redirects to `master_loop.py`.
+Set `RINGRIFT_UNIFIED_LOOP_LEGACY=1` to run the legacy loop.
 
 **`cli.py`** - Unified training CLI for common operations (harvest, monitor, compare, health, periodic).
 
@@ -88,11 +91,11 @@ python scripts/cli.py health
 
 ### Training
 
-- `unified_ai_loop.py` - **Canonical multi-board training orchestrator**
+- `master_loop.py` - **Canonical multi-board training orchestrator**
   - Multi-board training configured via `config/unified_loop.yaml`
   - Balance mode and curriculum selection are integrated in the loop
   - Policy label smoothing and augmentation run via the unified training stack
-  - Start: `python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml`
+  - Start: `python scripts/master_loop.py --config config/unified_loop.yaml`
 - `run_nn_training_baseline.py` - **Compatibility wrapper** for NN training
   - Forwards arguments to `python -m app.training.train`
   - Start: `python scripts/run_nn_training_baseline.py --board-type square8 --num-players 2`
@@ -668,13 +671,13 @@ tracker.update(250)
 
 The `archive/` subdirectory contains deprecated scripts that have been superseded:
 
-| Script                                   | Superseded By                              |
-| ---------------------------------------- | ------------------------------------------ |
-| `master_self_improvement.py`             | `unified_ai_loop.py`                       |
-| `unified_improvement_controller.py`      | `unified_ai_loop.py`                       |
-| `integrated_self_improvement.py`         | `unified_ai_loop.py`                       |
-| `export_replay_dataset.py`               | Direct DB queries                          |
-| `validate_canonical_training_sources.py` | Data quality gates in `unified_ai_loop.py` |
+| Script                                   | Superseded By                      |
+| ---------------------------------------- | ---------------------------------- |
+| `master_self_improvement.py`             | `master_loop.py`                   |
+| `unified_improvement_controller.py`      | `master_loop.py`                   |
+| `integrated_self_improvement.py`         | `master_loop.py`                   |
+| `export_replay_dataset.py`               | Direct DB queries                  |
+| `validate_canonical_training_sources.py` | Data quality gates in daemon stack |
 
 ## Resource Management
 

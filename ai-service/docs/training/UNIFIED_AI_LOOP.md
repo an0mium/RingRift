@@ -1,9 +1,12 @@
 # Unified AI Self-Improvement Loop
 
 > **Doc Status (2025-12-14): Active**
-> **Location:** `scripts/unified_ai_loop.py`
+> **Canonical Entrypoint:** `scripts/master_loop.py`
+> **Legacy Entrypoint:** `scripts/unified_ai_loop.py` (requires `RINGRIFT_UNIFIED_LOOP_LEGACY=1`)
 
-The Unified AI Loop is a single coordinator daemon that integrates all components of the AI improvement cycle, replacing the need for multiple separate daemons.
+The unified loop architecture is now driven by `scripts/master_loop.py` plus the daemon stack. The
+legacy monolithic loop (`scripts/unified_ai_loop.py`) still exists for compatibility but defaults
+to redirecting to `master_loop.py`.
 
 ## Overview
 
@@ -41,66 +44,54 @@ The unified loop coordinates five major subsystems:
 ### Command Line
 
 ```bash
-# Start the unified loop (daemonized)
-python scripts/unified_ai_loop.py --start
+# Start the master loop (foreground)
+python scripts/master_loop.py --config config/unified_loop.yaml
 
-# Run in foreground with verbose output
-python scripts/unified_ai_loop.py --foreground --verbose
+# Watch live status (does not start the loop)
+python scripts/master_loop.py --watch
 
 # Check status
-python scripts/unified_ai_loop.py --status
+python scripts/master_loop.py --status
 
-# Stop gracefully
-python scripts/unified_ai_loop.py --stop
+# Limit to specific configs
+python scripts/master_loop.py --configs square8_2p,square19_2p
 
-# Use custom config
-python scripts/unified_ai_loop.py --config config/unified_loop.yaml
+# Minimal profile (sync + health)
+python scripts/master_loop.py --profile minimal
 
-# Emergency halt (stops all loops at next health check, up to 5 min)
-python scripts/unified_ai_loop.py --halt
-
-# Resume after emergency halt
-python scripts/unified_ai_loop.py --resume
-
-# Enable Prometheus metrics on custom port
-python scripts/unified_ai_loop.py --metrics-port 9091
-
-# Disable metrics entirely
-python scripts/unified_ai_loop.py --no-metrics
+# Skip daemons (testing)
+python scripts/master_loop.py --skip-daemons
 
 # Dry run (simulate without changes)
-python scripts/unified_ai_loop.py --dry-run --verbose
+python scripts/master_loop.py --dry-run
 ```
 
 ### CLI Arguments Reference
 
-| Argument         | Description                | Default                    |
-| ---------------- | -------------------------- | -------------------------- |
-| `--start`        | Start daemon in background | -                          |
-| `--stop`         | Stop running daemon        | -                          |
-| `--status`       | Show daemon status         | -                          |
-| `--foreground`   | Run in foreground          | False                      |
-| `--verbose`      | Enable verbose logging     | False                      |
-| `--config`       | Path to config YAML        | `config/unified_loop.yaml` |
-| `--halt`         | Set emergency halt flag    | -                          |
-| `--resume`       | Clear emergency halt flag  | -                          |
-| `--metrics-port` | Prometheus metrics port    | 9090                       |
-| `--no-metrics`   | Disable Prometheus metrics | False                      |
-| `--dry-run`      | Simulate without changes   | False                      |
+| Argument         | Description                                 | Default                    |
+| ---------------- | ------------------------------------------- | -------------------------- |
+| `--config`       | Path to config YAML                         | `config/unified_loop.yaml` |
+| `--configs`      | Comma-separated configs (override YAML)     | All configs                |
+| `--profile`      | Daemon profile (minimal/standard/full)      | `standard`                 |
+| `--dry-run`      | Simulate without changes                    | False                      |
+| `--skip-daemons` | Don't start/stop daemons (testing)          | False                      |
+| `--watch`        | Watch live status (does not start the loop) | False                      |
+| `--interval`     | Watch mode refresh interval (seconds)       | 10                         |
+| `--status`       | Show current status and exit                | False                      |
 
-### Emergency Halt
+### Emergency Halt (Legacy Unified Loop Only)
 
-The unified loop supports an emergency halt mechanism for safely stopping all operations:
+The legacy unified loop supports an emergency halt mechanism for safely stopping all operations:
 
 ```bash
 # Trigger emergency halt
-python scripts/unified_ai_loop.py --halt
+RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --halt
 
 # Check if halt is active (shown in --status output)
-python scripts/unified_ai_loop.py --status
+RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --status
 
 # Clear halt flag to allow restart
-python scripts/unified_ai_loop.py --resume
+RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --resume
 ```
 
 The halt flag is stored at `data/coordination/EMERGENCY_HALT`. When set:
@@ -113,15 +104,18 @@ The halt flag is stored at `data/coordination/EMERGENCY_HALT`. When set:
 
 ```bash
 # Install the service
-sudo cp deploy/systemd/unified-ai-loop.service /etc/systemd/system/
+sudo cp deploy/systemd/master-loop.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable unified-ai-loop
-sudo systemctl start unified-ai-loop
+sudo systemctl enable master-loop
+sudo systemctl start master-loop
 
 # Check status
-sudo systemctl status unified-ai-loop
-journalctl -u unified-ai-loop -f
+sudo systemctl status master-loop
+journalctl -u master-loop -f
 ```
+
+The `unified-ai-loop.service` unit still exists for legacy installs, but the canonical
+service name is `master-loop.service`.
 
 ## Configuration
 
@@ -179,11 +173,11 @@ configurations:
 
 The unified loop can also be run as separate services if needed:
 
-| Service                      | Script                               | Systemd Unit                |
-| ---------------------------- | ------------------------------------ | --------------------------- |
-| Data Collector               | `scripts/unified_data_sync.py`       | `unified-data-sync.service` |
-| Shadow Tournament (embedded) | `scripts/unified_ai_loop.py`         | `ringrift-ai-loop.service`  |
-| Model Promoter               | `scripts/model_promotion_manager.py` | `model-promoter.service`    |
+| Service        | Script                               | Systemd Unit                |
+| -------------- | ------------------------------------ | --------------------------- |
+| Master Loop    | `scripts/master_loop.py`             | `master-loop.service`       |
+| Data Collector | `scripts/unified_data_sync.py`       | `unified-data-sync.service` |
+| Model Promoter | `scripts/model_promotion_manager.py` | `model-promoter.service`    |
 
 > **Note:** `streaming_data_collector.py` was removed. Use `scripts/unified_data_sync.py` instead.
 
@@ -214,8 +208,8 @@ For machines that should only orchestrate the cluster without performing local c
 # Enable coordinator-only mode
 export RINGRIFT_DISABLE_LOCAL_TASKS=true
 
-# Start the unified loop
-python scripts/unified_ai_loop.py --start
+# Start the master loop
+python scripts/master_loop.py --config config/unified_loop.yaml
 ```
 
 ### What Coordinator-Only Mode Disables
@@ -239,9 +233,9 @@ Add to your shell profile (`~/.zshrc` or `~/.bashrc`):
 export RINGRIFT_DISABLE_LOCAL_TASKS=true
 ```
 
-### Startup Message
+### Startup Message (Legacy Unified Loop)
 
-When coordinator-only mode is enabled, the unified loop displays:
+When coordinator-only mode is enabled, the legacy unified loop displays:
 
 ```
 [UnifiedLoop] ════════════════════════════════════════════════════════════
@@ -250,9 +244,9 @@ When coordinator-only mode is enabled, the unified loop displays:
 [UnifiedLoop] ════════════════════════════════════════════════════════════
 ```
 
-### Low-Memory Machines
+### Low-Memory Machines (Legacy Unified Loop)
 
-On machines with less than 32GB RAM, the unified loop will suggest coordinator-only mode if not already set. This prevents OOM kills during memory-intensive operations.
+On machines with less than 32GB RAM, the legacy unified loop suggests coordinator-only mode if not already set. This prevents OOM kills during memory-intensive operations.
 
 ## Related Documentation
 

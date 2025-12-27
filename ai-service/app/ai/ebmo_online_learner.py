@@ -45,7 +45,7 @@ from app.models import GameState, Move
 # Suppress deprecation warning for intentional use of legacy network
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
-    from archive.deprecated_ai.ebmo_network import ActionFeatureExtractor, EBMONetwork
+    from app.ai.ebmo_network import ActionFeatureExtractor, EBMONetwork
 
 logger = logging.getLogger(__name__)
 

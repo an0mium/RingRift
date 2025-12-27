@@ -40,6 +40,20 @@ from app.utils.checksum_utils import (
     verify_file_checksum,
 )
 
+# Import torrent generator and cluster manifest for P2P sync
+try:
+    from app.distributed.torrent_generator import TorrentGenerator, get_torrent_generator
+    from app.distributed.cluster_manifest import (
+        ClusterManifest,
+        TorrentMetadata,
+        get_cluster_manifest,
+    )
+    HAS_TORRENT_SUPPORT = True
+except ImportError:
+    HAS_TORRENT_SUPPORT = False
+    TorrentGenerator = None  # type: ignore
+    TorrentMetadata = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Import circuit breaker for fault tolerance
@@ -75,14 +89,24 @@ class Aria2Config:
     data_server_port: int = 8766
     # Checksum verification after download
     verify_checksum: bool = True
-    # BitTorrent support for P2P swarm downloads
+    # BitTorrent support for P2P swarm downloads (resilient for flaky connections)
     enable_bittorrent: bool = True
-    bt_enable_dht: bool = True  # Distributed Hash Table for peer discovery
+    bt_enable_dht: bool = True  # Distributed Hash Table for peer discovery (trackerless)
     bt_enable_lpd: bool = True  # Local Peer Discovery
+    bt_enable_pex: bool = True  # Peer Exchange
     bt_max_peers: int = 55
     bt_tracker_timeout: int = 60
-    # Seed ratio for uploaded torrents (0 = no seeding after download)
-    seed_ratio: float = 0.0
+    bt_listen_port: int = 51413  # BitTorrent listen port
+    bt_dht_listen_port: int = 6881  # DHT discovery port
+    # Seed ratio (2.0 = seed until 2:1 upload ratio, helps cluster resilience)
+    seed_ratio: float = 2.0
+    # Minimum seed time in seconds (seed at least this long regardless of ratio)
+    seed_time: int = 3600  # 1 hour
+    # Cache directory for .torrent files
+    torrent_cache_dir: str = "data/torrents"
+    # DHT routing table persistence (enables faster peer discovery on restart)
+    dht_file_path: str = ".dht.dat"
+    dht_save_interval: int = 30  # Save DHT routing table every 30 seconds
 
 
 @dataclass
@@ -326,15 +350,25 @@ class Aria2Transport:
         if self.config.check_integrity:
             cmd.append("--check-integrity=true")
 
-        # BitTorrent options for P2P swarm downloads
+        # BitTorrent options for P2P swarm downloads (resilient for flaky connections)
         if self.config.enable_bittorrent:
             if self.config.bt_enable_dht:
                 cmd.append("--enable-dht=true")
+                cmd.append(f"--dht-listen-port={self.config.bt_dht_listen_port}")
+                # Persist DHT routing table for faster peer discovery on restart
+                cmd.append(f"--dht-file-path={self.config.dht_file_path}")
+                cmd.append(f"--dht-save-interval={self.config.dht_save_interval}")
             if self.config.bt_enable_lpd:
                 cmd.append("--bt-enable-lpd=true")
+            if self.config.bt_enable_pex:
+                cmd.append("--enable-peer-exchange=true")
             cmd.append(f"--bt-max-peers={self.config.bt_max_peers}")
             cmd.append(f"--bt-tracker-timeout={self.config.bt_tracker_timeout}")
+            cmd.append(f"--listen-port={self.config.bt_listen_port}")
+            # Seeding configuration for cluster resilience
             cmd.append(f"--seed-ratio={self.config.seed_ratio}")
+            if self.config.seed_time > 0:
+                cmd.append(f"--seed-time={self.config.seed_time // 60}")  # aria2 uses minutes
 
         if torrent_file:
             cmd.append(str(torrent_file))
@@ -433,6 +467,360 @@ class Aria2Transport:
             return False, 0, "Download timeout"
         except Exception as e:
             return False, 0, str(e)[:200]
+
+    async def download_torrent(
+        self,
+        torrent_source: str | Path,
+        output_dir: Path,
+        seed_after: bool = True,
+        timeout: int | None = None,
+    ) -> tuple[bool, int, str]:
+        """Download using BitTorrent with automatic seeding.
+
+        BitTorrent is ideal for nodes with flaky connections because:
+        - Downloads can resume from any peer
+        - Multiple peers provide redundancy
+        - DHT enables peer discovery without central tracker
+        - Seeding helps other nodes in the cluster
+
+        Args:
+            torrent_source: Path to .torrent file or magnet:?xt=urn... URI
+            output_dir: Directory to save downloaded files
+            seed_after: Continue seeding after download (helps cluster resilience)
+            timeout: Optional timeout override (default uses config.timeout)
+
+        Returns:
+            Tuple of (success, bytes_downloaded, error_message)
+        """
+        if not self.is_available():
+            return False, 0, "aria2c not available"
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine if this is a magnet link or torrent file
+        torrent_str = str(torrent_source)
+        is_magnet = torrent_str.startswith("magnet:")
+
+        # Build command with BitTorrent-specific settings
+        cmd = [
+            "aria2c",
+            f"--dir={output_dir}",
+            f"--max-concurrent-downloads={self.config.max_concurrent_downloads}",
+            f"--bt-max-peers={self.config.bt_max_peers}",
+            f"--bt-tracker-timeout={self.config.bt_tracker_timeout}",
+            f"--listen-port={self.config.bt_listen_port}",
+            "--file-allocation=falloc",
+            "--console-log-level=warn",
+            "--summary-interval=0",
+        ]
+
+        # DHT for trackerless peer discovery (critical for flaky connections)
+        if self.config.bt_enable_dht:
+            cmd.extend([
+                "--enable-dht=true",
+                f"--dht-listen-port={self.config.bt_dht_listen_port}",
+                "--dht-file-path=data/torrents/dht.dat",  # Persist DHT state
+            ])
+
+        # Local Peer Discovery (find peers on local network)
+        if self.config.bt_enable_lpd:
+            cmd.append("--bt-enable-lpd=true")
+
+        # Peer Exchange (learn about more peers from connected peers)
+        if self.config.bt_enable_pex:
+            cmd.append("--enable-peer-exchange=true")
+
+        # Seeding configuration
+        if seed_after:
+            cmd.append(f"--seed-ratio={self.config.seed_ratio}")
+            if self.config.seed_time > 0:
+                cmd.append(f"--seed-time={self.config.seed_time // 60}")
+        else:
+            cmd.append("--seed-ratio=0.0")  # Don't seed
+
+        # Allow continuing partial downloads
+        if self.config.continue_download:
+            cmd.append("--continue=true")
+        if self.config.allow_overwrite:
+            cmd.append("--allow-overwrite=true")
+
+        # Add the torrent source
+        if is_magnet:
+            cmd.append(torrent_str)
+        else:
+            # Verify torrent file exists
+            torrent_path = Path(torrent_source)
+            if not torrent_path.exists():
+                return False, 0, f"Torrent file not found: {torrent_path}"
+            cmd.append(str(torrent_path))
+
+        effective_timeout = timeout or self.config.timeout
+
+        try:
+            logger.info(f"Starting BitTorrent download: {torrent_str[:60]}...")
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=effective_timeout,
+            )
+
+            if process.returncode == 0:
+                # Calculate total size of downloaded files
+                total_size = sum(
+                    f.stat().st_size for f in output_dir.rglob("*") if f.is_file()
+                )
+                logger.info(f"BitTorrent download complete: {total_size / 1024 / 1024:.1f} MB")
+                return True, total_size, ""
+            else:
+                error = stderr.decode()[:200] if stderr else "Unknown error"
+                return False, 0, error
+
+        except asyncio.TimeoutError:
+            return False, 0, f"BitTorrent download timeout after {effective_timeout}s"
+        except Exception as e:
+            return False, 0, str(e)[:200]
+
+    async def download_with_torrent_fallback(
+        self,
+        file_path: str,
+        output_dir: Path,
+        fallback_urls: list[str] | None = None,
+        min_seeders: int = 1,
+        expected_checksum: str | None = None,
+    ) -> tuple[bool, int, str]:
+        """Download file using BitTorrent if available, HTTP fallback otherwise.
+
+        This method provides resilient downloads by:
+        1. Checking if a torrent exists for this file with active seeders
+        2. Using BitTorrent swarm if seeders available (handles connection drops)
+        3. Falling back to multi-connection HTTP if no torrent/seeders
+
+        Args:
+            file_path: Path to the file (used to lookup torrent)
+            output_dir: Directory to save the file
+            fallback_urls: HTTP URLs to use if BitTorrent unavailable
+            min_seeders: Minimum seeders required to use BitTorrent
+            expected_checksum: Optional SHA256 checksum for verification
+
+        Returns:
+            Tuple of (success, bytes_downloaded, error_message)
+        """
+        if not self.is_available():
+            return False, 0, "aria2c not available"
+
+        # Try BitTorrent first if torrent support available
+        if HAS_TORRENT_SUPPORT:
+            try:
+                manifest = get_cluster_manifest()
+                torrent_meta = manifest.get_torrent_for_file(file_path)
+
+                if torrent_meta and len(torrent_meta.seeders) >= min_seeders:
+                    torrent_path = Path(torrent_meta.torrent_path)
+                    if torrent_path.exists():
+                        logger.info(
+                            f"Using BitTorrent for {file_path} "
+                            f"({len(torrent_meta.seeders)} seeders available)"
+                        )
+                        success, size, error = await self.download_torrent(
+                            torrent_path,
+                            output_dir,
+                            seed_after=True,
+                        )
+                        if success:
+                            # Register as seeder after successful download
+                            await self._register_as_seeder(torrent_meta.info_hash)
+                            return success, size, error
+                        else:
+                            logger.warning(
+                                f"BitTorrent download failed, falling back to HTTP: {error}"
+                            )
+                    else:
+                        logger.debug(
+                            f"Torrent file not found locally: {torrent_path}, using HTTP"
+                        )
+                else:
+                    if torrent_meta:
+                        logger.debug(
+                            f"Insufficient seeders ({len(torrent_meta.seeders)}) for {file_path}, using HTTP"
+                        )
+            except Exception as e:
+                logger.debug(f"Error checking torrent availability: {e}")
+
+        # Fall back to HTTP
+        if not fallback_urls:
+            return False, 0, "No fallback URLs and BitTorrent unavailable"
+
+        filename = Path(file_path).name
+        return await self.download_file(
+            sources=fallback_urls,
+            output_dir=output_dir,
+            filename=filename,
+            expected_checksum=expected_checksum,
+        )
+
+    async def _register_as_seeder(self, info_hash: str) -> None:
+        """Register this node as a seeder for a torrent.
+
+        Called after successful download to update ClusterManifest.
+        """
+        if not HAS_TORRENT_SUPPORT:
+            return
+
+        try:
+            manifest = get_cluster_manifest()
+            manifest.add_seeder(info_hash, manifest.node_id)
+            logger.debug(f"Registered as seeder for {info_hash[:16]}...")
+        except Exception as e:
+            logger.debug(f"Failed to register as seeder: {e}")
+
+    async def seed_file(
+        self,
+        file_path: Path,
+        torrent_path: Path | None = None,
+        duration_seconds: int | None = None,
+    ) -> tuple[bool, str]:
+        """Seed a file for P2P distribution.
+
+        Creates torrent if needed and seeds for specified duration.
+
+        Args:
+            file_path: Path to the file to seed
+            torrent_path: Optional path to existing .torrent file
+            duration_seconds: How long to seed (default: config.seed_time)
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        if not self.is_available():
+            return False, "aria2c not available"
+
+        if not file_path.exists():
+            return False, f"File not found: {file_path}"
+
+        duration = duration_seconds or self.config.seed_time
+
+        # Create torrent if needed
+        if torrent_path is None and HAS_TORRENT_SUPPORT:
+            try:
+                generator = get_torrent_generator()
+                torrent_path, info_hash = generator.create_torrent(file_path)
+
+                # Register torrent in manifest
+                manifest = get_cluster_manifest()
+                file_size = file_path.stat().st_size
+                manifest.register_torrent(
+                    info_hash=info_hash,
+                    file_path=str(file_path),
+                    torrent_path=str(torrent_path),
+                    file_size=file_size,
+                )
+            except Exception as e:
+                return False, f"Failed to create torrent: {e}"
+
+        if torrent_path is None or not torrent_path.exists():
+            return False, "No torrent file available"
+
+        # Seed the file
+        cmd = [
+            "aria2c",
+            f"--dir={file_path.parent}",
+            f"--seed-time={duration // 60}",  # Convert to minutes
+            "--seed-ratio=0.0",  # No ratio limit, use time limit
+            "--bt-seed-unverified=true",  # Seed without re-verifying
+            "--console-log-level=warn",
+            "--summary-interval=0",
+        ]
+
+        if self.config.bt_enable_dht:
+            cmd.extend([
+                "--enable-dht=true",
+                f"--dht-listen-port={self.config.bt_dht_listen_port}",
+                f"--dht-file-path={self.config.dht_file_path}",
+            ])
+
+        if self.config.bt_enable_lpd:
+            cmd.append("--bt-enable-lpd=true")
+
+        if self.config.bt_enable_pex:
+            cmd.append("--enable-peer-exchange=true")
+
+        cmd.append(str(torrent_path))
+
+        try:
+            logger.info(f"Seeding {file_path.name} for {duration // 60} minutes...")
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            # Don't wait for completion - let it run in background
+            # The user can monitor via aria2 RPC or process list
+            await asyncio.sleep(1)  # Let it start
+
+            if process.returncode is not None and process.returncode != 0:
+                stderr = (await process.stderr.read()).decode()[:200] if process.stderr else ""
+                return False, f"Seeding failed to start: {stderr}"
+
+            return True, ""
+
+        except Exception as e:
+            return False, str(e)[:200]
+
+    async def create_and_register_torrent(
+        self,
+        file_path: Path,
+        web_seeds: list[str] | None = None,
+    ) -> tuple[Path | None, str | None, str]:
+        """Create a torrent for a file and register it in ClusterManifest.
+
+        This is the recommended way to prepare a file for P2P distribution.
+        Call this after creating/downloading a large file to enable swarm sync.
+
+        Args:
+            file_path: Path to the file
+            web_seeds: Optional HTTP URLs for hybrid HTTP+BT downloads
+
+        Returns:
+            Tuple of (torrent_path, info_hash, error_message)
+        """
+        if not HAS_TORRENT_SUPPORT:
+            return None, None, "Torrent support not available"
+
+        if not file_path.exists():
+            return None, None, f"File not found: {file_path}"
+
+        try:
+            generator = get_torrent_generator()
+            torrent_path, info_hash = generator.create_torrent(
+                file_path,
+                web_seeds=web_seeds,
+            )
+
+            # Register in manifest
+            manifest = get_cluster_manifest()
+            file_size = file_path.stat().st_size
+            piece_size = generator.piece_size or 262144
+
+            manifest.register_torrent(
+                info_hash=info_hash,
+                file_path=str(file_path),
+                torrent_path=str(torrent_path),
+                file_size=file_size,
+                piece_size=piece_size,
+                piece_count=(file_size + piece_size - 1) // piece_size,
+                web_seeds=web_seeds,
+            )
+
+            logger.info(f"Created and registered torrent: {info_hash[:16]}... for {file_path.name}")
+            return torrent_path, info_hash, ""
+
+        except Exception as e:
+            return None, None, str(e)
 
     async def download_batch(
         self,

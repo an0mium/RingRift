@@ -331,7 +331,7 @@ ssh ubuntu@<node-ip> "cd ~/ringrift/ai-service && source venv/bin/activate && \
   # config/unified_loop.yaml (training section):
   #   reanalysis_enabled: true
   #   reanalysis_blend_ratio: 0.7
-  PYTHONPATH=. python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml"
+  PYTHONPATH=. python scripts/master_loop.py --config config/unified_loop.yaml"
 ```
 
 ### Priority Order for Data Generation

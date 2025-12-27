@@ -144,6 +144,16 @@ class ContinuousTrainingLoop:
 
     async def start(self) -> None:
         """Start the continuous training loop."""
+        # December 2025: Coordinator-only mode check
+        # This loop runs CPU/GPU intensive tasks - should NEVER run on coordinator nodes
+        from app.config.env import env
+        if env.is_coordinator:
+            logger.info(
+                f"[ContinuousLoop] Skipped on coordinator node: {env.node_id} "
+                f"(is_coordinator={env.is_coordinator})"
+            )
+            return
+
         if self._running:
             logger.warning("Continuous loop already running")
             return
@@ -623,24 +633,47 @@ def main():
         force=args.force,
     )
 
-    # Handle signals
+    # Handle signals with proper async shutdown coordination
     loop = ContinuousTrainingLoop(loop_config)
     shutdown_requested = False
+    shutdown_complete = asyncio.Event()
 
     def signal_handler(signum, frame):
         nonlocal shutdown_requested
         if shutdown_requested:
-            logger.info("Force exit")
-            sys.exit(1)
+            # Second signal - force exit, but still try to log
+            logger.warning("Force exit requested (second signal)")
+            # Don't use sys.exit(1) - let the event loop handle cleanup
+            # Instead, set the event and let the main coroutine exit
+            try:
+                running_loop = asyncio.get_running_loop()
+                running_loop.call_soon_threadsafe(shutdown_complete.set)
+            except RuntimeError:
+                # No running loop - exit directly as last resort
+                import os
+                os._exit(1)
+            return
         shutdown_requested = True
         logger.info("Shutdown requested...")
         # Dec 2025: Signal handlers need special handling for async
+        # Use call_soon_threadsafe for thread-safe scheduling
         try:
             running_loop = asyncio.get_running_loop()
-            running_loop.create_task(loop.stop())
+            # Schedule graceful stop - this will set _running = False
+            # and trigger the shutdown event
+            running_loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(_graceful_shutdown())
+            )
         except RuntimeError:
-            # No running loop in signal handler - schedule via call_soon_threadsafe
+            # No running loop in signal handler - the main loop isn't running yet
             pass
+
+    async def _graceful_shutdown():
+        """Async helper for graceful shutdown coordination."""
+        try:
+            await loop.stop()
+        finally:
+            shutdown_complete.set()
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -648,13 +681,27 @@ def main():
     # Run the loop
     async def run():
         await loop.start()
-        # Wait for loop to complete
-        while loop._running:
-            await asyncio.sleep(1)
+        # Wait for loop to complete or shutdown signal
+        try:
+            while loop._running and not shutdown_complete.is_set():
+                # Use wait_for to allow shutdown_complete to interrupt
+                try:
+                    await asyncio.wait_for(
+                        shutdown_complete.wait(),
+                        timeout=1.0,
+                    )
+                    break  # shutdown_complete was set
+                except asyncio.TimeoutError:
+                    continue  # Still running, check again
+        except asyncio.CancelledError:
+            # Ensure cleanup on cancellation
+            if loop._running:
+                await loop.stop()
 
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
+        # asyncio.run handles cleanup, but ensure our loop is stopped
         pass
 
     # Print final stats

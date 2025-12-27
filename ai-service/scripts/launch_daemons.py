@@ -186,7 +186,12 @@ Examples:
 
 
 def get_daemons_to_start(args: argparse.Namespace) -> list[DaemonType]:
-    """Determine which daemons to start based on arguments."""
+    """Determine which daemons to start based on arguments.
+
+    December 2025: Coordinator-only mode
+    When running on a coordinator node (role: coordinator in distributed_hosts.yaml),
+    intensive daemons (selfplay, training, gauntlet, export) are automatically filtered out.
+    """
     daemons: set[DaemonType] = set()
 
     if args.profile:
@@ -203,11 +208,11 @@ def get_daemons_to_start(args: argparse.Namespace) -> list[DaemonType]:
                 except ValueError:
                     logger.warning(f"Unknown daemon type: {name}")
 
-        return list(daemons)
+        return _filter_for_coordinator(list(daemons))
 
     # Handle --all
     if args.all:
-        return list(DaemonType)
+        return _filter_for_coordinator(list(DaemonType))
 
     # Handle categories
     if args.sync:
@@ -236,7 +241,45 @@ def get_daemons_to_start(args: argparse.Namespace) -> list[DaemonType]:
             except ValueError:
                 logger.warning(f"Unknown daemon type: {name}")
 
-    return list(daemons)
+    return _filter_for_coordinator(list(daemons))
+
+
+def _filter_for_coordinator(daemons: list[DaemonType]) -> list[DaemonType]:
+    """Filter out intensive daemons when running on a coordinator node.
+
+    December 2025: Coordinator-only mode
+    Coordinators should NOT run CPU/GPU intensive daemons.
+    """
+    from app.config.env import env
+
+    if not env.is_coordinator:
+        return daemons
+
+    # Daemons that run CPU/GPU intensive processes
+    # These should NEVER run on coordinator nodes
+    intensive_daemons = {
+        DaemonType.IDLE_RESOURCE,           # spawns selfplay
+        DaemonType.TRAINING_NODE_WATCHER,   # monitors training
+        DaemonType.AUTO_EXPORT,             # exports training data (CPU-bound)
+        DaemonType.TOURNAMENT_DAEMON,       # runs tournaments
+        DaemonType.EVALUATION,              # runs gauntlets
+        DaemonType.AUTO_PROMOTION,          # triggers promotion (can spawn gauntlet)
+        DaemonType.QUEUE_POPULATOR,         # can spawn selfplay
+        DaemonType.UTILIZATION_OPTIMIZER,   # spawns processes on idle GPUs
+        DaemonType.CONTINUOUS_TRAINING_LOOP,  # full training loop
+        DaemonType.VAST_CPU_PIPELINE,       # Vast.ai CPU selfplay
+    }
+
+    filtered = [d for d in daemons if d not in intensive_daemons]
+    removed_count = len(daemons) - len(filtered)
+
+    if removed_count > 0:
+        logger.info(
+            f"Coordinator-only mode: filtered out {removed_count} intensive daemons "
+            f"(node: {env.node_id})"
+        )
+
+    return filtered
 
 
 def format_status(status: dict, use_json: bool = False) -> str:

@@ -8,7 +8,7 @@ The coordination system provides distributed resource management, task schedulin
                         COORDINATION SYSTEM
 
     +-------------------+     +-------------------+
-    | unified_ai_loop   |     | p2p_orchestrator  |
+    | master_loop       |     | p2p_orchestrator  |
     +--------+----------+     +--------+----------+
              |                         |
              +------------+------------+
@@ -463,10 +463,10 @@ print(f"GPU target: {targets.gpu_min}-{targets.gpu_max}%")
 
 ## Integration Points
 
-### Unified AI Loop Integration
+### Master Loop Integration
 
 ```python
-# In unified_ai_loop.py
+# In master_loop.py
 from app.coordination.task_coordinator import get_coordinator, TaskType
 from app.coordination.resource_optimizer import (
     get_resource_optimizer,

@@ -89,6 +89,9 @@ logger = logging.getLogger(__name__)
 # Use centralized path constants
 from app.utils.paths import AI_SERVICE_ROOT
 
+# Use centralized port constants
+from app.config.ports import UNIFIED_SYNC_API_PORT
+
 # Import sub-components with graceful fallback
 try:
     from app.distributed.manifest_replication import (
@@ -639,7 +642,7 @@ class UnifiedDataSyncService:
         config: SyncConfig,
         hosts: list[HostConfig],
         manifest: DataManifest,
-        http_port: int = 8772,
+        http_port: int = UNIFIED_SYNC_API_PORT,
     ):
         self.config = config
         self.hosts = {h.name: h for h in hosts}
@@ -2108,7 +2111,7 @@ Examples:
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--dry-run", action="store_true", help="Check what would sync")
     parser.add_argument("--interval", type=int, help="Override poll interval")
-    parser.add_argument("--http-port", type=int, default=8772, help="HTTP API port")
+    parser.add_argument("--http-port", type=int, default=UNIFIED_SYNC_API_PORT, help="HTTP API port")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
     args = parser.parse_args()

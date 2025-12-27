@@ -158,7 +158,8 @@ ai-service/
 │   ├── integration/         # Unified loop extensions
 │   └── rules/               # Game rules (TS parity)
 ├── scripts/                 # CLI tools (380+)
-│   ├── unified_ai_loop.py   # Main training daemon
+│   ├── master_loop.py       # Canonical training daemon
+│   ├── unified_ai_loop.py   # Legacy wrapper (redirects to master_loop)
 │   ├── p2p_orchestrator.py  # Cluster coordination
 │   ├── train_nnue_policy.py # NNUE policy training
 │   └── run_gauntlet.py      # Tournament evaluation
@@ -224,12 +225,12 @@ For multi-GPU training across a cluster:
 2. **Start the training loop:**
 
    ```bash
-   python scripts/unified_ai_loop.py --start
+   python scripts/master_loop.py --config config/unified_loop.yaml
    ```
 
 3. **Monitor progress:**
    ```bash
-   python scripts/unified_ai_loop.py --status
+   python scripts/master_loop.py --status
    ```
 
 See [docs/training/UNIFIED_AI_LOOP.md](docs/training/UNIFIED_AI_LOOP.md) for the full pipeline documentation.

@@ -93,6 +93,16 @@ class AutoExportDaemon:
 
     async def start(self) -> None:
         """Start the auto export daemon."""
+        # December 2025: Coordinator-only mode check
+        # Export is CPU-intensive - should NEVER run on coordinator nodes
+        from app.config.env import env
+        if env.is_coordinator or not env.export_enabled:
+            logger.info(
+                f"[AutoExportDaemon] Skipped on coordinator node: {env.node_id} "
+                f"(is_coordinator={env.is_coordinator}, export_enabled={env.export_enabled})"
+            )
+            return
+
         if self._running:
             logger.warning("[AutoExportDaemon] Already running")
             return

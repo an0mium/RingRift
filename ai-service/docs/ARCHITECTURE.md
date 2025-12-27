@@ -314,7 +314,8 @@ ai-service/
 │   ├── tournament/         # Evaluation, Elo system
 │   └── training/           # Training pipeline
 ├── scripts/                # CLI tools and daemons
-│   ├── unified_ai_loop.py  # Main training orchestrator
+│   ├── master_loop.py      # Main training orchestrator
+│   ├── unified_ai_loop.py  # Legacy wrapper (redirects to master_loop)
 │   ├── p2p_orchestrator.py # P2P cluster coordinator
 │   └── ...
 ├── config/                 # Deployment configuration

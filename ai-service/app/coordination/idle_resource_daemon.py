@@ -488,6 +488,17 @@ class IdleResourceDaemon:
 
     async def start(self) -> None:
         """Start the idle resource daemon."""
+        # December 2025: Coordinator-only mode check
+        # This daemon spawns selfplay processes - should NEVER run on coordinator nodes
+        from app.config.env import env
+        if env.is_coordinator or not env.selfplay_enabled:
+            self._coordinator_status = CoordinatorStatus.STOPPED
+            logger.info(
+                f"IdleResourceDaemon skipped on coordinator node: {env.node_id} "
+                f"(is_coordinator={env.is_coordinator}, selfplay_enabled={env.selfplay_enabled})"
+            )
+            return
+
         if not self.config.enabled:
             self._coordinator_status = CoordinatorStatus.STOPPED
             logger.info("IdleResourceDaemon disabled by config")

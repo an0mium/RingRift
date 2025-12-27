@@ -60,9 +60,10 @@ Extract handlers into `scripts/p2p/handlers/`:
 | `resource_detector.py` | 340   | 8       | ✅ Extracted |
 | `network_utils.py`     | 422   | 11      | ✅ Extracted |
 | `leader_election.py`   | 198   | 5       | ✅ Extracted |
+| `gossip_metrics.py`    | 227   | 7       | ✅ Extracted |
 
-**Progress: 27,522 → 27,320 lines (Phase 2 continued)**
-**Total reduction: 29,767 → 27,320 lines (-2,447 lines, ~8.2%)**
+**Progress: 27,522 → 27,216 lines (Phase 2 continued)**
+**Total reduction: 29,767 → 27,216 lines (-2,551 lines, ~8.6%)**
 
 ### Dec 26, 2025 Session Summary
 
@@ -74,12 +75,15 @@ Extract handlers into `scripts/p2p/handlers/`:
 | `peer_manager.py` | 353 | 8 | Peer cache, reputation |
 | `metrics_manager.py` | 318 | 6 | Metrics recording |
 | `resource_detector.py` | 451 | 8 | System resource detection |
+| `gossip_metrics.py` | 227 | 7 | Gossip protocol metrics & health |
 
 **Key Improvements:**
 
 1. Eliminated dynamic `importlib` loading in `app/metrics/__init__.py`
 2. Added 20 unit tests for `leader_election.py`
-3. Tailscale URL building now in reusable mixin
+3. Added 24 unit tests for `gossip_metrics.py`
+4. Tailscale URL building now in reusable mixin
+5. Gossip health monitoring via `_get_gossip_health_status()` (latency, activity, stale rate)
 
 **Remaining Large Methods (for future extraction):**
 
@@ -120,12 +124,23 @@ P2POrchestrator now inherits from:
 - `_check_leader_consistency` → provided by mixin
 - `_is_leader_lease_valid` → orchestrator override (with grace period)
 
+**GossipMetricsMixin** - Gossip protocol metrics tracking (Dec 26):
+
+- `_init_gossip_metrics` → provided by mixin (lazy initialization)
+- `_record_gossip_metrics` → provided by mixin (event tracking: sent, received, update, stale, latency)
+- `_reset_gossip_metrics_hourly` → provided by mixin (hourly reset with logging)
+- `_record_gossip_compression` → provided by mixin (compression stats)
+- `_get_gossip_metrics_summary` → provided by mixin (for /status endpoint)
+- `_get_gossip_health_status` → provided by mixin (NEW: health monitoring with warnings)
+- `calculate_compression_ratio` → standalone utility function
+
 **Note:** `data_sync.py` handlers skipped - they depend on internal methods (`check_disk_has_capacity`, `_handle_sync_pull_request`) and peer lookup state that would require significant refactoring.
 
 ### Phase 2: Core Logic Extraction (TARGET: ~10,000 lines)
 
 **Status: In Progress (Dec 26, 2025)**
-**Current orchestrator size: 27,320 lines**
+**Current orchestrator size: 27,216 lines**
+**Session total: 177 unit tests passed**
 
 #### 2.1 `peer_manager.py` - Peer Discovery & Management (~3,000 lines)
 

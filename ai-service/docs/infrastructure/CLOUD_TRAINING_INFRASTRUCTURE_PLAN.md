@@ -1402,7 +1402,7 @@ python scripts/run_cmaes_optimization.py \
 1. **Pipeline definition script**
 
    ```python
-   # Design sketch: run_training_pipeline.py (not in repo; use run_training_loop.py or unified_ai_loop.py)
+   # Design sketch: run_training_pipeline.py (not in repo; use run_training_loop.py or master_loop.py)
 
    @dataclass
    class PipelineConfig:

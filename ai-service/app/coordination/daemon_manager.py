@@ -1355,6 +1355,22 @@ class DaemonManager:
 
     def render_metrics(self) -> str:
         """Render Prometheus-style metrics for the health server."""
+        metrics_blob = ""
+        try:
+            from app.utils.optional_imports import (
+                PROMETHEUS_AVAILABLE,
+                generate_latest,
+            )
+            if PROMETHEUS_AVAILABLE:
+                payload = generate_latest()
+                if isinstance(payload, bytes):
+                    metrics_blob = payload.decode("utf-8", errors="replace")
+                else:
+                    metrics_blob = str(payload)
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.warning(f"Failed to collect Prometheus metrics: {e}")
+            metrics_blob = ""
+
         summary = self.health_summary()
 
         running = summary.get("running", 0)
@@ -1396,8 +1412,8 @@ class DaemonManager:
                 "# TYPE selfplay_games_per_hour gauge",
                 f"selfplay_games_per_hour {metrics.get('games_per_hour', 0.0)}",
             ])
-        except Exception:
-            pass
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.warning(f"Failed to collect selfplay scheduler metrics: {e}")
 
         # Cluster sync throughput metrics
         try:
@@ -1419,8 +1435,8 @@ class DaemonManager:
                 "# TYPE cluster_sync_total_bytes counter",
                 f"cluster_sync_total_bytes {metrics.get('total_bytes_synced', 0)}",
             ])
-        except Exception:
-            pass
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.warning(f"Failed to collect cluster sync metrics: {e}")
 
         # Event router metrics
         try:
@@ -1446,10 +1462,13 @@ class DaemonManager:
                 lines.append(
                     f'event_router_events_routed_by_type_total{{event="{safe_event}"}} {count}'
                 )
-        except Exception:
-            pass
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.warning(f"Failed to collect event router metrics: {e}")
 
-        return "\n".join(lines)
+        manual_metrics = "\n".join(lines)
+        if metrics_blob:
+            return f"{metrics_blob.rstrip()}\n\n{manual_metrics}"
+        return manual_metrics
 
     # =========================================================================
     # Default Daemon Factories
@@ -2580,7 +2599,16 @@ class DaemonManager:
 
         async def handle_metrics(request):
             """Prometheus-style metrics."""
-            return web.Response(text=self.render_metrics(), content_type="text/plain")
+            try:
+                from app.utils.optional_imports import (
+                    CONTENT_TYPE_LATEST,
+                    PROMETHEUS_AVAILABLE,
+                )
+                content_type = CONTENT_TYPE_LATEST if PROMETHEUS_AVAILABLE else "text/plain"
+            except (ImportError, AttributeError) as e:
+                logger.warning(f"Failed to resolve Prometheus content type: {e}")
+                content_type = "text/plain"
+            return web.Response(text=self.render_metrics(), content_type=content_type)
 
         async def handle_status(request):
             """Detailed daemon status."""
@@ -3036,23 +3064,27 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
     ],
 
     # Ephemeral node profile - runs on Vast.ai/spot instances
-    # Phase 21.2: Expanded from 4 to 7 daemons for better data safety
+    # Phase 21.2: Expanded from 4 to 9 daemons for better data safety & observability
     "ephemeral": [
         DaemonType.EVENT_ROUTER,
+        DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
         DaemonType.EPHEMERAL_SYNC,
         DaemonType.DATA_PIPELINE,
         DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
         DaemonType.QUALITY_MONITOR,  # Phase 21.2: Monitor quality for throttling feedback
         DaemonType.ORPHAN_DETECTION,  # Phase 21.2: Detect orphaned databases before termination
         DaemonType.AUTO_SYNC,  # Phase 21.2: Ensure regular sync alongside ephemeral sync
+        DaemonType.FEEDBACK_LOOP,  # Phase 21.2: Orchestrate all feedback signals
     ],
 
     # Selfplay-only profile - just generates games
     "selfplay": [
         DaemonType.EVENT_ROUTER,
+        DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
         DaemonType.AUTO_SYNC,
         DaemonType.QUALITY_MONITOR,  # Monitor quality to trigger throttling feedback
         DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
+        DaemonType.FEEDBACK_LOOP,  # Orchestrate all feedback signals
     ],
 
     # Full profile - all daemons (for testing)

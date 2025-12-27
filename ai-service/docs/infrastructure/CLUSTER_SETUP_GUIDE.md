@@ -152,18 +152,18 @@ done
 
 ## Step 4: Start Training
 
-### Option A: Unified AI Loop (Recommended)
+### Option A: Master Loop (Recommended)
 
-The unified loop handles everything automatically:
+The master loop handles everything automatically:
 
 ```bash
 # On your primary node
 ssh gpu-primary 'cd ~/RingRift/ai-service && \
   source venv/bin/activate && \
-  nohup python scripts/unified_ai_loop.py --start > logs/loop.log 2>&1 &'
+  nohup python scripts/master_loop.py --config config/unified_loop.yaml > logs/master_loop.log 2>&1 &'
 
 # Check status
-ssh gpu-primary 'cd ~/RingRift/ai-service && python scripts/unified_ai_loop.py --status'
+ssh gpu-primary 'cd ~/RingRift/ai-service && python scripts/master_loop.py --status'
 ```
 
 ### Option B: Manual Control
@@ -268,13 +268,14 @@ python scripts/train_nnue_policy.py --gradient-checkpointing
 ### Training Not Triggering
 
 ```bash
-# Check loop state
-cat logs/unified_loop/unified_loop_state.json | python -m json.tool
+# Check loop status
+python scripts/master_loop.py --status
 
-# Reset and restart
-python scripts/unified_ai_loop.py --stop
-rm logs/unified_loop/unified_loop_state.json
-python scripts/unified_ai_loop.py --start
+# Inspect heartbeat
+sqlite3 data/coordination/master_loop_state.db "select * from heartbeat;"
+
+# Restart if needed
+sudo systemctl restart master-loop
 ```
 
 ## Network Options
@@ -324,10 +325,10 @@ ssh -R 8770:localhost:8770 relay-server
 
 ### Multi-Config Training
 
-Configure multi-board training in `config/unified_loop.yaml` and run the unified loop:
+Configure multi-board training in `config/unified_loop.yaml` and run the master loop:
 
 ```bash
-python scripts/unified_ai_loop.py --start --config config/unified_loop.yaml
+python scripts/master_loop.py --config config/unified_loop.yaml
 ```
 
 ### Curriculum Training

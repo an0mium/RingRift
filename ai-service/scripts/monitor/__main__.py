@@ -3,6 +3,7 @@
 Usage:
     python -m scripts.monitor status       # Show cluster status
     python -m scripts.monitor health       # Run health checks
+    python -m scripts.monitor metrics      # Smoke check health metrics
     python -m scripts.monitor alert MSG    # Send an alert
 """
 
@@ -15,6 +16,7 @@ def main():
         print("Commands:")
         print("  status  - Show cluster status dashboard")
         print("  health  - Run cluster health checks")
+        print("  metrics - Smoke check health metrics")
         print("  alert   - Send an alert message")
         sys.exit(1)
 
@@ -27,6 +29,9 @@ def main():
     elif command == "health":
         from .health import main as health_main
         health_main()
+    elif command == "metrics":
+        from .health_metrics_smoke import main as metrics_main
+        metrics_main()
     elif command == "alert":
         from .alerting import main as alert_main
         alert_main()

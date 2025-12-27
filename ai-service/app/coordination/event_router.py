@@ -195,9 +195,12 @@ class UnifiedEventRouter:
         self._lock = asyncio.Lock()
         self._sync_lock = threading.Lock()
 
-        # Event history for auditing - use deque with maxlen for O(1) bounded append
-        self._event_history: deque[RouterEvent] = deque(maxlen=1000)
-        self._max_history = 1000  # Kept for compatibility
+        # Event history for auditing (bounded by self._max_history).
+        # Note: tests and some legacy code mutate _max_history directly.
+        # To respect that, we enforce the bound manually on append rather than
+        # relying on deque(maxlen=...) which cannot be updated via attribute writes.
+        self._max_history = 1000
+        self._event_history: deque[RouterEvent] = deque()
 
         # Deduplication: track seen event IDs and content hashes to prevent loops
         self._seen_events: set[str] = set()  # event_id based
@@ -253,7 +256,7 @@ class UnifiedEventRouter:
     async def _on_stage_event(self, result: StageCompletionResult) -> None:
         """Handle events from StageEventBus."""
         router_event = RouterEvent(
-            event_type=result.event.value,
+            event_type=normalize_event_type(result.event.value),
             payload=result.to_dict(),
             timestamp=time.time(),
             source=result.metadata.get("source", "stage_bus"),
@@ -265,7 +268,7 @@ class UnifiedEventRouter:
     def _on_cross_process_event(self, event: CrossProcessEvent) -> None:
         """Handle events from CrossProcessEventQueue."""
         router_event = RouterEvent(
-            event_type=event.event_type,
+            event_type=normalize_event_type(event.event_type),
             payload=event.payload,
             timestamp=event.created_at,
             source=event.source,
@@ -498,8 +501,10 @@ class UnifiedEventRouter:
                 if oldest_hash not in self._seen_hashes_order:
                     self._seen_content_hashes.discard(oldest_hash)
 
-            # Track in history (deque with maxlen handles bounds automatically)
+            # Track in history (bounded by _max_history)
             self._event_history.append(event)
+            while len(self._event_history) > self._max_history:
+                self._event_history.popleft()
 
             # Update metrics
             self._events_routed[event.event_type] = (
@@ -570,8 +575,10 @@ class UnifiedEventRouter:
                 if oldest_hash not in self._seen_hashes_order:
                     self._seen_content_hashes.discard(oldest_hash)
 
-            # Track in history (deque with maxlen handles bounds automatically)
+            # Track in history (bounded by _max_history)
             self._event_history.append(event)
+            while len(self._event_history) > self._max_history:
+                self._event_history.popleft()
 
             # Update metrics
             self._events_routed[event.event_type] = (
@@ -652,6 +659,9 @@ class UnifiedEventRouter:
             else:
                 event_type_str = str(event_type)
 
+            # Keep subscription keys consistent with publish() normalization.
+            event_type_str = normalize_event_type(event_type_str)
+
             if event_type_str not in self._subscribers:
                 self._subscribers[event_type_str] = []
             self._subscribers[event_type_str].append(callback)
@@ -671,6 +681,9 @@ class UnifiedEventRouter:
                 event_type_str = event_type.value
             else:
                 event_type_str = str(event_type)
+
+            # Keep unsubscribe keys consistent with subscribe()/publish() normalization.
+            event_type_str = normalize_event_type(event_type_str)
 
             if event_type_str in self._subscribers and callback in self._subscribers[event_type_str]:
                 self._subscribers[event_type_str].remove(callback)
@@ -709,7 +722,9 @@ class UnifiedEventRouter:
         if since:
             events = [e for e in events if e.timestamp > since]
 
-        return events[-limit:]
+        # Ensure slicing works regardless of whether we filtered into a list
+        events_list = list(events)
+        return events_list[-limit:]
 
     def get_stats(self) -> dict[str, Any]:
         """Get router statistics."""
@@ -819,7 +834,12 @@ def get_router() -> UnifiedEventRouter:
     global _router
     with _router_lock:
         if _router is None:
-            _router = UnifiedEventRouter()
+            # In pytest runs, disable cross-process polling by default. The
+            # cross-process queue is backed by a persistent SQLite DB under /tmp,
+            # and polling can replay historical events into otherwise isolated
+            # unit tests.
+            enable_cp_polling = os.environ.get("PYTEST_CURRENT_TEST") is None
+            _router = UnifiedEventRouter(enable_cross_process_polling=enable_cp_polling)
         return _router
 
 

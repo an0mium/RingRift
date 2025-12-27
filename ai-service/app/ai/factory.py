@@ -719,7 +719,7 @@ class AIFactory:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            from archive.deprecated_ai.ebmo_ai import EBMO_AI
+            from app.ai.ebmo_ai import EBMO_AI
             ai_class = EBMO_AI
         elif ai_type == AIType.GMO:
             import warnings
@@ -729,7 +729,7 @@ class AIFactory:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            from archive.deprecated_ai.gmo_ai import GMOAI
+            from app.ai.gmo_ai import GMOAI
             ai_class = GMOAI
         elif ai_type == AIType.GMO_V2:
             import warnings
@@ -739,7 +739,7 @@ class AIFactory:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            from archive.deprecated_ai.gmo_v2 import GMOv2AI
+            from app.ai.gmo_v2 import GMOv2AI
             ai_class = GMOv2AI
         elif ai_type == AIType.GMO_MCTS:
             from app.ai.gmo_mcts_hybrid import GMOMCTSHybrid
@@ -755,7 +755,7 @@ class AIFactory:
                 DeprecationWarning,
                 stacklevel=3,
             )
-            from archive.deprecated_ai.ig_gmo import IGGMO
+            from app.ai.ig_gmo import IGGMO
             ai_class = IGGMO
         elif ai_type == AIType.CAGE:
             from app.ai.archive.cage_ai import CAGE_AI
@@ -1049,7 +1049,7 @@ class AIFactory:
                 rng_seed=rng_seed,
                 nn_model_id=nn_model_id,
             )
-            from archive.deprecated_ai.ebmo_ai import EBMO_AI
+            from app.ai.ebmo_ai import EBMO_AI
             return EBMO_AI(player_number, config, model_path=model_path)
 
         # GMO-MCTS Hybrid (uses GMO for move priors in MCTS tree search)
@@ -1112,7 +1112,7 @@ class AIFactory:
                 rng_seed=rng_seed,
                 nn_model_id=nn_model_id,
             )
-            from archive.deprecated_ai.gmo_ai import GMOAI
+            from app.ai.gmo_ai import GMOAI
             return GMOAI(player_number, config)
 
         if agent_key == "ig_gmo" or agent_key.startswith("ig_gmo_"):
@@ -1128,7 +1128,7 @@ class AIFactory:
                 rng_seed=rng_seed,
                 nn_model_id=nn_model_id,
             )
-            from archive.deprecated_ai.ig_gmo import IGGMO
+            from app.ai.ig_gmo import IGGMO
             return IGGMO(player_number, config)
 
         # CAGE AI (Constraint-Aware Graph Energy-based optimization)

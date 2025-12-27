@@ -435,3 +435,211 @@ async def get_cluster_config():
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
         return {"configured": False, "error": str(e)}
+
+
+# =============================================================================
+# Aggregated Health Endpoint (December 2025)
+# =============================================================================
+
+
+class AggregatedHealthResponse(BaseModel):
+    """Aggregated health response from all cluster subsystems."""
+    overall_healthy: bool = Field(..., description="True if all critical systems healthy")
+    overall_status: str = Field(..., description="Status: healthy, degraded, or unhealthy")
+    timestamp: float = Field(..., description="Unix timestamp of health check")
+
+    # P2P mesh status
+    p2p_healthy: bool = Field(False, description="P2P mesh connectivity")
+    p2p_leader: str | None = Field(None, description="Current P2P leader")
+    p2p_alive_peers: int = Field(0, description="Number of alive P2P peers")
+    p2p_total_peers: int = Field(0, description="Total configured P2P peers")
+
+    # Daemon health
+    daemon_healthy: bool = Field(True, description="All critical daemons running")
+    daemon_running_count: int = Field(0, description="Number of running daemons")
+    daemon_total_count: int = Field(0, description="Total registered daemons")
+    daemon_unhealthy: list[str] = Field(default_factory=list, description="Unhealthy daemon names")
+
+    # Component registry health
+    components_healthy: bool = Field(True, description="All components healthy")
+    components_registered: int = Field(0, description="Total registered components")
+    components_instantiated: int = Field(0, description="Instantiated components")
+    components_unhealthy: list[str] = Field(default_factory=list, description="Unhealthy component names")
+
+    # Backpressure status
+    backpressure_ok: bool = Field(True, description="Backpressure within acceptable range")
+    backpressure_overall: float = Field(0.0, description="Overall backpressure (0-1)")
+    spawn_rate_multiplier: float = Field(1.0, description="Spawn rate multiplier (0-1)")
+    should_pause: bool = Field(False, description="Whether spawning should pause")
+
+    # Event system health
+    events_healthy: bool = Field(True, description="Event router operational")
+    events_queue_depth: int = Field(0, description="Pending event queue depth")
+    events_total_processed: int = Field(0, description="Total events processed")
+
+    # Sync status
+    sync_running: bool = Field(False, description="Sync daemon running")
+    sync_pending: int = Field(0, description="Pending sync operations")
+
+    # Errors
+    errors: list[str] = Field(default_factory=list, description="Error messages during health check")
+
+
+@router.get("/health/aggregated", response_model=AggregatedHealthResponse)
+async def get_aggregated_health():
+    """Get comprehensive aggregated health from all cluster subsystems.
+
+    Aggregates health data from:
+    - P2P mesh network (connectivity, leader election)
+    - DaemonManager (daemon lifecycle health)
+    - ComponentRegistry (component instantiation health)
+    - BackpressureMonitor (system load)
+    - EventRouter (event processing)
+    - SyncDaemon (data synchronization)
+
+    Returns overall_healthy=True only if all critical systems are operational.
+    """
+    errors: list[str] = []
+    response = AggregatedHealthResponse(
+        overall_healthy=True,
+        overall_status="healthy",
+        timestamp=time.time(),
+    )
+
+    # 1. P2P mesh health
+    p2p_status = _get_p2p_status()
+    if p2p_status is not None:
+        response.p2p_healthy = True
+        response.p2p_leader = p2p_status.get("leader_id")
+        peers = p2p_status.get("peers", [])
+        response.p2p_alive_peers = sum(1 for p in peers if p.get("alive"))
+        response.p2p_total_peers = len(peers)
+
+        # P2P unhealthy if no leader or no alive peers
+        if response.p2p_leader is None:
+            response.p2p_healthy = False
+            errors.append("P2P: No leader elected")
+        if response.p2p_alive_peers == 0:
+            response.p2p_healthy = False
+            errors.append("P2P: No alive peers")
+    else:
+        response.p2p_healthy = False
+        errors.append("P2P: Daemon not running")
+
+    # 2. Daemon health from DaemonManager
+    try:
+        from app.coordination.daemon_manager import get_daemon_manager
+
+        dm = get_daemon_manager()
+        status = dm.get_status()
+        daemons = status.get("daemons", {})
+
+        response.daemon_total_count = len(daemons)
+        unhealthy_daemons = []
+
+        for name, d_status in daemons.items():
+            if d_status.get("state") == "RUNNING":
+                response.daemon_running_count += 1
+            elif d_status.get("state") == "FAILED":
+                unhealthy_daemons.append(name)
+
+        response.daemon_unhealthy = unhealthy_daemons
+        response.daemon_healthy = len(unhealthy_daemons) == 0
+
+        if unhealthy_daemons:
+            errors.append(f"Daemons: {len(unhealthy_daemons)} failed")
+
+    except (ImportError, AttributeError, RuntimeError) as e:
+        logger.debug(f"DaemonManager unavailable: {e}")
+
+    # 3. Component registry health
+    try:
+        from app.core.component_registry import get_registry
+
+        registry = get_registry()
+        health_status = registry.get_health_status()
+
+        response.components_registered = health_status.get("total_registered", 0)
+        response.components_instantiated = health_status.get("instantiated", 0)
+
+        unhealthy_count = health_status.get("unhealthy", 0)
+        response.components_healthy = unhealthy_count == 0
+
+        # Get names of unhealthy components
+        components = health_status.get("components", {})
+        response.components_unhealthy = [
+            name for name, info in components.items()
+            if not info.get("is_healthy", True)
+        ]
+
+        if unhealthy_count > 0:
+            errors.append(f"Components: {unhealthy_count} unhealthy")
+
+    except (ImportError, AttributeError, RuntimeError) as e:
+        logger.debug(f"ComponentRegistry unavailable: {e}")
+
+    # 4. Backpressure status
+    try:
+        from app.coordination.backpressure import get_backpressure_monitor
+
+        monitor = get_backpressure_monitor()
+        signal = await monitor.get_signal()
+
+        response.backpressure_overall = signal.overall_pressure
+        response.spawn_rate_multiplier = signal.spawn_rate_multiplier
+        response.should_pause = signal.should_pause
+        response.backpressure_ok = signal.is_healthy
+
+        if signal.should_pause:
+            errors.append("Backpressure: Spawning paused due to load")
+        elif not signal.is_healthy:
+            errors.append(f"Backpressure: High pressure ({signal.overall_pressure:.1%})")
+
+    except (ImportError, AttributeError, RuntimeError) as e:
+        logger.debug(f"BackpressureMonitor unavailable: {e}")
+
+    # 5. Event router health
+    try:
+        from app.coordination.event_router import get_event_router
+
+        router = get_event_router()
+        if hasattr(router, "get_stats"):
+            stats = router.get_stats()
+            response.events_queue_depth = stats.get("queue_depth", 0)
+            response.events_total_processed = stats.get("total_processed", 0)
+            response.events_healthy = stats.get("healthy", True)
+
+            if not response.events_healthy:
+                errors.append("Events: Router unhealthy")
+        else:
+            response.events_healthy = True  # Assume healthy if no stats
+
+    except (ImportError, AttributeError, RuntimeError) as e:
+        logger.debug(f"EventRouter unavailable: {e}")
+
+    # 6. Sync daemon status
+    daemon = _get_sync_daemon()
+    if daemon is not None:
+        status = daemon.get_status()
+        response.sync_running = status.get("running", False)
+        response.sync_pending = status.get("pending_games", 0)
+
+    # Calculate overall status
+    response.errors = errors
+    critical_failures = (
+        not response.p2p_healthy or
+        not response.daemon_healthy or
+        not response.components_healthy
+    )
+
+    if critical_failures:
+        response.overall_healthy = False
+        response.overall_status = "unhealthy"
+    elif not response.backpressure_ok or not response.events_healthy:
+        response.overall_healthy = True  # Degraded but not critical
+        response.overall_status = "degraded"
+    else:
+        response.overall_healthy = True
+        response.overall_status = "healthy"
+
+    return response

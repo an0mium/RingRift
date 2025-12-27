@@ -40,6 +40,10 @@ METRICS_PORT = 9090
 # Used for serving game databases and model files to other nodes
 DATA_SERVER_PORT = 8766
 
+# Unified data sync HTTP API port
+# Used by UnifiedDataSyncService for cluster-wide data synchronization
+UNIFIED_SYNC_API_PORT = 8772
+
 # =============================================================================
 # AI Service API
 # =============================================================================

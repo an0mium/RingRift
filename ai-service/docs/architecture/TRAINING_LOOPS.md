@@ -13,7 +13,7 @@ All loops share the same coordination infrastructure (`event_router`, `pipeline_
 
 | Loop                            | Lines | Status         | Use Case                       |
 | ------------------------------- | ----- | -------------- | ------------------------------ |
-| `unified_ai_loop.py`            | 8,451 | **Production** | Full system with all features  |
+| `master_loop.py`                | 1,398 | **Production** | Full system with all features  |
 | `continuous_loop.py`            | ~450  | Active         | Lightweight daemon alternative |
 | `run_training_loop.py`          | 426   | Active         | Single iteration, manual runs  |
 | `multi_config_training_loop.py` | 1,880 | Archived       | Deprecated                     |
@@ -21,7 +21,7 @@ All loops share the same coordination infrastructure (`event_router`, `pipeline_
 
 ## Recommended Usage
 
-### Option A: unified_ai_loop.py (Recommended for Production)
+### Option A: master_loop.py (Recommended for Production)
 
 The comprehensive all-in-one system with:
 
@@ -36,14 +36,14 @@ The comprehensive all-in-one system with:
 - Database integrity checking
 
 ```bash
-# Start the full unified loop
-python scripts/unified_ai_loop.py --start
-
-# Run in foreground with verbose output
-python scripts/unified_ai_loop.py --foreground --verbose
+# Start the master loop
+python scripts/master_loop.py --config config/unified_loop.yaml
 
 # Check status
-python scripts/unified_ai_loop.py --status
+python scripts/master_loop.py --status
+
+# Watch live status (does not start the loop)
+python scripts/master_loop.py --watch
 ```
 
 ### Option B: continuous_loop.py (Lightweight Alternative)
@@ -78,24 +78,24 @@ python scripts/run_training_loop.py \
 
 ## Deferral Behavior
 
-When both loops are available, `continuous_loop.py` **automatically defers** to `unified_ai_loop.py`:
+When both loops are available, `continuous_loop.py` **automatically defers** to `master_loop.py`:
 
 ```
 ┌─────────────────────┐     ┌─────────────────────┐
-│  unified_ai_loop    │     │  continuous_loop    │
+│  master_loop        │     │  continuous_loop    │
 │  (running)          │────▶│  (DEFERRED state)   │
 └─────────────────────┘     └─────────────────────┘
          │                            │
          │                            │ Checks every 60s
          ▼                            ▼
-    Processing...              Waiting for unified_ai_loop
+    Processing...              Waiting for master_loop
                                to stop...
 ```
 
 - `continuous_loop.py` checks `is_unified_loop_running()` from `app.coordination.helpers`
-- If unified_ai_loop is active, it enters `DEFERRED` state
-- It periodically checks (every 60s) if unified_ai_loop has stopped
-- Once unified_ai_loop stops, it resumes normal operation
+- If the unified orchestrator (master loop) is active, it enters `DEFERRED` state
+- It periodically checks (every 60s) if the master loop has stopped
+- Once the master loop stops, it resumes normal operation
 - Use `--force` to override deferral (not recommended)
 
 ## Architecture Integration
@@ -126,7 +126,7 @@ All loops use the same coordination infrastructure:
           │                       │                       │
           ▼                       ▼                       ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ unified_ai_loop │    │ continuous_loop │    │ run_training_   │
+│ master_loop     │    │ continuous_loop │    │ run_training_   │
 │ (Full System)   │    │ (Lightweight)   │    │ loop (Single)   │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
@@ -166,7 +166,7 @@ The following loops are deprecated and archived:
 
 ## Configuration
 
-### unified_ai_loop.py
+### master_loop.py
 
 Uses YAML config at `config/unified_loop.yaml`:
 
@@ -194,16 +194,16 @@ LoopConfig(
     selfplay_engine="gumbel-mcts",
     max_iterations=0,  # infinite
     iteration_cooldown_seconds=60.0,
-    force=False,  # defer to unified_ai_loop
+    force=False,  # defer to master loop
 )
 ```
 
 ## Monitoring
 
-### Check unified_ai_loop status
+### Check master_loop status
 
 ```bash
-python scripts/unified_ai_loop.py --status
+python scripts/master_loop.py --status
 ```
 
 ### Check continuous_loop status via daemon manager
@@ -223,9 +223,9 @@ print(f"Unified loop running: {is_unified_loop_running()}")
 
 | Scenario                      | Recommended Loop                          |
 | ----------------------------- | ----------------------------------------- |
-| Production cluster deployment | `unified_ai_loop.py`                      |
+| Production cluster deployment | `master_loop.py`                          |
 | Development/testing           | `continuous_loop.py`                      |
 | Single training run           | `run_training_loop.py`                    |
 | Quick iteration check         | `run_training_loop.py --max-iterations 1` |
 | Resource-constrained node     | `continuous_loop.py` (lighter)            |
-| Full adaptive curriculum      | `unified_ai_loop.py`                      |
+| Full adaptive curriculum      | `master_loop.py`                          |

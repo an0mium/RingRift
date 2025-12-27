@@ -140,6 +140,9 @@ class FeedbackLoopController:
         # Phase 23.1: Track selfplay rate changes for monitoring
         self._rate_history: dict[str, list[dict[str, Any]]] = {}
 
+        # Gap 1 fix (Dec 2025): Initialize cluster health flag
+        self._cluster_healthy = True
+
         # Configuration
         self.policy_accuracy_threshold = 0.75  # Trigger evaluation above this
         self.promotion_threshold = 0.60  # Win rate for promotion (Dec 2025: tightened from 0.55)
@@ -521,6 +524,41 @@ class FeedbackLoopController:
                 f"{old_rate:.2f}x → {new_rate:.2f}x ({change_percent:+.0f}%), "
                 f"momentum={momentum_state}"
             )
+
+            # Gap 2 fix (Dec 2025): Sync curriculum weight when rate changes significantly
+            # When Elo momentum drives big rate changes, adjust curriculum priority accordingly
+            if abs(change_percent) >= 20.0:  # 20% change threshold
+                try:
+                    from app.training.curriculum_feedback import get_curriculum_feedback
+
+                    feedback = get_curriculum_feedback()
+                    state = self._get_or_create_state(config_key)
+
+                    # Increasing rate = model improving = can reduce curriculum weight slightly
+                    # Decreasing rate = model struggling = increase curriculum weight for more focus
+                    if change_percent > 0:  # Rate increased
+                        adjustment = -0.05  # Reduce weight (less urgent)
+                    else:  # Rate decreased
+                        adjustment = 0.10  # Increase weight (more urgent)
+
+                    current_weight = feedback._current_weights.get(config_key, 1.0)
+                    new_weight = max(
+                        feedback.weight_min,
+                        min(feedback.weight_max, current_weight + adjustment)
+                    )
+
+                    if abs(new_weight - current_weight) > 0.01:
+                        feedback._current_weights[config_key] = new_weight
+                        state.current_curriculum_weight = new_weight
+
+                        logger.info(
+                            f"[FeedbackLoopController] Curriculum weight adjusted for {config_key}: "
+                            f"{current_weight:.2f} → {new_weight:.2f} (rate change {change_percent:+.0f}%)"
+                        )
+                except ImportError:
+                    logger.debug("[FeedbackLoopController] curriculum_feedback not available")
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    logger.debug(f"[FeedbackLoopController] Failed to adjust curriculum: {e}")
 
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling rate change: {e}")
@@ -1868,13 +1906,35 @@ class FeedbackLoopController:
             f"{old_status} -> {new_status}"
         )
 
-        # If critical training daemon crashed, reduce training allocation temporarily
+        # Gap 3 fix (Dec 2025): If critical training daemon crashed, pause training via feedback_accelerator
         if new_status in ["error", "stuck", "crashed"]:
             if "training" in daemon_name.lower() or "coordinator" in daemon_name.lower():
                 logger.warning(
                     f"[FeedbackLoopController] Critical daemon {daemon_name} unhealthy, "
-                    f"reducing training allocation"
+                    f"pausing training allocation"
                 )
+
+                # Pause all training via feedback_accelerator
+                try:
+                    from app.training.feedback_accelerator import get_feedback_accelerator
+
+                    accelerator = get_feedback_accelerator()
+
+                    # Pause training for all tracked configs
+                    for config_key in self._states.keys():
+                        accelerator.signal_training_needed(
+                            config_key=config_key,
+                            urgency="none",
+                            reason=f"daemon_unhealthy_{daemon_name}",
+                        )
+                        logger.info(
+                            f"[FeedbackLoopController] Paused training for {config_key} "
+                            f"due to unhealthy daemon {daemon_name}"
+                        )
+                except ImportError:
+                    logger.debug("[FeedbackLoopController] feedback_accelerator not available")
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    logger.debug(f"[FeedbackLoopController] Failed to pause training: {e}")
 
     def _on_p2p_cluster_unhealthy(self, event) -> None:
         """Handle P2P_CLUSTER_UNHEALTHY - cluster connectivity issues.
@@ -1893,12 +1953,35 @@ class FeedbackLoopController:
             f"{len(dead_nodes)} dead, {len(alive_nodes)} alive"
         )
 
-        # If too many nodes dead, pause pipeline temporarily
+        # Gap 4 fix (Dec 2025): If too many nodes dead, pause training via feedback_accelerator
         if len(dead_nodes) > len(alive_nodes):
             logger.error(
-                "[FeedbackLoopController] Majority of cluster dead, pausing feedback loop"
+                "[FeedbackLoopController] Majority of cluster dead, pausing training"
             )
             self._cluster_healthy = False
+
+            # Pause all training via feedback_accelerator
+            try:
+                from app.training.feedback_accelerator import get_feedback_accelerator
+
+                accelerator = get_feedback_accelerator()
+
+                # Pause training for all tracked configs
+                for config_key in self._states.keys():
+                    accelerator.signal_training_needed(
+                        config_key=config_key,
+                        urgency="none",
+                        reason="cluster_unhealthy_majority_dead",
+                    )
+                    logger.info(
+                        f"[FeedbackLoopController] Paused training for {config_key} "
+                        f"due to cluster health (dead={len(dead_nodes)}, alive={len(alive_nodes)})"
+                    )
+            except ImportError:
+                logger.debug("[FeedbackLoopController] feedback_accelerator not available")
+            except (AttributeError, TypeError, RuntimeError) as e:
+                logger.debug(f"[FeedbackLoopController] Failed to pause training: {e}")
+
         else:
             self._cluster_healthy = True
 

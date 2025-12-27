@@ -383,7 +383,7 @@ JSON report at `{run_dir}/nnue_policy_training_report.json`:
 
 ### Multi-Config Training
 
-Multi-config orchestration is now handled by `scripts/unified_ai_loop.py`. Policy training is
+Multi-config orchestration is now handled by `scripts/master_loop.py`. Policy training is
 configured via the unified loop config instead of per-script flags.
 
 ### Unified AI Loop

@@ -46,7 +46,8 @@ logger = logging.getLogger(__name__)
 # - v10: Added move_probs column for storing soft policy targets from MCTS search
 # - v11: Added search_stats_json column for rich training data (Q-values, uncertainty, etc.)
 # - v12: Added engine_mode column for fast AI type filtering/analysis
-SCHEMA_VERSION = 12
+# - v13: Added parity_status, parity_checked_at, parity_divergence_move for TS/Python parity tracking
+SCHEMA_VERSION = 13
 
 # Default snapshot interval (every N moves)
 DEFAULT_SNAPSHOT_INTERVAL = 20
@@ -92,7 +93,11 @@ CREATE TABLE IF NOT EXISTS games (
     quality_score REAL,
     quality_category TEXT,
     -- v12 additions: engine_mode for fast AI type filtering
-    engine_mode TEXT
+    engine_mode TEXT,
+    -- v13 additions: parity validation tracking (TS/Python replay verification)
+    parity_status TEXT DEFAULT 'pending',  -- 'passed', 'failed', 'error', 'pending', 'skipped'
+    parity_checked_at TEXT,
+    parity_divergence_move INTEGER
 );
 
 -- Indexes on games
@@ -111,6 +116,9 @@ CREATE INDEX IF NOT EXISTS idx_games_quality_board ON games(board_type, quality_
 -- Engine mode index for AI type filtering (v12)
 CREATE INDEX IF NOT EXISTS idx_games_engine_mode ON games(engine_mode);
 CREATE INDEX IF NOT EXISTS idx_games_board_engine ON games(board_type, engine_mode);
+-- Parity status index for validation queries (v13)
+CREATE INDEX IF NOT EXISTS idx_games_parity_status ON games(parity_status);
+CREATE INDEX IF NOT EXISTS idx_games_board_parity ON games(board_type, parity_status);
 
 -- Per-player metadata
 CREATE TABLE IF NOT EXISTS game_players (
@@ -1158,6 +1166,59 @@ class GameReplayDB:
 
         self._set_schema_version(conn, 12)
         logger.info("Migration to v12 complete")
+
+    def _migrate_v12_to_v13(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v12 to v13.
+
+        Adds parity validation columns for TS/Python replay verification:
+        - parity_status: 'passed', 'failed', 'error', 'pending', 'skipped'
+        - parity_checked_at: Timestamp of last parity check
+        - parity_divergence_move: Move number where divergence occurred (if failed)
+
+        This allows databases to track parity validation status without requiring
+        npx to be installed (npx required only for actual validation, not schema).
+        """
+        logger.info("Migrating schema from v12 to v13")
+
+        # Add parity_status column with default 'pending'
+        try:
+            conn.execute(
+                "ALTER TABLE games ADD COLUMN parity_status TEXT DEFAULT 'pending'"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+
+        # Add parity_checked_at column
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN parity_checked_at TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+
+        # Add parity_divergence_move column
+        try:
+            conn.execute(
+                "ALTER TABLE games ADD COLUMN parity_divergence_move INTEGER"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+
+        # Create indexes for efficient parity queries
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_games_parity_status ON games(parity_status)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_games_board_parity ON games(board_type, parity_status)"
+            )
+        except sqlite3.OperationalError as e:
+            if "already exists" not in str(e).lower():
+                raise
+
+        self._set_schema_version(conn, 13)
+        logger.info("Migration to v13 complete")
 
     # =========================================================================
     # Write Operations

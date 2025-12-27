@@ -237,6 +237,12 @@ class SelfplayScheduler:
         self._last_priority_update = 0.0
         self._priority_update_interval = 15.0  # Dec 2025: Update every 15s (was 60s)
 
+        # Node capability refresh timing.
+        # NOTE: ClusterMonitor probes can be expensive (SSH/subprocess). We rate-limit
+        # them and treat externally pre-seeded capabilities as already up-to-date.
+        self._last_node_capability_update = 0.0
+        self._node_capability_update_interval = 60.0
+
         # Event subscription
         self._subscribed = False
 
@@ -868,7 +874,28 @@ class SelfplayScheduler:
         return allocation
 
     async def _update_node_capabilities(self) -> None:
-        """Update node capability information from cluster."""
+        """Update node capability information from cluster.
+
+        This is intentionally rate-limited because ClusterMonitor may probe remote
+        hosts via subprocess/SSH. In unit tests and some callers, node capabilities
+        may be pre-seeded directly on the instance; in that case we treat them as
+        fresh and skip expensive probing.
+        """
+        now = time.time()
+
+        # If capabilities were pre-seeded externally (common in tests) and we have
+        # never performed a refresh, treat the injected snapshot as up-to-date.
+        if self._node_capabilities and self._last_node_capability_update == 0.0:
+            self._last_node_capability_update = now
+            return
+
+        if self._node_capabilities and (now - self._last_node_capability_update) < self._node_capability_update_interval:
+            return
+
+        # Mark refresh time up-front to avoid repeated expensive probes if the
+        # monitor fails repeatedly.
+        self._last_node_capability_update = now
+
         try:
             # Try getting from cluster monitor
             from app.distributed.cluster_monitor import ClusterMonitor
@@ -929,6 +956,29 @@ class SelfplayScheduler:
             f"exploration {old_boost:.2f}x → {priority.exploration_boost:.2f}x, "
             f"momentum {old_momentum:.2f}x → {priority.momentum_multiplier:.2f}x"
         )
+
+        # Emit SELFPLAY_RATE_CHANGED if momentum changed by >20%
+        if abs(priority.momentum_multiplier - old_momentum) / max(old_momentum, 0.01) > 0.20:
+            change_percent = ((priority.momentum_multiplier - old_momentum) / old_momentum) * 100.0
+            try:
+                from app.distributed.data_events import DataEventType
+                from app.coordination.event_router import get_event_bus
+
+                bus = get_event_bus()
+                if bus:
+                    bus.emit(DataEventType.SELFPLAY_RATE_CHANGED, {
+                        "config_key": config_key,
+                        "old_rate": old_momentum,
+                        "new_rate": priority.momentum_multiplier,
+                        "change_percent": change_percent,
+                        "reason": "config_boost",
+                    })
+                    logger.debug(
+                        f"[SelfplayScheduler] Emitted SELFPLAY_RATE_CHANGED for {config_key}: "
+                        f"{old_momentum:.2f} → {priority.momentum_multiplier:.2f} ({change_percent:+.1f}%)"
+                    )
+            except Exception as emit_err:
+                logger.debug(f"[SelfplayScheduler] Failed to emit SELFPLAY_RATE_CHANGED: {emit_err}")
 
         # Force priority recalculation
         self._last_priority_update = 0.0
@@ -1437,6 +1487,29 @@ class SelfplayScheduler:
                     f"[SelfplayScheduler] Negative velocity for {config_key}: "
                     f"Boosted exploration {old_boost:.2f} → {priority.exploration_boost:.2f}"
                 )
+
+            # Emit SELFPLAY_RATE_CHANGED if momentum changed by >20%
+            if abs(priority.momentum_multiplier - old_momentum) / max(old_momentum, 0.01) > 0.20:
+                change_percent = ((priority.momentum_multiplier - old_momentum) / old_momentum) * 100.0
+                try:
+                    from app.distributed.data_events import DataEventType
+                    from app.coordination.event_router import get_event_bus
+
+                    bus = get_event_bus()
+                    if bus:
+                        bus.emit(DataEventType.SELFPLAY_RATE_CHANGED, {
+                            "config_key": config_key,
+                            "old_rate": old_momentum,
+                            "new_rate": priority.momentum_multiplier,
+                            "change_percent": change_percent,
+                            "reason": f"elo_momentum:{trend}",
+                        })
+                        logger.debug(
+                            f"[SelfplayScheduler] Emitted SELFPLAY_RATE_CHANGED for {config_key}: "
+                            f"{old_momentum:.2f} → {priority.momentum_multiplier:.2f} ({change_percent:+.1f}%)"
+                        )
+                except Exception as emit_err:
+                    logger.debug(f"[SelfplayScheduler] Failed to emit SELFPLAY_RATE_CHANGED: {emit_err}")
 
             # Emit SELFPLAY_TARGET_UPDATED for downstream consumers
             try:

@@ -418,8 +418,8 @@ class TestIntegrationWithStageEvents:
             # May receive multiple events due to bidirectional routing
             # (router -> stage bus -> router). Check that we received at least one.
             assert len(received_events) >= 1
-            # Verify at least one has the expected event type
+            # Router normalizes event types to canonical UPPERCASE forms.
             event_types = [e.event_type for e in received_events]
-            assert "selfplay_complete" in event_types
+            assert "SELFPLAY_COMPLETE" in event_types
         except ImportError:
             pytest.skip("stage_events not available")

@@ -9,7 +9,7 @@ The codebase has two main coordination layers:
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         USER CODE                                    │
-│  (scripts/unified_ai_loop.py, training loops, tournament runners)   │
+│  (scripts/master_loop.py, training loops, tournament runners)       │
 └─────────────────────────────┬───────────────────────────────────────┘
                               │
         ┌─────────────────────┼─────────────────────┐

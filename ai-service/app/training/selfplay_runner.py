@@ -1441,16 +1441,43 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         self._base_budget = base_budget  # Store for potential reinitialization
         self._current_budget = budget
 
+        # Get opponent strength multiplier (from ADAPTIVE_PARAMS_CHANGED events)
+        # Phase 5 Dec 2025: Complete feedback loop for adaptive opponent strength
+        opponent_strength = getattr(self, "_adaptive_opponent_strength", 1.0)
+
         # Create MCTS instances for each player (required for correct move generation)
         # Each player needs their own MCTS with correct player_number for get_valid_moves
+        # Player 1 (index 0) is the current model at full strength
+        # Other players are opponents with potentially reduced strength
         for p in range(1, self.config.num_players + 1):
+            if p == 1:
+                # Current model uses full budget
+                player_budget = budget
+            else:
+                # Opponents use adjusted budget based on strength multiplier
+                # opponent_strength < 1.0 = weaker opponent (less search)
+                # opponent_strength > 1.0 = stronger opponent (more search)
+                player_budget = max(16, int(budget * opponent_strength))
+
             self._mcts_instances[p] = create_mcts(
                 board_type=board_type.value,
                 num_players=self.config.num_players,
                 player_number=p,  # Critical: pass correct player_number
                 mode="standard",
-                simulation_budget=budget,
+                simulation_budget=player_budget,
                 device=self.config.device or "cuda",
+            )
+            # Enable GPU tree search for 10-20x speedup (December 2025)
+            # This accelerates the sequential halving loop using GPU tensor operations
+            if (self.config.device or "cuda") == "cuda":
+                self._mcts_instances[p]._use_gpu_tree = True
+
+        # Log if opponent strength differs from default
+        if opponent_strength != 1.0:
+            logger.info(
+                f"[OpponentStrength] Adjusted opponent budgets: current_model={budget}, "
+                f"opponents={max(16, int(budget * opponent_strength))} "
+                f"(strength={opponent_strength:.2f})"
             )
 
     def run_game(self, game_idx: int) -> GameResult:

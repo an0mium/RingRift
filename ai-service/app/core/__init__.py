@@ -102,6 +102,15 @@ from app.core.tasks import (
     get_task_manager,
 )
 
+# ComponentRegistry - centralized singleton management (December 2025)
+from app.core.component_registry import (
+    ComponentInfo,
+    ComponentRegistry,
+    component,
+    get_registry,
+    reset_registry,
+)
+
 # =============================================================================
 # Lazy imports for modules with heavy dependencies
 # =============================================================================

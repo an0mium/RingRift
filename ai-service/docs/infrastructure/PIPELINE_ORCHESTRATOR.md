@@ -1,7 +1,7 @@
 # Pipeline Orchestrator
 
 > ⚠️ **DEPRECATED:** This document describes the legacy pipeline orchestrator which has been removed.
-> **Replacement:** Use the [Unified AI Loop](../training/UNIFIED_AI_LOOP.md) instead (`scripts/unified_ai_loop.py`).
+> **Replacement:** Use the [Unified AI Loop](../training/UNIFIED_AI_LOOP.md) instead (`scripts/master_loop.py`).
 > **Archive Location:** Removed (see git history)
 >
 > _The unified loop integrates all pipeline phases into a single daemon with better coordination, P2P support, and adaptive scheduling._

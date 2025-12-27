@@ -278,12 +278,12 @@ ai-service/
 
 ### Key Components
 
-| Component                    | Description                   |
-| ---------------------------- | ----------------------------- |
-| `app/ai/nnue_policy.py`      | NNUE policy network           |
-| `app/ai/mcts_ai.py`          | Monte Carlo Tree Search       |
-| `app/training/train.py`      | Main training loop            |
-| `scripts/unified_ai_loop.py` | Self-improvement orchestrator |
+| Component                | Description                   |
+| ------------------------ | ----------------------------- |
+| `app/ai/nnue_policy.py`  | NNUE policy network           |
+| `app/ai/mcts_ai.py`      | Monte Carlo Tree Search       |
+| `app/training/train.py`  | Main training loop            |
+| `scripts/master_loop.py` | Self-improvement orchestrator |
 
 ### Adding a New AI Type
 

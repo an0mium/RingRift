@@ -1,5 +1,5 @@
 [Unit]
-Description=RingRift Unified AI Self-Improvement Loop
+Description=RingRift Unified AI Loop (Legacy Name - Runs Master Loop)
 Documentation=https://github.com/ringrift/ai-service
 After=network-online.target
 Wants=network-online.target
@@ -16,8 +16,7 @@ Environment="PYTHONPATH=/home/ubuntu/ringrift/ai-service"
 
 # Main process
 ExecStart=/home/ubuntu/ringrift/ai-service/venv/bin/python \
-    scripts/unified_ai_loop.py \
-    --foreground \
+    scripts/master_loop.py \
     --config config/unified_loop.yaml
 
 # Restart policy

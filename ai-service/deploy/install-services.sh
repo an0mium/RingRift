@@ -10,7 +10,7 @@ SYSTEMD_DIR="/etc/systemd/system"
 
 # Services to install
 SERVICES=(
-    "unified-ai-loop"
+    "master-loop"
     "streaming-data-collector"
     "shadow-tournament"
     "model-promoter"
@@ -54,7 +54,7 @@ if [[ $# -eq 0 ]]; then
 
     echo ""
     echo "Services installed. To enable and start:"
-    echo "  sudo systemctl enable --now unified-ai-loop"
+    echo "  sudo systemctl enable --now master-loop"
     echo ""
     echo "Or for standalone components:"
     echo "  sudo systemctl enable --now streaming-data-collector"
@@ -69,5 +69,5 @@ fi
 
 echo ""
 echo "Done. Check status with:"
-echo "  sudo systemctl status unified-ai-loop"
-echo "  journalctl -u unified-ai-loop -f"
+echo "  sudo systemctl status master-loop"
+echo "  journalctl -u master-loop -f"

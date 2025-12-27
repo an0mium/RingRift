@@ -444,7 +444,7 @@ Rollback is triggered in these scenarios:
 The unified AI loop can optionally include automatic rollback monitoring:
 
 ```python
-# In unified_ai_loop.py
+# In master_loop.py
 from app.training.promotion_controller import RollbackMonitor
 
 class UnifiedAILoop:

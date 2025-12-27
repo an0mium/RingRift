@@ -206,7 +206,7 @@ MIN_INTENSITY_MULTIPLIER = 0.5  # Min (for regression)
 ### With Unified Loop
 
 ```python
-# In unified_ai_loop.py
+# In master_loop.py
 from app.training.feedback_accelerator import get_feedback_accelerator
 
 accelerator = get_feedback_accelerator()

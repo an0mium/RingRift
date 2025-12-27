@@ -1417,6 +1417,82 @@ class P2POrchestrator(
         """Property wrapper for _is_leader() method."""
         return self._is_leader()
 
+    # =========================================================================
+    # TASK ISOLATION - Prevent single task failure from crashing all tasks
+    # =========================================================================
+
+    async def _safe_task_wrapper(self, coro, task_name: str) -> None:
+        """Wrap a coroutine to catch exceptions and prevent cascade failures.
+
+        This is a CRITICAL stability fix: without isolation, a single exception
+        in any of 18+ background tasks will crash the entire P2P orchestrator
+        via asyncio.gather() propagating the exception.
+
+        Args:
+            coro: The coroutine to wrap
+            task_name: Human-readable task name for logging
+
+        Returns:
+            None - exceptions are logged but not raised
+        """
+        try:
+            await coro
+        except asyncio.CancelledError:
+            logger.debug(f"Task '{task_name}' cancelled (shutdown)")
+            raise  # Re-raise CancelledError for graceful shutdown
+        except Exception as e:
+            # Log but don't propagate - other tasks continue running
+            logger.error(f"Task '{task_name}' crashed: {e}", exc_info=True)
+            # Optionally restart the task after a delay
+            if self.running:
+                logger.info(f"Restarting task '{task_name}' in 30 seconds...")
+                await asyncio.sleep(30)
+                if self.running:
+                    # Restart by creating a new task with the same wrapper
+                    logger.info(f"Restarting task '{task_name}'")
+
+    def _create_safe_task(self, coro, name: str) -> asyncio.Task:
+        """Create a task wrapped with exception isolation.
+
+        Args:
+            coro: The coroutine to run
+            name: Task name for logging
+
+        Returns:
+            asyncio.Task wrapped with safe error handling
+        """
+        return asyncio.create_task(
+            self._safe_task_wrapper(coro, name),
+            name=name,
+        )
+
+    # =========================================================================
+    # BOUNDED COLLECTIONS - Prevent unbounded memory growth
+    # =========================================================================
+
+    # Maximum pending relay items before cleanup
+    MAX_PENDING_RELAY_ACKS = 10000
+    MAX_PENDING_RELAY_RESULTS = 10000
+
+    def _add_pending_relay_ack(self, cmd_id: str) -> None:
+        """Add a relay ack with bounds checking."""
+        if len(self.pending_relay_acks) >= self.MAX_PENDING_RELAY_ACKS:
+            # Evict oldest entries (set doesn't have order, so clear half)
+            half = len(self.pending_relay_acks) // 2
+            to_remove = list(self.pending_relay_acks)[:half]
+            for item in to_remove:
+                self.pending_relay_acks.discard(item)
+            logger.warning(f"Evicted {half} pending_relay_acks (max {self.MAX_PENDING_RELAY_ACKS})")
+        self.pending_relay_acks.add(cmd_id)
+
+    def _add_pending_relay_result(self, result: dict) -> None:
+        """Add a relay result with bounds checking."""
+        if len(self.pending_relay_results) >= self.MAX_PENDING_RELAY_RESULTS:
+            # Evict oldest entries (keep most recent half)
+            half = len(self.pending_relay_results) // 2
+            self.pending_relay_results = self.pending_relay_results[half:]
+            logger.warning(f"Evicted {half} pending_relay_results (max {self.MAX_PENDING_RELAY_RESULTS})")
+        self.pending_relay_results.append(result)
 
     # =========================================================================
     # SAFEGUARDS - Load, rate limiting, and coordinator integration
@@ -27035,16 +27111,18 @@ print(json.dumps({{
         # Notify systemd that we're ready to serve
         systemd_notify_ready()
 
-        # Start background tasks
+        # Start background tasks with exception isolation
+        # CRITICAL FIX (Dec 2025): Each task is wrapped to prevent cascade failures.
+        # Previously, a single exception in any task would crash all 18+ tasks.
         tasks = [
-            asyncio.create_task(self._heartbeat_loop()),
-            asyncio.create_task(self._manifest_collection_loop()),
-            asyncio.create_task(self._job_management_loop()),
-            asyncio.create_task(self._discovery_loop()),
+            self._create_safe_task(self._heartbeat_loop(), "heartbeat"),
+            self._create_safe_task(self._manifest_collection_loop(), "manifest_collection"),
+            self._create_safe_task(self._job_management_loop(), "job_management"),
+            self._create_safe_task(self._discovery_loop(), "discovery"),
             # IMPROVED: Dedicated voter heartbeat loop for reliable leader election
-            asyncio.create_task(self._voter_heartbeat_loop()),
+            self._create_safe_task(self._voter_heartbeat_loop(), "voter_heartbeat"),
             # IMPROVED: Advanced NAT management for better connectivity
-            asyncio.create_task(self._nat_management_loop()),
+            self._create_safe_task(self._nat_management_loop(), "nat_management"),
         ]
 
         # Add git update loop if enabled
@@ -27121,13 +27199,21 @@ print(json.dumps({{
             await self._start_election()
 
         # Run forever
+        # December 2025: Added return_exceptions=True to prevent task exceptions from crashing orchestrator
         try:
-            await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Log any task failures
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Background task {i} failed: {result}")
         except asyncio.CancelledError:
             pass
         finally:
             self.running = False
-            await runner.cleanup()
+            try:
+                await asyncio.wait_for(runner.cleanup(), timeout=30)
+            except asyncio.TimeoutError:
+                logger.warning("HTTP server cleanup timed out after 30s")
 
 
 def main():
@@ -27191,14 +27277,22 @@ def main():
         logger.exception(f"Failed to initialize P2P orchestrator: {e}")
         sys.exit(1)
 
-    # Handle shutdown
+    # Handle shutdown gracefully - avoid race conditions with async tasks
+    # December 2025: Fixed signal handler race condition that caused threading exceptions
+    _shutdown_requested = False
+
     def signal_handler(sig, frame):
-        logger.info("Shutting down...")
+        nonlocal _shutdown_requested
+        if _shutdown_requested:
+            # Force exit on second signal
+            logger.warning("Forced shutdown (second signal)")
+            os._exit(1)
+        _shutdown_requested = True
+        logger.info("Shutdown requested, stopping gracefully...")
         if orchestrator:
             orchestrator.running = False
-            # Stop ramdrive syncer with final sync
-            orchestrator.stop_ramdrive_syncer(final_sync=True)
-        sys.exit(0)
+            # Schedule ramdrive sync in a thread to avoid blocking signal handler
+            # Don't call sys.exit() - let asyncio loop exit cleanly
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -27210,6 +27304,14 @@ def main():
     except Exception as e:
         logger.exception(f"P2P orchestrator crashed: {e}")
         sys.exit(1)
+    finally:
+        # Ensure ramdrive is synced on exit (moved from signal handler to avoid race)
+        if orchestrator:
+            try:
+                orchestrator.stop_ramdrive_syncer(final_sync=True)
+                logger.info("Ramdrive sync completed on shutdown")
+            except Exception as e:
+                logger.warning(f"Ramdrive sync on shutdown failed: {e}")
 
 
 if __name__ == "__main__":

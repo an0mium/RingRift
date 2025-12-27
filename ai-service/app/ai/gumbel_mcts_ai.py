@@ -131,6 +131,10 @@ class LeafEvaluationBuffer:
     def flush(self, value_head: int | None = None) -> list[tuple[int, int, float]]:
         """Evaluate all pending states in batch.
 
+        Args:
+            value_head: If not None, indicates per-player value head is being used
+                       (3+ player game), so perspective flipping should be skipped.
+
         Returns:
             List of (action_idx, simulation_idx, value) tuples.
         """
@@ -148,11 +152,15 @@ class LeafEvaluationBuffer:
             logger.warning(f"Batch evaluation failed: {e}")
             values = [0.0] * len(states)
 
-        # Build result with perspective flipping
+        # Build result with perspective flipping.
+        # For 2-player games (value_head is None), flip for opponent perspective.
+        # For 3+ player games (value_head is set), the value is already from
+        # our perspective via the value_head selection, so no flip is needed.
+        use_multiplayer_heads = value_head is not None
         results = []
         for i, req in enumerate(self.pending):
             value = float(values[i]) if i < len(values) else 0.0
-            if req.is_opponent_perspective:
+            if req.is_opponent_perspective and not use_multiplayer_heads:
                 value = -value
             results.append((req.action_idx, req.simulation_idx, value))
 
@@ -512,6 +520,15 @@ class GumbelMCTSAI(BaseAI):
             Value estimate in [-1, 1] from the root player's perspective.
         """
         sim_state = mstate.to_immutable()
+        num_players = _infer_num_players(sim_state)
+
+        # For 3+ players with per-player value heads, we get the value directly
+        # from our player's perspective, so no negation is needed.
+        use_multiplayer_heads = (
+            num_players > 2
+            and self.neural_net is not None
+            and getattr(self.neural_net, "num_players", 4) >= num_players
+        )
 
         # Try NN evaluation first
         nn_value: float | None = None
@@ -537,8 +554,8 @@ class GumbelMCTSAI(BaseAI):
             heuristic_ai = self._ensure_heuristic_evaluator()
             if heuristic_ai is not None:
                 try:
-                    # Evaluate from the current player's perspective, then flip if needed.
-                    heuristic_ai.player_number = sim_state.current_player
+                    # Evaluate from our player's perspective
+                    heuristic_ai.player_number = self.player_number
                     raw_score = heuristic_ai.evaluate_position(sim_state)
                     heuristic_value = self._normalize_heuristic_score(raw_score)
                 except (RuntimeError, ValueError, AttributeError) as e:
@@ -563,8 +580,10 @@ class GumbelMCTSAI(BaseAI):
             # No evaluation available
             value = 0.0
 
-        # Flip for opponent perspective
-        if is_opponent_perspective:
+        # For 2-player games, flip value for opponent perspective.
+        # For 3+ player games with per-player value heads, the value is already
+        # from our perspective (via value_head selection), so no flip needed.
+        if is_opponent_perspective and not use_multiplayer_heads:
             value = -value
 
         return value
@@ -900,6 +919,14 @@ class GumbelMCTSAI(BaseAI):
         evaluation_requests: list[tuple[int, GameState, bool]] = []
         terminal_values: dict[int, list[float]] = {i: [] for i in range(len(actions))}
 
+        # Check if we're using per-player value heads (3+ players)
+        num_players = _infer_num_players(game_state)
+        use_multiplayer_heads = (
+            num_players > 2
+            and self.neural_net is not None
+            and getattr(self.neural_net, "num_players", 4) >= num_players
+        )
+
         for action_idx, action in enumerate(actions):
             mstate = MutableGameState.from_immutable(game_state)
             undo = mstate.make_move(action.move)
@@ -918,7 +945,11 @@ class GumbelMCTSAI(BaseAI):
                     terminal_values[action_idx].append(value)
                 else:
                     # Non-terminal - add to batch
-                    needs_flip = sim_state.current_player != self.player_number
+                    # needs_flip only applies for 2-player games
+                    needs_flip = (
+                        not use_multiplayer_heads
+                        and sim_state.current_player != self.player_number
+                    )
                     evaluation_requests.append((action_idx, sim_state, needs_flip))
 
             mstate.unmake_move(undo)
@@ -956,6 +987,8 @@ class GumbelMCTSAI(BaseAI):
                 self._shadow_validate_batch(evaluation_requests, all_values)
 
             # Aggregate values back to actions
+            # For 2-player games, flip value if it's the opponent's turn.
+            # For 3+ player games with per-player value heads, no flip needed.
             for i, (action_idx, _, needs_flip) in enumerate(evaluation_requests):
                 value = all_values[i] if i < len(all_values) else 0.0
                 if needs_flip:
@@ -1565,6 +1598,15 @@ class GumbelMCTSAI(BaseAI):
         node = root
         depth = 0
 
+        # Check if using multiplayer value heads (3+ players)
+        sim_state = mstate.to_immutable()
+        num_players = _infer_num_players(sim_state)
+        use_multiplayer_heads = (
+            num_players > 2
+            and self.neural_net is not None
+            and getattr(self.neural_net, "num_players", 4) >= num_players
+        )
+
         # Selection phase - traverse tree until leaf
         while depth < max_depth and not mstate.is_game_over():
             valid_moves = self.rules_engine.get_valid_moves(
@@ -1627,12 +1669,15 @@ class GumbelMCTSAI(BaseAI):
             child_node.visit_count += 1
             child_node.total_value += current_value
 
-            # Flip value for opponent nodes
-            if child_node.parent and (
-                child_node.to_move_is_root
-                != getattr(child_node.parent, "to_move_is_root", True)
-            ):
-                current_value = -current_value
+            # For 2-player games, flip value for opponent nodes.
+            # For 3+ player games with per-player value heads, the value is already
+            # from our perspective, so no flip is needed during backpropagation.
+            if not use_multiplayer_heads:
+                if child_node.parent and (
+                    child_node.to_move_is_root
+                    != getattr(child_node.parent, "to_move_is_root", True)
+                ):
+                    current_value = -current_value
 
             # Unmake move
             mstate.unmake_move(undo)

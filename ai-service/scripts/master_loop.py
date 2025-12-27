@@ -40,6 +40,9 @@ Usage:
     # Skip daemons (for testing)
     python scripts/master_loop.py --skip-daemons
 
+    # Load configs from unified_loop.yaml
+    python scripts/master_loop.py --config config/unified_loop.yaml
+
 December 2025: Created as part of strategic integration plan.
 """
 
@@ -77,6 +80,7 @@ from app.config.thresholds import (
     get_promotion_thresholds,
     get_gpu_weight,
 )
+from app.config.unified_config import get_config
 
 # Import coordination bootstrap for event wiring (December 2025)
 # This is critical for feedback loops to function properly
@@ -602,7 +606,14 @@ class MasterLoopController:
     # =========================================================================
 
     def _get_daemons_for_profile(self) -> list["DaemonType"]:
-        """Resolve daemon list for the selected profile."""
+        """Resolve daemon list for the selected profile.
+
+        December 2025: Coordinator-only mode
+        When running on a coordinator node (role: coordinator in distributed_hosts.yaml),
+        intensive daemons (selfplay, training, gauntlet, export) are automatically filtered out.
+        Coordinators only run sync, monitoring, and health daemons.
+        """
+        from app.config.env import env
         from app.coordination.daemon_manager import DaemonType
 
         minimal = [
@@ -648,6 +659,30 @@ class MasterLoopController:
         }
 
         daemons = profiles.get(self.daemon_profile, standard)
+
+        # December 2025: Coordinator-only mode filtering
+        # When running on a coordinator node, filter out intensive daemons
+        if env.is_coordinator:
+            # Daemons that run CPU/GPU intensive processes
+            # These should NEVER run on coordinator nodes
+            intensive_daemons = {
+                DaemonType.IDLE_RESOURCE,           # spawns selfplay
+                DaemonType.TRAINING_NODE_WATCHER,   # monitors training
+                DaemonType.AUTO_EXPORT,             # exports training data (CPU-bound)
+                DaemonType.TOURNAMENT_DAEMON,       # runs tournaments
+                DaemonType.EVALUATION,              # runs gauntlets
+                DaemonType.AUTO_PROMOTION,          # triggers promotion (can spawn gauntlet)
+                DaemonType.QUEUE_POPULATOR,         # can spawn selfplay
+                DaemonType.UTILIZATION_OPTIMIZER,   # spawns processes on idle GPUs
+            }
+            original_count = len(daemons)
+            daemons = [d for d in daemons if d not in intensive_daemons]
+            filtered_count = original_count - len(daemons)
+            if filtered_count > 0:
+                logger.info(
+                    f"[MasterLoop] Coordinator-only mode: filtered out {filtered_count} "
+                    f"intensive daemons (node: {env.node_id})"
+                )
 
         # Ensure event router starts first when present
         if DaemonType.EVENT_ROUTER in daemons:
@@ -1303,6 +1338,11 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--config",
+        type=str,
+        help="Path to unified loop config (default: config/unified_loop.yaml)",
+    )
+    parser.add_argument(
         "--configs",
         type=str,
         help="Comma-separated list of configs to manage (default: all)",
@@ -1351,6 +1391,9 @@ async def main() -> None:
     configs = None
     if args.configs:
         configs = [c.strip() for c in args.configs.split(",")]
+    elif args.config:
+        config = get_config(config_path=args.config, force_reload=True)
+        configs = [bc.config_key for bc in config.get_all_board_configs()]
 
     # Create controller
     controller = MasterLoopController(

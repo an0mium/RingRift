@@ -64,16 +64,17 @@ elo_sync:
 # Do NOT set p2p_voter: true on individual nodes - it will be ignored.
 # The p2p_voters list below is the authoritative voter configuration.
 #
-# Dec 26, 2025: Diversified voters across providers for resilience
-# - Local: mac-studio (coordinator, always available)
-# - Nebius: 2 H100 nodes (stable backbone)
-# - Vast.ai: 1 node (different provider/region)
+# Dec 27, 2025: Fixed voters - only nodes with nat_blocked=false
+# Previous config had mac-studio (NAT blocked), vast-29129529 (retired)
+# Selecting nodes that are: online, not NAT blocked, not retired
 # With 5 voters, quorum = 3 (majority)
+# Dec 26, 2025: Removed aws-staging (undefined host), added vultr-a100-20gb
 p2p_voters:
-  - mac-studio        # Local coordinator (always reachable)
-  - nebius-backbone-1 # Nebius (EU)
-  - nebius-h100-1     # Nebius (EU)
-  - vast-29129529     # Vast.ai 8x RTX 4090 (different provider)
+  - nebius-backbone-1 # Nebius L40S - stable, not NAT blocked
+  - nebius-h100-3     # Nebius H100 - stable, not NAT blocked
+  - hetzner-cpu1      # Hetzner CPU - stable, not NAT blocked
+  - vultr-a100-20gb   # Vultr A100 - stable, not NAT blocked
+  - runpod-h100       # RunPod H100 - stable, high uptime
 
 hosts:
   # ============================================================

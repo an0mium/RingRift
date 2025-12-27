@@ -274,7 +274,7 @@ scheduler = CosineScheduler(
 
 ## Integration with Unified Loop
 
-All these modules integrate with `scripts/unified_ai_loop.py`:
+All these modules integrate with `scripts/master_loop.py`:
 
 ```yaml
 # config/unified_loop.yaml

@@ -234,6 +234,82 @@ def _build_registry() -> dict[str, DaemonSpec]:
             import_path="app.coordination.s3_backup_daemon",
             class_name="S3BackupDaemon",
         ),
+
+        # =================================================================
+        # Resource & Utilization Daemons
+        # =================================================================
+        DaemonType.IDLE_RESOURCE.name: DaemonSpec(
+            import_path="app.coordination.idle_resource_daemon",
+            class_name="IdleResourceDaemon",
+        ),
+        DaemonType.QUEUE_POPULATOR.name: DaemonSpec(
+            import_path="app.coordination.queue_populator_daemon",
+            class_name="QueuePopulatorDaemon",
+        ),
+        DaemonType.NODE_RECOVERY.name: DaemonSpec(
+            import_path="app.coordination.node_recovery_daemon",
+            class_name="NodeRecoveryDaemon",
+        ),
+        DaemonType.UTILIZATION_OPTIMIZER.name: DaemonSpec(
+            import_path="app.coordination.utilization_optimizer",
+            class_name="UtilizationOptimizer",
+        ),
+        DaemonType.CLUSTER_WATCHDOG.name: DaemonSpec(
+            import_path="app.coordination.cluster_watchdog_daemon",
+            class_name="ClusterWatchdogDaemon",
+        ),
+
+        # =================================================================
+        # Pipeline Automation Daemons
+        # =================================================================
+        DaemonType.AUTO_EXPORT.name: DaemonSpec(
+            import_path="app.coordination.auto_export_daemon",
+            class_name="AutoExportDaemon",
+        ),
+        DaemonType.TRAINING_TRIGGER.name: DaemonSpec(
+            import_path="app.coordination.training_trigger_daemon",
+            class_name="TrainingTriggerDaemon",
+        ),
+        DaemonType.DATA_CLEANUP.name: DaemonSpec(
+            import_path="app.coordination.data_cleanup_daemon",
+            class_name="DataCleanupDaemon",
+        ),
+        DaemonType.DLQ_RETRY.name: DaemonSpec(
+            import_path="app.coordination.dead_letter_queue",
+            class_name="DLQRetryDaemon",
+        ),
+
+        # =================================================================
+        # Health & System Monitoring
+        # =================================================================
+        DaemonType.SYSTEM_HEALTH_MONITOR.name: DaemonSpec(
+            import_path="app.coordination.system_health_monitor",
+            class_name="SystemHealthMonitorDaemon",
+        ),
+        DaemonType.MAINTENANCE.name: DaemonSpec(
+            import_path="app.coordination.maintenance_daemon",
+            class_name="MaintenanceDaemon",
+        ),
+
+        # =================================================================
+        # Cost Optimization Daemons
+        # =================================================================
+        DaemonType.LAMBDA_IDLE.name: DaemonSpec(
+            import_path="app.coordination.lambda_idle_daemon",
+            class_name="LambdaIdleDaemon",
+        ),
+        DaemonType.VAST_IDLE.name: DaemonSpec(
+            import_path="app.coordination.vast_idle_daemon",
+            class_name="VastIdleDaemon",
+        ),
+
+        # =================================================================
+        # Feedback & Curriculum Daemons
+        # =================================================================
+        DaemonType.FEEDBACK_LOOP.name: DaemonSpec(
+            import_path="app.coordination.feedback_loop_controller",
+            class_name="FeedbackLoopController",
+        ),
     }
 
 

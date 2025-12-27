@@ -290,6 +290,172 @@ class RingRiftEnv:
         return os.environ.get("RINGRIFT_P2P_AUTO_UPDATE", "false").strip().lower() in ("1", "true", "yes")
 
     # ==========================================================================
+    # Coordinator-Only Mode (Dec 2025)
+    # ==========================================================================
+
+    @cached_property
+    def is_coordinator(self) -> bool:
+        """Check if this node is a coordinator-only node.
+
+        Coordinators should NOT run CPU/GPU intensive processes like:
+        - Training
+        - Selfplay
+        - Gauntlet/evaluation
+        - Export
+
+        Coordinators CAN run:
+        - P2P daemon
+        - Sync daemons
+        - Monitoring
+        - Health checks
+
+        Detection order:
+        1. RINGRIFT_IS_COORDINATOR environment variable
+        2. Check distributed_hosts.yaml for role: coordinator
+        """
+        # Explicit environment variable takes precedence
+        explicit = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower()
+        if explicit in ("1", "true", "yes"):
+            return True
+        if explicit in ("0", "false", "no"):
+            return False
+
+        # Fall back to distributed_hosts.yaml
+        return self._check_coordinator_from_config()
+
+    @cached_property
+    def selfplay_enabled(self) -> bool:
+        """Whether selfplay is enabled on this node."""
+        # Explicit override
+        explicit = os.environ.get("RINGRIFT_SELFPLAY_ENABLED", "").lower()
+        if explicit in ("0", "false", "no"):
+            return False
+        if explicit in ("1", "true", "yes"):
+            return True
+        # Coordinators have selfplay disabled by default
+        if self.is_coordinator:
+            return False
+        # Check config
+        return self._get_node_config_bool("selfplay_enabled", default=True)
+
+    @cached_property
+    def training_enabled(self) -> bool:
+        """Whether training is enabled on this node."""
+        explicit = os.environ.get("RINGRIFT_TRAINING_ENABLED", "").lower()
+        if explicit in ("0", "false", "no"):
+            return False
+        if explicit in ("1", "true", "yes"):
+            return True
+        if self.is_coordinator:
+            return False
+        return self._get_node_config_bool("training_enabled", default=True)
+
+    @cached_property
+    def gauntlet_enabled(self) -> bool:
+        """Whether gauntlet/evaluation is enabled on this node."""
+        explicit = os.environ.get("RINGRIFT_GAUNTLET_ENABLED", "").lower()
+        if explicit in ("0", "false", "no"):
+            return False
+        if explicit in ("1", "true", "yes"):
+            return True
+        if self.is_coordinator:
+            return False
+        return self._get_node_config_bool("gauntlet_enabled", default=True)
+
+    @cached_property
+    def export_enabled(self) -> bool:
+        """Whether data export is enabled on this node."""
+        explicit = os.environ.get("RINGRIFT_EXPORT_ENABLED", "").lower()
+        if explicit in ("0", "false", "no"):
+            return False
+        if explicit in ("1", "true", "yes"):
+            return True
+        if self.is_coordinator:
+            return False
+        return self._get_node_config_bool("export_enabled", default=True)
+
+    def _check_coordinator_from_config(self) -> bool:
+        """Check distributed_hosts.yaml for coordinator role."""
+        try:
+            config = self._get_node_config()
+            if config:
+                return config.get("role", "").lower() == "coordinator"
+        except Exception:
+            pass
+        return False
+
+    def _get_node_config(self) -> dict | None:
+        """Get this node's config from distributed_hosts.yaml."""
+        try:
+            import yaml
+            config_paths = [
+                self.ai_service_path / "config" / "distributed_hosts.yaml",
+                Path("/Users/armand/Development/RingRift/ai-service/config/distributed_hosts.yaml"),
+            ]
+            for config_path in config_paths:
+                if config_path.exists():
+                    with open(config_path) as f:
+                        config = yaml.safe_load(f)
+                    hosts = config.get("hosts", {})
+                    # Check by node_id first
+                    if self.node_id in hosts:
+                        return hosts[self.node_id]
+                    # Check by hostname
+                    if self.hostname in hosts:
+                        return hosts[self.hostname]
+                    # Check for Mac-specific hostname patterns
+                    hostname_lower = self.hostname.lower()
+                    is_mac = (
+                        "macbook" in hostname_lower
+                        or "mac-studio" in hostname_lower
+                        or hostname_lower.startswith("armand")
+                        or hostname_lower == "localhost"
+                    )
+                    if is_mac:
+                        # Prefer local-mac for laptops, mac-studio for desktop
+                        if "local-mac" in hosts and "macbook" in hostname_lower:
+                            return hosts["local-mac"]
+                        elif "mac-studio" in hosts and "studio" in hostname_lower:
+                            return hosts["mac-studio"]
+                        # Fallback to any coordinator entry for local development
+                        for name in ["local-mac", "mac-studio"]:
+                            if name in hosts:
+                                return hosts[name]
+            return None
+        except Exception:
+            return None
+
+    def _get_node_config_bool(self, key: str, default: bool = True) -> bool:
+        """Get a boolean from node config."""
+        config = self._get_node_config()
+        if config and key in config:
+            val = config[key]
+            if isinstance(val, bool):
+                return val
+            return str(val).lower() in ("1", "true", "yes")
+        return default
+
+    def should_skip_intensive_process(self, process_type: str = "any") -> bool:
+        """Check if this node should skip running intensive processes.
+
+        Args:
+            process_type: One of 'selfplay', 'training', 'gauntlet', 'export', 'any'
+
+        Returns:
+            True if the process should be SKIPPED on this node.
+        """
+        if process_type == "selfplay":
+            return not self.selfplay_enabled
+        elif process_type == "training":
+            return not self.training_enabled
+        elif process_type == "gauntlet":
+            return not self.gauntlet_enabled
+        elif process_type == "export":
+            return not self.export_enabled
+        else:  # "any"
+            return self.is_coordinator
+
+    # ==========================================================================
     # Training
     # ==========================================================================
 

@@ -1,0 +1,42 @@
+[Unit]
+Description=RingRift Master Loop (Canonical AI Orchestrator)
+Documentation=https://github.com/ringrift/ai-service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ringrift/ai-service
+Environment="PATH=/home/ubuntu/ringrift/ai-service/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/home/ubuntu/ringrift/ai-service"
+Environment="PYTHONUNBUFFERED=1"
+
+# Main process
+ExecStart=/home/ubuntu/ringrift/ai-service/venv/bin/python scripts/master_loop.py --config config/unified_loop.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart configuration
+Restart=always
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Resource limits
+MemoryMax=8G
+CPUQuota=200%
+
+# Logging
+StandardOutput=append:/home/ubuntu/ringrift/ai-service/logs/unified_loop/daemon.log
+StandardError=append:/home/ubuntu/ringrift/ai-service/logs/unified_loop/daemon.log
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/ringrift/ai-service/logs
+ReadWritePaths=/home/ubuntu/ringrift/ai-service/data
+
+[Install]
+WantedBy=multi-user.target

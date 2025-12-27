@@ -1,8 +1,11 @@
 # Integration Migration Plan
 
 > **Status Update (2025-12-14)**: Migration largely complete. `continuous_improvement_daemon.py`
-> is now DEPRECATED in favor of `unified_ai_loop.py`. See [ORCHESTRATOR_SELECTION.md](../infrastructure/ORCHESTRATOR_SELECTION.md)
+> is now DEPRECATED in favor of `master_loop.py`. See [ORCHESTRATOR_SELECTION.md](../infrastructure/ORCHESTRATOR_SELECTION.md)
 > for current guidance on which script to use.
+
+> **Note:** References to `unified_ai_loop.py` in this document refer to the legacy monolithic loop.
+> The canonical orchestrator is now `scripts/master_loop.py`.
 
 This document outlines the migration plan for consolidating duplicate components and improving integration across the RingRift AI training infrastructure.
 
@@ -59,11 +62,11 @@ from app.training.elo_service import (
 - Scripts updated: ~~`pipeline_orchestrator.py`~~ (now deprecated), `continuous_improvement_daemon.py`
 - Full deprecation: Next major version
 
-### 2. Direct SQLite ELO Access in `unified_ai_loop.py`
+### 2. Direct SQLite ELO Access in legacy `unified_ai_loop.py`
 
 **Status**: ✅ COMPLETE (Dec 2025)
 
-All Elo database access in `unified_ai_loop.py` now uses the centralized `EloService`:
+All Elo database access in the legacy `unified_ai_loop.py` now uses the centralized `EloService`:
 
 ```python
 # Current implementation uses EloService throughout
@@ -95,7 +98,7 @@ if get_elo_service is not None:
 
 All EloService migration tasks have been completed:
 
-1. ✅ `unified_ai_loop.py` uses `get_elo_service()` for all Elo database access
+1. ✅ Legacy `unified_ai_loop.py` uses `get_elo_service()` for all Elo database access
 2. ✅ Model promotion and curriculum components use EloService or delegate to services that do
 3. ✅ `elo_service.py` updated to use new `app.coordination` module (Dec 2025)
 
@@ -118,7 +121,7 @@ All EloService migration tasks have been completed:
 
 1. Keep scripts separate
 2. Consider extracting shared utilities (cluster host management, SSH) to common library
-3. `run_diverse_tournaments.py` is already integrated into `unified_ai_loop.py`
+3. `run_diverse_tournaments.py` is already integrated into legacy `unified_ai_loop.py`
 
 ### Priority 3: Data Event Integration ✅ CORE COMPLETE
 
@@ -128,7 +131,7 @@ All EloService migration tasks have been completed:
 
 - `app/distributed/data_events.py` - Full event type definitions (DataEventType enum with 25+ event types)
 - `app/distributed/event_helpers.py` - Safe wrappers (`emit_*_safe()` functions)
-- `unified_ai_loop.py` - Has its own EventBus + StageEventBus integration
+- Legacy `unified_ai_loop.py` - Has its own EventBus + StageEventBus integration
 - 12+ scripts import and use the event system
 
 **Event Types Available:**

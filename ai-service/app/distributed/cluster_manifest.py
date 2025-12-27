@@ -65,6 +65,7 @@ __all__ = [
     "ModelLocation",
     "NPZLocation",
     "CheckpointLocation",
+    "TorrentMetadata",
     "NodeCapacity",
     "NodeInventory",
     "SyncCandidateNode",
@@ -175,6 +176,58 @@ class CheckpointLocation:
     registered_at: float = 0.0
     last_seen: float = 0.0
     is_best: bool = False  # Whether this is the best checkpoint for this config
+
+
+@dataclass
+class TorrentMetadata:
+    """Metadata for a BitTorrent swarm tracking a file.
+
+    Enables resilient P2P file sync across cluster nodes by tracking:
+    - Which nodes are seeding each file (swarm membership)
+    - Web seed URLs for hybrid HTTP+BitTorrent downloads
+    - Torrent file location for aria2 downloads
+    """
+    info_hash: str  # SHA1 hash of torrent info dict (40 hex chars)
+    file_path: str  # Relative path to the data file
+    torrent_path: str  # Path to the .torrent file
+    file_size: int = 0
+    piece_size: int = 262144  # Default 256KB pieces
+    piece_count: int = 0
+    seeders: list[str] = field(default_factory=list)  # Node IDs currently seeding
+    web_seeds: list[str] = field(default_factory=list)  # HTTP fallback URLs
+    created_at: float = 0.0
+    last_seen: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "info_hash": self.info_hash,
+            "file_path": self.file_path,
+            "torrent_path": self.torrent_path,
+            "file_size": self.file_size,
+            "piece_size": self.piece_size,
+            "piece_count": self.piece_count,
+            "seeders": self.seeders,
+            "web_seeds": self.web_seeds,
+            "created_at": self.created_at,
+            "last_seen": self.last_seen,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TorrentMetadata":
+        """Create from dictionary."""
+        return cls(
+            info_hash=data["info_hash"],
+            file_path=data["file_path"],
+            torrent_path=data.get("torrent_path", ""),
+            file_size=data.get("file_size", 0),
+            piece_size=data.get("piece_size", 262144),
+            piece_count=data.get("piece_count", 0),
+            seeders=data.get("seeders", []),
+            web_seeds=data.get("web_seeds", []),
+            created_at=data.get("created_at", 0.0),
+            last_seen=data.get("last_seen", 0.0),
+        )
 
 
 @dataclass
@@ -645,6 +698,21 @@ class ClusterManifest:
                 last_updated REAL NOT NULL
             );
 
+            -- Torrent metadata table (December 2025)
+            -- Tracks BitTorrent swarms for resilient P2P file sync
+            CREATE TABLE IF NOT EXISTS torrent_metadata (
+                info_hash TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                torrent_path TEXT NOT NULL,
+                file_size INTEGER DEFAULT 0,
+                piece_size INTEGER DEFAULT 262144,
+                piece_count INTEGER DEFAULT 0,
+                seeders TEXT DEFAULT '[]',  -- JSON array of node IDs
+                web_seeds TEXT DEFAULT '[]',  -- JSON array of HTTP URLs
+                created_at REAL NOT NULL,
+                last_seen REAL NOT NULL
+            );
+
             -- Metadata table
             CREATE TABLE IF NOT EXISTS manifest_metadata (
                 key TEXT PRIMARY KEY,
@@ -677,6 +745,8 @@ class ClusterManifest:
                 ON checkpoint_locations(config_key);
             CREATE INDEX IF NOT EXISTS idx_checkpoint_locations_best
                 ON checkpoint_locations(config_key, is_best);
+            CREATE INDEX IF NOT EXISTS idx_torrent_metadata_file
+                ON torrent_metadata(file_path);
 
             -- Initialize metadata
             INSERT OR IGNORE INTO manifest_metadata (key, value, updated_at)
@@ -1303,6 +1373,288 @@ class ClusterManifest:
             conn.commit()
 
         logger.info(f"Marked {checkpoint_path} as best for {config_key}")
+
+    # =========================================================================
+    # Torrent Registry (December 2025 - BitTorrent P2P Sync)
+    # =========================================================================
+
+    def register_torrent(
+        self,
+        info_hash: str,
+        file_path: str,
+        torrent_path: str,
+        file_size: int = 0,
+        piece_size: int = 262144,
+        piece_count: int = 0,
+        web_seeds: list[str] | None = None,
+    ) -> None:
+        """Register a torrent in the manifest.
+
+        Creates a new torrent entry or updates an existing one.
+        The local node is automatically added as a seeder.
+
+        Args:
+            info_hash: SHA1 hash of the torrent info dict (40 hex chars)
+            file_path: Relative path to the data file
+            torrent_path: Path to the .torrent file
+            file_size: Size of the data file in bytes
+            piece_size: Size of each piece in bytes
+            piece_count: Number of pieces
+            web_seeds: Optional HTTP fallback URLs
+        """
+        now = time.time()
+        web_seeds = web_seeds or []
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            # Check if torrent exists
+            cursor.execute(
+                "SELECT seeders FROM torrent_metadata WHERE info_hash = ?",
+                (info_hash,)
+            )
+            row = cursor.fetchone()
+
+            if row:
+                # Update existing - merge seeders
+                existing_seeders = json.loads(row[0]) if row[0] else []
+                if self.node_id not in existing_seeders:
+                    existing_seeders.append(self.node_id)
+
+                cursor.execute("""
+                    UPDATE torrent_metadata
+                    SET file_path = ?, torrent_path = ?, file_size = ?,
+                        piece_size = ?, piece_count = ?, seeders = ?,
+                        web_seeds = ?, last_seen = ?
+                    WHERE info_hash = ?
+                """, (file_path, torrent_path, file_size, piece_size, piece_count,
+                      json.dumps(existing_seeders), json.dumps(web_seeds), now, info_hash))
+            else:
+                # Create new
+                cursor.execute("""
+                    INSERT INTO torrent_metadata
+                    (info_hash, file_path, torrent_path, file_size, piece_size,
+                     piece_count, seeders, web_seeds, created_at, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (info_hash, file_path, torrent_path, file_size, piece_size,
+                      piece_count, json.dumps([self.node_id]), json.dumps(web_seeds),
+                      now, now))
+
+            conn.commit()
+
+        logger.debug(f"Registered torrent: {info_hash[:16]}... for {file_path}")
+
+    def get_torrent(self, info_hash: str) -> TorrentMetadata | None:
+        """Get torrent metadata by info_hash.
+
+        Args:
+            info_hash: SHA1 hash of the torrent info dict
+
+        Returns:
+            TorrentMetadata or None if not found
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT info_hash, file_path, torrent_path, file_size, piece_size,
+                       piece_count, seeders, web_seeds, created_at, last_seen
+                FROM torrent_metadata
+                WHERE info_hash = ?
+            """, (info_hash,))
+
+            row = cursor.fetchone()
+            if row:
+                return TorrentMetadata(
+                    info_hash=row[0],
+                    file_path=row[1],
+                    torrent_path=row[2],
+                    file_size=row[3],
+                    piece_size=row[4],
+                    piece_count=row[5],
+                    seeders=json.loads(row[6]) if row[6] else [],
+                    web_seeds=json.loads(row[7]) if row[7] else [],
+                    created_at=row[8],
+                    last_seen=row[9],
+                )
+            return None
+
+    def get_torrent_for_file(self, file_path: str) -> TorrentMetadata | None:
+        """Get torrent metadata by file path.
+
+        Args:
+            file_path: Path to the data file (can be relative or contain filename)
+
+        Returns:
+            TorrentMetadata or None if not found
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            # Match on exact path or filename
+            cursor.execute("""
+                SELECT info_hash, file_path, torrent_path, file_size, piece_size,
+                       piece_count, seeders, web_seeds, created_at, last_seen
+                FROM torrent_metadata
+                WHERE file_path = ? OR file_path LIKE ?
+                ORDER BY last_seen DESC
+                LIMIT 1
+            """, (file_path, f"%/{file_path.split('/')[-1]}"))
+
+            row = cursor.fetchone()
+            if row:
+                return TorrentMetadata(
+                    info_hash=row[0],
+                    file_path=row[1],
+                    torrent_path=row[2],
+                    file_size=row[3],
+                    piece_size=row[4],
+                    piece_count=row[5],
+                    seeders=json.loads(row[6]) if row[6] else [],
+                    web_seeds=json.loads(row[7]) if row[7] else [],
+                    created_at=row[8],
+                    last_seen=row[9],
+                )
+            return None
+
+    def add_seeder(self, info_hash: str, node_id: str) -> bool:
+        """Add a seeder to a torrent.
+
+        Args:
+            info_hash: Torrent info hash
+            node_id: Node ID to add as seeder
+
+        Returns:
+            True if seeder was added, False if torrent not found or already seeding
+        """
+        now = time.time()
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT seeders FROM torrent_metadata WHERE info_hash = ?",
+                (info_hash,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return False
+
+            seeders = json.loads(row[0]) if row[0] else []
+            if node_id in seeders:
+                return False  # Already seeding
+
+            seeders.append(node_id)
+            cursor.execute("""
+                UPDATE torrent_metadata
+                SET seeders = ?, last_seen = ?
+                WHERE info_hash = ?
+            """, (json.dumps(seeders), now, info_hash))
+            conn.commit()
+
+            logger.debug(f"Added seeder {node_id} to torrent {info_hash[:16]}...")
+            return True
+
+    def remove_seeder(self, info_hash: str, node_id: str) -> bool:
+        """Remove a seeder from a torrent.
+
+        Args:
+            info_hash: Torrent info hash
+            node_id: Node ID to remove as seeder
+
+        Returns:
+            True if seeder was removed, False if not found
+        """
+        now = time.time()
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT seeders FROM torrent_metadata WHERE info_hash = ?",
+                (info_hash,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return False
+
+            seeders = json.loads(row[0]) if row[0] else []
+            if node_id not in seeders:
+                return False
+
+            seeders.remove(node_id)
+            cursor.execute("""
+                UPDATE torrent_metadata
+                SET seeders = ?, last_seen = ?
+                WHERE info_hash = ?
+            """, (json.dumps(seeders), now, info_hash))
+            conn.commit()
+
+            logger.debug(f"Removed seeder {node_id} from torrent {info_hash[:16]}...")
+            return True
+
+    def get_torrent_seeders(self, info_hash: str) -> list[str]:
+        """Get list of seeders for a torrent.
+
+        Args:
+            info_hash: Torrent info hash
+
+        Returns:
+            List of node IDs currently seeding
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT seeders FROM torrent_metadata WHERE info_hash = ?",
+                (info_hash,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return []
+
+    def list_all_torrents(self) -> list[TorrentMetadata]:
+        """List all registered torrents.
+
+        Returns:
+            List of all TorrentMetadata entries
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT info_hash, file_path, torrent_path, file_size, piece_size,
+                       piece_count, seeders, web_seeds, created_at, last_seen
+                FROM torrent_metadata
+                ORDER BY last_seen DESC
+            """)
+
+            torrents = []
+            for row in cursor.fetchall():
+                torrents.append(TorrentMetadata(
+                    info_hash=row[0],
+                    file_path=row[1],
+                    torrent_path=row[2],
+                    file_size=row[3],
+                    piece_size=row[4],
+                    piece_count=row[5],
+                    seeders=json.loads(row[6]) if row[6] else [],
+                    web_seeds=json.loads(row[7]) if row[7] else [],
+                    created_at=row[8],
+                    last_seen=row[9],
+                ))
+            return torrents
+
+    def get_well_seeded_torrents(self, min_seeders: int = 2) -> list[TorrentMetadata]:
+        """Get torrents with at least min_seeders.
+
+        Useful for finding files that are safe to download via BitTorrent.
+
+        Args:
+            min_seeders: Minimum number of seeders required
+
+        Returns:
+            List of well-seeded TorrentMetadata entries
+        """
+        all_torrents = self.list_all_torrents()
+        return [t for t in all_torrents if len(t.seeders) >= min_seeders]
 
     # =========================================================================
     # Database Location Registry (Phase 4A.3 - December 2025)
