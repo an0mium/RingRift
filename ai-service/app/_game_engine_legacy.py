@@ -43,7 +43,7 @@ canonical rules and TS reference implementation.
 
 For which modules are allowed to encode rules semantics vs. which must
 act as adapters over the shared engine, see the "Rules Entry Surfaces /
-SSoT checklist" in ``docs/RULES_ENGINE_SURFACE_AUDIT.md``.
+SSoT checklist" in ``docs/rules/RULES_ENGINE_SURFACE_AUDIT.md``.
 """
 
 from __future__ import annotations

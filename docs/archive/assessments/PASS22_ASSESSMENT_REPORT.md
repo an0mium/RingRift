@@ -308,7 +308,7 @@ The `coverage-summary.json` file shows GameContext.tsx and SandboxContext.tsx at
 ### 5.1 Completed Achievements (PASS21)
 
 ✅ **DOCUMENTATION_INDEX.md created** - 110+ files cataloged
-✅ **docs/ENVIRONMENT_VARIABLES.md** - Fully synchronized with env.ts
+✅ **docs/operations/ENVIRONMENT_VARIABLES.md** - Fully synchronized with env.ts
 ✅ **Runbooks complete** - 20+ operational procedures documented
 
 ### 5.2 Remaining Minor Gaps
@@ -480,7 +480,7 @@ Since this PASS22 assessment was written, PASS24.1 has executed all four k6 load
 
 For detailed, scenario-by-scenario metrics and infra vs application breakdowns, see:
 
-- [`GAME_PERFORMANCE.md`](runbooks/GAME_PERFORMANCE.md) – §8 “PASS24.1 – k6 baselines after HTTP/WebSocket stabilization”.
+- [`GAME_PERFORMANCE.md`](../../runbooks/GAME_PERFORMANCE.md) – §8 “PASS24.1 – k6 baselines after HTTP/WebSocket stabilization”.
 - [`PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md) – “PASS24.1 – k6 follow-up after HTTP stabilization” and updated load-test baselines.
 
 ---
@@ -806,15 +806,15 @@ Measurable outcomes:
 
 **Technical Foundation:**
 
-- [`PROJECT_GOALS.md`](../PROJECT_GOALS.md) - Success criteria
-- [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md) - Phased roadmap
-- [`coverage/coverage-summary.json`](../coverage/coverage-summary.json) - Coverage metrics
+- [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) - Success criteria
+- [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) - Phased roadmap
+- [`coverage/coverage-summary.json`](../../../coverage/coverage-summary.json) - Coverage metrics
 
 **Operations:**
 
-- [`monitoring/grafana/dashboards/README.md`](../monitoring/grafana/dashboards/README.md) - Dashboard documentation
-- [`src/server/services/MetricsService.ts`](../src/server/services/MetricsService.ts) - Metrics implementation
-- [`docs/runbooks/INDEX.md`](runbooks/INDEX.md) - Operational procedures
+- [`monitoring/grafana/dashboards/README.md`](../../../monitoring/grafana/dashboards/README.md) - Dashboard documentation
+- [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) - Metrics implementation
+- [`docs/runbooks/INDEX.md`](../../runbooks/INDEX.md) - Operational procedures
 
 ---
 

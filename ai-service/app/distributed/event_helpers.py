@@ -16,7 +16,7 @@ DEPRECATION NOTICE (December 2025):
 
         await emit_event_safe("MODEL_PROMOTED", payload, source, use_router=True)
 
-    Migration guide: docs/CONSOLIDATION_STATUS_2025_12_19.md
+    Migration guide: ai-service/docs/CONSOLIDATION_STATUS_2025_12_19.md
 
 This module provides safe, reusable event bus functions to eliminate duplicate
 try/except import patterns found across 17+ scripts in the codebase.

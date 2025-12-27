@@ -932,7 +932,7 @@ describe('TurnOrchestrator core branch coverage', () => {
     });
 
     // DELETED 2025-12-06: 'handles chain capture decision by returning without auto-resolve'
-    // tested obsolete end_chain_capture behavior. See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
+    // tested obsolete end_chain_capture behavior. See: docs/testing/SKIPPED_TESTS_TRIAGE.md (TH-5)
 
     it('emits processing events', async () => {
       const state = createBaseState('ring_placement');

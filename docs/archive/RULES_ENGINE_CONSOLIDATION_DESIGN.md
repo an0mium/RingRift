@@ -3,8 +3,8 @@
 >
 > **For current documentation, see:**
 >
-> - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
-> - `docs/RULES_SSOT_MAP.md` – Current host integration and SSOT boundaries
+> - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
+> - `docs/rules/RULES_SSOT_MAP.md` – Current host integration and SSOT boundaries
 > - `RULES_ENGINE_ARCHITECTURE.md` – Current architecture overview
 > - [`historical/CURRENT_STATE_ASSESSMENT.md`](historical/CURRENT_STATE_ASSESSMENT.md) – Implementation status
 >
@@ -13,7 +13,7 @@
 > - Narrative rules docs: `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`.
 > - Shared TypeScript rules engine helpers + aggregates under `src/shared/engine/**` and the turn orchestrator under `src/shared/engine/orchestration/**`.
 > - Contracts and v2 contract vectors under `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/**`, plus the TS + Python contract runners (`tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).
-> - Derived rules/architecture docs: `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/MODULE_RESPONSIBILITIES.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`.
+> - Derived rules/architecture docs: `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/MODULE_RESPONSIBILITIES.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`.
 >
 > **Precedence:** This file is **not** a semantics SSoT. If anything here disagrees with the shared TS engine/orchestrator, contracts/vectors, or their tests (including Python contract/parity suites), **code + tests + canonical docs win** and this design must be updated.
 
@@ -54,7 +54,7 @@ This draft predates the latest consolidation work and should be read as an **asp
 
 - `RULES_ENGINE_ARCHITECTURE.md`
 - `RULES_IMPLEMENTATION_MAPPING.md`
-- `docs/RULES_ENGINE_SURFACE_AUDIT.md`
+- `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`
 - `docs/MODULE_RESPONSIBILITIES.md`
 - `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`
 
@@ -1042,7 +1042,7 @@ def test_decision_enumeration_parity(vector):
 | Remove deprecated backend modules      | Various                        | 1 day  |
 | Remove deprecated sandbox modules      | Various                        | 1 day  |
 | Update `RULES_ENGINE_ARCHITECTURE.md`  | `RULES_ENGINE_ARCHITECTURE.md` | 2 days |
-| Update `CANONICAL_ENGINE_API.md`       | `docs/CANONICAL_ENGINE_API.md` | 1 day  |
+| Update `CANONICAL_ENGINE_API.md`       | `docs/architecture/CANONICAL_ENGINE_API.md` | 1 day  |
 | Convert parity tests to contract tests | `tests/unit/*Parity*.test.ts`  | 2 days |
 | Performance optimization               | Various                        | 3 days |
 

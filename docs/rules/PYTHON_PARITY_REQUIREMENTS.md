@@ -73,7 +73,7 @@ The Python rules engine serves two primary purposes:
 - Move, `MoveType`, `GamePhase`, `GameStatus`, and player choice types are defined in the shared TS types under [`src/shared/types/game.ts`](../../src/shared/types/game.ts).
 - Orchestrator result/decision types (`ProcessTurnResult`, `PendingDecision`, `DecisionType`, `VictoryState`, `ProcessingMetadata`) are defined under [`src/shared/engine/orchestration/types.ts`](../../src/shared/engine/orchestration/types.ts).
 - WebSocket transport and `PlayerChoice*` decision surfaces are defined in [`src/shared/types/websocket.ts`](../../src/shared/types/websocket.ts) and validated by [`src/shared/validation/websocketSchemas.ts`](../../src/shared/validation/websocketSchemas.ts).
-- The canonical description of the Move → PendingDecision → PlayerChoice → WebSocket → Move.id lifecycle lives in [`docs/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md); this document defers all lifecycle semantics to that SSoT and focuses purely on TS↔Python rules parity.
+- The canonical description of the Move → PendingDecision → PlayerChoice → WebSocket → Move.id lifecycle lives in [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md); this document defers all lifecycle semantics to that SSoT and focuses purely on TS↔Python rules parity.
 
 ### 1.4 Architecture Pattern
 
@@ -421,7 +421,7 @@ Primary cross-language rules parity is enforced via **contract vectors (v2)** st
 - Vector schemas: [`src/shared/engine/contracts/schemas.ts`](../../src/shared/engine/contracts/schemas.ts) and [`src/shared/engine/contracts/serialization.ts`](../../src/shared/engine/contracts/serialization.ts)
 - JSON examples: [`tests/fixtures/contract-vectors/v2/README.md`](../../tests/fixtures/contract-vectors/v2/README.md)
 
-Legacy **trace-based fixtures** under [`tests/fixtures/rules-parity/`](../../tests/fixtures/rules-parity) are retained for historical debugging and seed/trace investigations (see `docs/PARITY_SEED_TRIAGE.md` and `RULES_SCENARIO_MATRIX.md`). They should not be treated as the primary spec for TS↔Python parity.
+Legacy **trace-based fixtures** under [`tests/fixtures/rules-parity/`](../../tests/fixtures/rules-parity) are retained for historical debugging and seed/trace investigations (see `docs/rules/PARITY_SEED_TRIAGE.md` and `RULES_SCENARIO_MATRIX.md`). They should not be treated as the primary spec for TS↔Python parity.
 
 ### 5.2 Deterministic Seed-Based Scenarios
 
@@ -464,7 +464,7 @@ Use hypothesis (Python) and fast-check (TypeScript) for:
 | `test_default_engine_equivalence.py`         | `ai-service/tests/rules/`     | Move application parity (DefaultRulesEngine vs GameEngine)                                  |
 | `test_default_engine_flags.py`               | `ai-service/tests/rules/`     | Mutator shadow contracts / safety flags                                                     |
 | `test_heuristic_training_evaluation.py`      | `ai-service/tests/`           | Heuristic training/evaluation sanity: fitness harness and HeuristicAI weight sensitivity    |
-| `TraceFixtures.sharedEngineParity.test.ts`   | `tests/unit/`                 | Legacy trace replay parity (diagnostic; see `docs/PARITY_SEED_TRIAGE.md` for usage context) |
+| `TraceFixtures.sharedEngineParity.test.ts`   | `tests/unit/`                 | Legacy trace replay parity (diagnostic; see `docs/rules/PARITY_SEED_TRIAGE.md` for usage context) |
 
 ---
 

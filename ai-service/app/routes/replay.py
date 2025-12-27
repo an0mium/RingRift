@@ -3,7 +3,7 @@
 Provides REST API for browsing, querying, and replaying games stored in the
 GameReplayDB SQLite database. Used by the sandbox UI replay panel.
 
-See docs/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md for specification.
+See docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md for specification.
 """
 
 from __future__ import annotations

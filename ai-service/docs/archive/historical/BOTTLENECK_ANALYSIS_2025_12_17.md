@@ -159,6 +159,6 @@ print('Square8 2p dirs:', get_dynamic_jsonl_dirs('square8', 2))
 
 ## Related Documentation
 
-- [TRAINING_PIPELINE.md](TRAINING_PIPELINE.md) - Overall pipeline architecture
-- [TRAINING_INTERNALS.md](TRAINING_INTERNALS.md) - Internal training modules
-- [UNIFIED_AI_LOOP.md](UNIFIED_AI_LOOP.md) - Orchestrator documentation
+- [../../training/TRAINING_PIPELINE.md](../../training/TRAINING_PIPELINE.md) - Overall pipeline architecture
+- [../../training/TRAINING_INTERNALS.md](../../training/TRAINING_INTERNALS.md) - Internal training modules
+- [../../training/UNIFIED_AI_LOOP.md](../../training/UNIFIED_AI_LOOP.md) - Orchestrator documentation

@@ -41,11 +41,11 @@ The orchestrator migration is **COMPLETE through Phase 3**. All critical legacy 
 | `RINGRIFT_RULES_MODE`              | `ts`                                                |
 | Environment Phase                  | Phase 4 – Orchestrator Authoritative                |
 
-**Reference:** [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md) lines 1-8
+**Reference:** [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) lines 1-8
 
 ### 1.2 Feature Flag Configuration
 
-From [`src/server/config/env.ts`](../src/server/config/env.ts):
+From [`src/server/config/env.ts`](../../src/server/config/env.ts):
 
 ```typescript
 ORCHESTRATOR_ADAPTER_ENABLED: z
@@ -96,13 +96,13 @@ ORCHESTRATOR_ADAPTER_ENABLED: z
 | File                                                                                                                                                | Purpose                               | Migration Strategy                      |
 | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------- |
 | [`GameEngine.orchestratorParity.integration.test.ts`](../tests/unit/GameEngine.orchestratorParity.integration.test.ts:65)                           | Parity testing legacy vs orchestrator | **Keep** – Critical parity verification |
-| [`ClientSandboxEngine.chainCapture.getValidMoves.test.ts`](../tests/unit/ClientSandboxEngine.chainCapture.getValidMoves.test.ts:56)                 | Capture enumeration                   | **Migrate** – Use orchestrator adapter  |
-| [`ClientSandboxEngine.movementParity.shared.test.ts`](../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts:66)                           | Movement parity                       | **Keep** – Dual-path verification       |
-| [`ClientSandboxEngine.placement.shared.test.ts`](../tests/unit/ClientSandboxEngine.placement.shared.test.ts:44)                                     | Placement testing                     | **Migrate** – Use orchestrator          |
-| [`GameEngine.utilityMethods.test.ts`](../tests/unit/GameEngine.utilityMethods.test.ts:232)                                                          | Utility method testing                | **Keep** – Tests the toggle itself      |
+| [`ClientSandboxEngine.chainCapture.getValidMoves.test.ts`](../../tests/unit/ClientSandboxEngine.chainCapture.getValidMoves.test.ts:56)                 | Capture enumeration                   | **Migrate** – Use orchestrator adapter  |
+| [`ClientSandboxEngine.movementParity.shared.test.ts`](../../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts:66)                           | Movement parity                       | **Keep** – Dual-path verification       |
+| [`ClientSandboxEngine.placement.shared.test.ts`](../../tests/unit/ClientSandboxEngine.placement.shared.test.ts:44)                                     | Placement testing                     | **Migrate** – Use orchestrator          |
+| [`GameEngine.utilityMethods.test.ts`](../../tests/unit/GameEngine.utilityMethods.test.ts:232)                                                          | Utility method testing                | **Keep** – Tests the toggle itself      |
 | [`Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts`](../tests/unit/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts:182)                    | Critical parity                       | **Keep** – Dual-path verification       |
-| [`ClientSandboxEngine.orchestratorParity.test.ts`](../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts:64)                                 | Parity testing                        | **Keep** – Critical parity verification |
-| [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](../tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts:75) | Territory decisions                   | **Migrate** – Use orchestrator          |
+| [`ClientSandboxEngine.orchestratorParity.test.ts`](../../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts:64)                                 | Parity testing                        | **Keep** – Critical parity verification |
+| [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](../../tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts:75) | Territory decisions                   | **Migrate** – Use orchestrator          |
 
 ### 2.2 Tests Importing RuleEngine Directly
 
@@ -483,9 +483,9 @@ Add explicit SSOT banners declaring these as:
 
 ## 7. References
 
-- [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md) – Phase 4 status and SLOs
-- [`docs/drafts/LEGACY_CODE_ELIMINATION_PLAN.md`](./drafts/LEGACY_CODE_ELIMINATION_PLAN.md) – Historical context
-- [`LEGACY_CODE_DEPRECATION_REPORT.md`](../LEGACY_CODE_DEPRECATION_REPORT.md) – Deprecation audit
-- [`src/server/config/env.ts`](../src/server/config/env.ts) – Feature flag configuration
-- [`src/client/sandbox/ClientSandboxEngine.ts`](../src/client/sandbox/ClientSandboxEngine.ts) – Sandbox host
-- [`src/server/game/GameEngine.ts`](../src/server/game/GameEngine.ts) – Backend host
+- [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) – Phase 4 status and SLOs
+- [`docs/drafts/LEGACY_CODE_ELIMINATION_PLAN.md`](LEGACY_CODE_ELIMINATION_PLAN.md) – Historical context
+- [`LEGACY_CODE_DEPRECATION_REPORT.md`](plans/LEGACY_CODE_DEPRECATION_REPORT.md) – Deprecation audit
+- [`src/server/config/env.ts`](../../src/server/config/env.ts) – Feature flag configuration
+- [`src/client/sandbox/ClientSandboxEngine.ts`](../../src/client/sandbox/ClientSandboxEngine.ts) – Sandbox host
+- [`src/server/game/GameEngine.ts`](../../src/server/game/GameEngine.ts) – Backend host

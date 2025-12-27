@@ -12,7 +12,7 @@
  * by focusing on the specific challenges of joining an in-progress game.
  *
  * Related spec:
- * - docs/CANONICAL_ENGINE_API.md §3.9.4 (WebSocket Lifecycle Semantics - Spectator Semantics)
+ * - docs/architecture/CANONICAL_ENGINE_API.md §3.9.4 (WebSocket Lifecycle Semantics - Spectator Semantics)
  * - RULES_SCENARIO_MATRIX.md (LF3 - Spectator join/leave)
  */
 

@@ -96,7 +96,7 @@
   remaining host‑level rules logic should either call shared helpers or be
   clearly marked diagnostic/legacy.
 - **WebSocket lifecycle & reconnection windows:** Tighten the canonical
-  WebSocket API in `docs/CANONICAL_ENGINE_API.md` and keep reconnection,
+  WebSocket API in `docs/architecture/CANONICAL_ENGINE_API.md` and keep reconnection,
   lobby, rematch, and spectator semantics covered by:
   `tests/integration/GameReconnection.test.ts`,
   `tests/integration/LobbyRealtime.test.ts`,
@@ -195,7 +195,7 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 **P0: Rules Fidelity & Parity (Critical)**
 
-- [x] **Fix forced elimination divergence for territory processing** – Align explicit `ELIMINATE_RINGS_FROM_STACK` moves and host-level forced elimination sequences between Python and TypeScript engines. Implementation complete; see [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:1) and tests under [`ai-service/tests/test_territory_forced_elimination_divergence.py`](../../ai-service/tests/test_territory_forced_elimination_divergence.py:1) and [`ai-service/tests/test_generate_territory_dataset_smoke.py`](../../ai-service/tests/test_generate_territory_dataset_smoke.py:1). **Owner modes:** Debug + Code.
+- [x] **Fix forced elimination divergence for territory processing** – Align explicit `ELIMINATE_RINGS_FROM_STACK` moves and host-level forced elimination sequences between Python and TypeScript engines. Implementation complete; see [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:1) and tests under [`ai-service/tests/test_territory_forced_elimination_divergence.py`](../../ai-service/tests/test_territory_forced_elimination_divergence.py:1) and [`ai-service/tests/test_generate_territory_dataset_smoke.py`](../../ai-service/tests/test_generate_territory_dataset_smoke.py:1). **Owner modes:** Debug + Code.
 
 - [x] **Contract test framework for cross-language parity** – Contract test infrastructure complete with 81 test vectors across multiple categories and 100% Python parity. See [`tests/contracts/contractVectorRunner.test.ts`](../../tests/contracts/contractVectorRunner.test.ts:1) and [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py:1).
 
@@ -207,7 +207,7 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 - [ ] **Property-based tests for territory invariants and forced elimination** – Introduce property-based tests (for example, with Hypothesis in Python and fast-check in TypeScript) that randomly generate mid/late-game `GameState` snapshots and assert invariants around territory connectivity, collapsed-space ownership, and forced elimination ordering. Ground properties in [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1) and the territory helpers listed in [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md:1). An initial TS harness exists under `tests/unit/territoryProcessing.property.test.ts` exercising 2×2 disconnected-region invariants on `square8`; Python/Hypothesis coverage and forced-elimination–specific properties remain future work. **Owner modes:** Debug (property design) + Code (harnesses).
 
-- [x] **Dataset-level validation for territory / combined-margin training data** – Add validation passes for datasets produced by [`ai-service/app/training/generate_territory_dataset.py`](../../ai-service/app/training/generate_territory_dataset.py:1), checking target ranges, per-player combined margins consistency, and metadata completeness (`engine_mode`, `num_players`, `ai_type_pN`, `ai_difficulty_pN`). Initial validation helpers and tests live in [`ai-service/app/training/territory_dataset_validation.py`](../../ai-service/app/training/territory_dataset_validation.py:1) and [`ai-service/tests/test_territory_dataset_validation.py`](../../ai-service/tests/test_territory_dataset_validation.py:1), and are documented in [`docs/AI_TRAINING_AND_DATASETS.md`](../ai/AI_TRAINING_AND_DATASETS.md:1). CI wiring for full training pipelines remains future work. **Owner modes:** Debug + Code (validation helpers implemented).
+- [x] **Dataset-level validation for territory / combined-margin training data** – Add validation passes for datasets produced by [`ai-service/app/training/generate_territory_dataset.py`](../../ai-service/app/training/generate_territory_dataset.py:1), checking target ranges, per-player combined margins consistency, and metadata completeness (`engine_mode`, `num_players`, `ai_type_pN`, `ai_difficulty_pN`). Initial validation helpers and tests live in [`ai-service/app/training/territory_dataset_validation.py`](../../ai-service/app/training/territory_dataset_validation.py:1) and [`ai-service/tests/test_territory_dataset_validation.py`](../../ai-service/tests/test_territory_dataset_validation.py:1), and are documented in [`docs/ai/AI_TRAINING_AND_DATASETS.md`](../ai/AI_TRAINING_AND_DATASETS.md:1). CI wiring for full training pipelines remains future work. **Owner modes:** Debug + Code (validation helpers implemented).
 
 - [ ] **Rules observability and divergence diagnostics** – Expand logging and metrics around territory phases and forced elimination, including structured events for explicit vs host-level eliminations and a clear taxonomy of divergence causes. Build on existing parity counters in [`src/server/utils/rulesParityMetrics.ts`](../../src/server/utils/rulesParityMetrics.ts:1) and Python-side logging in [`ai-service/app/rules/default_engine.py`](../../ai-service/app/rules/default_engine.py:1). **Owner modes:** Debug + Code + Architect.
 
@@ -228,7 +228,7 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 - [ ] **Wire up Minimax/MCTS in the production ladder** – Audit and stabilise advanced AI implementations in [`ai-service/app/ai/minimax_ai.py`](../../ai-service/app/ai/minimax_ai.py:1) and [`ai-service/app/ai/mcts_ai.py`](../../ai-service/app/ai/mcts_ai.py:1), and the difficulty ladder in [`ai-service/app/main.py`](../../ai-service/app/main.py:1), then expose them through the canonical presets in [`src/server/game/ai/AIEngine.ts`](../../src/server/game/ai/AIEngine.ts:1). Ensure new types are covered by `/ai/move` tests and smoke AI-vs-AI runs. **Owner modes:** Code.
 
-- [x] **Fix and document RNG determinism across TS and Python** – Implement and validate per-game seeding for AI decisions and rules randomness, aligned between Node and Python, so that mixed-mode runs and dataset generation are reproducible from a single seed. Contract captured in [`docs/AI_TRAINING_AND_DATASETS.md`](../ai/AI_TRAINING_AND_DATASETS.md:1) (§5) and exercised by seeded determinism tests in the TS and Python suites. **Owner modes:** Debug + Code + Architect (complete).
+- [x] **Fix and document RNG determinism across TS and Python** – Implement and validate per-game seeding for AI decisions and rules randomness, aligned between Node and Python, so that mixed-mode runs and dataset generation are reproducible from a single seed. Contract captured in [`docs/ai/AI_TRAINING_AND_DATASETS.md`](../ai/AI_TRAINING_AND_DATASETS.md:1) (§5) and exercised by seeded determinism tests in the TS and Python suites. **Owner modes:** Debug + Code + Architect (complete).
 
 - [ ] **AI move rejection and fallback hardening** – Implement a tiered fallback system for invalid or timed-out AI moves in [`src/server/game/ai/AIEngine.ts`](../../src/server/game/ai/AIEngine.ts:1) and [`src/server/services/AIServiceClient.ts`](../../src/server/services/AIServiceClient.ts:1), with clear metrics and logging for each fallback path. Coordinate with the AI service's `/ai/move` error taxonomy in [`ai-service/app/main.py`](../../ai-service/app/main.py:1). **Owner modes:** Code + Debug.
 
@@ -242,19 +242,19 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 ## 🗄️ Database Operations &amp; Migrations (Ops Playbook)
 
-For environment-specific database expectations, Prisma migration workflow, and backup/rollback procedures, see [docs/OPERATIONS_DB.md](../operations/OPERATIONS_DB.md:1).
+For environment-specific database expectations, Prisma migration workflow, and backup/rollback procedures, see [docs/operations/OPERATIONS_DB.md](../operations/OPERATIONS_DB.md:1).
 
 ## 🔐 Security & Threat Model (S-05)
 
 RingRift’s security posture and hardening plan are defined in the canonical threat model document:
 
-- **Threat model & scope:** Assets, trust boundaries, attacker profiles, and major threat surfaces (auth, game access control, validation, abuse/DoS, data protection, supply chain) are documented in [`docs/SECURITY_THREAT_MODEL.md`](../security/SECURITY_THREAT_MODEL.md:1).
+- **Threat model & scope:** Assets, trust boundaries, attacker profiles, and major threat surfaces (auth, game access control, validation, abuse/DoS, data protection, supply chain) are documented in [`docs/security/SECURITY_THREAT_MODEL.md`](../security/SECURITY_THREAT_MODEL.md:1).
 - **Current controls vs gaps:** Each surface maps concrete threats to existing controls (for example, [`auth`](../../src/server/routes/auth.ts:1), [`WebSocketServer`](../../src/server/websocket/server.ts:1), [`WebSocketPayloadSchemas`](../../src/shared/validation/websocketSchemas.ts:1), [`rateLimiter`](../../src/server/middleware/rateLimiter.ts:1), [`config`](../../src/server/config.ts:1)) and identifies documented risks.
 - **Security backlog (S-05.A–F):** A prioritized, implementation-ready backlog for future work (auth & token lifecycle, game/session authZ, abuse & quotas, validation/logging hygiene, data retention & privacy, supply chain & CI hardening) that should be scheduled alongside P-0/P-1 items when planning production launches.
-- **Data lifecycle & privacy (S-05.E):** The concrete data inventory, retention/anonymization policies, and account deletion/export workflows are designed in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](../security/DATA_LIFECYCLE_AND_PRIVACY.md:1), referenced from the S-05.E backlog item.
-- **Supply chain & CI/CD safeguards (S-05.F):** The supply-chain & CI/CD threat overview, current controls/gaps, and S-05.F.x implementation tracks are designed in [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../security/SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
+- **Data lifecycle & privacy (S-05.E):** The concrete data inventory, retention/anonymization policies, and account deletion/export workflows are designed in [`docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`](../security/DATA_LIFECYCLE_AND_PRIVACY.md:1), referenced from the S-05.E backlog item.
+- **Supply chain & CI/CD safeguards (S-05.F):** The supply-chain & CI/CD threat overview, current controls/gaps, and S-05.F.x implementation tracks are designed in [`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../security/SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
 
-Treat [`docs/SECURITY_THREAT_MODEL.md`](../security/SECURITY_THREAT_MODEL.md:1) as the **single source of truth** for the S-05 backlog; the detailed data lifecycle and privacy design for S-05.E lives in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](../security/DATA_LIFECYCLE_AND_PRIVACY.md:1).
+Treat [`docs/security/SECURITY_THREAT_MODEL.md`](../security/SECURITY_THREAT_MODEL.md:1) as the **single source of truth** for the S-05 backlog; the detailed data lifecycle and privacy design for S-05.E lives in [`docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`](../security/DATA_LIFECYCLE_AND_PRIVACY.md:1).
 
 ## ⚙️ Performance &amp; Scalability (P-01)
 
@@ -265,7 +265,7 @@ This section defines the initial performance and scalability plan for RingRift p
 **Architecture assumptions**
 
 - Single-region deployment for both staging and production.
-- Stateless Node.js backend (HTTP + WebSocket) with Redis and Postgres, following the topology described in [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1) and [`docker-compose.yml`](../../docker-compose.yml:1).
+- Stateless Node.js backend (HTTP + WebSocket) with Redis and Postgres, following the topology described in [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1) and [`docker-compose.yml`](../../docker-compose.yml:1).
 - Python AI service deployed alongside the backend, exporting Prometheus metrics via [`ai-service/app/metrics.py`](../../ai-service/app/metrics.py:1).
 - Existing Node-side metrics from [`rulesParityMetrics`](../../src/server/utils/rulesParityMetrics.ts:1) and structured logging via [`logger`](../../src/server/utils/logger.ts:1).
 
@@ -588,7 +588,7 @@ Use these **checklists** when running any P-01 scenario.
   - Large spikes under load may indicate logic or dependency issues rather than pure performance problems.
 - [ ] Correlate slow or failed operations with:
   - AI timeouts or fallbacks.
-  - DB connection errors or migration issues (see [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1)).
+  - DB connection errors or migration issues (see [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1)).
   - WebSocket transport errors.
 
 ### 5. Lifecycle integration

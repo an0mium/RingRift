@@ -12,7 +12,7 @@
 > - For rules semantics and lifecycle SSoT, see:
 >   - [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) (RR-CANON-RXXX rules).
 >   - [`COMPLETE_RULES.md`]COMPLETE_RULES.md) and the scenario index in [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md).
->   - [`docs/CANONICAL_ENGINE_API.md` §3.9–3.10](../architecture/CANONICAL_ENGINE_API.md) for Move / PendingDecision / PlayerChoice / WebSocket.
+>   - [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](../architecture/CANONICAL_ENGINE_API.md) for Move / PendingDecision / PlayerChoice / WebSocket.
 > - For broader test taxonomy and CI profiles, see `tests/README.md`, `tests/TEST_LAYERS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md`.
 > - Last triage update: 2025-11-27; status and seed set should be periodically revalidated as parity work and contract-vector coverage progress.
 >

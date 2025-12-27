@@ -1,6 +1,6 @@
 """Algebraic notation conversion for RingRift game records.
 
-Implements the notation system defined in docs/GAME_NOTATION_SPEC.md:
+Implements the notation system defined in ai-service/docs/specs/GAME_NOTATION_SPEC.md:
 - Square board notation: Chess-style a1-h8 (8x8) or a1-s19 (19x19)
 - Hexagonal board notation: Cube coordinate x.y format
 - Move action codes: P, M, C, CC, L, LR, T, E, etc.

@@ -5278,8 +5278,9 @@ class P2POrchestrator(
                                     logger.info(f"Discovered peer {node_id} via Tailscale at {ip}")
                                     await self._send_heartbeat_to_peer(ip, DEFAULT_PORT)
                                     discovered += 1
-                except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError):
-                    pass  # Silently skip unreachable nodes
+                except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError) as e:
+                    # Debug log for Tailscale discovery - failures are normal for offline nodes
+                    logger.debug(f"Tailscale discovery failed for {hostname}/{ip}: {type(e).__name__}")
 
             if discovered > 0:
                 logger.info(f"Tailscale discovery: connected to {discovered} new peer(s)")
@@ -20675,8 +20676,9 @@ print(json.dumps({{
                     self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
 
                 return True
-        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, KeyError, AttributeError):
-            pass
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, KeyError, AttributeError) as e:
+            # Log voter coordination failures for debugging cluster connectivity issues
+            logger.debug(f"Voter heartbeat failed for {voter_peer.node_id if voter_peer else 'unknown'}: {type(e).__name__}: {e}")
         return False
 
     async def _try_voter_alternative_endpoints(self, voter_peer) -> bool:
@@ -21058,9 +21060,9 @@ print(json.dumps({{
                                 existing.relay_via = ""
                                 logger.info(f"NAT recovery: {peer.node_id} is now directly reachable")
                                 return True
-        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError):
-            # Probe failed - peer still not reachable
-            pass
+        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError) as e:
+            # Probe failed - peer still not reachable (expected for NAT-blocked nodes)
+            logger.debug(f"NAT recovery probe failed for {peer.node_id}: {type(e).__name__}")
 
         return False
 

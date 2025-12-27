@@ -147,7 +147,7 @@ These are documented, tracked, and not blocking launch.
 
 ### 4.1 Skipped Tests (47 Total)
 
-All properly categorized per `docs/SKIPPED_TESTS_TRIAGE.md`:
+All properly categorized per `docs/testing/SKIPPED_TESTS_TRIAGE.md`:
 
 - 44 KEEP-SKIPPED (valid reasons)
 - 1 DELETE (file no longer exists)
@@ -205,11 +205,11 @@ Post-v1.0 scope. Schema is ready.
 
 ## Related Documentation
 
-- [ELIMINATION_CONTEXT_IMPLEMENTATION.md](rules/ELIMINATION_CONTEXT_IMPLEMENTATION.md) - Feature status
-- [PRODUCTION_READINESS_CHECKLIST.md](PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
-- [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) - Current issue tracker
-- [SKIPPED_TESTS_TRIAGE.md](SKIPPED_TESTS_TRIAGE.md) - Test categorization
-- [ARCHITECTURAL_IMPROVEMENT_PLAN.md](ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Technical debt tracking
+- [ELIMINATION_CONTEXT_IMPLEMENTATION.md](../../rules/ELIMINATION_CONTEXT_IMPLEMENTATION.md) - Feature status
+- [../../production/PRODUCTION_READINESS_CHECKLIST.md](../../production/PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
+- [KNOWN_ISSUES.md](../../../KNOWN_ISSUES.md) - Current issue tracker
+- [../../testing/SKIPPED_TESTS_TRIAGE.md](../../testing/SKIPPED_TESTS_TRIAGE.md) - Test categorization
+- [../../ARCHITECTURAL_IMPROVEMENT_PLAN.md](../../ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Technical debt tracking
 
 ---
 

@@ -21,7 +21,7 @@ This module retains:
 - Runtime state classes (ConfigState, FeedbackState, HostState)
 
 For new integrations, prefer importing from app.config.unified_config.
-See docs/CONSOLIDATION_ROADMAP.md for consolidation status.
+See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation status.
 """
 
 from __future__ import annotations

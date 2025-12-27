@@ -5,7 +5,7 @@
 // Adapters (Server GameEngine, Client Sandbox, Python AI Service) should only
 // import from this file.
 //
-// See docs/CANONICAL_ENGINE_API.md for full documentation.
+// See docs/architecture/CANONICAL_ENGINE_API.md for full documentation.
 //
 // Design principles:
 // - NARROW: Only essential functions are exported

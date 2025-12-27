@@ -8,8 +8,8 @@
 > - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `LongRunningGames` on `ringrift_game_duration_seconds_bucket`), and scrape configuration in `monitoring/prometheus/prometheus.yml`.
 > - **Game session lifecycle:** `GameSession` and `GameSessionManager` (`src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`), WebSocket server (`src/server/websocket/server.ts`), and game session state machines under `src/shared/stateMachines/gameSession.ts` and `src/shared/stateMachines/connection.ts`.
 > - **Rules semantics:** Shared engine helpers, aggregates, and orchestrator in `src/shared/engine/**`, plus supporting rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`).
-> - **Persistence & retention:** `GamePersistenceService` and data lifecycle logic (`src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`, `docs/DATA_LIFECYCLE_AND_PRIVACY.md`).
-> - **Parity & invariants:** Historical incident and parity docs that relate to stalled/degenerate game states, such as `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, `docs/PARITY_SEED_TRIAGE.md`, and `docs/testing/STRICT_INVARIANT_SOAKS.md`.
+> - **Persistence & retention:** `GamePersistenceService` and data lifecycle logic (`src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`, `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`).
+> - **Parity & invariants:** Historical incident and parity docs that relate to stalled/degenerate game states, such as `docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, `docs/rules/PARITY_SEED_TRIAGE.md`, and `docs/testing/STRICT_INVARIANT_SOAKS.md`.
 >
 > **Precedence:** Alert definitions, metrics, rules code, and lifecycle code are authoritative. This runbook explains **how to investigate and remediate**; if it conflicts with code/config/tests or the rules specs, **code + specs + tests win** and this document should be updated.
 >
@@ -158,14 +158,14 @@ Work with product/ops to answer:
 - Which `type` values are elevated? Are these specific board types, time controls, or match formats?
 - Has there been a recent change to:
   - Rules semantics (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`).
-  - AI behaviour (see `ai-service/AI_IMPROVEMENT_PLAN.md`, `docs/AI_TRAINING_AND_DATASETS.md`).
+  - AI behaviour (see `ai-service/AI_IMPROVEMENT_PLAN.md`, `docs/ai/AI_TRAINING_AND_DATASETS.md`).
   - Game session lifecycle (e.g. new reconnection behaviour, timeouts, or draw rules)?
 
 If elevation is confined to one new mode/configuration, suspect product/config changes first.
 
 ### 3.2 Inspect candidate stalled or zombie games
 
-Use your usual database access or internal tooling (see `docs/OPERATIONS_DB.md`) to:
+Use your usual database access or internal tooling (see `docs/operations/OPERATIONS_DB.md`) to:
 
 1. Query for **very old active games**, for example:
    - Games with `status` still `IN_PROGRESS` but `updatedAt` older than some threshold.
@@ -177,8 +177,8 @@ Use your usual database access or internal tooling (see `docs/OPERATIONS_DB.md`)
 
 Compare findings with known incidents/edge-cases:
 
-- Territory/forced-elimination issues – see `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, territory parity tests, and invariant soak docs.
-- Long LPS/capture chains – see `docs/PARITY_SEED_TRIAGE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and associated tests under `tests/unit/**LPS**` and `ai-service/tests/parity/**`.
+- Territory/forced-elimination issues – see `docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`, territory parity tests, and invariant soak docs.
+- Long LPS/capture chains – see `docs/rules/PARITY_SEED_TRIAGE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and associated tests under `tests/unit/**LPS**` and `ai-service/tests/parity/**`.
 
 ### 3.3 Check lifecycle and timeout behaviour
 
@@ -207,7 +207,7 @@ If game snapshots show states where neither player can realistically force a win
 
 If you suspect a rules bug or insufficient stalemate handling:
 
-- Capture a minimal reproducible scenario (seed, sequence) and record it in `docs/PARITY_SEED_TRIAGE.md` or a dedicated incident doc.
+- Capture a minimal reproducible scenario (seed, sequence) and record it in `docs/rules/PARITY_SEED_TRIAGE.md` or a dedicated incident doc.
 - Work with rules maintainers to decide whether to:
   - Tighten draw/stalemate rules.
   - Add invariant checks to prevent known degenerate loops.
@@ -230,7 +230,7 @@ If diagnosis indicates **abandoned or zombie games** are the main driver:
      - Running reliably in the target environment.
      - Correctly updating game status and cleaning up stale records.
 3. **Keep behaviour per SSoT:**
-   - All lifecycle changes should be implemented in code and captured in tests/state-machine docs (`docs/STATE_MACHINES.md`, `docs/DATA_LIFECYCLE_AND_PRIVACY.md`), **not** patched in this runbook.
+   - All lifecycle changes should be implemented in code and captured in tests/state-machine docs (`docs/architecture/STATE_MACHINES.md`, `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`), **not** patched in this runbook.
 
 ### 4.2 Address rules or AI-driven stalemates
 
@@ -276,7 +276,7 @@ Before considering the `LongRunningGames` incident resolved:
 ### 5.3 Tests and documentation
 
 - [ ] Any lifecycle or rules changes are covered by unit/integration tests (e.g. `GameSession.*.test.ts`, relevant rules/territory/victory tests, soak tests, or invariants under `docs/testing/STRICT_INVARIANT_SOAKS.md`).
-- [ ] If stalemate/draw semantics were updated, the rules markdowns (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been refreshed accordingly.
+- [ ] If stalemate/draw semantics were updated, the rules markdowns (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`) and parity docs (`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `docs/rules/PARITY_SEED_TRIAGE.md`) have been refreshed accordingly.
 
 ---
 

@@ -1,7 +1,7 @@
 # Remaining Implementation Tasks - Code Agent Assignments
 
 **Generated**: November 22, 2025  
-**Source**: [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:1), [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:1), [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:1)  
+**Source**: [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:1), [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1), [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1)  
 **Status**: Ready for Code Agent Execution  
 **Reference Context**: 13 major tasks completed (see Part 3-4 of architect report)
 
@@ -37,18 +37,18 @@
 **Effort**: 1-2 weeks  
 **Dependencies**: None
 
-**Goal**: Create comprehensive test suite covering all FAQ Q1-Q24 examples from [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) to ensure exhaustive rules compliance.
+**Goal**: Create comprehensive test suite covering all FAQ Q1-Q24 examples from [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) to ensure exhaustive rules compliance.
 
 **Affected Components**:
 
 - Backend: [`GameEngine`](src/shared/engine/GameEngine.ts:1), [`RuleEngine`](src/server/game/RuleEngine.ts:1), [`BoardManager`](src/server/game/BoardManager.ts:1)
 - Tests: New scenario test files in [`tests/scenarios/`](tests/scenarios/)
-- Documentation: [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:1)
+- Documentation: [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1)
 
 **Relevant Files**:
 
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) - Authoritative rulebook with FAQ Q1-Q24
-- [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:1) - Current test coverage mapping
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) - Authoritative rulebook with FAQ Q1-Q24
+- [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1) - Current test coverage mapping
 - [`tests/scenarios/RulesMatrix.Comprehensive.test.ts`](tests/scenarios/RulesMatrix.Comprehensive.test.ts:1) - Existing scenario framework
 - [`tests/utils/fixtures.ts`](tests/utils/fixtures.ts:1) - Test state creation utilities
 
@@ -81,7 +81,7 @@
 - [ ] 24 new test files created (one per FAQ question Q1-Q24)
 - [ ] All tests passing on square8, square19, and hexagonal boards where applicable
 - [ ] 100% coverage of FAQ examples with direct assertions
-- [ ] [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:1) updated with test file references
+- [ ] [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1) updated with test file references
 - [ ] No existing tests broken
 - [ ] Each test references specific FAQ section in describe/it blocks
 - [ ] CI passing with all new tests included
@@ -115,7 +115,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:104) - Lines 104-188 document current parity gaps
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:104) - Lines 104-188 document current parity gaps
 - [`tests/utils/traces.ts`](tests/utils/traces.ts:1) - Trace replay utilities
 - [`tests/unit/Backend_vs_Sandbox.traceParity.test.ts`](tests/unit/Backend_vs_Sandbox.traceParity.test.ts:1)
 - [`tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`](tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts:1)
@@ -178,7 +178,7 @@
 **Relevant Files**:
 
 - [`jest.config.js`](jest.config.js:1) - Jest configuration
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:470) - Lines 470-490 document the TSX transform issue
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:470) - Lines 470-490 document the TSX transform issue
 - [`tests/unit/GameEventLog.snapshot.test.tsx`](tests/unit/GameEventLog.snapshot.test.tsx:1) - Currently failing
 - [`tests/unit/GameHUD.test.tsx`](tests/unit/GameHUD.test.tsx:1) - Component test
 
@@ -382,8 +382,8 @@
 **Relevant Files**:
 
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:751) - Part 8 Immediate Action #3
-- [`QUICKSTART.md`](QUICKSTART.md:1) - User onboarding guide
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) - Rules for playtesters
+- [`QUICKSTART.md`](../QUICKSTART.md:1) - User onboarding guide
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) - Rules for playtesters
 
 **Implementation Requirements**:
 
@@ -453,7 +453,7 @@
 **Relevant Files**:
 
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:777) - Part 8 Short-Term #2
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:264) - P1.2 lists missing features
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:264) - P1.2 lists missing features
 - [`src/server/websocket/server.ts`](src/server/websocket/server.ts:1)
 - [`src/client/contexts/GameContext.tsx`](src/client/contexts/GameContext.tsx:1)
 
@@ -588,7 +588,7 @@
 **Relevant Files**:
 
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:824) - Part 8 Medium-Term #3
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:264) - P1.2 lists missing features
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:264) - P1.2 lists missing features
 - [`src/client/pages/LobbyPage.tsx`](src/client/pages/LobbyPage.tsx:1)
 - [`src/server/routes/game.ts`](src/server/routes/game.ts:1)
 
@@ -654,7 +654,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:228) - Lines 228-235 list missing HUD features
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:228) - Lines 228-235 list missing HUD features
 - [`src/client/components/GameHUD.tsx`](src/client/components/GameHUD.tsx:1)
 
 **Implementation Requirements**:
@@ -715,7 +715,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:236) - Lines 236-242 list sandbox limitations
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:236) - Lines 236-242 list sandbox limitations
 - [`src/client/pages/GamePage.tsx`](src/client/pages/GamePage.tsx:1) - Handles sandbox route
 - [`src/client/sandbox/ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts:1)
 
@@ -780,7 +780,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:339) - Lines 339-344 list missing service coverage
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:339) - Lines 339-344 list missing service coverage
 - [`ai-service/app/main.py`](ai-service/app/main.py:1)
 - [`src/server/game/ai/AIInteractionHandler.ts`](src/server/game/ai/AIInteractionHandler.ts:1)
 
@@ -839,7 +839,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:345) - Lines 345-349 mention limited observability
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:345) - Lines 345-349 mention limited observability
 - [`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md:303) - Defines diagnostics structure
 - [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1)
 
@@ -1098,7 +1098,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:288) - Lines 288-292 identify missing documentation
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:288) - Lines 288-292 identify missing documentation
 - [`src/server/websocket/server.ts`](src/server/websocket/server.ts:1)
 
 **Implementation Requirements**:
@@ -1222,7 +1222,7 @@
 **Relevant Files**:
 
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:801) - Part 8 Medium-Term #1
-- [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)
+- [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)
 - [`ai-service/app/training/train.py`](ai-service/app/training/train.py:1)
 - [`ai-service/app/ai/neural_net.py`](ai-service/app/ai/neural_net.py:1)
 
@@ -1729,7 +1729,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:441) - P2.1 documents current gaps
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:441) - P2.1 documents current gaps
 - [`prisma/schema.prisma`](prisma/schema.prisma:1)
 - [`src/server/game/GameSession.ts`](src/server/game/GameSession.ts:1)
 
@@ -1792,7 +1792,7 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:456) - P2.2 identifies gaps
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:456) - P2.2 identifies gaps
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:622) - Performance section
 
 **Implementation Requirements**:
@@ -1975,7 +1975,7 @@
 **Relevant Files**:
 
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:660) - Part 6.3 Technical Debt
-- [`docs/INDEX.md`](docs/INDEX.md:1) - Documentation index
+- [`docs/INDEX.md`](../docs/INDEX.md:1) - Documentation index
 
 **Implementation Requirements**:
 
@@ -1992,7 +1992,7 @@
 3. **Organization**:
    - Clear hierarchy
    - Consistent formatting
-   - Update [`docs/INDEX.md`](docs/INDEX.md:1)
+   - Update [`docs/INDEX.md`](../docs/INDEX.md:1)
    - Link from [`README.md`](README.md:1)
 4. **Maintenance plan**:
    - Documentation update checklist

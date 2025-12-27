@@ -8,7 +8,7 @@
 >
 > - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)
 > - [`IMPLEMENTATION_STATUS.md`](../IMPLEMENTATION_STATUS.md)
-> - [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md)
+> - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
 > - [`TODO.md`](../TODO.md)
 
 **Document Version:** 3.0 (CODE-VERIFIED & ALIGNED)

@@ -1,8 +1,29 @@
 """
 Work queue populator to maintain minimum queue depth until Elo targets are met.
 
-This module ensures there are always at least N work items in the queue until
-all board/player configurations reach the target Elo rating (default 2000).
+DEPRECATED (December 2025): Use unified_queue_populator.py instead.
+
+This module is deprecated in favor of UnifiedQueuePopulator which consolidates
+this file with queue_populator_daemon.py for a ~500 LOC reduction.
+
+Migration:
+    # Old
+    from app.coordination.queue_populator import QueuePopulator, get_queue_populator
+
+    # New
+    from app.coordination.unified_queue_populator import (
+        UnifiedQueuePopulator,
+        get_queue_populator,
+    )
+
+The unified version provides:
+- Same Elo-based target tracking and velocity calculations
+- Async daemon lifecycle support
+- P2P cluster health integration
+- Curriculum-weighted prioritization
+- All existing functionality
+
+This module remains for backward compatibility and will be removed in Q2 2026.
 
 Work distribution:
 - 60% selfplay (data generation)
@@ -13,9 +34,18 @@ Work distribution:
 import asyncio
 import logging
 import time
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
+
+# Emit deprecation warning on import
+warnings.warn(
+    "queue_populator.py is deprecated. Use unified_queue_populator.py instead. "
+    "See module docstring for migration guide. Will be removed in Q2 2026.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 # Canonical types (December 2025 consolidation)
 from app.coordination.types import BackpressureLevel

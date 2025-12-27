@@ -3,8 +3,8 @@
 > **Doc Status (2025-12-14): Active (AI service dependency audit, non-semantics)**
 >
 > - Role: records the dependency stack and compatibility decisions for the Python AI microservice (NumPy/PyTorch/ Gymnasium, etc.) and outlines an aspirational RL roadmap. It guides environment setup and ML stack evolution, not game semantics.
-> - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`../docs/rules/COMPLETE_RULES.md`](../docs/rules/COMPLETE_RULES.md), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/architecture/CANONICAL_ENGINE_API.md).
-> - Related docs: service-level overview in [`ai-service/README.md`](./README.md), AI architecture narrative in [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md), training and dataset docs in [`docs/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md) and [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](../docs/ai/AI_TRAINING_PREPARATION_GUIDE.md), strict‑invariant/self‑play guidance in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../docs/testing/STRICT_INVARIANT_SOAKS.md), orchestrator rollout/SLO design in [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](../docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md), and security/supply-chain posture in [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md).
+> - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`../docs/rules/COMPLETE_RULES.md`](../docs/rules/COMPLETE_RULES.md), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md), and [`docs/architecture/CANONICAL_ENGINE_API.md`](../docs/architecture/CANONICAL_ENGINE_API.md).
+> - Related docs: service-level overview in [`ai-service/README.md`](./README.md), AI architecture narrative in [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md), training and dataset docs in [`docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md) and [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`](../docs/ai/AI_TRAINING_PREPARATION_GUIDE.md), strict‑invariant/self‑play guidance in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../docs/testing/STRICT_INVARIANT_SOAKS.md), orchestrator rollout/SLO design in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md), and security/supply-chain posture in [`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md).
 
 ## Overview
 
@@ -482,7 +482,7 @@ least tested) against the target versions listed earlier in this document.
 
 Any semantic differences (for example different HTTP status codes, changed exception
 messages that bubble into tests) should be cross‑checked against
-`docs/PYTHON_PARITY_REQUIREMENTS.md` and `AI_ARCHITECTURE.md` before being accepted.
+`docs/rules/PYTHON_PARITY_REQUIREMENTS.md` and `AI_ARCHITECTURE.md` before being accepted.
 
 **Wave 3‑B execution (local, infra slice):**
 
@@ -986,7 +986,7 @@ python-dependency-audit:
   pins, but we did **not** obtain a reliable HIGH‑severity vulnerability report from
   `pip-audit` due to CLI incompatibilities. CI has since been updated to pin the
   `pip-audit` CLI to `pip-audit>=2.7.0,<3.0.0` (see `.github/workflows/ci.yml` and
-  `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`), which restores support for `--severity HIGH`
+  `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`), which restores support for `--severity HIGH`
   and the `-r requirements.txt` usage pattern.
 - CI continues to invoke `pip-audit -r requirements.txt --severity HIGH` via this pinned
   CLI; that job should be treated as the authoritative signal for Python vulnerability
@@ -999,7 +999,7 @@ python-dependency-audit:
   - Run `pip-audit` successfully against `requirements.txt` with CI‑equivalent
     severity filtering.
   - Review any HIGH/CRITICAL findings in the context of
-    [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md)
+    [`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md)
     and either:
     - Address them via dependency bumps in a subsequent wave, or
     - Document justified exceptions (for example, transitive vulnerabilities that are
@@ -1111,7 +1111,7 @@ With the AI-service dependency waves (3‑A–3‑E) complete and aligned with C
 high‑leverage strategic track is **Wave 4 – Orchestrator Rollout & Invariant
 Hardening**, which focuses on the shared TS orchestrator and its integration with the
 Python rules/AI stack. The detailed plan and SLOs for this wave live in
-`docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (§7.5), and are summarised as:
+`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` (§7.5), and are summarised as:
 
 - **4‑A – Parity & contract expansion:** expand TS orchestrator multi‑phase scenarios
   and Python contract‑vector coverage so `processTurnAsync` + adapters are at least as
@@ -1127,7 +1127,7 @@ Python rules/AI stack. The detailed plan and SLOs for this wave live in
   from AI‑only or infra‑only issues.
 
 This dependency‑focused document remains TS‑downstream and AI‑service‑local; treat
-`docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (plus the orchestrator CI/runbooks) as the primary
+`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` (plus the orchestrator CI/runbooks) as the primary
 SSoT for Wave 4 while using this file to keep Python/AI dependencies and CI tooling in
 sync with those orchestrator‑level goals.
 

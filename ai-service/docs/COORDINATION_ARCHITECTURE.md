@@ -3,7 +3,7 @@
 > **NOTE (December 2025)**: This document describes the pre-consolidation architecture. The event
 > systems described here (EventBus, DataEventBus, StageEventBus, CrossProcessEventQueue) have been
 > unified into `app/coordination/event_router.py`. For current usage, import from event_router.py.
-> See `docs/CONSOLIDATION_STATUS_2025_12_19.md` for consolidation details.
+> See `ai-service/docs/CONSOLIDATION_STATUS_2025_12_19.md` for consolidation details.
 
 ## Overview
 

@@ -53,7 +53,7 @@ This plan updates core project documentation to reflect:
   - **Monitoring:** Monitoring stack runs by default (moved from optional profile)
   - **Dashboards:** 22 panels across performance, correctness, and health metrics
   - **Test Coverage:** Context coverage dramatically improved (GameContext 89.52%, SandboxContext 84.21%)
-  - See full summary: [`docs/PASS21_ASSESSMENT_REPORT.md`](docs/PASS21_ASSESSMENT_REPORT.md)
+  - See full summary: [`../assessments/PASS21_ASSESSMENT_REPORT.md`](../assessments/PASS21_ASSESSMENT_REPORT.md)
 ```
 
 **Update Current Focus (Line 71):**
@@ -430,7 +430,7 @@ Line 23:
 - [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md) - Updated with PASS20 completion status
 - `docs/PASS20_COMPLETION_SUMMARY.md` - Created comprehensive summary
 - `docs/PASS20_ASSESSMENT.md` - Created assessment report
-- `docs/TEST_CATEGORIES.md` - Created test categorization guide
+- `docs/testing/TEST_CATEGORIES.md` - Created test categorization guide
 
 **Code Changes:**
 

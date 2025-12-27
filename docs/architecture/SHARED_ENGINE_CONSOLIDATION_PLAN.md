@@ -6,9 +6,9 @@
 > **SSoT alignment:** This document is a derived architectural and planning view over the **Rules/invariants semantics SSoT** and related surfaces:
 >
 > - Rules/invariants semantics SSoT: `RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`, and the shared TS engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
-> - Lifecycle/API SSoT: `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
-> - TS↔Python parity & determinism SSoT: `docs/PYTHON_PARITY_REQUIREMENTS.md` and the TS/Python parity + determinism test suites.
-> - **Rules surface ownership SSoT:** `docs/RULES_ENGINE_SURFACE_AUDIT.md` (especially §0, _Rules Entry Surfaces / SSoT checklist_), which defines exactly which modules may encode rules semantics and which must act as thin host adapters over the shared engine.
+> - Lifecycle/API SSoT: `docs/architecture/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+> - TS↔Python parity & determinism SSoT: `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` and the TS/Python parity + determinism test suites.
+> - **Rules surface ownership SSoT:** `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md` (especially §0, _Rules Entry Surfaces / SSoT checklist_), which defines exactly which modules may encode rules semantics and which must act as thin host adapters over the shared engine.
 >
 > **Precedence:** This file is never the source of truth for rules behaviour. On any conflict with executable code, tests, or the canonical rules/lifecycle docs, **the code + tests win** and this plan must be updated.
 

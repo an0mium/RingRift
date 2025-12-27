@@ -275,7 +275,7 @@ These gates ensure the monitoring / alerting surface and deployment configuratio
     - Latest `npm run validate:deployment` output attached to the release ticket, with **0 errors** for the target environment configuration.
     - (Optional) Latest `prod_preview_go_no_go` JSON report for the target environment, demonstrating a passing topology/config/auth/game/AI smoke.
   - **References**
-    - Deployment / topology expectations: [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md:241), [`docs/DEPLOYMENT_REQUIREMENTS.md`](../planning/DEPLOYMENT_REQUIREMENTS.md:1).
+    - Deployment / topology expectations: [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md:241), [`docs/planning/DEPLOYMENT_REQUIREMENTS.md`](../planning/DEPLOYMENT_REQUIREMENTS.md:1).
 
 #### Operational helper: production‑preview go/no‑go harness (staging / pre‑prod)
 
@@ -366,7 +366,7 @@ These gates ensure the security‑critical and operational drills that underpin 
 - [ ] **Secrets rotation drill completed successfully in the last N days**
   - **Automation / commands / runbooks**
     - Run the **staging secrets‑rotation drill** as described in:
-      - [`docs/SECRETS_MANAGEMENT.md`](../operations/SECRETS_MANAGEMENT.md:126) (§“Secrets Rotation Drill (staging)”).
+      - [`docs/operations/SECRETS_MANAGEMENT.md`](../operations/SECRETS_MANAGEMENT.md:126) (§“Secrets Rotation Drill (staging)”).
       - [`docs/runbooks/SECRETS_ROTATION_DRILL.md`](../runbooks/SECRETS_ROTATION_DRILL.md:1).
     - Use `npm run validate:deployment`, `npm run validate:monitoring`, and `npm run ssot-check` as pre/post sanity checks where the runbook recommends.
   - **Evidence**

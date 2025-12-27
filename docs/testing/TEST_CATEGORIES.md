@@ -280,7 +280,7 @@ npm run test:all:quiet:log
 **Notes:**
 
 - These suites are the main contributors to the **72 failing tests in `jest-results.json`** analysed in `docs/PASS20_ASSESSMENT.md`.
-- Many failures here are **expected diagnostics** or known gaps, documented in `KNOWN_ISSUES.md` and `docs/PARITY_SEED_TRIAGE.md`.
+- Many failures here are **expected diagnostics** or known gaps, documented in `KNOWN_ISSUES.md` and `docs/rules/PARITY_SEED_TRIAGE.md`.
 - They are not PR‑blocking but should be consulted when investigating full Jest runs.
 
 #### Replay Parity & DB Health (Python-side tooling)
@@ -445,7 +445,7 @@ pytest tests/parity -q
 
 **Notes:**
 
-- These suites, together with the TS contract runner, are the **authoritative cross‑language parity check** described in `docs/PYTHON_PARITY_REQUIREMENTS.md`.
+- These suites, together with the TS contract runner, are the **authoritative cross‑language parity check** described in `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`.
 - Failures here are treated as hard regressions; diagnostic TS parity suites (Category 3) are smoke/supporting signals.
 
 ## Test Organization
@@ -604,7 +604,7 @@ When adding a new test file, determine its category:
 - [`tests/TEST_LAYERS.md`](../../tests/TEST_LAYERS.md) - Test layer strategy
 - [`tests/TEST_SUITE_PARITY_PLAN.md`](../../tests/TEST_SUITE_PARITY_PLAN.md) - Parity test planning
 - [`KNOWN_ISSUES.md`](../../KNOWN_ISSUES.md) - Expected failures and diagnostics
-- [`docs/PARITY_SEED_TRIAGE.md`](../rules/PARITY_SEED_TRIAGE.md) - Seed-specific debugging
+- [`docs/rules/PARITY_SEED_TRIAGE.md`](../rules/PARITY_SEED_TRIAGE.md) - Seed-specific debugging
 - [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../archive/historical/CURRENT_STATE_ASSESSMENT.md) - Canonical test counts and CI profile
 - [`docs/PASS19B_ASSESSMENT_REPORT.md`](../archive/assessments/PASS19B_ASSESSMENT_REPORT.md) - CI‑gated test health summary
 - [`docs/PASS20_ASSESSMENT.md`](../archive/assessments/PASS20_ASSESSMENT.md) - Extended/diagnostic Jest profile analysis (including `jest-results.json`)

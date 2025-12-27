@@ -4,9 +4,9 @@
 >
 > **Role:** Canonical guide for how RingRift manages application secrets across environments (development, staging, production), including required environment variables, validation, rotation, and operational procedures.
 >
-> **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+> **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`). Lifecycle semantics are owned by `docs/architecture/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 >
-> **Related docs:** `docs/ENVIRONMENT_VARIABLES.md`, `docs/DEPLOYMENT_REQUIREMENTS.md`, `docs/SECURITY_THREAT_MODEL.md`, `docs/OPERATIONS_DB.md`, `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `docs/operations/ENVIRONMENT_VARIABLES.md`, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`, `docs/security/SECURITY_THREAT_MODEL.md`, `docs/operations/OPERATIONS_DB.md`, `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`, and `DOCUMENTATION_INDEX.md`.
 
 This document describes best practices for managing secrets in RingRift deployments.
 

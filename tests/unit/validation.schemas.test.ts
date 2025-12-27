@@ -347,7 +347,7 @@ describe('Validation Schemas', () => {
 
   describe('MoveSchema', () => {
     // Structural validation for wire-level MovePayload as described in
-    // docs/CANONICAL_ENGINE_API.md (player_move) and mapped under the
+    // docs/architecture/CANONICAL_ENGINE_API.md (player_move) and mapped under the
     // schemas/payload row in RULES_SCENARIO_MATRIX.md.
     it('accepts a valid place_ring move with string position', () => {
       const result = MoveSchema.safeParse({
@@ -487,7 +487,7 @@ describe('Validation Schemas', () => {
 
   describe('SocketEventSchema', () => {
     // Structural validation for generic WebSocket event envelopes used by
-    // docs/CANONICAL_ENGINE_API.md and referenced from RULES_SCENARIO_MATRIX.md.
+    // docs/architecture/CANONICAL_ENGINE_API.md and referenced from RULES_SCENARIO_MATRIX.md.
     it('accepts minimal valid event payload', () => {
       const result = SocketEventSchema.safeParse({
         event: 'player_move',

@@ -9,7 +9,7 @@ This document audits remaining **rules-logic duplication** between:
 
 relative to the **canonical shared rules engine** under [`src/shared/engine`](src/shared/engine/GameEngine.ts:1).
 
-Per [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1), the intended design is:
+Per [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1), the intended design is:
 
 - All **core rules semantics** (geometry, legality, and state mutations) live in shared helpers:
   - Movement & captures in [`core.ts`](src/shared/engine/core.ts:1), [`movementLogic.ts`](src/shared/engine/movementLogic.ts:1), [`captureLogic.ts`](src/shared/engine/captureLogic.ts:1),

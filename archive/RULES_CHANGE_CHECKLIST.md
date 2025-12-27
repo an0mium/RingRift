@@ -14,16 +14,16 @@
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md)                                                       | Canonical rules with RR-CANON-RXXX identifiers |
 | [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md) | CLAR-XXX entries for ambiguous areas           |
-| [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md)                                       | Maps rules to TS + Python code locations       |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md)                                             | Architecture, parity, and rollout strategy     |
-| [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md)                                        | AI training implications                       |
+| [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md)                                       | Maps rules to TS + Python code locations       |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)                                             | Architecture, parity, and rollout strategy     |
+| [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md)                                        | AI training implications                       |
 
 ---
 
 ## Phase 1: Before Making Changes
 
 - [ ] **Identify affected RR-CANON rules**
-  - Review [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) to determine which `RR-CANON-RXXX` rule(s) are affected.
+  - Review [`../RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) to determine which `RR-CANON-RXXX` rule(s) are affected.
   - Note the rule IDs for reference in commits and documentation.
 
 - [ ] **Check existing clarifications**
@@ -35,7 +35,7 @@
   - Document candidate interpretations and get consensus on the canonical choice.
 
 - [ ] **Map affected code locations**
-  - Consult [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md) to identify all affected code:
+  - Consult [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md) to identify all affected code:
     - TypeScript shared engine modules in `src/shared/engine/**`
     - TypeScript backend orchestration in `src/server/game/**`
     - TypeScript client sandbox in `src/client/sandbox/**`
@@ -46,7 +46,7 @@
 ## Phase 2: Specification Updates
 
 - [ ] **Update canonical spec**
-  - Modify [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) with new/changed rule semantics.
+  - Modify [`../RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) with new/changed rule semantics.
   - Use existing `RR-CANON-RXXX` format for rule identifiers.
   - If adding a new rule, assign the next available rule number in the appropriate section.
 
@@ -56,8 +56,8 @@
 
 - [ ] **Update player-facing rules (if applicable)**
   - If the change affects player-visible behavior, update:
-    - [`ringrift_complete_rules.md`](ringrift_complete_rules.md) – narrative rules with examples
-    - [`ringrift_compact_rules.md`](ringrift_compact_rules.md) – implementation-focused spec
+    - [`../ringrift_complete_rules.md`](../ringrift_complete_rules.md) – narrative rules with examples
+    - [`../ringrift_compact_rules.md`](../ringrift_compact_rules.md) – implementation-focused spec
 
 ---
 
@@ -116,7 +116,7 @@
 
 ### Update Implementation Mapping
 
-- [ ] If new functions/modules are added, update [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md):
+- [ ] If new functions/modules are added, update [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md):
   - Add entries to the forward mapping (Rules → Implementation)
   - Add entries to the inverse mapping (Implementation → Rules)
 
@@ -176,7 +176,7 @@ _Only applicable if the change affects victory conditions, rewards, or state fea
   - Check heuristic feature extraction if applicable
 
 - [ ] **Update AI documentation:**
-  - If needed, update [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md)
+  - If needed, update [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md)
 
 ---
 
@@ -187,7 +187,7 @@ _Only applicable if the change affects victory conditions, rewards, or state fea
   - Reference RR-CANON rule IDs in comments where helpful
 
 - [ ] **Update architecture docs (if significant):**
-  - [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md)
+  - [`../docs/architecture/RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)
 
 - [ ] **Update UX components (if player-facing):**
   - Tooltips, modals, event log in `src/client/components/`
@@ -334,9 +334,9 @@ Suppose you want to change `square8` line length from 3 to 4.
 
 **Related Documents:**
 
-- [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) – Canonical rules specification
-- [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md) – Code location mapping
-- [`RULES_RULESET_CLARIFICATIONS.md`](RULES_RULESET_CLARIFICATIONS.md) – Ambiguity resolutions
-- [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md) – Engine architecture
-- [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md) – AI training documentation
+- [`../RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) – Canonical rules specification
+- [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md) – Code location mapping
+- [`../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md) – Ambiguity resolutions
+- [`../docs/architecture/RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) – Engine architecture
+- [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md) – AI training documentation
 - [`archive/FINAL_RULES_AUDIT_REPORT.md`](../archive/FINAL_RULES_AUDIT_REPORT.md) – Rules audit findings

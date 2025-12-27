@@ -9,11 +9,16 @@ The codebase evolved 8 different sync implementations over time:
 1. SyncCoordinator (app/distributed/) - Low-level transport execution
 2. SyncScheduler (app/coordination/) - Scheduling layer (DEPRECATED)
 3. UnifiedDataSync - Legacy unified sync (DEPRECATED)
-4. SyncOrchestrator - Orchestration wrapper
-5. AutoSyncDaemon - Automated P2P sync (ACTIVE)
-6. ClusterDataSyncDaemon - Push-based cluster sync (ACTIVE)
+4. SyncOrchestrator - Orchestration wrapper (DEPRECATED)
+5. AutoSyncDaemon - Automated P2P sync (ACTIVE - now supports all strategies)
+6. ClusterDataSyncDaemon - Push-based cluster sync (DEPRECATED - absorbed into AutoSyncDaemon)
 7. SyncRouter - Intelligent routing (ACTIVE)
-8. EphemeralSyncDaemon - Aggressive sync for ephemeral hosts (ACTIVE)
+8. EphemeralSyncDaemon - Aggressive sync for ephemeral hosts (DEPRECATED - absorbed into AutoSyncDaemon)
+
+December 26, 2025 Consolidation:
+- AutoSyncDaemon now supports HYBRID, EPHEMERAL, BROADCAST, and AUTO strategies
+- EphemeralSyncDaemon and ClusterDataSyncDaemon are absorbed into AutoSyncDaemon
+- Use create_ephemeral_sync_daemon() or create_cluster_data_sync_daemon() for strategy-specific daemons
 
 This facade provides a clean interface while preserving backward compatibility
 and allowing gradual migration to unified patterns.
@@ -287,39 +292,44 @@ class SyncFacade:
             )
 
     async def _sync_via_cluster_sync(self, request: SyncRequest) -> SyncResponse:
-        """Sync using ClusterDataSyncDaemon (push-based sync)."""
+        """Sync using AutoSyncDaemon with BROADCAST strategy (push-based sync).
+
+        December 2025: Now uses consolidated AutoSyncDaemon with BROADCAST strategy
+        instead of deprecated ClusterDataSyncDaemon.
+        """
         try:
-            from app.coordination.cluster_data_sync import (
-                get_cluster_data_sync_daemon,
+            from app.coordination.auto_sync_daemon import (
+                create_cluster_data_sync_daemon,
             )
 
-            daemon = get_cluster_data_sync_daemon()
+            daemon = create_cluster_data_sync_daemon()
 
             # Trigger immediate sync
-            if not daemon._running:
+            if not daemon.is_running():
                 logger.warning(
-                    "[SyncFacade] ClusterDataSyncDaemon not running, starting..."
+                    "[SyncFacade] AutoSyncDaemon (broadcast) not running, starting..."
                 )
                 await daemon.start()
 
-            # Dec 2025: Use sync_now() for immediate sync
-            files_synced = await daemon.sync_now()
+            # Dec 2025: Use broadcast_sync_cycle() for push-based sync
+            files_synced = await daemon.broadcast_sync_cycle()
 
             return SyncResponse(
                 success=True,
                 backend_used=SyncBackend.CLUSTER_SYNC,
                 details={
-                    "daemon_running": daemon._running,
+                    "daemon_running": daemon.is_running(),
                     "files_synced": files_synced,
+                    "strategy": "broadcast",
                 },
             )
 
         except ImportError as e:
-            logger.error(f"[SyncFacade] ClusterDataSyncDaemon not available: {e}")
+            logger.error(f"[SyncFacade] AutoSyncDaemon not available: {e}")
             return SyncResponse(
                 success=False,
                 backend_used=SyncBackend.CLUSTER_SYNC,
-                errors=[f"ClusterDataSyncDaemon not available: {e}"],
+                errors=[f"AutoSyncDaemon not available: {e}"],
             )
 
     async def _sync_via_distributed(self, request: SyncRequest) -> SyncResponse:
@@ -363,15 +373,21 @@ class SyncFacade:
             )
 
     async def _sync_via_ephemeral(self, request: SyncRequest) -> SyncResponse:
-        """Sync using EphemeralSyncDaemon (aggressive sync for ephemeral hosts)."""
+        """Sync using AutoSyncDaemon with EPHEMERAL strategy (aggressive sync).
+
+        December 2025: Now uses consolidated AutoSyncDaemon with EPHEMERAL strategy
+        instead of deprecated EphemeralSyncDaemon.
+        """
         try:
-            from app.coordination.ephemeral_sync import get_ephemeral_sync_daemon
+            from app.coordination.auto_sync_daemon import (
+                create_ephemeral_sync_daemon,
+            )
 
-            daemon = get_ephemeral_sync_daemon()
+            daemon = create_ephemeral_sync_daemon()
 
-            if not daemon._running:
+            if not daemon.is_running():
                 logger.warning(
-                    "[SyncFacade] EphemeralSyncDaemon not running, starting..."
+                    "[SyncFacade] AutoSyncDaemon (ephemeral) not running, starting..."
                 )
                 await daemon.start()
 
@@ -382,18 +398,19 @@ class SyncFacade:
                 success=True,
                 backend_used=SyncBackend.EPHEMERAL,
                 details={
-                    "daemon_running": daemon._running,
+                    "daemon_running": daemon.is_running(),
                     "is_ephemeral": daemon._is_ephemeral,
                     "games_pushed": games_pushed,
+                    "strategy": "ephemeral",
                 },
             )
 
         except ImportError as e:
-            logger.error(f"[SyncFacade] EphemeralSyncDaemon not available: {e}")
+            logger.error(f"[SyncFacade] AutoSyncDaemon not available: {e}")
             return SyncResponse(
                 success=False,
                 backend_used=SyncBackend.EPHEMERAL,
-                errors=[f"EphemeralSyncDaemon not available: {e}"],
+                errors=[f"AutoSyncDaemon not available: {e}"],
             )
 
     async def _sync_via_router(self, request: SyncRequest) -> SyncResponse:

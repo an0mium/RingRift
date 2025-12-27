@@ -3,7 +3,7 @@
 > **SSoT alignment:** This document is an audit/diagnostic view over the rules engine surfaces. It defers to:
 
 - **Rules semantics SSoT:** `RULES_CANONICAL_SPEC.md` together with `COMPLETE_RULES.md` / `COMPACT_RULES.md` as the single source of truth for RingRift rules and invariants, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → turn orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`) as their primary executable implementation. This combined spec + implementation is the **Rules/invariants semantics SSoT** for RingRift.
-  > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) for the executable Move + orchestrator + WebSocket lifecycle.
+  > - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) for the executable Move + orchestrator + WebSocket lifecycle.
   > - **Precedence:** Backend (`GameEngine`, `RuleEngine`, `BoardManager`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine/__init__.py`, `ai-service/app/rules/*`) are **hosts/adapters** over those SSoTs. If this audit ever conflicts with the shared TS engine, orchestrator/contracts, WebSocket schemas, or tests, **code + tests win** and this document must be updated to match.
   >
   > This file inventories and critiques surfaces around the canonical TS rules engine; it is not itself a semantics SSoT.
@@ -11,7 +11,7 @@
 **Doc Status (2025-11-26): Active (with historical/diagnostic analysis)**
 
 - Canonical rules semantics SSoT is the written rules spec (`RULES_CANONICAL_SPEC.md` + complete/compact rules) together with its **shared TypeScript engine** implementation under `src/shared/engine/`, specifically: helpers → domain aggregates → turn orchestrator → contracts (`schemas.ts`, `serialization.ts`, `testVectorGenerator.ts` + v2 vectors under `tests/fixtures/contract-vectors/v2/`).
-- Move/decision/WebSocket lifecycle semantics are documented in `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
+- Move/decision/WebSocket lifecycle semantics are documented in `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 - Backend (`GameEngine`, `RuleEngine`, `BoardManager`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine/__init__.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this SSoT. This audit treats them as consumers of the shared engine, not as independent rules engines.
 - Sections that describe a fully-populated TS `validators/*` / `mutators/*` tree should be read as **semantic boundary diagrams** and partially historical; the implemented canonical surface is helpers + aggregates + orchestrator + contracts.
 

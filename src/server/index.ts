@@ -293,7 +293,7 @@ async function startServer() {
       // Emit a loud warning so accidental misconfiguration is visible.
       if (config.nodeEnv === 'production' && !orchestratorEnabled) {
         logger.warn(
-          'Orchestrator adapter is DISABLED in production; this should only occur during a documented rollback (see docs/ORCHESTRATOR_ROLLOUT_PLAN.md).',
+          'Orchestrator adapter is DISABLED in production; this should only occur during a documented rollback (see docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md).',
           {
             orchestratorAdapterEnabled: orchestratorEnabled,
             rulesMode: config.rules.mode,

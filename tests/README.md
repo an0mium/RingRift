@@ -297,7 +297,7 @@ In documentation:
 When inspecting `jest-results.json` (or `logs/jest/latest.view.txt` from `npm run test:all:quiet:log`), use the file path to locate the test **category**:
 
 - `tests/unit/Backend_vs_Sandbox.*.test.ts`, `tests/unit/TraceParity.seed*.test.ts`, `tests/unit/Sandbox_vs_Backend.*.test.ts`  
-  → **Diagnostic parity/trace** category (see “Parity & Trace Diagnostics (TS)” in `docs/TEST_CATEGORIES.md`).
+  → **Diagnostic parity/trace** category (see “Parity & Trace Diagnostics (TS)” in `docs/testing/TEST_CATEGORIES.md`).
 - `tests/unit/GameEngine.aiSimulation.test.ts`, `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`  
   → **AI Simulation (Diagnostic)** category.
 - `tests/scenarios/RulesMatrix.*.test.ts`, `tests/scenarios/FAQ_Q*.test.ts`, `tests/contracts/contractVectorRunner.test.ts`  
@@ -307,7 +307,7 @@ When inspecting `jest-results.json` (or `logs/jest/latest.view.txt` from `npm ru
 - `ai-service/tests/contracts/test_contract_vectors.py`, `ai-service/tests/parity/*.py`  
   → **Python Contract/Parity** category.
 
-For each category, `docs/TEST_CATEGORIES.md` documents:
+For each category, `docs/testing/TEST_CATEGORIES.md` documents:
 
 - Whether failures are **CI‑gated** vs **diagnostic/optional**.
 - Which commands drive them (e.g. `npm run test:ci`, `npm run test:ts-parity`, `npm run test:ai-backend:quiet`, `pytest ai-service/tests/...`).
@@ -315,7 +315,7 @@ For each category, `docs/TEST_CATEGORIES.md` documents:
 **Legacy RuleEngine/GameEngine diagnostics examples:**
 
 - `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/GameEngine.chainCapture.test.ts`  
-  → **Legacy RuleEngine / GameEngine Diagnostics** (see “Diagnostic Tests → Legacy RuleEngine / GameEngine Diagnostics” in `docs/TEST_CATEGORIES.md`). These suites exist for historical coverage and migration safety and are not CI‑gated; new rules work should target orchestrator/shared‑engine suites instead.
+  → **Legacy RuleEngine / GameEngine Diagnostics** (see “Diagnostic Tests → Legacy RuleEngine / GameEngine Diagnostics” in `docs/testing/TEST_CATEGORIES.md`). These suites exist for historical coverage and migration safety and are not CI‑gated; new rules work should target orchestrator/shared‑engine suites instead.
 
 #### Python‑mode TS↔Python parity profile (`RINGRIFT_RULES_MODE=python`)
 
@@ -335,7 +335,7 @@ and inspect `/metrics` for:
 
 - `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",mismatch_type=...}`
 
-This profile is **not** used by default in CI (which runs with `RINGRIFT_RULES_MODE=ts`); it is intended for ad‑hoc parity investigations and to exercise the runtime‑python parity counters and alerts described in `docs/operations/ALERTING_THRESHOLDS.md` and `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (historical context).
+This profile is **not** used by default in CI (which runs with `RINGRIFT_RULES_MODE=ts`); it is intended for ad‑hoc parity investigations and to exercise the runtime‑python parity counters and alerts described in `docs/operations/ALERTING_THRESHOLDS.md` and `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` (historical context).
 
 ### High-Level Testing Overview (by purpose)
 

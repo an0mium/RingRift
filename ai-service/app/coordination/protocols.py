@@ -44,11 +44,14 @@ Purpose: Unified interface for coordinators (Phase 14)
 
 from __future__ import annotations
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     # Data classes and enums
@@ -631,8 +634,7 @@ async def start_all_coordinators() -> dict[str, bool]:
             results[name] = True
         except Exception as e:
             results[name] = False
-            import logging
-            logging.getLogger(__name__).error(f"Failed to start {name}: {e}")
+            logger.error(f"Failed to start {name}: {e}")
     return results
 
 
@@ -649,8 +651,7 @@ async def stop_all_coordinators() -> dict[str, bool]:
             results[name] = True
         except Exception as e:
             results[name] = False
-            import logging
-            logging.getLogger(__name__).error(f"Failed to stop {name}: {e}")
+            logger.error(f"Failed to stop {name}: {e}")
     return results
 
 

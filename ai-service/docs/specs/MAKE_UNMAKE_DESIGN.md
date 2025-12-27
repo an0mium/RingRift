@@ -2,8 +2,8 @@
 
 > **SSoT alignment:** This document is a derived design for the Python AI host’s make/unmake pattern over the following canonical sources:
 >
-> - **Rules semantics SSoT:** Canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `../../../docs/rules/COMPLETE_RULES.md` / `../../../docs/rules/COMPACT_RULES.md`) as the single source of truth for rules semantics, with the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts) plus v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`) describing and validating the primary executable implementation of that spec.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts` for the Move/orchestrator/WebSocket lifecycle that the Python host must mirror.
+> - **Rules semantics SSoT:** Canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `../../../docs/rules/COMPLETE_RULES.md` / `../../../docs/rules/COMPACT_RULES.md`) as the single source of truth for rules semantics, with the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts) plus v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`) describing and validating the primary executable implementation of that spec.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts` for the Move/orchestrator/WebSocket lifecycle that the Python host must mirror.
 > - **Precedence:** If this document or the Python implementation ever conflict with those specs, engines, types, or contract vectors, **TS code + tests win**, and the Python host/design must be updated to match them.
 >
 > **Doc Status (2025-11-27): Active (design, Python AI host only)**
@@ -12,7 +12,7 @@
 >
 > The Python engine and this make/unmake design are **hosts/adapters** that must match the TS rules/lifecycle SSoTs via the parity backbone and contract vectors; they do not introduce new rules semantics.
 >
-> **Related docs:** `AI_ARCHITECTURE.md`, `docs/AI_TRAINING_AND_DATASETS.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`, `ai-service/AI_ASSESSMENT_REPORT.md`, `ai-service/AI_IMPROVEMENT_PLAN.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `AI_ARCHITECTURE.md`, `docs/ai/AI_TRAINING_AND_DATASETS.md`, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `docs/rules/PARITY_SEED_TRIAGE.md`, `ai-service/AI_ASSESSMENT_REPORT.md`, `ai-service/AI_IMPROVEMENT_PLAN.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
 
 **Document Version:** 1.0  
 **Date:** 2025-11-27  

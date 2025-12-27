@@ -4,9 +4,9 @@
 >
 > **Role:** High-level security and threat-model overview for the RingRift stack (frontend SPA, Node.js backend, Python AI service), plus the S‑05 security hardening backlog. It frames security risks, controls, and planned work across auth/session, authorization, abuse/DoS, data protection, and supply chain/CI.
 >
-> **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+> **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/architecture/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 >
-> **Related docs:** `docs/SECRETS_MANAGEMENT.md`, `docs/ENVIRONMENT_VARIABLES.md`, `docs/OPERATIONS_DB.md`, `docs/DATA_LIFECYCLE_AND_PRIVACY.md` (S‑05.E details), `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` (S‑05.F details), and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `docs/operations/SECRETS_MANAGEMENT.md`, `docs/operations/ENVIRONMENT_VARIABLES.md`, `docs/operations/OPERATIONS_DB.md`, `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` (S‑05.E details), `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` (S‑05.F details), and `DOCUMENTATION_INDEX.md`.
 
 **Scope:** Multiplayer RingRift stack covering frontend SPA, Node.js backend (HTTP + WebSocket), and Python AI service.
 
@@ -27,7 +27,7 @@ This document summarizes the security threat model and hardening plan for RingRi
   - Auth tokens (JWT access/refresh) used by HTTP routes in [`auth`](../../src/server/routes/auth.ts:1) and WebSocket auth in [`WebSocketServer`](../../src/server/websocket/server.ts:1).
 - **Game state and history**
   - In-memory state and move history managed by [`GameSession`](../../src/server/game/GameSession.ts:1) and [`GameEngine`](../../src/server/game/GameEngine.ts:1).
-  - Persisted game metadata, snapshots, and moves via Prisma (see [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1)).
+  - Persisted game metadata, snapshots, and moves via Prisma (see [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1)).
 - **Ratings, leaderboards, and profiles**
   - Player ratings, results, and profile data handled by services such as [`RatingService`](../../src/server/services/RatingService.ts:1) and shared types in [`user`](../../src/shared/types/user.ts:1).
 - **Infrastructure access and secrets**
@@ -185,7 +185,7 @@ This section focuses on concrete threat surfaces and maps each to existing contr
 **Existing controls**
 
 - Separation of configuration and secrets into env files validated by [`config`](../../src/server/config.ts:1) and documented in [`.env.example`](../../.env.example:1).
-- Database migration and backup/restore workflows are described in [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1).
+- Database migration and backup/restore workflows are described in [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1).
 - Structured logging via [`logger`](../../src/server/utils/logger.ts:1) and strongly typed client-error reporting via [`errorReporting`](../../src/client/utils/errorReporting.ts:1) reduce the need for ad-hoc `console.log` of sensitive values.
 - Operator-facing drills for critical secrets and backups now exist as:
   - [`docs/runbooks/SECRETS_ROTATION_DRILL.md`](../runbooks/SECRETS_ROTATION_DRILL.md) – JWT and database credential rotation drill for staging/non-production.
@@ -280,10 +280,10 @@ Key directions:
 ### S-05.E – Data retention, privacy, and user data workflows
 
 - **Goal:** Establish pragmatic policies for how long user and game data are retained and how user data can be deleted or exported if needed.
-- **Scope:** Backend, DB schema and migrations, and operator documentation such as [`docs/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1).
+- **Scope:** Backend, DB schema and migrations, and operator documentation such as [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md:1).
 - **Risk level:** Medium – Important for future regulatory alignment and for limiting the impact of potential data leaks.
 - **Dependencies:** Builds on current backup/restore and migration guidance in [`archive/FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:267).
-- **Design details:** The concrete data inventory, retention/anonymisation rules, and user data workflows for S‑05.E are defined in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](DATA_LIFECYCLE_AND_PRIVACY.md:1).
+- **Design details:** The concrete data inventory, retention/anonymisation rules, and user data workflows for S‑05.E are defined in [`docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`](DATA_LIFECYCLE_AND_PRIVACY.md:1).
 
 Key directions:
 
@@ -297,7 +297,7 @@ Key directions:
 - **Scope:** CI workflows under [`.github/workflows`](../../.github/workflows/ci.yml:1), Docker build pipeline, and contributor documentation.
 - **Risk level:** Medium – Becomes more important as the player base and contributor count grow.
 - **Dependencies:** Builds on existing CI practices and security scanning noted in [`archive/FINAL_ARCHITECT_REPORT.md`](../../archive/FINAL_ARCHITECT_REPORT.md:838).
-- **Design details:** The supply-chain & CI/CD threat overview, current controls/gaps, and S‑05.F.x implementation tracks are defined in [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
+- **Design details:** The supply-chain & CI/CD threat overview, current controls/gaps, and S‑05.F.x implementation tracks are defined in [`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`](SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
 
 Key directions:
 

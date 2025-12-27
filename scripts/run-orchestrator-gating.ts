@@ -8,7 +8,7 @@
  * - Short orchestrator soak (ci-short profile, failOnViolation=true)
  *
  * Intended as a single local/CI entrypoint for the gating set described in
- * docs/ORCHESTRATOR_ROLLOUT_PLAN.md §6.9 and the rollout runbook.
+ * docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md §6.9 and the rollout runbook.
  */
 
 import { spawn } from 'child_process';

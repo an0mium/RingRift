@@ -1431,7 +1431,7 @@ The contract testing domain provides a **language‑neutral description** of key
 
 It is the preferred way to assert that **Python’s `GameEngine` matches the shared TS orchestrator**, and is referenced by:
 
-- `docs/PYTHON_PARITY_REQUIREMENTS.md` (function/type parity).
+- `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` (function/type parity).
 - `RULES_SCENARIO_MATRIX.md` §10 (contract vectors and Python parity suites).
 - `tests/TEST_LAYERS.md` / `tests/TEST_SUITE_PARITY_PLAN.md` (Layer 2: Contract/Scenario tests).
 
@@ -1680,7 +1680,7 @@ Lobby interactions are implemented as a light‑weight, WebSocket‑backed side 
 
 `LobbyPage.tsx` consumes these events to keep the lobby view in sync with the backend while also supporting an initial HTTP fetch (`GET /games/lobby/available`). The WebSocket contracts remain thin shims over the canonical HTTP game summary model.
 
-> **Operational note:** For transport‑only verification of the WebSocket stack (Socket.IO framing, authentication, and basic lobby traffic) under load, use the `tests/load/scenarios/websocket-stress.js` k6 scenario. It drives many concurrent connections through the same `/socket.io` endpoint and exercises the diagnostic `diagnostic:ping` / `diagnostic:pong` channel documented in `docs/API_REFERENCE.md` without touching the rules engine or database.
+> **Operational note:** For transport‑only verification of the WebSocket stack (Socket.IO framing, authentication, and basic lobby traffic) under load, use the `tests/load/scenarios/websocket-stress.js` k6 scenario. It drives many concurrent connections through the same `/socket.io` endpoint and exercises the diagnostic `diagnostic:ping` / `diagnostic:pong` channel documented in `docs/architecture/API_REFERENCE.md` without touching the rules engine or database.
 
 ### 6.4 Rematch Flow
 

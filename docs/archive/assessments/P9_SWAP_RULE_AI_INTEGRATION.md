@@ -17,7 +17,7 @@ Successfully integrated swap rule (pie rule) evaluation across all AI types and 
 
 ### 1. Python HeuristicAI Swap Evaluation with Training Diversity
 
-**File**: [`ai-service/app/ai/heuristic_ai.py`](../ai-service/app/ai/heuristic_ai.py)
+**File**: [`ai-service/app/ai/heuristic_ai.py`](../../../ai-service/app/ai/heuristic_ai.py)
 
 #### Added Training Diversity Weight
 
@@ -65,7 +65,7 @@ This ensures:
 
 ### 3. TypeScript Local Heuristic AI Swap Evaluation
 
-**File**: [`src/shared/engine/localAIMoveSelection.ts`](../src/shared/engine/localAIMoveSelection.ts)
+**File**: [`src/shared/engine/localAIMoveSelection.ts`](../../../src/shared/engine/localAIMoveSelection.ts)
 
 #### Added Swap Evaluation Functions
 
@@ -249,7 +249,7 @@ Note: This implementation respects mode-based file editing restrictions:
 
 ### Test Coverage Created
 
-**File**: [`ai-service/tests/test_swap_evaluation.py`](../ai-service/tests/test_swap_evaluation.py)
+**File**: [`ai-service/tests/test_swap_evaluation.py`](../../../ai-service/tests/test_swap_evaluation.py)
 
 Test scenarios:
 

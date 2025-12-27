@@ -239,11 +239,11 @@ The following scripts already exist and are production-ready:
 ## Related Documents
 
 - [CURRENT_STATE.md](CURRENT_STATE.md) - Consolidated status summary (new)
-- [GPU_FULL_PARITY_PLAN_2025_12_11.md](../ai-service/docs/GPU_FULL_PARITY_PLAN_2025_12_11.md) - Corrected GPU implementation assessment
-- [GPU_PIPELINE_ROADMAP.md](../ai-service/docs/GPU_PIPELINE_ROADMAP.md) - GPU acceleration strategy
+- [GPU_FULL_PARITY_PLAN_2025_12_11.md](../../../ai-service/docs/archive/historical/GPU_FULL_PARITY_PLAN_2025_12_11.md) - Corrected GPU implementation assessment
+- [GPU_PIPELINE_ROADMAP.md](../../../ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md) - GPU acceleration strategy
 - [NEXT_STEPS_2025_12_11.md](NEXT_STEPS_2025_12_11.md) - Session 2 architectural assessment
-- [PRODUCTION_READINESS_CHECKLIST.md](PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
-- [RULES_CANONICAL_SPEC.md](../RULES_CANONICAL_SPEC.md) - Single source of truth for game rules
+- [../../production/PRODUCTION_READINESS_CHECKLIST.md](../../production/PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
+- [RULES_CANONICAL_SPEC.md](../../../RULES_CANONICAL_SPEC.md) - Single source of truth for game rules
 
 ---
 

@@ -73,7 +73,7 @@ Testing multiplayer coordination scenarios requires infrastructure beyond curren
 
 ## 2. Remediation Plan (Pass 19B)
 
-The detailed backlog is in [`docs/PASS19B_ASSESSMENT_REPORT.md`](docs/PASS19B_ASSESSMENT_REPORT.md).
+The detailed backlog is in [`../assessments/PASS19B_ASSESSMENT_REPORT.md`](../assessments/PASS19B_ASSESSMENT_REPORT.md).
 
 ### P0 (Critical) – E2E Test Infrastructure
 
@@ -104,26 +104,26 @@ The initial PASS18 assessment identified **Deep Multi-Engine Parity** as the har
 - Unified capture chain handling between backend `GameEngine` and `ClientSandboxEngine`
 - Aligned territory processing order and Q23 self-elimination prerequisites
 - Advanced-phase semantics verified across hosts via orchestrator adapters
-- **Docs:** [`P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](docs/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md)
+- **Docs:** [`P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](../assessments/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md)
 
 ### 3.2 P18.2-\*: RNG Seed Handling Alignment ✅
 
 - RNG seeding aligned between TS and Python for deterministic game replay
 - AI move selection now reproducible given same seed
-- **Docs:** [`P18.2-1_AI_RNG_PATHS.md`](docs/P18.2-1_AI_RNG_PATHS.md)
+- **Docs:** [`P18.2-1_AI_RNG_PATHS.md`](../assessments/P18.2-1_AI_RNG_PATHS.md)
 
 ### 3.3 P18.3-\*: Decision Lifecycle and Timeout Semantics ✅
 
 - Timeout behavior for pending decisions specified
 - Decision expiry handling aligned across hosts
-- **Docs:** [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
+- **Docs:** [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
 
 ### 3.4 P18.4-\*: Orchestrator Rollout (Phase 4 Complete) ✅
 
 - All environments: `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
 - Zero invariant violations across all board types in soak tests
 - Production preview (P18.4-4) success criteria defined
-- **Docs:** [`ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md), [`P18.4-3_ORCHESTRATOR_STAGING_REPORT.md`](docs/P18.4-3_ORCHESTRATOR_STAGING_REPORT.md)
+- **Docs:** [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md), [`P18.4-3_ORCHESTRATOR_STAGING_REPORT.md`](../assessments/P18.4-3_ORCHESTRATOR_STAGING_REPORT.md)
 
 ### 3.5 P18.5-\*: Extended Contract Vectors and swap_sides Parity ✅
 
@@ -131,14 +131,14 @@ The initial PASS18 assessment identified **Deep Multi-Engine Parity** as the har
 - **0 mismatches** between TS and Python
 - swap_sides (pie rule) verified across all layers (TS backend, TS sandbox, Python)
 - **Design clarification (P18.5-3):** Mid-phase vectors are for single-step parity testing, not game seeding
-- **Docs:** [`P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md`](docs/P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md), [`P18.5-4_SWAP_SIDES_PARITY_REPORT.md`](docs/P18.5-4_SWAP_SIDES_PARITY_REPORT.md)
+- **Docs:** [`P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md`](../assessments/P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md), [`P18.5-4_SWAP_SIDES_PARITY_REPORT.md`](../assessments/P18.5-4_SWAP_SIDES_PARITY_REPORT.md)
 
 ### 3.6 P18.18: Skipped Test Triage ✅
 
 - Obsolete test suites removed (4 files)
 - RulesMatrix.Comprehensive partially re-enabled (7 passing, 3 skipped)
 - OrchestratorSInvariant.regression re-enabled and passing
-- **Docs:** [`P18.18_SKIPPED_TEST_TRIAGE.md`](docs/P18.18_SKIPPED_TEST_TRIAGE.md)
+- **Docs:** [`P18.18_SKIPPED_TEST_TRIAGE.md`](../assessments/P18.18_SKIPPED_TEST_TRIAGE.md)
 
 ---
 

@@ -1144,7 +1144,7 @@ These metrics are an execution-focused view of the project-level success criteri
 | `KNOWN_ISSUES.md`                                                                                        | Current bugs (P0-P2)                                                                                |
 | `STRATEGIC_ROADMAP.md`                                                                                   | Phased roadmap & SLOs                                                                               |
 | [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) | Implementation status                                                                               |
-| `docs/TEST_CATEGORIES.md`                                                                                | CI vs diagnostic tests                                                                              |
+| `docs/testing/TEST_CATEGORIES.md`                                                                                | CI vs diagnostic tests                                                                              |
 | `docs/PASS21_ASSESSMENT_REPORT.md`                                                                       | Latest assessment                                                                                   |
 | `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`                                                         | Posture summary and SLOs (historical phase tables in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`) |
 

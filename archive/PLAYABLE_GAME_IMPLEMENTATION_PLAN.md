@@ -6,7 +6,7 @@
 >
 > - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)
 > - [`IMPLEMENTATION_STATUS.md`](../IMPLEMENTATION_STATUS.md)
-> - [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md)
+> - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
 > - [`TODO.md`](../TODO.md)
 
 **Created: November 15, 2025 · Status Updated: November 16, 2025**

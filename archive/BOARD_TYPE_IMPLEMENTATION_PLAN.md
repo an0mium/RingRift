@@ -5,7 +5,7 @@
 > **For current status and plans, see:**
 >
 > - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)
-> - [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md)
+> - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
 
 **Created:** November 13, 2025
 **Purpose:** Comprehensive plan for implementing Square (8x8, 19x19) and Hexagonal board support

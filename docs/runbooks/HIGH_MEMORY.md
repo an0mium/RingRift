@@ -11,7 +11,7 @@
 >   - Game/session lifecycle and retention in `src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`, `src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`.
 >   - WebSocket connection handling in `src/server/websocket/server.ts` and `src/server/game/WebSocketInteractionHandler.ts`.
 >   - Caching / connection management in `src/server/database/connection.ts`, `src/server/cache/redis.ts`, and other long-lived services.
-> - **Data & privacy SSoT:** `docs/DATA_LIFECYCLE_AND_PRIVACY.md` (what we store, for how long, and cleanup expectations).
+> - **Data & privacy SSoT:** `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` (what we store, for how long, and cleanup expectations).
 > - **AI & training memory (where applicable):** Python-side memory configuration helpers in `ai-service/app/utils/memory_config.py` and tests in `ai-service/tests/test_memory_config.py` inform how training/AI jobs bound memory; Node alerts for the main backend should still defer to `alerts.yml` for exact scopes.
 >
 > **Precedence:**
@@ -128,7 +128,7 @@ Because games and sessions are often the largest objects in memory, inspect:
 - **Persistence and cleanup:**
   - `GamePersistenceService` and `DataRetentionService` — confirm old games are persisted and removed from memory; verify retention jobs are running as expected.
 - **Orphaned/zombie sessions:**
-  - Cross-check `ringrift_games_active` and DB state (see `docs/OPERATIONS_DB.md`) for games that never transition to a terminal state.
+  - Cross-check `ringrift_games_active` and DB state (see `docs/operations/OPERATIONS_DB.md`) for games that never transition to a terminal state.
 
 If active games and sessions remain high long after traffic drops, memory pressure may be a symptom of **lifecycle bugs** (see also `GAME_HEALTH.md`).
 
@@ -171,7 +171,7 @@ If the Node memory alert coincides with heavy AI or training activity:
 - Confirm which services share the host/container with the Node backend.
 - If any Python/AI processes are co-located, refer to:
   - `ai-service/app/utils/memory_config.py` and `ai-service/tests/test_memory_config.py`.
-  - AI training/serving docs: `docs/AI_TRAINING_AND_DATASETS.md`, `docs/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/AI_TRAINING_ASSESSMENT_FINAL.md`.
+  - AI training/serving docs: `docs/ai/AI_TRAINING_AND_DATASETS.md`, `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`.
 
 Where possible, **avoid co-locating** memory-heavy training workloads with the main backend Node process.
 
@@ -202,7 +202,7 @@ If diagnosis points to long-lived sessions or data:
 1. **Ensure sessions are torn down properly:**
    - Review `GameSession`, `GameSessionManager`, and related state machines to ensure all terminal states (victory, resignation, timeout, disconnect) trigger cleanup.
 2. **Strengthen cleanup jobs:**
-   - Confirm that `DataRetentionService` is running and enforcing retention windows as described in `docs/DATA_LIFECYCLE_AND_PRIVACY.md`.
+   - Confirm that `DataRetentionService` is running and enforcing retention windows as described in `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`.
    - Add metrics or logs for retention runs and any failures.
 3. **Guard against pathological cases:**
    - Consider reasonable **max durations** or **max moves** for games to avoid unbounded sessions (coordinated with product and rules teams).
@@ -258,9 +258,9 @@ Before considering a high-memory incident resolved, confirm:
 
 - [ ] Any changes to data retention, session lifecycle, or caches are:
   - Covered by automated tests.
-  - Documented in `docs/DATA_LIFECYCLE_AND_PRIVACY.md`, `docs/OPERATIONS_DB.md`, or relevant architecture docs if they materially change behaviour.
+  - Documented in `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`, `docs/operations/OPERATIONS_DB.md`, or relevant architecture docs if they materially change behaviour.
 - [ ] Any updated memory limits or deployment sizing are reflected in:
-  - `docs/DEPLOYMENT_REQUIREMENTS.md` or environment-specific ops documentation.
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md` or environment-specific ops documentation.
   - Runbooks or incident notes, if they were part of the remediation.
 
 ---
@@ -278,7 +278,7 @@ Before considering a high-memory incident resolved, confirm:
   - `src/server/game/GameSessionManager.ts`
   - `src/server/services/GamePersistenceService.ts`
   - `src/server/services/DataRetentionService.ts`
-  - `docs/DATA_LIFECYCLE_AND_PRIVACY.md`
+  - `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`
   - `GAME_HEALTH.md` (for long-running games / zombie sessions)
 
 - **Resources & performance:**
@@ -289,8 +289,8 @@ Before considering a high-memory incident resolved, confirm:
 - **AI / training context:**
   - `ai-service/app/utils/memory_config.py`
   - `ai-service/tests/test_memory_config.py`
-  - `docs/AI_TRAINING_AND_DATASETS.md`
-  - `docs/AI_TRAINING_PREPARATION_GUIDE.md`
-  - `docs/AI_TRAINING_ASSESSMENT_FINAL.md`
+  - `docs/ai/AI_TRAINING_AND_DATASETS.md`
+  - `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`
+  - `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`
 
 Use this runbook as a **playbook** for investigating and remediating high memory usage. Always defer to the actual implementation, deployment configuration, and `alerts.yml` for the ground truth on thresholds and expected behaviour.

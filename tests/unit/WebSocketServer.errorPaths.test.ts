@@ -9,7 +9,7 @@
  * - Server-initiated close scenarios
  * - Session termination
  *
- * Related spec: docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md (§2.4 Connection sub-states)
+ * Related spec: docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md (§2.4 Connection sub-states)
  */
 
 import { WebSocketServer } from '../../src/server/websocket/server';

@@ -231,7 +231,7 @@ If errors began recently, check for:
 - New AI models or profile changes (`_CANONICAL_DIFFICULTY_PROFILES` in `main.py`, model versioning docs, `AI_IMPROVEMENT_PLAN.md`).
 - Code changes on the Python side (new heuristics, new board support, rules changes).
 - Changes to request/response contracts in the Node backend or shared types.
-- Environment variable or topology updates affecting AI (see `docs/ENVIRONMENT_VARIABLES.md`, `docs/DEPLOYMENT_REQUIREMENTS.md`).
+- Environment variable or topology updates affecting AI (see `docs/operations/ENVIRONMENT_VARIABLES.md`, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`).
 
 A clear alignment with a particular change typically favours **rollback or targeted fixes**.
 
@@ -361,7 +361,7 @@ You are done when:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
-  - `docs/DEPLOYMENT_REQUIREMENTS.md`
-  - `docs/ENVIRONMENT_VARIABLES.md`
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
+  - `docs/operations/ENVIRONMENT_VARIABLES.md`
 - **Orchestrator rollout:**
   - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.

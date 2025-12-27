@@ -10,7 +10,7 @@
  * expires first, ending the game by abandonment with a distinct result
  * reason (not time-loss)"
  *
- * Related spec: docs/CANONICAL_ENGINE_API.md §3.9.4
+ * Related spec: docs/architecture/CANONICAL_ENGINE_API.md §3.9.4
  */
 
 import { Server as SocketIOServer } from 'socket.io';

@@ -3,7 +3,7 @@
 > **⚠️ HISTORICAL / COMPLETED** – This migration was completed in November 2025. The orchestrator is now at 100% rollout.
 > For current status, see:
 >
-> - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
+> - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
 > - [`historical/CURRENT_STATE_ASSESSMENT.md`](historical/CURRENT_STATE_ASSESSMENT.md) – Implementation status
 
 > **Doc Status (2025-11-30): Historical (completed migration report)**
@@ -12,7 +12,7 @@
 > **SSoT alignment:** This report is a **derived operational doc** over the existing SSoTs:
 >
 > - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` plus v2 vectors in `tests/fixtures/contract-vectors/v2/**`.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 > - **Operational SSoTs:** Deployment and topology configs (`docker-compose*.yml`, `src/server/config/**/*.ts`), orchestrator rollout controls in `OrchestratorRolloutService` / `ShadowModeComparator`, and related design notes in `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md` and `docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`.
 >
 > **Precedence:** This report is **not** the source of truth for behaviour. If it ever conflicts with the shared TS engine, contract vectors, orchestrator implementation, or deployment/topology configs, **code + tests + configs win**, and this document must be updated to reflect reality.
@@ -125,4 +125,4 @@ Planned follow-ups:
 
 - Replace this draft with a finalized, dated migration report once Phase 3 is complete.
 - Cross-link final status into `docs/PASSXX_*` assessment reports and `DOCUMENTATION_AUDIT_REPORT.md`.
-- Ensure `docs/ENVIRONMENT_VARIABLES.md` and `docs/DEPLOYMENT_REQUIREMENTS.md` accurately reflect the final, stable set of orchestrator-related flags and expectations.
+- Ensure `docs/operations/ENVIRONMENT_VARIABLES.md` and `docs/planning/DEPLOYMENT_REQUIREMENTS.md` accurately reflect the final, stable set of orchestrator-related flags and expectations.

@@ -6,7 +6,7 @@
 >
 > **For current architecture and plans, see:**
 >
-> - [`ARCHITECTURE_ASSESSMENT.md`](../ARCHITECTURE_ASSESSMENT.md)
+> - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md)
 > - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)
 
 ⚠️ **UPDATED:** November 13, 2025 - **Implementation Status Assessment Added**
@@ -660,9 +660,9 @@ The recommended architecture provides a robust, scalable foundation for the Ring
 
 - **[CURRENT_STATE_ASSESSMENT.md](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)** - Detailed gap analysis and roadmap
 - **[KNOWN_ISSUES.md](../KNOWN_ISSUES.md)** - Specific bugs and missing features
-- **[CONTRIBUTING.md](./CONTRIBUTING.md)** - Development guidelines and priorities
-- **[TODO.md](./TODO.md)** - Task tracking and sprint planning
-- **[ringrift_complete_rules.md](./ringrift_complete_rules.md)** - Complete game rules (source of truth)
+- **[CONTRIBUTING.md](../CONTRIBUTING.md)** - Development guidelines and priorities
+- **[TODO.md](../TODO.md)** - Task tracking and sprint planning
+- **[ringrift_complete_rules.md](../ringrift_complete_rules.md)** - Complete game rules (source of truth)
 
 ### Time to Market (Revised)
 

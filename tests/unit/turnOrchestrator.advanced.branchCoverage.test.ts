@@ -295,7 +295,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
 
     // DELETED 2025-12-06: 'handles end_chain_capture move' tested obsolete move type.
     // end_chain_capture doesn't exist; chains end via decision resolution.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
+    // See: docs/testing/SKIPPED_TESTS_TRIAGE.md (TH-5)
   });
 
   describe('ANM state resolution', () => {
@@ -993,7 +993,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
 
     // DELETED 2025-12-06: 'returns early on chain capture decision without auto-resolving'
     // tested passing undefined move after capture, now requires valid moves.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
+    // See: docs/testing/SKIPPED_TESTS_TRIAGE.md (TH-5)
   });
 
   describe('capture from landing position (lines 689-695)', () => {
@@ -1316,7 +1316,7 @@ describe('TurnOrchestrator advanced branch coverage', () => {
     });
 
     // DELETED 2025-12-06: 'ends chain capture when no more continuations available'
-    // tested obsolete end_chain_capture move type. See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
+    // tested obsolete end_chain_capture move type. See: docs/testing/SKIPPED_TESTS_TRIAGE.md (TH-5)
   });
 
   describe('validateMove edge cases', () => {

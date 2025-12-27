@@ -16,7 +16,7 @@
 
 Pass 13 conducted a comprehensive assessment across four key areas. Key findings:
 
-1. **Shared Helpers:** [`movementApplication.ts`](../src/shared/engine/movementApplication.ts) and [`placementHelpers.ts`](../src/shared/engine/placementHelpers.ts) contain P0 TODO stubs requiring implementation. [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts) is fully implemented despite Pass 12 claims.
+1. **Shared Helpers:** [`movementApplication.ts`](../../../src/shared/engine/movementApplication.ts) and [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts) contain P0 TODO stubs requiring implementation. [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts) is fully implemented despite Pass 12 claims.
 
 2. **React Tests:** Many React component tests already exist (GameHUD, VictoryModal, BoardView, etc.). Remaining gaps are primarily in hooks and minor components. Pass 12's "160 component tests" claim is inaccurate - the tests are distributed across many files.
 
@@ -28,7 +28,7 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 
 ## Focus Area 1: Remaining Shared Helpers
 
-### [`movementApplication.ts`](../src/shared/engine/movementApplication.ts)
+### [`movementApplication.ts`](../../../src/shared/engine/movementApplication.ts)
 
 **Status:** TODO_STUB  
 **Lines:** 116  
@@ -48,7 +48,7 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 
 **Notes:** This file provides the type definitions but the actual implementation functions are stubs. These need to be implemented to match the patterns in [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts:1).
 
-### [`placementHelpers.ts`](../src/shared/engine/placementHelpers.ts)
+### [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts)
 
 **Status:** PARTIALLY_IMPLEMENTED  
 **Lines:** 200  
@@ -95,49 +95,49 @@ The following React test files already exist in `tests/unit/`:
 
 | Test File                                                                        | Target Component | Status    |
 | -------------------------------------------------------------------------------- | ---------------- | --------- |
-| [`GameHUD.test.tsx`](../tests/unit/GameHUD.test.tsx)                             | GameHUD.tsx      | ✅ EXISTS |
-| [`GameHUD.snapshot.test.tsx`](../tests/unit/GameHUD.snapshot.test.tsx)           | GameHUD.tsx      | ✅ EXISTS |
-| [`VictoryModal.test.tsx`](../tests/unit/VictoryModal.test.tsx)                   | VictoryModal.tsx | ✅ EXISTS |
-| [`VictoryModal.logic.test.ts`](../tests/unit/VictoryModal.logic.test.ts)         | VictoryModal.tsx | ✅ EXISTS |
-| [`GameEventLog.snapshot.test.tsx`](../tests/unit/GameEventLog.snapshot.test.tsx) | GameEventLog.tsx | ✅ EXISTS |
+| [`GameHUD.test.tsx`](../../../tests/unit/GameHUD.test.tsx)                             | GameHUD.tsx      | ✅ EXISTS |
+| [`GameHUD.snapshot.test.tsx`](../../../tests/unit/GameHUD.snapshot.test.tsx)           | GameHUD.tsx      | ✅ EXISTS |
+| [`VictoryModal.test.tsx`](../../../tests/unit/VictoryModal.test.tsx)                   | VictoryModal.tsx | ✅ EXISTS |
+| [`VictoryModal.logic.test.ts`](../../../tests/unit/VictoryModal.logic.test.ts)         | VictoryModal.tsx | ✅ EXISTS |
+| [`GameEventLog.snapshot.test.tsx`](../../../tests/unit/GameEventLog.snapshot.test.tsx) | GameEventLog.tsx | ✅ EXISTS |
 | [`GameContext.reconnect.test.tsx`](../tests/unit/GameContext.reconnect.test.tsx) | GameContext.tsx  | ✅ EXISTS |
-| [`LobbyPage.test.tsx`](../tests/unit/LobbyPage.test.tsx)                         | LobbyPage.tsx    | ✅ EXISTS |
+| [`LobbyPage.test.tsx`](../../../tests/unit/LobbyPage.test.tsx)                         | LobbyPage.tsx    | ✅ EXISTS |
 
 **Component Tests in `tests/unit/components/`:**
 
 | Test File                                                                     | Target Component   | Status                |
 | ----------------------------------------------------------------------------- | ------------------ | --------------------- |
-| [`BoardView.test.tsx`](../tests/unit/components/BoardView.test.tsx)           | BoardView.tsx      | ✅ EXISTS (318 lines) |
-| [`ErrorBoundary.test.tsx`](../tests/unit/components/ErrorBoundary.test.tsx)   | ErrorBoundary.tsx  | ✅ EXISTS             |
-| [`Layout.test.tsx`](../tests/unit/components/Layout.test.tsx)                 | Layout.tsx         | ✅ EXISTS             |
-| [`LoadingSpinner.test.tsx`](../tests/unit/components/LoadingSpinner.test.tsx) | LoadingSpinner.tsx | ✅ EXISTS             |
-| [`ui/Button.test.tsx`](../tests/unit/components/ui/Button.test.tsx)           | Button.tsx         | ✅ EXISTS             |
-| [`ui/Card.test.tsx`](../tests/unit/components/ui/Card.test.tsx)               | Card.tsx           | ✅ EXISTS             |
-| [`ui/Input.test.tsx`](../tests/unit/components/ui/Input.test.tsx)             | Input.tsx          | ✅ EXISTS             |
-| [`ui/Select.test.tsx`](../tests/unit/components/ui/Select.test.tsx)           | Select.tsx         | ✅ EXISTS             |
+| [`BoardView.test.tsx`](../../../tests/unit/components/BoardView.test.tsx)           | BoardView.tsx      | ✅ EXISTS (318 lines) |
+| [`ErrorBoundary.test.tsx`](../../../tests/unit/components/ErrorBoundary.test.tsx)   | ErrorBoundary.tsx  | ✅ EXISTS             |
+| [`Layout.test.tsx`](../../../tests/unit/components/Layout.test.tsx)                 | Layout.tsx         | ✅ EXISTS             |
+| [`LoadingSpinner.test.tsx`](../../../tests/unit/components/LoadingSpinner.test.tsx) | LoadingSpinner.tsx | ✅ EXISTS             |
+| [`ui/Button.test.tsx`](../../../tests/unit/components/ui/Button.test.tsx)           | Button.tsx         | ✅ EXISTS             |
+| [`ui/Card.test.tsx`](../../../tests/unit/components/ui/Card.test.tsx)               | Card.tsx           | ✅ EXISTS             |
+| [`ui/Input.test.tsx`](../../../tests/unit/components/ui/Input.test.tsx)             | Input.tsx          | ✅ EXISTS             |
+| [`ui/Select.test.tsx`](../../../tests/unit/components/ui/Select.test.tsx)           | Select.tsx         | ✅ EXISTS             |
 
 ### Components Still Needing Tests
 
 | Component                                                       | Lines | Complexity | Priority |
 | --------------------------------------------------------------- | ----- | ---------- | -------- |
-| [`AIDebugView.tsx`](../src/client/components/AIDebugView.tsx)   | 77    | Low        | P2       |
-| [`ChoiceDialog.tsx`](../src/client/components/ChoiceDialog.tsx) | 246   | Medium     | P1       |
-| [`ui/Badge.tsx`](../src/client/components/ui/Badge.tsx)         | 23    | Low        | P2       |
+| [`AIDebugView.tsx`](../../../src/client/components/AIDebugView.tsx)   | 77    | Low        | P2       |
+| [`ChoiceDialog.tsx`](../../../src/client/components/ChoiceDialog.tsx) | 246   | Medium     | P1       |
+| [`ui/Badge.tsx`](../../../src/client/components/ui/Badge.tsx)         | 23    | Low        | P2       |
 
 ### Hooks Still Needing Tests
 
 | Hook                                                               | Lines | Key Exports                                                                    | Priority |
 | ------------------------------------------------------------------ | ----- | ------------------------------------------------------------------------------ | -------- |
-| [`useGameActions.ts`](../src/client/hooks/useGameActions.ts)       | 388   | `useGameActions`, `usePendingChoice`, `useChatMessages`, `useValidMoves`       | P1       |
-| [`useGameConnection.ts`](../src/client/hooks/useGameConnection.ts) | 290   | `useGameConnection`, `useConnectionStatus`, `useIsConnected`                   | P1       |
-| [`useGameState.ts`](../src/client/hooks/useGameState.ts)           | 300   | `useGameState`, `useHUDViewModel`, `useBoardViewModel`, `useEventLogViewModel` | P1       |
+| [`useGameActions.ts`](../../../src/client/hooks/useGameActions.ts)       | 388   | `useGameActions`, `usePendingChoice`, `useChatMessages`, `useValidMoves`       | P1       |
+| [`useGameConnection.ts`](../../../src/client/hooks/useGameConnection.ts) | 290   | `useGameConnection`, `useConnectionStatus`, `useIsConnected`                   | P1       |
+| [`useGameState.ts`](../../../src/client/hooks/useGameState.ts)           | 300   | `useGameState`, `useHUDViewModel`, `useBoardViewModel`, `useEventLogViewModel` | P1       |
 
 ### Contexts Still Needing Tests
 
 | Context                                                     | Lines | Key Features                                                                 | Priority |
 | ----------------------------------------------------------- | ----- | ---------------------------------------------------------------------------- | -------- |
-| [`AuthContext.tsx`](../src/client/contexts/AuthContext.tsx) | 103   | localStorage token handling, login/register/logout                           | P1       |
-| [`GameContext.tsx`](../src/client/contexts/GameContext.tsx) | 493   | WebSocket, hydration, choice handling (partial coverage via reconnect tests) | P1       |
+| [`AuthContext.tsx`](../../../src/client/contexts/AuthContext.tsx) | 103   | localStorage token handling, login/register/logout                           | P1       |
+| [`GameContext.tsx`](../../../src/client/contexts/GameContext.tsx) | 493   | WebSocket, hydration, choice handling (partial coverage via reconnect tests) | P1       |
 
 ---
 
@@ -147,12 +147,12 @@ The following React test files already exist in `tests/unit/`:
 
 | Document                                                                                                                            | Status     | Last Updated    | Issues                                   |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------- | ---------------------------------------- |
-| [`README.md`](../README.md)                                                                                                         | ✅ Current | Nov 26-27, 2025 | Minor: Remove Playwright workers default |
-| [`QUICKSTART.md`](../QUICKSTART.md)                                                                                                 | ✅ Current | Nov 26-27, 2025 | None - comprehensive 685 lines           |
-| [`docs/API_REFERENCE.md`](API_REFERENCE.md)                                                                                         | ✅ Current | Nov 27, 2025    | None - well-structured                   |
-| [`docs/CANONICAL_ENGINE_API.md`](CANONICAL_ENGINE_API.md)                                                                           | ✅ Current | Recent          | None - 1313 lines comprehensive          |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md)                                                                                             | ✅ Current | Nov 27, 2025    | None - 708 lines detailed                |
-| [`ARCHITECTURE_ASSESSMENT.md`](../ARCHITECTURE_ASSESSMENT.md)                                                                       | ✅ Current | Nov 27, 2025    | None - updated with Phase 4 completion   |
+| [`README.md`](../../../README.md)                                                                                                         | ✅ Current | Nov 26-27, 2025 | Minor: Remove Playwright workers default |
+| [`QUICKSTART.md`](../../../QUICKSTART.md)                                                                                                 | ✅ Current | Nov 26-27, 2025 | None - comprehensive 685 lines           |
+| [`docs/architecture/../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md)                                                                                         | ✅ Current | Nov 27, 2025    | None - well-structured                   |
+| [`docs/architecture/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md)                                                                           | ✅ Current | Recent          | None - 1313 lines comprehensive          |
+| [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)                                                                                             | ✅ Current | Nov 27, 2025    | None - 708 lines detailed                |
+| [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md)                                                                       | ✅ Current | Nov 27, 2025    | None - updated with Phase 4 completion   |
 | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ⚠️ Minor   | Nov 26, 2025    | Update test counts after Pass 12-13      |
 
 ### Stale Documents to Update
@@ -186,14 +186,14 @@ All major documentation is well-maintained:
 
 ### Specific UX Observations
 
-**Strengths in [`App.tsx`](../src/client/App.tsx):**
+**Strengths in [`App.tsx`](../../../src/client/App.tsx):**
 
 - Lazy loading for `GamePage`, `LobbyPage`, `ProfilePage`, `LeaderboardPage`
 - Proper `Suspense` fallback with `LoadingSpinner`
 - Toast notifications with dark theme styling
 - Auth-protected routing
 
-**Strengths in [`GamePage.tsx`](../src/client/pages/GamePage.tsx) (2144 lines):**
+**Strengths in [`GamePage.tsx`](../../../src/client/pages/GamePage.tsx) (2144 lines):**
 
 - Comprehensive connection status handling (connected/reconnecting/disconnected banners)
 - Rich game phase guidance (`PHASE_COPY` with labels and summaries)
@@ -202,7 +202,7 @@ All major documentation is well-maintained:
 - AI stall detection and diagnostics panel
 - Sandbox mode with full game setup UI
 
-**Strengths in [`globals.css`](../src/client/styles/globals.css) (150 lines):**
+**Strengths in [`globals.css`](../../../src/client/styles/globals.css) (150 lines):**
 
 - Tailwind base integration
 - Custom game board styles with hover/selection states
@@ -238,8 +238,8 @@ All major documentation is well-maintained:
 | ------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 160 React component tests in 8 files        | ⚠️ IMPRECISE | Tests exist but are distributed across 15+ test files in `tests/unit/` and `tests/unit/components/`. The "160 tests" count methodology is unclear.                                                                         |
 | captureChainHelpers (5 functions, 20 tests) | ✅ VERIFIED  | [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts) has 5 functions (494 lines), test file [`captureChainHelpers.shared.test.ts`](../tests/unit/captureChainHelpers.shared.test.ts) exists (587 lines) |
-| HealthCheckService tests (27 tests)         | ✅ VERIFIED  | [`HealthCheckService.test.ts`](../tests/unit/HealthCheckService.test.ts) exists (577 lines) with comprehensive coverage                                                                                                    |
-| Prometheus CI validation script             | ✅ VERIFIED  | [`scripts/validate-monitoring-configs.sh`](../scripts/validate-monitoring-configs.sh) validates Prometheus and Alertmanager configs                                                                                        |
+| HealthCheckService tests (27 tests)         | ✅ VERIFIED  | [`HealthCheckService.test.ts`](../../../tests/unit/HealthCheckService.test.ts) exists (577 lines) with comprehensive coverage                                                                                                    |
+| Prometheus CI validation script             | ✅ VERIFIED  | [`scripts/validate-monitoring-configs.sh`](../../../scripts/validate-monitoring-configs.sh) validates Prometheus and Alertmanager configs                                                                                        |
 
 ### Pass 12 Claim Corrections
 

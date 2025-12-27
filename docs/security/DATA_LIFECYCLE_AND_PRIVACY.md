@@ -1,9 +1,9 @@
 # RingRift Data Lifecycle, Retention, and Privacy (S-05.E)
 
 > **Doc Status (2025-11-27): Active (IMPLEMENTED)**
-> Data lifecycle, retention, and privacy features are now fully implemented. This document describes the **current production behavior** for S-05.E.x features. This is not a rules or lifecycle SSoT; it complements `SECURITY_THREAT_MODEL.md`, `OPERATIONS_DB.md`, and `DOCUMENTATION_INDEX.md` for overall security/ops posture.
+> Data lifecycle, retention, and privacy features are now fully implemented. This document describes the **current production behavior** for S-05.E.x features. This is not a rules or lifecycle SSoT; it complements `docs/security/SECURITY_THREAT_MODEL.md`, `docs/operations/OPERATIONS_DB.md`, and `DOCUMENTATION_INDEX.md` for overall security/ops posture.
 
-**Related docs:** [`docs/SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md), [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md), [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md), [`schema.prisma`](../../prisma/schema.prisma)
+**Related docs:** [`docs/security/SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md), [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md), [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md), [`schema.prisma`](../../prisma/schema.prisma)
 
 This document defines how RingRift handles user and game data over time:
 

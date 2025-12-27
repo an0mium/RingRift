@@ -104,7 +104,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
    - Purpose: Redis cache misses
    - Dashboard: System Health
 
-**Deliverable:** [`src/server/services/MetricsService.ts`](../src/server/services/MetricsService.ts) (lines 234-256, 559-599, 1073-1134)
+**Deliverable:** [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) (lines 234-256, 559-599, 1073-1134)
 
 **Impact:** Closes observability gaps identified in PASS21 assessment, providing complete metric coverage for Grafana dashboards.
 
@@ -112,7 +112,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 
 #### P22.3: Environment Variables Documentation Sync
 
-**Updated [`docs/ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md):**
+**Updated [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md):**
 
 | Change Type    | Variable                              | Details                                             |
 | :------------- | :------------------------------------ | :-------------------------------------------------- |
@@ -125,7 +125,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 
 **Total Changes:** 5 added, 1 updated, 1 deprecated
 
-**Deliverable:** [`docs/ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) (1,190 lines)
+**Deliverable:** [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) (1,190 lines)
 
 **Impact:** Configuration documentation now 100% synchronized with codebase, preventing operator confusion and deployment errors.
 
@@ -141,7 +141,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 - **Audience Guides:** Specific navigation paths for 6 personas (new contributors, DevOps, QA, AI researchers, rules designers, system architects)
 - **Quick Search:** Common query patterns and search tips
 
-**Deliverable:** [`docs/DOCUMENTATION_INDEX.md`](DOCUMENTATION_INDEX.md) (891 lines)
+**Deliverable:** [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) (891 lines)
 
 **Impact:** Project documentation now discoverable and navigable. New contributors can find relevant information in minutes instead of hours.
 
@@ -151,7 +151,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 
 **Updated 6 project documents with PASS20-21 progress:**
 
-1. **[`README.md`](../README.md)**
+1. **[`README.md`](../../../README.md)**
    - Updated current status section
    - Refreshed feature completion badges
    - Added PASS21 observability achievements
@@ -161,19 +161,19 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
    - Context coverage improvements (GameContext 89.52%, SandboxContext 84.21%)
    - Component scores updated post-PASS21
 
-3. **[`PROJECT_GOALS.md`](../PROJECT_GOALS.md)**
+3. **[`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)**
    - Updated operational readiness section
    - Reflected observability infrastructure completion
 
-4. **[`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md)**
+4. **[`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md)**
    - PASS21 marked complete
    - Load testing framework status updated
 
-5. **[`TODO.md`](../TODO.md)**
+5. **[`TODO.md`](../../../TODO.md)**
    - PASS21 tasks marked complete
    - PASS22 deferred tasks added
 
-6. **[`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md)**
+6. **[`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md)**
    - Updated with PASS22 deferred items
    - Removed completed observability gaps
 
@@ -204,7 +204,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 
 ### Baseline Load Test Results – Game Creation (PASS22)
 
-As part of PASS22, the `game-creation` k6 scenario [`game-creation.js`](tests/load/scenarios/game-creation.js) was executed against the Docker stack using:
+As part of PASS22, the `game-creation` k6 scenario [`game-creation.js`](../../../tests/load/scenarios/game-creation.js) was executed against the Docker stack using:
 
 - Command: `BASE_URL=http://localhost:3000 npm run test:smoke:game-creation`
 - Load pattern: 30s → 10 VUs, 1m → 50 VUs, 2m at 50 VUs, 30s ramp-down (≈4 minutes total)
@@ -217,9 +217,9 @@ Key results:
 
 SLO alignment:
 
-- Compared to the staging SLO for POST `/api/games` from [`tests/load/README.md`](tests/load/README.md) and [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md) (p95 ≤ 800 ms, p99 ≤ 1500 ms, error rate < 1%), these baseline results **strongly meet** the SLO with a large margin.
+- Compared to the staging SLO for POST `/api/games` from [`../../../tests/load/README.md`](../../../tests/load/README.md) and [`../../planning/STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) (p95 ≤ 800 ms, p99 ≤ 1500 ms, error rate < 1%), these baseline results **strongly meet** the SLO with a large margin.
 
-For details, metrics tables, and the known GET `/api/games/:gameId` 400 GAME_INVALID_ID contract-bug note that inflates `http_req_failed` for this scenario, see [`GAME_PERFORMANCE.md`](runbooks/GAME_PERFORMANCE.md) section "Baseline Metrics – Game Creation (PASS22)".
+For details, metrics tables, and the known GET `/api/games/:gameId` 400 GAME_INVALID_ID contract-bug note that inflates `http_req_failed` for this scenario, see [`GAME_PERFORMANCE.md`](../../runbooks/GAME_PERFORMANCE.md) section "Baseline Metrics – Game Creation (PASS22)".
 
 As of PASS22, **only the game-creation scenario has been executed**; additional k6 scenarios are defined but not yet run (see Deferred Work & Rationale).
 
@@ -237,28 +237,28 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 
 **Per-scenario status after PASS24.1**
 
-1. **Scenario 1 – game-creation** ([`game-creation.js`](tests/load/scenarios/game-creation.js:1))
+1. **Scenario 1 – game-creation** ([`game-creation.js`](../../../tests/load/scenarios/game-creation.js:1))
    - Infra: Stable. No socket errors when routing through nginx; app remains reachable throughout the run.
    - Behaviour: `POST /api/games` retains the strong PASS22 baseline:
      - Latency: `game_creation_latency_ms` p95 ≈ 13 ms, p99 ≈ 16 ms (≪ staging SLOs of 800 ms / 1500 ms).
      - Errors: Creation-specific error rate ≈ 0%; the elevated `http_req_failed` rate is still dominated by `GET /api/games/:gameId` contract behaviour (see below).
    - Primary issues **now**: None for `POST /api/games` capacity/latency; the main gap is the `GET /api/games/:gameId` ID/validation contract that inflates aggregate k6 error metrics.
 
-2. **Scenario 2 – concurrent-games** ([`concurrent-games.js`](tests/load/scenarios/concurrent-games.js:1))
+2. **Scenario 2 – concurrent-games** ([`concurrent-games.js`](../../../tests/load/scenarios/concurrent-games.js:1))
    - Infra: Setup and game APIs (`/health`, `/api/auth/login`, `POST /api/games`, `GET /api/games/:gameId`) are reachable with no `ECONNREFUSED`/status=0 errors at 100+ concurrent games.
    - Behaviour: High error rate is driven by **functional responses**, not transport:
      - Many `GET /api/games/:gameId` calls return `400 GAME_INVALID_ID` due to mismatched ID assumptions between the scenario and the current API contract.
      - Some `429 Too Many Requests` responses appear under peak concurrency due to rate limiting.
    - Primary issues **now**: Contract/ID behaviour and rate-limit tuning, not HTTP availability or raw capacity.
 
-3. **Scenario 3 – player-moves** ([`player-moves.js`](tests/load/scenarios/player-moves.js:1))
+3. **Scenario 3 – player-moves** ([`player-moves.js`](../../../tests/load/scenarios/player-moves.js:1))
    - Infra: With `MOVE_HTTP_ENDPOINT_ENABLED=false`, the scenario stresses `POST /api/games` and repeated `GET /api/games/:gameId` polling; these calls do not show socket-level failures under load.
    - Behaviour:
      - Many `GET /api/games/:gameId` calls return 4xx due to timing/ID/validation assumptions in the script vs. the current API.
      - Successful responses have low latency; p95/p99 for the GET path remain well within the staging SLOs.
    - Primary issues **now**: Functional/contract mismatches in how the scenario selects and polls game IDs; HTTP infra is healthy.
 
-4. **Scenario 4 – websocket-stress** ([`websocket-stress.js`](tests/load/scenarios/websocket-stress.js:1))
+4. **Scenario 4 – websocket-stress** ([`websocket-stress.js`](../../../tests/load/scenarios/websocket-stress.js:1))
    - Infra: 100% of attempted WebSocket handshakes via nginx and `/socket.io/` succeed (HTTP 101 switching protocols), confirming that nginx + `WebSocketServer` can accept and proxy the connection load.
    - Behaviour:
      - Connections are short-lived and are closed by the server with “message parse error”–style semantics because k6 is sending plain JSON frames, not full Socket.IO protocol messages.
@@ -273,7 +273,7 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
   - The **open work items** are:
     - Fix `GET /api/games/:gameId` contract/ID handling so concurrent-games and player-moves can be used as reliable SLO gates.
     - Align the `websocket-stress` script’s message format with the production Socket.IO protocol so connection-duration and message-latency thresholds reflect real UX limits rather than parse errors.
-- Detailed per-scenario baselines and infra vs application distinctions are captured in [`GAME_PERFORMANCE.md`](runbooks/GAME_PERFORMANCE.md:316) §8 “PASS24.1 – k6 baselines after HTTP/WebSocket stabilization.
+- Detailed per-scenario baselines and infra vs application distinctions are captured in [`GAME_PERFORMANCE.md`](../../runbooks/GAME_PERFORMANCE.md:316) §8 “PASS24.1 – k6 baselines after HTTP/WebSocket stabilization.
 
 ### Test Coverage (Accessibility)
 
@@ -305,7 +305,7 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 | File                                                                | Lines     | Status | Purpose                                   |
 | :------------------------------------------------------------------ | :-------- | :----- | :---------------------------------------- |
 | [`docs/PASS22_ASSESSMENT_REPORT.md`](PASS22_ASSESSMENT_REPORT.md)   | 740       | ✅ NEW | Comprehensive assessment identifying gaps |
-| [`docs/DOCUMENTATION_INDEX.md`](DOCUMENTATION_INDEX.md)             | 891       | ✅ NEW | Complete documentation catalog            |
+| [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md)             | 891       | ✅ NEW | Complete documentation catalog            |
 | [`docs/PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md) | This file | ✅ NEW | This completion summary                   |
 
 ### Test Files
@@ -318,8 +318,8 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 
 | File                                                                                | Change        | Impact                 |
 | :---------------------------------------------------------------------------------- | :------------ | :--------------------- |
-| [`src/server/services/MetricsService.ts`](../src/server/services/MetricsService.ts) | +7 metrics    | Dashboard completeness |
-| [`docs/ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md)                         | +5 vars, sync | Configuration accuracy |
+| [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) | +7 metrics    | Dashboard completeness |
+| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md)                         | +5 vars, sync | Configuration accuracy |
 
 ### Documentation Updates
 
@@ -389,7 +389,7 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 
 #### P21.4-2: Run Production-Scale Load Test
 
-**Scope:** Execute 4 load scenarios from [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md)
+**Scope:** Execute 4 load scenarios from [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md)
 
 **Why Deferred:**
 
@@ -401,7 +401,7 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 
 Additional k6 scenarios:
 
-- The k6 suite defines additional scenarios under [`tests/load/scenarios`](tests/load/scenarios) (e.g. concurrent-games, player-moves, websocket-stress) that exercise concurrent game lifecycles, high-volume move traffic, and WebSocket behaviour.
+- The k6 suite defines additional scenarios under [`../../../tests/load/scenarios`](../../../tests/load/scenarios) (e.g. concurrent-games, player-moves, websocket-stress) that exercise concurrent game lifecycles, high-volume move traffic, and WebSocket behaviour.
 - These scenarios were **not executed as part of PASS22** due to the missing Docker-based execution environment.
 - Future passes (for example PASS23 or a dedicated production validation pass) should run these scenarios and extend the baseline metrics and capacity model beyond game creation.
 - As a follow-up to PASS22, the k6 scenarios and backend contracts have been aligned (auth payloads, game ID validation, and WebSocket handshake), so these scripts are now ready to provide meaningful load data once a Docker-based environment is available.
@@ -651,14 +651,14 @@ All PASS22 objectives achieved within scope constraints. Deferred tasks have cle
 **Project Status:**
 
 - [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) - Current factual status
-- [`PROJECT_GOALS.md`](../PROJECT_GOALS.md) - Canonical goals and success criteria
-- [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md) - Phased roadmap and SLOs
+- [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) - Canonical goals and success criteria
+- [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) - Phased roadmap and SLOs
 
 **Deliverables:**
 
-- [`docs/DOCUMENTATION_INDEX.md`](DOCUMENTATION_INDEX.md) - Complete documentation catalog
-- [`docs/ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) - Synchronized configuration reference
-- [`src/server/services/MetricsService.ts`](../src/server/services/MetricsService.ts) - Metrics implementation
+- [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) - Complete documentation catalog
+- [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) - Synchronized configuration reference
+- [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) - Metrics implementation
 - [`tests/components/KeyboardShortcutsHelp.test.tsx`](../tests/components/KeyboardShortcutsHelp.test.tsx) - Accessibility tests
 
 ---

@@ -111,19 +111,12 @@ except ImportError:
 # Import constants from P2P
 # ============================================
 
-try:
-    from scripts.p2p.constants import (
-        RAFT_AUTO_UNLOCK_TIME,
-        RAFT_BIND_PORT,
-        RAFT_COMPACTION_MIN_ENTRIES,
-        RAFT_ENABLED,
-    )
-except ImportError:
-    # Fallback defaults
-    RAFT_ENABLED = False
-    RAFT_BIND_PORT = 4321
-    RAFT_COMPACTION_MIN_ENTRIES = 1000
-    RAFT_AUTO_UNLOCK_TIME = 300.0
+from app.p2p.constants import (
+    RAFT_AUTO_UNLOCK_TIME,
+    RAFT_BIND_PORT,
+    RAFT_COMPACTION_MIN_ENTRIES,
+    RAFT_ENABLED,
+)
 
 
 # ============================================

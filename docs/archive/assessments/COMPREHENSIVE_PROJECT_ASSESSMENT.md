@@ -2,7 +2,7 @@
 
 > **Assessment Date:** 2025-12-07
 > **Scope:** Architecture, refactoring opportunities, code quality, test coverage gaps, skipped/failing tests
-> **Project Goals Reference:** [`PROJECT_GOALS.md`](PROJECT_GOALS.md)
+> **Project Goals Reference:** [`../../../PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)
 
 ---
 

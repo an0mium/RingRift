@@ -11,7 +11,7 @@
 >   - Connection and session management in `src/server/websocket/server.ts`, `src/server/game/WebSocketInteractionHandler.ts`, `src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`.
 >   - Database and cache connectivity in `src/server/database/connection.ts` and `src/server/cache/redis.ts`.
 >   - Timer and background job usage in `src/server/middleware/*`, `src/server/services/**`, and any periodic jobs.
-> - **Data lifecycle & retention:** `docs/DATA_LIFECYCLE_AND_PRIVACY.md`, `docs/OPERATIONS_DB.md` (how long we keep resources, and how they are cleaned up).
+> - **Data lifecycle & retention:** `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`, `docs/operations/OPERATIONS_DB.md` (how long we keep resources, and how they are cleaned up).
 >
 > **Precedence:**
 >
@@ -152,7 +152,7 @@ Correlate `nodejs_active_handles_total` with:
 - `ringrift_websocket_connections` — a mismatch (many handles but few active WebSocket connections) may indicate leaked sockets or timers.
 - `ringrift_games_active` — a mismatch (few active games but many handles) suggests leakage in per-game resources.
 
-Use `docs/OPERATIONS_DB.md` to inspect DB state for:
+Use `docs/operations/OPERATIONS_DB.md` to inspect DB state for:
 
 - Long-lived, apparently completed games still associated with live sessions.
 - Orphaned game sessions that never cleaned up their connections.

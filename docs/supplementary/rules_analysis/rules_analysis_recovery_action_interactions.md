@@ -389,4 +389,4 @@ def get_legal_moves(state: GameState, player: int) -> List[Move]:
 - `RULES_CANONICAL_SPEC.md` R110–R115 - Canonical rule definitions
 - `../../rules/COMPLETE_RULES.md` §4.5 - Player-facing rules
 - `docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md` ANM-SCEN-09 - ANM scenario
-- `docs/UX_RULES_CONCEPTS_INDEX.md` - `recovery_action` concept entry
+- `docs/ux/UX_RULES_CONCEPTS_INDEX.md` - `recovery_action` concept entry

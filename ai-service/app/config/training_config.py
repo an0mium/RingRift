@@ -178,7 +178,7 @@ class NeuralNetConfig:
 
     # Checkpointing
     # NOTE: "v4" is a model-id / checkpoint lineage prefix, not a Python
-    # architecture class. See docs/MPS_ARCHITECTURE.md.
+    # architecture class. See ai-service/docs/architecture/MPS_ARCHITECTURE.md.
     #
     # Default to the preferred square8 2p v3-family checkpoint lineage ("v5").
     # Falls back to v2-family ("v4") via NeuralNetAI default selection when

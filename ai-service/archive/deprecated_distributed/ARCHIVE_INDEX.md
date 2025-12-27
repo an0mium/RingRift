@@ -46,5 +46,5 @@ They emit deprecation warnings when imported.
 See:
 
 - `../../app/coordination/README.md` - New coordination framework
-- `../../docs/CONSOLIDATION_STATUS_2025_12_19.md` - Architecture decisions
+- `../../ai-service/docs/CONSOLIDATION_STATUS_2025_12_19.md` - Architecture decisions
 - `../../CLAUDE.md` - Migration examples and patterns

@@ -779,7 +779,7 @@ Jest's CommonJS module system does not natively support `import.meta.env` (Vite-
 ##### Current State
 
 - Basic deployment info in README
-- Some operations documented in docs/OPERATIONS_DB.md
+- Some operations documented in docs/operations/OPERATIONS_DB.md
 
 ##### Proposed Implementation
 
@@ -1049,8 +1049,8 @@ Tasks that can proceed in parallel:
 
 - [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Architecture assessment
 - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md) - Implementation status
-- [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md) - Project roadmap
-- [`docs/SECURITY_THREAT_MODEL.md`](docs/SECURITY_THREAT_MODEL.md) - Security documentation
-- [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](docs/DATA_LIFECYCLE_AND_PRIVACY.md) - Data handling
-- [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](docs/SUPPLY_CHAIN_AND_CI_SECURITY.md) - CI/CD security
-- [`docs/OPERATIONS_DB.md`](docs/OPERATIONS_DB.md) - Database operations
+- [`../docs/planning/STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md) - Project roadmap
+- [`../docs/security/SECURITY_THREAT_MODEL.md`](../docs/security/SECURITY_THREAT_MODEL.md) - Security documentation
+- [`../docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`](../docs/security/DATA_LIFECYCLE_AND_PRIVACY.md) - Data handling
+- [`../docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`](../docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md) - CI/CD security
+- [`../docs/operations/OPERATIONS_DB.md`](../docs/operations/OPERATIONS_DB.md) - Database operations

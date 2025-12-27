@@ -96,20 +96,20 @@ python scripts/generate_data.py --num-games 1000
 
 ### 2.1 Pre-Training Checklist (Operational)
 
-Before starting any **large training run or heuristic tuning campaign**, complete the following steps. This checklist ties the conceptual preparation guidance in [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](AI_TRAINING_PREPARATION_GUIDE.md) to the concrete tooling and memory limits implemented in this assessment.
+Before starting any **large training run or heuristic tuning campaign**, complete the following steps. This checklist ties the conceptual preparation guidance in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`](AI_TRAINING_PREPARATION_GUIDE.md) to the concrete tooling and memory limits implemented in this assessment.
 
 - **1. Clarify objective and dataset source**
   - Decide which pipeline you are exercising:
     - Neural network policy/value training on NPZ self-play datasets from [`generate_data.py`](../../ai-service/app/training/generate_data.py).
     - Heuristic/combined-margin training on JSONL datasets from [`generate_territory_dataset.py`](../../ai-service/app/training/generate_territory_dataset.py).
-  - Ensure **leak-free splits by game** (no positions from the same game in both train and validation/test sets), following the recommendations in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §6.1](AI_TRAINING_PREPARATION_GUIDE.md).
+  - Ensure **leak-free splits by game** (no positions from the same game in both train and validation/test sets), following the recommendations in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §6.1](AI_TRAINING_PREPARATION_GUIDE.md).
   - Confirm coverage of critical regimes (early/mid/late game, forced-elimination / LPS, near‑victory) by sampling from a mix of:
     - Generated self-play games.
     - Scenario suites and invariants (e.g. `RULES_SCENARIO_MATRIX.md`, `tests/scenarios/RulesMatrix.*.test.ts`, `ai-service/tests/parity/**`, `ai-service/tests/invariants/**`).
 
 - **2. Start from stable architectures and hyperparameters**
   - For **neural networks**:
-    - Use the existing `RingRiftCNN` / `HexNeuralNet` architecture and `TrainConfig` defaults under `ai-service/app/training/**` as the baseline, as described in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §2](AI_TRAINING_PREPARATION_GUIDE.md).
+    - Use the existing `RingRiftCNN` / `HexNeuralNet` architecture and `TrainConfig` defaults under `ai-service/app/training/**` as the baseline, as described in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §2](AI_TRAINING_PREPARATION_GUIDE.md).
     - Treat architecture changes (depth/width, extra heads) as follow‑ups once data quality, regularisation, and batch sizing have been explored.
   - For **heuristics**:
     - Use the canonical `heuristic_v1_*` profiles from [`heuristic_weights.py`](../../ai-service/app/ai/heuristic_weights.py) and their TS mirrors in [`heuristicEvaluation.ts`](../../src/shared/engine/heuristicEvaluation.ts) as your starting point.
@@ -118,7 +118,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
 - **3. Configure and verify memory budget**
   - Set the global memory limit for the host:
     - `RINGRIFT_MAX_MEMORY_GB` env var (default `16.0`).
-    - Backed by [`MemoryConfig`](../../ai-service/app/utils/memory_config.py) as described in §2 of this report and in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §§3,13](AI_TRAINING_PREPARATION_GUIDE.md).
+    - Backed by [`MemoryConfig`](../../ai-service/app/utils/memory_config.py) as described in §2 of this report and in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §§3,13](AI_TRAINING_PREPARATION_GUIDE.md).
   - Confirm this budget is applied to:
     - **Search components** via [`BoundedTranspositionTable`](../../ai-service/app/ai/bounded_transposition_table.py), now used in `MinimaxAI` and `DescentAI` to prevent unbounded growth (fixing the OOM issue documented in §4).
     - **Training batches and dataset loading** in [`train.py`](../../ai-service/app/training/train.py), using memory‑mapped NPZ and dynamic batch sizing where appropriate.
@@ -126,7 +126,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
 
 - **4. Check initialization and training stability**
   - For **NNs**:
-    - Apply the Xavier/He initialization and validation routines from [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §4](AI_TRAINING_PREPARATION_GUIDE.md), checking:
+    - Apply the Xavier/He initialization and validation routines from [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §4](AI_TRAINING_PREPARATION_GUIDE.md), checking:
       - Weight statistics (mean/std) across layers.
       - Initial policy entropy on real positions.
       - Absence of NaNs or exploding gradients in a short dry‑run.
@@ -149,15 +149,15 @@ Before starting any **large training run or heuristic tuning campaign**, complet
 - **6. Lock down reproducibility and experiment metadata**
   - Fix seeds wherever supported:
     - Self‑play generators (`--seed` flags on `generate_data.py` / `generate_territory_dataset.py`).
-    - Training (`TrainConfig.seed` plus comprehensive seeding utilities in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §7.1](AI_TRAINING_PREPARATION_GUIDE.md)).
+    - Training (`TrainConfig.seed` plus comprehensive seeding utilities in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §7.1](AI_TRAINING_PREPARATION_GUIDE.md)).
     - Evaluation runs (`--seed` and run IDs in [`evaluate_ai_models.py`](../../ai-service/scripts/evaluate_ai_models.py)).
   - Record and persist:
     - Git commit and dirty flag.
-    - Dataset manifest and version (see manifest schema in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §7.4](AI_TRAINING_PREPARATION_GUIDE.md)).
+    - Dataset manifest and version (see manifest schema in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §7.4](AI_TRAINING_PREPARATION_GUIDE.md)).
     - Memory and training config (`MemoryConfig`, `TrainConfig`, key CLI flags).
     - Paths to checkpoints, evaluation logs, and generated statistical reports.
 
-For a more detailed, end‑to‑end pre‑flight checklist (including environment setup, augmentation, validation metrics, and troubleshooting), see [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](AI_TRAINING_PREPARATION_GUIDE.md). For an architecture‑level summary of how memory budgets, training jobs, and search components fit together, refer to the “Pre‑Training Preparation & Memory Budgeting” section in [`AI_ARCHITECTURE.md`](../architecture/AI_ARCHITECTURE.md).
+For a more detailed, end‑to‑end pre‑flight checklist (including environment setup, augmentation, validation metrics, and troubleshooting), see [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`](AI_TRAINING_PREPARATION_GUIDE.md). For an architecture‑level summary of how memory budgets, training jobs, and search components fit together, refer to the “Pre‑Training Preparation & Memory Budgeting” section in [`AI_ARCHITECTURE.md`](../architecture/AI_ARCHITECTURE.md).
 
 ---
 

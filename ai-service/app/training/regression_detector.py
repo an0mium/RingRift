@@ -35,7 +35,7 @@ Usage:
         for listener in detector.listeners:
             listener.on_regression(event)
 
-See docs/CONSOLIDATION_ROADMAP.md for consolidation context.
+See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 """
 
 from __future__ import annotations

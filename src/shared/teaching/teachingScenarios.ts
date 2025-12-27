@@ -5,7 +5,7 @@ import type { RulesUxContext } from '../telemetry/rulesUxEvents';
 /**
  * Shared metadata types for rules teaching scenarios.
  *
- * This mirrors the abstract shape defined in docs/UX_RULES_TEACHING_SCENARIOS.md §2
+ * This mirrors the abstract shape defined in docs/ux/UX_RULES_TEACHING_SCENARIOS.md §2
  * and is consumed by both client hosts (TeachingOverlay, sandbox) and tests.
  */
 export type RulesConcept =

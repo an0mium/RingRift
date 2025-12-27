@@ -119,7 +119,7 @@ The scenarios below capture concrete shapes that have historically exercised the
   - It is invalid to leave an ACTIVE / TERRITORY_PROCESSING state where the current player has no global legal actions.
 - **Implementations / tests:**
   - Python regression [`test_active_no_moves_territory_processing_regression.py`](../../ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py:1).
-  - Territory mutator incident analysis [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:69).
+  - Territory mutator incident analysis [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:69).
 - **RR-CANON mapping:**
   - Phase-exit semantics captured by `RR-CANON-R204` (territory and ANM) together with existing `RR-CANON-R140`–`R145`.
 

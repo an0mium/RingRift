@@ -3,7 +3,7 @@
 > **Scope:** Design-level map of rules and orchestrator single sources of truth (SSOTs) and legacy/diagnostic surfaces.  
 > **Role:** Derived overview for maintainers; does not introduce new rules semantics or APIs.  
 > **Upstream semantics SSoT:** [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md), `COMPLETE_RULES.md`, `COMPACT_RULES.md`, and the shared TS engine + orchestrator under [`src/shared/engine`](../../src/shared/engine).  
-> **Upstream lifecycle/API SSoT:** [`docs/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md), shared types in [`src/shared/types/game.ts`](../../src/shared/types/game.ts), orchestrator types in [`src/shared/engine/orchestration/types.ts`](../../src/shared/engine/orchestration/types.ts), and WebSocket contracts in [`src/shared/types/websocket.ts`](../../src/shared/types/websocket.ts) and [`src/shared/validation/websocketSchemas.ts`](../../src/shared/validation/websocketSchemas.ts).  
+> **Upstream lifecycle/API SSoT:** [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md), shared types in [`src/shared/types/game.ts`](../../src/shared/types/game.ts), orchestrator types in [`src/shared/engine/orchestration/types.ts`](../../src/shared/engine/orchestration/types.ts), and WebSocket contracts in [`src/shared/types/websocket.ts`](../../src/shared/types/websocket.ts) and [`src/shared/validation/websocketSchemas.ts`](../../src/shared/validation/websocketSchemas.ts).  
 > **Upstream implementation-status SSoT:** [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../archive/historical/CURRENT_STATE_ASSESSMENT.md).  
 > **This doc:** Clarifies what is canonical vs historical/diagnostic for rules execution across TS backend, sandbox, and Python, and records known drift items for follow-up tasks.
 
@@ -43,7 +43,7 @@ The hierarchy below orders sources by normative authority. Higher bullets win on
 
 **3. Lifecycle/API SSoT**
 
-- Engine API and Move/decision lifecycle: [`docs/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md).
+- Engine API and Move/decision lifecycle: [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md).
 - Shared types and schemas: [`src/shared/types/game.ts`](../../src/shared/types/game.ts:1), orchestrator types in [`src/shared/engine/orchestration/types.ts`](../../src/shared/engine/orchestration/types.ts:1), WebSocket types in [`src/shared/types/websocket.ts`](../../src/shared/types/websocket.ts:1), schemas in [`src/shared/validation/websocketSchemas.ts`](../../src/shared/validation/websocketSchemas.ts:1).
 
 **4. Host integration boundaries (TS hosts over the engine)**
@@ -55,14 +55,14 @@ The hierarchy below orders sources by normative authority. Higher bullets win on
 - Sandbox host:
   - Client-local host: [`ClientSandboxEngine.ts`](../../src/client/sandbox/ClientSandboxEngine.ts:137).
   - Orchestrator adapter (canonical sandbox integration): [`SandboxOrchestratorAdapter.ts`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts:1).
-- Shared state machines for sessions, choices, AI, and connections (lifecycle only, not rules semantics): [`src/shared/stateMachines/*.ts`](../../src/shared/stateMachines/gameSession.ts:1), documented in [`docs/STATE_MACHINES.md`](../architecture/STATE_MACHINES.md).
+- Shared state machines for sessions, choices, AI, and connections (lifecycle only, not rules semantics): [`src/shared/stateMachines/*.ts`](../../src/shared/stateMachines/gameSession.ts:1), documented in [`docs/architecture/STATE_MACHINES.md`](../architecture/STATE_MACHINES.md).
 
 **5. Python mirror and contract tests (derived mirror over TS engine)**
 
 - Python game engine and board utilities: [`ai-service/app/game_engine/__init__.py`](../../ai-service/app/game_engine/__init__.py:1), [`ai-service/app/board_manager.py`](../../ai-service/app/board_manager.py:1).
 - Python rules modules (validators/mutators and helpers): [`ai-service/app/rules/*.py`](../../ai-service/app/rules/core.py:1), [`ai-service/app/rules/mutators/*.py`](../../ai-service/app/rules/mutators/capture.py:1), [`ai-service/app/rules/validators/*.py`](../../ai-service/app/rules/validators/territory.py:1).
 - Python default engine wrapper and shadow contracts: [`ai-service/app/rules/default_engine.py`](../../ai-service/app/rules/default_engine.py:1).
-- Contract and parity tests (TS ↔ Python): [`tests/contracts/contractVectorRunner.test.ts`](../../tests/contracts/contractVectorRunner.test.ts:1) and [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py:1), plus broader parity suites documented in [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md).
+- Contract and parity tests (TS ↔ Python): [`tests/contracts/contractVectorRunner.test.ts`](../../tests/contracts/contractVectorRunner.test.ts:1) and [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py:1), plus broader parity suites documented in [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md).
 
 **6. Operational / rollout SSoTs (derived over engine + hosts)**
 
@@ -85,7 +85,7 @@ In conflicts about **rules semantics**, the order of authority is: rules spec �
 Hosts must treat the turn orchestrator surface as the **only canonical execution path** for applying moves and querying legality in live games.
 
 **Canonical orchestrator API (TS)**  
-_Location_: [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1), described in detail in [`docs/CANONICAL_ENGINE_API.md` §3.9](../architecture/CANONICAL_ENGINE_API.md).
+_Location_: [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1), described in detail in [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9](../architecture/CANONICAL_ENGINE_API.md).
 
 - Turn processing:
   - [`processTurn(state, move)`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) – pure, synchronous entry point for applying a `Move` and all automatic consequences (captures, lines, territory, victory).
@@ -107,7 +107,7 @@ _Location_: [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOr
 
 **Alignment with docs and mapping**
 
-- [`docs/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md) defines these functions as the **canonical engine API** and explicitly states that hosts must integrate via `processTurn` / `processTurnAsync` + validation/enumeration helpers.
+- [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md) defines these functions as the **canonical engine API** and explicitly states that hosts must integrate via `processTurn` / `processTurnAsync` + validation/enumeration helpers.
 - [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md) treats `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts) as the rules/invariants semantics SSoT; backend, sandbox, and Python hosts are classified there as adapters over this surface.
 
 ---
@@ -184,7 +184,7 @@ The Python implementation is a **parity-validated mirror and host** over the TS 
   - Implements move generation (`get_valid_moves`) and application (`apply_move`) for all phases, mirroring TS shared engine semantics for geometry, placement, movement, capture chains, lines, territory (including Q23), forced elimination, and victory/LPS.
   - Enforces strict no-move invariants when enabled, as documented in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:11).
 - Python rules modules: [`ai-service/app/rules/core.py`](../../ai-service/app/rules/core.py:1), mutators under [`ai-service/app/rules/mutators`](../../ai-service/app/rules/mutators/placement.py:1), validators under [`ai-service/app/rules/validators`](../../ai-service/app/rules/validators/territory.py:1).
-  - Act as a structured boundary mirroring TS aggregates and validators (see [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md)).
+  - Act as a structured boundary mirroring TS aggregates and validators (see [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md)).
 - Shadow/adapter engine: [`ai-service/app/rules/default_engine.py`](../../ai-service/app/rules/default_engine.py:1).
   - Delegates canonical results to `GameEngine.apply_move` and uses mutators as a shadow contract, asserting parity per move but always returning the canonical `GameEngine` state.
 
@@ -201,7 +201,7 @@ The Python implementation is a **parity-validated mirror and host** over the TS 
 - In any behavioural disagreement between TS and Python engines (contract vectors, parity fixtures, or orchestrator soaks):
   - The TS shared engine + orchestrator is authoritative.
   - Python code (`game_engine/__init__.py`, validators/mutators, training env) must be updated to match TS, with additional contract vectors or regression tests as needed.
-- This precedence is explicit in [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:3) and [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md:31).
+- This precedence is explicit in [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:3) and [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md:31).
 
 ---
 
@@ -235,7 +235,7 @@ The items below are **known inconsistencies or ambiguities** between docs, code,
    - _Follow-up:_ P17.3-ASK – Update that section to reference the existing runbook and align language with the current posture summary and archived rollout phases in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:927) and [`docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`](../archive/ORCHESTRATOR_ROLLOUT_PHASES.md:1).
 
 2. **Historical wording about backend adapter migration**
-   - [`docs/CANONICAL_ENGINE_API.md` §3.9.2](../architecture/CANONICAL_ENGINE_API.md:951) still describes the `TurnEngineAdapter` path as something that “will become the primary entry point as Phase 3 migration completes”, while [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §7.1](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:793) and [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](CURRENT_STATE_ASSESSMENT.md:30) already treat the orchestrator-backed adapter as the canonical backend path (with legacy pipelines quarantined).
+   - [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9.2](../architecture/CANONICAL_ENGINE_API.md:951) still describes the `TurnEngineAdapter` path as something that “will become the primary entry point as Phase 3 migration completes”, while [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §7.1](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:793) and [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](CURRENT_STATE_ASSESSMENT.md:30) already treat the orchestrator-backed adapter as the canonical backend path (with legacy pipelines quarantined).
    - _Follow-up:_ P17.3-ASK – Refresh wording in `CANONICAL_ENGINE_API` to describe `TurnEngineAdapter` / `processTurnAsync` as the **current** canonical backend integration path, and explicitly mark `RuleEngine.processMove` and the legacy `GameEngine` pipeline as diagnostics-only.
 
 3. **Partial-historical aggregate design doc vs implemented single-file aggregates**
@@ -251,7 +251,7 @@ The items below are **known inconsistencies or ambiguities** between docs, code,
    - _Follow-up:_ P17.3-ASK / P17.4-DEBUG – Addressed by the **Invariants & Soaks overview** subsection added to this SSOT map (see below), which cross-links TS orchestrator soaks, Python strict-invariant soaks, and the roll‑up metrics/SLOs used during rollout.
 
 6. **Python type-level gaps vs TS engine types**
-   - [`docs/PYTHON_PARITY_REQUIREMENTS.md` §2.11–§3.3](PYTHON_PARITY_REQUIREMENTS.md:218) notes that some TS types/functions (e.g. `VictoryReason`, explicit `GameResult`, some core utility helpers) are only partially mirrored or inlined on the Python side. Behavioural parity is enforced via contract vectors, but type-level parity is not explicit.
+   - [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md` §2.11–§3.3](PYTHON_PARITY_REQUIREMENTS.md:218) notes that some TS types/functions (e.g. `VictoryReason`, explicit `GameResult`, some core utility helpers) are only partially mirrored or inlined on the Python side. Behavioural parity is enforced via contract vectors, but type-level parity is not explicit.
    - _Follow-up:_ P17.3-ASK / P17.6-CODE – Decide whether to tighten Python type modelling for `VictoryReason`/`GameResult` and other noted gaps, or to explicitly document them as “intentionally simplified” with no behavioural impact, to avoid future confusion when evolving TS types.
 
 7. **Sandbox diagnostics vs canonical `/sandbox` flows**
@@ -288,7 +288,7 @@ enforced across hosts and CI/rollout.
     - S‑invariant unit tests (`tests/unit/ProgressSnapshot.core.test.ts`,
       `tests/unit/SInvariant.seed17FinalBoard.test.ts`,
       `tests/unit/SharedMutators.invariants.test.ts`).
-    - Orchestrator processing metadata (see `docs/CANONICAL_ENGINE_API.md` §3.9.3).
+    - Orchestrator processing metadata (see `docs/architecture/CANONICAL_ENGINE_API.md` §3.9.3).
 
 **TS orchestrator invariant soaks (adapter‑ON harness)**
 

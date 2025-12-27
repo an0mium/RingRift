@@ -290,7 +290,7 @@ You are done when **all** of the following hold:
   - Tune thresholds for `NoHTTPTraffic` in `monitoring/prometheus/alerts.yml`.
   - Add environment-specific silences or schedules.
 - [ ] If ingress/DNS was the cause, document the exact misconfiguration and fix in your infra runbooks.
-- [ ] If app unavailability was the cause, verify deployment and health check configuration in `docs/DEPLOYMENT_REQUIREMENTS.md`.
+- [ ] If app unavailability was the cause, verify deployment and health check configuration in `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
 
 ---
 
@@ -309,6 +309,6 @@ You are done when **all** of the following hold:
   - `docs/runbooks/DEPLOYMENT_ROLLBACK.md`
 - Ops / config SSoT
   - `docs/operations/ALERTING_THRESHOLDS.md`
-  - `docs/DEPLOYMENT_REQUIREMENTS.md`
-  - `docs/OPERATIONS_DB.md`
-  - `docs/ENVIRONMENT_VARIABLES.md`
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
+  - `docs/operations/OPERATIONS_DB.md`
+  - `docs/operations/ENVIRONMENT_VARIABLES.md`

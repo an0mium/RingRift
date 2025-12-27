@@ -120,7 +120,7 @@
 | Color-disconnection (R142)        | ⚠️ Simplified | Low      | Approximated by boundary control check       |
 | Vectorized path validation kernel | ⏳ Deferred   | Low      | Performance opt, not correctness issue       |
 
-**Note:** See [GPU_FULL_PARITY_PLAN_2025_12_11.md](../ai-service/docs/GPU_FULL_PARITY_PLAN_2025_12_11.md) for detailed assessment.
+**Note:** See [GPU_FULL_PARITY_PLAN_2025_12_11.md](../../../ai-service/docs/archive/historical/GPU_FULL_PARITY_PLAN_2025_12_11.md) for detailed assessment.
 
 ---
 
@@ -130,10 +130,10 @@
 
 | Document                                                               | Purpose                          | Status     |
 | ---------------------------------------------------------------------- | -------------------------------- | ---------- |
-| [RULES_CANONICAL_SPEC.md](../RULES_CANONICAL_SPEC.md)                  | Single source of truth for rules | ✅ Current |
-| [PRODUCTION_READINESS_CHECKLIST.md](PRODUCTION_READINESS_CHECKLIST.md) | Launch criteria (58/67 items)    | ✅ Current |
-| [MODULE_RESPONSIBILITIES.md](architecture/MODULE_RESPONSIBILITIES.md)  | Module breakdown                 | ✅ Current |
-| [GPU_PIPELINE_ROADMAP.md](../ai-service/docs/GPU_PIPELINE_ROADMAP.md)  | GPU acceleration strategy        | ✅ Updated |
+| [RULES_CANONICAL_SPEC.md](../../../RULES_CANONICAL_SPEC.md)                  | Single source of truth for rules | ✅ Current |
+| [../../production/PRODUCTION_READINESS_CHECKLIST.md](../../production/PRODUCTION_READINESS_CHECKLIST.md) | Launch criteria (58/67 items)    | ✅ Current |
+| [MODULE_RESPONSIBILITIES.md](../../architecture/MODULE_RESPONSIBILITIES.md)  | Module breakdown                 | ✅ Current |
+| [GPU_PIPELINE_ROADMAP.md](../../../ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md)  | GPU acceleration strategy        | ✅ Updated |
 
 ### Recent Updates
 
@@ -186,7 +186,7 @@ npm run slo:verify tests/load/results/<file>.json
 - [CODEBASE_REVIEW_2025_12_11.md](CODEBASE_REVIEW_2025_12_11.md) - First-principles audit
 - [NEXT_STEPS_2025_12_11.md](NEXT_STEPS_2025_12_11.md) - Session 2 assessment
 - [ACTION_PLAN_2025_12_11.md](ACTION_PLAN_2025_12_11.md) - Prioritized action items
-- [PRODUCTION_READINESS_CHECKLIST.md](PRODUCTION_READINESS_CHECKLIST.md) - Full launch criteria
+- [../../production/PRODUCTION_READINESS_CHECKLIST.md](../../production/PRODUCTION_READINESS_CHECKLIST.md) - Full launch criteria
 - [CODE_QUALITY_AUDIT_2025_12_11.md](CODE_QUALITY_AUDIT_2025_12_11.md) - Code quality fixes
 
 ---

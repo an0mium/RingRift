@@ -45,7 +45,7 @@ Specific weak spots include:
 The code, metrics, and CI infrastructure are in place. The remaining challenge is
 **operational execution**:
 
-- Driving environments through Phases 1–4 as defined in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`
+- Driving environments through Phases 1–4 as defined in `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`
 - Enforcing SLO-driven gates before phase promotion
 - Decommissioning legacy turn-processing paths once orchestrator stability is proven
 - Maintaining deep multi-engine parity during the transition window
@@ -135,7 +135,7 @@ Total games=1, completed=0, maxTurns=1, invariantViolations=0
 
 - `RULES_ENGINE_ARCHITECTURE.md` – Accurate orchestrator/adapter description
 - `AI_ARCHITECTURE.md` – Correct RNG determinism and training pipeline docs
-- `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Comprehensive rollout phases
+- `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – Comprehensive rollout phases
 - `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` – Accurate invariant catalog
 
 ---
@@ -201,7 +201,7 @@ The orchestrator architecture is complete:
 
 ### 6.2 SLO Gates Required
 
-Per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`:
+Per `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`:
 
 - `ringrift_orchestrator_invariant_violations_total` = 0 over 24h window
 - `ringrift_rules_parity_mismatches_total` < threshold

@@ -657,29 +657,31 @@ def _init_auto_evaluation_daemon() -> BootstrapCoordinatorStatus:
 
 
 def _init_model_distribution_daemon() -> BootstrapCoordinatorStatus:
-    """Initialize ModelDistributionDaemon (December 2025).
+    """Initialize UnifiedDistributionDaemon (consolidated Dec 26, 2025).
 
-    Automatically distributes models to cluster nodes after promotion.
-    Subscribes to MODEL_PROMOTED events.
+    Automatically distributes models AND NPZ files to cluster nodes.
+    Subscribes to MODEL_PROMOTED and DATA_SYNCED events.
     Note: Just registers the daemon class; actual start happens via DaemonManager.
     """
     status = BootstrapCoordinatorStatus(name="model_distribution_daemon")
     try:
-        from app.coordination.model_distribution_daemon import ModelDistributionDaemon
+        from app.coordination.unified_distribution_daemon import (
+            UnifiedDistributionDaemon,
+        )
 
         # Just import to verify availability - DaemonManager will start it
-        _ = ModelDistributionDaemon
+        _ = UnifiedDistributionDaemon
         status.initialized = True
         status.subscribed = True  # Will subscribe when started by DaemonManager
         status.initialized_at = datetime.now()
-        logger.info("[Bootstrap] ModelDistributionDaemon registered")
+        logger.info("[Bootstrap] UnifiedDistributionDaemon registered")
 
     except ImportError as e:
         status.error = f"Import error: {e}"
-        logger.warning(f"[Bootstrap] ModelDistributionDaemon not available: {e}")
+        logger.warning(f"[Bootstrap] UnifiedDistributionDaemon not available: {e}")
     except (AttributeError, TypeError, ValueError, RuntimeError) as e:
         status.error = str(e)
-        logger.error(f"[Bootstrap] Failed to initialize ModelDistributionDaemon: {e}")
+        logger.error(f"[Bootstrap] Failed to initialize UnifiedDistributionDaemon: {e}")
 
     return status
 

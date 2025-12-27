@@ -316,7 +316,7 @@ This assessment was conducted by:
 | SKIPPED_TESTS_TRIAGE.md         | Test hygiene status                |
 | WAVE2_ASSESSMENT_REPORT.md      | Prior comprehensive assessment     |
 | AI_ARCHITECTURE.md              | AI service status                  |
-| docs/DEPLOYMENT_REQUIREMENTS.md | Infrastructure topology            |
+| docs/planning/DEPLOYMENT_REQUIREMENTS.md | Infrastructure topology            |
 
 ---
 

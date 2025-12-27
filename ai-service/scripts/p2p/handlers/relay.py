@@ -1,11 +1,27 @@
 """Relay HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides relay/hub endpoints for NAT-blocked nodes.
+Provides HTTP endpoints for NAT-blocked node communication.
+Acts as a relay hub allowing nodes behind NAT/firewalls to participate
+in the cluster by polling for commands from the leader.
 
 Usage:
     class P2POrchestrator(RelayHandlersMixin, ...):
         pass
+
+Endpoints:
+    POST /relay/heartbeat - NAT-blocked node sends heartbeat to leader
+    GET /relay/commands - NAT-blocked node polls for pending commands
+    POST /relay/command - Leader enqueues command for NAT-blocked node
+    POST /relay/response - NAT-blocked node sends command response
+
+Relay Architecture:
+    NAT-blocked nodes cannot receive incoming connections, so they:
+    1. Send heartbeats to leader via /relay/heartbeat
+    2. Poll for commands via /relay/commands
+    3. Execute commands locally and respond via /relay/response
+
+    Leader queues commands for NAT-blocked nodes and delivers them
+    when the node polls. Max batch size: RELAY_COMMAND_MAX_BATCH (16).
 """
 
 from __future__ import annotations

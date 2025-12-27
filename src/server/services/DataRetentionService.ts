@@ -48,7 +48,7 @@ export interface RetentionReport {
  * Default retention periods aligned with GDPR requirements and best practices.
  * These can be overridden via constructor or environment variables.
  *
- * Reference: docs/DATA_LIFECYCLE_AND_PRIVACY.md Section 3
+ * Reference: docs/security/DATA_LIFECYCLE_AND_PRIVACY.md Section 3
  */
 export const DEFAULT_RETENTION: RetentionConfig = {
   deletedUserRetentionDays: 30, // GDPR: typically 30 days for recovery/compliance

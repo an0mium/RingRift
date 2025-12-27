@@ -241,11 +241,11 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 | `PROJECT_GOALS.md`                                                                       | 2025-11-27   | ✅ Accurate: goals align with implementation          |
 | `KNOWN_ISSUES.md`                                                                        | 2025-12-01   | ✅ Accurate: issues match actual code state           |
 | `TODO.md`                                                                                | 2025-11-30   | ✅ Accurate: tracks match roadmap                     |
-| `docs/TEST_CATEGORIES.md`                                                                | 2025-12-01   | ✅ Accurate: test categories match actual suites      |
+| `docs/testing/TEST_CATEGORIES.md`                                                                | 2025-12-01   | ✅ Accurate: test categories match actual suites      |
 | `ARCHITECTURE_ASSESSMENT.md`                                                             | 2025-11-27   | ✅ Accurate: architecture matches implementation      |
 | `WEAKNESS_ASSESSMENT_REPORT.md`                                                          | 2025-12-01   | ✅ Accurate: historical assessments documented        |
-| `docs/SECURITY_THREAT_MODEL.md`                                                          | 2025-11-27   | ✅ Accurate: threats/controls match code              |
-| `docs/DEPLOYMENT_REQUIREMENTS.md`                                                        | 2025-11-27   | ✅ Accurate: Docker configs match                     |
+| `docs/security/SECURITY_THREAT_MODEL.md`                                                          | 2025-11-27   | ✅ Accurate: threats/controls match code              |
+| `docs/planning/DEPLOYMENT_REQUIREMENTS.md`                                                        | 2025-11-27   | ✅ Accurate: Docker configs match                     |
 | `src/server/config/env.ts`                                                               | Current      | ✅ Accurate: schema validated against usage           |
 | `prisma/schema.prisma`                                                                   | Current      | ✅ Accurate: migrations align with schema             |
 | `package.json`                                                                           | Current      | ✅ Accurate: scripts and deps verified                |
@@ -265,12 +265,12 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 
 **Verified Against `src/server/config/env.ts:1-578`:**
 
-- ✅ All variables in `docs/ENVIRONMENT_VARIABLES.md` exist in schema
+- ✅ All variables in `docs/operations/ENVIRONMENT_VARIABLES.md` exist in schema
 - ✅ Types and defaults match between docs and code
 - ✅ Validation rules accurately documented
 - ⚠️ **Minor gap**: `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded `true` in code (lines 331-334) but docs describe it as configurable
 
-**Recommendation:** Update `docs/ENVIRONMENT_VARIABLES.md` lines 551-588 to reflect that `ORCHESTRATOR_ADAPTER_ENABLED` is now permanently enabled (Phase 3 complete).
+**Recommendation:** Update `docs/operations/ENVIRONMENT_VARIABLES.md` lines 551-588 to reflect that `ORCHESTRATOR_ADAPTER_ENABLED` is now permanently enabled (Phase 3 complete).
 
 ---
 
@@ -413,7 +413,7 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 
 ### 6.4 Test Suite Inventory
 
-**From `docs/TEST_CATEGORIES.md` and assessment:**
+**From `docs/testing/TEST_CATEGORIES.md` and assessment:**
 
 | Category          | Count | Status          | Coverage              |
 | :---------------- | :---: | :-------------- | :-------------------- |
@@ -505,7 +505,7 @@ Deploying RingRift to production at the documented target scale (100+ concurrent
 
 **Strong Security Foundation:**
 
-- ✅ Comprehensive threat model (`docs/SECURITY_THREAT_MODEL.md`)
+- ✅ Comprehensive threat model (`docs/security/SECURITY_THREAT_MODEL.md`)
 - ✅ JWT auth with refresh tokens
 - ✅ bcrypt password hashing (12 rounds)
 - ✅ Rate limiting (Redis-backed)
@@ -639,7 +639,7 @@ Since this PASS21 assessment, PASS24.1 has executed all four k6 load-test scenar
 
 For detailed per-scenario PASS24.1 baselines and their relationship to P22.10, see:
 
-- [`GAME_PERFORMANCE.md`](runbooks/GAME_PERFORMANCE.md) – PASS24.1 k6 baselines after HTTP/WebSocket stabilization.
+- [`GAME_PERFORMANCE.md`](../../runbooks/GAME_PERFORMANCE.md) – PASS24.1 k6 baselines after HTTP/WebSocket stabilization.
 - [`PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md) – Load-test baselines and PASS24.1 follow-up summary.
 
 ### 9.3 Operational Procedures (NEW)
@@ -828,22 +828,22 @@ For detailed per-scenario PASS24.1 baselines and their relationship to P22.10, s
 
 **Technical Foundation:**
 
-- [`PROJECT_GOALS.md`](../PROJECT_GOALS.md) - Canonical goals and success criteria
-- [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md) - Phased roadmap and SLOs
-- [`ARCHITECTURE_ASSESSMENT.md`](../ARCHITECTURE_ASSESSMENT.md) - Architecture overview
+- [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) - Canonical goals and success criteria
+- [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) - Phased roadmap and SLOs
+- [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md) - Architecture overview
 
 **Operations:**
 
-- [`docs/operations/ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md) - Alert definitions
-- [`docs/DEPLOYMENT_REQUIREMENTS.md`](DEPLOYMENT_REQUIREMENTS.md) - Deployment guide
-- [`docs/SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md) - Security analysis
-- [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml) - Alert rules
+- [`docs/operations/../../operations/ALERTING_THRESHOLDS.md`](../../operations/ALERTING_THRESHOLDS.md) - Alert definitions
+- [`docs/planning/../../planning/DEPLOYMENT_REQUIREMENTS.md`](../../planning/DEPLOYMENT_REQUIREMENTS.md) - Deployment guide
+- [`docs/security/../../security/SECURITY_THREAT_MODEL.md`](../../security/SECURITY_THREAT_MODEL.md) - Security analysis
+- [`monitoring/prometheus/alerts.yml`](../../../monitoring/prometheus/alerts.yml) - Alert rules
 
 **Testing:**
 
-- [`docs/TEST_CATEGORIES.md`](TEST_CATEGORIES.md) - Test categorization
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Active issues
-- [`coverage/coverage-summary.json`](../coverage/coverage-summary.json) - Coverage metrics
+- [`docs/testing/../../testing/TEST_CATEGORIES.md`](../../testing/TEST_CATEGORIES.md) - Test categorization
+- [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) - Active issues
+- [`coverage/coverage-summary.json`](../../../coverage/coverage-summary.json) - Coverage metrics
 
 ---
 

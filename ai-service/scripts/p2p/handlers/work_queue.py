@@ -1,11 +1,24 @@
 """Work Queue HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides work queue management endpoints.
+Provides HTTP endpoints for distributed work queue management.
+Supports work item claiming, completion reporting, and queue status.
 
 Usage:
     class P2POrchestrator(WorkQueueHandlersMixin, ...):
         pass
+
+Endpoints:
+    GET /work/status - Get work queue status (pending/running counts)
+    GET /work/pending - List pending work items with priorities
+    POST /work/claim - Claim next available work item for this node
+    POST /work/complete - Mark claimed work as completed
+    POST /work/fail - Mark claimed work as failed (may retry)
+    POST /work/add - Add new work item to queue (leader only)
+    POST /work/populate - Trigger queue population (leader only)
+
+Work Item States:
+    pending -> claimed -> running -> completed
+                      └-> failed (may return to pending if retries remain)
 """
 
 from __future__ import annotations

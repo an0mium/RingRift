@@ -8,10 +8,10 @@
 
 Authoritative rule sources:
 
-- [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) – updated R170–R173.
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) – narrative LPS discussion and examples.
-- [`ringrift_compact_rules.md`](ringrift_compact_rules.md:1) – implementation-oriented LPS definition.
-- [`RULES_RULESET_CLARIFICATIONS.md`](RULES_RULESET_CLARIFICATIONS.md:1) – CLAR-002 marked resolved.
+- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:1) – updated R170–R173.
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) – narrative LPS discussion and examples.
+- [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1) – implementation-oriented LPS definition.
+- [`RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md:1) – CLAR-002 marked resolved.
 
 Semantics to implement:
 
@@ -32,10 +32,10 @@ Semantics to implement:
 
 Authoritative rule sources:
 
-- [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) – updated R020, R081–R082.
-- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) – ring supply section.
-- [`ringrift_compact_rules.md`](ringrift_compact_rules.md:1) – board configs and `ringsPerPlayer`.
-- [`RULES_RULESET_CLARIFICATIONS.md`](RULES_RULESET_CLARIFICATIONS.md:1) – CLAR-003 marked resolved.
+- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:1) – updated R020, R081–R082.
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) – ring supply section.
+- [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1) – board configs and `ringsPerPlayer`.
+- [`RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md:1) – CLAR-003 marked resolved.
 
 Semantics to implement:
 
@@ -52,7 +52,7 @@ Semantics to implement:
   - Back-end [`RuleEngine`](src/server/game/RuleEngine.ts:46) and client sandbox [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:107) must agree on LPS and placement legality.
   - Python [`GameEngine`](ai-service/app/game_engine.py:32) and [`DefaultRulesEngine`](ai-service/app/rules/default_engine.py:23) must mirror TS outcomes for all plateau/parity fixtures.
 - **Preserve termination and S-invariant properties**:
-  - LPS must never introduce non-terminating states (see [`RULES_TERMINATION_ANALYSIS.md`](RULES_TERMINATION_ANALYSIS.md:1)).
+  - LPS must never introduce non-terminating states (see [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md:1)).
   - S-invariant (`S = markers + collapsed + eliminated`) monotonicity remains unchanged; early LPS simply stops some games earlier.
 - **Minimise behavioural surprises**:
   - Existing tests that implicitly assume “play until bare-board stalemate” must be audited and updated to expect earlier LPS wins where applicable.
@@ -665,7 +665,7 @@ Add new focused LPS tests and update existing scenario suites.
 
 - **S-invariant and termination**:
   - LPS termination does **not** change S-monotonicity; the engines simply stop earlier in some plateaus.
-  - The existing termination analysis in [`RULES_TERMINATION_ANALYSIS.md`](RULES_TERMINATION_ANALYSIS.md:1) remains valid; we gain an _earlier_ termination route that prevents uninteresting repeated forced-elimination cycles.
+  - The existing termination analysis in [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md:1) remains valid; we gain an _earlier_ termination route that prevents uninteresting repeated forced-elimination cycles.
 
 - **AI and training invariants**:
   - `STRICT_NO_MOVE_INVARIANT` in Python remains focused on **active states**:

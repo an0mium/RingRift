@@ -67,7 +67,7 @@ export const PROTECTED_CATEGORIES: ProtectedCategory[] = [
     description: 'Orchestrator rollout configuration and feature flag documentation',
     level: 'MEDIUM',
     patterns: [
-      'docs/ORCHESTRATOR_ROLLOUT_PLAN.md',
+      'docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md',
       'docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md',
       'src/server/config/env.ts',
       'src/server/config/unified.ts',

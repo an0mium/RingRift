@@ -8,7 +8,7 @@
 > - **Incidents and alerts:** `docs/incidents/AI_SERVICE.md`, `docs/incidents/LATENCY.md`, `docs/incidents/AVAILABILITY.md`, and alert rules in `monitoring/prometheus/alerts.yml` (especially `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, `AIRequestHighLatency`, `AIErrorsIncreasing`, and `ServiceDegraded`).
 > - **Metrics and SLO documentation:** `docs/operations/ALERTING_THRESHOLDS.md` (AI service alerts and thresholds) and the Grafana dashboards under `monitoring/grafana/dashboards/` (Game Performance & System Health dashboards for AI latency/fallbacks and overall health).
 > - **AI integration & fallbacks:** `AIServiceClient` and `AIEngine` (`src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`), including concurrency caps, circuit breaker, and local heuristic fallback logic plus counters such as `ringrift_ai_requests_total` and `ringrift_ai_fallback_total`.
-> - **Environment and deployment:** `docs/ENVIRONMENT_VARIABLES.md` (AI- and load-related env vars such as `AI_SERVICE_URL`, `AI_SERVICE_REQUEST_TIMEOUT_MS`, `AI_MAX_CONCURRENT_REQUESTS`, `ENABLE_HTTP_MOVE_HARNESS`) and `docs/DEPLOYMENT_REQUIREMENTS.md` (monitoring stack expectations).
+> - **Environment and deployment:** `docs/operations/ENVIRONMENT_VARIABLES.md` (AI- and load-related env vars such as `AI_SERVICE_URL`, `AI_SERVICE_REQUEST_TIMEOUT_MS`, `AI_MAX_CONCURRENT_REQUESTS`, `ENABLE_HTTP_MOVE_HARNESS`) and `docs/planning/DEPLOYMENT_REQUIREMENTS.md` (monitoring stack expectations).
 > - **Load / gameplay harnesses:** `tests/load/scenarios/player-moves.js` and its thresholds as mapped in `docs/operations/ALERTING_THRESHOLDS.md` §“AI turn SLOs (service and end‑to‑end turn latency)”.
 > - **Existing drills:** `docs/runbooks/SECRETS_ROTATION_DRILL.md`, `docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`, and the summary in `docs/runbooks/OPERATIONAL_DRILLS_RESULTS_2025_12_03.md` (Drill 7.3.3 AI outage simulation).
 
@@ -60,7 +60,7 @@ This drill exercises a **controlled AI service degradation** in a **staging / no
 - **Topology assumptions:**
   - App reachable at `http://localhost:3000` (or environment-specific base URL).
   - AI service reachable at `http://localhost:8001` from the host and as `http://ai-service:8001` from the app container.
-  - Monitoring stack reachable (Prometheus, Grafana, Alertmanager) per `docs/DEPLOYMENT_REQUIREMENTS.md`.
+  - Monitoring stack reachable (Prometheus, Grafana, Alertmanager) per `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
 - **Monitoring:** Prometheus must be scraping:
   - Node `/metrics` (for `ringrift_ai_*`, `ringrift_service_status`, `ringrift_degradation_level`).
   - Optionally the AI service `/metrics` if configured.
@@ -71,8 +71,8 @@ This drill exercises a **controlled AI service degradation** in a **staging / no
 - `npm` / Node toolchain on the operator host.
 - [`k6`](https://k6.io/docs/getting-started/installation/) installed on the operator host.
 - Staging stack configuration consistent with:
-  - `docs/ENVIRONMENT_VARIABLES.md` (especially AI service and monitoring variables).
-  - `docs/DEPLOYMENT_REQUIREMENTS.md`.
+  - `docs/operations/ENVIRONMENT_VARIABLES.md` (especially AI service and monitoring variables).
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
 
 **For the canonical drill path below:**
 
@@ -212,7 +212,7 @@ All shell commands below assume you are on the staging host in the RingRift depl
      ENABLE_HTTP_MOVE_HARNESS=true
      ```
 
-     as described in `docs/ENVIRONMENT_VARIABLES.md` (`ENABLE_HTTP_MOVE_HARNESS`).
+     as described in `docs/operations/ENVIRONMENT_VARIABLES.md` (`ENABLE_HTTP_MOVE_HARNESS`).
 
    - From the app host, a simple 404 vs 405 check is usually enough; exact status codes may vary between versions, so rely on your API reference or k6 behaviour. If in doubt, you can proceed; the k6 scenario will report harness‑availability via its thresholds.
 
@@ -552,6 +552,6 @@ In particular:
 This document remains **non‑SSoT operational guidance** and defers to:
 
 - `monitoring/prometheus/alerts.yml` and `docs/operations/ALERTING_THRESHOLDS.md` for alerting rules and thresholds.
-- `docs/ENVIRONMENT_VARIABLES.md` for authoritative environment variable definitions.
+- `docs/operations/ENVIRONMENT_VARIABLES.md` for authoritative environment variable definitions.
 - `src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`, and the associated `tests/unit/*.test.ts` files for AI integration and fallback semantics.
 - `docs/incidents/AI_SERVICE.md` and `docs/runbooks/SERVICE_DEGRADATION.md` for broader incident handling and service-wide degradation semantics.

@@ -8,7 +8,7 @@
  * - Playback controls (step, play/pause, speed)
  * - Current move info display
  *
- * See: docs/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md
+ * See: docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';

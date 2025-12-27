@@ -94,8 +94,8 @@ Hosts:
 For architectural details, see:
 
 - `RULES_ENGINE_ARCHITECTURE.md` – Architecture overview
-- `docs/RULES_SSOT_MAP.md` – SSOT boundaries and host integration
-- `docs/CANONICAL_ENGINE_API.md` – Lifecycle and API reference
+- `docs/rules/RULES_SSOT_MAP.md` – SSOT boundaries and host integration
+- `docs/architecture/CANONICAL_ENGINE_API.md` – Lifecycle and API reference
 
 ### Required tests for rules/AI/WebSocket changes
 
@@ -353,10 +353,10 @@ Relates to #issue-number
 ### CI & PR policy (S-05.F.1)
 
 > **Status (2025-12-07): Active (documentation/policy only, non-semantics)** \
-> Implements S-05.F.1 from `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`. This section does **not** define game rules or lifecycle semantics. Those remain in:
+> Implements S-05.F.1 from `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`. This section does **not** define game rules or lifecycle semantics. Those remain in:
 >
 > - `RULES_CANONICAL_SPEC.md`, `docs/rules/COMPLETE_RULES.md`, `docs/rules/COMPACT_RULES.md` (rules semantics SSoT)
-> - `docs/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types and schemas (lifecycle/API SSoT)
+> - `docs/architecture/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types and schemas (lifecycle/API SSoT)
 > - Shared TS engine + contracts + contract vectors under `src/shared/engine/**` and `tests/fixtures/contract-vectors/v2/**`
 >
 > CI is a consumer of those SSoTs and of the test-layer taxonomy described in `tests/README.md`, `tests/TEST_LAYERS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md`.
@@ -375,7 +375,7 @@ Expectations:
 - For changes that touch any of the following, a **second review is strongly recommended**:
   - Shared TS engine orchestrator or aggregates under `src/shared/engine/**`
   - Contracts and vectors under `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/**`
-  - Lifecycle/API surfaces in `docs/CANONICAL_ENGINE_API.md` or shared WebSocket types/schemas
+  - Lifecycle/API surfaces in `docs/architecture/CANONICAL_ENGINE_API.md` or shared WebSocket types/schemas
   - Python rules/AI hosts that adapt the canonical engine (for example `ai-service/app/rules/*`, `ai-service/app/game_engine.py`)
 
 #### Required CI checks (expected branch-protection gates)
@@ -397,7 +397,7 @@ The `e2e-tests` Playwright job is **CI-blocking**. Infrastructure (Postgres, Red
 - Ensure E2E tests pass before merging PRs.
 - Run E2E tests locally when making changes to auth/session flows, lobby/game lifecycle, or WebSocket transport behaviour.
 
-As CI evolves (for example additional jobs for topology, SBOMs, or AI pipelines), new required checks should be documented in `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` and, where relevant, referenced here.
+As CI evolves (for example additional jobs for topology, SBOMs, or AI pipelines), new required checks should be documented in `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` and, where relevant, referenced here.
 
 #### Handling flaky or failing checks
 
@@ -405,15 +405,15 @@ As CI evolves (for example additional jobs for topology, SBOMs, or AI pipelines)
 - For known-flaky suites (typically long-running or infra-sensitive tests inside `test` or `e2e-tests`):
   - Prefer re-running the job in CI and/or fixing the underlying flakiness in a follow-up PR.
   - If you must temporarily quarantine a test, mark it clearly in code (for example with a comment referencing the tracking issue) and update the relevant test meta-doc (`tests/TEST_LAYERS.md` or `tests/TEST_SUITE_PARITY_PLAN.md`).
-- Temporarily disabling a CI job (for example commenting out a job in `ci.yml`) should be rare, explicitly called out in the PR description, and paired with a tracking issue. When this happens for security- or CI-related jobs, also leave a short note in `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` so the S-05.F design stays in sync with reality.
+- Temporarily disabling a CI job (for example commenting out a job in `ci.yml`) should be rare, explicitly called out in the PR description, and paired with a tracking issue. When this happens for security- or CI-related jobs, also leave a short note in `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` so the S-05.F design stays in sync with reality.
 
 #### Releases and deployments
 
 - Production and staging deployments should originate from **tagged commits on `main`** (or dedicated release branches) that have passed all required CI checks above.
 - Prefer Docker images built by CI (via the `docker-build` pipeline or a future push-enabled variant) over ad-hoc images built on developer machines.
 - For incident response or security review, use this section together with:
-  - `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` (S-05.F design and job map)
-  - `docs/SECURITY_THREAT_MODEL.md` (threat scenarios and S-05 backlog)
+  - `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` (S-05.F design and job map)
+  - `docs/security/SECURITY_THREAT_MODEL.md` (threat scenarios and S-05 backlog)
 
 ## 🐛 Bug Reports
 

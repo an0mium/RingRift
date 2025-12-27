@@ -49,7 +49,7 @@ Status legend: `TODO` → `IN_PROGRESS` → `DONE` (or `DEFERRED` with rationale
 - `npm run ssot-check` currently fails due to:
   - Missing rule ID references in `docs/rules/RULES_IMPLEMENTATION_MAPPING.md` (e.g., R073–R076, R093, R110–R115, R130, R175–R179, R208–R209).
   - Lifecycle/API doc missing MoveType mentions (e.g., `no_*_action`, `recovery_slide`, `resign`).
-  - Several docs moved under subfolders but checks/links still reference legacy paths (e.g., `docs/API_REFERENCE.md`, `docs/ENVIRONMENT_VARIABLES.md`, `docs/SECRETS_MANAGEMENT.md`, `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`).
+  - Several docs moved under subfolders but checks/links still reference legacy paths (e.g., `docs/architecture/API_REFERENCE.md`, `docs/operations/ENVIRONMENT_VARIABLES.md`, `docs/operations/SECRETS_MANAGEMENT.md`, `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`).
 - `npm audit --omit=dev` reports **1 high vulnerability**: `jws < 3.2.3` (transitive; patch available).
 
 These are addressed by items `DOC-01`, `DOC-02`, `TOOL-01`, `TOOL-02`, and `SEC-01`.

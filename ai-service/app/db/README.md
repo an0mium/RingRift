@@ -578,7 +578,7 @@ python scripts/export_parity_fixture.py \
 
 ## See Also
 
-- `docs/GAME_REPLAY_DATABASE_SPEC.md` - Full schema specification
+- `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md` - Full schema specification
 - `app/training/README.md` - Training data export
 - `app/rules/README.md` - Game rules engine
 - `scripts/check_ts_python_replay_parity.py` - Parity testing script

@@ -43,7 +43,7 @@ The rules semantics SSoT is:
 - `docs/rules/COMPACT_RULES.md`
 - Supporting UX/rules documents:
   - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
-  - `docs/UX_RULES_TEACHING_SCENARIOS.md`
+  - `docs/ux/UX_RULES_TEACHING_SCENARIOS.md`
   - `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md`
 
 **Requirements for agents:**
@@ -297,7 +297,7 @@ Core UX/rules alignment:
   - `tests/unit/GameEndExplanation.fromEngineView.test.ts`
 - Teaching & weird‑state specs:
   - `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
-  - `docs/UX_RULES_TEACHING_SCENARIOS.md`
+  - `docs/ux/UX_RULES_TEACHING_SCENARIOS.md`
   - `docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md`
 - UI components:
   - `src/client/components/GameHUD.tsx`

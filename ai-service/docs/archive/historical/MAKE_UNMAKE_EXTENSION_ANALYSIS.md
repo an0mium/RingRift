@@ -4,9 +4,9 @@
 >
 > **Role:** Analysis and prioritisation of where to extend the Python AI service's make/unmake move pattern (`MutableGameState` + `MoveUndo`) beyond `MinimaxAI`—covering MCTS, DescentAI, self-play data generation, tournaments, RL environments, and heuristic AI.
 >
-> **Not a semantics SSoT:** This document does not define core game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`. The Python engine, its make/unmake implementation, and the extensions analysed here are **hosts/adapters** that must match the TS SSoT via the parity backbone and contract vectors.
+> **Not a semantics SSoT:** This document does not define core game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/architecture/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`. The Python engine, its make/unmake implementation, and the extensions analysed here are **hosts/adapters** that must match the TS SSoT via the parity backbone and contract vectors.
 >
-> **Related docs:** `AI_ARCHITECTURE.md`, `docs/AI_TRAINING_AND_DATASETS.md`, `docs/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, `ai-service/docs/MAKE_UNMAKE_DESIGN.md`, `ai-service/AI_ASSESSMENT_REPORT.md`, `ai-service/AI_IMPROVEMENT_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `AI_ARCHITECTURE.md`, `docs/ai/AI_TRAINING_AND_DATASETS.md`, `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, `ai-service/docs/MAKE_UNMAKE_DESIGN.md`, `ai-service/AI_ASSESSMENT_REPORT.md`, `ai-service/AI_IMPROVEMENT_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
 >
 > **Date:** 2025-11-27
 >
@@ -520,7 +520,7 @@ With make/unmake integration:
 
 ## References
 
-- [`ai-service/docs/MAKE_UNMAKE_DESIGN.md`](./MAKE_UNMAKE_DESIGN.md) - Original design document
+- [`ai-service/docs/MAKE_UNMAKE_DESIGN.md`](../../specs/MAKE_UNMAKE_DESIGN.md) - Original design document
 - [`ai-service/app/rules/mutable_state.py`](../app/rules/mutable_state.py) - Implementation
 - [`ai-service/app/ai/minimax_ai.py`](../app/ai/minimax_ai.py) - Reference integration
 - [`ai-service/scripts/benchmark_make_unmake.py`](../scripts/benchmark_make_unmake.py) - Benchmarking tools

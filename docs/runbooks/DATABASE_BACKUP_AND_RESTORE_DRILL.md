@@ -5,10 +5,10 @@
 >
 > **SSoT alignment:** This runbook is a derived operational procedure over:
 >
-> - `docs/OPERATIONS_DB.md` – canonical database operations and migration workflows
-> - `docs/DATA_LIFECYCLE_AND_PRIVACY.md` – data retention, minimisation, and recovery expectations
-> - `docs/DEPLOYMENT_REQUIREMENTS.md` / `docker-compose*.yml` – deployment topology and volumes
-> - `docs/SECRETS_MANAGEMENT.md` – secrets inventory, DB credential handling, and rotation patterns
+> - `docs/operations/OPERATIONS_DB.md` – canonical database operations and migration workflows
+> - `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` – data retention, minimisation, and recovery expectations
+> - `docs/planning/DEPLOYMENT_REQUIREMENTS.md` / `docker-compose*.yml` – deployment topology and volumes
+> - `docs/operations/SECRETS_MANAGEMENT.md` – secrets inventory, DB credential handling, and rotation patterns
 > - `docs/runbooks/SECRETS_ROTATION_DRILL.md` – complementary PASS-style drill for JWT and DB credential rotation
 >
 > **Precedence:** Postgres configuration, Prisma migrations, and deployment manifests are authoritative for actual behaviour. If this runbook disagrees with them, **code + configs win** and this document must be updated.
@@ -33,15 +33,15 @@ This should be performed in **staging** or an equivalent non-production environm
 
 - You are operating in **staging** (or another non-production environment).
 - The Postgres container is named `postgres` and mounts `./backups` → `/backups`
-  (see `docker-compose.yml` and `docs/OPERATIONS_DB.md` §1.1–1.2).
+  (see `docker-compose.yml` and `docs/operations/OPERATIONS_DB.md` §1.1–1.2).
 - The primary database is named `ringrift` and owned by user `ringrift`.
 - You have shell access to the host where Docker Compose is running.
 - The staging stack is on a known-good commit and the database schema matches the
   current migrations on `main` (that is, `prisma/schema.prisma` + `prisma/migrations`
   have been rolled out via `npx prisma migrate deploy` as described in
-  `docs/OPERATIONS_DB.md` §2).
+  `docs/operations/OPERATIONS_DB.md` §2).
 - The **monitoring stack is active** for the environment (Prometheus, Alertmanager,
-  Grafana per `docs/DEPLOYMENT_REQUIREMENTS.md`) so you can watch database/HTTP
+  Grafana per `docs/planning/DEPLOYMENT_REQUIREMENTS.md`) so you can watch database/HTTP
   health during the drill.
 - There is sufficient free space in the backup target (for the default Compose
   setup, the `./backups` directory on the host).
@@ -305,12 +305,12 @@ If staging or production uses a managed Postgres service (for example AWS RDS, G
   - Restoring a snapshot into a **new instance** and pointing an app instance at it (or at a read-replica), rather than performing an in-place destructive restore on the primary.
 - Still perform an **application-level smoke** against the restored instance:
   - Run `npx prisma migrate status` against the restored `DATABASE_URL`.
-  - Run the same login / game creation / short-play flow used in `docs/OPERATIONS_DB.md` §2.4, and, where appropriate, the auth/load smokes referenced above.
+  - Run the same login / game creation / short-play flow used in `docs/operations/OPERATIONS_DB.md` §2.4, and, where appropriate, the auth/load smokes referenced above.
 
 For **production** restore drills, additionally:
 
-- Align with the backup and privacy constraints in `docs/DATA_LIFECYCLE_AND_PRIVACY.md` §3.5 (“Backups and offline copies”) – especially the expectation that restores are followed by re-application of deletion/anonymisation routines where appropriate.
-- Ensure DB credentials and `DATABASE_URL` values involved in the drill follow the rotation and access-control guidance in `docs/SECRETS_MANAGEMENT.md` and the `SECRETS_ROTATION_DRILL` runbook.
+- Align with the backup and privacy constraints in `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` §3.5 (“Backups and offline copies”) – especially the expectation that restores are followed by re-application of deletion/anonymisation routines where appropriate.
+- Ensure DB credentials and `DATABASE_URL` values involved in the drill follow the rotation and access-control guidance in `docs/operations/SECRETS_MANAGEMENT.md` and the `SECRETS_ROTATION_DRILL` runbook.
 - Prefer blue/green or read-replica based techniques so that restores can be validated in isolation before any traffic is cut over.
 
 The core principles remain the same:
@@ -337,7 +337,7 @@ The core principles remain the same:
 - Do not run this exact sequence directly against production. Instead:
   - Plan a dedicated production restore drill using a new instance or read-replica restored from a production backup.
   - Coordinate with incident management and change-control processes.
-  - Follow the higher-level disaster-recovery flows in `docs/OPERATIONS_DB.md` §3 (Rollback & Disaster-Recovery Playbooks) and `docs/DATA_LIFECYCLE_AND_PRIVACY.md` §3.5 for privacy-aware handling of restored data.
+  - Follow the higher-level disaster-recovery flows in `docs/operations/OPERATIONS_DB.md` §3 (Rollback & Disaster-Recovery Playbooks) and `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` §3.5 for privacy-aware handling of restored data.
 - Any in-place destructive restore of a production database (dropping or overwriting the primary) requires a separate, more conservative runbook and is out of scope here.
 
 ---
@@ -347,7 +347,7 @@ The core principles remain the same:
 This drill is intentionally complementary to the secrets rotation drill:
 
 - **Secrets & env configuration**
-  - For the database credentials and `DATABASE_URL` values used during backup and restore, follow `docs/SECRETS_MANAGEMENT.md` and the **Database Password Rotation** section of the secrets rotation drill (`docs/runbooks/SECRETS_ROTATION_DRILL.md`).
+  - For the database credentials and `DATABASE_URL` values used during backup and restore, follow `docs/operations/SECRETS_MANAGEMENT.md` and the **Database Password Rotation** section of the secrets rotation drill (`docs/runbooks/SECRETS_ROTATION_DRILL.md`).
   - Never hard-code live credentials into backup or restore commands; prefer environment variables and secret managers.
 - **Combined drills**
   - For a more advanced exercise, you can chain this runbook with `SECRETS_ROTATION_DRILL` in staging:
@@ -360,7 +360,7 @@ This drill is intentionally complementary to the secrets rotation drill:
 
 This runbook remains **non-SSoT operational guidance** and defers to:
 
-- `docs/DATA_LIFECYCLE_AND_PRIVACY.md` for data retention, anonymisation, and backup/privacy constraints.
-- `docs/ENVIRONMENT_VARIABLES.md` for authoritative environment variable definitions such as `DATABASE_URL`.
-- `docs/OPERATIONS_DB.md` for environment-specific DB topology and migration workflows.
-- `docs/SECRETS_MANAGEMENT.md` and `docs/runbooks/SECRETS_ROTATION_DRILL.md` for secrets handling and rotation patterns.
+- `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` for data retention, anonymisation, and backup/privacy constraints.
+- `docs/operations/ENVIRONMENT_VARIABLES.md` for authoritative environment variable definitions such as `DATABASE_URL`.
+- `docs/operations/OPERATIONS_DB.md` for environment-specific DB topology and migration workflows.
+- `docs/operations/SECRETS_MANAGEMENT.md` and `docs/runbooks/SECRETS_ROTATION_DRILL.md` for secrets handling and rotation patterns.

@@ -434,7 +434,7 @@ export class GameSession {
    *   whether to run additional shadow comparisons (for example, Python or
    *   legacy pipelines) in diagnostics lanes.
    *
-   * See docs/ORCHESTRATOR_ROLLOUT_PLAN.md (Phase A – Backend orchestrator-only).
+   * See docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md (Phase A – Backend orchestrator-only).
    */
   private configureEngineSelection(players: Player[]): void {
     // Prefer a human player for targeting; fall back to undefined.

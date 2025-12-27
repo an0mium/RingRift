@@ -396,7 +396,7 @@ export const EnvSchema = z.object({
    * The `useOrchestratorAdapter` property on GameEngine/ClientSandboxEngine remains
    * for internal state management but always evaluates to true.
    *
-   * @see docs/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md
+   * @see docs/archive/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md
    */
   ORCHESTRATOR_ADAPTER_ENABLED: z
     .any()

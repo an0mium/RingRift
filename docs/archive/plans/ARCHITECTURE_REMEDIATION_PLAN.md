@@ -4,8 +4,8 @@ This document outlines a comprehensive, prioritized set of subtasks to address s
 
 > **SSoT alignment:** This remediation plan is a derived roadmap over the following canonical sources:
 >
-> - **Rules semantics SSoT:** Canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) as the single source of truth for rules semantics, with the shared TypeScript rules engine under `src/shared/engine/**` (helpers → domain aggregates → turn orchestrator → contracts) plus v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`) describing and validating the primary executable implementation of that spec.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` for the executable Move/orchestrator/WebSocket lifecycle.
+> - **Rules semantics SSoT:** Canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) as the single source of truth for rules semantics, with the shared TypeScript rules engine under `src/shared/engine/**` (helpers → domain aggregates → turn orchestrator → contracts) plus v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`) describing and validating the primary executable implementation of that spec.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` for the executable Move/orchestrator/WebSocket lifecycle.
 > - **Operational SSoT:** CI workflows (`.github/workflows/*.yml`), Dockerfiles, docker-compose stacks, monitoring configs under `monitoring/**`, and runtime config/env validation code under `src/server/config/**`, `src/shared/utils/envFlags.ts`, and `scripts/validate-deployment-config.ts`.
 > - **Precedence:** If this plan ever conflicts with those specs, engines, types, or configs, **code + tests win**, and this document must be updated to match them.
 >
@@ -14,7 +14,7 @@ This document outlines a comprehensive, prioritized set of subtasks to address s
 > - Tiers 1–2 describe the **canonical helpers + aggregates + orchestrator + contracts** stack and the backend/client adapters over it; these tiers are now **implemented and verified**.
 > - Tiers 3–5 capture **planned or partially implemented** work around async state machines, configuration/test consolidation, and client architecture separation.
 > - Some Tier 3–5 subtasks are aspirational or superseded by later designs; they are kept here for historical context and as a planning backlog, not as a strict implementation contract.
-> - A few subtask rows mention conceptual modules (for example `src/server/game/PlayerInteractionManager.ts` and additional `validators/*` / `mutators/*` files). These were used as design handles and were never created; on conflict, always defer to the concrete modules and paths documented in `RULES_IMPLEMENTATION_MAPPING.md` and `docs/RULES_ENGINE_SURFACE_AUDIT.md`.
+> - A few subtask rows mention conceptual modules (for example `src/server/game/PlayerInteractionManager.ts` and additional `validators/*` / `mutators/*` files). These were used as design handles and were never created; on conflict, always defer to the concrete modules and paths documented in `RULES_IMPLEMENTATION_MAPPING.md` and `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`.
 >
 > Readers should treat this document as the **authoritative roadmap for past and future remediation work**, with Tiers 1–2 reflecting the completed orchestrator-centric architecture and Tiers 3–5 serving as structured planning guidance.
 >
@@ -136,7 +136,7 @@ Game sessions, AI service calls, and WebSocket events form a distributed state m
   - Shared state machines already exist under `src/shared/stateMachines/` (e.g. `gameSession.ts`, `aiRequest.ts`, `choice.ts`, `connection.ts`) and are exercised by tests such as `tests/unit/GameSession.gameSessionStatus.test.ts`, `tests/unit/GameSession.aiRequestState.test.ts`, `tests/unit/WebSocketServer.connectionState.test.ts`, and `tests/unit/AIWebSocketResilience.test.ts`.
   - AI/WebSocket resilience and timeout behaviour are covered by integration tests like `tests/integration/AIResilience.test.ts` and `tests/unit/AIServiceClient.concurrency.test.ts`.
 - **Planned / aspirational:**
-  - Consolidating these patterns into an explicit, documented state-machine model (with Mermaid diagrams and a single `docs/STATE_MACHINES.md`).
+  - Consolidating these patterns into an explicit, documented state-machine model (with Mermaid diagrams and a single `docs/architecture/STATE_MACHINES.md`).
   - Introducing shared cancellation/timeout utilities where ad-hoc patterns still exist.
 
 Treat the subtasks in this tier as **planning guidance** and a refinement backlog over the existing `src/shared/stateMachines/**` foundations, rather than a claim that no state machines exist today.
@@ -158,7 +158,7 @@ Treat the subtasks in this tier as **planning guidance** and a refinement backlo
 | T3-W5-D    | 5          | **Add cancellation token pattern** - Implement cancellation tokens for all async game operations               | `CancellationToken` utility in `src/shared/utils/cancellation.ts`                                               | `src/shared/utils/cancellation.ts` (new), `src/server/services/AIServiceClient.ts` | T3-W5-C                 | M          | Code      |
 | T3-W5-E    | 5          | **Integrate cancellation with WebSocket flows** - Use cancellation tokens for pending choices and reconnection | WebSocket handlers check cancellation before processing                                                         | `src/server/websocket/server.ts`, `src/server/game/WebSocketInteractionHandler.ts` | T3-W5-D                 | L          | Code      |
 | T3-W5-F    | 5          | **Explicit timeout modeling** - Replace setTimeout patterns with typed timeout handling                        | `TimedOperation<T>` wrapper with explicit timeout types                                                         | `src/shared/utils/timeout.ts` (new), `src/server/websocket/server.ts`              | T3-W5-D                 | M          | Code      |
-| T3-W5-G    | 5          | **Document state machine transitions** - Create Mermaid diagrams for all state machines                        | `docs/STATE_MACHINES.md` with session, AI request, and WebSocket lifecycle diagrams                             | `docs/STATE_MACHINES.md`                                                           | T3-W5-A through T3-W5-F | S          | Architect |
+| T3-W5-G    | 5          | **Document state machine transitions** - Create Mermaid diagrams for all state machines                        | `docs/architecture/STATE_MACHINES.md` with session, AI request, and WebSocket lifecycle diagrams                             | `docs/architecture/STATE_MACHINES.md`                                                           | T3-W5-A through T3-W5-F | S          | Architect |
 | T3-W5-H    | 5          | **Create resilience test suite** - Test error recovery, timeouts, and cancellation paths                       | `tests/integration/Resilience.*.test.ts` covering all async failure modes                                       | `tests/integration/AIResilience.test.ts` (extend), new resilience tests            | T3-W5-G                 | L          | Code      |
 
 ### Completion Criteria
@@ -175,7 +175,7 @@ Treat the subtasks in this tier as **planning guidance** and a refinement backlo
 1. TypeScript verification: `npm run typecheck` with no errors
 2. Run resilience tests: `npm test -- --testPathPattern="Resilience"`
 3. Verify AI timeouts: `npm test -- --testPathPattern="AIServiceClient.concurrency"`
-4. Documentation review: Verify `docs/STATE_MACHINES.md` contains all state diagrams
+4. Documentation review: Verify `docs/architecture/STATE_MACHINES.md` contains all state diagrams
 
 ---
 
@@ -200,7 +200,7 @@ This tier simplifies configuration management by consolidating multiple config e
 | ---------- | ---------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------- | ---------- | --------- |
 | T4-W4-A    | 4          | **Audit configuration entrypoints** - Document all config sources and their consumers                 | Config audit document showing all entrypoints and usage                                | `src/server/config.ts`, `src/server/config/env.ts`, `src/server/config/index.ts`, `.env.example` | None             | S          | Architect |
 | T4-W4-B    | 4          | **Consolidate to single config entrypoint** - Merge all config modules into unified config            | Single `src/server/config/index.ts` exporting typed `Config` object                    | `src/server/config/*.ts` → `src/server/config/index.ts`                                          | T4-W4-A          | M          | Code      |
-| T4-W4-C    | 4          | **Document topology modes** - Create documentation for topology enforcement modes                     | `docs/TOPOLOGY_MODES.md` explaining square8, square19, hexagonal modes                 | `docs/TOPOLOGY_MODES.md` (new)                                                                   | None             | S          | Architect |
+| T4-W4-C    | 4          | **Document topology modes** - Create documentation for topology enforcement modes                     | `docs/architecture/TOPOLOGY_MODES.md` explaining square8, square19, hexagonal modes                 | `docs/architecture/TOPOLOGY_MODES.md` (new)                                                                   | None             | S          | Architect |
 | T4-W4-D    | 4          | **Extract topology as runtime module** - Move topology logic to dedicated module with clear interface | `src/shared/engine/topology/` with `TopologyConfig` and board-specific implementations | `src/shared/engine/core.ts` topology sections, new `src/shared/engine/topology/`                 | T4-W4-C          | M          | Code      |
 | T4-W6-A    | 6          | **Audit test coverage overlaps** - Identify tests covering identical behavior                         | Test overlap matrix document                                                           | `tests/unit/`, `tests/scenarios/`, `tests/integration/`                                          | None             | M          | Architect |
 | T4-W6-B    | 6          | **Define test layering strategy** - Document test layer responsibilities                              | `tests/TEST_LAYERS.md` defining unit, contract, integration, e2e layers                | `tests/TEST_LAYERS.md`                                                                           | T4-W6-A          | S          | Architect |
@@ -235,7 +235,7 @@ This tier simplifies configuration management by consolidating multiple config e
 1. Config import check: `grep -r "from.*config" src/server | grep -v "config/index"` returns no hits
 2. Run all tests: `npm test` - passes with reduced runtime
 3. CI timing: Check GitHub Actions run time before/after
-4. Documentation review: `docs/TOPOLOGY_MODES.md` and `tests/TEST_LAYERS.md` exist
+4. Documentation review: `docs/architecture/TOPOLOGY_MODES.md` and `tests/TEST_LAYERS.md` exist
 
 ---
 
@@ -416,8 +416,8 @@ Each tier should be deployable independently with feature flags:
 | `src/client/services/GameConnection.ts`                | WebSocket handling             | 5    | In Progress                |
 | `src/client/contexts/SandboxContext.tsx`               | Sandbox state                  | 5    | Pending                    |
 | `src/client/adapters/GameViewModels.ts`                | View model adapters            | 5    | Pending                    |
-| `docs/STATE_MACHINES.md`                               | State machine documentation    | 3    | ✅ Complete                |
-| `docs/TOPOLOGY_MODES.md`                               | Topology documentation         | 4    | ✅ Complete                |
+| `docs/architecture/STATE_MACHINES.md`                               | State machine documentation    | 3    | ✅ Complete                |
+| `docs/architecture/TOPOLOGY_MODES.md`                               | Topology documentation         | 4    | ✅ Complete                |
 | `tests/TEST_LAYERS.md`                                 | Test layer strategy            | 4    | ✅ Complete                |
 
 ---

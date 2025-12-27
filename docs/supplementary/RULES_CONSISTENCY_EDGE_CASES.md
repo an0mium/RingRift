@@ -6,7 +6,7 @@ r> **Doc Status (2025-11-28): Active (supplementary, derived)**
 >
 > - Canonical rules docs: `RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`.
 > - Shared TypeScript rules engine helpers, aggregates, and orchestrator under `src/shared/engine/**` plus v2 contract vectors under `tests/fixtures/contract-vectors/v2/**` and their TS/Python runners.
-> - Derived implementation and architecture docs: `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/MODULE_RESPONSIBILITIES.md`, and `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`.
+> - Derived implementation and architecture docs: `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/MODULE_RESPONSIBILITIES.md`, and `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`.
 > - Historical parity/trace harnesses: selected superseded suites are archived under `archive/tests/**` (TS) and `ai-service/tests/archive/**` (Python) for diagnostic reference only; semantics are always taken from the shared engine, contracts, and the active `*.shared.test.ts` + RulesMatrix/FAQ suites.
 >
 > **Precedence:** This document is **not** a semantics SSoT. If any description here conflicts with the shared TS engine/orchestrator, contract vectors, or their tests (including Python parity/invariant suites), **code + tests + canonical docs win** and this report must be updated.

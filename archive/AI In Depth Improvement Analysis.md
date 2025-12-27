@@ -1,8 +1,8 @@
 > **Doc Status (2025-11-27): Archived (historical AI host deep-dive, Python + TS integration)**
 >
 > - Role: earlier in-depth analysis and set of recommendations for the AI stack (TS backend orchestration, client sandbox AI, and Python AI/rules) before the current architecture docs were consolidated. Retained for historical context and archaeology only.
-> - Superseded by: the modern architecture and improvement docs [`AI_ARCHITECTURE.md`](../AI_ARCHITECTURE.md), [`ai-service/AI_ASSESSMENT_REPORT.md`](../ai-service/AI_ASSESSMENT_REPORT.md), [`ai-service/AI_IMPROVEMENT_PLAN.md`](../ai-service/AI_IMPROVEMENT_PLAN.md), [`docs/AI_TRAINING_AND_DATASETS.md`](../docs/AI_TRAINING_AND_DATASETS.md), [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](../docs/AI_TRAINING_PREPARATION_GUIDE.md), and [`docs/PYTHON_PARITY_REQUIREMENTS.md`](../docs/PYTHON_PARITY_REQUIREMENTS.md).
-> - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).
+> - Superseded by: the modern architecture and improvement docs [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md), [`ai-service/AI_ASSESSMENT_REPORT.md`](../ai-service/AI_ASSESSMENT_REPORT.md), [`ai-service/AI_IMPROVEMENT_PLAN.md`](../ai-service/AI_IMPROVEMENT_PLAN.md), [`docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md), [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`](../docs/ai/AI_TRAINING_PREPARATION_GUIDE.md), and [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../docs/rules/PYTHON_PARITY_REQUIREMENTS.md).
+> - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md), and [`docs/architecture/CANONICAL_ENGINE_API.md`](../docs/architecture/CANONICAL_ENGINE_API.md).
 > - Related docs: archived AI-focused reports in `archive/` such as [`AI_ASSESSMENT_REPORT.md`](./AI_ASSESSMENT_REPORT.md), [`AI_IMPROVEMENT_PLAN.md`](./AI_IMPROVEMENT_PLAN.md), and [`AI_CODE_REVIEW_REPORT.md`](./AI_CODE_REVIEW_REPORT.md), plus stall/tournament reports (`AI_STALL_*.md`, `AI_TOURNAMENT_RESULTS*.md`).
 
 ### Subtask 1 – High-Level AI Architecture & Integration Review
@@ -41,8 +41,8 @@ Produce an end-to-end architectural review of how AI is structured and integrate
   - Rules interfaces: [`interfaces.py`](ai-service/app/rules/interfaces.py:1)
   - Rules core/engine: [`core.py`](ai-service/app/rules/core.py:1), [`default_engine.py`](ai-service/app/rules/default_engine.py:1)
 - Design documents:
-  - [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)
-  - [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)
+  - [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)
+  - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)
 
 **Agent Profile**  
 Senior game AI architect with strong backend TypeScript and Python experience, familiarity with service-oriented architectures, and experience shipping AI for commercial titles.
@@ -219,7 +219,7 @@ Review the neural network-based AI infrastructure, including model architecture,
   - [`test_model_architecture.py`](ai-service/tests/test_model_architecture.py:1)
   - Other NN-related tests in `ai-service/tests`.
 - Design docs (if present):
-  - [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1) or NN-specific docs.
+  - [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1) or NN-specific docs.
 
 **Agent Profile**  
 Machine learning engineer with strong experience in board-game NN design (e.g., AlphaZero-style CNNs), feature engineering, and production inference integration.
@@ -418,7 +418,7 @@ Review existing AI-related tests, debugging tools, and telemetry; propose improv
     - [`aiTestLogger`](tests/utils/aiTestLogger.ts:1)
     - [`moveMatching`](tests/utils/moveMatching.ts:1)
   - Test parity plan:
-    - [`TEST_SUITE_PARITY_PLAN.md`](tests/TEST_SUITE_PARITY_PLAN.md:1)
+    - [`TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md:1)
 - Client tools:
   - [`AIDebugView`](src/client/components/AIDebugView.tsx:1)
   - Any debug hooks in [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1) and [`sandboxAI`](src/client/sandbox/sandboxAI.ts:1)

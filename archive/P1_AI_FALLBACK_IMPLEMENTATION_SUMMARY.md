@@ -491,7 +491,7 @@ npm test -- --testPathPattern="AI"
 
 ### Documentation
 
-6. **[`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)**
+6. **[`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)**
    - Added complete "Error Handling & Resilience" section
    - Documented tiered fallback architecture
    - Added error scenarios and handling strategies

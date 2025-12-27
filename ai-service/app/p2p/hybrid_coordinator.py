@@ -8,7 +8,7 @@ This module provides the glue layer that coordinates between:
 The HybridCoordinator enables gradual migration from the current Bully/HTTP
 system to SWIM/Raft, with instant fallback capability via feature flags.
 
-Feature Flags (from scripts.p2p.constants):
+Feature Flags (from app.p2p.constants):
 - MEMBERSHIP_MODE: "http" | "swim" | "hybrid"
 - CONSENSUS_MODE: "bully" | "raft" | "hybrid"
 
@@ -51,19 +51,12 @@ logger = logging.getLogger(__name__)
 # Import feature flags from P2P constants
 # ============================================
 
-try:
-    from scripts.p2p.constants import (
-        CONSENSUS_MODE,
-        MEMBERSHIP_MODE,
-        RAFT_ENABLED,
-        SWIM_ENABLED,
-    )
-except ImportError:
-    # Fallback defaults (backward compatible - use HTTP/Bully)
-    MEMBERSHIP_MODE = "http"
-    CONSENSUS_MODE = "bully"
-    RAFT_ENABLED = False
-    SWIM_ENABLED = False
+from app.p2p.constants import (
+    CONSENSUS_MODE,
+    MEMBERSHIP_MODE,
+    RAFT_ENABLED,
+    SWIM_ENABLED,
+)
 
 # ============================================
 # Import SWIM adapter

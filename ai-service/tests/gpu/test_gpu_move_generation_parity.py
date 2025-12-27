@@ -10,7 +10,7 @@ Test Strategy:
 4. Test edge cases: empty board, full board, captures available
 
 See Also:
-    - docs/GPU_PIPELINE_ROADMAP.md Section 7 (Phase 2)
+    - ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md Section 7 (Phase 2)
     - app/ai/shadow_validation.py (Runtime validation infrastructure)
 """
 

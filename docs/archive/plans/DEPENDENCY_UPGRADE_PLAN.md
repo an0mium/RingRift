@@ -2,10 +2,10 @@
 
 > **SSoT alignment:** This document is a **derived plan** over the canonical sources of truth for rules, lifecycle, architecture, CI, and security:
 >
-> - Rules & lifecycle SSoTs: `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `docs/CANONICAL_ENGINE_API.md`, shared TS engine under `src/shared/engine/**`, contracts under `src/shared/engine/contracts/**`, WebSocket types/schemas under `src/shared/types/websocket.ts` and `src/shared/validation/websocketSchemas.ts`.
-> - Architecture & topology SSoTs: `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, `RULES_ENGINE_ARCHITECTURE.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/OPERATIONS_DB.md`, and `docs/DEPLOYMENT_REQUIREMENTS.md`.
-> - Test layering & parity meta-docs: `tests/TEST_LAYERS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`.
-> - CI / supply-chain design: `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`, `.github/workflows/ci.yml`.
+> - Rules & lifecycle SSoTs: `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `docs/architecture/CANONICAL_ENGINE_API.md`, shared TS engine under `src/shared/engine/**`, contracts under `src/shared/engine/contracts/**`, WebSocket types/schemas under `src/shared/types/websocket.ts` and `src/shared/validation/websocketSchemas.ts`.
+> - Architecture & topology SSoTs: `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, `RULES_ENGINE_ARCHITECTURE.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/operations/OPERATIONS_DB.md`, and `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
+> - Test layering & parity meta-docs: `tests/TEST_LAYERS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`.
+> - CI / supply-chain design: `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`, `.github/workflows/ci.yml`.
 >
 > **Precedence:** If this plan ever disagrees with the code, tests, or CI configuration, **code + tests + CI win**. This file must then be updated to match the implemented behaviour.
 >
@@ -103,7 +103,7 @@ We rely on existing layering and parity plans rather than inventing new categori
 
 - `tests/TEST_LAYERS.md` – how unit, contract/scenario, integration, and E2E tests are structured.
 - `tests/TEST_SUITE_PARITY_PLAN.md` – how TS↔Python and backend↔sandbox parity are validated.
-- `docs/PYTHON_PARITY_REQUIREMENTS.md` – Python rules/AI parity requirements.
+- `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` – Python rules/AI parity requirements.
 - `AI_ARCHITECTURE.md` – AI, rules, and training architecture plus determinism expectations.
 
 **Pre-upgrade E2E baseline (Chromium):**
@@ -159,7 +159,7 @@ All upgrade waves in this plan assume and preserve this logging pattern.
 - ✅ `pip` upgraded in the AI-service virtualenv.
 - ⏳ All other dependency changes are **deferred** to Waves 1–3 below.
 
-Wave 0 is complete when this plan, `docs/DEPLOYMENT_REQUIREMENTS.md`, `ai-service/DEPENDENCY_UPDATES.md`, and the documentation indexes (`docs/INDEX.md`, `DOCUMENTATION_INDEX.md`) all reference the wave structure and baselines.
+Wave 0 is complete when this plan, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`, `ai-service/DEPENDENCY_UPDATES.md`, and the documentation indexes (`docs/INDEX.md`, `DOCUMENTATION_INDEX.md`) all reference the wave structure and baselines.
 
 ---
 
@@ -372,7 +372,7 @@ These suites together give high confidence that schema validation, rate limiting
 - Any regression in **validation semantics** (for example previously accepted payloads now rejected, or vice versa) must be triaged against the canonical rules and lifecycle docs before being accepted.
 - Any **tightening** of validation that is obviously correct (for example rejecting previously-unchecked invalid payloads) can be accepted, but must be:
   - Reflected in tests and error expectations.
-  - Documented in `docs/API_REFERENCE.md` / `docs/CANONICAL_ENGINE_API.md` as needed.
+  - Documented in `docs/architecture/API_REFERENCE.md` / `docs/architecture/CANONICAL_ENGINE_API.md` as needed.
 - If `rate-limiter-flexible` behaviour diverges (for example quota, windowing, or Redis failure semantics), we should:
   - Prefer to restore existing behaviour for now (configuration tweaks), and
   - Only adopt new semantics intentionally with matching updates to runbooks and alerting docs.
@@ -481,7 +481,7 @@ npx jest tests/unit/env.config.test.ts --runInBand \
 
 - Both logs show all tests **passing** under Zod 4.
 - No external API shape changes were introduced; error envelopes and response codes remain
-  governed by `src/server/errors/errorCodes.ts` and documented in `docs/API_REFERENCE.md`.
+  governed by `src/server/errors/errorCodes.ts` and documented in `docs/architecture/API_REFERENCE.md`.
 
 #### 4.4.3 `rate-limiter-flexible` v9 Migration
 
@@ -620,11 +620,11 @@ node scripts/safe-view.js \
 
 #### 4.4.5 External API / Engine Docs Impact
 
-- `docs/API_REFERENCE.md` – error envelope, rate‑limit categories, and REST surface did
+- `docs/architecture/API_REFERENCE.md` – error envelope, rate‑limit categories, and REST surface did
   **not** change in Wave 2. Zod 4 is now the underlying validation engine for many
   schemas, but observable HTTP request/response formats remain consistent with the
   documented contracts.
-- `docs/CANONICAL_ENGINE_API.md` – canonical engine types and orchestrator APIs are
+- `docs/architecture/CANONICAL_ENGINE_API.md` – canonical engine types and orchestrator APIs are
   unchanged. Contract vectors and orchestrator tests continue to pass under Zod 4.
 
 Accordingly, no Wave 2 edits were required in those two documents; they already describe the
@@ -713,7 +713,7 @@ All tests are under `ai-service/tests/**`. The following groups are required:
 ### 5.3 Interpretation & Rollback
 
 - Any change in rules semantics or determinism must be triaged against:
-  - `docs/PYTHON_PARITY_REQUIREMENTS.md`.
+  - `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`.
   - `AI_ARCHITECTURE.md`.
   - TS-side contract tests and parity suites.
 - For ML/DL stacks (`torch`, `numpy`, etc.), we **expect** some numerical noise but must:
@@ -729,11 +729,11 @@ All tests are under `ai-service/tests/**`. The following groups are required:
 
 This plan is intended to work **with** the existing CI and documentation structure rather than replace it.
 
-- CI jobs summarised in `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` (lint/typecheck, Jest coverage, TS rules engine focus, Docker build, Node & Python dependency audits, Playwright E2E) provide the **automation backbone** for these waves.
+- CI jobs summarised in `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` (lint/typecheck, Jest coverage, TS rules engine focus, Docker build, Node & Python dependency audits, Playwright E2E) provide the **automation backbone** for these waves.
 - For each wave, we should:
   - Reference this document from PR descriptions.
   - Attach or link to the relevant log view files (for example `logs/playwright/wave2.chromium.view.txt`, `logs/pytest/ai-service.wave3.<label>.view.txt`).
-  - Update `ai-service/DEPENDENCY_UPDATES.md` and, where appropriate, `docs/DEPLOYMENT_REQUIREMENTS.md` to keep environment expectations in sync.
+  - Update `ai-service/DEPENDENCY_UPDATES.md` and, where appropriate, `docs/planning/DEPLOYMENT_REQUIREMENTS.md` to keep environment expectations in sync.
 
 When all three waves are complete and stable, this plan should be updated with:
 

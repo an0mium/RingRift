@@ -1,5 +1,9 @@
 """Ephemeral Sync Daemon - Aggressive sync for ephemeral hosts.
 
+.. deprecated:: December 2025
+    This module is deprecated in favor of AutoSyncDaemon with strategy="ephemeral".
+    Use: ``from app.coordination.auto_sync_daemon import create_ephemeral_sync_daemon``
+
 Ephemeral hosts (Vast.ai, spot instances) can be terminated with 15-30 seconds
 notice. This daemon provides aggressive sync to minimize data loss:
 
@@ -8,10 +12,22 @@ notice. This daemon provides aggressive sync to minimize data loss:
 - Termination signal handling with final sync
 - Priority flag for cluster sync
 
-Usage:
+Usage (DEPRECATED):
     from app.coordination.ephemeral_sync import EphemeralSyncDaemon
 
     daemon = EphemeralSyncDaemon()
+    await daemon.start()
+
+    # On game completion
+    await daemon.on_game_complete(game_result)
+
+New Usage (RECOMMENDED):
+    from app.coordination.auto_sync_daemon import (
+        create_ephemeral_sync_daemon,
+        is_ephemeral_host,
+    )
+
+    daemon = create_ephemeral_sync_daemon()
     await daemon.start()
 
     # On game completion
@@ -26,6 +42,15 @@ Integration:
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "ephemeral_sync module is deprecated as of December 2025. "
+    "Use auto_sync_daemon.create_ephemeral_sync_daemon() instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 import logging

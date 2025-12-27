@@ -9,7 +9,7 @@
  *
  * These tests ensure robust player reconnection UX across the full game lifecycle.
  *
- * Related spec: docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md
+ * Related spec: docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md
  */
 
 import { GameSession } from '../../src/server/game/GameSession';

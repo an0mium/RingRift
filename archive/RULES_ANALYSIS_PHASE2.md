@@ -3,9 +3,9 @@
 **Date:** November 18, 2025
 **Analyst:** Architect Mode
 
-> **Purpose:** Supporting analysis of how [`ringrift_complete_rules.md`](ringrift_complete_rules.md) and [`ringrift_compact_rules.md`](ringrift_compact_rules.md) align, plus strategic commentary for rules and engine maintainers. This file is not a canonical rules source.
+> **Purpose:** Supporting analysis of how [`../ringrift_complete_rules.md`](../ringrift_complete_rules.md) and [`../ringrift_compact_rules.md`](../ringrift_compact_rules.md) align, plus strategic commentary for rules and engine maintainers. This file is not a canonical rules source.
 > **Audience:** Rules designers, engine implementers, and AI authors.
-> **Relationship to other docs:** The canonical rules specifications are [`ringrift_complete_rules.md`](ringrift_complete_rules.md) and [`ringrift_compact_rules.md`](ringrift_compact_rules.md). Earlier "Phase 1" analysis has been removed from the repository; this Phase 2 document is preserved as a supplement to the main rules docs and the scenario matrix in [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md).
+> **Relationship to other docs:** The canonical rules specifications are [`../ringrift_complete_rules.md`](../ringrift_complete_rules.md) and [`../ringrift_compact_rules.md`](../ringrift_compact_rules.md). Earlier "Phase 1" analysis has been removed from the repository; this Phase 2 document is preserved as a supplement to the main rules docs and the scenario matrix in [`../docs/rules/RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md).
 
 ## 1. Consistency Check
 

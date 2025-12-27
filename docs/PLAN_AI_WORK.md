@@ -116,7 +116,7 @@ Goal: Align player-facing explanations with canonical rules and FE/ANM logic.
 Scope:
 
 - `src/shared/engine/gameEndExplanation.ts`
-- `docs/UX_RULES_*`
+- `docs/ux/UX_RULES_*`
 - `tests/unit/GameEndExplanation.*`
 
 Immediate steps:

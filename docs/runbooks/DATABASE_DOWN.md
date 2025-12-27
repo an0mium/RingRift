@@ -5,8 +5,8 @@
 >
 > **SSoT alignment:** This runbook is a derived operational procedure over:
 >
-> - The **Operational SSoT** for deployment and infrastructure (`docs/DEPLOYMENT_REQUIREMENTS.md`, `docker-compose*.yml`, `src/server/config/**/*.ts`).
-> - Data and persistence guidance in `docs/OPERATIONS_DB.md` and `docs/DATA_LIFECYCLE_AND_PRIVACY.md`.
+> - The **Operational SSoT** for deployment and infrastructure (`docs/planning/DEPLOYMENT_REQUIREMENTS.md`, `docker-compose*.yml`, `src/server/config/**/*.ts`).
+> - Data and persistence guidance in `docs/operations/OPERATIONS_DB.md` and `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`.
 >
 > **Precedence:** Docker/Kubernetes configs, environment variable definitions, and `DataRetentionService` / Prisma migrations are authoritative for behaviour. If this runbook disagrees with them, **code + configs win** and this document must be updated.
 
@@ -103,8 +103,8 @@
 ## 5. Follow-Up and Prevention
 
 - [ ] Review database logs for root cause (OOM, disk full, connection limits, configuration changes).
-- [ ] Verify `DATABASE_URL` and related pool settings match `docs/ENVIRONMENT_VARIABLES.md` and environment constraints.
-- [ ] Ensure backups and retention policies follow `docs/OPERATIONS_DB.md`.
+- [ ] Verify `DATABASE_URL` and related pool settings match `docs/operations/ENVIRONMENT_VARIABLES.md` and environment constraints.
+- [ ] Ensure backups and retention policies follow `docs/operations/OPERATIONS_DB.md`.
 - [ ] If this was triggered by load, consider capacity planning or connection pool tuning.
 
 ---

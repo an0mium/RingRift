@@ -28,14 +28,18 @@ try:
         GMOConfig,
         GMOValueNetWithUncertainty,
         MoveEncoder,
+        NoveltyTracker,
         StateEncoder,
+        estimate_uncertainty,
     )
     __all__ = [
         "GMOAI",
         "GMOConfig",
         "GMOValueNetWithUncertainty",
         "MoveEncoder",
+        "NoveltyTracker",
         "StateEncoder",
+        "estimate_uncertainty",
     ]
 except ImportError as e:
     raise ImportError(

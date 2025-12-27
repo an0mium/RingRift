@@ -403,7 +403,7 @@ def __getattr__(name: str) -> type:
             "  - TaskRole -> app.coordination.orchestrator_registry.OrchestratorRole\n"
             "  - TaskInfo -> app.coordination.orchestrator_registry.OrchestratorInfo\n"
             "  - check_and_abort_if_role_held -> OrchestratorRegistry.acquire_role()\n"
-            "See docs/CONSOLIDATION_STATUS_2025_12_19.md for migration guide.",
+            "See ai-service/docs/CONSOLIDATION_STATUS_2025_12_19.md for migration guide.",
             DeprecationWarning,
             stacklevel=2,
         )

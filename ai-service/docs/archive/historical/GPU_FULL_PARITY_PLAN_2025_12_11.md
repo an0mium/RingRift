@@ -229,10 +229,10 @@ None - All core rules implemented. Only acceptable simplifications remain (color
 
 ## Related Documents
 
-- [GPU_PIPELINE_ROADMAP.md](GPU_PIPELINE_ROADMAP.md) - Full roadmap with phases
-- [ACTION_PLAN_2025_12_11.md](../../docs/ACTION_PLAN_2025_12_11.md) - Action items (needs update)
-- [RULES_CANONICAL_SPEC.md](../../RULES_CANONICAL_SPEC.md) - Canonical rules (SSoT)
-- [CURRENT_STATE.md](../../docs/CURRENT_STATE.md) - Project health dashboard
+- [../../roadmaps/GPU_PIPELINE_ROADMAP.md](../../roadmaps/GPU_PIPELINE_ROADMAP.md) - Full roadmap with phases
+- [ACTION_PLAN_2025_12_11.md](../../../../docs/archive/historical/ACTION_PLAN_2025_12_11.md) - Action items (needs update)
+- [RULES_CANONICAL_SPEC.md](../../../../RULES_CANONICAL_SPEC.md) - Canonical rules (SSoT)
+- [CURRENT_STATE.md](../../../../docs/archive/historical/CURRENT_STATE.md) - Project health dashboard
 
 ---
 

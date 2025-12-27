@@ -266,8 +266,8 @@ The architectural improvement plan is complete. The codebase is:
 
 - [CODEBASE_REVIEW_2025_12_11.md](CODEBASE_REVIEW_2025_12_11.md) - Comprehensive first-principles codebase review
 - [CODE_QUALITY_AUDIT_2025_12_11.md](CODE_QUALITY_AUDIT_2025_12_11.md) - Code quality improvements and fixes
-- [ARCHITECTURAL_IMPROVEMENT_PLAN.md](ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Detailed refactoring opportunities
-- [PRODUCTION_READINESS_CHECKLIST.md](PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
-- [RULES_CANONICAL_SPEC.md](../RULES_CANONICAL_SPEC.md) - Single source of truth for game rules
-- [MODULE_RESPONSIBILITIES.md](architecture/MODULE_RESPONSIBILITIES.md) - Module breakdown
-- [SECURITY.md](../SECURITY.md) - Security policy and implementation
+- [../../ARCHITECTURAL_IMPROVEMENT_PLAN.md](../../ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Detailed refactoring opportunities
+- [../../production/PRODUCTION_READINESS_CHECKLIST.md](../../production/PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
+- [RULES_CANONICAL_SPEC.md](../../../RULES_CANONICAL_SPEC.md) - Single source of truth for game rules
+- [MODULE_RESPONSIBILITIES.md](../../architecture/MODULE_RESPONSIBILITIES.md) - Module breakdown
+- [SECURITY.md](../../../SECURITY.md) - Security policy and implementation

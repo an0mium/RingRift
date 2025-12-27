@@ -1,7 +1,8 @@
 """P2P Handler Mixins.
 
 This package contains mixin classes for HTTP handlers extracted from p2p_orchestrator.py.
-These mixins are designed to be inherited by P2POrchestrator.
+These mixins are designed to be inherited by P2POrchestrator, providing modular
+endpoint implementations for the P2P cluster API.
 
 Usage:
     from scripts.p2p.handlers import (
@@ -18,6 +19,32 @@ Usage:
         GauntletHandlersMixin,
     ):
         pass
+
+Handler Categories:
+
+    Core Cluster:
+        - ElectionHandlersMixin: Leader election (Bully algorithm, voter quorum)
+        - GossipHandlersMixin: Decentralized state sharing and manifests
+        - RelayHandlersMixin: NAT-blocked node communication
+
+    Protocol Integration (December 2025):
+        - SwimHandlersMixin: SWIM membership status endpoints
+        - RaftHandlersMixin: Raft consensus and work queue endpoints
+
+    Work Distribution:
+        - WorkQueueHandlersMixin: Distributed work queue management
+        - GauntletHandlersMixin: Model evaluation distribution
+        - TournamentHandlersMixin: Round-robin tournament execution
+        - SSHTournamentHandlersMixin: SSH-based tournament execution
+
+    Optimization:
+        - CMAESHandlersMixin: Distributed hyperparameter optimization
+        - EloSyncHandlersMixin: Elo rating synchronization
+
+    Administration:
+        - AdminHandlersMixin: Git status, code updates, health checks
+
+See individual handler modules for endpoint documentation.
 """
 
 from .admin import AdminHandlersMixin

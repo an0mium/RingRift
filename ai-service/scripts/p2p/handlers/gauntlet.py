@@ -1,11 +1,25 @@
 """Gauntlet HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides gauntlet evaluation endpoints for distributed model evaluation.
+Provides HTTP endpoints for distributed gauntlet evaluation.
+Enables parallel model evaluation across cluster nodes by distributing
+game batches to worker nodes and aggregating results.
 
 Usage:
     class P2POrchestrator(GauntletHandlersMixin, ...):
         pass
+
+Endpoints:
+    POST /gauntlet/execute - Execute a batch of gauntlet games (worker)
+    POST /gauntlet/start - Start distributed gauntlet run (leader only)
+    GET /gauntlet/status - Get gauntlet run status and progress
+    GET /gauntlet/results - Get completed gauntlet results
+
+Gauntlet Workflow:
+    1. Leader starts gauntlet via /gauntlet/start with model and opponents
+    2. Leader distributes game batches to workers via /gauntlet/execute
+    3. Workers play games and return results
+    4. Leader aggregates results and determines win rates
+    5. Results used for model promotion decisions (vs RANDOM: 85%, vs HEURISTIC: 60%)
 """
 
 from __future__ import annotations

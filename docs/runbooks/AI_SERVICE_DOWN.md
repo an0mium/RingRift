@@ -299,7 +299,7 @@ Potential actions (via your normal infra/deployment process):
 - Ensure model size and number of concurrent inferences are appropriate.
 - If using accelerators (e.g. GPU), verify drivers and `nvidia-smi` (where available).
 
-Coordinate with your infra team / deployment requirements documented in `docs/DEPLOYMENT_REQUIREMENTS.md`.
+Coordinate with your infra team / deployment requirements documented in `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
 
 ### 4.3 Triage and adjust Node‑side timeout / overload behaviour (if needed)
 
@@ -314,7 +314,7 @@ If the AI container is healthy but Node still reports `AIServiceDown`:
 
 Mitigations (through normal config/change process):
 
-- Review AI service timeout and concurrency configuration (see `src/server/config/**/*.ts`, environment variables documented in `docs/ENVIRONMENT_VARIABLES.md`).
+- Review AI service timeout and concurrency configuration (see `src/server/config/**/*.ts`, environment variables documented in `docs/operations/ENVIRONMENT_VARIABLES.md`).
 - Ensure `requestTimeoutMs` is consistent with realistic AI response times (driven by `AI_REQUEST_HIGH_LATENCY` thresholds and typical `ai-service` behaviour).
 - If sustained, consider:
   - Scaling out `ai-service` instances.
@@ -382,7 +382,7 @@ sum(rate(ringrift_ai_requests_total[10m]))
 ### 5.3 Post‑incident hygiene
 
 - [ ] If this was production‑impacting, capture a brief incident summary using `docs/incidents/POST_MORTEM_TEMPLATE.md` and link under `docs/incidents/AI_SERVICE.md`.
-- [ ] If configuration or capacity changes were required, update any relevant environment docs (`docs/ENVIRONMENT_VARIABLES.md`, `docs/DEPLOYMENT_REQUIREMENTS.md`).
+- [ ] If configuration or capacity changes were required, update any relevant environment docs (`docs/operations/ENVIRONMENT_VARIABLES.md`, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`).
 - [ ] Consider adding/adjusting tests or synthetic checks that would have caught this before or earlier (e.g., periodic integration test hitting `/ai/move` end‑to‑end).
 
 ---
@@ -406,8 +406,8 @@ sum(rate(ringrift_ai_requests_total[10m]))
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
-  - `docs/DEPLOYMENT_REQUIREMENTS.md`
-  - `docs/ENVIRONMENT_VARIABLES.md`
-  - `docs/OPERATIONS_DB.md`
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
+  - `docs/operations/ENVIRONMENT_VARIABLES.md`
+  - `docs/operations/OPERATIONS_DB.md`
 - **Orchestrator rollout:**
   - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.

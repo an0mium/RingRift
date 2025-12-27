@@ -4,7 +4,7 @@
  * These types match the REST API responses from the Python AI service
  * replay endpoints at `/api/replay/*`.
  *
- * See: docs/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md
+ * See: docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md
  * See: ai-service/app/routes/replay.py
  */
 

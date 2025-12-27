@@ -4,8 +4,8 @@ This document catalogs the responsibilities of each module in the **canonical sh
 
 > **SSoT alignment:** This module catalog is a derived view over the following canonical sources:
 >
-> - **Rules semantics SSoT:** The canonical rules documents (`RULES_CANONICAL_SPEC.md` together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`) are the single source of truth for RingRift game semantics. The shared TypeScript rules engine under `src/shared/engine/**` (helpers → domain aggregates → turn orchestrator → contracts), v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`) describe and validate the primary executable implementation of that spec.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` for the executable Move/orchestrator/WebSocket lifecycle these modules support.
+> - **Rules semantics SSoT:** The canonical rules documents (`RULES_CANONICAL_SPEC.md` together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`) are the single source of truth for RingRift game semantics. The shared TypeScript rules engine under `src/shared/engine/**` (helpers → domain aggregates → turn orchestrator → contracts), v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`) describe and validate the primary executable implementation of that spec.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` for the executable Move/orchestrator/WebSocket lifecycle these modules support.
 > - **Precedence:** If this document ever conflicts with those specs, engines, types, or contract vectors, **code + tests win**, and this document must be updated to match them.
 >
 > **Doc Status (2025-11-30): Active (with historical appendix)**
@@ -22,7 +22,7 @@ This document catalogs the responsibilities of each module in the **canonical sh
 > - For the architectural overview and rollout, see:
 >   - `RULES_ENGINE_ARCHITECTURE.md`
 >   - `docs/DOMAIN_AGGREGATE_DESIGN.md`
->   - `docs/CANONICAL_ENGINE_API.md`
+>   - `docs/architecture/CANONICAL_ENGINE_API.md`
 >   - `AI_ARCHITECTURE.md`
 
 The rest of this document is organized in two layers:
@@ -622,7 +622,7 @@ Historically, the engine was described as:
 Over time, this design was **refined** into the helpers + aggregates + orchestrator stack described in sections 1–4 above. The per-domain validators/mutators and the monolithic `GameEngine.ts` remain in the tree primarily as:
 
 - Thin wrappers or compatibility layers for older tests and hosts.
-- Historical artifacts referenced by older documentation (`docs/PYTHON_PARITY_REQUIREMENTS.md`, early parity plans, and some archived architecture docs).
+- Historical artifacts referenced by older documentation (`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, early parity plans, and some archived architecture docs).
 
 When a historical document refers to, for example, `MovementValidator` or `TerritoryMutator` as if they were the primary domain boundaries, you should now interpret those names as **semantic anchors** for the Movement and Territory **aggregates** and helper clusters.
 

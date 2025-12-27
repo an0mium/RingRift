@@ -16,10 +16,10 @@
 > - [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)
 > - `STRATEGIC_ROADMAP.md`
 > - `TODO.md`
-> - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`
+> - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`
 > - `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`
 > - `docs/STRICT_INVARIANT_SOAKS.md`
-> - `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`
+> - `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`
 >
 > It focuses specifically on **environment rollout**, **rules parity &
 > invariants**, and **AI healthchecks**, and assumes frontend UX and component
@@ -58,7 +58,7 @@
     - Prometheus alerts `OrchestratorInvariantViolationsStaging` and
       `OrchestratorInvariantViolationsProduction` in
       `monitoring/prometheus/alerts.yml` use this metric directly.
-    - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` no longer treats this metric as
+    - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` no longer treats this metric as
       “planned”; staging and production SLOs reference the live label set.
   - **Python strict‑invariant metrics + alerts are fully integrated:**
     - `ai-service/scripts/run_self_play_soak.py` emits
@@ -68,7 +68,7 @@
       `docs/operations/ALERTING_THRESHOLDS.md` promotes these to a warning‑level AI/Rules
       signal.
     - `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` and
-      `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` now treat Python AI healthchecks as a
+      `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` now treat Python AI healthchecks as a
       first‑class **auxiliary CI/rollout signal** rather than a side channel.
   - **Rules parity metrics are bucketed by runtime suite:**
     - `RulesBackendFacade.compareTsAndPython` uses `recordRulesParityMismatch`
@@ -81,10 +81,10 @@
   - **Python AI healthchecks are formally part of the rollout story:**
     - CI job `python-ai-healthcheck` and the nightly workflow
       `ai-healthcheck-nightly.yml` are documented in
-      `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` and
+      `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` and
       `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` as exercising invariant IDs
       across `square8`, `square19`, and `hexagonal`.
-    - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` now explicitly treats green AI
+    - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` now explicitly treats green AI
       healthchecks and a quiet `PythonInvariantViolations` stream as
       **pre‑conditions** (P1/P2 signals) when promoting builds alongside the
       P0 orchestrator SLOs.
@@ -147,7 +147,7 @@
 ### 2.3 Ops / Rollout Discipline (Phase Execution vs Plan)
 
 - **Why it is weak:**
-  - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` now has precise env presets, SLOs, and
+  - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` now has precise env presets, SLOs, and
     alerts, but the plan is **aspirational** until:
     - A dedicated staging environment runs in “Phase 1 – orchestrator‑only”
       posture for sustained bake‑in windows.
@@ -203,7 +203,7 @@
 The following status and SSoT docs were updated as part of this pass to remove
 drift and make the rollout/invariants story fully coherent:
 
-- `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`
+- `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`
   - Staging and production invariant SLOs now reference the **live**
     `ringrift_orchestrator_invariant_violations_total{type,invariant_id}` metric
     instead of a “planned” one.

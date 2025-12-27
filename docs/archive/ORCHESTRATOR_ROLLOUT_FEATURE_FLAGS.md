@@ -3,8 +3,8 @@
 > **⚠️ HISTORICAL / IMPLEMENTED** – This design was implemented in November 2025. The orchestrator is now at 100% rollout.
 > For current feature flag documentation, see:
 >
-> - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
-> - `docs/ENVIRONMENT_VARIABLES.md` – Current environment variable reference
+> - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
+> - `docs/operations/ENVIRONMENT_VARIABLES.md` – Current environment variable reference
 
 **Created**: 2025-11-27
 **Status**: ✅ Implemented (Phase 4 complete as of 2025-11-30)
@@ -758,11 +758,11 @@ Before increasing rollout percentage:
 
 | Component      | File                                                                             | Status    |
 | -------------- | -------------------------------------------------------------------------------- | --------- |
-| Env Schema     | [`src/server/config/env.ts`](src/server/config/env.ts)                           | ✅ Extend |
-| Unified Config | [`src/server/config/unified.ts`](src/server/config/unified.ts)                   | ✅ Extend |
-| GameEngine     | [`src/server/game/GameEngine.ts`](src/server/game/GameEngine.ts)                 | ✅ Extend |
-| MetricsService | [`src/server/services/MetricsService.ts`](src/server/services/MetricsService.ts) | ✅ Extend |
-| Alert Rules    | [`monitoring/prometheus/alerts.yml`](monitoring/prometheus/alerts.yml)           | ✅ Extend |
+| Env Schema     | [`../../src/server/config/env.ts`](../../src/server/config/env.ts)                           | ✅ Extend |
+| Unified Config | [`../../src/server/config/unified.ts`](../../src/server/config/unified.ts)                   | ✅ Extend |
+| GameEngine     | [`../../src/server/game/GameEngine.ts`](../../src/server/game/GameEngine.ts)                 | ✅ Extend |
+| MetricsService | [`../../src/server/services/MetricsService.ts`](../../src/server/services/MetricsService.ts) | ✅ Extend |
+| Alert Rules    | [`../../monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml)           | ✅ Extend |
 
 ### 13.2 New Components Needed
 

@@ -143,7 +143,7 @@ describe('Rate limiter + errorHandler integration', () => {
 
     expect(res.status).toBe(429);
 
-    // Standard rate limit headers (see docs/RATE_LIMITING.md).
+    // Standard rate limit headers (see docs/runbooks/RATE_LIMITING.md).
     expect(res.headers['x-ratelimit-limit']).toBe(String(config?.points ?? 50));
     expect(res.headers['x-ratelimit-remaining']).toBe('0');
     expect(res.headers['x-ratelimit-reset']).toBeDefined();

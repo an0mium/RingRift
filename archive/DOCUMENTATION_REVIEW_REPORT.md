@@ -46,10 +46,10 @@ The RingRift documentation is **generally well-maintained and comprehensive** fo
 
 ### Operations & Security (Well Maintained ✅)
 
-- `docs/OPERATIONS_DB.md` – Database operations
-- `docs/DATA_LIFECYCLE_AND_PRIVACY.md` – Privacy & data retention
-- `docs/SECURITY_THREAT_MODEL.md` – Security assessment
-- `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` – CI/CD security
+- `docs/operations/OPERATIONS_DB.md` – Database operations
+- `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` – Privacy & data retention
+- `docs/security/SECURITY_THREAT_MODEL.md` – Security assessment
+- `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` – CI/CD security
 
 ### Deprecated (23 files)
 
@@ -79,7 +79,7 @@ The RingRift documentation is **generally well-maintained and comprehensive** fo
 
 # To:
 
-- [deprecated/CODEBASE_EVALUATION.md](./deprecated/CODEBASE_EVALUATION.md) (historical)
+- [deprecated/CODEBASE_EVALUATION.md](CODEBASE_EVALUATION.md) (historical)
 
 # And remove or update:
 
@@ -108,8 +108,8 @@ The RingRift documentation is **generally well-maintained and comprehensive** fo
 **Issue:** Several links use line-number anchors (e.g., `:1`) that may break:
 
 ```markdown
-[AI_ARCHITECTURE.md](../AI_ARCHITECTURE.md:1)
-[docs/AI_TRAINING_AND_DATASETS.md](./AI_TRAINING_AND_DATASETS.md:1)
+[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md:1)
+[docs/ai/AI_TRAINING_AND_DATASETS.md](../docs/ai/AI_TRAINING_AND_DATASETS.md:1)
 ```
 
 **Risk:** Low – only affects IDE navigation, not GitHub links.
@@ -158,7 +158,7 @@ The RingRift documentation is **generally well-maintained and comprehensive** fo
 
 - `AI_ARCHITECTURE.md` is comprehensive and current
 - `ai-service/README.md` complements without duplicating
-- `docs/AI_TRAINING_AND_DATASETS.md` covers training pipelines
+- `docs/ai/AI_TRAINING_AND_DATASETS.md` covers training pipelines
 - Clear cross-references between documents
 
 ### 4.4 Testing ✅ Excellent
@@ -192,10 +192,10 @@ Fix the "Related Documents" section:
 **Related Documents (single source of truth):**
 
 - [docs/archive/historical/CURRENT_STATE_ASSESSMENT.md](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md) - Factual, code-verified status (supersedes IMPLEMENTATION_STATUS.md)
-- [TODO.md](./TODO.md) - Task tracking and detailed implementation checklist
-- [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) - Specific bugs and issues
-- [ARCHITECTURE_ASSESSMENT.md](./ARCHITECTURE_ASSESSMENT.md) - Architecture and refactoring axes
-- [STRATEGIC_ROADMAP.md](./STRATEGIC_ROADMAP.md) - Phased strategic plan and milestones
+- [TODO.md](../TODO.md) - Task tracking and detailed implementation checklist
+- [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) - Specific bugs and issues
+- [ARCHITECTURE_ASSESSMENT.md](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md) - Architecture and refactoring axes
+- [STRATEGIC_ROADMAP.md](../docs/planning/STRATEGIC_ROADMAP.md) - Phased strategic plan and milestones
 ```
 
 Remove or comment out references to non-existent root files.
@@ -223,11 +223,11 @@ Remove `:1` suffixes from links:
 ```markdown
 # Change:
 
-[AI_ARCHITECTURE.md](../AI_ARCHITECTURE.md:1)
+[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md:1)
 
 # To:
 
-[AI_ARCHITECTURE.md](../AI_ARCHITECTURE.md)
+[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md)
 ```
 
 ---

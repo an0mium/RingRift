@@ -181,7 +181,7 @@ Each item below includes:
       - include an AI-heavy profile that produces meaningful `/ai/move` request volume.
     - A short run produces a report where primary failure causes are actionable (not dominated by known harness artifacts).
   - Owner mode: **code**
-  - Depends on: [`PASS32-R1 — Decide and document production validation targets`](docs/archive/assessments/PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
+  - Depends on: [`PASS32-R1 — Decide and document production validation targets`](PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
 
 - [ ] **PASS32-R4 — Execute baseline staging validation and capture artifacts**
   - Objective: verify observability and dashboards capture the needed signals under load.
@@ -191,7 +191,7 @@ Each item below includes:
       - dashboard screenshots or exported panels
       - a short written interpretation mapped to the SLO fields in [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:155)
   - Owner mode: **debug**
-  - Depends on: [`PASS32-R3 — Make k6 signal clean`](docs/archive/assessments/PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
+  - Depends on: [`PASS32-R3 — Make k6 signal clean`](PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
 
 - [ ] **PASS32-R5 — Execute target-scale mixed human/AI validation**
   - Objective: prove p95 latency and error budgets at the intended concurrency.
@@ -201,7 +201,7 @@ Each item below includes:
       - p95 metrics computed for HTTP + WebSocket + AI latencies
       - an explicit pass/fail statement against [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:155)
   - Owner mode: **debug**
-  - Depends on: [`PASS32-R4 — Execute baseline staging validation`](docs/archive/assessments/PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
+  - Depends on: [`PASS32-R4 — Execute baseline staging validation`](PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
 
 - [ ] **PASS32-R6 — Bottleneck triage and remediation loop**
   - Objective: fix the first real limiting factor surfaced by the target-scale run, then re-validate.
@@ -211,7 +211,7 @@ Each item below includes:
       - at least one concrete fix is implemented
       - the target-scale run is repeated and shows improvement in the bottleneck metric
   - Owner mode: **debug** (triage) + **code** (fix)
-  - Depends on: [`PASS32-R5 — Execute target-scale mixed human/AI validation`](docs/archive/assessments/PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
+  - Depends on: [`PASS32-R5 — Execute target-scale mixed human/AI validation`](PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
 
 - [ ] **PASS32-R7 — Promote production validation to a repeatable gate**
   - Objective: prevent regressions by making “clean target-scale validation” a standard, repeatable step.
@@ -222,7 +222,7 @@ Each item below includes:
       - how to interpret pass/fail
     - The run can be executed by a new contributor using only the doc.
   - Owner mode: **architect**
-  - Depends on: [`PASS32-R5 — Execute target-scale mixed human/AI validation`](docs/archive/assessments/PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
+  - Depends on: [`PASS32-R5 — Execute target-scale mixed human/AI validation`](PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
 
 - [ ] **PASS32-R8 — Resolve remaining open questions with a concrete choice**
   - Objective: close the “owner decision required” loop so “done” is well-defined.
@@ -231,7 +231,7 @@ Each item below includes:
       - AI ladder positioning for v1.0
       - launch concurrency target interpretation
   - Owner mode: **ask**
-  - Depends on: [`PASS32-R1 — Decide and document production validation targets`](docs/archive/assessments/PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
+  - Depends on: [`PASS32-R1 — Decide and document production validation targets`](PASS32_WEAKNESS_AND_HARDEST_PROBLEM_ASSESSMENT.md:1)
 
 ### 4.2 Dependency diagram
 

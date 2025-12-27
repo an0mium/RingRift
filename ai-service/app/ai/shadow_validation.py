@@ -25,8 +25,8 @@ Configuration:
     DIVERGENCE_THRESHOLD: 0.001 (0.1% max divergence before halt)
 
 See Also:
-    - docs/GPU_PIPELINE_ROADMAP.md Section 7 (Phase 2 Architecture)
-    - docs/GPU_ARCHITECTURE_SIMPLIFICATION.md Section 2.4 (Evaluation Discrepancy)
+    - ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md Section 7 (Phase 2 Architecture)
+    - ai-service/docs/architecture/GPU_ARCHITECTURE_SIMPLIFICATION.md Section 2.4 (Evaluation Discrepancy)
 """
 
 from __future__ import annotations

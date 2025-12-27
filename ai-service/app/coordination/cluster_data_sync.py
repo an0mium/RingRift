@@ -1,5 +1,9 @@
 """Cluster Data Sync Daemon - Ensures game data is available on all eligible nodes.
 
+.. deprecated:: December 2025
+    This module is deprecated in favor of AutoSyncDaemon with strategy="broadcast".
+    Use: ``from app.coordination.auto_sync_daemon import create_cluster_data_sync_daemon``
+
 This daemon runs on the leader node and pushes game databases to all cluster nodes
 that have adequate storage, excluding development machines like mac-studio.
 
@@ -15,16 +19,31 @@ coordinator_config.DaemonExclusionPolicy which reads from:
 - unified_loop.yaml (auto_sync.exclude_hosts, data_aggregation.excluded_nodes)
 - distributed_hosts.yaml (nfs_nodes, retired)
 
-Usage:
+Usage (DEPRECATED):
     # Via DaemonManager
     manager = get_daemon_manager()
     await manager.start(DaemonType.CLUSTER_DATA_SYNC)
 
     # Via launch script
     python scripts/launch_daemons.py --daemon cluster_data_sync
+
+New Usage (RECOMMENDED):
+    from app.coordination.auto_sync_daemon import create_cluster_data_sync_daemon
+
+    daemon = create_cluster_data_sync_daemon()
+    await daemon.start()
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "cluster_data_sync module is deprecated as of December 2025. "
+    "Use auto_sync_daemon.create_cluster_data_sync_daemon() instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 import json

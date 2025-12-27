@@ -36,8 +36,8 @@ Output:
     - data/ab_test/comparison_report.json: Side-by-side comparison
 
 See Also:
-    - docs/GPU_PIPELINE_ROADMAP.md Section 11.1 (Decision Gates)
-    - docs/GPU_ARCHITECTURE_SIMPLIFICATION.md Section 2.4 (Evaluation Discrepancy)
+    - ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md Section 11.1 (Decision Gates)
+    - ai-service/docs/architecture/GPU_ARCHITECTURE_SIMPLIFICATION.md Section 2.4 (Evaluation Discrepancy)
 """
 
 from __future__ import annotations

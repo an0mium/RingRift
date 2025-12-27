@@ -1,11 +1,23 @@
 """Admin HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides admin and git management endpoints.
+Provides HTTP endpoints for cluster administration and git repository management.
+Supports remote code updates, health checks, and node configuration.
 
 Usage:
     class P2POrchestrator(AdminHandlersMixin, ...):
         pass
+
+Endpoints:
+    GET /git/status - Get git status (local/remote commit, updates available)
+    POST /git/update - Trigger git pull on this node
+    POST /git/update-cluster - Trigger git pull on all cluster nodes
+    GET /admin/health - Deep health check with subsystem status
+    POST /admin/restart - Restart the P2P orchestrator
+    GET /admin/config - Get current configuration settings
+
+Auto-Update:
+    When RINGRIFT_AUTO_UPDATE=true, nodes automatically pull changes
+    when the leader detects new commits on the remote branch.
 """
 
 from __future__ import annotations

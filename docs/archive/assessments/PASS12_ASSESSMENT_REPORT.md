@@ -25,9 +25,9 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 5/5  
 **Evidence:**
 
-- [`monitoring/prometheus/prometheus.yml`](../monitoring/prometheus/prometheus.yml) (167 lines): Comprehensive scrape configuration for app:3000, ai-service:8001, optional Redis/Postgres/Nginx exporters
-- [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml) (616 lines): 9 alert groups covering availability, latency, resources, business metrics, AI service, degradation, rate-limiting, rules-parity, service-response
-- [`monitoring/alertmanager/alertmanager.yml`](../monitoring/alertmanager/alertmanager.yml) (280 lines): Team-based routing (backend, ai, product), severity-based escalation (critical → immediate, warning → 4h)
+- [`monitoring/prometheus/prometheus.yml`](../../../monitoring/prometheus/prometheus.yml) (167 lines): Comprehensive scrape configuration for app:3000, ai-service:8001, optional Redis/Postgres/Nginx exporters
+- [`monitoring/prometheus/alerts.yml`](../../../monitoring/prometheus/alerts.yml) (616 lines): 9 alert groups covering availability, latency, resources, business metrics, AI service, degradation, rate-limiting, rules-parity, service-response
+- [`monitoring/alertmanager/alertmanager.yml`](../../../monitoring/alertmanager/alertmanager.yml) (280 lines): Team-based routing (backend, ai, product), severity-based escalation (critical → immediate, warning → 4h)
 
 **Gaps:** No config validation tests for Prometheus/Alertmanager YAML files
 
@@ -38,11 +38,11 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 4/5  
 **Evidence:**
 
-- [`scripts/rules-health-report.sh`](../scripts/rules-health-report.sh) (325 lines): Comprehensive TS and Python rules compliance test runner
-- [`scripts/dev-sandbox-diagnostics.sh`](../scripts/dev-sandbox-diagnostics.sh): Development diagnostics utility
-- [`scripts/findCyclicCaptures.js`](../scripts/findCyclicCaptures.js) / [`findCyclicCapturesHex.js`](../scripts/findCyclicCapturesHex.js): Specialized capture analysis tools
-- [`scripts/validate-deployment-config.ts`](../scripts/validate-deployment-config.ts): Deployment configuration validation
-- [`scripts/ssot/`](../scripts/ssot/): 6 SSOT (Single Source of Truth) check scripts for CI, docs, lifecycle, parity, rules
+- [`scripts/rules-health-report.sh`](../../../scripts/rules-health-report.sh) (325 lines): Comprehensive TS and Python rules compliance test runner
+- [`scripts/dev-sandbox-diagnostics.sh`](../../../scripts/dev-sandbox-diagnostics.sh): Development diagnostics utility
+- [`scripts/findCyclicCaptures.js`](../../../scripts/findCyclicCaptures.js) / [`findCyclicCapturesHex.js`](../../../scripts/findCyclicCapturesHex.js): Specialized capture analysis tools
+- [`scripts/validate-deployment-config.ts`](../../../scripts/validate-deployment-config.ts): Deployment configuration validation
+- [`scripts/ssot/`](../../../scripts/ssot): 6 SSOT (Single Source of Truth) check scripts for CI, docs, lifecycle, parity, rules
 
 **Gaps:**
 
@@ -56,7 +56,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 5/5  
 **Evidence:**
 
-- [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (433 lines): 10 jobs with comprehensive coverage:
+- [`../../../.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) (433 lines): 10 jobs with comprehensive coverage:
   - `lint-and-typecheck`: ESLint + TypeScript blocking
   - `test`: Jest unit tests with coverage
   - `ts-rules-engine`: Rules engine specific tests
@@ -77,7 +77,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 4/5  
 **Evidence:**
 
-- [`.husky/`](.husky/): Pre-commit hooks directory exists
+- [`../../../.husky`](../../../.husky): Pre-commit hooks directory exists
 - Integration with lint-staged for pre-commit checks
 
 **Gaps:** Hook configuration not examined in detail; effectiveness depends on developer machine setup
@@ -89,7 +89,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 5/5  
 **Evidence:**
 
-- [`playwright.config.ts`](../playwright.config.ts) (177 lines):
+- [`playwright.config.ts`](../../../playwright.config.ts) (177 lines):
   - Multi-browser support: Chromium, Firefox, WebKit, Mobile Chrome/Safari
   - CI-specific configuration with appropriate timeouts and retries
   - Parallel execution with `fullyParallel: true`
@@ -105,7 +105,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 5/5  
 **Evidence:**
 
-- [`archive/`](../archive/): Contains 29 historical documents with [`ARCHIVE_VERIFICATION_SUMMARY.md`](../archive/ARCHIVE_VERIFICATION_SUMMARY.md) (240 lines) documenting verification status
+- [`archive/`](../../../archive): Contains 29 historical documents with [`ARCHIVE_VERIFICATION_SUMMARY.md`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md) (240 lines) documenting verification status
 - [`deprecated/`](../deprecated/): **Empty folder** - can be safely deleted
 
 **Recommendations:**
@@ -122,15 +122,15 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 Found only 3 React component test files:
 
 - [`tests/unit/GameContext.reconnect.test.tsx`](../tests/unit/GameContext.reconnect.test.tsx): WebSocket reconnection testing
-- [`tests/unit/GameEventLog.snapshot.test.tsx`](../tests/unit/GameEventLog.snapshot.test.tsx): Snapshot testing
-- [`tests/unit/LobbyPage.test.tsx`](../tests/unit/LobbyPage.test.tsx): Lobby page testing
+- [`tests/unit/GameEventLog.snapshot.test.tsx`](../../../tests/unit/GameEventLog.snapshot.test.tsx): Snapshot testing
+- [`tests/unit/LobbyPage.test.tsx`](../../../tests/unit/LobbyPage.test.tsx): Lobby page testing
 
 **Gaps:**
 
 - No tests for: `BoardView.tsx`, `GameHUD.tsx`, `VictoryModal.tsx`, `ChoiceDialog.tsx`, `AIDebugView.tsx`
 - No hook tests (`useGameActions.ts`, `useGameConnection.ts`, `useGameState.ts`)
 - No context tests (`AuthContext.tsx`, `GameContext.tsx`)
-- Missing Socket.IO mocks as noted in [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:51`](../archive/ARCHIVE_VERIFICATION_SUMMARY.md:51)
+- Missing Socket.IO mocks as noted in [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:51`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md:51)
 
 ---
 
@@ -139,7 +139,7 @@ Found only 3 React component test files:
 **Score:** 5/5  
 **Evidence:**
 
-- [`src/server/websocket/server.ts`](../src/server/websocket/server.ts) (1143 lines): Full implementation with:
+- [`src/server/websocket/server.ts`](../../../src/server/websocket/server.ts) (1143 lines): Full implementation with:
   - JWT authentication middleware
   - Reconnection window (30s timeout)
   - Player connection state machine tracking
@@ -149,13 +149,13 @@ Found only 3 React component test files:
 
 **Test Coverage (12+ files):**
 
-- [`WebSocketServer.authRevocation.test.ts`](../tests/unit/WebSocketServer.authRevocation.test.ts)
-- [`WebSocketServer.connectionState.test.ts`](../tests/unit/WebSocketServer.connectionState.test.ts)
-- [`WebSocketPayloadValidation.test.ts`](../tests/unit/WebSocketPayloadValidation.test.ts)
-- [`WebSocketServer.sessionTermination.test.ts`](../tests/unit/WebSocketServer.sessionTermination.test.ts)
-- [`WebSocketServer.rulesBackend.integration.test.ts`](../tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
-- [`WebSocketServer.humanDecisionById.integration.test.ts`](../tests/unit/WebSocketServer.humanDecisionById.integration.test.ts)
-- [`WebSocketInteractionHandler.test.ts`](../tests/unit/WebSocketInteractionHandler.test.ts)
+- [`WebSocketServer.authRevocation.test.ts`](../../../tests/unit/WebSocketServer.authRevocation.test.ts)
+- [`WebSocketServer.connectionState.test.ts`](../../../tests/unit/WebSocketServer.connectionState.test.ts)
+- [`WebSocketPayloadValidation.test.ts`](../../../tests/unit/WebSocketPayloadValidation.test.ts)
+- [`WebSocketServer.sessionTermination.test.ts`](../../../tests/unit/WebSocketServer.sessionTermination.test.ts)
+- [`WebSocketServer.rulesBackend.integration.test.ts`](../../../tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
+- [`WebSocketServer.humanDecisionById.integration.test.ts`](../../../tests/unit/WebSocketServer.humanDecisionById.integration.test.ts)
+- [`WebSocketInteractionHandler.test.ts`](../../../tests/unit/WebSocketInteractionHandler.test.ts)
 - [`AIWebSocketResilience.test.ts`](../tests/unit/AIWebSocketResilience.test.ts)
 - And 4+ more integration tests
 
@@ -170,11 +170,11 @@ Found only 3 React component test files:
 **Score:** 4/5  
 **Evidence:**
 
-- [`src/server/services/HealthCheckService.ts`](../src/server/services/HealthCheckService.ts) (416 lines): Comprehensive liveness/readiness checks for database, Redis, AI service
-- [`src/server/services/MetricsService.ts`](../src/server/services/MetricsService.ts) (708 lines): Prometheus metrics with HTTP, business, AI, rate limiting, and WebSocket metrics
-- [`src/server/services/ServiceStatusManager.ts`](../src/server/services/ServiceStatusManager.ts): Service health tracking
-- [`tests/unit/MetricsService.test.ts`](../tests/unit/MetricsService.test.ts): MetricsService tests exist
-- [`tests/unit/ServiceStatusManager.test.ts`](../tests/unit/ServiceStatusManager.test.ts): ServiceStatusManager tests exist
+- [`src/server/services/HealthCheckService.ts`](../../../src/server/services/HealthCheckService.ts) (416 lines): Comprehensive liveness/readiness checks for database, Redis, AI service
+- [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) (708 lines): Prometheus metrics with HTTP, business, AI, rate limiting, and WebSocket metrics
+- [`src/server/services/ServiceStatusManager.ts`](../../../src/server/services/ServiceStatusManager.ts): Service health tracking
+- [`tests/unit/MetricsService.test.ts`](../../../tests/unit/MetricsService.test.ts): MetricsService tests exist
+- [`tests/unit/ServiceStatusManager.test.ts`](../../../tests/unit/ServiceStatusManager.test.ts): ServiceStatusManager tests exist
 
 **Gaps:**
 
@@ -188,7 +188,7 @@ Found only 3 React component test files:
 **Score:** 5/5  
 **Evidence:**
 
-- [`docs/INDEX.md`](../docs/INDEX.md) (116 lines): Comprehensive documentation index with links to:
+- [`docs/INDEX.md`](../../INDEX.md) (116 lines): Comprehensive documentation index with links to:
   - Quick start, current state, roadmap
   - Rules engine architecture, canonical API, state machines
   - API reference, runbooks (6 documents), incident guides (7 documents)
@@ -210,29 +210,29 @@ Found only 3 React component test files:
 | Claim                                                  | Status      | Evidence                                                                                                                                                                     |
 | ------------------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 73 API client tests in `tests/unit/api.client.test.ts` | ✅ VERIFIED | File exists, 1367 lines                                                                                                                                                      |
-| 11 chain capture parity tests                          | ✅ VERIFIED | [`ai-service/tests/parity/test_chain_capture_parity.py`](../ai-service/tests/parity/test_chain_capture_parity.py) (699 lines) with 3 test classes containing 11 test methods |
+| 11 chain capture parity tests                          | ✅ VERIFIED | [`ai-service/tests/parity/test_chain_capture_parity.py`](../../../ai-service/tests/parity/test_chain_capture_parity.py) (699 lines) with 3 test classes containing 11 test methods |
 
 ### Pass 10 Claims
 
 | Claim                                                        | Status      | Evidence                                                                                                          |
 | ------------------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------- |
 | 63 RatingService tests in `tests/unit/RatingService.test.ts` | ✅ VERIFIED | File exists (781 lines) with 63+ test blocks                                                                      |
-| E2E blocking in CI                                           | ✅ VERIFIED | [`.github/workflows/ci.yml:280-433`](.github/workflows/ci.yml:280) shows `e2e-tests` job with proper dependencies |
+| E2E blocking in CI                                           | ✅ VERIFIED | [`../../../.github/workflows/ci.yml:280-433`](../../../.github/workflows/ci.yml:280) shows `e2e-tests` job with proper dependencies |
 
 ### Pass 8 Claims
 
 | Claim                                 | Status      | Evidence                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OrchestratorRolloutService (51 tests) | ✅ VERIFIED | [`tests/unit/OrchestratorRolloutService.test.ts`](../tests/unit/OrchestratorRolloutService.test.ts) - exactly 51 `it()` blocks found                                                                                                                                                                      |
+| OrchestratorRolloutService (51 tests) | ✅ VERIFIED | [`tests/unit/OrchestratorRolloutService.test.ts`](../../../tests/unit/OrchestratorRolloutService.test.ts) - exactly 51 `it()` blocks found                                                                                                                                                                      |
 | ShadowModeComparator (44 tests)       | ✅ VERIFIED | [`tests/unit/ShadowModeComparator.test.ts`](../tests/unit/ShadowModeComparator.test.ts) - exactly 44 `it()` blocks found                                                                                                                                                                                  |
-| 9 feature flags                       | ✅ VERIFIED | [`src/server/config/unified.ts:224-237`](../src/server/config/unified.ts:224): `adapterEnabled`, `rolloutPercentage`, `shadowModeEnabled`, `allowlistUsers`, `denylistUsers`, `circuitBreaker.enabled`, `circuitBreaker.errorThresholdPercent`, `circuitBreaker.errorWindowSeconds`, `latencyThresholdMs` |
+| 9 feature flags                       | ✅ VERIFIED | [`src/server/config/unified.ts:224-237`](../../../src/server/config/unified.ts:224): `adapterEnabled`, `rolloutPercentage`, `shadowModeEnabled`, `allowlistUsers`, `denylistUsers`, `circuitBreaker.enabled`, `circuitBreaker.errorThresholdPercent`, `circuitBreaker.errorWindowSeconds`, `latencyThresholdMs` |
 
 ### Pass 9 Claims
 
 | Claim                              | Status          | Evidence                                                                                                                              |
 | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Code splitting in `vite.config.ts` | ✅ VERIFIED     | [`vite.config.ts`](../vite.config.ts) contains `manualChunks` with 4 vendor bundles                                                   |
-| 22 validators in `validators.ts`   | ⚠️ RENAMED      | Validators are in [`src/shared/validation/schemas.ts`](../src/shared/validation/schemas.ts) (545 lines) with 28+ Zod schemas exported |
+| Code splitting in `vite.config.ts` | ✅ VERIFIED     | [`vite.config.ts`](../../../vite.config.ts) contains `manualChunks` with 4 vendor bundles                                                   |
+| 22 validators in `validators.ts`   | ⚠️ RENAMED      | Validators are in [`src/shared/validation/schemas.ts`](../../../src/shared/validation/schemas.ts) (545 lines) with 28+ Zod schemas exported |
 | 68 validation tests                | ⚠️ NOT VERIFIED | No `websocketSchemas.test.ts` found; validation tests may be distributed across other files                                           |
 
 ---
@@ -254,7 +254,7 @@ Found only 3 React component test files:
 
 ### Stale Code Patterns
 
-1. **Shared helper stubs** - Per [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:100-111`](../archive/ARCHIVE_VERIFICATION_SUMMARY.md:100):
+1. **Shared helper stubs** - Per [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:100-111`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md:100):
    - `captureChainHelpers.ts` still throws `TODO(P0-HELPERS)` error
    - `movementApplication.ts` still throws `TODO(P0-HELPERS)` error
    - `placementHelpers.ts` still throws `TODO(P0-HELPERS)` error

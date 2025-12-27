@@ -112,8 +112,9 @@ class FileHandle:
                         )
                         try:
                             self._data.close()
-                        except Exception:
-                            pass
+                        except (OSError, ValueError) as close_err:
+                            # Cleanup failure is acceptable during reload
+                            logger.debug(f"[StreamingDataLoader] Close during reload: {close_err}")
                         self._data = np.load(self.path, mmap_mode=None, allow_pickle=True)
                         policy_indices_arr = self._data['policy_indices']
                     else:

@@ -3270,7 +3270,7 @@ class NeuralNetAI(BaseAI):
             # they require a specific checkpoint (e.g. ringrift_best_* aliases).
             #
             # "v4"/"v5" here are model-id lineage prefixes (checkpoint families),
-            # not architecture class names. See ai-service/docs/MPS_ARCHITECTURE.md.
+            # not architecture class names. See ai-service/docs/architecture/MPS_ARCHITECTURE.md.
             def _pick_first_existing_model_id(candidates: list[str]) -> str:
                 for candidate in candidates:
                     # Prefer the exact filename, but allow timestamped variants.

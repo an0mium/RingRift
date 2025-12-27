@@ -702,7 +702,7 @@ PYTHONPATH=. python scripts/diff_state_bundle.py --bundle <bundle.json>
 | File                                                                                                       | Purpose                                 |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md)                       | Canonical vs legacy data inventory      |
-| [`ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec                |
+| [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec                |
 | [`AGENTS.md`](../../AGENTS.md)                                                                             | Agent guidelines including parity rules |
 
 ---

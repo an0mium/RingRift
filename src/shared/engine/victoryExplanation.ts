@@ -120,8 +120,8 @@ export function deriveShortSummaryKey(
  *
  * The shortSummaryKey drives compact HUD banners; detailedSummaryKey is used by
  * VictoryModal / TeachingOverlay to select richer explanation copy. Keys are
- * aligned with docs/UX_RULES_COPY_SPEC.md and
- * docs/UX_RULES_EXPLANATION_MODEL_SPEC.md.
+ * aligned with docs/ux/UX_RULES_COPY_SPEC.md and
+ * docs/ux/UX_RULES_EXPLANATION_MODEL_SPEC.md.
  */
 export function deriveUxCopyKeys(
   outcomeType: GameEndOutcomeType,

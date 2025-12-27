@@ -3,7 +3,7 @@
  *
  * This file provides comprehensive test coverage for the weird state reason
  * mapping functions used for UX and telemetry, aligned with
- * docs/UX_RULES_WEIRD_STATES_SPEC.md.
+ * docs/ux/UX_RULES_WEIRD_STATES_SPEC.md.
  *
  * Functions tested:
  * - getWeirdStateReasonForType: Maps RulesUxWeirdStateType to WeirdStateReasonInfo

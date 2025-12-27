@@ -354,8 +354,8 @@ You are done when:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
-  - `docs/DEPLOYMENT_REQUIREMENTS.md`
-  - `docs/ENVIRONMENT_VARIABLES.md`
-  - `docs/OPERATIONS_DB.md`
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
+  - `docs/operations/ENVIRONMENT_VARIABLES.md`
+  - `docs/operations/OPERATIONS_DB.md`
 - **Orchestrator rollout:**
   - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.

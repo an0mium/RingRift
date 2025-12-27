@@ -1,11 +1,22 @@
 """Elo Sync HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides Elo database synchronization endpoints for cluster-wide Elo tracking.
+Provides HTTP endpoints for synchronizing Elo rating databases across the cluster.
+Enables consistent model rankings and tournament results across all nodes.
 
 Usage:
     class P2POrchestrator(EloSyncHandlersMixin, ...):
         pass
+
+Endpoints:
+    GET /elo/sync/status - Get Elo database sync status
+    POST /elo/sync/push - Push local Elo database to cluster
+    POST /elo/sync/pull - Pull latest Elo database from leader
+    GET /elo/ratings - Get current Elo ratings for all models
+
+Sync Mechanism:
+    Leader maintains authoritative Elo database. Nodes sync periodically
+    and after gauntlet evaluations. Conflict resolution uses timestamp-based
+    last-write-wins for individual model ratings.
 """
 
 from __future__ import annotations

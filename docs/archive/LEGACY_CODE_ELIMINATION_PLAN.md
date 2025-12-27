@@ -3,7 +3,7 @@
 > **⚠️ HISTORICAL / COMPLETED** – This plan was completed in November 2025. The orchestrator is now at 100% rollout.
 > For current status, see:
 >
-> - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status
+> - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status
 > - [`historical/CURRENT_STATE_ASSESSMENT.md`](historical/CURRENT_STATE_ASSESSMENT.md) – Implementation status
 > - `TODO.md` – Wave 5.4 (legacy cleanup) for remaining items
 
@@ -253,4 +253,4 @@ Tests that will need updates:
 - [Phase 3 Adapter Migration Report](PHASE3_ADAPTER_MIGRATION_REPORT.md)
 - [Rules Engine Consolidation Design](RULES_ENGINE_CONSOLIDATION_DESIGN.md)
 - [Test Layering Strategy](../../tests/TEST_LAYERS.md)
-- [Environment Variables](../ENVIRONMENT_VARIABLES.md)
+- [Environment Variables](../operations/ENVIRONMENT_VARIABLES.md)

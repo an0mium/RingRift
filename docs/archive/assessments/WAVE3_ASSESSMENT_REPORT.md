@@ -25,9 +25,9 @@ Project goals are documented in a clear hierarchy:
 
 | Document                                                                                                                            | Lines | Purpose                  | Status     |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------ | ---------- |
-| [`PROJECT_GOALS.md`](../PROJECT_GOALS.md)                                                                                           | 464   | Canonical goals SSoT     | ✅ Current |
-| [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md)                                                                                   | ~600  | Phased roadmap with SLOs | ✅ Current |
-| [`README.md`](../README.md)                                                                                                         | ~300  | High-level overview      | ✅ Current |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)                                                                                           | 464   | Canonical goals SSoT     | ✅ Current |
+| [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md)                                                                                   | ~600  | Phased roadmap with SLOs | ✅ Current |
+| [`README.md`](../../../README.md)                                                                                                         | ~300  | High-level overview      | ✅ Current |
 | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ~500  | Implementation snapshot  | ✅ Current |
 
 **Key Goals from PROJECT_GOALS.md:**
@@ -47,7 +47,7 @@ Project goals are documented in a clear hierarchy:
 
 #### TypeScript Rules Engine (GREEN)
 
-- **Location:** [`src/shared/engine/`](../src/shared/engine/)
+- **Location:** [`src/shared/engine/`](../../../src/shared/engine)
 - **Structure:** 34 core files + 5 subdirectories (actions/, aggregates/, contracts/, mutators/, orchestration/, validators/)
 - **Architecture:** 6 domain aggregates (Placement, Movement, Capture, Line, Territory, Victory)
 - **Phase State Machine:** 8 canonical phases including `game_over` terminal
@@ -55,7 +55,7 @@ Project goals are documented in a clear hierarchy:
 
 #### Python AI Service (YELLOW)
 
-- **Location:** [`ai-service/`](../ai-service/)
+- **Location:** [`ai-service/`](../../../ai-service)
 - **Tests:** 836 passing
 - **AI Types:** Random, Heuristic, Minimax, MCTS, Descent
 - **Training Pipeline:** Scaffolded but neural network training is post-v1.0
@@ -63,7 +63,7 @@ Project goals are documented in a clear hierarchy:
 
 #### Backend Server (GREEN)
 
-- **Location:** [`src/server/`](../src/server/)
+- **Location:** [`src/server/`](../../../src/server)
 - **WebSocket:** 1640 lines with comprehensive lifecycle handling
 - **Health checks:** Implemented
 - **Circuit breaker:** Configured (5% threshold, 300s window)
@@ -71,7 +71,7 @@ Project goals are documented in a clear hierarchy:
 
 #### Frontend Client (YELLOW)
 
-- **Location:** [`src/client/`](../src/client/)
+- **Location:** [`src/client/`](../../../src/client)
 - **GameHUD:** 2001 lines with full accessibility
 - **TeachingOverlay:** Implemented with 19 teaching scenarios
 - **Status:** Functional but "developer-centric" UX
@@ -130,7 +130,7 @@ The remaining `as any` casts fall into categories:
 **Test Infrastructure:**
 
 - Skipped tests: 47 (down from 160+)
-- All skipped tests triaged in [`docs/SKIPPED_TESTS_TRIAGE.md`](SKIPPED_TESTS_TRIAGE.md):
+- All skipped tests triaged in [`docs/testing/../../testing/SKIPPED_TESTS_TRIAGE.md`](../../testing/SKIPPED_TESTS_TRIAGE.md):
   - 43 "Keep Skipped" with valid reasons
   - 3 "Unskip Pending" blocked on specific work
   - 3 "Rewrite" needed (2 already fixed)
@@ -150,17 +150,17 @@ The remaining `as any` casts fall into categories:
 
 **Key Documentation:**
 
-- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) - Rules SSoT
-- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) - Human-readable rules
-- [`docs/architecture/CANONICAL_ENGINE_API.md`](architecture/CANONICAL_ENGINE_API.md) - Engine API
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../ai-service/TRAINING_DATA_REGISTRY.md) - Training data status
-- [`docs/runbooks/INDEX.md`](runbooks/INDEX.md) - Operations runbooks
+- [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md) - Rules SSoT
+- [`ringrift_complete_rules.md`](../../../ringrift_complete_rules.md) - Human-readable rules
+- [`docs/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md) - Engine API
+- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md) - Training data status
+- [`docs/runbooks/INDEX.md`](../../runbooks/INDEX.md) - Operations runbooks
 
-**Gaps:** None critical. Archive index exists at [`docs/archive/INDEX.md`](archive/INDEX.md).
+**Gaps:** None critical. Archive index exists at [`docs/../../../archive/INDEX.md`](../../../archive/INDEX.md).
 
 ### 2.5 Test Coverage
 
-**Parity Fixtures (from [`ai-service/parity_fixtures/COVERAGE.md`](../ai-service/parity_fixtures/COVERAGE.md)):**
+**Parity Fixtures (from [`ai-service/parity_fixtures/COVERAGE.md`](../../../ai-service/parity_fixtures/COVERAGE.md)):**
 
 | Metric              | Value | Target | Status  |
 | ------------------- | ----- | ------ | ------- |
@@ -199,7 +199,7 @@ The remaining `as any` casts fall into categories:
 - PyTorch 2.6.0, TorchVision 0.21.0
 - NumPy 2.2.1, SciPy 1.15.1, scikit-learn 1.6.1
 
-**Wave 3-A through 3-E dependency updates:** All completed and validated per [`ai-service/DEPENDENCY_UPDATES.md`](../ai-service/DEPENDENCY_UPDATES.md).
+**Wave 3-A through 3-E dependency updates:** All completed and validated per [`ai-service/DEPENDENCY_UPDATES.md`](../../../ai-service/DEPENDENCY_UPDATES.md).
 
 ---
 
@@ -442,12 +442,12 @@ Secondary priorities (W3-9 through W3-14) provide incremental improvements to te
 
 | Document                                                                              | Purpose                              |
 | ------------------------------------------------------------------------------------- | ------------------------------------ |
-| [`PROJECT_GOALS.md`](../PROJECT_GOALS.md)                                             | Canonical goals and success criteria |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)                                             | Canonical goals and success criteria |
 | [`WAVE2_ASSESSMENT_REPORT.md`](WAVE2_ASSESSMENT_REPORT.md)                            | Prior wave assessment                |
 | [`PROJECT_WEAKNESS_ASSESSMENT.md`](PROJECT_WEAKNESS_ASSESSMENT.md)                    | Detailed weakness analysis           |
-| [`TODO.md`](../TODO.md)                                                               | Active task tracker                  |
-| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md)                                               | Issue tracker                        |
-| [`ai-service/parity_fixtures/COVERAGE.md`](../ai-service/parity_fixtures/COVERAGE.md) | Parity fixture coverage              |
+| [`TODO.md`](../../../TODO.md)                                                               | Active task tracker                  |
+| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md)                                               | Issue tracker                        |
+| [`ai-service/parity_fixtures/COVERAGE.md`](../../../ai-service/parity_fixtures/COVERAGE.md) | Parity fixture coverage              |
 
 ---
 

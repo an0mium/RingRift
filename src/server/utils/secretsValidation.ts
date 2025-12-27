@@ -291,7 +291,7 @@ export function validateSecretsOrThrow(
       ...result.errors.map((e) => `  - ${e}`),
       '',
       'For production deployments, ensure all required secrets are set to strong, unique values.',
-      'See docs/SECRETS_MANAGEMENT.md for guidance.',
+      'See docs/operations/SECRETS_MANAGEMENT.md for guidance.',
     ].join('\n');
 
     throw new Error(errorMessage);

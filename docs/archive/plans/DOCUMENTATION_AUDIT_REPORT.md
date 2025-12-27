@@ -340,21 +340,21 @@ Following the recommendations above will result in:
 #### 1. Rules Engine Vertical
 
 - **Status:** No changes needed - all documents already correctly aligned
-- Verified: `CURRENT_RULES_STATE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_SCENARIO_MATRIX.md`, `RULES_CANONICAL_SPEC.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/PARITY_SEED_TRIAGE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`
+- Verified: `CURRENT_RULES_STATE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_SCENARIO_MATRIX.md`, `RULES_CANONICAL_SPEC.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`, `docs/rules/PARITY_SEED_TRIAGE.md`, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`
 
 #### 2. Architecture & Engine Surface Vertical (2 files modified)
 
-- **[`docs/MODULE_RESPONSIBILITIES.md`](docs/MODULE_RESPONSIBILITIES.md):**
+- **[`../../architecture/MODULE_RESPONSIBILITIES.md`](../../architecture/MODULE_RESPONSIBILITIES.md):**
   - Updated file counts from 44 to 51 files
   - Added `aggregates/` folder (6 files) to location list
-- **[`docs/RULES_ENGINE_SURFACE_AUDIT.md`](docs/RULES_ENGINE_SURFACE_AUDIT.md):**
+- **[`../../rules/RULES_ENGINE_SURFACE_AUDIT.md`](../../rules/RULES_ENGINE_SURFACE_AUDIT.md):**
   - Updated Shared Engine from 26 to 51 files
   - Updated Client Sandbox from 12 to 18 files
   - Added 7 missing sandbox modules
 
 #### 3. API Vertical (1 file modified)
 
-- **[`docs/API_REFERENCE.md`](docs/API_REFERENCE.md):**
+- **[`../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md):**
   - Added complete WebSocket API section (22 events: 8 client→server, 14 server→client)
   - Added Utility Endpoints section (GET /, POST /client-errors)
   - Added Rate Limiting error codes
@@ -364,7 +364,7 @@ Following the recommendations above will result in:
 
 #### 4. Ops & Infrastructure Vertical (1 file modified)
 
-- **[`docs/operations/ALERTING_THRESHOLDS.md`](docs/operations/ALERTING_THRESHOLDS.md):**
+- **[`../../operations/ALERTING_THRESHOLDS.md`](../../operations/ALERTING_THRESHOLDS.md):**
   - Added 5 missing alerts from `monitoring/prometheus/alerts.yml`:
     - `NoHTTPTraffic`, `HighActiveHandles`, `LongRunningGames`
     - `DatabaseResponseTimeSlow`, `RedisResponseTimeSlow`
@@ -372,22 +372,22 @@ Following the recommendations above will result in:
 
 #### 5. AI/ML Vertical (3 files modified)
 
-- **[`ai-service/README.md`](ai-service/README.md):**
+- **[`../../../ai-service/README.md`](../../../ai-service/README.md):**
   - Corrected difficulty-to-AI-type mappings to match `app/main.py`
-- **[`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md):**
+- **[`../../ai/AI_TRAINING_AND_DATASETS.md`](../../ai/AI_TRAINING_AND_DATASETS.md):**
   - Added documentation for `--gamma` CLI flag in territory dataset generator
-- **[`docs/AI_TRAINING_PREPARATION_GUIDE.md`](docs/AI_TRAINING_PREPARATION_GUIDE.md):**
+- **[`../../ai/AI_TRAINING_PREPARATION_GUIDE.md`](../../ai/AI_TRAINING_PREPARATION_GUIDE.md):**
   - Corrected weight count from 18 to 17
   - Fixed hexagonal radius from 11 to 10
 
 #### 6. Contributor & Testing Vertical (3 files modified)
 
-- **[`QUICKSTART.md`](QUICKSTART.md):**
+- **[`../../../QUICKSTART.md`](../../../QUICKSTART.md):**
   - Fixed Grafana port from 3001 to 3002
   - Added monitoring profile requirement notes
-- **[`tests/README.md`](tests/README.md):**
+- **[`../../../tests/README.md`](../../../tests/README.md):**
   - Updated directory structure with missing dirs and files
-- **[`README.md`](README.md):**
+- **[`README.md`](../../../README.md):**
   - Fixed broken `ARCHITECTURE_ASSESSMENT.md` filename
   - Corrected Docker Compose command descriptions
 
@@ -447,7 +447,7 @@ Following the recommendations above will result in:
 *      mutators currently exist in TS.
 * - Readers should consult `RULES_ENGINE_ARCHITECTURE.md` and this audit
 *      section for the authoritative architecture.
-* - **`docs/PYTHON_PARITY_REQUIREMENTS.md`**: Added a status block clarifying
+* - **`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`**: Added a status block clarifying
 * that TS `validators/*` and `mutators/*` names are **semantic anchors** for
 * the Python implementation rather than a literal TS file list, and that the
 * actual parity contract is expressed through:
@@ -471,7 +471,7 @@ Following the recommendations above will result in:
 * helpers + aggregates + orchestrator architecture and make it explicit where
 * documents are partially historical vs authoritative.
 
-- Tightened `docs/CANONICAL_ENGINE_API.md` around the orchestrator and decision surfaces so the docs now:
+- Tightened `docs/architecture/CANONICAL_ENGINE_API.md` around the orchestrator and decision surfaces so the docs now:
   - Describe `ProcessTurnResult`, `PendingDecision`, `DecisionType`, and `VictoryState` directly from `src/shared/engine/orchestration/types.ts`.
   - Treat `Move` (from `src/shared/types/game.ts`) as the single canonical action model, with all decision phases expressed as choosing one `Move` from orchestrator-provided options.
   - Document the explicit mapping between `DecisionType` and `PlayerChoiceType` (`line_order`, `line_reward`/`line_reward_option`, `region_order`, `elimination_target`/`ring_elimination`, `capture_direction`, `chain_capture`) and how `PlayerChoice` options carry stable `moveId` references back to canonical `Move.id`s where appropriate.
@@ -483,19 +483,19 @@ Following the recommendations above will result in:
 
 ## 2025-11-26 AI/Python Parity & Training Docs Alignment
 
-This vertical focused on aligning AI/Python parity and training documentation with the settled rules SSoT (canonical rules spec in `RULES_CANONICAL_SPEC.md` + `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its executable implementation (shared TS engine + v2 contract vectors + `docs/CANONICAL_ENGINE_API.md`) and with the current test/CI topology.
+This vertical focused on aligning AI/Python parity and training documentation with the settled rules SSoT (canonical rules spec in `RULES_CANONICAL_SPEC.md` + `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its executable implementation (shared TS engine + v2 contract vectors + `docs/architecture/CANONICAL_ENGINE_API.md`) and with the current test/CI topology.
 
 ### Scope
 
 Docs and files touched in this pass:
 
-- `docs/PYTHON_PARITY_REQUIREMENTS.md`
+- `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`
 - `AI_ARCHITECTURE.md`
-- `docs/AI_TRAINING_AND_DATASETS.md`
-- `docs/AI_TRAINING_PREPARATION_GUIDE.md`
+- `docs/ai/AI_TRAINING_AND_DATASETS.md`
+- `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`
 - `ai-service/README.md`
 
-### 1. Python parity requirements doc hardening (`docs/PYTHON_PARITY_REQUIREMENTS.md`)
+### 1. Python parity requirements doc hardening (`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`)
 
 Status before:
 
@@ -510,14 +510,14 @@ Key changes:
   - Canonical rules semantics = the written rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`), with helpers → aggregates → orchestrator under `src/shared/engine/` plus v2 contract vectors under `tests/fixtures/contract-vectors/v2/` and schemas/serialization under `src/shared/engine/contracts/**` as the primary executable implementation.
   - TS `validators/*` and `mutators/*` names in the matrix are now described as **semantic anchors**, not a literal file inventory; only `validators/PlacementValidator.ts` and a subset of `mutators/*Mutator.ts` exist in TS.
 - New subsection **1.3 Canonical Move Lifecycle & SSoT References**:
-  - Defer all Move/decision/WebSocket lifecycle semantics to `docs/CANONICAL_ENGINE_API.md` and the shared TS type files:
+  - Defer all Move/decision/WebSocket lifecycle semantics to `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS type files:
     - `src/shared/types/game.ts`
     - `src/shared/engine/orchestration/types.ts`
     - `src/shared/types/websocket.ts` + `src/shared/validation/websocketSchemas.ts`.
 - Test strategy section updated to make **v2 contract vectors** the primary parity mechanism:
   - TS runner: `tests/contracts/contractVectorRunner.test.ts`.
   - Python runner: `ai-service/tests/contracts/test_contract_vectors.py`.
-  - Trace fixtures under `tests/fixtures/rules-parity/` are now explicitly documented as **legacy/diagnostic** inputs for seed/trace triage, tied to `docs/PARITY_SEED_TRIAGE.md` and `RULES_SCENARIO_MATRIX.md`.
+  - Trace fixtures under `tests/fixtures/rules-parity/` are now explicitly documented as **legacy/diagnostic** inputs for seed/trace triage, tied to `docs/rules/PARITY_SEED_TRIAGE.md` and `RULES_SCENARIO_MATRIX.md`.
 - CI integration section now matches `.github/workflows/ci.yml`:
   - `test` (umbrella Jest) → includes shared-engine and contract-vector suites.
   - `ts-rules-engine` → targeted TS rules/engine layer.
@@ -537,7 +537,7 @@ Net effect:
 
 Status before:
 
-- Already deferred to `docs/CANONICAL_ENGINE_API.md` for lifecycle semantics at a high level, but the RNG determinism section referenced an outdated Python determinism test (`test_determinism.py`) and did not call out the shared-engine no-randomness guards.
+- Already deferred to `docs/architecture/CANONICAL_ENGINE_API.md` for lifecycle semantics at a high level, but the RNG determinism section referenced an outdated Python determinism test (`test_determinism.py`) and did not call out the shared-engine no-randomness guards.
 
 Key changes:
 
@@ -560,7 +560,7 @@ Net effect:
 
 ### 3. Training & dataset docs SSoT alignment
 
-#### 3.1 `docs/AI_TRAINING_AND_DATASETS.md`
+#### 3.1 `docs/ai/AI_TRAINING_AND_DATASETS.md`
 
 Status before:
 
@@ -575,14 +575,14 @@ Key changes:
   - Python `GameEngine` + `BoardManager` + `DefaultRulesEngine` + `TerritoryMutator` are **host/adapter** implementations validated by:
     - Contract-vector tests (`tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).
     - Parity/plateau suites under `tests/unit/*Parity*` and `ai-service/tests/parity/`.
-    - Mutator shadow contracts and divergence guards documented in `RULES_ENGINE_ARCHITECTURE.md` and `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`.
+    - Mutator shadow contracts and divergence guards documented in `RULES_ENGINE_ARCHITECTURE.md` and `docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`.
 - Kept the existing description of `generate_territory_dataset.py`, `RingRiftEnv`, and the JSONL schema, but now framed as **derived from** and guarded by the above parity backbone.
 
 Net effect:
 
 - Training/docs clearly state that Python training flows **consume and respect** the canonical rules SSoT (rules spec + shared TS engine + contract vectors) instead of acting as a separate rules spec.
 
-#### 3.2 `docs/AI_TRAINING_PREPARATION_GUIDE.md`
+#### 3.2 `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`
 
 Status before:
 
@@ -594,8 +594,8 @@ Key changes:
   - Marked as **Active (training infrastructure checklist)**.
   - Explicitly stated assumptions:
     - Rules SSoT = TS shared engine + v2 contract vectors.
-    - Lifecycle semantics = `docs/CANONICAL_ENGINE_API.md`.
-    - TS↔Python parity specifics = `docs/PYTHON_PARITY_REQUIREMENTS.md` + `RULES_ENGINE_ARCHITECTURE.md`.
+    - Lifecycle semantics = `docs/architecture/CANONICAL_ENGINE_API.md`.
+    - TS↔Python parity specifics = `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` + `RULES_ENGINE_ARCHITECTURE.md`.
 
 Net effect:
 
@@ -615,8 +615,8 @@ Key changes:
   - Marked as **Active (Python AI microservice)**.
   - Declared the SSoT layering:
     - Rules SSoT = TS shared engine (`src/shared/engine/**`) + v2 contract vectors (`tests/fixtures/contract-vectors/v2/**`).
-    - Lifecycle semantics = `docs/CANONICAL_ENGINE_API.md`.
-    - TS↔Python parity details = `docs/PYTHON_PARITY_REQUIREMENTS.md` + `RULES_ENGINE_ARCHITECTURE.md`.
+    - Lifecycle semantics = `docs/architecture/CANONICAL_ENGINE_API.md`.
+    - TS↔Python parity details = `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` + `RULES_ENGINE_ARCHITECTURE.md`.
 - Left the remainder of the README intact (API endpoints, difficulty ladder, RNG seeding, integration) since it is already code-accurate and consistent with the SSoT.
 
 Net effect:
@@ -628,7 +628,7 @@ Net effect:
 Across these changes, all AI/Python parity and training docs now:
 
 - **Defer rules semantics** to the TS shared engine + v2 contract vectors, rather than re-specifying Move/decision/WebSocket flows or treating Python as a co-equal SSoT.
-- **Defer lifecycle semantics** and transport types to `docs/CANONICAL_ENGINE_API.md` and the shared TS type files (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
+- **Defer lifecycle semantics** and transport types to `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS type files (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 - **Treat Python as a host/adapter** validated by contract vectors + parity suites + determinism/no-randomness tests:
   - TS: shared-engine tests, Backend_vs_Sandbox parity, territory parity, trace fixtures, determinism/no-random-in-core suites.
   - Python: contract runners, parity/plateau suites, determinism/no-random-in-core suites, territory/divergence guards.
@@ -638,14 +638,14 @@ This closes the loop on the requested vertical: AI/Python parity and training do
 
 ## 2025-11-26 Architecture & Engine-Topology Docs Alignment
 
-This follow-on vertical focused on aligning the higher-level architecture/topology docs with the settled rules SSoT (canonical rules spec + shared TS engine helpers → aggregates → orchestrator → contracts) and the canonical Move/decision/WebSocket lifecycle SSoT (`docs/CANONICAL_ENGINE_API.md`).
+This follow-on vertical focused on aligning the higher-level architecture/topology docs with the settled rules SSoT (canonical rules spec + shared TS engine helpers → aggregates → orchestrator → contracts) and the canonical Move/decision/WebSocket lifecycle SSoT (`docs/architecture/CANONICAL_ENGINE_API.md`).
 
 ### Scope
 
 Docs touched in this pass:
 
 - `RULES_ENGINE_ARCHITECTURE.md`
-- `docs/RULES_ENGINE_SURFACE_AUDIT.md`
+- `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`
 - `RULES_IMPLEMENTATION_MAPPING.md`
 
 ### 1. RULES_ENGINE_ARCHITECTURE.md – SSoT and Python host positioning
@@ -653,19 +653,19 @@ Docs touched in this pass:
 Status before:
 
 - Already described the shared TS engine and orchestrator stack, but:
-  - Lacked a standard Doc Status header tied explicitly to the helpers → aggregates → orchestrator → contracts SSoT and to `docs/CANONICAL_ENGINE_API.md`.
+  - Lacked a standard Doc Status header tied explicitly to the helpers → aggregates → orchestrator → contracts SSoT and to `docs/architecture/CANONICAL_ENGINE_API.md`.
   - Framed the Phase 2 rollout as “Python engine becomes single source of truth for validation” without explicitly preserving the TS shared engine as rules SSoT.
 
 Key changes:
 
 - Added a **Doc Status (2025-11-26): Active (with historical/aspirational content)** block at the top that:
   - Declares the rules semantics SSoT as the canonical rules spec plus its shared TS engine implementation under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts + v2 contract vectors).
-  - Declares the lifecycle SSoT as `docs/CANONICAL_ENGINE_API.md` + the shared TS/WebSocket types.
+  - Declares the lifecycle SSoT as `docs/architecture/CANONICAL_ENGINE_API.md` + the shared TS/WebSocket types.
   - States explicitly that backend (`GameEngine` + `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine` + `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this SSoT, not independent rules engines.
 - Marks the Python mutator-first refactor and rollout phases as **aspirational design** layered on top of the canonical rules SSoT (rules spec + shared TS implementation).
 - Tightened the intro paragraph to say the Python architecture is a **parity-validated host over the canonical TS engine** in online validation flows, instead of an alternative SSoT.
 - After the Contract Testing bullet list, added a clarifying paragraph:
-  - The canonical Move/decision/WebSocket lifecycle and engine decision surfaces are documented in `docs/CANONICAL_ENGINE_API.md`.
+  - The canonical Move/decision/WebSocket lifecycle and engine decision surfaces are documented in `docs/architecture/CANONICAL_ENGINE_API.md`.
   - This architecture doc is explicitly scoped to: how the shared TS rules engine is hosted by backend/sandbox/Python and how Python is rolled out as a parity-validated validation host.
 - Adjusted the Phase 2 rollout goal from:
   - “Make the Python engine the single source of truth for validation …” to
@@ -674,7 +674,7 @@ Key changes:
 Net effect:
 
 - `RULES_ENGINE_ARCHITECTURE.md` now:
-  - Is explicitly anchored to the helpers → aggregates → orchestrator → contracts rules SSoT and to `docs/CANONICAL_ENGINE_API.md` for lifecycle semantics.
+  - Is explicitly anchored to the helpers → aggregates → orchestrator → contracts rules SSoT and to `docs/architecture/CANONICAL_ENGINE_API.md` for lifecycle semantics.
   - Clearly positions Python as a parity-validated **host**, even in `RINGRIFT_RULES_MODE=python`, rather than redefining the SSoT.
 
 ### 2. RULES_ENGINE_SURFACE_AUDIT.md – Doc Status + SSoT framing
@@ -688,7 +688,7 @@ Key changes:
 
 - Added a **Doc Status (2025-11-26): Active (with historical/diagnostic analysis)** header that:
   - Declares the rules semantics SSoT as the canonical rules spec plus its shared TS engine implementation under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts).
-  - Declares the lifecycle semantics SSoT as `docs/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types.
+  - Declares the lifecycle semantics SSoT as `docs/architecture/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types.
   - Treats backend, sandbox, and Python as **hosts/adapters** over the shared engine, emphasising that this audit views them as consumers, not SSoTs.
   - Flags the fully-populated TS `validators/*` / `mutators/*` tree in some diagrams as a **semantic boundary diagram** and partially historical – the implemented canonical surface is helpers + aggregates + orchestrator + contracts.
 - Left the rest of the audit intact, since it already:
@@ -698,7 +698,7 @@ Key changes:
 
 Net effect:
 
-- `docs/RULES_ENGINE_SURFACE_AUDIT.md` is now explicitly wired into the same SSoT framing as `RULES_CANONICAL_SPEC.md`, `docs/CANONICAL_ENGINE_API.md`, and `ARCHITECTURE_ASSESSMENT.md`, while preserving its diagnostic value and historical context.
+- `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md` is now explicitly wired into the same SSoT framing as `RULES_CANONICAL_SPEC.md`, `docs/architecture/CANONICAL_ENGINE_API.md`, and `ARCHITECTURE_ASSESSMENT.md`, while preserving its diagnostic value and historical context.
 
 ### 3. RULES_IMPLEMENTATION_MAPPING.md – SSoT header & host/adapters clarification
 
@@ -711,7 +711,7 @@ Key changes:
 
 - Added a **Doc Status (2025-11-26): Active** header stating that:
   - Rules/invariants semantics SSoT = `RULES_CANONICAL_SPEC.md` (RR‑CANON) + shared TS engine under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts).
-  - Lifecycle semantics SSoT = `docs/CANONICAL_ENGINE_API.md` + `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`.
+  - Lifecycle semantics SSoT = `docs/architecture/CANONICAL_ENGINE_API.md` + `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`.
   - Backend, sandbox, and Python rules/AI engines are **hosts/adapters** over this SSoT and are validated via shared tests, contract vectors, and parity suites.
 - Left the body of the mapping unchanged, since it already:
   - Correctly maps RR‑CANON rule clusters to the shared TS helpers/aggregates/orchestrator.
@@ -726,7 +726,7 @@ Net effect:
 With these edits, the architecture/topology docs are now consistent with the SSoT decisions established earlier in this audit:
 
 - Rules semantics SSoT = canonical rules spec plus its shared TS engine helpers → aggregates → orchestrator → contracts implementation (+ v2 contract vectors).
-- Lifecycle semantics SSoT = `docs/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types.
+- Lifecycle semantics SSoT = `docs/architecture/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types.
 - Backend, sandbox, and Python engines = **hosts/adapters** that must remain parity-validated but are not new sources of truth.
 
 This closes the loop on the architecture/topology documentation vertical and makes it much harder for new docs to accidentally re-introduce a monolithic or multi-SSoT framing of the rules engine.
@@ -748,7 +748,7 @@ This closes the loop on the architecture/topology documentation vertical and mak
 * +## 2025-11-28 Pass 16: AI & Training Docs, Monitoring Runbooks, Link SSoT
 * +This pass focused on three areas:
 * +1. **Hardening docs-link-ssot and monitoring runbook coverage** so that all Prometheus `runbook_url` entries resolve to real, SSoT-aligned markdown files under `docs/runbooks/`.
-  +2. **Aligning AI training documentation** (`docs/AI_TRAINING_PREPARATION_GUIDE.md` and `docs/AI_TRAINING_ASSESSMENT_FINAL.md`) with the implemented Python AI/training stack (MemoryConfig, bounded transposition table, self-play data generation, hex augmentation, training pipeline), while keeping rules/AI code and tests as the SSoT.
+  +2. **Aligning AI training documentation** (`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` and `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`) with the implemented Python AI/training stack (MemoryConfig, bounded transposition table, self-play data generation, hex augmentation, training pipeline), while keeping rules/AI code and tests as the SSoT.
   +3. **Recording this work in the audit trail** and confirming that `docs-link-ssot` is enforced alongside the other SSoT checks.
 * +### 1. docs-link-ssot and monitoring runbook coverage
 * +**Files involved:**
@@ -782,8 +782,8 @@ This closes the loop on the architecture/topology documentation vertical and mak
   +- `docs-link-ssot` treats the mapping from alertmanager URLs → local markdown as canonical, so any future additions or renames of runbooks must update both the config and the corresponding file, or CI will fail.
 * +### 2. AI training docs alignment with implemented stack
 * +**Docs involved:**
-  +- `docs/AI_TRAINING_PREPARATION_GUIDE.md`
-  +- `docs/AI_TRAINING_ASSESSMENT_FINAL.md`
+  +- `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`
+  +- `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`
 * +**Code/tests treated as SSoT for this vertical:**
   +- Memory limiting and search:
 * - `ai-service/app/utils/memory_config.py` + `ai-service/tests/test_memory_config.py`
@@ -796,16 +796,16 @@ This closes the loop on the architecture/topology documentation vertical and mak
 * - `ai-service/app/training/train.py`, `train_loop.py`, `distributed.py`, `data_loader.py`, `model_versioning.py`, `heuristic_features.py`
 * - `ai-service/tests/test_train_improvements.py`, `ai-service/tests/test_lr_schedulers.py`, `ai-service/tests/test_streaming_dataloader.py`, `ai-service/tests/test_distributed_training.py`, `ai-service/tests/integration/test_training_pipeline_e2e.py`
 * +**Key doc alignment adjustments:**
-  +- `docs/AI_TRAINING_PREPARATION_GUIDE.md`:
+  +- `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`:
 * - Already contained a detailed pre-flight checklist; this pass verified its references against the current code and tests and adjusted wording where needed so that:
 * - **MemoryConfig** is described as implemented and wired via `MemoryConfig.from_env()` and used to bound training/inference allocations.
 * - **BoundedTranspositionTable** is marked as implemented and integrated into `MinimaxAI`/`DescentAI` with explicit size limits derived from `MemoryConfig`.
 * - **Self-play data generation** uses the `generate_data.py` CLI (`--num-games`, `--board-type`, `--seed`, `--max-moves`, `--batch-size`) exactly as implemented.
 * - **Hex augmentation** is documented as using full D6 symmetry via `HexSymmetryTransform` / `augment_hex_sample` in `hex_augmentation.py` plus `augment_hex_data` in `generate_data.py`, with tests in `test_hex_augmentation.py` and `test_hex_training.py` as the canonical semantics.
 * - The doc already had an SSoT alignment banner tying it to the rules SSoT and AI/training SSoT; this pass confirmed that banner still matches `docs/SSOT_BANNER_GUIDE.md` and doesn’t introduce new broken links.
-    +- `docs/AI_TRAINING_ASSESSMENT_FINAL.md`:
+    +- `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`:
 * - Added an explicit **Doc Status / SSoT alignment** block at the top, marking it as a **derived assessment** over:
-* - Rules semantics SSoT (canonical rules spec + shared TS engine + v2 contract vectors + `docs/CANONICAL_ENGINE_API.md`).
+* - Rules semantics SSoT (canonical rules spec + shared TS engine + v2 contract vectors + `docs/architecture/CANONICAL_ENGINE_API.md`).
 * - AI/training SSoT (Python AI and training modules + their tests).
 * - Ensured that references to MemoryConfig, bounded transposition tables, hex augmentation, self-play generation, and the training pipeline match the actual code locations and test coverage. All code links are now repo-root-correct and pass `docs-link-ssot`.
 * - Clarified that training recommendations and CMA-ES/NN results in this report are **interpretive** and must defer to code/tests on any conflict.
@@ -845,7 +845,7 @@ This pass focused on **closing remaining automated SSoT gaps** and wiring the do
 **Files involved:**
 
 - `.github/workflows/ci.yml`
-- `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`
+- `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`
 - `scripts/ssot/ci-config-ssot-check.ts`
 
 **What the check enforces:**
@@ -853,7 +853,7 @@ This pass focused on **closing remaining automated SSoT gaps** and wiring the do
 - Existence of core operational artefacts:
   - `docker-compose.yml`, `docker-compose.staging.yml`, `Dockerfile`
   - `monitoring/prometheus/alerts.yml`, `monitoring/prometheus/prometheus.yml`, `monitoring/alertmanager/alertmanager.yml`
-- Presence of the CI workflow (`.github/workflows/ci.yml`) and the CI/security doc (`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`).
+- Presence of the CI workflow (`.github/workflows/ci.yml`) and the CI/security doc (`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`).
 - Exact matching between **CI job display names** (under `name:` in `ci.yml`) and human-readable labels in the CI/security doc.
 
 The enforced job names are:
@@ -871,7 +871,7 @@ The enforced job names are:
 **Changes made:**
 
 - Verified `.github/workflows/ci.yml` defines each of the expected job names exactly under `name:`.
-- Updated `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` to:
+- Updated `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` to:
   - Include an explicit **"CI job map"** subsection that lists each job by its display name (exact string) and maps it to:
     - The underlying workflow job ID (e.g. `lint-and-typecheck`, `test`, `ts-rules-engine`, `build`, `security-scan`, `docker-build`, `python-rules-parity`, `python-dependency-audit`, `e2e-tests`).
     - The associated commands (e.g. `npm run test:coverage`, `npm run test:ts-rules-engine`, `npm audit`, `pip-audit`, Docker Buildx invocation, Playwright E2E run).
@@ -881,7 +881,7 @@ The enforced job names are:
 **Outcome:**
 
 - `ci-config-ssot` now passes under `npm run ssot-check`.
-- Any future addition/removal/rename of CI jobs under `name:` in `ci.yml` will require a corresponding update in `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`, or CI will fail.
+- Any future addition/removal/rename of CI jobs under `name:` in `ci.yml` will require a corresponding update in `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`, or CI will fail.
 
 ### 2. Documentation SSoT banners (`docs-banner-ssot`)
 
@@ -889,11 +889,11 @@ The enforced job names are:
 
 - `RULES_ENGINE_ARCHITECTURE.md`
 - `RULES_IMPLEMENTATION_MAPPING.md`
-- `docs/RULES_ENGINE_SURFACE_AUDIT.md`
-- `docs/CANONICAL_ENGINE_API.md`
-- `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`
+- `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`
+- `docs/architecture/CANONICAL_ENGINE_API.md`
+- `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`
 - `AI_ARCHITECTURE.md`
-- `docs/PYTHON_PARITY_REQUIREMENTS.md`
+- `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`
 - `ARCHITECTURE_ASSESSMENT.md`
 - `ARCHITECTURE_REMEDIATION_PLAN.md`
 - `docs/MODULE_RESPONSIBILITIES.md`
@@ -915,18 +915,18 @@ The check is intentionally conservative: if either the generic banner or the req
 **Changes made in this pass (building on 2025‑11‑26 work):**
 
 - **`RULES_ENGINE_ARCHITECTURE.md`**
-  - Confirmed presence of an **SSoT alignment banner** referencing the **Rules/invariants semantics SSoT** (shared TS engine under `src/shared/engine/**` + contract vectors under `tests/fixtures/contract-vectors/v2/**`) and the lifecycle/API SSoT (`docs/CANONICAL_ENGINE_API.md` + shared types/schemas).
+  - Confirmed presence of an **SSoT alignment banner** referencing the **Rules/invariants semantics SSoT** (shared TS engine under `src/shared/engine/**` + contract vectors under `tests/fixtures/contract-vectors/v2/**`) and the lifecycle/API SSoT (`docs/architecture/CANONICAL_ENGINE_API.md` + shared types/schemas).
   - Banner now explicitly states that backend, sandbox, and Python engines are **hosts/adapters** over the canonical rules SSoT (rules spec + shared TS implementation), not independent SSoTs.
 - **`RULES_IMPLEMENTATION_MAPPING.md`**
   - Verified and retained an SSoT alignment banner that:
     - Anchors the mapping to the **Rules/invariants semantics SSoT** (RR‑CANON spec + shared TS engine).
     - States that any discrepancies must be resolved in favour of `RULES_CANONICAL_SPEC.md` + shared TS engine + contract vectors.
-- **`docs/RULES_ENGINE_SURFACE_AUDIT.md`**
+- **`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`**
   - Ensured the doc carries an "SSoT alignment" banner referring to the Rules/invariants semantics SSoT and explicitly positioning this file as a **derived surface audit**.
   - Banner clarifies that diagrams showing a fully-populated `validators/*` / `mutators/*` tree are **partially historical**; the canonical implementation is helpers → aggregates → orchestrator → contracts.
-- **`docs/CANONICAL_ENGINE_API.md`**
+- **`docs/architecture/CANONICAL_ENGINE_API.md`**
   - Confirmed Lifecycle/API SSoT banner is present, deferring Move/decision/WebSocket semantics to executable types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) and tests.
-- **`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`**
+- **`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`**
   - Ensured the **Operational SSoT** banner references:
     - CI workflows (`.github/workflows/*.yml`),
     - Dockerfiles & compose stacks,
@@ -936,8 +936,8 @@ The check is intentionally conservative: if either the generic banner or the req
 - **`AI_ARCHITECTURE.md`**
   - Verified the banner includes a **"rules semantics SSoT"** snippet that:
     - Anchors the AI service and Python rules engine as **hosts over the rules semantics SSoT** (shared TS engine + contracts + contract vectors).
-    - Defers lifecycle semantics to `docs/CANONICAL_ENGINE_API.md`.
-- **`docs/PYTHON_PARITY_REQUIREMENTS.md`**
+    - Defers lifecycle semantics to `docs/architecture/CANONICAL_ENGINE_API.md`.
+- **`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`**
   - Confirmed the presence of a banner that:
     - References the **Canonical TS rules surface** and the shared TS helpers/aggregates/orchestrator/contract stack.
     - Positions the Python rules engine as a parity-validated host over that surface, with parity enforced via contract vectors and determinism/no-randomness suites.
@@ -1018,7 +1018,7 @@ will cause CI to fail until the corresponding mappings/docs/tests are updated, e
 - [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md) - Updated with PASS20 completion status
 - `docs/PASS20_COMPLETION_SUMMARY.md` - Created comprehensive summary
 - `docs/PASS20_ASSESSMENT.md` - Created assessment report
-- `docs/TEST_CATEGORIES.md` - Created test categorization guide
+- `docs/testing/TEST_CATEGORIES.md` - Created test categorization guide
 
 **Code Changes:**
 

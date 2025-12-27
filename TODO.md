@@ -282,7 +282,7 @@ Operational drills completed:
 
 - Add RTL/Jest coverage for VictoryModal, GameHUD/GamePage, and ChoiceDialog flows (line_reward_option, ring_elimination/forced_elimination, capture_direction, region_order); extract testable subcomponents from BoardView/GameHUD.
 - Expand VictoryModal telemetry coverage for weird-state flows (structural stalemate, ANM/FE, territory edge cases) and guard against duplicate sends; ensure game-end explanations are exercised for ring vs territory vs LPS endings across square/hex.
-- Keep HUD/VictoryModal/TeachingOverlay copy and weird-state banners aligned with `docs/UX_RULES_COPY_SPEC.md` and `docs/UX_RULES_WEIRD_STATES_SPEC.md`, and route decision/weird-state telemetry through `choiceViewModels` + `rulesUxTelemetry` to avoid copy/telemetry drift.
+- Keep HUD/VictoryModal/TeachingOverlay copy and weird-state banners aligned with `docs/ux/UX_RULES_COPY_SPEC.md` and `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`, and route decision/weird-state telemetry through `choiceViewModels` + `rulesUxTelemetry` to avoid copy/telemetry drift.
 
 **P1 – Rules/FAQ scenario backfill**
 
@@ -454,8 +454,8 @@ Investigation found that `ACTIVE_NO_CANDIDATE_MOVES` violations are **expected b
 
 #### Rules Concepts Index & Teaching Coverage
 
-- [x] Create `docs/UX_RULES_CONCEPTS_INDEX.md` linking rules sections ↔ UX surfaces ↔ telemetry labels for ANM/FE, structural stalemate, mini-regions, capture chains, and LPS
-- [x] Cross-link the index from `docs/UX_RULES_TEACHING_SCENARIOS.md` and `docs/UX_RULES_WEIRD_STATES_SPEC.md`
+- [x] Create `docs/ux/UX_RULES_CONCEPTS_INDEX.md` linking rules sections ↔ UX surfaces ↔ telemetry labels for ANM/FE, structural stalemate, mini-regions, capture chains, and LPS
+- [x] Cross-link the index from `docs/ux/UX_RULES_TEACHING_SCENARIOS.md` and `docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`
 - [x] Audit high-risk teaching scenarios and add/flag gaps in `src/shared/teaching/teachingScenarios.ts` and `src/client/components/TeachingOverlay.tsx`
 
 #### Spectator/Replay Polish

@@ -174,7 +174,7 @@ const normalizeMoveType = (moveType: Move['type']): Move['type'] =>
  *
  * It is an orchestration/UX host over the shared engine and must not
  * introduce new rules semantics. For allowed rules surfaces, see
- * `docs/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
+ * `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
  */
 
 export type SandboxPlayerKind = PlayerType; // 'human' | 'ai'
@@ -241,7 +241,7 @@ export class ClientSandboxEngine {
    * derived from the canonical rules spec (`RULES_CANONICAL_SPEC.md`) via the
    * shared TS engine, eliminating duplicated logic between client/server.
    *
-   * @see docs/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md
+   * @see docs/archive/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md
    */
 
   /** Lazily-initialized adapter instance */

@@ -7,7 +7,7 @@ supporting:
 - Metadata queries for filtering and analysis
 - Integration with training and sandbox UI
 
-See docs/GAME_REPLAY_DATABASE_SPEC.md for full specification.
+See ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md for full specification.
 """
 
 from __future__ import annotations

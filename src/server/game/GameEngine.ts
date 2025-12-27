@@ -87,7 +87,7 @@ import { logger } from '../utils/logger';
  * All move legality, phase transitions, capture/territory/line/victory
  * semantics should flow through the shared engine helpers/aggregates under
  * `src/shared/engine/**` as documented in
- * `docs/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
+ * `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
  */
 
 /**
@@ -2787,7 +2787,7 @@ export class GameEngine {
    * treat these internal bookkeeping phases as "no legal move" stalls.
    *
    * @deprecated Phase 4 legacy path — use orchestrator-backed TurnEngineAdapter
-   * and shared decision lifecycle (see docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
+   * and shared decision lifecycle (see docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
    * instead. This method will be removed once all tests migrate to
    * orchestrator-backed flows. See Wave 5.4 in TODO.md for deprecation timeline.
    *

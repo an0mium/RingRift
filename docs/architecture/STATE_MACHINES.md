@@ -5,7 +5,7 @@
 >
 > **Upstream SSoTs:**  
 > • **Rules semantics SSoT:** canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`) as the single source of truth for rules semantics, with the shared TS engine under `src/shared/engine/**` + contracts and vectors (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) as its primary executable implementation.  
-> • **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` + shared types and schemas (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
+> • **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` + shared types and schemas (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 >
 > **Role of this doc:** explain how the shared state machines in `src/shared/stateMachines/**` project these SSoTs into small, explicit lifecycle models that are used by hosts/adapters (backend, client sandbox, Python AI service) and tests.
 
@@ -13,8 +13,8 @@
 
 - `DOCUMENTATION_INDEX.md` (narrative index – this doc lives under "Architecture & topology" / "Lifecycle")
 - `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md` (overall architecture and remediation tracks)
-- `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_SCENARIO_MATRIX.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`
-- `docs/testing/STRICT_INVARIANT_SOAKS.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`
+- `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_SCENARIO_MATRIX.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`
+- `docs/testing/STRICT_INVARIANT_SOAKS.md`, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`
 - Test meta-docs: `tests/README.md`, `tests/TEST_LAYERS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`
 
 ---
@@ -33,7 +33,7 @@ RingRift exposes several **shared state machines** under `src/shared/stateMachin
 - They are **pure, dependency-light TypeScript models**, intentionally host-agnostic.
 - They are **derived views** over upstream SSoTs:
   - They use `GameState` and `Move`/choice types from `src/shared/types/game.ts` and the orchestrator.
-  - They align with the lifecycle semantics in `docs/CANONICAL_ENGINE_API.md` and WebSocket schemas.
+  - They align with the lifecycle semantics in `docs/architecture/CANONICAL_ENGINE_API.md` and WebSocket schemas.
 - They are exercised by focused Jest tests and used by hosts/adapters:
   - Backend: `src/server/game/GameSession.ts`, `src/server/websocket/server.ts`, `src/server/game/ai/AIEngine.ts`, `src/server/game/WebSocketInteractionHandler.ts`.
   - Client sandbox: `src/client/contexts/GameContext.tsx`, hooks, and sandbox modules.
@@ -375,7 +375,7 @@ stateDiagram-v2
 Diagnostics:
 
 - `requestedAt`, `deadlineAt`, and `completedAt` allow instrumentation of choice latency and timeout behaviour.
-- The machine is **transport-agnostic** – it can be driven by WebSocket messages, HTTP endpoints, or future transports as long as they honour the canonical API in `docs/CANONICAL_ENGINE_API.md`.
+- The machine is **transport-agnostic** – it can be driven by WebSocket messages, HTTP endpoints, or future transports as long as they honour the canonical API in `docs/architecture/CANONICAL_ENGINE_API.md`.
 
 ### 4.3 WebSocket integration & CancellationToken threading
 
@@ -631,7 +631,7 @@ Key coverage:
 Rematch is modelled as a **new game session**, not a mutation of the existing one:
 
 - Backend:
-  - Uses explicit `rematch_request` / `rematch_response` WebSocket events (see `docs/CANONICAL_ENGINE_API.md` §3.9.x).
+  - Uses explicit `rematch_request` / `rematch_response` WebSocket events (see `docs/architecture/CANONICAL_ENGINE_API.md` §3.9.x).
   - On acceptance, creates a fresh `GameSession` with a new `gameId` and emits a `rematch_response` containing `status: 'accepted'` and `newGameId`.
 
 - Client mapping:
@@ -678,7 +678,7 @@ Together, these mappings ensure that:
 ## 7. Guidance for Changes & Extensions
 
 1. **Treat rules and lifecycle SSoTs as constraints.**
-   - If a desired state transition seems to contradict `docs/CANONICAL_ENGINE_API.md` or the shared engine contracts, update those SSoTs first – not this doc alone.
+   - If a desired state transition seems to contradict `docs/architecture/CANONICAL_ENGINE_API.md` or the shared engine contracts, update those SSoTs first – not this doc alone.
 
 2. **Maintain host-agnostic, shared logic.**
    - New state machines or variants should live under `src/shared/stateMachines/**` and avoid backend-specific dependencies.

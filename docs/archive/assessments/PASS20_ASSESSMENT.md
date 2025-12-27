@@ -38,15 +38,15 @@ A review of [`jest-results.json`](../jest-results.json) reveals **72 failing tes
 
 | Document                                                              | Last Updated     | Status     |
 | :-------------------------------------------------------------------- | :--------------- | :--------- |
-| [`DOCUMENTATION_INDEX.md`](../DOCUMENTATION_INDEX.md)                 | 2025-12-01       | ✅ Current |
-| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md)                               | December 1, 2025 | ✅ Current |
+| [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md)                 | 2025-12-01       | ✅ Current |
+| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md)                               | December 1, 2025 | ✅ Current |
 | [`docs/P18.18_SKIPPED_TEST_TRIAGE.md`](P18.18_SKIPPED_TEST_TRIAGE.md) | Recent           | ✅ Current |
 
 ### 2.2 Stale Documents Needing Updates
 
 | Document                                                                                                                            | Last Updated      | Issues Found                                     |
 | :---------------------------------------------------------------------------------------------------------------------------------- | :---------------- | :----------------------------------------------- |
-| [`TODO.md`](../TODO.md)                                                                                                             | November 30, 2025 | Test status claims unverified                    |
+| [`TODO.md`](../../../TODO.md)                                                                                                             | November 30, 2025 | Test status claims unverified                    |
 | [`PASS19B_ASSESSMENT_REPORT.md`](PASS19B_ASSESSMENT_REPORT.md)                                                                      | 2025-11-30        | Claims "0 failed" but jest-results.json shows 72 |
 | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | Recent            | May need test health update                      |
 
@@ -81,7 +81,7 @@ The difference suggests:
 
 1. PASS19B counted only CI-gated tests (excluding env-gated diagnostics)
 2. [`jest-results.json`](../jest-results.json) includes diagnostic/env-gated tests
-3. Some tests in jest-results.json are expected failures per [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) P1.4
+3. Some tests in jest-results.json are expected failures per [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) P1.4
 
 PASS19B has been updated to explicitly scope its TypeScript numbers to the **CI-gated suites**, and to point to this PASS20 report + `jest-results.json` for the extended/diagnostic profile. Several failure categories in the extended profile were not previously called out as such and are now documented either as **diagnostic/expected** (AI simulations, some sandbox/back-end parity probes) or as **true defects** (e.g., specific WebSocket and auth-route assertions) in `KNOWN_ISSUES.md`.
 
@@ -114,8 +114,8 @@ PASS19B has been updated to explicitly scope its TypeScript numbers to the **CI-
 
 #### Category 1: S-Invariant Violations (9 tests)
 
-**File:** [`tests/unit/GameEngine.aiSimulation.test.ts`](../tests/unit/GameEngine.aiSimulation.test.ts)  
-**Status:** Expected per [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) P1.4  
+**File:** [`tests/unit/GameEngine.aiSimulation.test.ts`](../../../tests/unit/GameEngine.aiSimulation.test.ts)  
+**Status:** Expected per [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) P1.4  
 **Impact:** Diagnostic only, not CI-gated
 
 | Board Type | Players | Error                                   |
@@ -135,11 +135,11 @@ PASS19B has been updated to explicitly scope its TypeScript numbers to the **CI-
 | humanDecisionById  | `Cannot read properties of undefined (reading 'size')` |
 | aiTurn integration | `serverAny.maybePerformAITurn is not a function`       |
 
-**Root Cause:** [`BoardManager`](../src/server/game/BoardManager.ts) constructor at line 29 – `BOARD_CONFIGS[boardType]` returning undefined.
+**Root Cause:** [`BoardManager`](../../../src/server/game/BoardManager.ts) constructor at line 29 – `BOARD_CONFIGS[boardType]` returning undefined.
 
 #### Category 3: Sandbox vs Backend Parity (5+ tests)
 
-**Files:** [`tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](../tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)  
+**Files:** [`tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](../../../tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)  
 **Status:** ⚠️ RULES DIVERGENCE  
 **Impact:** Critical for game correctness
 
@@ -158,7 +158,7 @@ Backend valid moves: [9 moves, none matching above]
 
 #### Category 4: Auth Route Tests (3 tests)
 
-**File:** [`tests/unit/auth.routes.test.ts`](../tests/unit/auth.routes.test.ts)  
+**File:** [`tests/unit/auth.routes.test.ts`](../../../tests/unit/auth.routes.test.ts)  
 **Status:** ⚠️ ASSERTION OUTDATED  
 **Impact:** Tests expect "not implemented" but routes now exist
 
@@ -170,7 +170,7 @@ Backend valid moves: [9 moves, none matching above]
 
 #### Category 5: RulesMatrix Legacy Wrapper (vector coverage only, now passing)
 
-**File:** [`tests/scenarios/RulesMatrix.Comprehensive.test.ts`](../tests/scenarios/RulesMatrix.Comprehensive.test.ts)  
+**File:** [`tests/scenarios/RulesMatrix.Comprehensive.test.ts`](../../../tests/scenarios/RulesMatrix.Comprehensive.test.ts)  
 **Status (current code):** ✅ PASSING – legacy scenario logic removed; thin v2-vector presence checks only  
 **Impact:** Historical; canonical M2/C2/V2 scenario coverage now lives in orchestrator-backed RulesMatrix and FAQ suites plus the v2 contract vectors.
 
@@ -347,7 +347,7 @@ Since then:
    - Hex edge cases and meta moves (`hex_edge_cases`, `meta_moves`).
 3. **Python contract tests** (`ai-service/tests/contracts/test_contract_vectors.py`) load all v2 bundles and pass 49/49 vectors, providing a strong TS↔Python parity SSOT.
 
-Remaining sandbox/back-end capture differences are now treated as **diagnostic**, tracked in `KNOWN_ISSUES.md` and `docs/PARITY_SEED_TRIAGE.md`, and are no longer the single hardest outstanding problem.
+Remaining sandbox/back-end capture differences are now treated as **diagnostic**, tracked in `KNOWN_ISSUES.md` and `docs/rules/PARITY_SEED_TRIAGE.md`, and are no longer the single hardest outstanding problem.
 
 ---
 
@@ -401,7 +401,7 @@ Remaining sandbox/back-end capture differences are now treated as **diagnostic**
 
 1. `maybePerformAITurn` function exists and is callable in tests
 2. `BOARD_CONFIGS[boardType]` returns valid config in test context
-3. All WebSocket integration tests in [`tests/unit/WebSocketServer.*.test.ts`](../tests/unit/) pass
+3. All WebSocket integration tests in [`tests/unit/WebSocketServer.*.test.ts`](../../../tests/unit) pass
 4. No `Cannot read properties of undefined` errors
 
 **Agent:** Code mode
@@ -414,8 +414,8 @@ Remaining sandbox/back-end capture differences are now treated as **diagnostic**
 
 1. Both sandbox and backend produce identical move sets for captures
 2. `overtaking_capture` type moves appear consistently in both layers
-3. [`tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](../tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts) passes
-4. [`tests/unit/captureSequenceEnumeration.test.ts`](../tests/unit/captureSequenceEnumeration.test.ts) passes
+3. [`tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](../../../tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts) passes
+4. [`tests/unit/captureSequenceEnumeration.test.ts`](../../../tests/unit/captureSequenceEnumeration.test.ts) passes
 
 **Agent:** Code mode
 
@@ -430,7 +430,7 @@ Remaining sandbox/back-end capture differences are now treated as **diagnostic**
    - Env-gated diagnostic tests (require special flags)
    - Performance/soak tests (excluded from normal runs)
 2. Document env vars: `RINGRIFT_ENABLE_SANDBOX_AI_SIM`, etc.
-3. Update [`tests/README.md`](../tests/README.md) with links
+3. Update [`tests/README.md`](../../../tests/README.md) with links
 4. Explain how to interpret jest-results.json
 
 **Agent:** Architect mode

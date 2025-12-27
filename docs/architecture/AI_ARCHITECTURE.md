@@ -19,7 +19,7 @@
 > - Canonical reference for the **current AI architecture and integration**: Python AI service, TS AI boundary, RNG/determinism, neural nets, training pipeline, and resilience/fallback behaviour.
 > - As of Dec 2025, end‑to‑end GameRecord flow is implemented: online games populate canonical GameRecords via `GameRecordRepository`, and both Python self‑play (`generate_data.py --game-records-jsonl`) and Node (`scripts/export-game-records-jsonl.ts`) can export training‑ready `GameRecord` JSONL datasets.
 > - References several historical deep-dive/assessment docs (under `archive/` and `deprecated/`); those are explicitly called out as historical snapshots and should be read as background only.
-> - For the canonical rules engine and Move lifecycle, defer to `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, `RULES_CANONICAL_SPEC.md`, and `docs/CANONICAL_ENGINE_API.md` (Move + orchestrator + hosts), which this document assumes as its rules SSoT.
+> - For the canonical rules engine and Move lifecycle, defer to `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, `RULES_CANONICAL_SPEC.md`, and `docs/architecture/CANONICAL_ENGINE_API.md` (Move + orchestrator + hosts), which this document assumes as its rules SSoT.
 >
 > This document consolidates the architectural overview, technical assessment, and improvement plans for the RingRift AI system. It serves as the **canonical, current** reference for AI behaviour and design.
 
@@ -53,7 +53,7 @@ When something looks “AI-broken” in production, ask **which layer is likely 
     - Inspect orchestrator adapters and flags (now mostly fixed in production):
       `ORCHESTRATOR_ADAPTER_ENABLED`, `RINGRIFT_RULES_MODE`
       (see `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` and
-      `docs/ENVIRONMENT_VARIABLES.md` for current rollout semantics).
+      `docs/operations/ENVIRONMENT_VARIABLES.md` for current rollout semantics).
   - Playbook:
     - If the shared engine or orchestrator looks wrong, follow
       `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` (Safe rollback checklist).
@@ -1169,7 +1169,7 @@ sanity requirements so that optimisation loops (CMA-ES, genetic search, manual t
 policies instead of accidentally re-evaluating the same behaviour.
 
 - Canonical requirements and test strategy are documented in
-  `docs/PYTHON_PARITY_REQUIREMENTS.md` (§4.6 “Heuristic Training & Evaluation Sanity”), which treats the Python
+  `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` (§4.6 “Heuristic Training & Evaluation Sanity”), which treats the Python
   heuristic harness as a parity-adjacent subsystem with its own invariants.
 - The dedicated test suite `ai-service/tests/test_heuristic_training_evaluation.py` asserts two key properties:
   - `evaluate_fitness` (CMA-ES/GA fitness harness) distinguishes `heuristic_v1_balanced` from a clearly bad

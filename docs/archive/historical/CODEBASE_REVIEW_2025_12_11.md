@@ -206,8 +206,8 @@ The codebase is **significantly more production-ready** than documentation sugge
 
 ## Related Documents
 
-- [ARCHITECTURAL_IMPROVEMENT_PLAN.md](ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Refactoring opportunities
-- [PRODUCTION_READINESS_CHECKLIST.md](PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
-- [PROJECT_GOALS.md](../PROJECT_GOALS.md) - Authoritative project direction
-- [KNOWN_ISSUES.md](../KNOWN_ISSUES.md) - Issue tracking
-- [TODO.md](../TODO.md) - Task tracking
+- [../../ARCHITECTURAL_IMPROVEMENT_PLAN.md](../../ARCHITECTURAL_IMPROVEMENT_PLAN.md) - Refactoring opportunities
+- [../../production/PRODUCTION_READINESS_CHECKLIST.md](../../production/PRODUCTION_READINESS_CHECKLIST.md) - Launch criteria
+- [PROJECT_GOALS.md](../../../PROJECT_GOALS.md) - Authoritative project direction
+- [KNOWN_ISSUES.md](../../../KNOWN_ISSUES.md) - Issue tracking
+- [TODO.md](../../../TODO.md) - Task tracking

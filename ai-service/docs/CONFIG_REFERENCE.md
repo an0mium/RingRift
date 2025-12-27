@@ -69,6 +69,31 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_DISCORD_WEBHOOK_URL` | Discord webhook URL | `unset` |
 | `RINGRIFT_WEBHOOK_URL`         | Generic webhook URL | `unset` |
 
+### Provider Credentials & Cloud
+
+| Variable             | Description                                    | Default |
+| -------------------- | ---------------------------------------------- | ------- |
+| `VAST_API_KEY`       | Vast.ai API key (node provisioning)            | `unset` |
+| `RUNPOD_API_KEY`     | Runpod API key (node provisioning)             | `unset` |
+| `LAMBDA_API_KEY`     | Lambda Labs API key (node provisioning)        | `unset` |
+| `HCLOUD_TOKEN`       | Hetzner Cloud token                            | `unset` |
+| `AWS_REGION`         | AWS region for S3 backups                      | `unset` |
+| `AWS_DEFAULT_REGION` | AWS region fallback (if `AWS_REGION` not set)  | `unset` |
+| `SLACK_WEBHOOK_URL`  | Legacy Slack webhook (alert_router/promotion)  | `unset` |
+| `DISCORD_WEBHOOK_URL` | Legacy Discord webhook (alert_router)         | `unset` |
+| `PAGERDUTY_ROUTING_KEY` | PagerDuty routing key (alert_router)       | `unset` |
+
+### Observability & Tracing
+
+| Variable                    | Description                                   | Default |
+| --------------------------- | --------------------------------------------- | ------- |
+| `OTEL_TRACING_ENABLED`      | Enable/disable tracing                        | `true`  |
+| `OTEL_EXPORTER`             | Exporter (`jaeger`, `otlp`, `console`, `none`) | `none`  |
+| `OTEL_SERVICE_NAME`         | Service name for traces                       | `ringrift-ai` |
+| `OTEL_JAEGER_AGENT_HOST`    | Jaeger agent host                             | `localhost` |
+| `OTEL_JAEGER_AGENT_PORT`    | Jaeger agent port                             | `6831`  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint URL                           | `unset` |
+
 ### Rules, validation, and parity
 
 | Variable                               | Description                                                    | Default           |

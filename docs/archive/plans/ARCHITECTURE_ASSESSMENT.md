@@ -7,8 +7,8 @@
 
 > **SSoT alignment:** This document is a derived architectural view over the following canonical sources:
 >
-> - **Rules semantics SSoT:** Canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) as the single source of truth for rules semantics, with the shared TypeScript rules engine under `src/shared/engine/**` (helpers → domain aggregates → turn orchestrator → contracts) plus v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`) describing and validating the primary executable implementation of that spec.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` for the executable Move/orchestrator/WebSocket lifecycle.
+> - **Rules semantics SSoT:** Canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) as the single source of truth for rules semantics, with the shared TypeScript rules engine under `src/shared/engine/**` (helpers → domain aggregates → turn orchestrator → contracts) plus v2 contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`) describing and validating the primary executable implementation of that spec.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` for the executable Move/orchestrator/WebSocket lifecycle.
 > - **Operational SSoT:** CI workflows (`.github/workflows/*.yml`), Dockerfiles, docker-compose stacks, monitoring configs under `monitoring/**`, and runtime config/env validation code under `src/server/config/**`, `src/shared/utils/envFlags.ts`, and `scripts/validate-deployment-config.ts`.
 > - **Precedence:** If this document ever conflicts with those specs, engines, types, or configs, **code + tests win**, and this doc must be updated to match them.
 >
@@ -23,8 +23,8 @@
 > **🎉 Remediation Complete (2025-11-26)**: The rules engine consolidation (Phases 1-4) is now complete.
 > **🎉 Observability Implemented (2025-12-01, PASS21)**: Grafana dashboards and k6 load testing framework added.
 >
-> - Canonical turn orchestrator in [`src/shared/engine/orchestration/`](src/shared/engine/orchestration/)
-> - Backend host/adapter ([`TurnEngineAdapter.ts`](src/server/game/turn/TurnEngineAdapter.ts)) and client host/adapter ([`SandboxOrchestratorAdapter.ts`](src/client/sandbox/SandboxOrchestratorAdapter.ts))
+> - Canonical turn orchestrator in [`../../../src/shared/engine/orchestration`](../../../src/shared/engine/orchestration)
+> - Backend host/adapter ([`TurnEngineAdapter.ts`](../../../src/server/game/turn/TurnEngineAdapter.ts)) and client host/adapter ([`SandboxOrchestratorAdapter.ts`](../../../src/client/sandbox/SandboxOrchestratorAdapter.ts))
 > - Cross-language contract tests achieving 100% parity (49 test vectors) via shared contracts under `src/shared/engine/contracts/*` and fixtures under `tests/fixtures/contract-vectors/v2/`
 > - 3 Grafana dashboards (game-performance, rules-correctness, system-health) with 22 panels
 > - k6 load testing framework with 4 production-scale scenarios
@@ -155,7 +155,7 @@ src/shared/engine/
 Canonical rules semantics are expressed in terms of **`Move`** (from `src/shared/types/game.ts`) and the shared turn orchestrator:
 
 1.  **Input (canonical):**
-    - Hosts obtain a `Move` either directly (AI, sandbox tooling) or via a `PendingDecision` → `PlayerChoice` → `Move.id` flow (see `docs/CANONICAL_ENGINE_API.md` and `AI_ARCHITECTURE.md`).
+    - Hosts obtain a `Move` either directly (AI, sandbox tooling) or via a `PendingDecision` → `PlayerChoice` → `Move.id` flow (see `docs/architecture/CANONICAL_ENGINE_API.md` and `AI_ARCHITECTURE.md`).
 2.  **Orchestration:**
     - `processTurn` / `processTurnAsync` in `turnOrchestrator.ts` drives the game through all relevant phases, delegating to domain aggregates (`PlacementAggregate`, `MovementAggregate`, `CaptureAggregate`, `LineAggregate`, `TerritoryAggregate`, `VictoryAggregate`).
 3.  **Validation + Mutation:**
@@ -206,7 +206,7 @@ Canonical rules semantics are expressed in terms of **`Move`** (from `src/shared
 - 🔄 Operational drills (Execute secrets rotation, backup/restore procedures)
 - 🔄 Phase‑2 robustness focus (Dec 2025):
   - Engine/host lifecycle clarity (backend, sandbox, Python) for advanced phases via shared orchestrator/aggregates.
-  - WebSocket lifecycle + reconnection windows documented in `docs/CANONICAL_ENGINE_API.md` and backed by reconnection/lobby/rematch tests.
+  - WebSocket lifecycle + reconnection windows documented in `docs/architecture/CANONICAL_ENGINE_API.md` and backed by reconnection/lobby/rematch tests.
   - TS↔Python territory & forced‑elimination parity finish‑up using contract vectors plus targeted Jest/Pytest suites.
 
 ---

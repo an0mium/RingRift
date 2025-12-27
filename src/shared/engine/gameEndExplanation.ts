@@ -209,7 +209,7 @@ export interface GameEndEngineView {
   tiebreakSteps?: GameEndTiebreakStep[];
   /**
    * Optional higher-level concept identifier for this ending, aligned
-   * with docs/UX_RULES_CONCEPTS_INDEX.md (e.g. "anm_fe_core",
+   * with docs/ux/UX_RULES_CONCEPTS_INDEX.md (e.g. "anm_fe_core",
    * "lps_real_actions", "structural_stalemate", "territory_mini_regions").
    */
   primaryConceptId?: string;

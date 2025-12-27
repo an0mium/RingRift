@@ -1,8 +1,31 @@
 """Queue Populator Daemon - Automatic work queue population (December 2025).
 
-This daemon automatically populates the work queue based on cluster state,
-eliminating manual job queuing. It enables self-organizing cluster behavior
-where idle resources automatically pick up useful work.
+DEPRECATED (December 2025): Use unified_queue_populator.py instead.
+
+This module is deprecated in favor of UnifiedQueuePopulatorDaemon which
+consolidates this file with queue_populator.py for a ~500 LOC reduction.
+
+Migration:
+    # Old
+    from app.coordination.queue_populator_daemon import (
+        QueuePopulatorDaemon,
+        get_queue_populator_daemon,
+    )
+
+    # New
+    from app.coordination.unified_queue_populator import (
+        UnifiedQueuePopulatorDaemon,
+        get_queue_populator_daemon,
+    )
+
+The unified version provides:
+- All daemon lifecycle functionality
+- Elo-based target tracking with velocity calculations
+- P2P cluster health integration
+- Curriculum-weighted prioritization
+- Event subscriptions for automatic updates
+
+This module remains for backward compatibility and will be removed in Q2 2026.
 
 Key features:
 - Monitors cluster node status for idle resources
@@ -20,6 +43,7 @@ Decision Logic:
 5. Avoid over-population (queue cap)
 
 Usage:
+    # Deprecated - use unified version instead
     from app.coordination.queue_populator_daemon import QueuePopulatorDaemon
 
     daemon = QueuePopulatorDaemon()
@@ -33,9 +57,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+# Emit deprecation warning on import
+warnings.warn(
+    "queue_populator_daemon.py is deprecated. Use unified_queue_populator.py instead. "
+    "See module docstring for migration guide. Will be removed in Q2 2026.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 

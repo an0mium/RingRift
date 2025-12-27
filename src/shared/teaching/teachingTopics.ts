@@ -5,8 +5,8 @@
  * and the relationship between topics and rules concepts for the RingRift
  * teaching infrastructure.
  *
- * @see docs/UX_RULES_TEACHING_SCENARIOS.md for the authoritative teaching flow spec
- * @see docs/UX_RULES_TEACHING_GAP_ANALYSIS.md for gaps addressed by these definitions
+ * @see docs/ux/UX_RULES_TEACHING_SCENARIOS.md for the authoritative teaching flow spec
+ * @see docs/ux/UX_RULES_TEACHING_GAP_ANALYSIS.md for gaps addressed by these definitions
  */
 
 import type { RulesConcept } from './teachingScenarios';

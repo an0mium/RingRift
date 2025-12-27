@@ -9,7 +9,7 @@
 > - **Metrics & instrumentation:** The `ringrift_rate_limit_hits_total` counter defined in `src/server/services/MetricsService.ts`, and emitted by rate-limiting middleware in `src/server/middleware/rateLimiter.ts`.
 > - **Rate limiting implementation & configuration:**
 >   - Core rate limiting logic and middleware in `src/server/middleware/rateLimiter.ts`.
->   - Environment-driven configuration for per-endpoint and per-user quotas (`RATE_LIMIT_*` env vars), as documented in `docs/ENVIRONMENT_VARIABLES.md`.
+>   - Environment-driven configuration for per-endpoint and per-user quotas (`RATE_LIMIT_*` env vars), as documented in `docs/operations/ENVIRONMENT_VARIABLES.md`.
 >   - Redis-backed vs in-memory limiters, and the fallback limiter semantics.
 > - **Monitoring & operations docs:** `monitoring/README.md`, `docs/operations/ALERTING_THRESHOLDS.md`, `docs/incidents/RESOURCES.md`.
 >
@@ -135,7 +135,7 @@ Confirm in the relevant environment:
   - In-memory limiters via `initializeMemoryRateLimiters()` or the `fallbackRateLimiter` (typically for development/testing or when Redis is unavailable).
 - The **effective limits** for the affected limiter(s), using:
   - Code: `getRateLimitConfigs()` / `getRateLimitConfig()` in `src/server/middleware/rateLimiter.ts`.
-  - Environment variables: `RATE_LIMIT_*` keys (see `docs/ENVIRONMENT_VARIABLES.md` and `docs/DEPLOYMENT_REQUIREMENTS.md`).
+  - Environment variables: `RATE_LIMIT_*` keys (see `docs/operations/ENVIRONMENT_VARIABLES.md` and `docs/planning/DEPLOYMENT_REQUIREMENTS.md`).
 
 This establishes whether limits are unexpectedly low for the current traffic, or if the behaviour is consistent with configuration.
 
@@ -248,7 +248,7 @@ If Redis issues are present, treat them **first** as a dependency incident; rate
 ### 4.3 If this is legitimate growth and limits are too strict
 
 1. **Validate capacity and SLOs**
-   - Review `docs/DEPLOYMENT_REQUIREMENTS.md` and relevant performance runbooks (`HIGH_LATENCY.md`, `GAME_PERFORMANCE.md`).
+   - Review `docs/planning/DEPLOYMENT_REQUIREMENTS.md` and relevant performance runbooks (`HIGH_LATENCY.md`, `GAME_PERFORMANCE.md`).
    - Confirm that the underlying infrastructure (CPU, memory, DB/Redis) has capacity to handle higher throughput.
 2. **Adjust limits deliberately via configuration**
    - Update the appropriate `RATE_LIMIT_*` environment variables for the affected limiter(s).
@@ -289,7 +289,7 @@ Before considering a rate-limiting incident resolved, verify:
 ### 5.3 Documentation and configuration
 
 - [ ] Any **permanent** changes to limits are reflected in:
-  - `docs/ENVIRONMENT_VARIABLES.md` and, if applicable, `docs/DEPLOYMENT_REQUIREMENTS.md`.
+  - `docs/operations/ENVIRONMENT_VARIABLES.md` and, if applicable, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
   - Operations runbooks or playbooks relevant to partners/integrations.
 - [ ] If exceptions were introduced for specific clients, they are documented with:
   - Owner, scope, rationale, and expiry/review date.
@@ -308,7 +308,7 @@ Before considering a rate-limiting incident resolved, verify:
   - `src/server/middleware/rateLimiter.ts`
   - `src/server/services/MetricsService.ts` (see `ringrift_rate_limit_hits_total`)
   - `src/server/cache/redis.ts`
-  - `docs/ENVIRONMENT_VARIABLES.md`
+  - `docs/operations/ENVIRONMENT_VARIABLES.md`
 
 - **Related runbooks:**
   - `HIGH_ERROR_RATE.md` — when rate-limiting coincides with HTTP 5xxs.

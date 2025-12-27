@@ -203,10 +203,57 @@ async def _create_my_daemon(self) -> None:
 
 ## Deprecated Daemons
 
-| Daemon             | Replacement           | Removal |
-| ------------------ | --------------------- | ------- |
-| `SYNC_COORDINATOR` | `AUTO_SYNC`           | Q2 2026 |
-| `HEALTH_CHECK`     | `NODE_HEALTH_MONITOR` | Q2 2026 |
+| Daemon             | Replacement                    | Removal |
+| ------------------ | ------------------------------ | ------- |
+| `SYNC_COORDINATOR` | `AUTO_SYNC`                    | Q2 2026 |
+| `HEALTH_CHECK`     | `NODE_HEALTH_MONITOR`          | Q2 2026 |
+| `queue_populator.py` | `unified_queue_populator.py` | Q2 2026 |
+| `queue_populator_daemon.py` | `unified_queue_populator.py` | Q2 2026 |
+| `lambda_idle_daemon.py` | `unified_idle_shutdown_daemon.py` | Q2 2026 |
+| `vast_idle_daemon.py` | `unified_idle_shutdown_daemon.py` | Q2 2026 |
+
+### Queue Populator Consolidation (December 2025)
+
+The `queue_populator.py` and `queue_populator_daemon.py` modules have been
+consolidated into `unified_queue_populator.py`. This saves ~500 LOC and
+provides a single source of truth for queue population logic.
+
+**Migration:**
+```python
+# Old (deprecated)
+from app.coordination.queue_populator import QueuePopulator, get_queue_populator
+from app.coordination.queue_populator_daemon import QueuePopulatorDaemon
+
+# New (recommended)
+from app.coordination.unified_queue_populator import (
+    UnifiedQueuePopulator,
+    UnifiedQueuePopulatorDaemon,
+    get_queue_populator,
+    get_queue_populator_daemon,
+)
+```
+
+### Idle Daemon Consolidation (December 2025)
+
+The `lambda_idle_daemon.py` and `vast_idle_daemon.py` have been consolidated
+into `unified_idle_shutdown_daemon.py`. This saves ~318 LOC and provides a
+provider-agnostic design.
+
+**Migration:**
+```python
+# Old (deprecated)
+from app.coordination.lambda_idle_daemon import LambdaIdleDaemon
+from app.coordination.vast_idle_daemon import VastIdleDaemon
+
+# New (recommended)
+from app.coordination.unified_idle_shutdown_daemon import (
+    create_lambda_idle_daemon,
+    create_vast_idle_daemon,
+    create_runpod_idle_daemon,  # NEW! RunPod support
+)
+```
+
+See `archive/deprecated_coordination/README.md` for full migration guide.
 
 ## Key Files
 
@@ -214,6 +261,7 @@ async def _create_my_daemon(self) -> None:
 | ----------------------------------------------- | --------------------------------- |
 | `app/coordination/daemon_manager.py`            | Main DaemonManager implementation |
 | `app/coordination/daemon_adapters.py`           | Adapters for existing daemons     |
+| `app/coordination/unified_queue_populator.py`   | Unified queue population (Dec 2025) |
 | `scripts/launch_daemons.py`                     | CLI for daemon management         |
 | `docs/coordination/EVENT_CATALOG.md`            | Event types reference             |
 | `docs/coordination/RESILIENT_TRANSFER_GUIDE.md` | Transfer daemon guide             |

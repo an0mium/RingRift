@@ -9,7 +9,7 @@
  *   const games = await replayService.listGames({ board_type: 'square8' });
  *   const state = await replayService.getStateAtMove(gameId, 10);
  *
- * See: docs/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md
+ * See: docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md
  */
 
 import { readEnv } from '../../shared/utils/envFlags';

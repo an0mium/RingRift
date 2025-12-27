@@ -272,7 +272,7 @@ When profiling and logs point to the rules engine or game orchestration as the b
 If metrics show that latency spikes correlate strongly with **load** rather than a specific bug:
 
 - Evaluate whether the current deployment matches the expected load profile:
-  - Instance counts, CPU/memory, and connection pool sizes per `docs/DEPLOYMENT_REQUIREMENTS.md`.
+  - Instance counts, CPU/memory, and connection pool sizes per `docs/planning/DEPLOYMENT_REQUIREMENTS.md`.
   - Any rate limiting or degradation controls configured via `src/server/middleware/rateLimiter.ts` and `DegradationHeaders`.
 - Coordinate with infra/product teams to:
   - Scale out the backend (and AI service, if applicable) for sustained higher usage.
@@ -299,7 +299,7 @@ Before considering the `HighGameMoveLatency` incident resolved:
 ### 5.3 Tests and documentation
 
 - [ ] Any rules/engine optimisations added to address the issue are covered by appropriate unit, integration, and parity tests on both TS and Python sides where relevant.
-- [ ] If semantics or stalemate/draw behaviour was changed, the rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`) and parity docs (`docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`) have been updated accordingly.
+- [ ] If semantics or stalemate/draw behaviour was changed, the rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`) and parity docs (`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `docs/rules/PARITY_SEED_TRIAGE.md`) have been updated accordingly.
 
 ---
 

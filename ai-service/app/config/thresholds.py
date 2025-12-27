@@ -11,7 +11,7 @@ Import these constants instead of hardcoding values:
         ELO_IMPROVEMENT_PROMOTE,
     )
 
-See docs/CONSOLIDATION_ROADMAP.md for consolidation context.
+See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 """
 
 # =============================================================================

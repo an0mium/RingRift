@@ -149,7 +149,7 @@ The deprecated module will remain functional at `app/distributed/sync_orchestrat
 - `app/coordination/sync_router.py` - Intelligent sync routing
 - `app/coordination/daemon_manager.py` - Background sync scheduling
 - `archive/deprecated_coordination/README.md` - Other deprecated coordination modules
-- `docs/CONSOLIDATION_STATUS_2025_12_19.md` - Architecture decisions
+- `ai-service/docs/CONSOLIDATION_STATUS_2025_12_19.md` - Architecture decisions
 
 ---
 
@@ -378,7 +378,7 @@ The deprecated module will remain functional until Q2 2026. However:
 See:
 
 - `app/coordination/README.md` - Coordination framework overview
-- `docs/CONSOLIDATION_STATUS_2025_12_19.md` - Architecture decisions
+- `ai-service/docs/CONSOLIDATION_STATUS_2025_12_19.md` - Architecture decisions
 - `CLAUDE.md` - Migration examples and patterns
 
 ---

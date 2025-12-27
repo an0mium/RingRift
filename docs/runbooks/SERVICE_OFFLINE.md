@@ -173,7 +173,7 @@ If there is any sign of database trouble, treat it as **P0**:
    - Confirm disk usage, connection limits, and any migration failures.
 
 2. **Check schema / migration state**
-   - Review `docs/OPERATIONS_DB.md` for expected migration flows.
+   - Review `docs/operations/OPERATIONS_DB.md` for expected migration flows.
    - If a migration was recently applied, confirm it completed successfully and did not leave the DB in a partially applied state.
 
 3. **If necessary, roll back or roll forward a deployment**

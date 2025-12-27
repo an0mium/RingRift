@@ -9,7 +9,7 @@
 > - **Canonical rules semantics:** Shared TypeScript engine helpers, aggregates, and orchestrator under `src/shared/engine/**`, plus contracts and v2 contract vectors in `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/**`.
 > - **Parity metrics & logging:** `rulesParityMetrics` and `logRulesMismatch` in `src/server/utils/rulesParityMetrics.ts`, and the `RulesBackendFacade` / `PythonRulesClient` parity harness in `src/server/game/RulesBackendFacade.ts` and `src/server/services/PythonRulesClient.ts`.
 > - **Python rules implementation:** Canonical Python rules engine in `ai-service/app/game_engine/__init__.py` and the derived/parity-focused modules under `ai-service/app/rules/**` (`default_engine.py`, `validators/*.py`, `mutators/*.py`).
-> - **Parity specs & plans:** `docs/PYTHON_PARITY_REQUIREMENTS.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_ENGINE_SURFACE_AUDIT.md`, `docs/PARITY_SEED_TRIAGE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md`.
+> - **Parity specs & plans:** `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_ENGINE_SURFACE_AUDIT.md`, `docs/rules/PARITY_SEED_TRIAGE.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md`.
 >
 > **Precedence:**
 >
@@ -55,7 +55,7 @@
 **Context:**
 
 - In normal operation, parity mismatches should be extremely rare and generally confined to:
-  - Known historical seeds/scenarios tracked in `docs/PARITY_SEED_TRIAGE.md`.
+  - Known historical seeds/scenarios tracked in `docs/rules/PARITY_SEED_TRIAGE.md`.
   - Experimental Python changes being evaluated in python‑authoritative or training-only contexts.
 - When alerts fire outside of those expected pockets, you must assume **a new semantic divergence** has been introduced and treat it as a regression until proven otherwise.
 
@@ -84,7 +84,7 @@
    - Canonical parity jobs should use `RINGRIFT_RULES_MODE=ts`; `python` mode is reserved for explicit parity/diagnostic runs.
 4. **Decide where to focus investigation**
    - If canonical contracts + `.shared` tests disagree between TS and Python → focus on aligning Python to TS (or, rarely, updating TS + contracts when the spec says TS is wrong).
-   - If only diagnostic trace/seed suites disagree while contracts and `.shared` tests are green → treat traces as stale; update or archive them per the plan in `tests/TEST_SUITE_PARITY_PLAN.md` and `docs/PARITY_SEED_TRIAGE.md`.
+   - If only diagnostic trace/seed suites disagree while contracts and `.shared` tests are green → treat traces as stale; update or archive them per the plan in `tests/TEST_SUITE_PARITY_PLAN.md` and `docs/rules/PARITY_SEED_TRIAGE.md`.
    - If mismatches appear only under diagnostic `python` runs → confirm whether they reflect known historical behaviour or a genuine regression; do not bend canonical TS rules to satisfy stale traces.
 
 ### 2.1 Confirm which parity alert(s) are active
@@ -182,7 +182,7 @@ Use a combination of:
   - TS: `tests/contracts/contractVectorRunner.test.ts`, `tests/unit/LineDetectionParity.rules.test.ts`, `tests/unit/TerritoryDetection.*.test.ts`, `tests/unit/RefactoredEngineParity.test.ts`, etc.
   - Python: `ai-service/tests/contracts/test_contract_vectors.py`, `ai-service/tests/parity/test_rules_parity_fixtures.py`, `ai-service/tests/parity/test_line_and_territory_scenario_parity.py`, `ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py`, etc.
 
-Cross-reference the failing area with the **Python parity spec** in `docs/PYTHON_PARITY_REQUIREMENTS.md` (see the parity matrices for each domain: core, placement, movement, capture, line, territory, victory, turn).
+Cross-reference the failing area with the **Python parity spec** in `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` (see the parity matrices for each domain: core, placement, movement, capture, line, territory, victory, turn).
 
 ### 3.2 Reproduce the mismatch in a controlled harness
 
@@ -209,7 +209,7 @@ Whenever possible, reproduce the mismatch via:
 
 3. **Seed-based / plateau diagnostics:**
    - For complex long-sequence divergences (especially involving LPS, capture chains, or territory), follow the workflows in:
-     - `docs/PARITY_SEED_TRIAGE.md`
+     - `docs/rules/PARITY_SEED_TRIAGE.md`
      - `tests/TEST_SUITE_PARITY_PLAN.md`
      - `docs/testing/STRICT_INVARIANT_SOAKS.md` (invariant soak tests).
 
@@ -232,7 +232,7 @@ Checklist:
 - [ ] Compare against existing v2 contract vectors for nearby cases.
 - [ ] Consult recent architecture / audit docs: `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `RULES_ENGINE_SURFACE_AUDIT.md`.
 
-If in doubt, convene a short rules review and document the decision in `docs/PARITY_SEED_TRIAGE.md` or a dedicated incident/decision record.
+If in doubt, convene a short rules review and document the decision in `docs/rules/PARITY_SEED_TRIAGE.md` or a dedicated incident/decision record.
 
 ### 3.4 Inspect the relevant implementation on each side
 
@@ -247,7 +247,7 @@ Once you know the domain and suspect side:
   - Rules engine core: `ai-service/app/game_engine/__init__.py`, `ai-service/app/board_manager.py`.
   - Parity-focused implementation: `ai-service/app/rules/core.py`, `default_engine.py`, `validators/*.py`, `mutators/*.py`.
 
-Use the parity matrices in `docs/PYTHON_PARITY_REQUIREMENTS.md` to see exactly which TS functions are mirrored by which Python functions.
+Use the parity matrices in `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` to see exactly which TS functions are mirrored by which Python functions.
 
 ---
 
@@ -286,7 +286,7 @@ Rare but possible when TS behaviour drifted from the written rules:
 
 2. **Update contract vectors and parity docs:**
    - Adjust v2 contract vectors to match the corrected behaviour.
-   - Update `docs/PYTHON_PARITY_REQUIREMENTS.md` and, if needed, `CANONICAL_ENGINE_API.md`.
+   - Update `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` and, if needed, `CANONICAL_ENGINE_API.md`.
 
 3. **Update Python to match the new canonical semantics:**
    - Treat the TS change as a spec change and mirror it into Python (as in **4.1**).
@@ -331,7 +331,7 @@ Before considering a rules-parity incident resolved:
 ### 5.1 Metrics and alerts
 
 - [ ] `RulesParityValidationMismatch`, `RulesParityHashMismatch`, and `RulesParityGameStatusMismatch` (if they were firing) have all cleared and remained clear for at least one full evaluation window.
-- [ ] The associated mismatch counters (e.g. `ringrift_rules_parity_valid_mismatch_total`, `ringrift_rules_parity_hash_mismatch_total`, `ringrift_rules_parity_game_status_mismatch_total`) are flat or increasing only due to **known historical edge cases** documented in `docs/PARITY_SEED_TRIAGE.md`.
+- [ ] The associated mismatch counters (e.g. `ringrift_rules_parity_valid_mismatch_total`, `ringrift_rules_parity_hash_mismatch_total`, `ringrift_rules_parity_game_status_mismatch_total`) are flat or increasing only due to **known historical edge cases** documented in `docs/rules/PARITY_SEED_TRIAGE.md`.
 
 ### 5.2 Test suites
 
@@ -355,8 +355,8 @@ Before considering a rules-parity incident resolved:
 
 - [ ] Any clarified or newly agreed semantics are reflected in:
   - `RULES_CANONICAL_SPEC.md` / rules markdowns.
-  - `docs/PYTHON_PARITY_REQUIREMENTS.md` (function/type parity tables).
-  - `docs/PARITY_SEED_TRIAGE.md` (for seeds/traces that remain exceptional by design).
+  - `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` (function/type parity tables).
+  - `docs/rules/PARITY_SEED_TRIAGE.md` (for seeds/traces that remain exceptional by design).
 
 ---
 
@@ -372,8 +372,8 @@ Before considering a rules-parity incident resolved:
   - `docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`
 
 - **Parity & invariants:**
-  - `docs/PYTHON_PARITY_REQUIREMENTS.md`
-  - `docs/PARITY_SEED_TRIAGE.md`
+  - `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`
+  - `docs/rules/PARITY_SEED_TRIAGE.md`
   - `docs/testing/STRICT_INVARIANT_SOAKS.md`
   - `tests/TEST_SUITE_PARITY_PLAN.md`
 
@@ -386,13 +386,13 @@ Before considering a rules-parity incident resolved:
   - `monitoring/prometheus/prometheus.yml`
   - `monitoring/README.md`
   - `docs/operations/ALERTING_THRESHOLDS.md`
-  - `docs/OPERATIONS_DB.md`
+  - `docs/operations/OPERATIONS_DB.md`
 
 - **AI / training context (where Python rules are heavily exercised):**
   - `ai-service/AI_ASSESSMENT_REPORT.md`
   - `ai-service/AI_IMPROVEMENT_PLAN.md`
-  - `docs/AI_TRAINING_AND_DATASETS.md`
-  - `docs/AI_TRAINING_PREPARATION_GUIDE.md`
-  - `docs/AI_TRAINING_ASSESSMENT_FINAL.md`
+  - `docs/ai/AI_TRAINING_AND_DATASETS.md`
+  - `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`
+  - `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`
 
 Use this runbook as a **playbook for investigation and coordination**; always defer to the canonical rules SSoT (rules spec + shared TS engine), monitoring configs, and parity tests for the ground truth of what “correct” means.

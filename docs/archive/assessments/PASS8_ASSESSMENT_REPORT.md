@@ -45,7 +45,7 @@ Pass 8 is a **comprehensive reassessment** following Pass 7 remediation work. Th
 
 ### P0.1: ESLint Now CI-Blocking ✅
 
-**Evidence:** [`.github/workflows/ci.yml:69-70`](.github/workflows/ci.yml:69)
+**Evidence:** [`../../../.github/workflows/ci.yml:69-70`](../../../.github/workflows/ci.yml:69)
 
 ```yaml
 - name: Run ESLint
@@ -57,7 +57,7 @@ Pass 8 is a **comprehensive reassessment** following Pass 7 remediation work. Th
 
 ### P0.2: E2E Tests Now CI-Blocking ✅
 
-**Evidence:** [`.github/workflows/ci.yml:320-410`](.github/workflows/ci.yml:320)
+**Evidence:** [`../../../.github/workflows/ci.yml:320-410`](../../../.github/workflows/ci.yml:320)
 
 ```yaml
 e2e-tests:
@@ -75,7 +75,7 @@ e2e-tests:
 
 ### P0.3: Lint Fix Script Documented ✅
 
-**Evidence:** [`CONTRIBUTING.md:356-383`](CONTRIBUTING.md:356)
+**Evidence:** [`CONTRIBUTING.md:356-383`](../../../CONTRIBUTING.md:356)
 
 ````markdown
 ## 🔍 Code Quality
@@ -97,7 +97,7 @@ npm run lint:fix
 
 ### P1.1: Orchestrator Adapter Enabled in Staging ✅
 
-**Evidence:** [`src/server/index.ts:182-186`](src/server/index.ts:182)
+**Evidence:** [`../../../src/server/index.ts:182-186`](../../../src/server/index.ts:182)
 
 ```typescript
 // Log orchestrator adapter mode for observability
@@ -108,7 +108,7 @@ logger.info(`Orchestrator adapter mode: ${orchestratorEnabled ? 'ENABLED' : 'DIS
 });
 ````
 
-**Evidence:** [`.env.staging:117-118`](.env.staging:117)
+**Evidence:** [`../../../.env.staging:117-118`](../../../.env.staging:117)
 
 ```env
 # Orchestrator adapter for unified turn processing (Phase 3 migration)
@@ -119,7 +119,7 @@ ORCHESTRATOR_ADAPTER_ENABLED=true
 
 ### P1.2: Feature Flags Design for Phased Rollout ✅
 
-**Evidence:** [`docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`](docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md) (834 lines)
+**Evidence:** [`../ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`](../ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md) (834 lines)
 
 **Comprehensive design includes:**
 
@@ -189,7 +189,7 @@ With DevOps/CI remediated to 3.9, **Client UI/UX emerges as the primary weakness
 
 #### 1. Developer-Centric UI Design
 
-**Evidence:** [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) P1.1
+**Evidence:** [`../../../KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) P1.1
 
 The current UI is functional but built for developers, not players:
 
@@ -199,7 +199,7 @@ The current UI is functional but built for developers, not players:
 
 #### 2. GamePage Component Size
 
-**Evidence:** [`src/client/pages/GamePage.tsx`](src/client/pages/GamePage.tsx) - 2,144 lines
+**Evidence:** [`../../../src/client/pages/GamePage.tsx`](../../../src/client/pages/GamePage.tsx) - 2,144 lines
 
 **Issue:** Single monolithic component handling:
 
@@ -228,7 +228,7 @@ The current UI is functional but built for developers, not players:
 
 **Evidence:** E2E tests exist (85+) but Client UI/UX specific tests are limited:
 
-- Visual regression tests: 1 file ([`visual-regression.e2e.spec.ts`](tests/e2e/visual-regression.e2e.spec.ts))
+- Visual regression tests: 1 file ([`visual-regression.e2e.spec.ts`](../../../tests/e2e/visual-regression.e2e.spec.ts))
 - No dedicated UX interaction tests
 - Limited responsive design validation
 
@@ -252,7 +252,7 @@ The current UI is functional but built for developers, not players:
 
 ### Problem Statement
 
-The canonical turn orchestrator ([`turnOrchestrator.ts`](src/shared/engine/orchestration/turnOrchestrator.ts)) is complete and tested with adapters for both backend and client. The **production rollout** is now well-designed but requires careful execution across a 5-7 week timeline.
+The canonical turn orchestrator ([`turnOrchestrator.ts`](../../../src/shared/engine/orchestration/turnOrchestrator.ts)) is complete and tested with adapters for both backend and client. The **production rollout** is now well-designed but requires careful execution across a 5-7 week timeline.
 
 ### Why Difficulty Reduced from 5/5 to 4.5/5
 
@@ -328,9 +328,9 @@ flowchart LR
 
 ### Implementation Path (Now Well-Defined)
 
-1. **Implement Feature Flags** - Add 8 environment variables per [`ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`](docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md:186-250)
+1. **Implement Feature Flags** - Add 8 environment variables per [`ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`](../ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md:186-250)
 2. **Add Metrics** - Implement 12 Prometheus metrics per design
-3. **Configure Alerts** - Add 8 alert rules to [`alerts.yml`](monitoring/prometheus/alerts.yml)
+3. **Configure Alerts** - Add 8 alert rules to [`alerts.yml`](../../../monitoring/prometheus/alerts.yml)
 4. **Execute Shadow Mode** - Validate with production traffic
 5. **Gradual Rollout** - Follow 6-phase plan
 6. **Legacy Elimination** - Remove code after 100% rollout

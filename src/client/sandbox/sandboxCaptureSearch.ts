@@ -17,7 +17,7 @@
  *
  * @see docs/architecture/FSM_MIGRATION_STATUS_2025_12.md
  * @see docs/rules/SSOT_BANNER_GUIDE.md
- * @see docs/ORCHESTRATOR_ROLLOUT_PLAN.md Phase C
+ * @see docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md Phase C
  */
 import type { BoardState, BoardType, Position, RingStack } from '../../shared/engine';
 import { positionToString } from '../../shared/engine';

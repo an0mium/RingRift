@@ -416,7 +416,7 @@ Traceability for Family C (territory + line endgame):
   single-point swing, decision auto-exit) are referenced under the T3 territory axis in
   `RULES_SCENARIO_MATRIX.md` as the combined territory+line endgame contracts, alongside the square/hex
   region-then-elim multi-step sequences.
-- **Python parity:** `docs/PYTHON_PARITY_REQUIREMENTS.md` §8.5.3 names the same IDs as the canonical
+- **Python parity:** `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` §8.5.3 names the same IDs as the canonical
   TS↔Python contract surface for territory+line interactions; Python exercises them via the
   `territory_line_endgame.vectors.json` bundle in
   `ai-service/tests/contracts/test_contract_vectors.py` and the scenario parity suite

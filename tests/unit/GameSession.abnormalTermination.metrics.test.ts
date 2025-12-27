@@ -5,7 +5,7 @@
  * abnormal termination counters for active games, and skips them for
  * non-active games.
  *
- * Spec anchor: docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md (§2.4 / §4.3).
+ * Spec anchor: docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md (§2.4 / §4.3).
  */
 
 import { GameSession } from '../../src/server/game/GameSession';

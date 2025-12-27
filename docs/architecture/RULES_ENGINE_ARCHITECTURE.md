@@ -7,7 +7,7 @@
 >   - **TS shared engine** (`src/shared/engine/**`) is the _primary executable derivation_ of the canonical rules spec. If the TS engine and the canonical rules document disagree, that is a bug in the TS engine.
 >   - **Python AI service** (`ai-service/app/**`) is a _host adapter_ that must mirror the canonical rules. If Python disagrees with the canonical rules or the validated TS engine behaviour, Python must be updated—never the other way around.
 >   - **Backend, sandbox, replay** and other hosts similarly derive from the canonical rules via the shared engine; they must not introduce independent rules semantics.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` together with the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) define the executable Move + orchestrator + WebSocket lifecycle that this doc describes.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` together with the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) define the executable Move + orchestrator + WebSocket lifecycle that this doc describes.
 > - **Precedence:** If this document ever conflicts with the canonical rules spec or with the shared TS engine + orchestrator/contracts that faithfully implement it, **the canonical rules + tests win** and this document must be updated to match them.
 >
 > In other words, this file explains how hosts are wired around the canonical rules SSoT and its shared TS implementation; it does not introduce a separate semantics SSoT.
@@ -18,7 +18,7 @@
 **Doc Status (2025-11-26): Active (with historical/aspirational content)**
 
 - Canonical rules semantics SSoT is the written spec in `RULES_CANONICAL_SPEC.md` together with `../rules/COMPLETE_RULES.md` / `../rules/COMPACT_RULES.md`. The **shared TypeScript engine** under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts: `schemas.ts`, `serialization.ts`, `testVectorGenerator.ts` + v2 vectors under `tests/fixtures/contract-vectors/v2/`) is the primary executable derivation of that spec and must be kept in lockstep with the canonical rules.
-- Move/decision/WebSocket lifecycle semantics are documented in `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
+- Move/decision/WebSocket lifecycle semantics are documented in `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 - Backend (`GameEngine`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine/__init__.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this rules SSoT; they must remain parity-validated against the canonical rules spec + shared engine but are not independent sources of rules semantics.
 - Sections describing Python mutator-first refactors and future rollout phases should be read as **aspirational design** layered on top of the canonical rules SSoT (canonical rules spec plus shared TS engine), not as a redefinition of rules semantics.
 
@@ -106,7 +106,7 @@ important groups are:
   - Contract test runner (Python): [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py:1)
   - Test vectors: [`tests/fixtures/contract-vectors/v2/`](../../tests/fixtures/contract-vectors/v2) (90 vectors across the v2 bundles)
 
-The **canonical description of the Move/decision/WebSocket lifecycle and engine decision surfaces** lives in `docs/CANONICAL_ENGINE_API.md`. This architecture document focuses on how the shared TS rules engine (helpers → aggregates → orchestrator → contracts) is hosted by the backend, sandbox, and Python engines, and how the Python engine is rolled out as a parity-validated validation host.
+The **canonical description of the Move/decision/WebSocket lifecycle and engine decision surfaces** lives in `docs/architecture/CANONICAL_ENGINE_API.md`. This architecture document focuses on how the shared TS rules engine (helpers → aggregates → orchestrator → contracts) is hosted by the backend, sandbox, and Python engines, and how the Python engine is rolled out as a parity-validated validation host.
 
 ### Backend, Shared Engine, Orchestrator, and Sandbox Roles
 
@@ -1053,7 +1053,7 @@ of the sandbox AI matches the theoretical termination guarantees in
   - [`territory.py`](../../ai-service/app/rules/mutators/territory.py:1)
   - [`capture.py`](../../ai-service/app/rules/mutators/capture.py:1)
 - Topology & geometry overview:
-  - `docs/TOPOLOGY_MODES.md`
+  - `docs/architecture/TOPOLOGY_MODES.md`
 - Termination & sandbox AI:
   - `docs/supplementary/RULES_TERMINATION_ANALYSIS.md`
   - `src/client/sandbox/sandboxAI.ts`

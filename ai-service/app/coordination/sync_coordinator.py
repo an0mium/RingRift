@@ -143,7 +143,8 @@ from app.utils.paths import CONFIG_DIR, DATA_DIR
 from app.coordination.sync_constants import SyncPriority
 
 DEFAULT_COORDINATOR_DB = DATA_DIR / "coordination" / "sync_coordinator.db"
-HOST_CONFIG_PATH = CONFIG_DIR / "remote_hosts.yaml"
+# Canonical host configuration (December 2025 - consolidated from remote_hosts.yaml)
+HOST_CONFIG_PATH = CONFIG_DIR / "distributed_hosts.yaml"
 
 # Thresholds - import from centralized config (December 2025)
 try:
@@ -520,8 +521,8 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         except Exception as e:
             try:
                 conn.rollback()
-            except Exception:
-                pass
+            except sqlite3.Error as rollback_err:
+                logger.debug(f"[SyncCoordinator] Rollback after save state error: {rollback_err}")
             logger.warning(f"[SyncCoordinator] Failed to save state: {e}")
 
     def _load_host_config(self) -> None:
@@ -632,8 +633,8 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         except Exception as e:
             try:
                 conn.rollback()
-            except Exception:
-                pass
+            except sqlite3.Error as rollback_err:
+                logger.debug(f"[SyncCoordinator] Rollback after sync start error: {rollback_err}")
             logger.warning(f"[SyncCoordinator] Failed to record sync start: {e}")
             return -1
 
@@ -686,8 +687,8 @@ class SyncScheduler(CoordinatorBase, SQLitePersistenceMixin):
         except Exception as e:
             try:
                 conn.rollback()
-            except Exception:
-                pass
+            except sqlite3.Error as rollback_err:
+                logger.debug(f"[SyncCoordinator] Rollback after sync complete error: {rollback_err}")
             logger.warning(f"[SyncCoordinator] Failed to record sync complete: {e}")
             return
 

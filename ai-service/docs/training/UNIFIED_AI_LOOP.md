@@ -1,8 +1,14 @@
 # Unified AI Self-Improvement Loop
 
-> **Doc Status (2025-12-14): Active**
-> **Canonical Entrypoint:** `scripts/master_loop.py`
-> **Legacy Entrypoint:** `scripts/unified_ai_loop.py` (requires `RINGRIFT_UNIFIED_LOOP_LEGACY=1`)
+> **Doc Status (2025-12-26): LEGACY**
+>
+> **Canonical Entrypoint:** `scripts/master_loop.py` (use this)
+> **Legacy Entrypoint:** `scripts/unified_ai_loop.py` (deprecated, requires `RINGRIFT_UNIFIED_LOOP_LEGACY=1`)
+>
+> **Migration Note:** The monolithic unified_ai_loop.py is deprecated. Use master_loop.py with
+> the DaemonManager for better isolation, profile-based startup, and EventRouter integration.
+> Key features from unified_loop (data collection, local selfplay, pruning, holdout promotion)
+> are being ported to dedicated daemons.
 
 The unified loop architecture is now driven by `scripts/master_loop.py` plus the daemon stack. The
 legacy monolithic loop (`scripts/unified_ai_loop.py`) still exists for compatibility but defaults

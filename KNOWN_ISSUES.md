@@ -3,7 +3,7 @@
 > **Doc Status (2025-12-16): Active (code-verified issue tracker)**
 >
 > - Canonical list of current, code-verified issues and gaps.
-> - Not a rules or lifecycle SSoT; for rules semantics defer to `docs/rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
+> - Not a rules or lifecycle SSoT; for rules semantics defer to `docs/rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
 **Last Updated:** December 26, 2025
 **Status:** Code-verified assessment based on actual implementation
@@ -323,7 +323,7 @@ rather than a wider, non-technical audience.
 - Matchmaking and rating-based queue flows: the lobby supports listing/joining/creating (including private games), but there is no automated matchmaker, ladder queue, or cross-game pairing logic yet.
 - Additional reconnection UX polish and coverage for cross-device / multi-tab scenarios, including richer HUD signalling for “reconnecting” vs. “abandoned” states and tighter integration with the rated timeout/abandonment rules used in e2e tests.
 - Spectator UX enhancements and diagnostics: spectators currently have a solid read-only view and basic HUD hints, but there is still room for more explicit spectator-focused affordances (for example dedicated spectator panels, clearer handling of spectator disconnects, and improved replay/analysis tooling).
-- Ongoing lifecycle documentation: `docs/CANONICAL_ENGINE_API.md` now describes the canonical move/decision/WebSocket flows, but it should be kept in sync with newer features such as rematch, lobby subscriptions, and reconnection windows, and expanded with end-to-end examples from the client’s point of view.
+- Ongoing lifecycle documentation: `docs/architecture/CANONICAL_ENGINE_API.md` now describes the canonical move/decision/WebSocket flows, but it should be kept in sync with newer features such as rematch, lobby subscriptions, and reconnection windows, and expanded with end-to-end examples from the client’s point of view.
 
 **Impact:**
 

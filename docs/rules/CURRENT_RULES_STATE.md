@@ -7,8 +7,8 @@ A central navigation guide for developers to quickly locate all rules-related do
 > **Doc Status (2025-12-11): Active (with historical appendix)**
 > Index and navigation guide to rules specifications, implementation mapping, and verification/audit docs. This file is **not** a rules semantics SSoT; it points to the true SSoTs and their verification harnesses.
 
-- **Rules semantics SSoT:** The canonical rules documents (`RULES_CANONICAL_SPEC.md` together with `COMPLETE_RULES.md` / `COMPACT_RULES.md`) are the **single source of truth** for RingRift game semantics. The shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts), cross-language contracts and vectors (`src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `RULES_SCENARIO_MATRIX.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`) describe and validate the primary executable implementation of that spec.
-  > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+- **Rules semantics SSoT:** The canonical rules documents (`RULES_CANONICAL_SPEC.md` together with `COMPLETE_RULES.md` / `COMPACT_RULES.md`) are the **single source of truth** for RingRift game semantics. The shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts), cross-language contracts and vectors (`src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`, `RULES_SCENARIO_MATRIX.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`) describe and validate the primary executable implementation of that spec.
+  > - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
   > - Some linked documents (especially under `archive/` and older UX/audit reports) are **partially historical**; this file is kept current but intentionally points at both active and archived material.
   > - For high-level architecture/topology, see `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
   > - Rules consistency worklog (2025-12-11): `docs/rules/RULES_DOCS_CONSISTENCY_PASS_2025_12_11.md`.
@@ -74,7 +74,7 @@ Additional rules‑UX and onboarding specs:
 
 | Document                                                              | Description                | When to Use                                     |
 | --------------------------------------------------------------------- | -------------------------- | ----------------------------------------------- |
-| [docs/AI_TRAINING_AND_DATASETS.md](../ai/AI_TRAINING_AND_DATASETS.md) | AI alignment documentation | Training AI or ensuring rules consistency in AI |
+| [docs/ai/AI_TRAINING_AND_DATASETS.md](../ai/AI_TRAINING_AND_DATASETS.md) | AI alignment documentation | Training AI or ensuring rules consistency in AI |
 
 #### Decision timers and countdowns
 
@@ -104,7 +104,7 @@ Additional rules‑UX and onboarding specs:
 - **Backend TS & Python:** Both engines now treat `swap_sides` as a first‑class meta‑move for 2‑player games, with identical gating (P2’s ring_placement at the start of their first turn, `rulesOptions.swapRuleEnabled === true`, exactly after P1’s first non‑swap move, and at most once per game). Production remains TS‑authoritative; Python is used for validation, AI, and training.
 - **Client sandbox:** `ClientSandboxEngine` mirrors the backend pie‑rule gate and applies `swap_sides` locally for 2‑player sandbox games, with `/sandbox` exposing a “Swap colours (pie rule)” control once for P2 after P1’s opening move.
 - **AI training/eval:** Python training and soak harnesses now enable production‑style pie‑rule availability **by default** for 2‑player games by setting `rulesOptions.swapRuleEnabled: true` on initial states. For experiments that must run without the pie rule, callers can explicitly opt out via the `RINGRIFT_TRAINING_DISABLE_SWAP_RULE=1` flag. CMA‑ES/GA evaluation pipelines emit lightweight diagnostics on how often AIs select `swap_sides` during runs.
-  - **GPU self-play note:** `ai-service/app/ai/gpu_parallel_games.py` currently treats `swap_sides` as “offered but always declined” because GPU move histories do not yet record explicit `swap_sides` moves; see `ai-service/docs/GPU_PIPELINE_ROADMAP.md`.
+  - **GPU self-play note:** `ai-service/app/ai/gpu_parallel_games.py` currently treats `swap_sides` as “offered but always declined” because GPU move histories do not yet record explicit `swap_sides` moves; see `ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md`.
 
 ---
 

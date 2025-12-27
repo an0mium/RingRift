@@ -220,20 +220,20 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
 
 ### 2.1 Canonical Documentation Structure Established
 
-**Primary Navigation**: [`README.md`](README.md:1) and [`docs/INDEX.md`](docs/INDEX.md:1)
+**Primary Navigation**: [`README.md`](README.md:1) and [`docs/INDEX.md`](../docs/INDEX.md:1)
 
 **Canonical Documents** (Single Source of Truth):
 
 | Document                                                                                                                                                                       | Role                          | Status            |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ----------------- |
-| [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)                                                                                                                   | Authoritative rulebook        | ✅ Current        |
-| [`ringrift_compact_rules.md`](ringrift_compact_rules.md:1)                                                                                                                     | Implementation spec           | ✅ Current        |
+| [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)                                                                                                                   | Authoritative rulebook        | ✅ Current        |
+| [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1)                                                                                                                     | Implementation spec           | ✅ Current        |
 | [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1) | Factual implementation status | ✅ Updated Nov 22 |
-| [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:1)                                                                                                                   | System architecture & design  | ✅ Current        |
-| [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:1)                                                                                                                               | Phased development plan       | ✅ Updated Nov 22 |
-| [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:1)                                                                                                                                         | P0/P1/P2 issue tracker        | ✅ Updated Nov 22 |
-| [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)                                                                                                                                   | AI system design & plans      | ✅ Updated Nov 22 |
-| [`QUICKSTART.md`](QUICKSTART.md:1)                                                                                                                                             | Getting started guide         | ✅ Updated Nov 22 |
+| [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)                                                                                                                   | System architecture & design  | ✅ Current        |
+| [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)                                                                                                                               | Phased development plan       | ✅ Updated Nov 22 |
+| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1)                                                                                                                                         | P0/P1/P2 issue tracker        | ✅ Updated Nov 22 |
+| [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)                                                                                                                                   | AI system design & plans      | ✅ Updated Nov 22 |
+| [`QUICKSTART.md`](../QUICKSTART.md:1)                                                                                                                                             | Getting started guide         | ✅ Updated Nov 22 |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md:1)                                                                                                                                         | Contribution guidelines       | ✅ Current        |
 
 ### 2.2 Documentation Changes Made
@@ -254,26 +254,26 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
    - Documented all P0 task completions
    - Verified all backend/sandbox/AI components
 
-3. **STRATEGIC_ROADMAP.md** ([`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:1)):
+3. **STRATEGIC_ROADMAP.md** ([`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)):
    - Added "Implementation Roadmap (Post-Audit)" section
    - Documented P0/P1/P2 priorities with completion status
    - Updated phase completion markers
    - Added cross-references to TODO.md tracks
 
-4. **KNOWN_ISSUES.md** ([`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:1)):
+4. **KNOWN_ISSUES.md** ([`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1)):
    - Resolved P0.1 (forced elimination) - now auto-executed
    - Resolved P0.2 (chain capture edge cases) - tests added
    - Updated with completed implementation work
    - Clarified remaining gaps
 
-5. **AI_ARCHITECTURE.md** ([`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)):
+5. **AI_ARCHITECTURE.md** ([`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)):
    - Added difficulty-to-AI-type mapping table
    - Documented error handling & resilience architecture
    - Added UI integration details
    - Added RNG determinism section
    - Documented fallback hierarchy
 
-6. **QUICKSTART.md** ([`QUICKSTART.md`](QUICKSTART.md:1)):
+6. **QUICKSTART.md** ([`QUICKSTART.md`](../QUICKSTART.md:1)):
    - Added "Playing Against AI" section
    - Added "Understanding the Game HUD" section
    - Added "Finding and Joining Games" section
@@ -282,7 +282,7 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
 
 #### New Documents Created
 
-1. **docs/INDEX.md** ([`docs/INDEX.md`](docs/INDEX.md:1)):
+1. **docs/INDEX.md** ([`docs/INDEX.md`](../docs/INDEX.md:1)):
    - Minimal "Start Here" guide for implementers/designers
    - Lists canonical docs by category
    - Clear purpose statements for each document
@@ -508,13 +508,13 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
     [`turnLogic.ts`](src/shared/engine/turnLogic.ts:132) and surfaced to hosts via
     [`TurnMutator.ts`](src/shared/engine/mutators/TurnMutator.ts:1).
   - Backend `TurnEngine` and sandbox turn engines follow the same ladder (must move when possible → forced elimination when blocked with material → skip permanently dead players), as documented in
-    [`RULES_TERMINATION_ANALYSIS.md`](RULES_TERMINATION_ANALYSIS.md:1).
+    [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md:1).
   - Representative tests:
     [`GameEngine.turnSequence.scenarios.test.ts`](tests/unit/GameEngine.turnSequence.scenarios.test.ts:1),
     [`SandboxAI.ringPlacementNoopRegression.test.ts`](tests/unit/SandboxAI.ringPlacementNoopRegression.test.ts:1),
     [`ClientSandboxEngine.aiSimulation.test.ts`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts:1),
     and the various AI stall / plateau regression suites referenced from
-    [`tests/README.md`](tests/README.md:587).
+    [`tests/README.md`](../tests/README.md:587).
 
 **Result**: Backend and sandbox engines now treat the shared `src/shared/engine/*` modules as the canonical rules core. Host-specific code is responsible for IO concerns (networking, persistence, AI, UI) and thin adaptation only, with behaviour continuously validated by shared-helper unit tests, parity harnesses, and RulesMatrix/FAQ scenario suites.
 
@@ -699,7 +699,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 #### 1. Rules Fidelity & Engine Correctness
 
-- **Canonical rulebook** ([`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)) serves as single source of truth
+- **Canonical rulebook** ([`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)) serves as single source of truth
 - **Comprehensive implementation** of all core mechanics:
   - Movement with stack height requirements
   - Overtaking captures and chain captures
@@ -1208,7 +1208,7 @@ RingRift's implementation is **faithful to the documented rules**:
 - Distance ≥ stack height requirement enforced
 - Marker flipping on traversal
 - Landing restrictions (cannot land on opponent markers)
-- All validated against [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)
+- All validated against [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)
 
 ✅ **Capture System**:
 
@@ -1500,7 +1500,7 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Read [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:1)
+1. Read [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)
 2. Review [`GameEngine.ts`](src/server/game/GameEngine.ts:1) and [`RuleEngine.ts`](src/server/game/RuleEngine.ts:1)
 3. Study `/game/:gameId` flow in [`GameSession.ts`](src/server/game/GameSession.ts:1)
 4. Run integration tests to understand request/response patterns
@@ -1532,7 +1532,7 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Read [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)
+1. Read [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)
 2. Review Python AI implementations in [`ai-service/app/ai/`](ai-service/app/ai/)
 3. Study [`DefaultRulesEngine`](ai-service/app/rules/default_engine.py:1) for parity
 4. Run tournament framework in [`run_ai_tournament.py`](ai-service/scripts/run_ai_tournament.py:1)
@@ -1548,7 +1548,7 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Read [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) thoroughly
+1. Read [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) thoroughly
 2. Play games in `/sandbox` to understand mechanics
 3. Test all board types and player counts
 4. Review FAQ scenarios in rules docs
@@ -1740,7 +1740,7 @@ graph TD
 
 - **Game rules &amp; parity**
   - [`GameEngine`](src/server/game/GameEngine.ts:1) orchestrates phases, uses [`RuleEngine`](src/server/game/RuleEngine.ts:1) for validation, and ultimately uses shared core functions in [`src/shared/engine`](src/shared/engine/types.ts:1) (e.g., S‑invariant, reachability, capture/territory mutators).
-  - [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1) and [`PythonRulesClient`](src/server/services/PythonRulesClient.ts:1) optionally delegate validation/parity checks to the Python rules engine per [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1) and [`envFlags.getRulesMode`](src/shared/utils/envFlags.ts:61).
+  - [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1) and [`PythonRulesClient`](src/server/services/PythonRulesClient.ts:1) optionally delegate validation/parity checks to the Python rules engine per [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1) and [`envFlags.getRulesMode`](src/shared/utils/envFlags.ts:61).
 
 - **AI integration**
   - AI players are configured in [`GameSession.initialize`](src/server/game/GameSession.ts:64) via `aiOpponents` embedded in `game.gameState`.
@@ -1780,7 +1780,7 @@ Risk levels:
   - WebSocket transport via [`WebSocketServer`](src/server/websocket/server.ts:1).
   - Game domain model in [`GameEngine`](src/server/game/GameEngine.ts:1), [`RuleEngine`](src/server/game/RuleEngine.ts:1), [`BoardManager`](src/server/game/BoardManager.ts:1).
   - Session orchestration and concurrency via [`GameSession`](src/server/game/GameSession.ts:1) and [`GameSessionManager`](src/server/game/GameSessionManager.ts:1).
-  - AI boundary and rules delegation via `RulesBackendFacade` and Python rules engine (see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)).
+  - AI boundary and rules delegation via `RulesBackendFacade` and Python rules engine (see [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
 - Shared core types &amp; logic under [`src/shared/`](src/shared/types/game.ts:1) are already used by server, client, and AI, with a functional `shared/engine` designed as the canonical rules source.
 - Python AI service forms a **separate microservice** but is integrated in a controlled, defensive way.
 
@@ -1788,20 +1788,20 @@ Risk levels:
 
 - **Clear layering and abstractions**
   - Domain logic is mostly separate from transport (WebSocket/HTTP) and persistence.
-  - Rules logic is shared and well-documented in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1).
+  - Rules logic is shared and well-documented in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1).
 
 - **Strong rules architecture**
   - Canonical `GameState`, `Move`, `PlayerChoice` types in [`game.ts`](src/shared/types/game.ts:1) with detailed commentary on phases/Move types.
   - S‑invariant, board invariants, and termination ladder are carefully encoded and tested.
 
 - **Pragmatic monolith**
-  - [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:1) correctly recommends staying monolithic; the codebase aligns with that guidance.
+  - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1) correctly recommends staying monolithic; the codebase aligns with that guidance.
   - Only the AI/rules microservice is separated, for domain-specific reasons.
 
 #### Gaps &amp; Risks
 
 1. **Rules authority and multi-engine complexity**
-   - **Issue:** Two engines (TS and Python) plus a client sandbox and a shared-core layer introduce complex parity guarantees and failure modes. While [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1) describes a robust strategy (`ts`, `python`, `shadow` via [`getRulesMode`](src/shared/utils/envFlags.ts:61)), actually operating `shadow` / `python` modes safely in production requires high confidence in parity and latency.
+   - **Issue:** Two engines (TS and Python) plus a client sandbox and a shared-core layer introduce complex parity guarantees and failure modes. While [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1) describes a robust strategy (`ts`, `python`, `shadow` via [`getRulesMode`](src/shared/utils/envFlags.ts:61)), actually operating `shadow` / `python` modes safely in production requires high confidence in parity and latency.
    - **Why it matters:** If TS and Python disagree on legality or final state, you can get inconsistent game results, unfair losses, or corrupted ratings.
    - **Risk level:** **P0** (rules correctness and fairness).
 
@@ -1852,7 +1852,7 @@ Risk levels:
 
 - **Rich type system and documentation**
   - Shared types file [`game.ts`](src/shared/types/game.ts:1) is effectively executable documentation of rules and phases.
-  - Detailed architecture docs: [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:1), [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1), [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1).
+  - Detailed architecture docs: [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1), [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1).
 
 - **Separation of concerns within modules**
   - Rules validation in [`RuleEngine`](src/server/game/RuleEngine.ts:1) vs orchestration in [`GameEngine`](src/server/game/GameEngine.ts:1).
@@ -1884,10 +1884,10 @@ Risk levels:
 
 - **R2.1 – Curate and label documentation**
   - Move truly obsolete docs into an `archive/` directory and keep only:
-    - [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:1)
+    - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)
     - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)
-    - [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:1)
-    - [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)
+    - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)
+    - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)
     - Active P0/P1 lists (`KNOWN_ISSUES.md`, TODO/roadmap).
   - Update `.env.example` rule-mode comments to match [`envFlags`](src/shared/utils/envFlags.ts:61) (`ts`, `python`, `shadow`).
 
@@ -1971,12 +1971,12 @@ Risk levels:
     - `ClientSandboxEngine`.
 - Test suites (from file structure and docs):
   - Unit tests for rules and board (e.g., [`BoardManager.test`](tests/unit/BoardManager.test.ts:1), `RuleEngine.*.test.ts`, `GameEngine.*.test.ts`).
-  - Scenario/FAQ suites: [`tests/scenarios/FAQ_*.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1), [`RULES_SCENARIO_MATRIX`](RULES_SCENARIO_MATRIX.md:1).
+  - Scenario/FAQ suites: [`tests/scenarios/FAQ_*.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1), [`RULES_SCENARIO_MATRIX`](../docs/rules/RULES_SCENARIO_MATRIX.md:1).
   - Integration tests:
     - Full game flow, lobby, reconnection, AI resilience ([`tests/integration/*.test.ts`](tests/integration/AIResilience.test.ts:1)).
   - Parity &amp; AI simulation tests:
     - Sandbox vs backend AI simulation: [`ClientSandboxEngine.aiSimulation`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts:1), [`Sandbox_vs_Backend.aiRngFullParity`](tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1).
-    - Python vs TS parity tests (in `ai-service/tests` and TS parity harness tests referenced by [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)).
+    - Python vs TS parity tests (in `ai-service/tests` and TS parity harness tests referenced by [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
 
 #### Key Strengths
 
@@ -2225,7 +2225,7 @@ Risk levels:
   - Game-specific metrics in [`rulesParityMetrics`](src/server/utils/rulesParityMetrics.ts:1), including:
     - WebSocket connections gauge.
     - Per-move latency histograms.
-    - Rules parity mismatch counters (per [`RULES_ENGINE_ARCHITECTURE`](RULES_ENGINE_ARCHITECTURE.md:1)).
+    - Rules parity mismatch counters (per [`RULES_ENGINE_ARCHITECTURE`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
   - Python AI service uses `prometheus_client` (per [`ai-service/requirements.txt`](ai-service/requirements.txt:11)).
 
 #### Key Strengths
@@ -2237,7 +2237,7 @@ Risk levels:
   - Logs are JSON; they’re ready to feed into ELK/Datadog/Grafana.
 
 - **AI and parity metrics**
-  - The design in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1) includes per-engine parity and mutator-first mismatch counters.
+  - The design in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1) includes per-engine parity and mutator-first mismatch counters.
 
 #### Gaps &amp; Risks
 
@@ -2426,17 +2426,17 @@ Risk levels:
 
 - Documentation:
   - Architecture and status:
-    - [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:1)
+    - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)
     - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)
-    - [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:1)
-    - [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)
+    - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)
+    - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)
   - Rules:
-    - [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) and compact rules.
-    - [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:1) and FAQ test implementation summaries such as [`FAQ_TEST_IMPLEMENTATION_SUMMARY.md`](FAQ_TEST_IMPLEMENTATION_SUMMARY.md:1).
+    - [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) and compact rules.
+    - [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1) and FAQ test implementation summaries such as [`FAQ_TEST_IMPLEMENTATION_SUMMARY.md`](FAQ_TEST_IMPLEMENTATION_SUMMARY.md:1).
   - Testing:
-    - [`tests/README.md`](tests/README.md:1)
+    - [`tests/README.md`](../tests/README.md:1)
   - Quickstart:
-    - [`QUICKSTART.md`](QUICKSTART.md:1), [`README.md`](README.md:1).
+    - [`QUICKSTART.md`](../QUICKSTART.md:1), [`README.md`](README.md:1).
 
 #### Key Strengths
 
@@ -2522,7 +2522,7 @@ This roadmap assumes you are targeting a “serious production launch” with re
 
 2. **Enforce backend–sandbox–Python parity for core flows**
    - Make key parity suites (backend vs sandbox vs Python, including trace fixtures) part of required CI:
-     - TS vs Python parity tests (as described in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)).
+     - TS vs Python parity tests (as described in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
      - Sandbox vs backend AI parity tests such as [`Sandbox_vs_Backend.aiRngFullParity`](tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1).
    - Only allow `RINGRIFT_RULES_MODE=shadow` in staging and `ts` in prod until shadow shows **zero mismatches** over a satisfactory period.
 
@@ -2597,10 +2597,10 @@ This roadmap assumes you are targeting a “serious production launch” with re
 **Strategic rules architecture**
 
 13. **Complete migration to shared functional engine (remaining host glue only)**
-    - Follow the strangler-fig plan from [`ARCHITECTURE_ASSESSMENT.md`](ARCHITECTURE_ASSESSMENT.md:76), recognising that the bulk of the work has now been delivered:
-      - **Already in place:** Movement & captures, line detection/processing, territory detection/borders/processing, placement (including no-dead-placement), victory, and turn sequencing all live primarily in `src/shared/engine/*` and are consumed by backend and sandbox hosts via shared validators/mutators and geometry helpers, with behaviour enforced by shared-helper and parity suites (see [`tests/README.md`](tests/README.md:431) and [`tests/TEST_SUITE_PARITY_PLAN.md`](tests/TEST_SUITE_PARITY_PLAN.md:28)).
+    - Follow the strangler-fig plan from [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:76), recognising that the bulk of the work has now been delivered:
+      - **Already in place:** Movement & captures, line detection/processing, territory detection/borders/processing, placement (including no-dead-placement), victory, and turn sequencing all live primarily in `src/shared/engine/*` and are consumed by backend and sandbox hosts via shared validators/mutators and geometry helpers, with behaviour enforced by shared-helper and parity suites (see [`tests/README.md`](../tests/README.md:431) and [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md:28)).
       - **Still to do:** Identify and retire any remaining host-local rule forks or ad-hoc geometry helpers that duplicate shared semantics, replacing them with thin adapters over shared helpers where possible.
-      - **Python parity:** Keep the Python engine in lockstep with the shared TypeScript engine via fixture-driven parity tests and the trace-level suites described in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:42) and [`tests/TEST_SUITE_PARITY_PLAN.md`](tests/TEST_SUITE_PARITY_PLAN.md:181).
+      - **Python parity:** Keep the Python engine in lockstep with the shared TypeScript engine via fixture-driven parity tests and the trace-level suites described in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:42) and [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md:181).
 
 14. **Consider enabling Python rules authoritative mode**
     - Once shadow mode has been stable for a sustained period:
@@ -2611,7 +2611,7 @@ This roadmap assumes you are targeting a “serious production launch” with re
 
 15. **AI strength and training pipeline**
     - Invest in:
-      - Training a neural policy/value network for RingRift (see [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)).
+      - Training a neural policy/value network for RingRift (see [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)).
       - Tuning think-time budgets and difficulty ladder.
       - Using replay data for RL (recording games in DB with proper schema and retention).
 

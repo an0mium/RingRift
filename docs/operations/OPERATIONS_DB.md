@@ -1,7 +1,7 @@
 # RingRift Database Operations & Migrations
 
 > **Doc Status (2025-11-27): Active**  
-> Canonical operational reference for running the Postgres database and Prisma migrations across local, staging, and production environments. This is not a rules or lifecycle SSoT; it complements `ENVIRONMENT_VARIABLES.md`, `DEPLOYMENT_REQUIREMENTS.md`, and `DOCUMENTATION_INDEX.md` for overall deployment architecture.
+> Canonical operational reference for running the Postgres database and Prisma migrations across local, staging, and production environments. This is not a rules or lifecycle SSoT; it complements `ENVIRONMENT_VARIABLES.md`, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`, and `DOCUMENTATION_INDEX.md` for overall deployment architecture.
 
 This playbook describes how to operate the Postgres database that backs RingRift across local development, staging, and production.
 

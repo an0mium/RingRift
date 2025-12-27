@@ -509,7 +509,7 @@ class TrainConfig:
     # "<repo_root>/ai-service/models/<nn_model_id>.pth".
     #
     # NOTE: "v4"/"v5" are model-id / checkpoint lineage prefixes, not Python
-    # architecture class names. See docs/MPS_ARCHITECTURE.md.
+    # architecture class names. See ai-service/docs/architecture/MPS_ARCHITECTURE.md.
     #
     # Default to the preferred square8 2p v3-family checkpoint lineage ("v5").
     # V2-family checkpoints ("v4") remain supported as a fallback.

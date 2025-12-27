@@ -6,8 +6,8 @@
 > **SSoT alignment:** This document is a **derived** framework over:
 
 - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `COMPLETE_RULES.md`, `COMPACT_RULES.md`, and the shared TS engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
-  > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared TS/WebSocket types & schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
-  > - **Parity & invariants meta-docs:** `docs/RULES_SSOT_MAP.md` §7, `docs/PYTHON_PARITY_REQUIREMENTS.md`, and `docs/testing/STRICT_INVARIANT_SOAKS.md`.
+  > - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and shared TS/WebSocket types & schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+  > - **Parity & invariants meta-docs:** `docs/rules/RULES_SSOT_MAP.md` §7, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, and `docs/testing/STRICT_INVARIANT_SOAKS.md`.
   > - **Operational SSoTs:** Orchestrator rollout and observability docs (`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`, `docs/operations/ALERTING_THRESHOLDS.md`) and monitoring config under `monitoring/**`.
   >
   > **Precedence:** If this document ever conflicts with the shared TS engine, contract vectors, Python mirror, or their tests (including orchestrator soaks and strict-invariant soaks), **code + tests win** and this document must be updated.
@@ -43,9 +43,9 @@ The goals of this framework are:
 
 **Relationship to other docs**
 
-- [`docs/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262) already contains a short "Invariants & Soaks Overview"; this framework expands that section into a structured catalogue with IDs and mappings.
+- [`docs/rules/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262) already contains a short "Invariants & Soaks Overview"; this framework expands that section into a structured catalogue with IDs and mappings.
 - [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:12) is the operational recipe for strict no‑move and S‑invariant soaks; this doc treats those soaks as **implementations** of the invariant IDs below.
-- [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) defines function/type-level parity between TS and Python; this doc focuses on **behavioural** and **host-level** parity.
+- [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) defines function/type-level parity between TS and Python; this doc focuses on **behavioural** and **host-level** parity.
 
 ## 2. Invariant Catalogue
 
@@ -121,7 +121,7 @@ This section defines the canonical invariants we care about operationally. Each 
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **TS tests**             | Shared-engine S‑invariant tests such as [`ProgressSnapshot.core.test.ts`](../../tests/unit/ProgressSnapshot.core.test.ts:1), [`SharedMutators.invariants.test.ts`](../../tests/unit/SharedMutators.invariants.test.ts:1), scenario tests around late‑game progress.                                                                                                              |
 | **TS soaks**             | [`run-orchestrator-soak.ts`](../../scripts/run-orchestrator-soak.ts:1) checks `S` and `totalRingsEliminated` on every turn, emitting `S_INVARIANT_DECREASED` and `TOTAL_RINGS_ELIMINATED_DECREASED` violations. Regression seeds may be promoted into [`OrchestratorSInvariant.regression.test.ts`](../../tests/unit/OrchestratorSInvariant.regression.test.ts:1).               |
-| **Python tests / soaks** | Parity of `compute_progress_snapshot` vs `computeProgressSnapshot` validated indirectly via contract vectors and parity tests described in [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:277). No dedicated Python S‑monotonic soak yet (gap).                                                                                                            |
+| **Python tests / soaks** | Parity of `compute_progress_snapshot` vs `computeProgressSnapshot` validated indirectly via contract vectors and parity tests described in [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:277). No dedicated Python S‑monotonic soak yet (gap).                                                                                                            |
 | **Ops / alerts**         | Violations from the TS soak harness flow into the same invariant metrics and `OrchestratorInvariantViolations*` alerts as `INV-STATE-STRUCTURAL`. Long‑running games that frequently hit `maxTurns` in soak summaries (see [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json:1)) are treated as soft signals of potential progress issues. |
 
 ### 2.3 Active-No-Moves: Global Legal Actions for the Active Player
@@ -255,7 +255,7 @@ Intuitively, ANM means "P still has material but literally no way to act": no pl
 **Motivation**
 
 - Prevents composite phases from stranding the current player with no decisions (ANM-SCEN-04 / ANM-SCEN-05) and ensures that permanently eliminated players do not continue to receive turns while others still have rings in play (ANM-SCEN-03 / ANM-SCEN-08).
-- Documented in [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:69), the ANM scenario catalogue [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](ACTIVE_NO_MOVES_BEHAVIOUR.md:100), and the Python active-no-moves regression tests.
+- Documented in [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:69), the ANM scenario catalogue [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](ACTIVE_NO_MOVES_BEHAVIOUR.md:100), and the Python active-no-moves regression tests.
 
 **Enforcement mapping**
 
@@ -677,13 +677,13 @@ This section lists concrete, tagged follow‑ups for subsequent tasks. Each bull
 ### 6.4 P17.B5-ASK – Docs Narrative Unification
 
 - **B5‑1 – Link existing docs to this framework** (all IDs)
-  - Update [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:262), [`docs/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262), and [`docs/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) to reference this file by name and reuse invariant/parity IDs where they discuss the same concepts.
+  - Update [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:262), [`docs/rules/RULES_SSOT_MAP.md`](RULES_SSOT_MAP.md:262), and [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md:19) to reference this file by name and reuse invariant/parity IDs where they discuss the same concepts.
 
 - **B5‑2 – Clarify canonical invariant naming** (`INV-S-MONOTONIC`, `INV-ACTIVE-NO-MOVES`)
   - Replace ad‑hoc labels like "strict no‑move invariant" and "S invariant" in scattered docs with explicit references to the IDs defined here, improving searchability and SSoT alignment.
 
 - **B5‑3 – Centralise parity story** (`PARITY-TS-PY-*`, `PARITY-BACKEND-SANDBOX-TS`)
-  - Ensure parity docs (`PYTHON_PARITY_REQUIREMENTS`, `RULES_ENGINE_ARCHITECTURE`, `RULES_IMPLEMENTATION_MAPPING`, `docs/PARITY_SEED_TRIAGE.md`) share a common short description of each parity ID and link back here rather than duplicating ad‑hoc descriptions.
+  - Ensure parity docs (`PYTHON_PARITY_REQUIREMENTS`, `RULES_ENGINE_ARCHITECTURE`, `RULES_IMPLEMENTATION_MAPPING`, `docs/rules/PARITY_SEED_TRIAGE.md`) share a common short description of each parity ID and link back here rather than duplicating ad‑hoc descriptions.
 
 ### 6.5 P17.B6-DEBUG – AI Self-Play Health Checks
 

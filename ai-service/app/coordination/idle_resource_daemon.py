@@ -20,9 +20,11 @@ Usage:
 from __future__ import annotations
 
 __all__ = [
+    "ClusterIdleState",
     "ConfigSpawnHistory",
     "IdleResourceConfig",
     "IdleResourceDaemon",
+    "NodeIdleState",
     "NodeSpawnHistory",
     "NodeStatus",
     "SpawnAttempt",
@@ -241,6 +243,50 @@ class SpawnStats:
     last_error: str | None = None
 
 
+@dataclass
+class NodeIdleState:
+    """Idle state for a single node - broadcasted to cluster (December 2025).
+
+    This enables cluster-wide visibility into which nodes have idle resources,
+    allowing better coordination of job distribution and load balancing.
+    """
+    node_id: str
+    host: str
+    is_idle: bool
+    gpu_utilization: float
+    gpu_memory_free_gb: float
+    gpu_memory_total_gb: float
+    idle_duration_seconds: float
+    recommended_config: str
+    provider: str
+    timestamp: float = field(default_factory=time.time)
+    active_jobs: int = 0
+
+
+@dataclass
+class ClusterIdleState:
+    """Aggregated cluster-wide idle state (December 2025).
+
+    Provides a complete picture of idle resources across the cluster,
+    enabling optimal job placement decisions.
+    """
+    total_nodes: int
+    idle_nodes: int
+    total_idle_gpu_memory_gb: float
+    nodes: list[NodeIdleState] = field(default_factory=list)
+    timestamp: float = field(default_factory=time.time)
+
+    @property
+    def idle_ratio(self) -> float:
+        """Fraction of nodes that are idle."""
+        return self.idle_nodes / max(1, self.total_nodes)
+
+    @property
+    def has_idle_capacity(self) -> bool:
+        """Check if cluster has any idle capacity."""
+        return self.idle_nodes > 0
+
+
 class IdleResourceDaemon:
     """Daemon that monitors idle resources and spawns selfplay jobs.
 
@@ -269,6 +315,12 @@ class IdleResourceDaemon:
         self._base_backoff_seconds: float = 60.0  # 1 minute initial backoff
         self._max_backoff_seconds: float = 1800.0  # 30 minutes max backoff
         self._max_consecutive_failures: int = 5  # Cap for exponential backoff
+
+        # Cluster-wide state tracking (December 2025)
+        self._cluster_idle_states: dict[str, NodeIdleState] = {}
+        self._last_broadcast_time: float = 0.0
+        self._broadcast_interval: float = 30.0  # Broadcast local state every 30s
+        self._state_stale_threshold: float = 120.0  # States older than 2min are stale
 
         # CoordinatorProtocol state
         self._coordinator_status = CoordinatorStatus.INITIALIZING

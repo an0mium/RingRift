@@ -244,7 +244,7 @@ Games were reaching `gameStatus=active` with no valid candidate moves per the `i
 
 ### 4.2 Test Categories
 
-Documented in `docs/TEST_CATEGORIES.md`:
+Documented in `docs/testing/TEST_CATEGORIES.md`:
 
 - **CI-gated:** Core tests that must pass for merge
 - **Diagnostic:** Extended parity, AI simulation, trace debugging
@@ -382,5 +382,5 @@ Documented in `docs/TEST_CATEGORIES.md`:
 | `STRATEGIC_ROADMAP.md`    | Phased roadmap to MVP   |
 | `KNOWN_ISSUES.md`         | P0/P1 issues and gaps   |
 | `TODO.md`                 | Phase/task tracker      |
-| `docs/TEST_CATEGORIES.md` | Test organization guide |
+| `docs/testing/TEST_CATEGORIES.md` | Test organization guide |
 | `DOCUMENTATION_INDEX.md`  | Full docs map           |

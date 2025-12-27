@@ -13,7 +13,7 @@
 >   - [`docs/MODULE_RESPONSIBILITIES.md`](MODULE_RESPONSIBILITIES.md) (helpers → aggregates → orchestrator → contracts).
 >   - [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md).
 > - For the **canonical Move / PendingDecision / PlayerChoice / WebSocket lifecycle**, see:
->   - [`docs/CANONICAL_ENGINE_API.md` §3.9–3.10](CANONICAL_ENGINE_API.md).
+>   - [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](CANONICAL_ENGINE_API.md).
 >
 > Use this document as a **design reference** when evolving the aggregate internals, not as the sole source of truth about the current file layout.
 
@@ -1361,7 +1361,7 @@ The aggregate design here feeds into the **canonical orchestrator layer**, which
 
 Host adapters (backend `TurnEngineAdapter`, sandbox `SandboxOrchestratorAdapter`, Python `game_engine/__init__.py`) consume the orchestrator and expose **Move-centric** APIs. For the end-to-end Move/decision/WebSocket lifecycle, defer to:
 
-- `docs/CANONICAL_ENGINE_API.md` (Move lifecycle SSoT).
+- `docs/architecture/CANONICAL_ENGINE_API.md` (Move lifecycle SSoT).
 
 AI/evaluation modules live alongside aggregates as **consumers** of these semantics:
 
@@ -1608,4 +1608,4 @@ When making future changes:
 
 - Treat **helpers → aggregates → orchestrator → contracts** as the canonical executable rules surface derived from the written rules SSoT (`RULES_CANONICAL_SPEC.md` plus the Complete/Compact rules docs).
 - Use this document to reason about **where responsibilities should live** inside aggregates.
-- Use `docs/MODULE_RESPONSIBILITIES.md` and `docs/CANONICAL_ENGINE_API.md` to understand the **current implemented surface and lifecycles**.
+- Use `docs/MODULE_RESPONSIBILITIES.md` and `docs/architecture/CANONICAL_ENGINE_API.md` to understand the **current implemented surface and lifecycles**.

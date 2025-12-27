@@ -53,7 +53,7 @@ import { BoardManager } from './BoardManager';
  * not define independent rules semantics. When in doubt, change the shared
  * engine under `src/shared/engine/**` and update this adapter to call into
  * it, following the ownership documented in
- * `docs/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
+ * `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
  */
 
 export class RuleEngine {

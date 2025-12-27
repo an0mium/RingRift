@@ -232,6 +232,7 @@ class ConnectionInfo:
     ssh_port: int = 22
     ssh_key: str | None = None
     nat_blocked: bool = False
+    nat_blocked_since: float | None = None  # Timestamp when NAT block started
     relay_via: str = ""
     data_server_port: int = 8766
 

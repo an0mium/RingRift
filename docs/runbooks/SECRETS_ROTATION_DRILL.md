@@ -5,10 +5,10 @@
 >
 > **SSoT alignment:** This runbook is a derived operational procedure over:
 >
-> - `docs/SECRETS_MANAGEMENT.md` – canonical secrets inventory and rotation guidance
-> - `docs/ENVIRONMENT_VARIABLES.md` – authoritative list of env vars and types
-> - `docs/OPERATIONS_DB.md` – database operations and migration workflow
-> - `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` and `docs/SECURITY_THREAT_MODEL.md` – supply‑chain and security posture
+> - `docs/operations/SECRETS_MANAGEMENT.md` – canonical secrets inventory and rotation guidance
+> - `docs/operations/ENVIRONMENT_VARIABLES.md` – authoritative list of env vars and types
+> - `docs/operations/OPERATIONS_DB.md` – database operations and migration workflow
+> - `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md` and `docs/security/SECURITY_THREAT_MODEL.md` – supply‑chain and security posture
 >
 > **Precedence:** Env schema/validation (`src/server/config/env.ts`, `src/server/config/unified.ts`), secrets validation (`src/server/utils/secretsValidation.ts`), and deployment manifests (Docker/Kubernetes) are authoritative. If this runbook conflicts with them, **code + configs win** and this document must be updated.
 
@@ -40,9 +40,9 @@ For production, treat this runbook as a template and adapt it to your secret man
 
 Before starting, skim:
 
-- `docs/SECRETS_MANAGEMENT.md` – especially “Secret Rotation Procedures”.
-- `docs/OPERATIONS_DB.md` – database expectations and backup patterns.
-- `docs/DATA_LIFECYCLE_AND_PRIVACY.md` – backup and retention principles (see §3.5).
+- `docs/operations/SECRETS_MANAGEMENT.md` – especially “Secret Rotation Procedures”.
+- `docs/operations/OPERATIONS_DB.md` – database expectations and backup patterns.
+- `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md` – backup and retention principles (see §3.5).
 
 Recommended **pre‑drill validation commands** (from the project root):
 
@@ -183,7 +183,7 @@ If the automated validation, health checks, auth smoke, and monitoring all look 
 
 This drill rotates the database user/password used by the app by introducing a new user, switching the app over, then retiring the old user.
 
-> **Note:** Adjust usernames/roles to match your staging configuration from `docs/OPERATIONS_DB.md` and `docs/ENVIRONMENT_VARIABLES.md`.
+> **Note:** Adjust usernames/roles to match your staging configuration from `docs/operations/OPERATIONS_DB.md` and `docs/operations/ENVIRONMENT_VARIABLES.md`.
 
 ### 4.1 Create a new DB user
 
@@ -287,7 +287,7 @@ For production environments:
 - Coordinate rotations with:
   - Shortened token lifetimes where necessary.
   - Planned maintenance windows or blue/green deployments.
-- For JWT keys, consider implementing the **key‑versioning** pattern described in `docs/SECRETS_MANAGEMENT.md` (“Zero‑Downtime Rotation (Advanced)”) before attempting live rotation.
-- Ensure database user changes are compatible with your migration/deployment workflows in `docs/OPERATIONS_DB.md` and `docs/runbooks/DATABASE_MIGRATION.md`.
+- For JWT keys, consider implementing the **key‑versioning** pattern described in `docs/operations/SECRETS_MANAGEMENT.md` (“Zero‑Downtime Rotation (Advanced)”) before attempting live rotation.
+- Ensure database user changes are compatible with your migration/deployment workflows in `docs/operations/OPERATIONS_DB.md` and `docs/runbooks/DATABASE_MIGRATION.md`.
 
 The same core principle applies as with backups: rotations should be **practised and boring** in staging before they are attempted in production.

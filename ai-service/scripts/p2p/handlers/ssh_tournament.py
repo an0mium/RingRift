@@ -1,11 +1,24 @@
 """SSH Tournament HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides SSH-distributed tournament management endpoints.
+Provides HTTP endpoints for SSH-distributed tournament execution.
+Enables tournament matches to be executed directly on remote nodes
+via SSH, bypassing the HTTP API for lower latency.
 
 Usage:
     class P2POrchestrator(SSHTournamentHandlersMixin, ...):
         pass
+
+Endpoints:
+    POST /ssh-tournament/start - Start SSH-based tournament (leader only)
+    GET /ssh-tournament/status - Get SSH tournament status
+    POST /ssh-tournament/run - Execute tournament run on specific node
+    GET /ssh-tournament/runs - List active SSH tournament runs
+    POST /ssh-tournament/stop - Stop SSH tournament run
+
+SSH Execution:
+    Matches executed via SSH to remote nodes, allowing direct process
+    control and output capture. Useful when HTTP API overhead is a concern
+    or when nodes need to execute specific Python scripts directly.
 """
 
 from __future__ import annotations

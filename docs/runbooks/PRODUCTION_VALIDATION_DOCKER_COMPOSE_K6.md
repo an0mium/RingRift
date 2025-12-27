@@ -168,7 +168,7 @@ If k6 or dashboards reveal issues:
 Record any permanent limit changes back into:
 
 - `docker-compose.yml` (for local/staging).
-- `docs/DEPLOYMENT_REQUIREMENTS.md` and `docs/TOPOLOGY_MODES.md` for production expectations.
+- `docs/planning/DEPLOYMENT_REQUIREMENTS.md` and `docs/architecture/TOPOLOGY_MODES.md` for production expectations.
 
 ---
 

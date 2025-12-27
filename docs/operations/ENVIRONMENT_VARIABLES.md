@@ -4,7 +4,7 @@
 >
 > **Role:** Canonical reference for all environment variables used by RingRift across development, staging, and production, including defaults, ranges, and security considerations. Intended for operators and developers wiring config into Docker, Kubernetes, and CI.
 >
-> **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+> **Not a semantics SSoT:** This document does not define game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/architecture/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 >
 > **Related docs:** `docs/operations/SECRETS_MANAGEMENT.md`, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`, `docs/operations/OPERATIONS_DB.md`, `docs/security/SECURITY_THREAT_MODEL.md`, `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`, and `DOCUMENTATION_INDEX.md`.
 
@@ -451,7 +451,7 @@ On the TS backend, this value is surfaced as `config.aiService.requestTimeoutMs`
 and used by `GameSession` as the **hard host-level budget** for per-move AI
 service calls via `runWithTimeout` (see
 `GameSession.getAIMoveWithTimeout()` in `src/server/game/GameSession.ts` and
-`docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md` §3.2.1.2). It bounds AI _search
+`docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md` §3.2.1.2). It bounds AI _search
 time_ only; there is no additional artificial “thinking delay” layered on
 top of this timeout.
 

@@ -5,7 +5,7 @@
 > This document outlines the plan to integrate the Python `GameReplayDB` (SQLite) with the TypeScript sandbox UI for game replay, analysis, and future training data visualization.
 > Since this plan was written, the FastAPI replay API (`ai-service/app/routes/replay.py`), TypeScript `ReplayService` (`src/client/services/ReplayService.ts`), and sandbox replay panel (`ReplayPanel` and related components under `src/client/components/ReplayPanel/`) have been implemented; remaining work is primarily around schema evolution, additional analytics, and UX polish.
 >
-> **See Also:** [Unified Self-Play Game Recording Plan](/.claude/plans/memoized-cuddling-abelson.md) — A comprehensive plan (Track 11 in TODO.md) to record ALL self-play games across the codebase (CMA-ES optimization, tournaments, soak tests) to the GameReplayDB for sandbox replay, neural network training, and evaluation pool generation.
+> **See Also:** [GameReplayDB Recording Overview](../../../ai-service/app/db/README.md) — Background on recording self-play games to the GameReplayDB for sandbox replay, neural network training, and evaluation pool generation.
 
 ## Overview
 
@@ -27,7 +27,7 @@
 3. **Playback Controls**: Step forward/backward through turn actions, or play like a movie at configurable speed (**implemented** via `PlaybackControls` and `useReplayPlayback` / `useReplayAnimation`).
 4. **Unified Storage**: All AI self-play games (Python soak scripts, sandbox AI vs AI) stored in same format (Python self‑play paths implemented; sandbox AI‑vs‑AI storage wired via `ReplayService.storeGame` and `/api/replay/games` but optional in UI).
 5. **Schema Migration**: Upgrade existing database entries when schema evolves (**implemented** in `GameReplayDB` with migration tests; future schema bumps follow the same pattern).
-6. **Future-proof Schema**: Add fields for engine evaluation, principal variation, and time control (**partially implemented** in v2 schema; future extensions tracked in `ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md`).
+6. **Future-proof Schema**: Add fields for engine evaluation, principal variation, and time control (**partially implemented** in v2 schema; future extensions tracked in `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`).
 
 ### Key Features
 
@@ -78,7 +78,7 @@ To ensure the ReplayPanel can consume the **same games** you browse via the Self
    - `data/games/selfplay.db`
    - `ai-service/data/games/selfplay.db`
 2. **Point the AI service at that file** by setting `GAME_REPLAY_DB_PATH` in the AI service environment:
-   - See [`docs/ENVIRONMENT_VARIABLES.md`](../ENVIRONMENT_VARIABLES.md) for the full variable reference.
+   - See [`docs/operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) for the full variable reference.
 3. **Restart the AI service** after changing the env var so `/api/replay/*` sees the new DB.
 
 When these paths line up:
@@ -102,7 +102,7 @@ This banner is the primary UX hint that Option B is active, but Option A could n
 
 ### Current Schema Gaps
 
-The existing `GameReplayDB` schema (`ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md`) is missing several fields needed for comprehensive game analysis:
+The existing `GameReplayDB` schema (`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`) is missing several fields needed for comprehensive game analysis:
 
 | Missing Field       | Table        | Purpose                                      |
 | ------------------- | ------------ | -------------------------------------------- |
@@ -986,7 +986,7 @@ Phase 5: Storage & Fork
 
 ## References
 
-- [GAME_REPLAY_DATABASE_SPEC.md](ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md) - Original spec
-- [GameReplayDB Implementation](ai-service/app/db/game_replay.py) - Current code
-- [Client Architecture](src/client/ARCHITECTURE.md) - Frontend patterns
-- [TODO.md Track 5](TODO.md) - Persistence & Replays track
+- [GAME_REPLAY_DATABASE_SPEC.md](../../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) - Original spec
+- [GameReplayDB Implementation](../../../ai-service/app/db/game_replay.py) - Current code
+- [Client Architecture](../../../src/client/ARCHITECTURE.md) - Frontend patterns
+- [../../../TODO.md Track 5](../../../TODO.md) - Persistence & Replays track

@@ -168,7 +168,7 @@ This shows the sandbox is generating `process_territory_region` but the backend 
 
 5. **Cleanup and Documentation**
    - Remove debug logging after validation
-   - Update [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:104) section P0.2
+   - Update [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:104) section P0.2
    - Document findings in [`P0_TASK_18_STEP_3_SUMMARY.md`](P0_TASK_18_STEP_3_SUMMARY.md:1)
 
 ---
@@ -400,7 +400,7 @@ npm test -- Sandbox_vs_Backend.seed5.traceDebug.test.ts
 ### Step 5: Clean Up and Document
 
 - Remove debug logging
-- Update [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:104)
+- Update [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:104)
 - Add regression tests for fixed divergences
 - Document which engine was "wrong" for each case
 
@@ -484,6 +484,6 @@ npm test -- Sandbox_vs_Backend.seed5.traceDebug.test.ts
 
 ## References
 
-- Original task: [`docs/drafts/REMAINING_IMPLEMENTATION_TASKS.md:113`](../docs/drafts/REMAINING_IMPLEMENTATION_TASKS.md:113)
-- Known issues: [`KNOWN_ISSUES.md:104`](KNOWN_ISSUES.md:104)
+- Original task: [`docs/drafts/REMAINING_IMPLEMENTATION_TASKS.md:113`](REMAINING_IMPLEMENTATION_TASKS.md:113)
+- Known issues: [`../KNOWN_ISSUES.md:104`](../KNOWN_ISSUES.md:104)
 - Prior work: [`P0_TASK_18_STEP_3_SUMMARY.md`](P0_TASK_18_STEP_3_SUMMARY.md:1)

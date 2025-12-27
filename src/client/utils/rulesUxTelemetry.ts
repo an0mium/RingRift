@@ -344,7 +344,7 @@ export async function logHelpOpenEvent(options: HelpOpenEventOptions): Promise<v
 
 /**
  * Canonical UX rules copy blocks used by onboarding and teaching surfaces.
- * The wording for these blocks is copied from docs/UX_RULES_COPY_SPEC.md and
+ * The wording for these blocks is copied from docs/ux/UX_RULES_COPY_SPEC.md and
  * must remain aligned with that spec (see inline section references).
  *
  * These structures are intentionally lightweight and UI-agnostic so multiple

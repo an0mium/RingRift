@@ -1,11 +1,24 @@
 """Tournament HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides distributed tournament endpoints for model evaluation.
+Provides HTTP endpoints for distributed round-robin tournaments.
+Enables comprehensive model evaluation by playing all models against
+each other across cluster nodes.
 
 Usage:
     class P2POrchestrator(TournamentHandlersMixin, ...):
         pass
+
+Endpoints:
+    POST /tournament/start - Start distributed tournament (leader only)
+    GET /tournament/status - Get tournament progress and standings
+    POST /tournament/match - Execute a single tournament match (worker)
+    GET /tournament/results - Get final tournament results and rankings
+    POST /tournament/stop - Cancel running tournament
+
+Tournament Format:
+    Round-robin: Each model plays against every other model.
+    Matches distributed to workers for parallel execution.
+    Results aggregated to compute Elo ratings and final standings.
 """
 
 from __future__ import annotations

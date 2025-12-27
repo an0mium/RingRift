@@ -3,13 +3,13 @@
 ## 1. Introduction & Methodology
 
 This report statically verifies the current implementation of the RingRift rules engine
-against the canonical rules defined in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md)
-and the mapping in [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md).
+against the canonical rules defined in [`../RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md)
+and the mapping in [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md).
 
 ### 1.1 Scope and Inputs
 
-- Canonical rules: RR-CANON R001–R191 in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md).
-- Implementation mapping: [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md).
+- Canonical rules: RR-CANON R001–R191 in [`../RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md).
+- Implementation mapping: [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md).
 - Shared TypeScript engine (primary rules semantics), including helpers such as
   [`TypeScript.core`](src/shared/engine/core.ts:1),
   [`TypeScript.movementLogic`](src/shared/engine/movementLogic.ts:1),
@@ -35,7 +35,7 @@ and the mapping in [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPP
 
 ### 1.2 Methodology
 
-- Use [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md) as an index, but
+- Use [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md) as an index, but
   derive semantics directly from code in the shared engine, backend orchestration, and sandbox.
 - Treat shared-engine helpers as the primary rules implementation; backend and sandbox should
   be thin wrappers around these.

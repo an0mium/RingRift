@@ -1,11 +1,27 @@
 """CMA-ES HTTP Handlers Mixin.
 
-Extracted from p2p_orchestrator.py for modularity.
-This mixin provides distributed CMA-ES optimization endpoints.
+Provides HTTP endpoints for distributed CMA-ES (Covariance Matrix Adaptation
+Evolution Strategy) hyperparameter optimization. Enables parallel evaluation
+of candidate solutions across cluster nodes.
 
 Usage:
     class P2POrchestrator(CMAESHandlersMixin, ...):
         pass
+
+Endpoints:
+    POST /cmaes/start - Start distributed CMA-ES optimization (leader only)
+    GET /cmaes/status - Get optimization run status and progress
+    POST /cmaes/evaluate - Worker evaluates candidate weights
+    POST /cmaes/report - Worker reports evaluation results
+    POST /cmaes/stop - Stop running optimization
+
+CMA-ES Workflow:
+    1. Leader starts optimization via /cmaes/start with search space
+    2. Each generation, leader samples population of candidate weights
+    3. Candidates distributed to workers via /cmaes/evaluate
+    4. Workers play games and report fitness via /cmaes/report
+    5. Leader updates covariance matrix and samples next generation
+    6. Converges to optimal hyperparameters (NNUE weights, search params)
 """
 
 from __future__ import annotations

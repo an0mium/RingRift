@@ -11,9 +11,9 @@
 > - ANM/FE behaviour catalogue in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
 > - Territory mini‑region scenarios in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
 > - Shared helpers tests in [`tests/unit/territoryDecisionHelpers.shared.test.ts`](../../tests/unit/territoryDecisionHelpers.shared.test.ts:76) and [`tests/unit/lineDecisionHelpers.shared.test.ts`](../../tests/unit/lineDecisionHelpers.shared.test.ts:23).
-> - Copy and weird‑state mappings in [`docs/UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:1) and [`docs/UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1).
-> - Telemetry schema in [`docs/UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1).
-> - Navigation map for high‑risk concepts in [`docs/UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1) to keep teaching flows aligned with rules docs, UX surfaces, and telemetry labels.
+> - Copy and weird‑state mappings in [`docs/ux/UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:1) and [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1).
+> - Telemetry schema in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1).
+> - Navigation map for high‑risk concepts in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1) to keep teaching flows aligned with rules docs, UX surfaces, and telemetry labels.
 
 This spec does **not** implement any code. It defines:
 

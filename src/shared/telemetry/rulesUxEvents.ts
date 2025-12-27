@@ -12,7 +12,7 @@ import type { BoardType } from '../types/game';
  * extended with user identifiers, raw board positions, or free‑text.
  *
  * The string values here are intentionally stable and are mirrored in
- * docs/UX_RULES_TELEMETRY_SPEC.md. We keep the original "rules_*" event
+ * docs/ux/UX_RULES_TELEMETRY_SPEC.md. We keep the original "rules_*" event
  * names for backwards-compatible metrics while also introducing the
  * newer semantic event types described in the spec.
  */
@@ -59,7 +59,7 @@ export type RulesUxWeirdStateType =
  * Low‑cardinality semantic rules context used for hotspot analysis.
  *
  * These correspond to the RulesContext values described in
- * docs/UX_RULES_TELEMETRY_SPEC.md and docs/UX_RULES_WEIRD_STATES_SPEC.md.
+ * docs/ux/UX_RULES_TELEMETRY_SPEC.md and docs/ux/UX_RULES_WEIRD_STATES_SPEC.md.
  * They deliberately describe *rules concepts*, not UI surfaces.
  */
 export type RulesUxContext =
@@ -98,7 +98,7 @@ export type RulesUxSource =
  * apply to a particular event.
  *
  * This is a concrete, TypeScript‑level projection of the language‑agnostic
- * RulesUxEvent envelope described in docs/UX_RULES_TELEMETRY_SPEC.md. Some
+ * RulesUxEvent envelope described in docs/ux/UX_RULES_TELEMETRY_SPEC.md. Some
  * fields (e.g. {@link aiDifficulty}) exist primarily for legacy metrics and
  * will eventually be superseded by the higher‑level difficulty / context
  * fields as the telemetry surface matures.
@@ -238,7 +238,7 @@ export interface RulesUxEventPayload {
   /**
    * Optional, stable weird‑state reason code (e.g. "ANM_MOVEMENT_FE_BLOCKED",
    * "STRUCTURAL_STALEMATE_TIEBREAK"). When present this should match the
-   * reason_code catalogue in docs/UX_RULES_WEIRD_STATES_SPEC.md.
+   * reason_code catalogue in docs/ux/UX_RULES_WEIRD_STATES_SPEC.md.
    */
   reasonCode?: string;
 

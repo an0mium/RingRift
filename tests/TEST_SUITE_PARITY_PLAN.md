@@ -4,9 +4,9 @@
 >
 > **Role:** Map the existing TS + Python test suites to the shared rules/lifecycle SSoTs and classify them (rules-level vs trace-level vs integration-level, by host/domain) so that future work can extend or retire tests systematically, and can distinguish authoritative rules suites from derived trace/parity harnesses. This is a **test/meta reference only** – it explains how suites are organised and which ones act as semantic anchors vs smoke tests, but it does **not** define game rules or lifecycle semantics.
 >
-> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the shared TypeScript rules engine and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) together with the written rules and lifecycle docs (`RULES_CANONICAL_SPEC.md`, `../docs/rules/COMPLETE_RULES.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/CANONICAL_ENGINE_API.md`). When this file talks about “authority” or “canonical behaviour” it is always pointing back to those SSoTs and to specific rules-level test suites built on top of them.
+> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the shared TypeScript rules engine and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) together with the written rules and lifecycle docs (`RULES_CANONICAL_SPEC.md`, `../docs/rules/COMPLETE_RULES.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/architecture/CANONICAL_ENGINE_API.md`). When this file talks about “authority” or “canonical behaviour” it is always pointing back to those SSoTs and to specific rules-level test suites built on top of them.
 >
-> **Related docs:** `tests/README.md`, `tests/TEST_LAYERS.md`, `docs/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
+> **Related docs:** `tests/README.md`, `tests/TEST_LAYERS.md`, `docs/rules/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `AI_ARCHITECTURE.md`, `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`, `docs/testing/STRICT_INVARIANT_SOAKS.md`, and `DOCUMENTATION_INDEX.md`.
 >
 > **Goal:** Provide a concrete map of the existing tests so future work can systematically align **all TS + Python tests** to the **shared TypeScript rules engine** and the **rules-over-traces** strategy.
 >
@@ -202,7 +202,7 @@ Recent additions:
   `ringrift_ai_request_timeout_total`) and is treated as **core infra** rather than parity/diagnostic.
 - `tests/unit/validation.schemas.test.ts` – structural JSON/wire validation SSoT for HTTP/WebSocket
   payloads (`src/shared/validation/schemas.ts`, `websocketSchemas.ts`); classified as **rules‑adjacent
-  core** and referenced from `RULES_SCENARIO_MATRIX.md` and `docs/CANONICAL_ENGINE_API.md`.
+  core** and referenced from `RULES_SCENARIO_MATRIX.md` and `docs/architecture/CANONICAL_ENGINE_API.md`.
 
 ---
 

@@ -259,7 +259,7 @@ If AI latency issues start after a model or configuration change:
 
 - Check recent AI deployments and model upgrades (per your deployment logs / `AI_IMPROVEMENT_PLAN.md`, `AI_ASSESSMENT_REPORT.md`).
 - Confirm that model sizes, think times, and heuristics are consistent with expectations documented in AI design docs.
-- Verify environment variables used by AI (e.g. model paths, device selection) against `docs/ENVIRONMENT_VARIABLES.md`.
+- Verify environment variables used by AI (e.g. model paths, device selection) against `docs/operations/ENVIRONMENT_VARIABLES.md`.
 
 ---
 
@@ -365,7 +365,7 @@ You are done when:
 ### 5.3 Post‑incident follow‑up
 
 - [ ] If this was a noticeable incident, capture a short write‑up using `docs/incidents/POST_MORTEM_TEMPLATE.md` and link it from `docs/incidents/AI_SERVICE.md`.
-- [ ] If capacity or timeout settings were changed, update any relevant documentation (`docs/ENVIRONMENT_VARIABLES.md`, `docs/DEPLOYMENT_REQUIREMENTS.md`, AI design docs) so they remain the SSoT for expected behaviour.
+- [ ] If capacity or timeout settings were changed, update any relevant documentation (`docs/operations/ENVIRONMENT_VARIABLES.md`, `docs/planning/DEPLOYMENT_REQUIREMENTS.md`, AI design docs) so they remain the SSoT for expected behaviour.
 - [ ] Consider adding or refining dashboards that show AI latency alongside fallback fraction and AI error rate.
 
 ---
@@ -438,7 +438,7 @@ When adjusting these profiles, keep them:
   - `monitoring/prometheus/alerts.yml`
   - `monitoring/prometheus/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
-  - `docs/DEPLOYMENT_REQUIREMENTS.md`
-  - `docs/ENVIRONMENT_VARIABLES.md`
+  - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
+  - `docs/operations/ENVIRONMENT_VARIABLES.md`
 - **Orchestrator rollout:**
   - `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` – orchestrator‑everywhere posture and Safe rollback checklist when issues are truly rules‑engine related.

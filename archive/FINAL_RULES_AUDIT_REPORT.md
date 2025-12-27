@@ -130,12 +130,12 @@ The audit reveals a dangerous gap where the game engine enforces rules correctly
 
 ## 3.6 Second-Pass Matrix Consistency Notes
 
-This second-pass audit re-checked the Rules Traceability Matrix in light of the canonical rules list in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) and the implementation/verification artefacts:
+This second-pass audit re-checked the Rules Traceability Matrix in light of the canonical rules list in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:1) and the implementation/verification artefacts:
 
-- [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:1)
+- [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md:1)
 - [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:1)
 - [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1)
-- [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:1)
+- [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1)
 
 Key conclusions:
 
@@ -148,19 +148,19 @@ Key conclusions:
 2. **Status consistency**
    - For all rules **except `RR-CANON-R172`**, the combined evidence from implementation mapping, static analysis, dynamic scenarios, and consistency/edge-case reports supports a **status of “Full”**: the behaviour required by RR-CANON is implemented and exercised by tests, with any deviations limited to conservative approximations or defensive behaviours.
    - `RR-CANON-R172` (**Last-player-standing victory**) remains **“Partial”**:
-     - The rules texts (Complete, Compact, Canonical) agree on an _early_ last-player-standing victory condition ([`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:425), [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1228)).
-     - The current engine instead uses a **play-to-completion** strategy (ring-elimination, territory, or bare-board stalemate) and does **not** implement an explicit early R172 check, as analysed in [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:316) (CCE-006).
+     - The rules texts (Complete, Compact, Canonical) agree on an _early_ last-player-standing victory condition ([`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:425), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1228)).
+     - The current engine instead uses a **play-to-completion** strategy (ring-elimination, territory, or bare-board stalemate) and does **not** implement an explicit early R172 check, as analysed in [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:316) (CCE-006).
      - Appendix A.2 therefore records `RR-CANON-R172` as `Partial` with an explicit pointer to CCE-006.
 
 3. **Linkage to known compromises and documentation gaps**
    - The rule-level rows in Appendix A.2 surface the following previously-identified compromises and documentation issues:
-     - **CCE-001 Board repair / S-invariant interaction** – affects `R030–R031`, `R050–R052`, and `R191` via [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94). See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:348) CCE-001.
-     - **CCE-002 Placement cap approximation** – affects `R020–R023` and `R080–R082` (per-player ring cap enforced via total stack heights of controlled stacks). See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:362) CCE-002.
-     - **CCE-003 Sandbox skip semantics** – relevant to `R070–R072` and `R080` (representation-level difference only; legality matches backend). See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:376) CCE-003.
-     - **CCE-004 Capture-chain helper stub** – relevant to `R101–R103` (live behaviour correct in GameEngine/sandbox; shared helper not yet wired). See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:399) CCE-004.
-     - **CCE-005 Territory self-elimination locality** – relevant to `R143–R145`. See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:331) CCE-005.
-     - **CCE-006 Last-player-standing implementation compromise** – specific to `R172`. See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:428) CCE-006.
-     - **CCE-007 Forced-elimination stack-selection heuristic** – relevant to `R100`. See [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:444) CCE-007.
+     - **CCE-001 Board repair / S-invariant interaction** – affects `R030–R031`, `R050–R052`, and `R191` via [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94). See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:348) CCE-001.
+     - **CCE-002 Placement cap approximation** – affects `R020–R023` and `R080–R082` (per-player ring cap enforced via total stack heights of controlled stacks). See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:362) CCE-002.
+     - **CCE-003 Sandbox skip semantics** – relevant to `R070–R072` and `R080` (representation-level difference only; legality matches backend). See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:376) CCE-003.
+     - **CCE-004 Capture-chain helper stub** – relevant to `R101–R103` (live behaviour correct in GameEngine/sandbox; shared helper not yet wired). See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:399) CCE-004.
+     - **CCE-005 Territory self-elimination locality** – relevant to `R143–R145`. See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:331) CCE-005.
+     - **CCE-006 Last-player-standing implementation compromise** – specific to `R172`. See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:428) CCE-006.
+     - **CCE-007 Forced-elimination stack-selection heuristic** – relevant to `R100`. See [`RULES_CONSISTENCY_EDGE_CASES.md`](../docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:444) CCE-007.
    - Documentation drift items (**DOCUX-P1–P7**) from [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../docs/supplementary/RULES_DOCS_UX_AUDIT.md:1) are cross-referenced on the rows for the rules they mis-describe (e.g., `R091–R092`, `R100`, `R120–R122`, `R170`).
 
 4. **Net effect**

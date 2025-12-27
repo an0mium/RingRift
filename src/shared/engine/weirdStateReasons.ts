@@ -3,7 +3,7 @@ import type { RulesUxContext, RulesUxWeirdStateType } from '../telemetry/rulesUx
 
 /**
  * Stable weird-state reason codes for UX and telemetry, aligned with
- * docs/UX_RULES_WEIRD_STATES_SPEC.md §2.1.
+ * docs/ux/UX_RULES_WEIRD_STATES_SPEC.md §2.1.
  */
 export type RulesWeirdStateReasonCode =
   | 'ANM_MOVEMENT_FE_BLOCKED'
@@ -174,7 +174,7 @@ export function getWeirdStateTypeForReason(
 /**
  * Canonical TeachingOverlay topic ids for weird-state reasons.
  *
- * These map the stable RWS-* reason codes from docs/UX_RULES_WEIRD_STATES_SPEC.md §4.3
+ * These map the stable RWS-* reason codes from docs/ux/UX_RULES_WEIRD_STATES_SPEC.md §4.3
  * onto abstract teaching topic identifiers. Client surfaces (HUD, VictoryModal,
  * TeachingOverlay) can translate these into concrete TeachingOverlay topics
  * (e.g. "teaching.active_no_moves" → "active_no_moves") without duplicating
@@ -190,7 +190,7 @@ export type WeirdStateTeachingTopicId =
 /**
  * Map a weird-state reason code to its primary TeachingOverlay topic id.
  *
- * This follows the mapping defined in docs/UX_RULES_WEIRD_STATES_SPEC.md §4.3:
+ * This follows the mapping defined in docs/ux/UX_RULES_WEIRD_STATES_SPEC.md §4.3:
  *
  * - ANM_MOVEMENT_FE_BLOCKED → teaching.active_no_moves (with FE as a related topic)
  * - ANM_LINE_NO_ACTIONS → teaching.line_bonus

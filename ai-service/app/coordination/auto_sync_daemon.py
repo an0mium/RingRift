@@ -75,13 +75,36 @@ except ImportError:
     get_elo_lookup_from_service = None
 
 
+class SyncStrategy:
+    """Sync strategy enum for AutoSyncDaemon (December 2025 consolidation).
+
+    Strategies:
+    - HYBRID: Default. Push-from-generator + gossip replication (persistent hosts)
+    - EPHEMERAL: Aggressive 5-second sync for Vast.ai/spot instances
+    - BROADCAST: Leader-only push to all eligible nodes
+    - AUTO: Auto-detect based on node type (ephemeral detection, leader status)
+    """
+    HYBRID = "hybrid"
+    EPHEMERAL = "ephemeral"
+    BROADCAST = "broadcast"
+    AUTO = "auto"
+
+
 @dataclass
 class AutoSyncConfig:
     """Configuration for automated data sync.
 
     Quality thresholds are loaded from app.config.thresholds for centralized configuration.
+
+    December 2025: Added strategy parameter for consolidated sync modes:
+    - hybrid: Push-from-generator + gossip (default)
+    - ephemeral: Aggressive 5s sync for Vast.ai/spot
+    - broadcast: Leader-only push to all nodes
+    - auto: Detect based on node type
     """
     enabled: bool = True
+    # Strategy selection (December 2025 consolidation)
+    strategy: str = SyncStrategy.AUTO  # auto, hybrid, ephemeral, broadcast
     interval_seconds: int = 60  # December 2025: Reduced from 300s for faster data discovery
     gossip_interval_seconds: int = 30  # December 2025: Reduced from 60s for faster replication
     exclude_hosts: list[str] = field(default_factory=list)
@@ -103,6 +126,15 @@ class AutoSyncConfig:
     # Quality extraction for priority-based training
     enable_quality_extraction: bool = True
     min_quality_score_for_priority: float = 0.7  # Only queue high-quality games
+    # Ephemeral-specific settings (December 2025 consolidation)
+    ephemeral_poll_seconds: int = 5  # Aggressive polling for ephemeral hosts
+    ephemeral_write_through: bool = True  # Wait for push confirmation
+    ephemeral_write_through_timeout: int = 60  # Max wait for confirmation
+    ephemeral_wal_enabled: bool = True  # Write-ahead log for durability
+    # Broadcast-specific settings (December 2025 consolidation)
+    broadcast_high_priority_configs: list[str] = field(
+        default_factory=lambda: ["square8_2p", "hex8_2p", "hex8_3p", "hex8_4p"]
+    )
 
     @classmethod
     def from_config_file(cls, config_path: Path | None = None) -> AutoSyncConfig:
@@ -193,11 +225,19 @@ class SyncStats:
 class AutoSyncDaemon:
     """Daemon that orchestrates automated P2P data synchronization.
 
-    Uses hybrid approach:
+    December 2025 Consolidation: Unified daemon supporting multiple strategies:
+    - HYBRID: Push-from-generator + gossip replication (default for persistent hosts)
+    - EPHEMERAL: Aggressive 5s sync for Vast.ai/spot instances (from ephemeral_sync.py)
+    - BROADCAST: Leader-only push to all nodes (from cluster_data_sync.py)
+    - AUTO: Auto-detect based on node type
+
+    Key features:
     - Gossip-based replication for eventual consistency
     - Provider-aware sync (skip NFS, prioritize ephemeral)
     - Coordinator exclusion (save disk space)
     - ClusterManifest for central tracking and disk management
+    - Write-through mode for ephemeral hosts (zero data loss)
+    - WAL (write-ahead log) for durability
     """
 
     def __init__(self, config: AutoSyncConfig | None = None):
@@ -226,6 +266,18 @@ class AutoSyncDaemon:
         self._provider = self._detect_provider()
         self._is_nfs_node = self._check_nfs_mount()
 
+        # December 2025: Resolve strategy based on auto-detection or explicit config
+        self._resolved_strategy = self._resolve_strategy()
+        self._is_ephemeral = self._resolved_strategy == SyncStrategy.EPHEMERAL
+        self._is_broadcast = self._resolved_strategy == SyncStrategy.BROADCAST
+
+        # Ephemeral-specific state (December 2025 consolidation)
+        self._pending_games: list[dict[str, Any]] = []  # For ephemeral mode
+        self._push_lock = asyncio.Lock()
+        self._wal_initialized = False
+        if self._is_ephemeral and self.config.ephemeral_wal_enabled:
+            self._init_ephemeral_wal()
+
         # Phase 9: Event subscription for DATA_STALE triggers
         self._subscribed = False
         self._urgent_sync_pending: dict[str, float] = {}  # config_key -> request_time
@@ -245,8 +297,181 @@ class AutoSyncDaemon:
         logger.info(
             f"AutoSyncDaemon initialized: node={self.node_id}, "
             f"provider={self._provider}, nfs={self._is_nfs_node}, "
+            f"strategy={self._resolved_strategy}, "
             f"manifest={self._cluster_manifest is not None}"
         )
+
+    def _resolve_strategy(self) -> str:
+        """Resolve sync strategy based on config or auto-detection.
+
+        December 2025 consolidation: Determines the best strategy for this node.
+
+        Returns:
+            One of SyncStrategy.HYBRID, EPHEMERAL, or BROADCAST
+        """
+        strategy = self.config.strategy
+
+        # If explicit strategy specified, use it
+        if strategy != SyncStrategy.AUTO:
+            logger.info(f"Using explicit sync strategy: {strategy}")
+            return strategy
+
+        # Auto-detect based on node characteristics
+        # Check for ephemeral host (Vast.ai, spot instances)
+        if self._detect_ephemeral_host():
+            logger.info("Auto-detected ephemeral host, using EPHEMERAL strategy")
+            return SyncStrategy.EPHEMERAL
+
+        # Check if we're the cluster leader (for broadcast mode)
+        if self._is_cluster_leader():
+            logger.info("Auto-detected cluster leader, using BROADCAST strategy")
+            return SyncStrategy.BROADCAST
+
+        # Default to hybrid
+        logger.info("Using default HYBRID strategy")
+        return SyncStrategy.HYBRID
+
+    def _detect_ephemeral_host(self) -> bool:
+        """Detect if running on an ephemeral host.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        # Check Vast.ai
+        if Path("/workspace").exists():
+            return True
+
+        # Check hostname patterns
+        hostname = self.node_id.lower()
+        if hostname.startswith("vast-") or hostname.startswith("c."):
+            return True
+
+        # Check for spot instance markers
+        import os
+        if os.environ.get("AWS_SPOT_INSTANCE"):
+            return True
+
+        # Check RAM disk (Vast.ai uses /dev/shm for temp storage)
+        if Path("/dev/shm/ringrift").exists():
+            return True
+
+        return False
+
+    def _is_cluster_leader(self) -> bool:
+        """Check if this node is the cluster leader.
+
+        December 2025: Used for broadcast strategy auto-detection.
+        """
+        try:
+            import json
+            from urllib.request import Request, urlopen
+            from app.config.ports import get_p2p_status_url
+
+            url = get_p2p_status_url()
+            req = Request(url, headers={"Accept": "application/json"})
+            with urlopen(req, timeout=5) as resp:
+                status = json.loads(resp.read().decode())
+                leader_id = status.get("leader_id", "")
+                return leader_id == self.node_id
+        except Exception:
+            return False
+
+    def _init_ephemeral_wal(self) -> None:
+        """Initialize write-ahead log for ephemeral mode durability.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        import json
+
+        try:
+            wal_path = Path("data/ephemeral_sync_wal.jsonl")
+            wal_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if not wal_path.exists():
+                wal_path.touch()
+
+            self._wal_initialized = True
+            self._wal_path = wal_path
+            logger.debug(f"[AutoSyncDaemon] Ephemeral WAL initialized: {wal_path}")
+
+            # Recover pending games from WAL
+            self._load_ephemeral_wal()
+
+        except Exception as e:
+            logger.error(f"[AutoSyncDaemon] Failed to initialize ephemeral WAL: {e}")
+            self._wal_initialized = False
+
+    def _load_ephemeral_wal(self) -> None:
+        """Load pending games from WAL on startup.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        import json
+
+        if not self._wal_initialized or not hasattr(self, "_wal_path"):
+            return
+
+        try:
+            if not self._wal_path.exists() or self._wal_path.stat().st_size == 0:
+                return
+
+            loaded_count = 0
+            with open(self._wal_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if not entry.get("synced", False):
+                            self._pending_games.append(entry)
+                            loaded_count += 1
+                    except json.JSONDecodeError:
+                        continue
+
+            if loaded_count > 0:
+                logger.info(
+                    f"[AutoSyncDaemon] Recovered {loaded_count} pending games from WAL"
+                )
+
+        except Exception as e:
+            logger.error(f"[AutoSyncDaemon] Failed to load WAL: {e}")
+
+    def _append_to_wal(self, game_entry: dict[str, Any]) -> None:
+        """Append pending game to WAL for durability.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        Called when a game is added to pending list, before sync attempt.
+        """
+        import json
+        import os as os_module
+
+        if not self._wal_initialized or not hasattr(self, "_wal_path"):
+            return
+
+        try:
+            with open(self._wal_path, 'a') as f:
+                f.write(json.dumps(game_entry) + '\n')
+                f.flush()
+                os_module.fsync(f.fileno())  # Force to disk
+
+        except Exception as e:
+            logger.debug(f"[AutoSyncDaemon] Failed to append to WAL: {e}")
+
+    def _clear_wal(self) -> None:
+        """Clear WAL after successful sync of all pending games.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        Called when all pending games have been confirmed synced.
+        """
+        if not self._wal_initialized or not hasattr(self, "_wal_path"):
+            return
+
+        try:
+            self._wal_path.write_text('')
+            logger.debug("[AutoSyncDaemon] WAL cleared after successful sync")
+
+        except Exception as e:
+            logger.debug(f"[AutoSyncDaemon] Failed to clear WAL: {e}")
 
     def _init_cluster_manifest(self) -> None:
         """Initialize the ClusterManifest for tracking."""
@@ -351,6 +576,10 @@ class AutoSyncDaemon:
         self._start_time = time.time()
         logger.info(f"Starting AutoSyncDaemon on {self.node_id}")
 
+        # December 2025: Setup termination handlers for ephemeral mode
+        if self._is_ephemeral:
+            self._setup_termination_handlers()
+
         # Phase 9: Subscribe to DATA_STALE events to trigger urgent sync
         self._subscribe_to_events()
 
@@ -371,6 +600,815 @@ class AutoSyncDaemon:
             f"interval={self.config.interval_seconds}s, "
             f"exclude={self.config.exclude_hosts}"
         )
+
+    def _setup_termination_handlers(self) -> None:
+        """Setup signal handlers for termination (ephemeral mode).
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        import signal
+
+        def handle_termination(sig, frame):
+            logger.warning(f"[AutoSyncDaemon] Received termination signal {sig}")
+            try:
+                loop = asyncio.get_running_loop()
+                safe_create_task(
+                    self._handle_termination(),
+                    name="auto_sync_termination",
+                )
+            except RuntimeError:
+                try:
+                    asyncio.run(self._handle_termination())
+                except Exception as e:
+                    logger.error(f"[AutoSyncDaemon] Cannot run final sync: {e}")
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, handle_termination)
+            except Exception as e:
+                logger.debug(f"[AutoSyncDaemon] Could not set handler for {sig}: {e}")
+
+    async def _handle_termination(self) -> None:
+        """Handle termination signal - do final sync.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        logger.warning("[AutoSyncDaemon] Handling termination - starting final sync")
+
+        # Emit termination event for work migration
+        await self._emit_termination_event()
+
+        # Do final sync
+        await self._final_sync()
+
+    async def _emit_termination_event(self) -> None:
+        """Emit HOST_OFFLINE event to notify coordinator of termination.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        Enables coordinator to migrate work before ephemeral node terminates.
+        """
+        try:
+            from app.coordination.event_router import emit_host_offline
+
+            await emit_host_offline(
+                host=self.node_id,
+                reason=f"ephemeral_termination:pending_games={len(self._pending_games)}",
+                last_seen=time.time(),
+                source="AutoSyncDaemon",
+            )
+            logger.info(f"[AutoSyncDaemon] Emitted HOST_OFFLINE event for {self.node_id}")
+
+        except ImportError:
+            logger.debug("[AutoSyncDaemon] emit_host_offline not available")
+        except Exception as e:
+            logger.warning(f"[AutoSyncDaemon] Failed to emit termination event: {e}")
+
+    async def _final_sync(self) -> None:
+        """Perform final sync before shutdown (ephemeral mode).
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        if not self._pending_games:
+            logger.debug("[AutoSyncDaemon] No pending games for final sync")
+            return
+
+        logger.info(f"[AutoSyncDaemon] Final sync: {len(self._pending_games)} games pending")
+
+        try:
+            await self._push_pending_games(force=True)
+        except Exception as e:
+            logger.error(f"[AutoSyncDaemon] Final sync failed: {e}")
+
+    async def on_game_complete(
+        self,
+        game_result: dict[str, Any],
+        db_path: Path | str | None = None,
+    ) -> bool:
+        """Handle game completion - queue for immediate push (ephemeral mode).
+
+        December 2025: Consolidated from ephemeral_sync.py
+        When write_through_enabled=True, waits for push confirmation before
+        returning, ensuring the game is safely synced to a persistent node.
+
+        Args:
+            game_result: Game result dict with game_id, moves, etc.
+            db_path: Path to database containing the game
+
+        Returns:
+            True if game was successfully synced (write-through mode) or queued,
+            False if write-through failed (data at risk)
+        """
+        if not self._is_ephemeral:
+            # Non-ephemeral mode: just track the game, normal sync will handle it
+            return True
+
+        game_id = game_result.get("game_id")
+
+        # Add to pending
+        game_entry = {
+            "game_id": game_id,
+            "db_path": str(db_path) if db_path else None,
+            "timestamp": time.time(),
+            "synced": False,
+        }
+        self._pending_games.append(game_entry)
+
+        # Persist to WAL for durability
+        self._append_to_wal(game_entry)
+
+        # Immediate push if we have pending games
+        if len(self._pending_games) >= 1:
+            self._events_processed += 1
+
+            # Write-through mode - wait for confirmation
+            if self.config.ephemeral_write_through:
+                try:
+                    success = await asyncio.wait_for(
+                        self._push_pending_games_with_confirmation(),
+                        timeout=self.config.ephemeral_write_through_timeout,
+                    )
+                    if success:
+                        logger.debug(f"[AutoSyncDaemon] Write-through success for game {game_id}")
+                        return True
+                    else:
+                        logger.warning(f"[AutoSyncDaemon] Write-through push failed for game {game_id}")
+                        return False
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"[AutoSyncDaemon] Write-through timeout for game {game_id} "
+                        f"(timeout={self.config.ephemeral_write_through_timeout}s)"
+                    )
+                    # Fall back to async push
+                    fire_and_forget(self._push_pending_games())
+                    return False
+            else:
+                # Legacy async push (fire-and-forget)
+                await self._push_pending_games()
+                return True
+
+        return True
+
+    async def _push_pending_games_with_confirmation(self) -> bool:
+        """Push pending games and return True if at least one target succeeds.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        Write-through variant that returns sync status.
+        """
+        if not self._pending_games:
+            return True
+
+        async with self._push_lock:
+            games_to_push = self._pending_games.copy()
+            self._pending_games.clear()
+
+            logger.info(f"[AutoSyncDaemon] Write-through: pushing {len(games_to_push)} games")
+
+            # Get unique DB paths
+            db_paths = set()
+            for game in games_to_push:
+                if game.get("db_path"):
+                    db_paths.add(game["db_path"])
+
+            if not db_paths:
+                logger.warning("[AutoSyncDaemon] No database paths to push")
+                return False
+
+            # Get sync targets
+            targets = await self._get_ephemeral_sync_targets()
+            if not targets:
+                logger.warning("[AutoSyncDaemon] No sync targets available")
+                self._pending_games.extend(games_to_push)  # Put back
+                return False
+
+            # Push each DB to at least one target
+            any_success = False
+            for db_path in db_paths:
+                for target in targets[:3]:  # Try up to 3 targets
+                    try:
+                        success = await self._rsync_to_target(db_path, target)
+                        if success:
+                            any_success = True
+                            # Mark games as synced
+                            for game in games_to_push:
+                                game["synced"] = True
+                            break
+                    except Exception as e:
+                        logger.debug(f"[AutoSyncDaemon] Push to {target} failed: {e}")
+
+            if any_success:
+                await self._emit_game_synced(
+                    games_pushed=len(games_to_push),
+                    target_nodes=targets[:1],
+                    db_paths=list(db_paths),
+                )
+                self._clear_wal()
+
+            return any_success
+
+    async def _push_pending_games(self, force: bool = False) -> None:
+        """Push pending games to sync targets.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        if not self._pending_games:
+            return
+
+        async with self._push_lock:
+            games_to_push = self._pending_games.copy()
+            self._pending_games.clear()
+
+            logger.info(f"[AutoSyncDaemon] Pushing {len(games_to_push)} games")
+
+            # Get unique DB paths
+            db_paths = set()
+            for game in games_to_push:
+                if game.get("db_path"):
+                    db_paths.add(game["db_path"])
+
+            if not db_paths:
+                logger.warning("[AutoSyncDaemon] No database paths to push")
+                return
+
+            # Get sync targets
+            targets = await self._get_ephemeral_sync_targets()
+            if not targets:
+                logger.warning("[AutoSyncDaemon] No sync targets available")
+                self._pending_games.extend(games_to_push)  # Put back
+                return
+
+            # Push each DB to targets
+            successful_targets = []
+            for db_path in db_paths:
+                for target in targets[:3]:
+                    try:
+                        success = await self._rsync_to_target(db_path, target)
+                        if success:
+                            self._stats.games_synced += len(games_to_push)
+                            successful_targets.append(target)
+                            break
+                    except Exception as e:
+                        logger.debug(f"[AutoSyncDaemon] Push to {target} failed: {e}")
+
+            if successful_targets:
+                await self._emit_game_synced(
+                    games_pushed=len(games_to_push),
+                    target_nodes=successful_targets,
+                    db_paths=list(db_paths),
+                )
+                self._clear_wal()
+
+    async def _get_ephemeral_sync_targets(self) -> list[str]:
+        """Get sync targets for ephemeral mode.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        try:
+            from app.coordination.sync_router import get_sync_router
+
+            router = get_sync_router()
+            targets = router.get_sync_targets(
+                data_type="game",
+                max_targets=3,
+            )
+            return [t.node_id for t in targets]
+
+        except ImportError:
+            logger.warning("[AutoSyncDaemon] SyncRouter not available")
+            return []
+        except Exception as e:
+            logger.error(f"[AutoSyncDaemon] Failed to get sync targets: {e}")
+            return []
+
+    async def _rsync_to_target(self, db_path: str, target_node: str) -> bool:
+        """Rsync a database to a target node.
+
+        December 2025: Consolidated from ephemeral_sync.py
+
+        Args:
+            db_path: Local database path
+            target_node: Target node ID
+
+        Returns:
+            True if successful
+        """
+        try:
+            from app.coordination.sync_bandwidth import rsync_with_bandwidth_limit
+            from app.coordination.sync_router import get_sync_router
+
+            router = get_sync_router()
+            cap = router.get_node_capability(target_node)
+
+            if not cap:
+                return False
+
+            result = rsync_with_bandwidth_limit(
+                source=db_path,
+                target_host=target_node,
+                timeout=30,
+            )
+
+            return result.success
+
+        except ImportError:
+            return await self._direct_rsync(db_path, target_node)
+        except Exception as e:
+            logger.debug(f"[AutoSyncDaemon] Rsync error: {e}")
+            return False
+
+    async def _direct_rsync(self, db_path: str, target_node: str) -> bool:
+        """Direct rsync without bandwidth management.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        import os
+        import subprocess
+
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        config_path = base_dir / "config" / "distributed_hosts.yaml"
+
+        if not config_path.exists():
+            return False
+
+        try:
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            host_config = config.get("hosts", {}).get(target_node, {})
+            ssh_host = host_config.get("tailscale_ip") or host_config.get("ssh_host")
+            ssh_user = host_config.get("ssh_user", "ubuntu")
+            ssh_key = host_config.get("ssh_key", "~/.ssh/id_cluster")
+            remote_path = host_config.get("ringrift_path", "~/ringrift/ai-service")
+
+            if not ssh_host:
+                return False
+
+            ssh_key = os.path.expanduser(ssh_key)
+            remote_full = f"{ssh_user}@{ssh_host}:{remote_path}/data/games/"
+
+            rsync_cmd = [
+                "rsync",
+                "-avz",
+                "--compress",
+                "-e", f"ssh -i {ssh_key} -o StrictHostKeyChecking=no -o ConnectTimeout=10",
+                db_path,
+                remote_full,
+            ]
+
+            result = await asyncio.to_thread(
+                subprocess.run,
+                rsync_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            return result.returncode == 0
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[AutoSyncDaemon] Rsync timeout to {target_node}")
+            return False
+        except Exception as e:
+            logger.debug(f"[AutoSyncDaemon] Rsync error: {e}")
+            return False
+
+    async def _emit_game_synced(
+        self,
+        games_pushed: int,
+        target_nodes: list[str],
+        db_paths: list[str],
+    ) -> None:
+        """Emit GAME_SYNCED event for feedback loop coupling.
+
+        December 2025: Consolidated from ephemeral_sync.py
+        """
+        try:
+            from app.coordination.event_router import get_router, DataEventType
+
+            router = get_router()
+            if router:
+                await router.publish(
+                    event_type=DataEventType.GAME_SYNCED,
+                    payload={
+                        "node_id": self.node_id,
+                        "games_pushed": games_pushed,
+                        "target_nodes": target_nodes,
+                        "db_paths": db_paths,
+                        "is_ephemeral": self._is_ephemeral,
+                        "timestamp": time.time(),
+                    },
+                    source="AutoSyncDaemon",
+                )
+        except Exception as e:
+            logger.debug(f"[AutoSyncDaemon] Could not emit GAME_SYNCED event: {e}")
+
+    # =========================================================================
+    # Broadcast Mode Methods (December 2025 - from cluster_data_sync.py)
+    # =========================================================================
+
+    def discover_local_databases(self) -> list[Path]:
+        """Find all game databases on this node that should be synced.
+
+        December 2025: Consolidated from cluster_data_sync.py
+        """
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        data_dir = base_dir / "data" / "games"
+
+        if not data_dir.exists():
+            return []
+
+        # Database patterns to sync
+        sync_patterns = [
+            "canonical_*.db",
+            "gumbel_*.db",
+            "selfplay_*.db",
+            "synced/*.db",
+        ]
+
+        databases = []
+        for pattern in sync_patterns:
+            databases.extend(data_dir.glob(pattern))
+
+        # Filter out empty databases
+        databases = [db for db in databases if db.stat().st_size > 1024]
+
+        # Sort by priority (high-priority configs first)
+        high_priority_configs = frozenset(self.config.broadcast_high_priority_configs)
+
+        def priority_key(path: Path) -> tuple[int, str]:
+            name = path.stem
+            for config in high_priority_configs:
+                if config in name:
+                    return (0, name)
+            return (1, name)
+
+        databases.sort(key=priority_key)
+
+        logger.info(f"[AutoSyncDaemon] Found {len(databases)} databases to sync")
+        return databases
+
+    def get_bandwidth_for_node(self, node_id: str, provider: str = "default") -> int:
+        """Get bandwidth limit in KB/s for a specific node.
+
+        December 2025: Consolidated from cluster_data_sync.py
+        Uses PROVIDER_BANDWIDTH_HINTS for per-provider limits.
+
+        Args:
+            node_id: Target node ID
+            provider: Provider name (lambda, runpod, vast, etc.)
+
+        Returns:
+            Bandwidth limit in KB/s
+        """
+        try:
+            from app.coordination.sync_bandwidth import PROVIDER_BANDWIDTH_HINTS
+        except ImportError:
+            # Default bandwidth hints if module not available
+            PROVIDER_BANDWIDTH_HINTS = {
+                "default": 20_000,
+                "runpod": 100_000,
+                "nebius": 100_000,
+                "vast": 50_000,
+                "vultr": 50_000,
+                "lambda": 50_000,
+                "hetzner": 30_000,
+            }
+
+        node_lower = node_id.lower()
+
+        # Check node_id for provider hints
+        for prov, bw in PROVIDER_BANDWIDTH_HINTS.items():
+            if prov in node_lower:
+                logger.debug(f"[AutoSyncDaemon] Using {prov} bandwidth {bw}KB/s for {node_id}")
+                return bw
+
+        # Use explicit provider if set
+        if provider and provider in PROVIDER_BANDWIDTH_HINTS:
+            return PROVIDER_BANDWIDTH_HINTS[provider]
+
+        return PROVIDER_BANDWIDTH_HINTS.get("default", 20_000)
+
+    async def get_broadcast_targets(self) -> list[dict[str, Any]]:
+        """Get nodes eligible to receive broadcast sync data.
+
+        December 2025: Consolidated from cluster_data_sync.py
+
+        Filters:
+        - Not excluded by policy
+        - Has sufficient free disk space
+        - Not retired
+        - Is reachable (recent heartbeat)
+        """
+        import json
+        from urllib.request import Request, urlopen
+
+        try:
+            from app.config.ports import get_p2p_status_url
+            from app.coordination.coordinator_config import get_exclusion_policy
+
+            url = get_p2p_status_url()
+            req = Request(url, headers={"Accept": "application/json"})
+
+            with urlopen(req, timeout=10) as resp:
+                status = json.loads(resp.read().decode())
+
+        except Exception as e:
+            logger.warning(f"[AutoSyncDaemon] Failed to get P2P status: {e}")
+            return []
+
+        if not status:
+            return []
+
+        targets = []
+
+        try:
+            exclusion_policy = get_exclusion_policy()
+        except ImportError:
+            exclusion_policy = None
+
+        peers = status.get("peers", {})
+        for node_id, info in peers.items():
+            # Skip excluded nodes
+            if exclusion_policy and exclusion_policy.should_exclude(node_id):
+                continue
+
+            # Skip retired nodes
+            if info.get("retired", False):
+                continue
+
+            # Check disk space
+            disk_free = info.get("disk_free_gb", 0)
+            min_disk = 50  # Default
+            if exclusion_policy:
+                min_disk = getattr(exclusion_policy, 'min_disk_free_gb', 50)
+            if disk_free < min_disk:
+                continue
+
+            # Check for stale heartbeat (>5 min old)
+            last_heartbeat = info.get("last_heartbeat", 0)
+            if time.time() - last_heartbeat > 300:
+                continue
+
+            # Get host address
+            host = info.get("host", "")
+            if not host:
+                continue
+
+            # Detect provider for bandwidth hints
+            provider = info.get("provider", "default")
+            if not provider or provider == "default":
+                node_lower = node_id.lower()
+                if "lambda" in node_lower:
+                    provider = "lambda"
+                elif "runpod" in node_lower:
+                    provider = "runpod"
+                elif "nebius" in node_lower:
+                    provider = "nebius"
+                elif "vast" in node_lower:
+                    provider = "vast"
+                elif "vultr" in node_lower:
+                    provider = "vultr"
+                elif "hetzner" in node_lower:
+                    provider = "hetzner"
+
+            targets.append({
+                "node_id": node_id,
+                "host": host,
+                "disk_free_gb": disk_free,
+                "is_nfs": info.get("nfs_accessible", False),
+                "provider": provider,
+            })
+
+        # Sort by disk space (push to nodes with most space first)
+        targets.sort(key=lambda t: t["disk_free_gb"], reverse=True)
+
+        logger.info(f"[AutoSyncDaemon] Found {len(targets)} broadcast targets")
+        return targets
+
+    async def broadcast_sync_to_target(
+        self,
+        source: Path,
+        target: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Push a database to a target node using rsync (broadcast mode).
+
+        December 2025: Consolidated from cluster_data_sync.py
+
+        Args:
+            source: Source database path
+            target: Target node info dict
+
+        Returns:
+            Sync result dict with success, bytes_transferred, duration, error
+        """
+        start_time = time.time()
+
+        # NFS optimization: Lambda nodes share storage, no sync needed
+        if target.get("is_nfs", False):
+            logger.debug(f"[AutoSyncDaemon] Skipping sync to {target['node_id']}: NFS-connected")
+            return {
+                "source": str(source),
+                "target": target["node_id"],
+                "success": True,
+                "bytes_transferred": 0,
+                "duration_seconds": 0,
+            }
+
+        # Get provider-specific bandwidth limit
+        bandwidth_kbps = self.get_bandwidth_for_node(
+            target["node_id"],
+            target.get("provider", "default"),
+        )
+
+        # Build rsync command
+        target_path = f"ubuntu@{target['host']}:~/ringrift/ai-service/data/games/synced/"
+        ssh_opts = (
+            "ssh -i ~/.ssh/id_cluster "
+            "-o StrictHostKeyChecking=no "
+            "-o ConnectTimeout=10 "
+            "-o TCPKeepAlive=yes "
+            "-o ServerAliveInterval=30 "
+            "-o ServerAliveCountMax=3"
+        )
+        cmd = [
+            "rsync",
+            "-avz",
+            "--progress",
+            f"--bwlimit={bandwidth_kbps}",
+            "--timeout=60",
+            "--partial",
+            "--partial-dir=.rsync-partial",
+            "--delay-updates",
+            "--checksum",
+            "-e", ssh_opts,
+            str(source),
+            target_path,
+        ]
+
+        # Dynamic timeout: 2 seconds per MB, minimum 120s, maximum 1800s
+        file_size_mb = source.stat().st_size / (1024 * 1024) if source.exists() else 100
+        dynamic_timeout = max(120, min(1800, int(60 + file_size_mb * 2)))
+
+        try:
+            logger.info(f"[AutoSyncDaemon] Syncing {source.name} to {target['node_id']}")
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=dynamic_timeout,
+            )
+
+            duration = time.time() - start_time
+
+            if proc.returncode == 0:
+                bytes_transferred = source.stat().st_size
+
+                logger.info(
+                    f"[AutoSyncDaemon] Synced {source.name} to {target['node_id']} in {duration:.1f}s"
+                )
+                return {
+                    "source": str(source),
+                    "target": target["node_id"],
+                    "success": True,
+                    "bytes_transferred": bytes_transferred,
+                    "duration_seconds": duration,
+                }
+            else:
+                error = stderr.decode().strip() if stderr else "Unknown error"
+                logger.warning(f"[AutoSyncDaemon] Sync failed to {target['node_id']}: {error}")
+                return {
+                    "source": str(source),
+                    "target": target["node_id"],
+                    "success": False,
+                    "duration_seconds": duration,
+                    "error": error,
+                }
+
+        except asyncio.TimeoutError:
+            logger.error(f"[AutoSyncDaemon] Sync to {target['node_id']} timed out")
+            return {
+                "source": str(source),
+                "target": target["node_id"],
+                "success": False,
+                "duration_seconds": time.time() - start_time,
+                "error": "Timeout",
+            }
+        except Exception as e:
+            logger.error(f"[AutoSyncDaemon] Sync to {target['node_id']} error: {e}")
+            return {
+                "source": str(source),
+                "target": target["node_id"],
+                "success": False,
+                "duration_seconds": time.time() - start_time,
+                "error": str(e),
+            }
+
+    async def cleanup_stale_partials(self, max_age_hours: int = 24) -> int:
+        """Remove stale .rsync-partial directories to prevent disk bloat.
+
+        December 2025: Consolidated from cluster_data_sync.py
+
+        Args:
+            max_age_hours: Delete partial dirs older than this
+
+        Returns:
+            Number of files cleaned up
+        """
+        import datetime
+
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        data_dir = base_dir / "data" / "games"
+        partial_dir = data_dir / ".rsync-partial"
+
+        cleaned = 0
+
+        if partial_dir.exists():
+            cutoff = datetime.datetime.now() - datetime.timedelta(hours=max_age_hours)
+
+            for item in partial_dir.iterdir():
+                try:
+                    mtime = datetime.datetime.fromtimestamp(item.stat().st_mtime)
+                    if mtime < cutoff:
+                        if item.is_file():
+                            item.unlink()
+                            cleaned += 1
+                            logger.debug(f"[AutoSyncDaemon] Cleaned stale partial: {item}")
+                except Exception as e:
+                    logger.debug(f"[AutoSyncDaemon] Error cleaning {item}: {e}")
+
+        return cleaned
+
+    async def broadcast_sync_cycle(self) -> int:
+        """Execute one broadcast sync cycle (leader-only).
+
+        December 2025: Consolidated from cluster_data_sync.py
+
+        Returns:
+            Number of successful syncs
+        """
+        if not self._is_broadcast:
+            return 0
+
+        logger.info("[AutoSyncDaemon] Starting broadcast sync cycle")
+
+        # Clean up stale partial transfers periodically
+        if self._stats.total_syncs % 10 == 0:
+            try:
+                cleaned = await self.cleanup_stale_partials()
+                if cleaned > 0:
+                    logger.info(f"[AutoSyncDaemon] Cleaned {cleaned} stale partial files")
+            except Exception as e:
+                logger.debug(f"[AutoSyncDaemon] Partial cleanup error: {e}")
+
+        # Get eligible targets
+        targets = await self.get_broadcast_targets()
+        if not targets:
+            logger.info("[AutoSyncDaemon] No broadcast targets available")
+            return 0
+
+        # Get databases to sync
+        databases = self.discover_local_databases()
+        if not databases:
+            logger.info("[AutoSyncDaemon] No databases to sync")
+            return 0
+
+        # Sync each database to each target (with concurrency limit)
+        results: list[dict[str, Any]] = []
+        semaphore = asyncio.Semaphore(self.config.max_concurrent_syncs)
+
+        async def sync_with_limit(db: Path, target: dict[str, Any]) -> dict[str, Any]:
+            async with semaphore:
+                return await self.broadcast_sync_to_target(db, target)
+
+        # Create all sync tasks
+        tasks = []
+        for db in databases:
+            for target in targets:
+                tasks.append(sync_with_limit(db, target))
+
+        # Execute concurrently
+        if tasks:
+            task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Filter out exceptions
+            results = [
+                r for r in task_results
+                if isinstance(r, dict)
+            ]
+
+            # Log summary
+            successful = sum(1 for r in results if r.get("success", False))
+            failed = len(results) - successful
+            logger.info(
+                f"[AutoSyncDaemon] Broadcast sync complete: {successful} successful, {failed} failed"
+            )
+
+            return successful
+
+        return 0
 
     def _subscribe_to_events(self) -> None:
         """Subscribe to events that trigger sync (Phase 9).
@@ -721,13 +1759,13 @@ class AutoSyncDaemon:
                 load_peer_config,
             )
 
-            # Find config
+            # Find config - use canonical distributed_hosts.yaml (Dec 2025)
             base_dir = Path(__file__).resolve().parent.parent.parent
-            config_path = base_dir / "config" / "remote_hosts.yaml"
+            config_path = base_dir / "config" / "distributed_hosts.yaml"
             data_dir = base_dir / "data" / "games"
 
             if not config_path.exists():
-                logger.warning("No remote_hosts.yaml found, gossip sync disabled")
+                logger.warning("No distributed_hosts.yaml found, gossip sync disabled")
                 return
 
             peers = load_peer_config(config_path)
@@ -812,9 +1850,18 @@ class AutoSyncDaemon:
     async def _sync_cycle(self) -> int:
         """Execute one sync cycle.
 
+        December 2025: Unified sync cycle supporting multiple strategies:
+        - BROADCAST: Leader pushes to all eligible nodes
+        - EPHEMERAL: Aggressive polling handled by on_game_complete()
+        - HYBRID: Gossip-based replication (default)
+
         Returns:
             Number of games synced (0 if skipped or no data).
         """
+        # December 2025: Use broadcast sync cycle for BROADCAST strategy
+        if self._is_broadcast:
+            return await self.broadcast_sync_cycle()
+
         # Skip if NFS node and skip_nfs_sync is enabled
         if self._is_nfs_node and self.config.skip_nfs_sync:
             logger.debug("Skipping sync cycle (NFS node)")
@@ -1518,10 +2565,116 @@ def reset_auto_sync_daemon() -> None:
     _auto_sync_daemon = None
 
 
+def create_ephemeral_sync_daemon(
+    on_termination: Any = None,
+) -> AutoSyncDaemon:
+    """Factory function for ephemeral sync (backward compatibility).
+
+    December 2025: Creates an AutoSyncDaemon with EPHEMERAL strategy.
+    This replaces the standalone EphemeralSyncDaemon.
+
+    Args:
+        on_termination: Optional callback for termination handling (ignored)
+
+    Returns:
+        AutoSyncDaemon configured for ephemeral mode
+    """
+    import warnings
+    warnings.warn(
+        "create_ephemeral_sync_daemon() is deprecated. "
+        "Use AutoSyncDaemon(config=AutoSyncConfig(strategy='ephemeral')) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    config = AutoSyncConfig.from_config_file()
+    config.strategy = SyncStrategy.EPHEMERAL
+    return AutoSyncDaemon(config=config)
+
+
+def create_cluster_data_sync_daemon() -> AutoSyncDaemon:
+    """Factory function for cluster data sync (backward compatibility).
+
+    December 2025: Creates an AutoSyncDaemon with BROADCAST strategy.
+    This replaces the standalone ClusterDataSyncDaemon.
+
+    Returns:
+        AutoSyncDaemon configured for broadcast mode
+    """
+    import warnings
+    warnings.warn(
+        "create_cluster_data_sync_daemon() is deprecated. "
+        "Use AutoSyncDaemon(config=AutoSyncConfig(strategy='broadcast')) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    config = AutoSyncConfig.from_config_file()
+    config.strategy = SyncStrategy.BROADCAST
+    return AutoSyncDaemon(config=config)
+
+
+# Backward compatibility aliases (December 2025)
+# These will be removed in Q2 2026
+EphemeralSyncDaemon = AutoSyncDaemon  # Deprecated alias
+ClusterDataSyncDaemon = AutoSyncDaemon  # Deprecated alias
+
+
+def get_ephemeral_sync_daemon() -> AutoSyncDaemon:
+    """Get ephemeral sync daemon (backward compatibility).
+
+    December 2025: Returns AutoSyncDaemon with EPHEMERAL strategy.
+    """
+    import warnings
+    warnings.warn(
+        "get_ephemeral_sync_daemon() is deprecated. "
+        "Use get_auto_sync_daemon() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_auto_sync_daemon()
+
+
+def get_cluster_data_sync_daemon() -> AutoSyncDaemon:
+    """Get cluster data sync daemon (backward compatibility).
+
+    December 2025: Returns AutoSyncDaemon with BROADCAST strategy if leader.
+    """
+    import warnings
+    warnings.warn(
+        "get_cluster_data_sync_daemon() is deprecated. "
+        "Use get_auto_sync_daemon() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_auto_sync_daemon()
+
+
 __all__ = [
+    # Core classes
     "AutoSyncConfig",
     "AutoSyncDaemon",
     "SyncStats",
+    "SyncStrategy",
+    # Singleton accessors
     "get_auto_sync_daemon",
     "reset_auto_sync_daemon",
+    # Factory functions (December 2025 consolidation)
+    "create_ephemeral_sync_daemon",
+    "create_cluster_data_sync_daemon",
+    # Utility functions (December 2025 consolidation from ephemeral_sync.py)
+    "is_ephemeral_host",
+    # Backward compatibility (deprecated)
+    "get_ephemeral_sync_daemon",
+    "get_cluster_data_sync_daemon",
+    "EphemeralSyncDaemon",
+    "ClusterDataSyncDaemon",
 ]
+
+
+def is_ephemeral_host() -> bool:
+    """Check if current host is ephemeral.
+
+    December 2025: Consolidated from ephemeral_sync.py
+    Convenience function for checking ephemeral host status.
+    """
+    daemon = get_auto_sync_daemon()
+    return getattr(daemon, "_is_ephemeral", False)

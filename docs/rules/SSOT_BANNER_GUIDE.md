@@ -6,10 +6,10 @@
 > **SSoT alignment:** This guide is a derived meta‑doc over the existing SSoT layers:
 >
 > - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md` together with `COMPLETE_RULES.md` and `COMPACT_RULES.md` as the normative rules spec, and the shared TS rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**` as its primary executable implementation.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
-> - **TS↔Python parity & determinism SSoT:** `docs/PYTHON_PARITY_REQUIREMENTS.md` plus the TS and Python parity/determinism test suites.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+> - **TS↔Python parity & determinism SSoT:** `docs/rules/PYTHON_PARITY_REQUIREMENTS.md` plus the TS and Python parity/determinism test suites.
 > - **AI/training SSoT:** `AI_ARCHITECTURE.md` and the executable training stack under `ai-service/app/training/**`.
-> - **Operational SSoTs:** CI/config and infra artefacts + their drift guards (see `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`, `scripts/ssot/*.ts`, and `DOCUMENTATION_INDEX.md`).
+> - **Operational SSoTs:** CI/config and infra artefacts + their drift guards (see `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`, `scripts/ssot/*.ts`, and `DOCUMENTATION_INDEX.md`).
 >
 > If this guide ever conflicts with those executable or canonical artefacts, **code, tests, and canonical rules/lifecycle docs win**. Update this guide and individual banners to match them.
 
@@ -75,7 +75,7 @@ This section defines recommended templates and required snippets per doc categor
 - `COMPLETE_RULES.md`, `COMPACT_RULES.md`
 - `RULES_ENGINE_ARCHITECTURE.md`
 - `RULES_IMPLEMENTATION_MAPPING.md`
-- `docs/RULES_ENGINE_SURFACE_AUDIT.md`
+- `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`
 
 **Required snippet:** `Rules/invariants semantics SSoT`
 
@@ -100,8 +100,8 @@ Use this pattern for any doc that explains or catalogues rules behaviour but is 
 
 **Examples:**
 
-- `docs/CANONICAL_ENGINE_API.md`
-- `docs/STATE_MACHINES.md` (derived over the lifecycle SSoT)
+- `docs/architecture/CANONICAL_ENGINE_API.md`
+- `docs/architecture/STATE_MACHINES.md` (derived over the lifecycle SSoT)
 
 **Required snippet for canonical doc:** `Lifecycle/API SSoT`
 
@@ -121,17 +121,17 @@ Use this pattern for any doc that explains or catalogues rules behaviour but is 
 > **Precedence:** If any other doc or host disagrees with these types/schemas and this lifecycle description, **the shared TS types + validation schemas win** and derived docs must be updated.
 ```
 
-**Derived lifecycle/state‑machine docs** (e.g. `docs/STATE_MACHINES.md`) should explicitly call out that they are derived over the Lifecycle/API SSoT and defer to it on conflict, e.g.:
+**Derived lifecycle/state‑machine docs** (e.g. `docs/architecture/STATE_MACHINES.md`) should explicitly call out that they are derived over the Lifecycle/API SSoT and defer to it on conflict, e.g.:
 
 ```md
-> **SSoT alignment:** This document is a derived catalogue of shared state machines over the **Lifecycle/API SSoT** defined in `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types. On conflict, the canonical API doc and shared types win.
+> **SSoT alignment:** This document is a derived catalogue of shared state machines over the **Lifecycle/API SSoT** defined in `docs/architecture/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types. On conflict, the canonical API doc and shared types win.
 ```
 
 ### 3.3 TS↔Python Parity & Determinism Docs
 
 **Examples:**
 
-- `docs/PYTHON_PARITY_REQUIREMENTS.md`
+- `docs/rules/PYTHON_PARITY_REQUIREMENTS.md`
 
 **Required snippet:** `Canonical TS rules surface`
 
@@ -155,9 +155,9 @@ Use this pattern for any doc that explains or catalogues rules behaviour but is 
 **Examples:**
 
 - `AI_ARCHITECTURE.md`
-- `docs/AI_TRAINING_AND_DATASETS.md`
-- `docs/AI_TRAINING_PREPARATION_GUIDE.md`
-- `docs/AI_TRAINING_ASSESSMENT_FINAL.md`
+- `docs/ai/AI_TRAINING_AND_DATASETS.md`
+- `docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`
+- `docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`
 
 **Required snippet for architecture doc:** `rules semantics SSoT` (to emphasise that AI hosts sit on top of the canonical rules spec + shared TS rules implementation).
 
@@ -181,16 +181,16 @@ Other AI docs should make the same relationship explicit and clearly mark themse
 
 **Examples:**
 
-- `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`
-- `docs/SECRETS_MANAGEMENT.md`
-- `docs/DATA_LIFECYCLE_AND_PRIVACY.md`
-- `docs/DEPLOYMENT_REQUIREMENTS.md`
-- `docs/OPERATIONS_DB.md`
+- `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`
+- `docs/operations/SECRETS_MANAGEMENT.md`
+- `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`
+- `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
+- `docs/operations/OPERATIONS_DB.md`
 - `docs/operations/ALERTING_THRESHOLDS.md`
 
 **Required snippet (for the CI/security doc already wired into checks):** `Operational SSoT`
 
-**Banner template for `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`:**
+**Banner template for `docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`:**
 
 ```md
 > **Doc Status (2025-11-27): Active**  
@@ -231,7 +231,7 @@ Other operational docs should:
 > **SSoT alignment:** This document is a derived architectural analysis over:
 >
 > - The rules semantics SSoT (canonical rules spec + shared TS rules engine under `src/shared/engine/**` + contract vectors).
-> - The lifecycle/API SSoT (`docs/CANONICAL_ENGINE_API.md` + shared types/schemas).
+> - The lifecycle/API SSoT (`docs/architecture/CANONICAL_ENGINE_API.md` + shared types/schemas).
 > - The operational SSoTs for CI, deployment, and monitoring.
 >
 > **Precedence:** This file is **never** the source of truth for behaviour. On any conflict with executable code, configs, or tests, **those executable artefacts win** and this document must be updated.
@@ -243,7 +243,7 @@ Other operational docs should:
 
 - `docs/runbooks/**`
 - `docs/incidents/**`
-- `docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`
+- `docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`
 
 Runbooks and incident guides are typically **derived** over:
 
@@ -258,8 +258,8 @@ Recommended banner pattern:
 >
 > **SSoT alignment:** This runbook is a derived operational procedure over:
 >
-> - The Operational SSoT for deployment and infrastructure (`docs/DEPLOYMENT_REQUIREMENTS.md`, `docker-compose*.yml`, `src/server/config/**/*.ts`).
-> - The Security & Data Lifecycle SSoTs (`docs/SECURITY_THREAT_MODEL.md`, `docs/DATA_LIFECYCLE_AND_PRIVACY.md`, `docs/SECRETS_MANAGEMENT.md`) where applicable.
+> - The Operational SSoT for deployment and infrastructure (`docs/planning/DEPLOYMENT_REQUIREMENTS.md`, `docker-compose*.yml`, `src/server/config/**/*.ts`).
+> - The Security & Data Lifecycle SSoTs (`docs/security/SECURITY_THREAT_MODEL.md`, `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`, `docs/operations/SECRETS_MANAGEMENT.md`) where applicable.
 >
 > **Precedence:** If this runbook ever diverges from the actual deployment configs, monitoring rules, or security/data policies, **those configs/policies win** and the runbook must be updated.
 ```
@@ -287,7 +287,7 @@ Recommended banner pattern:
 > **SSoT alignment:** This document is **not** an SSoT. It has been superseded by:
 >
 > - Current architecture assessments: `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`.
-> - Current rules semantics and lifecycle docs: `RULES_CANONICAL_SPEC.md`, `docs/CANONICAL_ENGINE_API.md`, and the shared TS rules engine under `src/shared/engine/**`.
+> - Current rules semantics and lifecycle docs: `RULES_CANONICAL_SPEC.md`, `docs/architecture/CANONICAL_ENGINE_API.md`, and the shared TS rules engine under `src/shared/engine/**`.
 >
 > **Precedence:** On any conflict with current code, tests, or canonical docs, **this historical document loses**. Treat it as context only.
 ```
