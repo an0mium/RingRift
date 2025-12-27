@@ -100,8 +100,7 @@ class EvaluationFeedbackHandler:
             return True
 
         try:
-            from app.coordination.event_router import get_router, subscribe
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, subscribe, DataEventType
 
             router = get_router()
             if router is None:

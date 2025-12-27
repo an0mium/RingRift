@@ -541,6 +541,28 @@ hosts:
     p2p_enabled: true
     note: H100 80GB for training
 
+  # Nebius H100 #2 - Internal IP only, requires ProxyJump through nebius-backbone-1
+  # Provisioned Dec 26, 2025
+  # SSH Config needed: Host nebius-h100-2
+  #                      ProxyJump nebius-backbone-1
+  nebius-h100-2:
+    ssh_host: 10.0.0.8
+    ssh_port: 22
+    ssh_user: ubuntu
+    ssh_key: ~/.ssh/id_cluster
+    ringrift_path: ~/ringrift/ai-service
+    venv_activate: source ~/ringrift/ai-service/venv/bin/activate
+    memory_gb: 200
+    cpus: 16
+    gpu: H100 SXM
+    gpu_vram_gb: 80
+    role: gpu_training_primary
+    status: pending_setup
+    nebius_id: computeinstance-e00xsba9efvkpvk8wy
+    region: eu-north1
+    p2p_enabled: false
+    note: H100 80GB - requires ProxyJump through nebius-backbone-1 (no public IP)
+
   # Nebius H100 #3 - 500GB storage, H100 80GB
   # Provisioned Dec 26, 2025 to replace deleted nodes
   nebius-h100-3:

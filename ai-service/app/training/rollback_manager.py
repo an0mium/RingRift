@@ -1192,8 +1192,7 @@ class QualityRollbackWatcher:
     def _emit_rollback_event(self, config_key: str, quality_score: float, result) -> None:
         """Emit a quality-triggered rollback event."""
         try:
-            from app.coordination.event_router import get_event_bus
-            from app.distributed.data_events import DataEventType, DataEvent
+            from app.coordination.event_router import get_event_bus, DataEventType, DataEvent
 
             bus = get_event_bus()
             if bus:

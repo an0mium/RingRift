@@ -843,7 +843,7 @@ class DatabaseQualityChecker:
         """
         try:
             import asyncio
-            from app.distributed.data_events import DataEventType, emit_data_event
+            from app.coordination.event_router import DataEventType, emit_data_event
 
             # Extract config info from metadata if available
             config_breakdown = report.metadata.get("config_breakdown", {})
