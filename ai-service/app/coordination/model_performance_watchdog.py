@@ -141,33 +141,43 @@ class ModelPerformanceWatchdog:
             HealthCheckResult with health status and tracking details.
 
         December 2025: Added for unified health monitoring.
+        December 2025 Session 2: Added exception handling.
         """
         from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
-        if not self._running:
+        try:
+            if not self._running:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.STOPPED,
+                    message="ModelPerformanceWatchdog not running",
+                )
+
+            # Count degraded models
+            degraded_count = sum(1 for p in self.models.values() if p.is_degraded)
+            model_count = len(self.models)
+
+            # Unhealthy if >50% of tracked models are degraded
+            is_healthy = degraded_count <= model_count // 2 if model_count > 0 else True
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED,
+                message=f"Tracking {model_count} models, {degraded_count} degraded",
+                details={
+                    "model_count": model_count,
+                    "degraded_count": degraded_count,
+                    "models": list(self.models.keys())[:10],  # First 10 for brevity
+                },
+            )
+        except Exception as e:
+            logger.warning(f"[ModelPerformanceWatchdog] health_check error: {e}")
             return HealthCheckResult(
                 healthy=False,
-                status=CoordinatorStatus.STOPPED,
-                message="ModelPerformanceWatchdog not running",
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
             )
-
-        # Count degraded models
-        degraded_count = sum(1 for p in self.models.values() if p.is_degraded)
-        model_count = len(self.models)
-
-        # Unhealthy if >50% of tracked models are degraded
-        is_healthy = degraded_count <= model_count // 2 if model_count > 0 else True
-
-        return HealthCheckResult(
-            healthy=is_healthy,
-            status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED,
-            message=f"Tracking {model_count} models, {degraded_count} degraded",
-            details={
-                "model_count": model_count,
-                "degraded_count": degraded_count,
-                "models": list(self.models.keys())[:10],  # First 10 for brevity
-            },
-        )
 
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EVALUATION_COMPLETED events."""

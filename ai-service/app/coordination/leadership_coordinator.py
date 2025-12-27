@@ -538,54 +538,65 @@ class LeadershipCoordinator:
 
         Returns:
             HealthCheckResult with status and details
+
+        December 2025 Session 2: Added exception handling.
         """
-        stats = self.get_stats()
+        try:
+            stats = self.get_stats()
 
-        details = {
-            "local_node_id": self.local_node_id,
-            "subscribed": self._subscribed,
-            "online_nodes": stats.online_nodes,
-            "total_nodes": stats.total_nodes,
-            "leaders_by_domain": stats.leaders_by_domain,
-            "total_elections": stats.total_elections,
-            "total_failovers": stats.total_failovers,
-            "current_term": stats.current_term,
-        }
+            details = {
+                "local_node_id": self.local_node_id,
+                "subscribed": self._subscribed,
+                "online_nodes": stats.online_nodes,
+                "total_nodes": stats.total_nodes,
+                "leaders_by_domain": stats.leaders_by_domain,
+                "total_elections": stats.total_elections,
+                "total_failovers": stats.total_failovers,
+                "current_term": stats.current_term,
+            }
 
-        # Not subscribed to events = degraded
-        if not self._subscribed:
+            # Not subscribed to events = degraded
+            if not self._subscribed:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.DEGRADED,
+                    message="LeadershipCoordinator not subscribed to events",
+                    details=details,
+                )
+
+            # No online nodes = error
+            if stats.online_nodes == 0:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.ERROR,
+                    message="No online nodes in cluster",
+                    details=details,
+                )
+
+            # Cluster not healthy (missing required leaders)
+            if not stats.cluster_healthy:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.DEGRADED,
+                    message="Cluster missing required leaders",
+                    details=details,
+                )
+
+            # All good
             return HealthCheckResult(
-                healthy=False,
-                status=CoordinatorStatus.DEGRADED,
-                message="LeadershipCoordinator not subscribed to events",
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"LeadershipCoordinator healthy: {stats.online_nodes} nodes, {len(stats.leaders_by_domain)} domains",
                 details=details,
             )
-
-        # No online nodes = error
-        if stats.online_nodes == 0:
+        except Exception as e:
+            logger.warning(f"[LeadershipCoordinator] health_check error: {e}")
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.ERROR,
-                message="No online nodes in cluster",
-                details=details,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
             )
-
-        # Cluster not healthy (missing required leaders)
-        if not stats.cluster_healthy:
-            return HealthCheckResult(
-                healthy=False,
-                status=CoordinatorStatus.DEGRADED,
-                message="Cluster missing required leaders",
-                details=details,
-            )
-
-        # All good
-        return HealthCheckResult(
-            healthy=True,
-            status=CoordinatorStatus.RUNNING,
-            message=f"LeadershipCoordinator healthy: {stats.online_nodes} nodes, {len(stats.leaders_by_domain)} domains",
-            details=details,
-        )
 
 
 # =============================================================================

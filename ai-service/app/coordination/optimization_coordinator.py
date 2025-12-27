@@ -718,37 +718,48 @@ class OptimizationCoordinator:
 
         Returns:
             HealthCheckResult with status and metrics.
+
+        December 2025 Session 2: Added exception handling.
         """
-        stats = self.get_stats()
+        try:
+            stats = self.get_stats()
 
-        # Calculate success rate
-        total = stats.total_runs
-        successful = stats.successful_runs
-        success_rate = successful / max(total, 1)
+            # Calculate success rate
+            total = stats.total_runs
+            successful = stats.successful_runs
+            success_rate = successful / max(total, 1)
 
-        # Overall health criteria
-        healthy = (
-            self._subscribed  # Must be subscribed to events
-            and success_rate >= 0.5  # At least 50% success rate
-        )
+            # Overall health criteria
+            healthy = (
+                self._subscribed  # Must be subscribed to events
+                and success_rate >= 0.5  # At least 50% success rate
+            )
 
-        status = CoordinatorStatus.RUNNING if healthy else CoordinatorStatus.DEGRADED
-        message = "" if healthy else f"Success rate {success_rate:.1%} below threshold"
+            status = CoordinatorStatus.RUNNING if healthy else CoordinatorStatus.DEGRADED
+            message = "" if healthy else f"Success rate {success_rate:.1%} below threshold"
 
-        return HealthCheckResult(
-            healthy=healthy,
-            status=status,
-            message=message,
-            details={
-                "total_runs": total,
-                "successful_runs": successful,
-                "failed_runs": stats.failed_runs,
-                "success_rate": round(success_rate, 3),
-                "is_running": self.is_optimization_running(),
-                "in_cooldown": self.is_in_cooldown(),
-                "subscribed": self._subscribed,
-            },
-        )
+            return HealthCheckResult(
+                healthy=healthy,
+                status=status,
+                message=message,
+                details={
+                    "total_runs": total,
+                    "successful_runs": successful,
+                    "failed_runs": stats.failed_runs,
+                    "success_rate": round(success_rate, 3),
+                    "is_running": self.is_optimization_running(),
+                    "in_cooldown": self.is_in_cooldown(),
+                    "subscribed": self._subscribed,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"[OptimizationCoordinator] health_check error: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
+            )
 
 
 # =============================================================================
