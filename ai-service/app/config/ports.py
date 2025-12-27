@@ -98,6 +98,33 @@ def get_p2p_base_url(host: str = "localhost", port: int | None = None) -> str:
     return f"http://{host}:{port}"
 
 
+def get_local_p2p_url() -> str:
+    """Get the local P2P orchestrator URL.
+
+    This is the canonical way to get the P2P URL - checks environment
+    variables first, then falls back to localhost default.
+
+    Environment variables checked (in order):
+        - RINGRIFT_P2P_URL
+        - P2P_URL
+        - P2P_ORCHESTRATOR_URL
+
+    Returns:
+        P2P orchestrator base URL (e.g., "http://localhost:8770")
+
+    Example:
+        from app.config.ports import get_local_p2p_url
+        url = get_local_p2p_url()  # "http://localhost:8770" or from env
+    """
+    import os
+    return (
+        os.environ.get("RINGRIFT_P2P_URL")
+        or os.environ.get("P2P_URL")
+        or os.environ.get("P2P_ORCHESTRATOR_URL")
+        or get_p2p_base_url()
+    )
+
+
 def get_data_server_url(host: str, port: int | None = None, path: str = "") -> str:
     """Build data server URL for file transfers.
 

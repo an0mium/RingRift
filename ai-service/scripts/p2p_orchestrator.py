@@ -6258,6 +6258,9 @@ class P2POrchestrator(
 
                 logger.info("Running model sync check...")
 
+                # Emit MODEL_DISTRIBUTION_STARTED event (Dec 2025)
+                sync_start_time = time.time()
+
                 # Run sync in a thread pool to avoid blocking the event loop
                 loop = asyncio.get_event_loop()
 
@@ -6266,7 +6269,7 @@ class P2POrchestrator(
                         # Load remote hosts
                         hosts = load_remote_hosts()
                         if not hosts:
-                            return 0, 0, ["No remote hosts configured"]
+                            return 0, 0, ["No remote hosts configured"], 0, 0
 
                         # Scan cluster for model inventory
                         state = scan_cluster_models(hosts, max_workers=5)
@@ -6287,7 +6290,23 @@ class P2POrchestrator(
                     except Exception as e:
                         return 0, 0, [str(e)], 0, 0
 
+                # Get estimated host count for started event
+                estimated_hosts = 0
+                try:
+                    hosts = load_remote_hosts()
+                    estimated_hosts = len(hosts) if hosts else 0
+                except Exception:
+                    pass
+
+                # Emit started event with estimates
+                await _emit_model_distribution_started(
+                    total_models=0,  # Unknown until scan completes
+                    target_hosts=estimated_hosts,
+                    source="p2p_model_sync_loop",
+                )
+
                 result = await loop.run_in_executor(None, do_model_sync)
+                sync_duration = time.time() - sync_start_time
 
                 if len(result) == 5:
                     collected, distributed, errors, total_models, num_hosts = result
@@ -6296,9 +6315,26 @@ class P2POrchestrator(
                         logger.info(f"Model sync: collected {collected}, distributed {distributed} "
                               f"({total_models} total models across {num_hosts} hosts)")
 
+                        # Emit MODEL_DISTRIBUTION_COMPLETE event (Dec 2025)
+                        await _emit_model_distribution_complete(
+                            models_collected=collected,
+                            models_distributed=distributed,
+                            target_hosts=num_hosts,
+                            duration=sync_duration,
+                            source="p2p_model_sync_loop",
+                        )
+
                     if errors:
                         for err in errors[:3]:
                             logger.info(f"Model sync error: {err}")
+
+                        # Emit MODEL_DISTRIBUTION_FAILED event if errors (Dec 2025)
+                        if collected == 0 and distributed == 0:
+                            await _emit_model_distribution_failed(
+                                error=errors[0] if errors else "Unknown error",
+                                partial_models=0,
+                                source="p2p_model_sync_loop",
+                            )
 
                     # Use SyncCoordinator for additional transport methods (aria2, ssh, p2p)
                     if HAS_SYNC_COORDINATOR and errors:
