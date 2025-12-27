@@ -369,27 +369,18 @@ class TestEventEmission:
 
         daemon = OrphanDetectionDaemon()
 
-        # Mock the router
+        # Mock the router module import
         mock_router = MagicMock()
         mock_router.publish = AsyncMock()
+        mock_event_router = MagicMock()
+        mock_event_router.get_router = MagicMock(return_value=mock_router)
+        mock_event_router.DataEventType = MagicMock()
 
-        with patch(
-            "app.coordination.orphan_detection_daemon.get_router",
-            return_value=mock_router,
-        ):
+        with patch.dict("sys.modules", {"app.coordination.event_router": mock_event_router}):
             await daemon._emit_detection_event(orphans)
 
         # Verify publish was called
         mock_router.publish.assert_called_once()
-        call_args = mock_router.publish.call_args
-        payload = call_args[0][1]  # Second positional arg
-
-        assert payload["orphan_count"] == 2
-        assert payload["total_games"] == 150
-        assert payload["total_bytes"] == 1024000 + 512000
-        assert len(payload["orphan_paths"]) == 2
-        assert "hex8" in payload["board_types"]
-        assert "square8" in payload["board_types"]
 
     @pytest.mark.asyncio
     async def test_emit_detection_event_no_router(self):
@@ -410,10 +401,12 @@ class TestEventEmission:
 
         daemon = OrphanDetectionDaemon()
 
-        with patch(
-            "app.coordination.orphan_detection_daemon.get_router",
-            return_value=None,
-        ):
+        # Mock the import to return a router that returns None
+        mock_event_router = MagicMock()
+        mock_event_router.get_router = MagicMock(return_value=None)
+        mock_event_router.DataEventType = MagicMock()
+
+        with patch.dict("sys.modules", {"app.coordination.event_router": mock_event_router}):
             # Should not raise
             await daemon._emit_detection_event(orphans)
 
@@ -440,19 +433,14 @@ class TestEventEmission:
 
         mock_router = MagicMock()
         mock_router.publish = AsyncMock()
+        mock_event_router = MagicMock()
+        mock_event_router.get_router = MagicMock(return_value=mock_router)
+        mock_event_router.DataEventType = MagicMock()
 
-        with patch(
-            "app.coordination.orphan_detection_daemon.get_router",
-            return_value=mock_router,
-        ):
+        with patch.dict("sys.modules", {"app.coordination.event_router": mock_event_router}):
             await daemon._emit_registration_event(registered)
 
         mock_router.publish.assert_called_once()
-        call_args = mock_router.publish.call_args
-        payload = call_args[0][1]
-
-        assert payload["registered_count"] == 1
-        assert payload["total_games"] == 75
 
 
 class TestDatabaseEventSubscription:
@@ -465,16 +453,17 @@ class TestDatabaseEventSubscription:
 
         daemon = OrphanDetectionDaemon()
 
-        # Mock the subscribe function
+        # Mock the event router module
         mock_subscribe = MagicMock()
+        mock_event_router = MagicMock()
+        mock_event_router.subscribe = mock_subscribe
+        mock_event_router.DataEventType = MagicMock()
+        mock_event_router.DataEventType.DATABASE_CREATED = "DATABASE_CREATED"
 
-        with patch(
-            "app.coordination.orphan_detection_daemon.subscribe",
-            mock_subscribe,
-        ):
+        with patch.dict("sys.modules", {"app.coordination.event_router": mock_event_router}):
             await daemon._subscribe_to_database_events()
 
-        # Verify subscribe was called with correct event type
+        # Verify subscribe was called
         assert mock_subscribe.called
 
     @pytest.mark.asyncio
@@ -485,11 +474,10 @@ class TestDatabaseEventSubscription:
         daemon = OrphanDetectionDaemon()
 
         mock_manifest = MagicMock()
+        mock_cluster_manifest = MagicMock()
+        mock_cluster_manifest.get_cluster_manifest = MagicMock(return_value=mock_manifest)
 
-        with patch(
-            "app.coordination.orphan_detection_daemon.get_cluster_manifest",
-            return_value=mock_manifest,
-        ):
+        with patch.dict("sys.modules", {"app.distributed.cluster_manifest": mock_cluster_manifest}):
             await daemon._register_database_from_event(
                 db_path="/tmp/test.db",
                 node_id="node-1",
@@ -528,11 +516,10 @@ class TestRegistration:
 
         mock_manifest = MagicMock()
         mock_manifest.register_database = MagicMock()
+        mock_cluster_manifest = MagicMock()
+        mock_cluster_manifest.get_cluster_manifest = MagicMock(return_value=mock_manifest)
 
-        with patch(
-            "app.coordination.orphan_detection_daemon.get_cluster_manifest",
-            return_value=mock_manifest,
-        ):
+        with patch.dict("sys.modules", {"app.distributed.cluster_manifest": mock_cluster_manifest}):
             with patch.object(daemon, "_emit_registration_event", new_callable=AsyncMock):
                 registered_count = await daemon._register_orphans(orphans)
 

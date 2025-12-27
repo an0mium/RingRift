@@ -344,13 +344,21 @@ class AutoSyncDaemon:
         # Quality extraction for training data prioritization (December 2025)
         self._quality_config: Any = None
         self._elo_lookup: Any = None
-        if self.config.enable_quality_extraction and HAS_QUALITY_EXTRACTION:
-            try:
-                self._quality_config = QualityExtractorConfig()
-                self._elo_lookup = get_elo_lookup_from_service()
-                logger.info("Quality extraction enabled for training data prioritization")
-            except (RuntimeError, OSError, ValueError, KeyError) as e:
-                logger.warning(f"Failed to initialize quality extraction: {e}")
+        if self.config.enable_quality_extraction:
+            if HAS_QUALITY_EXTRACTION:
+                try:
+                    self._quality_config = QualityExtractorConfig()
+                    self._elo_lookup = get_elo_lookup_from_service()
+                    logger.info("Quality extraction enabled for training data prioritization")
+                except (RuntimeError, OSError, ValueError, KeyError) as e:
+                    logger.warning(f"Failed to initialize quality extraction: {e}")
+                    self.config.enable_quality_extraction = False
+            else:
+                # December 2025: Log warning when quality extraction is requested but unavailable
+                logger.warning(
+                    "[AutoSyncDaemon] Quality extraction requested but module unavailable. "
+                    "Install quality_extractor dependencies or set enable_quality_extraction=False"
+                )
                 self.config.enable_quality_extraction = False
 
         # Circuit breaker for node-level fault tolerance (December 2025)
@@ -1085,25 +1093,35 @@ class AutoSyncDaemon:
         """Direct rsync without bandwidth management.
 
         December 2025: Consolidated from ephemeral_sync.py
+        December 2025: Updated to use cluster_config helpers instead of inline YAML
         """
         import os
         import subprocess
 
-        base_dir = Path(__file__).resolve().parent.parent.parent
-        config_path = base_dir / "config" / "distributed_hosts.yaml"
-
-        if not config_path.exists():
-            return False
-
         try:
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
+            # December 2025: Use cluster_config helpers instead of inline YAML parsing
+            from app.config.cluster_config import get_cluster_nodes, get_node_bandwidth_kbs
 
-            host_config = config.get("hosts", {}).get(target_node, {})
-            ssh_host = host_config.get("tailscale_ip") or host_config.get("ssh_host")
-            ssh_user = host_config.get("ssh_user", "ubuntu")
-            ssh_key = host_config.get("ssh_key", "~/.ssh/id_cluster")
-            remote_path = host_config.get("ringrift_path", "~/ringrift/ai-service")
+            nodes = get_cluster_nodes()
+            node = nodes.get(target_node)
+
+            if not node:
+                logger.debug(f"[AutoSyncDaemon] Node {target_node} not found in cluster config")
+                return False
+
+            ssh_host = node.best_ip
+            ssh_user = node.ssh_user or "ubuntu"
+            ssh_key = node.ssh_key or "~/.ssh/id_cluster"
+            remote_path = "~/ringrift/ai-service"  # Standard path
+
+            # Get bandwidth limit for this node
+            bwlimit_args = []
+            try:
+                bwlimit_kbs = get_node_bandwidth_kbs(target_node)
+                if bwlimit_kbs > 0:
+                    bwlimit_args = [f"--bwlimit={bwlimit_kbs}"]
+            except (KeyError, ValueError):
+                pass
 
             if not ssh_host:
                 return False
@@ -1115,6 +1133,7 @@ class AutoSyncDaemon:
                 "rsync",
                 "-avz",
                 "--compress",
+                *bwlimit_args,
                 "-e", f"ssh -i {ssh_key} -o StrictHostKeyChecking=no -o ConnectTimeout=10",
                 db_path,
                 remote_full,

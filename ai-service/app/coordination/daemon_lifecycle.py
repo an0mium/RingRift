@@ -750,3 +750,36 @@ class DaemonLifecycleManager:
             f"Dependency graph validated: {len(types_to_check)} daemons, "
             f"no cycles or missing dependencies"
         )
+
+    def health_check(self) -> "HealthCheckResult":
+        """Perform health check for the lifecycle manager (CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with lifecycle manager health status
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        # Count daemon states
+        running = sum(
+            1 for info in self._daemons.values() if info.state == DaemonState.RUNNING
+        )
+        failed = sum(
+            1 for info in self._daemons.values() if info.state == DaemonState.FAILED
+        )
+        total = len(self._daemons)
+
+        # Unhealthy if more than 20% of daemons failed
+        is_healthy = failed < max(1, total * 0.2) if total > 0 else True
+        status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message="" if is_healthy else f"High failure rate: {failed}/{total} daemons failed",
+            details={
+                "running_daemons": running,
+                "failed_daemons": failed,
+                "total_daemons": total,
+                "shutdown_requested": self._shutdown_event.is_set(),
+            },
+        )

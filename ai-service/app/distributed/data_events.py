@@ -1858,6 +1858,18 @@ async def emit_promotion_rejected(
 # =============================================================================
 # Tier Promotion Events
 # =============================================================================
+# STATUS: RESERVED - Emitter exists, no subscribers yet (Dec 2025)
+#
+# Purpose: Track model promotion through difficulty ladder tiers (D1→D2→D3, etc.)
+#
+# Intended subscribers (to be implemented Q1 2026):
+#   - CurriculumIntegration: Adjust training curriculum when tier changes
+#   - TierProgressTracker: Monitor promotion velocity for dashboards
+#   - ModelRegistry: Update model metadata with tier information
+#
+# The emit function is wired from app.training.promotion_controller._execute_tier_promotion()
+# when a model passes threshold evaluation at its current tier.
+# =============================================================================
 
 async def emit_tier_promotion(
     config: str,

@@ -175,11 +175,53 @@ class EvaluationFeedbackHandler:
                         logger.warning(f"[EvaluationFeedbackHandler] Invalid LR multiplier: {new_value} ({e})")
 
             subscribe(DataEventType.HYPERPARAMETER_UPDATED, on_hyperparameter_updated)
+
+            # December 2025: Subscribe to ADAPTIVE_PARAMS_CHANGED for Elo-based training param adjustments
+            def on_adaptive_params_changed(event):
+                """Handle ADAPTIVE_PARAMS_CHANGED - training params adjusted based on Elo trends."""
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config", payload.get("config_key", ""))
+
+                # Only respond to our config's events
+                if event_config != self.config_key:
+                    return
+
+                # Extract parameter changes
+                parameter = payload.get("parameter", "")
+                old_value = payload.get("old_value")
+                new_value = payload.get("new_value")
+                reason = payload.get("reason", "elo_adaptive")
+                elo_delta = payload.get("elo_delta", 0)
+
+                if parameter == "learning_rate" and new_value is not None:
+                    try:
+                        new_lr = float(new_value)
+                        new_lr = max(self.min_lr, min(self.max_lr, new_lr))
+                        old_lr = self.optimizer.param_groups[0]["lr"]
+
+                        for param_group in self.optimizer.param_groups:
+                            param_group["lr"] = new_lr
+
+                        logger.info(
+                            f"[EvaluationFeedbackHandler] Adaptive LR for {self.config_key}: "
+                            f"{old_lr:.2e} -> {new_lr:.2e} (elo_delta={elo_delta:+.1f}, reason={reason})"
+                        )
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"[EvaluationFeedbackHandler] Invalid adaptive LR: {new_value} ({e})")
+
+                elif parameter in ("batch_size", "weight_decay", "gradient_clip"):
+                    # Log other adaptive parameter changes for visibility
+                    logger.info(
+                        f"[EvaluationFeedbackHandler] Adaptive param for {self.config_key}: "
+                        f"{parameter} {old_value} -> {new_value} (elo_delta={elo_delta:+.1f})"
+                    )
+
+            subscribe(DataEventType.ADAPTIVE_PARAMS_CHANGED, on_adaptive_params_changed)
             self._subscribed = True
 
             logger.info(
                 f"[EvaluationFeedbackHandler] Subscribed to EVALUATION_COMPLETED + HYPERPARAMETER_UPDATED "
-                f"for {self.config_key}"
+                f"+ ADAPTIVE_PARAMS_CHANGED for {self.config_key}"
             )
             return True
 

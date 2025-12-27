@@ -321,9 +321,10 @@ class UnifiedDistributionDaemon:
 
             # Model events
             subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
+            subscribe(DataEventType.MODEL_UPDATED, self._on_model_updated)
             subscribe(DataEventType.MODEL_DISTRIBUTION_STARTED, self._on_model_distribution_started)
             subscribe(DataEventType.MODEL_DISTRIBUTION_FAILED, self._on_model_distribution_failed)
-            logger.info("Subscribed to MODEL_PROMOTED events")
+            logger.info("Subscribed to MODEL_PROMOTED, MODEL_UPDATED events")
 
             # NPZ events
             try:
@@ -354,6 +355,43 @@ class UnifiedDistributionDaemon:
             "timestamp": time.time(),
         }
         logger.info(f"Received MODEL_PROMOTED: {item.get('path')}")
+        self._enqueue_item(item)
+
+    def _on_model_updated(self, event: dict[str, Any] | Any) -> None:
+        """Handle MODEL_UPDATED event - model metadata or path changed (pre-promotion).
+
+        December 2025: Wire MODEL_UPDATED to trigger distribution when a model
+        file path or metadata changes, even before formal promotion. This enables
+        faster propagation of model updates across the cluster.
+        """
+        payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
+
+        model_path = payload.get("model_path", payload.get("path"))
+        model_id = payload.get("model_id", "")
+        update_type = payload.get("update_type", "metadata")
+        config_key = payload.get("config_key", "")
+
+        # Only trigger distribution for path changes or explicit sync requests
+        if update_type not in ("path_changed", "sync_requested", "symlink_updated"):
+            logger.debug(
+                f"MODEL_UPDATED: Ignoring metadata update for {model_id or config_key} "
+                f"(type={update_type})"
+            )
+            return
+
+        if not model_path:
+            logger.warning(f"MODEL_UPDATED: No path in event for {model_id or config_key}")
+            return
+
+        item = {
+            "data_type": DataType.MODEL,
+            "path": model_path,
+            "model_id": model_id,
+            "config_key": config_key,
+            "update_type": update_type,
+            "timestamp": time.time(),
+        }
+        logger.info(f"Received MODEL_UPDATED: {model_path} (type={update_type})")
         self._enqueue_item(item)
 
     def _on_model_distribution_started(self, event: dict[str, Any] | Any) -> None:

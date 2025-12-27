@@ -643,6 +643,29 @@ class MultiProviderOrchestrator:
         print(f"  Idle: {summary['idle_nodes']} nodes")
         print("=" * 60)
 
+    def health_check(self) -> "HealthCheckResult":
+        """Perform health check (CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with orchestrator health status
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        summary = self.get_status_summary()
+        total = summary["total_nodes"]
+        online = summary["online_nodes"]
+
+        # Unhealthy if less than 50% of nodes are online
+        is_healthy = online >= (total * 0.5) if total > 0 else True
+        status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message="" if is_healthy else f"Low online rate: {online}/{total} nodes online",
+            details=summary,
+        )
+
 
 # Global orchestrator instance
 _orchestrator: MultiProviderOrchestrator | None = None

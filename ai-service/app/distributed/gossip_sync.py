@@ -38,10 +38,12 @@ from typing import Any
 
 import yaml
 
+# Import centralized port constants (December 2025)
+from app.config.ports import GOSSIP_PORT
+
 logger = logging.getLogger(__name__)
 
-# Constants
-GOSSIP_PORT = 8771  # Port for gossip protocol
+# Constants (GOSSIP_PORT imported from app.config.ports)
 SYNC_INTERVAL = 60  # Seconds between sync cycles
 MAX_GAMES_PER_PUSH = 100  # Max games to push per cycle
 BLOOM_FILTER_SIZE = 100000  # Bloom filter bits

@@ -302,6 +302,29 @@ class BaseOrchestrator(ABC):
         )
         return recent_errors < 5
 
+    def health_check(self) -> "HealthCheckResult":
+        """Perform health check (CoordinatorProtocol compliance).
+
+        Returns standardized HealthCheckResult for unified monitoring.
+        Subclasses can override to add custom health criteria.
+
+        Returns:
+            HealthCheckResult with health status and details
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        is_healthy = self.is_healthy()
+        status = (
+            CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+        )
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message="" if is_healthy else f"High error rate: {self._status.error_count}",
+            details=self.get_status(),
+        )
+
     # =========================================================================
     # Error Tracking
     # =========================================================================

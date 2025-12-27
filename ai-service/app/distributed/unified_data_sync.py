@@ -249,7 +249,8 @@ try:
 except ImportError:
     HAS_GOSSIP_SYNC = False
     GossipSyncDaemon = None
-    GOSSIP_PORT = 8771
+    # Import from centralized port config (December 2025)
+    from app.config.ports import GOSSIP_PORT
 
 # Aria2 transport for high-performance multi-connection downloads
 try:

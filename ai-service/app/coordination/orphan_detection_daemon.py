@@ -118,8 +118,21 @@ class OrphanDetectionDaemon:
         logger.info("OrphanDetectionDaemon stopped")
 
     async def stop(self) -> None:
-        """Stop the daemon gracefully."""
+        """Stop the daemon gracefully.
+
+        December 2025: Added proper cleanup to unsubscribe from events.
+        """
         self._running = False
+
+        # Dec 2025: Unsubscribe from events on shutdown
+        if self._event_subscription is not None:
+            try:
+                from app.coordination.event_router import unsubscribe, DataEventType
+                unsubscribe(DataEventType.DATABASE_CREATED, self._event_subscription)
+                logger.debug("[OrphanDetection] Unsubscribed from DATABASE_CREATED events")
+            except Exception as e:
+                logger.debug(f"[OrphanDetection] Failed to unsubscribe: {e}")
+            self._event_subscription = None
 
     async def _subscribe_to_database_events(self) -> None:
         """Subscribe to DATABASE_CREATED events for immediate registration.
@@ -153,6 +166,8 @@ class OrphanDetectionDaemon:
                     logger.debug(f"[OrphanDetection] Failed to handle DATABASE_CREATED: {e}")
 
             subscribe(DataEventType.DATABASE_CREATED, on_database_created)
+            # Dec 2025: Store callback reference for cleanup in stop()
+            self._event_subscription = on_database_created
             logger.info("[OrphanDetection] Subscribed to DATABASE_CREATED events")
 
         except ImportError:
@@ -470,7 +485,7 @@ class OrphanDetectionDaemon:
             "config": {
                 "scan_interval_seconds": self.config.scan_interval_seconds,
                 "games_dir": self.config.games_dir,
-                "auto_register": self.config.auto_register,
+                "auto_register_orphans": self.config.auto_register_orphans,
                 "emit_detection_event": self.config.emit_detection_event,
             },
         }

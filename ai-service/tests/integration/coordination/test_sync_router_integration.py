@@ -43,36 +43,47 @@ def reset_singleton():
 
 @pytest.fixture
 def mock_config():
-    """Mock cluster configuration."""
-    return {
-        "hosts": {
-            "training-node": {
-                "status": "ready",
-                "role": "training",
-                "gpu": "H100",
-            },
-            "selfplay-node": {
-                "status": "ready",
-                "role": "selfplay",
-                "gpu": "A100",
-            },
-            "coordinator": {
-                "status": "ready",
-                "role": "coordinator",
-                "is_coordinator": True,
-            },
-            "ephemeral-node": {
-                "status": "ready",
-                "role": "selfplay",
-                "gpu": "RTX4090",
-            },
+    """Mock cluster configuration with ClusterConfig-like interface."""
+    hosts_raw = {
+        "training-node": {
+            "status": "ready",
+            "role": "training",
+            "gpu": "H100",
         },
-        "sync_routing": {
-            "max_disk_usage_percent": 70.0,
-            "ephemeral_hosts": ["ephemeral-node"],
-            "nfs_shares": {},
+        "selfplay-node": {
+            "status": "ready",
+            "role": "selfplay",
+            "gpu": "A100",
+        },
+        "coordinator": {
+            "status": "ready",
+            "role": "coordinator",
+            "is_coordinator": True,
+        },
+        "ephemeral-node": {
+            "status": "ready",
+            "role": "selfplay",
+            "gpu": "RTX4090",
         },
     }
+    sync_routing_raw = {
+        "max_disk_usage_percent": 70.0,
+        "ephemeral_hosts": ["ephemeral-node"],
+        "nfs_shares": {},
+        "priority_hosts": [],
+    }
+
+    # Create a mock ClusterConfig object
+    config = MagicMock()
+    config.hosts_raw = hosts_raw
+    config.get_raw_section.return_value = sync_routing_raw
+
+    # Mock sync_routing.allowed_external_storage as empty list
+    mock_sync_routing = MagicMock()
+    mock_sync_routing.allowed_external_storage = []
+    config.sync_routing = mock_sync_routing
+
+    return config
 
 
 @pytest.fixture
@@ -83,6 +94,15 @@ def mock_manifest():
     manifest.get_disk_usage.return_value = 30.0
     manifest.has_data.return_value = False
     manifest.get_sync_targets.return_value = []
+    manifest.can_receive_data.return_value = True
+
+    # Mock sync policy with default values
+    mock_policy = MagicMock()
+    mock_policy.receive_games = True
+    mock_policy.receive_models = True
+    mock_policy.receive_npz = True
+    manifest.get_sync_policy.return_value = mock_policy
+
     return manifest
 
 
@@ -341,6 +361,8 @@ class TestStatusReporting:
 
     def test_get_status_reflects_node_count(self, router):
         """get_status should reflect actual node count."""
+        # Clear existing capabilities from config and add test nodes
+        router._node_capabilities.clear()
         router._node_capabilities["node-1"] = NodeSyncCapability(node_id="node-1")
         router._node_capabilities["node-2"] = NodeSyncCapability(node_id="node-2")
 
@@ -487,15 +509,15 @@ class TestDataTypeRouting:
             is_training_node=False,
         )
 
-        with patch.object(router, "_is_excluded", return_value=False), \
-             patch.object(router, "_check_disk_capacity", return_value=True):
+        # Mock capacity check to pass
+        with patch.object(router, "_check_node_capacity", return_value=True):
             result = router.should_sync_to_node(
                 "selfplay-node",
                 DataType.MODEL,
             )
 
             # Selfplay nodes need models
-            assert isinstance(result, bool)
+            assert result is True
 
     def test_npz_routes_to_training_nodes(self, router):
         """NPZ training data should route to training nodes."""
@@ -505,15 +527,15 @@ class TestDataTypeRouting:
             is_training_node=True,
         )
 
-        with patch.object(router, "_is_excluded", return_value=False), \
-             patch.object(router, "_check_disk_capacity", return_value=True):
+        # Mock capacity check to pass
+        with patch.object(router, "_check_node_capacity", return_value=True):
             result = router.should_sync_to_node(
                 "training-node",
                 DataType.NPZ,
             )
 
             # Training nodes need NPZ data
-            assert isinstance(result, bool)
+            assert result is True
 
 
 # =============================================================================

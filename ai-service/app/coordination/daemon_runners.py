@@ -309,6 +309,49 @@ async def create_cluster_watchdog() -> None:
         raise
 
 
+async def create_coordinator_health_monitor() -> None:
+    """Create and run coordinator health monitor daemon (December 2025).
+
+    Subscribes to COORDINATOR_* events to track coordinator lifecycle:
+    - Coordinator health status (healthy/unhealthy/degraded)
+    - Heartbeat freshness monitoring
+    - Init failure tracking
+    """
+    try:
+        from app.coordination.coordinator_health_monitor_daemon import (
+            get_coordinator_health_monitor,
+        )
+
+        monitor = get_coordinator_health_monitor()
+        await monitor.start()
+        await _wait_for_daemon(monitor)
+    except ImportError as e:
+        logger.error(f"CoordinatorHealthMonitorDaemon not available: {e}")
+        raise
+
+
+async def create_work_queue_monitor() -> None:
+    """Create and run work queue monitor daemon (December 2025).
+
+    Subscribes to WORK_* events to track queue lifecycle:
+    - Queue depth tracking
+    - Job latency monitoring
+    - Stuck job detection
+    - Backpressure signaling
+    """
+    try:
+        from app.coordination.work_queue_monitor_daemon import (
+            get_work_queue_monitor,
+        )
+
+        monitor = get_work_queue_monitor()
+        await monitor.start()
+        await _wait_for_daemon(monitor)
+    except ImportError as e:
+        logger.error(f"WorkQueueMonitorDaemon not available: {e}")
+        raise
+
+
 # =============================================================================
 # Training & Pipeline Daemons
 # =============================================================================
@@ -954,6 +997,8 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.MODEL_PERFORMANCE_WATCHDOG.name: create_model_performance_watchdog,
         DaemonType.CLUSTER_MONITOR.name: create_cluster_monitor,
         DaemonType.CLUSTER_WATCHDOG.name: create_cluster_watchdog,
+        DaemonType.COORDINATOR_HEALTH_MONITOR.name: create_coordinator_health_monitor,
+        DaemonType.WORK_QUEUE_MONITOR.name: create_work_queue_monitor,
         DaemonType.DATA_PIPELINE.name: create_data_pipeline,
         DaemonType.CONTINUOUS_TRAINING_LOOP.name: create_continuous_training_loop,
         DaemonType.SELFPLAY_COORDINATOR.name: create_selfplay_coordinator,
