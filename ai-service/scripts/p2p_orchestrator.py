@@ -2277,6 +2277,9 @@ class P2POrchestrator(
             urls_for_peer=lambda node_id, endpoint: self._urls_for_peer(node_id, endpoint),
             save_state_callback=lambda: self._save_state(),
         )
+        # December 2025: Subscribe to training-relevant events
+        # (SELFPLAY_COMPLETE, DATA_SYNC_COMPLETED, EVALUATION_COMPLETED, REGRESSION_DETECTED)
+        self.training_coordinator.subscribe_to_events()
 
         # December 2025: Wire feedback loops for self-improvement
         # This connects curriculum adjustments to Elo changes, evaluation results, etc.

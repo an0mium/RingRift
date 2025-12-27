@@ -39,6 +39,15 @@ import yaml
 
 from app.config.ports import SWIM_PORT
 
+# Dec 2025: Use cluster_config helpers instead of inline YAML parsing
+try:
+    from app.config.cluster_config import get_cluster_nodes, get_p2p_voters
+    HAS_CLUSTER_CONFIG = True
+except ImportError:
+    HAS_CLUSTER_CONFIG = False
+    get_cluster_nodes = None
+    get_p2p_voters = None
+
 logger = logging.getLogger(__name__)
 
 # Try to import swim-p2p, fall back gracefully if not available
