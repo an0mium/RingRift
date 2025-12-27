@@ -30,11 +30,13 @@ except ImportError:
 # ============================================
 
 DEFAULT_PORT = 8770
-HEARTBEAT_INTERVAL = 30  # seconds
-# Dec 2025: Reduced from 180s to 90s for faster failure detection
-# Trade-off: 180s was too slow (2+ min to detect dead nodes), but 60s caused
-# false positives on slow networks. 90s is a balanced middle ground.
-PEER_TIMEOUT = 90  # seconds without heartbeat = node considered dead
+# Dec 2025 (Phase 2): Reduced from 30s to 15s for faster failure detection
+# Matches RELAY_HEARTBEAT_INTERVAL. 10s would match voters but may cause
+# false positives on congested networks.
+HEARTBEAT_INTERVAL = 15  # seconds
+# Dec 2025: Reduced from 90s to 60s - with 15s heartbeats, 4 missed = dead
+# Previous 90s with 30s heartbeat meant 3 missed = dead, keeping same ratio
+PEER_TIMEOUT = 60  # seconds without heartbeat = node considered dead
 ELECTION_TIMEOUT = 10  # seconds to wait for election responses
 
 # Leader lease must be comfortably larger than the heartbeat cadence

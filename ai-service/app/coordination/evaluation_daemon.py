@@ -180,6 +180,53 @@ class EvaluationDaemon:
         except Exception as e:
             logger.debug(f"[EvaluationDaemon] Error unsubscribing: {e}")
 
+    def _compute_event_hash(self, model_path: str, board_type: str, num_players: int) -> str:
+        """Compute a content hash for deduplication.
+
+        December 2025: Prevents duplicate evaluations from multiple event sources.
+        """
+        import hashlib
+        content = f"{model_path}:{board_type}:{num_players}"
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+    def _is_duplicate_event(self, event_hash: str) -> bool:
+        """Check if this event has been seen recently.
+
+        December 2025: Content-based deduplication.
+        """
+        if event_hash in self._seen_event_hashes:
+            return True
+
+        # Add to seen set with LRU eviction
+        self._seen_event_hashes.add(event_hash)
+        if len(self._seen_event_hashes) > self.config.dedup_max_tracked_models:
+            # Remove oldest (arbitrary in set, but prevents unbounded growth)
+            self._seen_event_hashes.pop()
+
+        return False
+
+    def _is_in_cooldown(self, model_path: str) -> bool:
+        """Check if model was recently evaluated (within cooldown period).
+
+        December 2025: Time-based deduplication.
+        """
+        now = time.time()
+
+        # Clean up old entries
+        expired = [
+            path for path, ts in self._recently_evaluated.items()
+            if now - ts > self.config.dedup_cooldown_seconds
+        ]
+        for path in expired:
+            del self._recently_evaluated[path]
+
+        # Check if model is in cooldown
+        last_eval = self._recently_evaluated.get(model_path)
+        if last_eval and now - last_eval < self.config.dedup_cooldown_seconds:
+            return True
+
+        return False
+
     async def _on_training_complete(self, event: Any) -> None:
         """Handle TRAINING_COMPLETE event."""
         try:
@@ -204,6 +251,32 @@ class EvaluationDaemon:
                 logger.warning("[EvaluationDaemon] No checkpoint_path/model_path in TRAINING_COMPLETE event")
                 return
 
+            # December 2025: Deduplication checks
+            # Check 1: Content hash deduplication (same event from multiple sources)
+            event_hash = self._compute_event_hash(model_path, board_type, num_players)
+            if self._is_duplicate_event(event_hash):
+                self._dedup_stats["content_hash_skips"] += 1
+                logger.debug(
+                    f"[EvaluationDaemon] Skipping duplicate event (content hash): {model_path}"
+                )
+                return
+
+            # Check 2: Cooldown period (recently evaluated model)
+            if self._is_in_cooldown(model_path):
+                self._dedup_stats["cooldown_skips"] += 1
+                logger.debug(
+                    f"[EvaluationDaemon] Skipping model in cooldown: {model_path}"
+                )
+                return
+
+            # Check 3: Already being evaluated
+            if model_path in self._active_evaluations:
+                self._dedup_stats["concurrent_skips"] += 1
+                logger.debug(
+                    f"[EvaluationDaemon] Skipping already-evaluating model: {model_path}"
+                )
+                return
+
             # Queue the evaluation
             await self._evaluation_queue.put({
                 "model_path": model_path,
@@ -218,8 +291,10 @@ class EvaluationDaemon:
                 f"({board_type}_{num_players}p)"
             )
 
-        except Exception as e:
-            logger.error(f"[EvaluationDaemon] Error handling training complete: {e}")
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning(f"[EvaluationDaemon] Invalid event data: {e}")
+        except (OSError, IOError) as e:
+            logger.error(f"[EvaluationDaemon] I/O error handling training complete: {e}")
 
     async def _evaluation_worker(self) -> None:
         """Worker that processes evaluation requests from the queue."""
@@ -295,6 +370,9 @@ class EvaluationDaemon:
                 num_players=num_players,
                 result=result,
             )
+
+            # December 2025: Mark as recently evaluated for deduplication
+            self._recently_evaluated[model_path] = time.time()
 
             logger.info(
                 f"[EvaluationDaemon] Evaluation completed: {model_path} "

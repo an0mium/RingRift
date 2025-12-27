@@ -615,6 +615,48 @@ class ReplicationRepairDaemon:
             },
         }
 
+    def health_check(self):
+        """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with status and details
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="ReplicationRepair daemon not running",
+            )
+
+        # Check success rate
+        total = self._stats.total_repairs_attempted
+        failed = self._stats.total_repairs_failed
+        if total > 20 and failed / total > 0.5:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"ReplicationRepair low success rate: {failed}/{total} failed",
+                details=self.get_status(),
+            )
+
+        # Check hourly limit
+        if self._hourly_repair_count >= self.config.max_repairs_per_hour:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"ReplicationRepair: hourly limit reached ({self._hourly_repair_count})",
+                details=self.get_status(),
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"ReplicationRepair running ({self._stats.total_repairs_succeeded} succeeded)",
+            details=self.get_status(),
+        )
+
     def get_repair_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get recent repair history.
 

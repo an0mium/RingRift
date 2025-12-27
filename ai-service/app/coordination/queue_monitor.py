@@ -46,6 +46,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+# Canonical types (December 2025 consolidation)
+from app.coordination.types import BackpressureLevel
+
 # Default database location
 DEFAULT_MONITOR_DB = Path("/tmp/ringrift_coordination/queue_monitor.db")
 
@@ -141,12 +144,8 @@ DEFAULT_QUEUE_CONFIG = {
 }
 
 
-class BackpressureLevel(Enum):
-    """Level of backpressure to apply."""
-    NONE = "none"           # No backpressure, operate normally
-    SOFT = "soft"           # Soft throttle - reduce production by 50%
-    HARD = "hard"           # Hard throttle - reduce production by 90%
-    STOP = "stop"           # Stop production entirely
+# BackpressureLevel imported from app.coordination.types
+# Legacy values NONE/SOFT/HARD/STOP are now part of unified enum
 
 
 @dataclass

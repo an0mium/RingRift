@@ -383,6 +383,42 @@ class DaemonWatchdog:
             },
         }
 
+    def health_check(self):
+        """Check watchdog health (December 2025: CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with status and details
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="DaemonWatchdog not running",
+            )
+
+        # Count daemons that have auto-restarted too many times
+        exhausted_daemons = [
+            name for name, record in self._health_records.items()
+            if record.auto_restart_count >= self.config.max_auto_restarts
+        ]
+
+        if exhausted_daemons:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"DaemonWatchdog: {len(exhausted_daemons)} daemons exhausted restarts",
+                details={"exhausted_daemons": exhausted_daemons, **self.get_health_status()},
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"DaemonWatchdog running ({len(self._health_records)} daemons monitored)",
+            details=self.get_health_status(),
+        )
+
 
 # Module-level singleton
 _watchdog: DaemonWatchdog | None = None

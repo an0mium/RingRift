@@ -47,6 +47,9 @@ from typing import Any
 
 from app.core.async_context import fire_and_forget
 
+# Canonical types (December 2025 consolidation)
+from app.coordination.types import BackpressureLevel
+
 logger = logging.getLogger(__name__)
 
 # Import centralized defaults (December 2025)
@@ -71,14 +74,8 @@ class ResourceType(Enum):
     NETWORK = "network"
 
 
-class BackpressureLevel(Enum):
-    """Backpressure severity levels."""
-
-    NONE = "none"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+# BackpressureLevel imported from app.coordination.types
+# Legacy values NONE/LOW/MEDIUM/HIGH/CRITICAL are now part of unified enum
 
 
 @dataclass

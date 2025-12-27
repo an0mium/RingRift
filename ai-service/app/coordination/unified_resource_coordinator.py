@@ -39,25 +39,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+# Canonical types (December 2025 consolidation)
+from app.coordination.types import BackpressureLevel, TaskType
+
 logger = logging.getLogger(__name__)
 
 
-class BackpressureLevel(Enum):
-    """Backpressure severity levels."""
-    NONE = "none"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
-class TaskType(str, Enum):
-    """Types of compute tasks."""
-    SELFPLAY = "selfplay"
-    TRAINING = "training"
-    EVALUATION = "evaluation"
-    SYNC = "sync"
-    EXPORT = "export"
+# BackpressureLevel and TaskType imported from app.coordination.types
+# Additional local TaskType values for GPU/CPU CMAES if needed
+class _LocalTaskType(str, Enum):
+    """Local task type extensions (for backward compatibility)."""
     GPU_CMAES = "gpu_cmaes"
     CPU_CMAES = "cpu_cmaes"
 

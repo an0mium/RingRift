@@ -786,6 +786,48 @@ class EphemeralSyncDaemon:
             },
         }
 
+    def health_check(self):
+        """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Returns:
+            HealthCheckResult with status and details
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="EphemeralSync daemon not running",
+            )
+
+        # Check for high failure rate
+        total = self._stats.games_pushed
+        failed = self._stats.failed_syncs
+        if total > 10 and failed / total > 0.3:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"EphemeralSync high failure rate: {failed}/{total} failed",
+                details=self.get_status(),
+            )
+
+        # Check games at risk
+        if self._stats.games_at_risk_on_termination > 100:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"EphemeralSync: {self._stats.games_at_risk_on_termination} games at risk",
+                details=self.get_status(),
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"EphemeralSync running ({self._stats.games_pushed} games synced)",
+            details=self.get_status(),
+        )
+
 
 # Module-level singleton
 _ephemeral_sync_daemon: EphemeralSyncDaemon | None = None
