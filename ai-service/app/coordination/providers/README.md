@@ -30,14 +30,14 @@ class MyProvider(CloudProvider):
 
 ### Provider Implementations
 
-| Provider        | File                  | GPU Types                 | Notes                   |
-| --------------- | --------------------- | ------------------------- | ----------------------- |
-| **Lambda Labs** | `lambda_provider.py`  | GH200, H100, A10          | ⚠️ TERMINATED Dec 2025  |
-| **Vast.ai**     | `vast_provider.py`    | RTX 5090, 4090, 3090, A40 | Ephemeral, cheap        |
-| **Vultr**       | `vultr_provider.py`   | A100 (vGPU)               | Persistent              |
-| **Hetzner**     | `hetzner_provider.py` | CPU only                  | P2P voters, data sync   |
-| **RunPod**      | (via cluster_config)  | H100, A100, L40S          | Persistent `/workspace` |
-| **Nebius**      | (via cluster_config)  | H100 80GB, L40S           | Training backbone       |
+| Provider        | File                  | GPU Types                 | Notes                     |
+| --------------- | --------------------- | ------------------------- | ------------------------- |
+| **Lambda Labs** | `lambda_provider.py`  | GH200, H100, A10          | ⚠️ TERMINATED Dec 2025   |
+| **Vast.ai**     | `vast_provider.py`    | RTX 5090, 4090, 3090, A40 | Ephemeral, cheap          |
+| **Vultr**       | `vultr_provider.py`   | A100 (vGPU)               | Persistent                |
+| **Hetzner**     | `hetzner_provider.py` | CPU only                  | P2P voters, data sync     |
+| **RunPod**      | (via cluster_config)  | H100, A100, L40S          | Persistent `/workspace`   |
+| **Nebius**      | (via cluster_config)  | H100 80GB, L40S           | Training backbone         |
 
 ## Usage
 

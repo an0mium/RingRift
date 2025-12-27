@@ -10,9 +10,6 @@
 
 This document provides comprehensive documentation for all environment variables used by RingRift.
 
-For internal/experimental flags referenced in code but not yet fully described here, see:
-`docs/operations/ENVIRONMENT_VARIABLES_INTERNAL.md`.
-
 ## Quick Start
 
 1. Copy `.env.example` to `.env`
@@ -527,18 +524,6 @@ Explicit override for export jobs on this node. When unset, defaults are resolve
 
 Enable the idle-resource daemon that spawns or scales down selfplay based on GPU idleness.
 
-### `RINGRIFT_EXTRACTED_LOOPS`
-
-| Property | Value                     |
-| -------- | ------------------------- |
-| Type     | `boolean`                 |
-| Values   | `true`, `false`, `1`, `0` |
-| Default  | `true`                    |
-| Required | No                        |
-
-Enable LoopManager-managed background loops for the P2P orchestrator (Elo sync, queue
-populator, validation loop, etc.). When disabled, the orchestrator runs legacy in-process loops.
-
 ### `RINGRIFT_IDLE_THRESHOLD`
 
 | Property | Value    |
@@ -569,111 +554,6 @@ Seconds a GPU must remain idle before the node is treated as idle.
 | Required | No       |
 
 Seconds to wait before SIGKILL after SIGTERM when shutting down jobs.
-
-### Advanced AI Service Flags (Curated)
-
-These are high-impact coordination/P2P knobs used by the Python AI service. The
-full auto-extracted list lives in `docs/operations/ENVIRONMENT_VARIABLES_INTERNAL.md`.
-Defaults below are sourced from `ai-service/app/config/coordination_defaults.py`
-and `ai-service/app/config/env.py` unless noted.
-
-| Variable                                  | Default            | Description                                                 | Status   |
-| ----------------------------------------- | ------------------ | ----------------------------------------------------------- | -------- |
-| `RINGRIFT_SYNC_LOCK_TIMEOUT`              | `120`              | Sync mutex lock timeout (seconds).                          | Advanced |
-| `RINGRIFT_MAX_SYNCS_PER_HOST`             | `2`                | Max concurrent syncs per host.                              | Advanced |
-| `RINGRIFT_MAX_SYNCS_CLUSTER`              | `10`               | Max concurrent syncs cluster-wide.                          | Advanced |
-| `RINGRIFT_DATA_SYNC_INTERVAL`             | `120`              | Data sync interval (seconds).                               | Advanced |
-| `RINGRIFT_MODEL_SYNC_INTERVAL`            | `600`              | Model sync interval (seconds).                              | Advanced |
-| `RINGRIFT_ELO_SYNC_INTERVAL`              | `60`               | ELO sync interval (seconds).                                | Advanced |
-| `RINGRIFT_REGISTRY_SYNC_INTERVAL`         | `120`              | Registry sync interval (seconds).                           | Advanced |
-| `RINGRIFT_SYNC_FRESHNESS_INTERVAL`        | `60`               | Sync freshness check interval (seconds).                    | Advanced |
-| `RINGRIFT_SYNC_FULL_INTERVAL`             | `3600`             | Full sync interval (seconds).                               | Advanced |
-| `RINGRIFT_SYNC_CRITICAL_STALE`            | `3600`             | Critical staleness threshold before forcing sync (seconds). | Advanced |
-| `RINGRIFT_BACKPRESSURE_GPU_THRESHOLD`     | `90.0`             | GPU utilization (%) threshold to trigger backpressure.      | Advanced |
-| `RINGRIFT_BACKPRESSURE_MEMORY_THRESHOLD`  | `85.0`             | Memory utilization (%) threshold to trigger backpressure.   | Advanced |
-| `RINGRIFT_BACKPRESSURE_DISK_THRESHOLD`    | `90.0`             | Disk utilization (%) threshold to trigger backpressure.     | Advanced |
-| `RINGRIFT_BACKPRESSURE_COOLDOWN`          | `30`               | Backpressure cooldown (seconds) before re-evaluating.       | Advanced |
-| `RINGRIFT_BP_WEIGHT_QUEUE`                | `0.30`             | Backpressure weight for queue depth.                        | Advanced |
-| `RINGRIFT_BP_WEIGHT_TRAINING`             | `0.25`             | Backpressure weight for training saturation.                | Advanced |
-| `RINGRIFT_BP_WEIGHT_DISK`                 | `0.20`             | Backpressure weight for disk pressure.                      | Advanced |
-| `RINGRIFT_BP_WEIGHT_SYNC`                 | `0.15`             | Backpressure weight for sync backlog.                       | Advanced |
-| `RINGRIFT_BP_WEIGHT_MEMORY`               | `0.10`             | Backpressure weight for memory pressure.                    | Advanced |
-| `RINGRIFT_BP_QUEUE_LOW`                   | `0.3`              | Queue pressure threshold (low, 0-1).                        | Advanced |
-| `RINGRIFT_BP_QUEUE_MEDIUM`                | `0.5`              | Queue pressure threshold (medium, 0-1).                     | Advanced |
-| `RINGRIFT_BP_QUEUE_HIGH`                  | `0.7`              | Queue pressure threshold (high, 0-1).                       | Advanced |
-| `RINGRIFT_BP_QUEUE_CRITICAL`              | `0.9`              | Queue pressure threshold (critical, 0-1).                   | Advanced |
-| `RINGRIFT_BP_CACHE_TTL`                   | `10.0`             | Backpressure cache TTL (seconds).                           | Advanced |
-| `RINGRIFT_BP_COOLDOWN`                    | `5`                | Backpressure recalculation cooldown (seconds).              | Advanced |
-| `RINGRIFT_QUEUE_TRAINING_SOFT`            | `100000`           | Soft limit for training data queue depth.                   | Advanced |
-| `RINGRIFT_QUEUE_TRAINING_HARD`            | `500000`           | Hard limit for training data queue depth.                   | Advanced |
-| `RINGRIFT_QUEUE_TRAINING_TARGET`          | `50000`            | Target training data queue depth.                           | Advanced |
-| `RINGRIFT_QUEUE_GAMES_SOFT`               | `1000`             | Soft limit for pending games queue depth.                   | Advanced |
-| `RINGRIFT_QUEUE_GAMES_HARD`               | `5000`             | Hard limit for pending games queue depth.                   | Advanced |
-| `RINGRIFT_QUEUE_GAMES_TARGET`             | `500`              | Target pending games queue depth.                           | Advanced |
-| `RINGRIFT_QUEUE_EVAL_SOFT`                | `50`               | Soft limit for evaluation queue depth.                      | Advanced |
-| `RINGRIFT_QUEUE_EVAL_HARD`                | `200`              | Hard limit for evaluation queue depth.                      | Advanced |
-| `RINGRIFT_QUEUE_EVAL_TARGET`              | `20`               | Target evaluation queue depth.                              | Advanced |
-| `RINGRIFT_QUEUE_SYNC_SOFT`                | `100`              | Soft limit for sync queue depth.                            | Advanced |
-| `RINGRIFT_QUEUE_SYNC_HARD`                | `500`              | Hard limit for sync queue depth.                            | Advanced |
-| `RINGRIFT_QUEUE_SYNC_TARGET`              | `50`               | Target sync queue depth.                                    | Advanced |
-| `RINGRIFT_DAEMON_CHECK_INTERVAL`          | `300`              | Daemon supervisor check interval (seconds).                 | Advanced |
-| `RINGRIFT_DAEMON_HEALTH_INTERVAL`         | `60`               | Health check interval for daemons (seconds).                | Advanced |
-| `RINGRIFT_DAEMON_CRITICAL_CHECK_INTERVAL` | `30`               | Health check interval for critical daemons (seconds).       | Advanced |
-| `RINGRIFT_DAEMON_HEALTH_TIMEOUT`          | `5.0`              | Daemon health check timeout (seconds).                      | Advanced |
-| `RINGRIFT_DAEMON_ERROR_BACKOFF_BASE`      | `5.0`              | Daemon restart backoff base (seconds).                      | Advanced |
-| `RINGRIFT_DAEMON_ERROR_BACKOFF_MAX`       | `300.0`            | Daemon restart backoff max (seconds).                       | Advanced |
-| `RINGRIFT_DAEMON_MAX_CONSECUTIVE_ERRORS`  | `5`                | Max consecutive daemon errors before restart.               | Advanced |
-| `RINGRIFT_DAEMON_ERROR_RATE_THRESHOLD`    | `0.5`              | Error-rate threshold triggering daemon restart.             | Advanced |
-| `RINGRIFT_DAEMON_STARTUP_TIMEOUT`         | `30`               | Startup timeout before a daemon is marked unhealthy.        | Advanced |
-| `RINGRIFT_DAEMON_SHUTDOWN_TIMEOUT`        | `10`               | Shutdown timeout before forcing stop.                       | Advanced |
-| `RINGRIFT_HEARTBEAT_INTERVAL`             | `30`               | Coordinator heartbeat interval (seconds).                   | Advanced |
-| `RINGRIFT_HEARTBEAT_TIMEOUT`              | `90`               | Heartbeat timeout before marking a node stale (seconds).    | Advanced |
-| `RINGRIFT_STALE_CLEANUP_INTERVAL`         | `60`               | Stale heartbeat cleanup interval (seconds).                 | Advanced |
-| `RINGRIFT_CLUSTER_CHECK_INTERVAL`         | `60`               | Cluster health check interval (seconds).                    | Advanced |
-| `RINGRIFT_ALERT_COOLDOWN`                 | `300`              | Alert cooldown window (seconds).                            | Advanced |
-| `RINGRIFT_ALERT_LEVEL`                    | `warning`          | Minimum alert level for p2p orchestrator alerts.            | Advanced |
-| `RINGRIFT_CONNECT_TIMEOUT`                | `45`               | Node connect timeout (seconds).                             | Advanced |
-| `RINGRIFT_OPERATION_TIMEOUT`              | `180`              | Default operation timeout (seconds).                        | Advanced |
-| `RINGRIFT_HTTP_TIMEOUT`                   | `30`               | HTTP request timeout (seconds).                             | Advanced |
-| `RINGRIFT_SSH_TIMEOUT`                    | `60`               | SSH command timeout (seconds).                              | Advanced |
-| `RINGRIFT_MAX_RETRIES`                    | `3`                | Default retry count for coordination operations.            | Advanced |
-| `RINGRIFT_P2P_HEARTBEAT_INTERVAL`         | `15`               | P2P heartbeat interval (seconds).                           | Advanced |
-| `RINGRIFT_P2P_GOSSIP_INTERVAL`            | `15`               | P2P gossip interval (seconds).                              | Advanced |
-| `RINGRIFT_P2P_ELECTION_TIMEOUT`           | `30`               | Leader election timeout (seconds).                          | Advanced |
-| `RINGRIFT_P2P_PEER_TIMEOUT`               | `60`               | Peer timeout before marking offline (seconds).              | Advanced |
-| `RINGRIFT_P2P_MAX_PEERS`                  | `100`              | Max P2P peers tracked per node.                             | Advanced |
-| `RINGRIFT_P2P_QUORUM`                     | `3`                | Minimum quorum size for leader election.                    | Advanced |
-| `RINGRIFT_P2P_PORT`                       | `8770`             | P2P protocol port.                                          | Advanced |
-| `RINGRIFT_P2P_HEALTH_PORT`                | `8770`             | P2P health endpoint port.                                   | Advanced |
-| `RINGRIFT_DATA_SERVER_PORT`               | `8780`             | Data server port for sync payloads.                         | Advanced |
-| `RINGRIFT_P2P_STARTUP_GRACE_PERIOD`       | `120`              | Startup grace period before P2P peer checks (seconds).      | Advanced |
-| `RINGRIFT_CLUSTER_NAME`                   | `ringrift-cluster` | P2P cluster name/namespace.                                 | Advanced |
-| `RINGRIFT_ARBITER_URL`                    | `COORDINATOR_URL`  | Override arbiter URL (defaults to coordinator).             | Advanced |
-| `RINGRIFT_CLUSTER_API`                    | unset              | Override cluster status API base URL.                       | Advanced |
-| `RINGRIFT_ADMIN_TOKEN`                    | unset              | Admin token required for privileged P2P admin actions.      | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_GPU_SELFPLAY`       | `3600`             | GPU selfplay job timeout (seconds).                         | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_CPU_SELFPLAY`       | `7200`             | CPU selfplay job timeout (seconds).                         | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_TRAINING`           | `14400`            | Training job timeout (seconds).                             | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_TOURNAMENT`         | `3600`             | Tournament job timeout (seconds).                           | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_EVALUATION`         | `3600`             | Evaluation job timeout (seconds).                           | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_MODEL_SYNC`         | `1800`             | Model sync job timeout (seconds).                           | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_DATA_EXPORT`        | `1800`             | Data export job timeout (seconds).                          | Advanced |
-| `RINGRIFT_JOB_TIMEOUT_CMAES`              | `28800`            | CMA-ES job timeout (seconds).                               | Advanced |
-| `RINGRIFT_MAX_TRAINING_SAME_CONFIG`       | `1`                | Max concurrent training jobs per config.                    | Advanced |
-| `RINGRIFT_MAX_TRAINING_TOTAL`             | `3`                | Max concurrent training jobs cluster-wide.                  | Advanced |
-| `RINGRIFT_TRAINING_TIMEOUT_HOURS`         | `24.0`             | Training timeout in hours.                                  | Advanced |
-| `RINGRIFT_TRAINING_MIN_INTERVAL`          | `1200`             | Min seconds between training launches per config.           | Advanced |
-| `RINGRIFT_SCALE_UP_QUEUE_DEPTH`           | `100`              | Queue depth threshold to scale up.                          | Advanced |
-| `RINGRIFT_SCALE_DOWN_QUEUE_DEPTH`         | `10`               | Queue depth threshold to scale down.                        | Advanced |
-| `RINGRIFT_SCALE_DOWN_IDLE_MINUTES`        | `30`               | Idle minutes before scaling down.                           | Advanced |
-| `RINGRIFT_SCALE_UP_COOLDOWN_MINUTES`      | `5`                | Cooldown between scale-up events (minutes).                 | Advanced |
-| `RINGRIFT_SCALE_DOWN_COOLDOWN_MINUTES`    | `10`               | Cooldown between scale-down events (minutes).               | Advanced |
-| `RINGRIFT_MAX_INSTANCES`                  | `10`               | Max instances allowed by auto-scaler.                       | Advanced |
-| `RINGRIFT_MIN_INSTANCES`                  | `1`                | Min instances to keep alive.                                | Advanced |
-| `RINGRIFT_GPU_SCALE_UP_THRESHOLD`         | `85`               | GPU utilization (%) threshold to scale up.                  | Advanced |
-| `RINGRIFT_GPU_SCALE_DOWN_THRESHOLD`       | `30`               | GPU utilization (%) threshold to scale down.                | Advanced |
-| `RINGRIFT_NPX_PATH`                       | unset              | Override path for `npx` used in TS replay parity checks.    | Tooling  |
-| `RINGRIFT_SKIP_SCRIPT_INIT_IMPORTS`       | unset              | Skip heavy imports in `scripts/__init__.py` (parity/tools). | Tooling  |
 
 ### `RINGRIFT_GPU_IDLE_THRESHOLD`
 
@@ -1968,38 +1848,6 @@ Historical behaviour:
 
 - Implementation: `ai-service/app/training/generate_data.py::create_initial_state`
 - Tests: `ai-service/tests/test_env_interface.py`
-
-### `RINGRIFT_RECORD_SELFPLAY_GAMES`
-
-| Property | Value                     |
-| -------- | ------------------------- |
-| Type     | `boolean`                 |
-| Values   | `true`, `false`, `1`, `0` |
-| Default  | `true`                    |
-| Required | No                        |
-
-When enabled, selfplay games are recorded to the replay database. When disabled,
-selfplay runs skip DB writes (JSONL/log output can still be emitted).
-
-### `RINGRIFT_SELFPLAY_DB_PATH`
-
-| Property | Value                    |
-| -------- | ------------------------ |
-| Type     | `string` (path)          |
-| Default  | `data/games/selfplay.db` |
-| Required | No                       |
-
-Override path for the selfplay replay database when no explicit DB path is supplied.
-
-### `RINGRIFT_SNAPSHOT_INTERVAL`
-
-| Property | Value    |
-| -------- | -------- |
-| Type     | `number` |
-| Default  | `20`     |
-| Required | No       |
-
-Snapshot interval (in moves) for replay DB snapshots.
 
 ### `RINGRIFT_TRAINED_HEURISTIC_PROFILES`
 

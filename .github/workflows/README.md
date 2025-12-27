@@ -540,7 +540,7 @@ npm run validate:monitoring
 
 | File                                       | Tool Used | Checks                          |
 | ------------------------------------------ | --------- | ------------------------------- |
-| `monitoring/prometheus.yml`                | promtool  | Config syntax, scrape configs   |
+| `monitoring/prometheus.yml`     | promtool  | Config syntax, scrape configs   |
 | `monitoring/prometheus/alerts.yml`         | promtool  | PromQL syntax, rule format      |
 | `monitoring/alertmanager/alertmanager.yml` | amtool    | Routing, receivers, inhibitions |
 
