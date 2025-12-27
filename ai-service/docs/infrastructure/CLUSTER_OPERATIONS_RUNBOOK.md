@@ -106,6 +106,14 @@ ssh gpu-worker-1 'cd ~/ringrift/ai-service && \
 ssh gpu-worker-1 'pkill -f run_gpu_selfplay'
 ```
 
+Validate output (non-empty JSONL):
+
+```bash
+ssh gpu-worker-1 'ls -lh data/selfplay/gpu_square8_2p/*.jsonl && wc -l data/selfplay/gpu_square8_2p/*.jsonl'
+```
+
+`run_gpu_selfplay.py` now fails fast if the output JSONL is empty, so zero-byte files indicate an upstream batch failure or overly aggressive `--min-game-length`.
+
 ### Trigger Training
 
 ```bash
