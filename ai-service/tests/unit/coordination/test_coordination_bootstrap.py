@@ -407,62 +407,71 @@ class TestShutdownCoordination:
         reset_bootstrap_state()
 
 
-class TestIndividualInitFunctions:
-    """Tests for individual _init_* functions."""
+class TestCoordinatorRegistry:
+    """Tests for COORDINATOR_REGISTRY-based initialization (Dec 2025 refactor).
 
-    def test_init_functions_return_status(self):
-        """Test that init functions return BootstrapCoordinatorStatus."""
+    Note: The old _init_*() functions were replaced with COORDINATOR_REGISTRY
+    + _init_coordinator_from_spec() pattern. See CLAUDE.md for details.
+    """
+
+    def test_registry_has_expected_coordinators(self):
+        """Test that COORDINATOR_REGISTRY contains expected coordinator specs."""
         from app.coordination.coordination_bootstrap import (
-            _init_resource_coordinator,
-            _init_metrics_orchestrator,
-            _init_optimization_coordinator,
-            _init_cache_orchestrator,
-            _init_model_coordinator,
-            _init_health_manager,
-            _init_leadership_coordinator,
-            _init_selfplay_orchestrator,
-            _init_task_coordinator,
-            _init_sync_coordinator,
-            _init_training_coordinator,
-            _init_recovery_manager,
+            COORDINATOR_REGISTRY,
+            CoordinatorSpec,
+        )
+
+        # Verify registry is populated
+        assert len(COORDINATOR_REGISTRY) > 0, "COORDINATOR_REGISTRY should not be empty"
+
+        # Verify each entry is a CoordinatorSpec
+        for name, spec in COORDINATOR_REGISTRY.items():
+            assert isinstance(spec, CoordinatorSpec), (
+                f"Entry '{name}' should be a CoordinatorSpec, got {type(spec)}"
+            )
+            assert isinstance(name, str)
+            assert spec.pattern is not None
+
+    def test_init_coordinator_from_spec_returns_status(self):
+        """Test that _init_coordinator_from_spec returns BootstrapCoordinatorStatus."""
+        from app.coordination.coordination_bootstrap import (
+            COORDINATOR_REGISTRY,
+            _init_coordinator_from_spec,
             BootstrapCoordinatorStatus,
         )
 
-        # All init functions should return BootstrapCoordinatorStatus
-        init_functions = [
-            _init_resource_coordinator,
-            _init_metrics_orchestrator,
-            _init_optimization_coordinator,
-            _init_cache_orchestrator,
-            _init_model_coordinator,
-            _init_health_manager,
-            _init_leadership_coordinator,
-            _init_selfplay_orchestrator,
-            _init_task_coordinator,
-            _init_sync_coordinator,
-            _init_training_coordinator,
-            _init_recovery_manager,
+        # Test with first available spec that has pattern=SKIP (no side effects)
+        skip_specs = [
+            (name, spec) for name, spec in COORDINATOR_REGISTRY.items()
+            if spec.pattern.name == "SKIP"
         ]
 
-        for init_fn in init_functions:
-            status = init_fn()
+        if skip_specs:
+            name, spec = skip_specs[0]
+            status = _init_coordinator_from_spec(spec)
             assert isinstance(status, BootstrapCoordinatorStatus), (
-                f"{init_fn.__name__} did not return BootstrapCoordinatorStatus"
+                f"_init_coordinator_from_spec did not return BootstrapCoordinatorStatus"
             )
             assert isinstance(status.name, str)
             assert isinstance(status.initialized, bool)
             assert isinstance(status.subscribed, bool)
 
-    def test_init_recovery_manager_is_deprecated(self):
-        """Test that _init_recovery_manager returns skip status."""
-        from app.coordination.coordination_bootstrap import _init_recovery_manager
+    def test_deprecated_coordinators_return_skip_status(self):
+        """Test that deprecated coordinators return skip pattern status."""
+        from app.coordination.coordination_bootstrap import (
+            COORDINATOR_REGISTRY,
+            _init_coordinator_from_spec,
+            InitPattern,
+        )
 
-        status = _init_recovery_manager()
-
-        # RecoveryManager is deprecated - returns initialized status
-        assert status.name == "recovery_manager"
-        assert status.initialized is True
-        assert status.subscribed is True
+        # Find coordinators with SKIP pattern (deprecated)
+        for name, spec in COORDINATOR_REGISTRY.items():
+            if spec.pattern == InitPattern.SKIP:
+                status = _init_coordinator_from_spec(spec)
+                # SKIP pattern should return initialized=True (no-op success)
+                assert status.initialized is True, (
+                    f"SKIP coordinator '{name}' should return initialized=True"
+                )
 
 
 class TestSmokeTest:

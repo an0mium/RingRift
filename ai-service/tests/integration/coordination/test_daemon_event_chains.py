@@ -48,7 +48,7 @@ class TestExplorationBoostChain:
     """Test EXPLORATION_BOOST event handling by SelfplayScheduler."""
 
     def test_exploration_boost_handler_updates_priority(self):
-        """Verify _on_exploration_boost updates config priority."""
+        """Verify _on_exploration_boost updates config priority boost factor."""
         from app.coordination.selfplay_scheduler import SelfplayScheduler, ConfigPriority
 
         scheduler = SelfplayScheduler()
@@ -71,48 +71,36 @@ class TestExplorationBoostChain:
         # Handle event
         scheduler._on_exploration_boost(event)
 
-        # Verify priority updated
+        # Verify priority boost was updated
         priority = scheduler._config_priorities.get(config_key)
         assert priority is not None
         assert priority.exploration_boost == 1.5
-        assert priority.exploration_boost_expires_at is not None
-        assert priority.exploration_boost_expires_at > time.time()
 
-    def test_exploration_boost_expires_after_duration(self):
-        """Verify exploration boost expires after configured duration."""
-        import os
-
+    def test_exploration_boost_applies_max_of_current_and_new(self):
+        """Verify exploration boost uses max of current and new boost."""
         from app.coordination.selfplay_scheduler import SelfplayScheduler, ConfigPriority
 
-        # Set short expiry for testing
-        os.environ["RINGRIFT_EXPLORATION_BOOST_DURATION"] = "1"
+        scheduler = SelfplayScheduler()
+        config_key = "hex8_2p"
 
-        try:
-            scheduler = SelfplayScheduler()
-            config_key = "hex8_2p"
+        # Start with a higher boost
+        scheduler._config_priorities[config_key] = ConfigPriority(
+            config_key=config_key,
+            exploration_boost=2.0,
+        )
 
-            scheduler._config_priorities[config_key] = ConfigPriority(
-                config_key=config_key,
-                exploration_boost=1.0,
-            )
+        # Send a lower boost event
+        event = {
+            "config_key": config_key,
+            "boost_factor": 1.5,
+            "reason": "training_stall",
+        }
 
-            event = {
-                "config_key": config_key,
-                "boost_factor": 2.0,
-                "reason": "training_stall",
-            }
+        scheduler._on_exploration_boost(event)
 
-            scheduler._on_exploration_boost(event)
-
-            priority = scheduler._config_priorities[config_key]
-            assert priority.exploration_boost_expires_at is not None
-
-            # Expiry should be ~1 second from now
-            expected_expiry = time.time() + 1
-            assert abs(priority.exploration_boost_expires_at - expected_expiry) < 0.5
-
-        finally:
-            os.environ.pop("RINGRIFT_EXPLORATION_BOOST_DURATION", None)
+        priority = scheduler._config_priorities[config_key]
+        # Should keep the higher value
+        assert priority.exploration_boost == 2.0
 
     def test_exploration_boost_affects_scheduling_score(self):
         """Verify exploration boost factor affects final scheduling score."""

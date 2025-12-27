@@ -47,6 +47,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -920,15 +922,11 @@ class ModelLifecycleCoordinator:
             "subscribed": self._subscribed,
         }
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self) -> HealthCheckResult:
         """Perform health check on model lifecycle coordinator (December 2025).
 
         Returns:
-            Dict with health status including:
-            - healthy: Overall health status
-            - has_production_model: Whether a production model exists
-            - rollback_rate: Ratio of rollbacks to promotions
-            - subscription_status: Event subscription health
+            HealthCheckResult with status and metrics.
         """
         stats = self.get_stats()
 
@@ -943,16 +941,23 @@ class ModelLifecycleCoordinator:
             and rollback_rate < 0.5  # Less than 50% rollback rate
         )
 
-        return {
-            "healthy": healthy,
-            "total_models": stats.total_models,
-            "has_production_model": stats.current_production_model is not None,
-            "production_model": stats.current_production_model,
-            "total_promotions": promotions,
-            "total_rollbacks": rollbacks,
-            "rollback_rate": round(rollback_rate, 3),
-            "subscribed": self._subscribed,
-        }
+        status = CoordinatorStatus.RUNNING if healthy else CoordinatorStatus.DEGRADED
+        message = f"High rollback rate {rollback_rate:.1%}" if rollback_rate >= 0.5 else ""
+
+        return HealthCheckResult(
+            healthy=healthy,
+            status=status,
+            message=message,
+            details={
+                "total_models": stats.total_models,
+                "has_production_model": stats.current_production_model is not None,
+                "production_model": stats.current_production_model,
+                "total_promotions": promotions,
+                "total_rollbacks": rollbacks,
+                "rollback_rate": round(rollback_rate, 3),
+                "subscribed": self._subscribed,
+            },
+        )
 
 
 # =============================================================================

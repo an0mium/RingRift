@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config.cluster_config import load_cluster_config, get_host_provider, get_cluster_nodes
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 from app.distributed.cluster_manifest import (
     ClusterManifest,
     DataType,

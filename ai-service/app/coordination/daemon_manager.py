@@ -371,74 +371,9 @@ class DaemonManager:
 
         return errors
 
-    def _verify_p2p_subscriptions(self) -> dict[str, bool]:
-        """Verify P2P event subscriptions are properly wired.
-
-        Dec 27, 2025: Added as part of P2P integration improvements.
-        Checks that critical P2P cluster events have active subscribers.
-
-        Returns:
-            Dict mapping event name to subscription status (True = subscribed).
-        """
-        results = {}
-
-        try:
-            from app.coordination.event_router import get_event_bus
-            bus = get_event_bus()
-            if bus is None:
-                logger.warning("[DaemonManager] Event bus not available for P2P verification")
-                return {"event_bus": False}
-
-            # Check critical P2P cluster events
-            p2p_events = [
-                "HOST_OFFLINE",
-                "HOST_ONLINE",
-                "LEADER_ELECTED",
-                "NODE_RECOVERED",
-                "P2P_CLUSTER_HEALTHY",
-                "P2P_CLUSTER_UNHEALTHY",
-            ]
-
-            for event_name in p2p_events:
-                # Check if there are subscribers for this event
-                # The bus may store subscribers in different ways depending on implementation
-                has_subscribers = False
-
-                if hasattr(bus, "_subscribers"):
-                    # Check for event value in subscribers dict
-                    event_key = event_name.lower()
-                    has_subscribers = (
-                        event_key in bus._subscribers
-                        and len(bus._subscribers[event_key]) > 0
-                    )
-                elif hasattr(bus, "has_subscribers"):
-                    has_subscribers = bus.has_subscribers(event_name)
-
-                results[event_name] = has_subscribers
-
-            # Log summary
-            subscribed = sum(1 for v in results.values() if v)
-            total = len(results)
-
-            if subscribed == total:
-                logger.debug(f"[DaemonManager] P2P subscriptions verified: {subscribed}/{total} events wired")
-            elif subscribed > 0:
-                missing = [k for k, v in results.items() if not v]
-                logger.warning(
-                    f"[DaemonManager] Partial P2P subscriptions: {subscribed}/{total} events wired, "
-                    f"missing: {', '.join(missing)}"
-                )
-            else:
-                logger.warning(
-                    "[DaemonManager] No P2P event subscriptions detected. "
-                    "Cluster events may not be processed."
-                )
-
-        except (ImportError, RuntimeError, AttributeError) as e:
-            logger.debug(f"[DaemonManager] P2P subscription verification skipped: {e}")
-            results["error"] = False
-
-        return results
+    # NOTE: _verify_p2p_subscriptions was removed Dec 27, 2025
+    # P2P event verification is now consolidated in _verify_subscriptions() at line ~1156
+    # which is called in the post-start callback of start_all()
 
     async def start(self, daemon_type: DaemonType) -> bool:
         """Start a specific daemon.
@@ -1183,6 +1118,10 @@ class DaemonManager:
                 (DataEventType.HOST_ONLINE, "DaemonManager"),
                 (DataEventType.LEADER_ELECTED, "DaemonManager"),
                 (DataEventType.NEW_GAMES_AVAILABLE, "TrainingCoordinator, DataPipeline"),
+                # Dec 27, 2025: Added missing P2P events for cluster health monitoring
+                (DataEventType.P2P_CLUSTER_HEALTHY, "TrainingCoordinator, SelfplayScheduler"),
+                (DataEventType.P2P_CLUSTER_UNHEALTHY, "TrainingCoordinator, SelfplayScheduler, FeedbackLoop"),
+                (DataEventType.NODE_RECOVERED, "SyncRouter, JobManager"),
             ]
 
             # Combine all events to verify

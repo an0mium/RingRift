@@ -10341,127 +10341,8 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             logger.info(f"Tournament match error: {e}")
 
-    def _calculate_tournament_ratings(self, state: DistributedTournamentState):
-        """Calculate final Elo ratings from tournament results.
-
-        Uses standard Elo rating system with K-factor from app.config.thresholds.
-        Random is pinned at 400 Elo as the anchor point.
-        """
-        # Use canonical constant - Random AI is ALWAYS pinned at 400 Elo
-        RANDOM_ANCHOR = BASELINE_ELO_RANDOM
-
-        # Initialize ratings (using canonical constants from app.config.thresholds)
-        ratings = {agent: float(INITIAL_ELO_RATING) for agent in state.agent_ids}
-        wins = dict.fromkeys(state.agent_ids, 0)
-        losses = dict.fromkeys(state.agent_ids, 0)
-        draws = dict.fromkeys(state.agent_ids, 0)
-
-        def expected_score(rating_a: float, rating_b: float) -> float:
-            """Calculate expected score for player A against player B."""
-            return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
-
-        def update_elo(rating: float, expected: float, actual: float) -> float:
-            """Update Elo rating based on game outcome."""
-            return rating + ELO_K_FACTOR * (actual - expected)
-
-        # Process all results
-        for result in state.results:
-            agent1 = result.get("agent1")
-            agent2 = result.get("agent2")
-            winner = result.get("winner")
-
-            if not agent1 or not agent2:
-                continue
-            if agent1 not in ratings or agent2 not in ratings:
-                continue
-
-            # Determine actual scores
-            if winner == agent1:
-                score1, score2 = 1.0, 0.0
-                wins[agent1] += 1
-                losses[agent2] += 1
-            elif winner == agent2:
-                score1, score2 = 0.0, 1.0
-                wins[agent2] += 1
-                losses[agent1] += 1
-            elif winner is None:
-                # Draw
-                score1, score2 = 0.5, 0.5
-                draws[agent1] += 1
-                draws[agent2] += 1
-            else:
-                # Unknown winner, skip
-                continue
-
-            # Calculate expected scores
-            expected1 = expected_score(ratings[agent1], ratings[agent2])
-            expected2 = expected_score(ratings[agent2], ratings[agent1])
-
-            # Update ratings
-            ratings[agent1] = update_elo(ratings[agent1], expected1, score1)
-            ratings[agent2] = update_elo(ratings[agent2], expected2, score2)
-
-        # Normalize ratings so random is pinned at 400
-        if "random" in ratings:
-            offset = RANDOM_ANCHOR - ratings["random"]
-            ratings = {agent: rating + offset for agent, rating in ratings.items()}
-
-        # Store final ratings and stats
-        state.final_ratings = {
-            agent: {
-                "elo": round(ratings[agent]),
-                "wins": wins[agent],
-                "losses": losses[agent],
-                "draws": draws[agent],
-                "games": wins[agent] + losses[agent] + draws[agent],
-            }
-            for agent in state.agent_ids
-        }
-
-        # Log rankings
-        ranked = sorted(state.final_ratings.items(), key=lambda x: x[1]["elo"], reverse=True)
-        logger.info("Tournament final rankings:")
-        for rank, (agent, stats) in enumerate(ranked, 1):
-            logger.info(f"  {rank}. {agent}: Elo={stats['elo']}, W/L/D={stats['wins']}/{stats['losses']}/{stats['draws']}")
-
-        # Persist results to unified Elo database
-        try:
-            from app.tournament import get_elo_database
-            db = get_elo_database()
-
-            for result in state.results:
-                agent1 = result.get("agent1")
-                agent2 = result.get("agent2")
-                winner = result.get("winner")
-
-                if not agent1 or not agent2:
-                    continue
-
-                # Determine rankings
-                if winner == agent1:
-                    rankings = [0, 1]
-                elif winner == agent2:
-                    rankings = [1, 0]
-                else:
-                    rankings = [0, 0]
-
-                db.record_match_and_update(
-                    participant_ids=[agent1, agent2],
-                    rankings=rankings,
-                    board_type=state.board_type,
-                    num_players=state.num_players,
-                    tournament_id=state.job_id,
-                    game_length=result.get("game_length", 0),
-                    duration_sec=result.get("duration_sec", 0.0),
-                )
-
-            logger.info(f"Persisted {len(state.results)} matches to unified Elo database")
-
-            # Trigger Elo sync to propagate matches to cluster
-            if HAS_ELO_SYNC and self.elo_sync_manager:
-                asyncio.create_task(self._trigger_elo_sync_after_matches(len(state.results)))
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to persist to unified Elo database: {e}")
+    # NOTE: _calculate_tournament_ratings removed Dec 27, 2025 (dead code, never called)
+    # Elo rating calculation is now handled in JobManager.run_distributed_tournament()
 
     # ============================================
     # Improvement Loop Handlers
@@ -23462,20 +23343,7 @@ print(json.dumps({{
         with self._dedup_lock:
             self._known_game_ids.update(game_ids)
 
-    def _filter_unknown_games(self, game_ids: list[str]) -> list[str]:
-        """Filter out game IDs we already have.
-
-        Args:
-            game_ids: List of game IDs to check
-
-        Returns:
-            List of game IDs we don't have yet
-        """
-        if not hasattr(self, "_known_game_ids"):
-            self._init_data_deduplication()
-
-        with self._dedup_lock:
-            return [gid for gid in game_ids if gid not in self._known_game_ids]
+    # NOTE: _filter_unknown_games removed Dec 27, 2025 (dead code, never called)
 
     def _record_dedup_skip(self, file_count: int = 0, game_count: int = 0, bytes_saved: int = 0):
         """Record deduplication skip for metrics.
@@ -23493,36 +23361,7 @@ print(json.dumps({{
             self._dedup_stats["games_skipped"] += game_count
             self._dedup_stats["bytes_saved"] += bytes_saved
 
-    def _cleanup_dedup_cache(self, max_age: float = 86400):
-        """Clean up old entries from deduplication cache.
-
-        CACHE CLEANUP: Periodically remove old entries to prevent unbounded growth.
-        Default: clean entries older than 24 hours.
-
-        Args:
-            max_age: Max age in seconds before cleanup
-        """
-        if not hasattr(self, "_dedup_stats"):
-            return
-
-        now = time.time()
-        with self._dedup_lock:
-            # Only clean once per hour
-            if now - self._dedup_stats.get("last_cleanup", 0) < 3600:
-                return
-
-            # For now, just limit set sizes (more sophisticated cleanup later)
-            if len(self._synced_file_hashes) > 10000:
-                # Keep only half (LRU would be better but requires more tracking)
-                hashes_list = list(self._synced_file_hashes)
-                self._synced_file_hashes = set(hashes_list[-5000:])
-
-            if len(self._known_game_ids) > 100000:
-                # Keep only recent half
-                ids_list = list(self._known_game_ids)
-                self._known_game_ids = set(ids_list[-50000:])
-
-            self._dedup_stats["last_cleanup"] = now
+    # NOTE: _cleanup_dedup_cache removed Dec 27, 2025 (dead code, never called)
 
     def _get_dedup_summary(self) -> dict:
         """Get deduplication metrics summary."""
@@ -23641,76 +23480,7 @@ print(json.dumps({{
         self._last_tournament_check = 0
         self._tournament_coordination_lock = threading.Lock()
 
-    def _propose_tournament(self, board_type: str = "square8", num_players: int = 2,
-                           agent_ids: list[str] | None = None, games_per_pairing: int = 2) -> dict:
-        """Create a tournament proposal for gossip-based coordination.
-
-        DISTRIBUTED TOURNAMENT: Instead of requiring leader, any node can propose
-        a tournament. The proposal is shared via gossip, and nodes vote to elect
-        a coordinator.
-
-        Args:
-            board_type: Board type for tournament
-            num_players: Number of players per game
-            agent_ids: List of agent IDs to include
-            games_per_pairing: Games per agent pairing
-
-        Returns:
-            Proposal dict with unique ID
-        """
-        import uuid
-        if not hasattr(self, "_tournament_proposals"):
-            self._init_distributed_tournament_scheduling()
-
-        proposal_id = f"tourney_prop_{uuid.uuid4().hex[:8]}"
-        now = time.time()
-
-        proposal = {
-            "proposal_id": proposal_id,
-            "proposer": self.node_id,
-            "board_type": board_type,
-            "num_players": num_players,
-            "agent_ids": agent_ids or [],
-            "games_per_pairing": games_per_pairing,
-            "proposed_at": now,
-            "status": "proposed",
-            "coordinator": None,  # Elected via consensus
-            "votes": {self.node_id: "approve"},  # Proposer auto-approves
-        }
-
-        with self._tournament_coordination_lock:
-            self._tournament_proposals[proposal_id] = proposal
-
-        logger.info(f"TOURNAMENT: Created proposal {proposal_id} for {len(agent_ids or [])} agents")
-        return proposal
-
-    def _vote_on_tournament_proposal(self, proposal_id: str, vote: str = "approve") -> bool:
-        """Vote on a tournament proposal.
-
-        DISTRIBUTED VOTING: Nodes vote on proposals. A proposal is approved
-        when majority of alive peers approve. The coordinator is the highest-ID
-        node among approvers.
-
-        Args:
-            proposal_id: ID of proposal to vote on
-            vote: "approve" or "reject"
-
-        Returns:
-            True if vote was recorded
-        """
-        if not hasattr(self, "_tournament_proposals"):
-            self._init_distributed_tournament_scheduling()
-
-        with self._tournament_coordination_lock:
-            if proposal_id not in self._tournament_proposals:
-                return False
-
-            proposal = self._tournament_proposals[proposal_id]
-            if proposal["status"] != "proposed":
-                return False
-
-            proposal["votes"][self.node_id] = vote
-            return True
+    # NOTE: _propose_tournament, _vote_on_tournament_proposal removed Dec 27, 2025 (dead code, never called)
 
     def _get_tournament_gossip_state(self) -> dict:
         """Get tournament state for gossip propagation.

@@ -425,6 +425,7 @@ The `DaemonManager` coordinates 60+ background services. See `docs/DAEMON_REGIST
 
 - **`daemon_manager.py`**: Lifecycle management, health checks, auto-restart (~2,000 LOC)
 - **`daemon_runners.py`**: Async runner functions for all daemon types (~1,100 LOC, Dec 2025 extraction)
+- **`daemon_registry.py`**: Declarative daemon specifications (~150 LOC, Dec 2025)
 - **`daemon_types.py`**: `DaemonType` enum with all 63+ daemon types
 - **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
 - **`auto_sync_daemon.py`**: Automated P2P data sync with push-from-generator + gossip replication
@@ -432,18 +433,45 @@ The `DaemonManager` coordinates 60+ background services. See `docs/DAEMON_REGIST
 
 **Architecture (December 2025):**
 
-The daemon system uses a two-layer architecture:
+The daemon system uses a three-layer architecture:
 
-1. **`daemon_manager.py`** - Lifecycle coordinator
+1. **`daemon_registry.py`** - Declarative configuration (NEW Dec 2025)
+   - `DAEMON_REGISTRY`: Dict[DaemonType, DaemonSpec] with all 62 daemon configurations
+   - `DaemonSpec` dataclass: runner_name, depends_on, category, auto_restart, health_check_interval
+   - `get_daemons_by_category()`, `get_categories()`, `validate_registry()`
+   - Replaces ~330 lines of imperative code with ~30 lines of declarations
+
+2. **`daemon_manager.py`** - Lifecycle coordinator
    - `DaemonManager` class handles start/stop, health monitoring, auto-restart
    - `_register_default_factories()` maps DaemonType to runner functions
    - Only `_create_health_server()` remains inline (needs `self.liveness_probe()`)
 
-2. **`daemon_runners.py`** - Runner implementations
+3. **`daemon_runners.py`** - Runner implementations
    - 62 async runner functions (`create_auto_sync()`, `create_data_pipeline()`, etc.)
    - Each handles: import, instantiation, start, wait-for-completion
    - `get_runner(DaemonType)` - Retrieve runner by type
    - `get_all_runners()` - Get full registry
+
+```python
+# Example: Query daemon registry
+from app.coordination.daemon_registry import (
+    DAEMON_REGISTRY, DaemonSpec, get_daemons_by_category, validate_registry
+)
+from app.coordination.daemon_types import DaemonType
+
+# Get spec for a specific daemon
+spec = DAEMON_REGISTRY[DaemonType.AUTO_SYNC]
+print(f"Runner: {spec.runner_name}, Category: {spec.category}")
+print(f"Depends on: {[d.name for d in spec.depends_on]}")
+
+# Get all sync-related daemons
+sync_daemons = get_daemons_by_category("sync")
+
+# Validate registry at startup
+errors = validate_registry()
+if errors:
+    raise RuntimeError(f"Registry errors: {errors}")
+```
 
 ```python
 # Example: Get and invoke a runner
@@ -621,10 +649,11 @@ Major consolidation effort completed December 2025:
 
 **New Canonical Modules (December 2025 Wave 2):**
 
-| Module              | Purpose                                                       |
-| ------------------- | ------------------------------------------------------------- |
-| `node_status.py`    | Unified NodeHealthState enum + NodeMonitoringStatus dataclass |
-| `daemon_runners.py` | 62 daemon runner functions extracted from DaemonManager       |
+| Module               | Purpose                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| `node_status.py`     | Unified NodeHealthState enum + NodeMonitoringStatus dataclass |
+| `daemon_runners.py`  | 62 daemon runner functions extracted from DaemonManager       |
+| `daemon_registry.py` | Declarative DaemonSpec registry for all 62 daemon types       |
 
 **`node_status.py`** consolidates 5 duplicate NodeStatus definitions:
 
@@ -640,6 +669,20 @@ Major consolidation effort completed December 2025:
 - `get_all_runners()` - Get full registry of all runners
 - Only `_create_health_server()` remains in daemon_manager.py (needs `self` access)
 - Benefits: Reduced daemon_manager.py from ~3,600 to ~2,000 LOC, runners testable in isolation
+
+**`daemon_registry.py`** provides declarative daemon configuration (Dec 27, 2025):
+
+- `DAEMON_REGISTRY`: Dict[DaemonType, DaemonSpec] with all 62 daemon configurations
+- `DaemonSpec` dataclass with frozen=True for immutability:
+  - `runner_name`: Function name in daemon_runners.py (e.g., "create_auto_sync")
+  - `depends_on`: Tuple of DaemonTypes that must start first
+  - `category`: Grouping for management ("sync", "event", "health", "pipeline", "resource", "misc")
+  - `auto_restart`: Whether to restart on failure (default: True)
+  - `max_restarts`: Max restart attempts (default: 5)
+  - `health_check_interval`: Seconds between health checks (default: 30.0)
+- Helper functions: `get_daemons_by_category()`, `get_categories()`, `validate_registry()`
+- Unit tests: 42 tests in `tests/unit/coordination/test_daemon_registry.py`
+- Benefits: Data-driven configuration, dependency graph validation, testable in isolation
 
 **New Canonical Modules (Phase 5 - 157→15 Consolidation):**
 

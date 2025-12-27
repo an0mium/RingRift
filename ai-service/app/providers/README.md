@@ -36,4 +36,13 @@ Used by:
 
 - `daemon_manager.py` for multi-provider orchestration
 - `node_recovery.py` for auto-recovery
-- `lambda_idle_daemon.py` for cost optimization (NOTE: Lambda account suspended pending support ticket)
+- `unified_idle_shutdown_daemon.py` for cost optimization across all providers
+
+## Deprecated (December 2025)
+
+**Lambda Account Status**: Lambda Labs account terminated December 2025.
+The `lambda_manager.py` module remains for reference but Lambda nodes are no longer available.
+
+**Idle Daemon Consolidation**: `lambda_idle_daemon.py` and `vast_idle_daemon.py` have been
+consolidated into `unified_idle_shutdown_daemon.py` which provides provider-agnostic idle detection
+and shutdown functionality. See `app/coordination/unified_idle_shutdown_daemon.py`.

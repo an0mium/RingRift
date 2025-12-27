@@ -48,6 +48,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -711,15 +713,11 @@ class OptimizationCoordinator:
             "subscribed": self._subscribed,
         }
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self) -> HealthCheckResult:
         """Perform health check on optimization coordinator (December 2025).
 
         Returns:
-            Dict with health status including:
-            - healthy: Overall health status
-            - success_rate: Ratio of successful to total runs
-            - is_running: Whether optimization is currently running
-            - subscription_status: Event subscription health
+            HealthCheckResult with status and metrics.
         """
         stats = self.get_stats()
 
@@ -734,16 +732,23 @@ class OptimizationCoordinator:
             and success_rate >= 0.5  # At least 50% success rate
         )
 
-        return {
-            "healthy": healthy,
-            "total_runs": total,
-            "successful_runs": successful,
-            "failed_runs": stats.failed_runs,
-            "success_rate": round(success_rate, 3),
-            "is_running": self.is_optimization_running(),
-            "in_cooldown": self.is_in_cooldown(),
-            "subscribed": self._subscribed,
-        }
+        status = CoordinatorStatus.RUNNING if healthy else CoordinatorStatus.DEGRADED
+        message = "" if healthy else f"Success rate {success_rate:.1%} below threshold"
+
+        return HealthCheckResult(
+            healthy=healthy,
+            status=status,
+            message=message,
+            details={
+                "total_runs": total,
+                "successful_runs": successful,
+                "failed_runs": stats.failed_runs,
+                "success_rate": round(success_rate, 3),
+                "is_running": self.is_optimization_running(),
+                "in_cooldown": self.is_in_cooldown(),
+                "subscribed": self._subscribed,
+            },
+        )
 
 
 # =============================================================================

@@ -839,6 +839,55 @@ timeout = get_job_timeout("training")  # 14400 seconds
 
 ---
 
+### Base Handler Classes (December 2025)
+
+Event handlers that subscribe to the event bus can inherit from base classes in `app/coordination/base_handler.py`:
+
+| Class                  | Purpose                                                                      | Use Case                       |
+| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------ |
+| `BaseEventHandler`     | Abstract base for all event handlers with subscription, stats, and lifecycle | Single-event subscription      |
+| `BaseSingletonHandler` | Adds thread-safe singleton pattern to BaseEventHandler                       | Module-level singleton handler |
+| `MultiEventHandler`    | Routes multiple event types to different handler methods                     | Multi-event coordinators       |
+| `HandlerStats`         | Statistics dataclass (success_rate, error_count, last_event_time)            | Handler metrics                |
+
+**When to use:**
+
+- New handlers that subscribe to `DataEventType` events via the event bus
+- Handlers that need consistent stats tracking and health reporting
+- Singleton handlers that need thread-safe instance management
+
+**When NOT to use:**
+
+- Utility classes that don't subscribe to events (e.g., `SyncStallHandler`)
+- Decorators/wrappers (e.g., `handler_resilience.py`)
+- Handlers with sync-to-async patterns (existing code with `fire_and_forget`)
+
+```python
+from app.coordination.base_handler import BaseEventHandler, HandlerStats
+
+class MyHandler(BaseEventHandler):
+    def __init__(self):
+        super().__init__("MyHandler")
+
+    def _do_subscribe(self) -> bool:
+        from app.coordination.event_router import DataEventType, get_event_bus
+        bus = get_event_bus()
+        bus.subscribe(DataEventType.MY_EVENT, self._handle_event)
+        self._subscribed = True
+        return True
+
+    async def _handle_event(self, event) -> None:
+        # Business logic here
+        self._record_success()  # Tracks stats automatically
+```
+
+**Helper functions:**
+
+- `create_handler_stats(**custom)` - Create HandlerStats with custom stats
+- `safe_subscribe(handler)` - Subscribe with exception handling
+
+---
+
 ## Deprecation Notices
 
 ### SYNC_COORDINATOR (Q2 2026)
@@ -862,6 +911,7 @@ timeout = get_job_timeout("training")  # 14400 seconds
 - `daemon_types.py` - Type definitions and enums
 - `daemon_factory.py` - Centralized daemon creation factory
 - `daemon_adapters.py` - Daemon wrappers for legacy code
+- `base_handler.py` - Base classes for event handlers (Dec 2025)
 - `app/config/coordination_defaults.py` - Centralized configuration defaults (Dec 2025)
 - `CONFIG_REFERENCE.md` - Environment variable configuration
 - `CLAUDE.md` - Cluster infrastructure overview

@@ -53,6 +53,7 @@ Handler Categories:
 See individual handler modules for endpoint documentation.
 """
 
+from .base import BaseP2PHandler, P2PHandlerProtocol, make_json_response, make_error_response
 from .admin import AdminHandlersMixin
 from .delivery import DeliveryHandlersMixin
 from .network_discovery import NetworkDiscoveryMixin
@@ -69,6 +70,12 @@ from .tournament import TournamentHandlersMixin
 from .work_queue import WorkQueueHandlersMixin
 
 __all__ = [
+    # Base class (Dec 2025 - handler consolidation)
+    "BaseP2PHandler",
+    "P2PHandlerProtocol",
+    "make_json_response",
+    "make_error_response",
+    # Handler mixins
     "AdminHandlersMixin",
     "CMAESHandlersMixin",
     "DeliveryHandlersMixin",

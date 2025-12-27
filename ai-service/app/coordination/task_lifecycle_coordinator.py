@@ -46,6 +46,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -693,15 +695,11 @@ class TaskLifecycleCoordinator:
             "offline_node_count": len(self._offline_nodes),
         }
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self) -> HealthCheckResult:
         """Perform health check on task lifecycle coordinator (December 2025).
 
         Returns:
-            Dict with health status including:
-            - healthy: Overall health status
-            - orphan_rate: Ratio of orphaned to active tasks
-            - failure_rate: Task failure rate
-            - subscription_status: Event subscription health
+            HealthCheckResult with status and metrics.
         """
         stats = self.get_stats()
 
@@ -717,16 +715,28 @@ class TaskLifecycleCoordinator:
             and stats.failure_rate < 0.5  # Less than 50% failure rate
         )
 
-        return {
-            "healthy": healthy,
-            "active_tasks": active,
-            "orphaned_tasks": orphaned,
-            "orphan_rate": round(orphan_rate, 3),
-            "failure_rate": round(stats.failure_rate, 3),
-            "subscribed": self._subscribed,
-            "online_nodes": len(self._online_nodes),
-            "offline_nodes": len(self._offline_nodes),
-        }
+        status = CoordinatorStatus.RUNNING if healthy else CoordinatorStatus.DEGRADED
+        issues = []
+        if orphan_rate >= 0.3:
+            issues.append(f"orphan rate {orphan_rate:.1%}")
+        if stats.failure_rate >= 0.5:
+            issues.append(f"failure rate {stats.failure_rate:.1%}")
+        message = ", ".join(issues) if issues else ""
+
+        return HealthCheckResult(
+            healthy=healthy,
+            status=status,
+            message=message,
+            details={
+                "active_tasks": active,
+                "orphaned_tasks": orphaned,
+                "orphan_rate": round(orphan_rate, 3),
+                "failure_rate": round(stats.failure_rate, 3),
+                "subscribed": self._subscribed,
+                "online_nodes": len(self._online_nodes),
+                "offline_nodes": len(self._offline_nodes),
+            },
+        )
 
 
 # =============================================================================
