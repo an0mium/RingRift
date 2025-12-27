@@ -513,28 +513,53 @@ class GossipSyncDaemon:
         }
 
 
-def load_peer_config(config_path: Path) -> dict[str, dict]:
-    """Load peer configuration from remote_hosts.yaml."""
-    with open(config_path) as f:
-        data = yaml.safe_load(f)
-
+def _load_peers_from_distributed_hosts(data: dict) -> dict[str, dict]:
     peers = {}
-
-    # Use standard_hosts as peers
-    if "standard_hosts" in data:
-        for name, config in data["standard_hosts"].items():
-            # Skip Tailscale duplicates
-            if name.startswith("lambda_gh200"):
-                continue
-            peers[name] = {
-                "ssh_host": config.get("ssh_host", ""),
-                "ssh_user": config.get("ssh_user", "ubuntu"),
-                "ssh_port": config.get("ssh_port", 22),
-                "gossip_host": config.get("ssh_host", ""),
-                "gossip_port": GOSSIP_PORT,
-            }
-
+    hosts = data.get("hosts", {})
+    for name, config in hosts.items():
+        if not config.get("p2p_enabled", True):
+            continue
+        status = str(config.get("status", "")).lower()
+        if status in {"terminated", "offline", "suspended"}:
+            continue
+        ssh_host = config.get("tailscale_ip") or config.get("ssh_host", "")
+        if not ssh_host:
+            continue
+        peers[name] = {
+            "ssh_host": ssh_host,
+            "ssh_user": config.get("ssh_user", "ubuntu"),
+            "ssh_port": config.get("ssh_port", 22),
+            "gossip_host": ssh_host,
+            "gossip_port": GOSSIP_PORT,
+        }
     return peers
+
+
+def _load_peers_from_remote_hosts(data: dict) -> dict[str, dict]:
+    peers = {}
+    # Use standard_hosts as peers (legacy schema)
+    for name, config in data.get("standard_hosts", {}).items():
+        # Skip Tailscale duplicates
+        if name.startswith("lambda_gh200"):
+            continue
+        peers[name] = {
+            "ssh_host": config.get("ssh_host", ""),
+            "ssh_user": config.get("ssh_user", "ubuntu"),
+            "ssh_port": config.get("ssh_port", 22),
+            "gossip_host": config.get("ssh_host", ""),
+            "gossip_port": GOSSIP_PORT,
+        }
+    return peers
+
+
+def load_peer_config(config_path: Path) -> dict[str, dict]:
+    """Load peer configuration from distributed_hosts.yaml (legacy: remote_hosts.yaml)."""
+    with open(config_path) as f:
+        data = yaml.safe_load(f) or {}
+
+    if "hosts" in data:
+        return _load_peers_from_distributed_hosts(data)
+    return _load_peers_from_remote_hosts(data)
 
 
 async def main():
@@ -555,7 +580,9 @@ async def main():
 
     # Find config
     script_dir = Path(__file__).resolve().parent.parent.parent
-    config_path = script_dir / "config" / "remote_hosts.yaml"
+    config_path = script_dir / "config" / "distributed_hosts.yaml"
+    if not config_path.exists():
+        config_path = script_dir / "config" / "remote_hosts.yaml"
     data_dir = script_dir / args.data_dir
 
     if args.status:

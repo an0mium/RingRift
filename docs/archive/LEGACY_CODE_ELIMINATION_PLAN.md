@@ -104,12 +104,12 @@ Before eliminating legacy code:
 
 These modules duplicate rules logic that is now handled by `src/shared/engine/orchestration/turnOrchestrator.ts`:
 
-| Module                                                                                                   | Lines | Replacement                                                                                                                                                                                                    | Dependencies                                           |
-| -------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| ~~[`src/client/sandbox/sandboxTurnEngine.ts`](../../src/client/sandbox/sandboxTurnEngine.ts)~~           | 377   | **Removed in Phase 6.2** – responsibilities now live in shared `turnLogic` and `ClientSandboxEngine` turn helpers                                                                                              | (was: `ClientSandboxEngine.ts`, tests)                 |
-| ~~[`src/client/sandbox/sandboxMovementEngine.ts`](../../src/client/sandbox/sandboxMovementEngine.ts)~~   | 678   | **Removed in Phase 6.2** – movement/capture orchestration now lives in MovementAggregate/CaptureAggregate plus `ClientSandboxEngine` helpers                                                                   | (was: `ClientSandboxEngine.ts`, tests)                 |
-| ~~[`src/client/sandbox/sandboxLinesEngine.ts`](../../src/client/sandbox/sandboxLinesEngine.ts)~~         | 285   | **Removed in Phase 6.2** – responsibilities now live in shared `lineDecisionHelpers` and `ClientSandboxEngine.processLinesForCurrentPlayer()`                                                                  | (was: `ClientSandboxEngine.ts`, `sandboxLines.ts`)     |
-| ~~[`src/client/sandbox/sandboxTerritoryEngine.ts`](../../src/client/sandbox/sandboxTerritoryEngine.ts)~~ | 373   | **Removed in Phase 6.2** – responsibilities now live in shared territory helpers and `ClientSandboxEngine.processDisconnectedRegionsForCurrentPlayer()` / `getValidTerritoryProcessingMovesForCurrentPlayer()` | (was: `ClientSandboxEngine.ts`, `sandboxTerritory.ts`) |
+| Module                                             | Lines | Replacement                                                                                                                                                                                                    | Dependencies                                           |
+| -------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| ~~`src/client/sandbox/sandboxTurnEngine.ts`~~      | 377   | **Removed in Phase 6.2** – responsibilities now live in shared `turnLogic` and `ClientSandboxEngine` turn helpers                                                                                              | (was: `ClientSandboxEngine.ts`, tests)                 |
+| ~~`src/client/sandbox/sandboxMovementEngine.ts`~~  | 678   | **Removed in Phase 6.2** – movement/capture orchestration now lives in MovementAggregate/CaptureAggregate plus `ClientSandboxEngine` helpers                                                                   | (was: `ClientSandboxEngine.ts`, tests)                 |
+| ~~`src/client/sandbox/sandboxLinesEngine.ts`~~     | 285   | **Removed in Phase 6.2** – responsibilities now live in shared `lineDecisionHelpers` and `ClientSandboxEngine.processLinesForCurrentPlayer()`                                                                  | (was: `ClientSandboxEngine.ts`, `sandboxLines.ts`)     |
+| ~~`src/client/sandbox/sandboxTerritoryEngine.ts`~~ | 373   | **Removed in Phase 6.2** – responsibilities now live in shared territory helpers and `ClientSandboxEngine.processDisconnectedRegionsForCurrentPlayer()` / `getValidTerritoryProcessingMovesForCurrentPlayer()` | (was: `ClientSandboxEngine.ts`, `sandboxTerritory.ts`) |
 
 **Subtotal Tier 1:** ~1,713 lines
 
@@ -135,11 +135,11 @@ These modules provide helper functions used by Tier 1. After Tier 1 elimination,
 
 Legacy backend rules code that parallels shared engine after adapter migration:
 
-| Module                                                                                               | Lines | Status      | Notes                                                    |
-| ---------------------------------------------------------------------------------------------------- | ----- | ----------- | -------------------------------------------------------- |
-| [`src/server/game/rules/lineProcessing.ts`](../../src/server/game/rules/lineProcessing.ts)           | ~200  | Replaceable | Uses shared engine but can delegate entirely via adapter |
-| [`src/server/game/rules/territoryProcessing.ts`](../../src/server/game/rules/territoryProcessing.ts) | ~250  | Replaceable | Uses shared engine but can delegate entirely via adapter |
-| [`src/server/game/rules/captureChainEngine.ts`](../../src/server/game/rules/captureChainEngine.ts)   | ~150  | Replaceable | Thin wrapper around shared `captureChainHelpers.ts`      |
+| Module                                         | Lines | Status      | Notes                                                    |
+| ---------------------------------------------- | ----- | ----------- | -------------------------------------------------------- |
+| `src/server/game/rules/lineProcessing.ts`      | ~200  | Replaceable | Uses shared engine but can delegate entirely via adapter |
+| `src/server/game/rules/territoryProcessing.ts` | ~250  | Replaceable | Uses shared engine but can delegate entirely via adapter |
+| `src/server/game/rules/captureChainEngine.ts`  | ~150  | Replaceable | Thin wrapper around shared `captureChainHelpers.ts`      |
 
 **Subtotal Tier 3:** ~600 lines
 

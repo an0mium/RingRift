@@ -30,9 +30,7 @@ Usage:
         print(f"{peer_id} is alive")
 """
 
-import asyncio
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional

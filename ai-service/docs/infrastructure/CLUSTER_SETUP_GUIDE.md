@@ -131,8 +131,8 @@ hosts:
     gpu: 'RTX 4090'
 ```
 
-If you use `unified_data_sync.py`, also create `config/remote_hosts.yaml`
-(legacy sync format) with the same hosts.
+`unified_data_sync.py` now reads from `config/distributed_hosts.yaml` (SSoT).
+`config/remote_hosts.yaml` is deprecated.
 
 ## Step 3: Deploy Code to Cluster
 
@@ -319,7 +319,7 @@ ssh -R 8770:localhost:8770 relay-server
 ### Adding More Workers
 
 1. Set up the new node (Step 1)
-2. Add to `config/distributed_hosts.yaml` (and `config/remote_hosts.yaml` if using data sync)
+2. Add to `config/distributed_hosts.yaml`
 3. Deploy code: `python scripts/update_cluster_code.py`
 4. Start selfplay on the new node
 

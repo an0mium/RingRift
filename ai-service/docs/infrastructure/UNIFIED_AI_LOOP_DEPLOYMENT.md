@@ -158,7 +158,7 @@ curriculum:
 ### Host Configuration
 
 `config/distributed_hosts.yaml` defines cluster hosts (canonical inventory).
-`config/remote_hosts.yaml` is only used by data sync tooling.
+Data sync tooling now reads from `config/distributed_hosts.yaml` (SSoT). `config/remote_hosts.yaml` is deprecated.
 
 ```yaml
 hosts:
@@ -399,7 +399,7 @@ done
 
 # Check host configuration
 cat config/distributed_hosts.yaml | grep ssh_host
-# If using external unified_data_sync, also verify config/remote_hosts.yaml
+# If using external unified_data_sync, verify config/distributed_hosts.yaml
 
 # Manual sync test (replace with your actual IP)
 rsync -avz ubuntu@<selfplay-node>:~/ringrift/ai-service/data/games/*.db /tmp/
@@ -641,24 +641,24 @@ status = get_utilization_status()
 
 ## Files Reference
 
-| File                                                 | Purpose                             |
-| ---------------------------------------------------- | ----------------------------------- |
-| `scripts/master_loop.py`                             | Main daemon coordinator             |
-| `scripts/deploy_unified_loop.sh`                     | Cluster deployment script           |
-| `scripts/run_strength_regression_gate.py`            | Pre-promotion regression tests      |
-| `config/unified_loop.yaml`                           | Main configuration                  |
-| `config/distributed_hosts.yaml`                      | Cluster host inventory (canonical)  |
-| `config/remote_hosts.yaml`                           | Data sync host definitions (legacy) |
-| `config/systemd/master-loop.service`                 | Systemd service file                |
-| `config/monitoring/grafana-dashboard.json`           | Grafana dashboard                   |
-| `config/monitoring/alerting-rules.yaml`              | Prometheus alert rules              |
-| `app/coordination/resource_optimizer.py`             | Resource utilization optimizer      |
-| `app/coordination/resource_targets.py`               | Utilization target definitions      |
-| `monitoring/prometheus/rules/utilization_alerts.yml` | Utilization-specific alerts         |
-| `deploy/grafana/unified-ai-loop-dashboard.json`      | Main Grafana dashboard              |
-| `logs/unified_loop/daemon.log`                       | Daemon log file                     |
-| `data/coordination/master_loop_state.db`             | Persistent state                    |
-| `data/coordination/resource_state.db`                | Resource optimizer state DB         |
+| File                                                 | Purpose                            |
+| ---------------------------------------------------- | ---------------------------------- |
+| `scripts/master_loop.py`                             | Main daemon coordinator            |
+| `scripts/deploy_unified_loop.sh`                     | Cluster deployment script          |
+| `scripts/run_strength_regression_gate.py`            | Pre-promotion regression tests     |
+| `config/unified_loop.yaml`                           | Main configuration                 |
+| `config/distributed_hosts.yaml`                      | Cluster host inventory (canonical) |
+| `config/distributed_hosts.yaml`                      | Data sync host definitions (SSoT)  |
+| `config/systemd/master-loop.service`                 | Systemd service file               |
+| `config/monitoring/grafana-dashboard.json`           | Grafana dashboard                  |
+| `config/monitoring/alerting-rules.yaml`              | Prometheus alert rules             |
+| `app/coordination/resource_optimizer.py`             | Resource utilization optimizer     |
+| `app/coordination/resource_targets.py`               | Utilization target definitions     |
+| `monitoring/prometheus/rules/utilization_alerts.yml` | Utilization-specific alerts        |
+| `deploy/grafana/unified-ai-loop-dashboard.json`      | Main Grafana dashboard             |
+| `logs/unified_loop/daemon.log`                       | Daemon log file                    |
+| `data/coordination/master_loop_state.db`             | Persistent state                   |
+| `data/coordination/resource_state.db`                | Resource optimizer state DB        |
 
 ## Command Reference
 

@@ -833,7 +833,7 @@ class SyncRouter:
             # Still log the decision for debugging even if event emission failed
             logger.info(
                 f"[SyncRouter] Routing decision: {len(targets)} targets for "
-                f"{game_count} games from {source_node}"
+                f"{data_type.value} data from {source}"
             )
 
 

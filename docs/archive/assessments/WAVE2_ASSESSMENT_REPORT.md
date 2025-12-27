@@ -59,16 +59,17 @@ The [`gameEndExplanation.ts`](../../../src/shared/engine/gameEndExplanation.ts:1
 Four new specification documents created:
 
 <<<<<<< Updated upstream
-| Document                                                                              | Lines | Purpose                                   |
+| Document | Lines | Purpose |
 | ------------------------------------------------------------------------------------- | ----- | ----------------------------------------- |
 =======
-| Document                                                                                  | Lines | Purpose                                   |
+| Document | Lines | Purpose |
 | ----------------------------------------------------------------------------------------- | ----- | ----------------------------------------- |
->>>>>>> Stashed changes
-| [`AI_CALIBRATION_RUNBOOK.md`](../../ai/AI_CALIBRATION_RUNBOOK.md:1)                       | 475   | Operational procedures for AI calibration |
-| [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](../../ai/AI_LADDER_HEALTH_MONITORING_SPEC.md:1)   | 865   | Health metrics and alerting               |
-| [`AI_LADDER_CHANGE_GUARDRAILS.md`](../../ai/AI_LADDER_CHANGE_GUARDRAILS.md:1)             | 617   | Change management controls                |
-| [`AI_HUMAN_CALIBRATION_STUDY_DESIGN.md`](../../ai/AI_HUMAN_CALIBRATION_STUDY_DESIGN.md:1) | 926   | Human study protocol                      |
+
+> > > > > > > Stashed changes
+> > > > > > > | [`AI_CALIBRATION_RUNBOOK.md`](../../ai/AI_CALIBRATION_RUNBOOK.md:1) | 475 | Operational procedures for AI calibration |
+> > > > > > > | [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](../../ai/AI_LADDER_HEALTH_MONITORING_SPEC.md:1) | 865 | Health metrics and alerting |
+> > > > > > > | [`AI_LADDER_CHANGE_GUARDRAILS.md`](../../ai/AI_LADDER_CHANGE_GUARDRAILS.md:1) | 617 | Change management controls |
+> > > > > > > | [`AI_HUMAN_CALIBRATION_STUDY_DESIGN.md`](../../ai/AI_HUMAN_CALIBRATION_STUDY_DESIGN.md:1) | 926 | Human study protocol |
 
 ### 2.4 LPS Two-Round Requirement (PROPAGATED)
 
@@ -117,7 +118,7 @@ The Last-Player-Standing victory condition now correctly requires two full round
 **`.only()` calls (breaking CI coverage):**
 
 - [`tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts`](../../../tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts:1)
-- [`tests/unit/ClientSandboxEngine.victory.LPS.sandboxFixtureRegression.test.ts`](../tests/unit/ClientSandboxEngine.victory.LPS.sandboxFixtureRegression.test.ts:1)
+- [`tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts`](../../../tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts:1)
 - Multiple parity test files
 
 **Monolithic test files (>2000 lines):**
@@ -171,7 +172,7 @@ RingRift maintains two game engines that must produce identical results:
 
 1. **No Shared Source of Truth**: Each engine independently implemented
    - [`src/shared/engine/`](../../../src/shared/engine/index.ts:1) (TypeScript)
-   - [`ai-service/app/`](../ai-service/app/game_engine.py:1) (Python)
+   - [`ai-service/app/game_engine/`](../../../ai-service/app/game_engine/__init__.py:1) (Python)
 
 2. **Complex Rule Interactions**: Rules with subtle edge cases that must match exactly:
    - Forced elimination cascades

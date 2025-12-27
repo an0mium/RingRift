@@ -14,6 +14,14 @@ The following modules have been moved here from the parent directory:
 | `_deprecated_host_health_policy.py`        | `cluster.health`      | Host health policies       |
 | `_deprecated_system_health_monitor.py`     | `cluster.health`      | System health monitoring   |
 
+## Archived Modules (December 27, 2025)
+
+| Module                                  | Replacement                                   | Notes                      |
+| --------------------------------------- | --------------------------------------------- | -------------------------- |
+| `_deprecated_auto_evaluation_daemon.py` | `evaluation_daemon` + `auto_promotion_daemon` | Split into focused daemons |
+| `_deprecated_sync_coordinator.py`       | `AutoSyncDaemon`                              | Unified sync scheduling    |
+| `_deprecated_queue_populator_daemon.py` | `unified_queue_populator`                     | Consolidated queue manager |
+
 Import from `app.coordination.deprecated.*` will emit deprecation warnings.
 
 ## Consolidation Summary

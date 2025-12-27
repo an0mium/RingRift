@@ -2825,9 +2825,10 @@ class DaemonManager:
                                 )
                         except ImportError:
                             # sync_game not available, just track retry
-                            pass
+                            logger.debug("[DLQ] sync_game not available - skipping retry")
                         except (RuntimeError, OSError, ConnectionError) as e:
-                            logger.debug(f"[DLQ] Retry failed for {entry.id}: {e}")
+                            # Phase 12: Elevated from debug to warning since this is an actual failure
+                            logger.warning(f"[DLQ] Retry failed for {entry.id}: {e}")
 
                     if retried_count or quarantined_count:
                         logger.info(

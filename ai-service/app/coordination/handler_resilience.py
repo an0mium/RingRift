@@ -142,7 +142,8 @@ async def _emit_failure_event(
             coordinator=coordinator,
         )
     except Exception as e:
-        logger.debug(f"Failed to emit handler_failed event: {e}")  # Don't let event emission fail the handler
+        # Phase 12: Elevated to warning - event emission failures indicate monitoring problems
+        logger.warning(f"Failed to emit handler_failed event: {e}")
 
 
 async def _emit_timeout_event(
@@ -162,7 +163,8 @@ async def _emit_timeout_event(
             coordinator=coordinator,
         )
     except Exception as e:
-        logger.debug(f"Failed to emit handler_timeout event: {e}")  # Don't let event emission fail the handler
+        # Phase 12: Elevated to warning - event emission failures indicate monitoring problems
+        logger.warning(f"Failed to emit handler_timeout event: {e}")
 
 
 async def _emit_health_degraded(
@@ -181,7 +183,8 @@ async def _emit_health_degraded(
             issues=[f"{handler_name}: {consecutive_failures} consecutive failures"],
         )
     except Exception as e:
-        logger.debug(f"Failed to emit health_degraded event: {e}")
+        # Phase 12: Elevated to warning - event emission failures indicate monitoring problems
+        logger.warning(f"Failed to emit health_degraded event: {e}")
 
 
 def resilient_handler(

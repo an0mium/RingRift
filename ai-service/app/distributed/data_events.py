@@ -205,7 +205,6 @@ class DataEventType(Enum):
     ORPHAN_GAMES_REGISTERED = "orphan_games_registered"  # Orphans auto-registered
 
     # Replication repair events (December 2025)
-    REPAIR_STARTED = "repair_started"  # Repair job started for under-replicated game
     REPAIR_COMPLETED = "repair_completed"  # Repair job succeeded
     REPAIR_FAILED = "repair_failed"  # Repair job failed
     REPLICATION_ALERT = "replication_alert"  # Replication health alert
@@ -250,8 +249,6 @@ class DataEventType(Enum):
     NODE_TERMINATED = "node_terminated"  # Node terminated/deprovisioned
 
     # Lock/Synchronization events (December 2025)
-    LOCK_ACQUIRED = "lock_acquired"
-    LOCK_RELEASED = "lock_released"
     LOCK_TIMEOUT = "lock_timeout"
     DEADLOCK_DETECTED = "deadlock_detected"
 
@@ -292,8 +289,6 @@ class DataEventType(Enum):
     LEADER_STEPDOWN = "leader_stepdown"
 
     # Encoding/Processing events (December 2025)
-    ENCODING_BATCH_COMPLETED = "encoding_batch_completed"
-    CALIBRATION_COMPLETED = "calibration_completed"
 
     # Error Recovery & Resilience events (December 2025)
     TRAINING_ROLLBACK_NEEDED = "training_rollback_needed"  # Rollback to previous checkpoint
@@ -1745,48 +1740,6 @@ async def emit_tier_promotion(
     ))
 
 
-# =============================================================================
-# Lock/Synchronization Events (December 2025)
-# =============================================================================
-
-async def emit_lock_acquired(
-    resource_id: str,
-    holder: str,
-    lock_type: str = "exclusive",
-    timeout_seconds: float = 0.0,
-    source: str = "",
-) -> None:
-    """Emit a LOCK_ACQUIRED event."""
-    await get_event_bus().publish(DataEvent(
-        event_type=DataEventType.LOCK_ACQUIRED,
-        payload={
-            "resource_id": resource_id,
-            "holder": holder,
-            "lock_type": lock_type,
-            "timeout_seconds": timeout_seconds,
-        },
-        source=source,
-    ))
-
-
-async def emit_lock_released(
-    resource_id: str,
-    holder: str,
-    held_duration_seconds: float = 0.0,
-    source: str = "",
-) -> None:
-    """Emit a LOCK_RELEASED event."""
-    await get_event_bus().publish(DataEvent(
-        event_type=DataEventType.LOCK_RELEASED,
-        payload={
-            "resource_id": resource_id,
-            "holder": holder,
-            "held_duration_seconds": held_duration_seconds,
-        },
-        source=source,
-    ))
-
-
 async def emit_deadlock_detected(
     resources: list[str],
     holders: list[str],
@@ -2048,52 +2001,6 @@ async def emit_leader_lost(
         payload={
             "old_leader_id": old_leader_id,
             "reason": reason,
-        },
-        source=source,
-    ))
-
-
-# Encoding/Processing Events (December 2025)
-
-async def emit_encoding_batch_completed(
-    games_count: int,
-    samples_count: int,
-    errors_count: int,
-    board_type: str = "",
-    duration_seconds: float = 0.0,
-    source: str = "parallel_encoding",
-) -> None:
-    """Emit an ENCODING_BATCH_COMPLETED event."""
-    await get_event_bus().publish(DataEvent(
-        event_type=DataEventType.ENCODING_BATCH_COMPLETED,
-        payload={
-            "games_count": games_count,
-            "samples_count": samples_count,
-            "errors_count": errors_count,
-            "board_type": board_type,
-            "duration_seconds": duration_seconds,
-        },
-        source=source,
-    ))
-
-
-async def emit_calibration_completed(
-    config_key: str,
-    calibration_type: str,
-    old_value: float = 0.0,
-    new_value: float = 0.0,
-    games_analyzed: int = 0,
-    source: str = "tier_calibrator",
-) -> None:
-    """Emit a CALIBRATION_COMPLETED event."""
-    await get_event_bus().publish(DataEvent(
-        event_type=DataEventType.CALIBRATION_COMPLETED,
-        payload={
-            "config_key": config_key,
-            "calibration_type": calibration_type,
-            "old_value": old_value,
-            "new_value": new_value,
-            "games_analyzed": games_analyzed,
         },
         source=source,
     ))

@@ -104,7 +104,7 @@ for level in ladder.levels:
 | File                          | Purpose                        |
 | ----------------------------- | ------------------------------ |
 | `config/unified_loop.yaml`    | Main training loop config      |
-| `config/remote_hosts.yaml`    | Cluster node definitions       |
+| `config/distributed_hosts.yaml` | Cluster node definitions (SSoT) |
 | `config/hyperparameters.json` | Neural network hyperparameters |
 | `config/resource_limits.yaml` | Resource constraints           |
 

@@ -2129,6 +2129,9 @@ class IdleResourceDaemon:
             if self._is_node_in_backoff(n)
         )
 
+        # Get cluster-wide idle state (December 2025)
+        cluster_state = self.get_cluster_idle_state()
+
         return {
             "running": self._running,
             "uptime_seconds": time.time() - self._start_time if self._start_time else 0,
@@ -2142,6 +2145,14 @@ class IdleResourceDaemon:
             "tracked_nodes": len(self._node_states),
             "nodes_in_backoff": nodes_in_backoff,
             "errors_count": self._errors_count,
+            # Cluster-wide idle state (December 2025)
+            "cluster": {
+                "total_nodes": cluster_state.total_nodes,
+                "idle_nodes": cluster_state.idle_nodes,
+                "idle_ratio": round(cluster_state.idle_ratio, 3),
+                "total_idle_gpu_memory_gb": round(cluster_state.total_idle_gpu_memory_gb, 1),
+                "has_idle_capacity": cluster_state.has_idle_capacity,
+            },
         }
 
     # CoordinatorProtocol methods

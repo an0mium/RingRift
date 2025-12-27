@@ -165,8 +165,12 @@ class TrainingFreshnessChecker:
         """Get the training data directory."""
         return self.data_dir / "training"
 
-    def _get_manifest(self):
-        """Lazy-load ClusterManifest."""
+    def _get_manifest(self) -> "ClusterManifest | None":
+        """Lazy-load ClusterManifest.
+
+        Returns:
+            ClusterManifest instance or None if unavailable.
+        """
         if self._manifest is None:
             try:
                 from app.distributed.cluster_manifest import get_cluster_manifest
@@ -175,8 +179,12 @@ class TrainingFreshnessChecker:
                 logger.debug("ClusterManifest not available")
         return self._manifest
 
-    def _get_sync_daemon(self):
-        """Lazy-load AutoSyncDaemon."""
+    def _get_sync_daemon(self) -> "AutoSyncDaemon | None":
+        """Lazy-load AutoSyncDaemon.
+
+        Returns:
+            AutoSyncDaemon instance or None if unavailable.
+        """
         if self._sync_daemon is None:
             try:
                 from app.coordination.auto_sync_daemon import get_auto_sync_daemon

@@ -70,7 +70,10 @@ class ConfigValidator:
 
         # Core configs
         results.append(self.validate_unified_loop_config())
-        results.append(self.validate_remote_hosts())
+        results.append(self.validate_distributed_hosts())
+        legacy_hosts = self.validate_remote_hosts()
+        if legacy_hosts.config_path:
+            results.append(legacy_hosts)
         results.append(self.validate_hyperparameters())
         results.append(self.validate_resource_limits())
 
@@ -172,18 +175,18 @@ class ConfigValidator:
             warnings=warnings,
         )
 
-    def validate_remote_hosts(self) -> ValidationResult:
-        """Validate remote_hosts.yaml configuration."""
-        config_path = self.base_path / "config" / "remote_hosts.yaml"
+    def validate_distributed_hosts(self) -> ValidationResult:
+        """Validate distributed_hosts.yaml configuration."""
+        config_path = self.base_path / "config" / "distributed_hosts.yaml"
         errors = []
         warnings = []
 
         if not config_path.exists():
             return ValidationResult(
-                valid=True,  # Optional file
-                config_name="remote_hosts.yaml",
+                valid=False,
+                config_name="distributed_hosts.yaml",
                 config_path=str(config_path),
-                warnings=["remote_hosts.yaml not found - using defaults"],
+                errors=[f"Config file not found: {config_path}"],
             )
 
         try:
@@ -193,39 +196,29 @@ class ConfigValidator:
             if not config:
                 warnings.append("Config file is empty")
                 return ValidationResult(
-                    valid=True,
-                    config_name="remote_hosts.yaml",
+                    valid=False,
+                    config_name="distributed_hosts.yaml",
                     config_path=str(config_path),
                     warnings=warnings,
                 )
 
-            # Validate standard_hosts
-            hosts = config.get("standard_hosts", {})
+            hosts = config.get("hosts", {})
+            if not hosts:
+                errors.append("No hosts defined under 'hosts'")
+
             for name, info in hosts.items():
-                if not info.get("ssh_host"):
-                    errors.append(f"Host '{name}' missing ssh_host")
+                ssh_host = info.get("tailscale_ip") or info.get("ssh_host", "")
+                if not ssh_host:
+                    errors.append(f"Host '{name}' missing ssh_host/tailscale_ip")
                 if not info.get("ssh_user"):
                     warnings.append(f"Host '{name}' missing ssh_user (defaulting to 'ubuntu')")
 
-                # Validate IP format
-                ssh_host = info.get("ssh_host", "")
                 if ssh_host and not self._is_valid_host(ssh_host):
                     warnings.append(f"Host '{name}' has invalid ssh_host: {ssh_host}")
 
-                # Validate memory
                 memory_gb = info.get("memory_gb", 0)
-                if memory_gb > 0 and memory_gb < 16:
+                if memory_gb and memory_gb < 16:
                     warnings.append(f"Host '{name}' has low memory: {memory_gb}GB")
-
-            # Validate vast_hosts
-            vast_hosts = config.get("vast_hosts", {})
-            for name, info in vast_hosts.items():
-                if not info.get("host"):
-                    errors.append(f"Vast host '{name}' missing host")
-                if not info.get("port"):
-                    errors.append(f"Vast host '{name}' missing port")
-                if info.get("storage_type") == "ram":
-                    warnings.append(f"Vast host '{name}' uses RAM storage - data is ephemeral")
 
         except yaml.YAMLError as e:
             errors.append(f"YAML parse error: {e}")
@@ -234,10 +227,28 @@ class ConfigValidator:
 
         return ValidationResult(
             valid=len(errors) == 0,
-            config_name="remote_hosts.yaml",
+            config_name="distributed_hosts.yaml",
             config_path=str(config_path),
             errors=errors,
             warnings=warnings,
+        )
+
+    def validate_remote_hosts(self) -> ValidationResult:
+        """Validate remote_hosts.yaml configuration (deprecated)."""
+        config_path = self.base_path / "config" / "remote_hosts.yaml"
+        if not config_path.exists():
+            return ValidationResult(
+                valid=True,
+                config_name="remote_hosts.yaml",
+                config_path=None,
+            )
+        return ValidationResult(
+            valid=True,
+            config_name="remote_hosts.yaml",
+            config_path=str(config_path),
+            warnings=[
+                "remote_hosts.yaml is deprecated; use distributed_hosts.yaml instead",
+            ],
         )
 
     def validate_hyperparameters(self) -> ValidationResult:

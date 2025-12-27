@@ -3835,6 +3835,9 @@ class P2POrchestrator(
     def _collect_local_data_manifest(self) -> NodeDataManifest:
         """Collect manifest of all data files on this node.
 
+        REFACTORED (Dec 2025): Delegates to SyncPlanner.collect_local_manifest().
+        See scripts/p2p/managers/sync_planner.py for implementation.
+
         Scans the data directory for:
         - selfplay/ - Game replay files (.jsonl, .db)
         - models/ - Trained model files (.pt, .onnx)
@@ -3842,6 +3845,16 @@ class P2POrchestrator(
         - games/ - Synced game databases (.db)
 
         Uses get_data_directory() to support both disk and ramdrive storage.
+        """
+        # Phase 2A: Delegate to SyncPlanner (Dec 2025)
+        # This eliminates ~150 lines of duplicate code
+        return self.sync_planner.collect_local_manifest(use_cache=False)
+
+    def _collect_local_data_manifest_legacy(self) -> NodeDataManifest:
+        """DEPRECATED: Legacy implementation kept for reference.
+
+        Use _collect_local_data_manifest() which delegates to SyncPlanner.
+        This method will be removed in Q2 2026.
         """
         data_dir = self.get_data_directory()
         manifest = NodeDataManifest(

@@ -360,7 +360,7 @@ class AdaptiveResourceManager:
         Returns:
             Aggregation result dict
         """
-        result = {
+        result: dict[str, Any] = {
             "success": True,
             "games_aggregated": 0,
             "bytes_transferred": 0,
@@ -368,16 +368,139 @@ class AdaptiveResourceManager:
             "nodes_processed": [],
         }
 
-        # This is a placeholder - actual implementation would:
-        # 1. SSH to each node
-        # 2. Find new .jsonl files not yet on NFS
-        # 3. Transfer them to NFS
-        # 4. Update tracking metadata
+        # Get nodes to process
+        if source_nodes is None:
+            source_nodes = await self._get_active_selfplay_nodes()
+
+        if not source_nodes:
+            logger.debug("No source nodes for NFS aggregation")
+            return result
+
+        # Create destination directory if needed
+        nfs_selfplay_dir = self.nfs_path / "ai-service" / "data" / "games"
+        nfs_selfplay_dir.mkdir(parents=True, exist_ok=True)
+
+        # Process each node
+        for node_id in source_nodes:
+            try:
+                node_result = await self._aggregate_from_node(node_id, nfs_selfplay_dir)
+                result["nodes_processed"].append(node_id)
+                result["games_aggregated"] += node_result.get("games", 0)
+                result["bytes_transferred"] += node_result.get("bytes", 0)
+                if node_result.get("error"):
+                    result["errors"].append(f"{node_id}: {node_result['error']}")
+            except Exception as e:
+                logger.warning(f"Failed to aggregate from {node_id}: {e}")
+                result["errors"].append(f"{node_id}: {str(e)}")
+
+        if result["errors"]:
+            result["success"] = len(result["nodes_processed"]) > 0
 
         self.last_aggregation_time = time.time()
         self.stats["aggregations_completed"] += 1
+        self.stats["total_games_aggregated"] = self.stats.get("total_games_aggregated", 0) + result["games_aggregated"]
+
+        if result["games_aggregated"] > 0:
+            logger.info(
+                f"NFS aggregation complete: {result['games_aggregated']} games, "
+                f"{result['bytes_transferred'] / (1024**2):.1f} MB from {len(result['nodes_processed'])} nodes"
+            )
 
         return result
+
+    async def _get_active_selfplay_nodes(self) -> list[str]:
+        """Get list of nodes running selfplay jobs."""
+        try:
+            from app.distributed.cluster_monitor import get_cluster_monitor
+
+            monitor = get_cluster_monitor()
+            if monitor is None:
+                return []
+
+            status = await monitor.get_cluster_status()
+            nodes = []
+            for node_id, node_info in status.get("nodes", {}).items():
+                if node_info.get("has_selfplay_data", False):
+                    nodes.append(node_id)
+            return nodes
+        except ImportError:
+            return []
+        except Exception as e:
+            logger.debug(f"Failed to get active selfplay nodes: {e}")
+            return []
+
+    async def _aggregate_from_node(
+        self, node_id: str, dest_dir: Path
+    ) -> dict[str, Any]:
+        """Aggregate selfplay data from a single node.
+
+        Args:
+            node_id: Node identifier
+            dest_dir: Destination directory on NFS
+
+        Returns:
+            Dict with keys: games, bytes, error
+        """
+        result: dict[str, Any] = {"games": 0, "bytes": 0, "error": None}
+
+        try:
+            from app.core.ssh import get_ssh_client
+
+            client = get_ssh_client(node_id)
+
+            # Find database files on the node
+            find_cmd = (
+                "find ~/ringrift/ai-service/data/games -name '*.db' "
+                "-mmin +5 -type f 2>/dev/null || true"
+            )
+            find_result = client.run(find_cmd, timeout=30)
+
+            if find_result.returncode != 0 or not find_result.stdout.strip():
+                return result
+
+            db_files = find_result.stdout.strip().split("\n")
+            db_files = [f for f in db_files if f and "canonical" not in f]
+
+            if not db_files:
+                return result
+
+            # Rsync database files to NFS
+            for db_file in db_files[:10]:  # Limit batch size
+                db_name = Path(db_file).name
+                dest_path = dest_dir / f"{node_id}_{db_name}"
+
+                # Skip if already exists
+                if dest_path.exists():
+                    continue
+
+                # Use rsync for transfer
+                rsync_cmd = [
+                    "rsync", "-az", "--timeout=60",
+                    f"{client.user}@{client.host}:{db_file}",
+                    str(dest_path),
+                ]
+
+                proc = await asyncio.create_subprocess_exec(
+                    *rsync_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+
+                if proc.returncode == 0 and dest_path.exists():
+                    result["games"] += 1
+                    result["bytes"] += dest_path.stat().st_size
+                else:
+                    logger.debug(f"Rsync failed for {db_file}: {stderr.decode()}")
+
+            return result
+
+        except ImportError:
+            result["error"] = "SSH module not available"
+            return result
+        except Exception as e:
+            result["error"] = str(e)
+            return result
 
     async def check_and_cleanup(self) -> dict[str, Any]:
         """Check resource levels and trigger cleanup if needed."""

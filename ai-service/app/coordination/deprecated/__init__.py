@@ -9,6 +9,11 @@ Moved to deprecated/ December 2025:
 - _deprecated_health_check_orchestrator.py -> Use cluster.health instead
 - _deprecated_host_health_policy.py -> Use cluster.health instead
 - _deprecated_system_health_monitor.py -> Use cluster.health instead
+
+Moved to deprecated/ December 27, 2025:
+- _deprecated_auto_evaluation_daemon.py -> Use evaluation_daemon + auto_promotion_daemon
+- _deprecated_sync_coordinator.py -> Use AutoSyncDaemon
+- _deprecated_queue_populator_daemon.py -> Use unified_queue_populator
 """
 
 import warnings
@@ -22,6 +27,10 @@ def __getattr__(name: str):
         "health_check_orchestrator": "_deprecated_health_check_orchestrator",
         "host_health_policy": "_deprecated_host_health_policy",
         "system_health_monitor": "_deprecated_system_health_monitor",
+        # December 27, 2025 additions
+        "auto_evaluation_daemon": "_deprecated_auto_evaluation_daemon",
+        "sync_coordinator": "_deprecated_sync_coordinator",
+        "queue_populator_daemon": "_deprecated_queue_populator_daemon",
     }
 
     if name in deprecated_modules:

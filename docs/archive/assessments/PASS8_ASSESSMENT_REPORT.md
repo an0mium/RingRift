@@ -292,12 +292,12 @@ Each phase requires:
 
 **Tier 1 - Core Engine Logic (1,713 lines):**
 
-| Module                                                                          | Lines | Status                                                                       |
-| ------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------- |
-| ~~[`sandboxTurnEngine.ts`](src/client/sandbox/sandboxTurnEngine.ts)~~           | 377   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
-| ~~[`sandboxMovementEngine.ts`](src/client/sandbox/sandboxMovementEngine.ts)~~   | 678   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
-| ~~[`sandboxLinesEngine.ts`](src/client/sandbox/sandboxLinesEngine.ts)~~         | 285   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
-| ~~[`sandboxTerritoryEngine.ts`](src/client/sandbox/sandboxTerritoryEngine.ts)~~ | 373   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
+| Module                          | Lines | Status                                                                       |
+| ------------------------------- | ----- | ---------------------------------------------------------------------------- |
+| ~~`sandboxTurnEngine.ts`~~      | 377   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
+| ~~`sandboxMovementEngine.ts`~~  | 678   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
+| ~~`sandboxLinesEngine.ts`~~     | 285   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
+| ~~`sandboxTerritoryEngine.ts`~~ | 373   | **Removed – responsibilities moved to shared helpers + ClientSandboxEngine** |
 
 **Tier 2 + 3 Additional ~2,080 lines** after Phase 5 completion.
 

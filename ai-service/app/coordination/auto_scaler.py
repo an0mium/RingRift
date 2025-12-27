@@ -119,6 +119,12 @@ class AutoScaler:
         self._total_cost_accumulated: float = 0.0  # Cumulative cost in $
         self._last_cost_update: float = time.time()
 
+        # Queue depth history for prediction (timestamp, pending, running)
+        self._queue_depth_samples: list[tuple[float, int, int]] = []
+        self._ema_arrival_rate: float = 0.0  # Exponential moving avg of arrival rate
+        self._ema_completion_rate: float = 0.0  # Exponential moving avg of completion rate
+        self._ema_alpha: float = 0.3  # EMA smoothing factor (higher = more weight to recent)
+
         # Reference to work queue (set by orchestrator)
         self._work_queue: WorkQueue | None = None
 
@@ -253,26 +259,99 @@ class AutoScaler:
         """Check if we're in cooldown period."""
         return time.time() - self._last_scale_time < self.config.scale_cooldown_seconds
 
-    def _predict_demand(self, hours_ahead: int = 2) -> int:
-        """
-        Predict work demand based on historical patterns.
+    def record_queue_sample(self) -> None:
+        """Record current queue state for prediction.
 
-        Returns estimated number of pending items in the future.
+        Should be called periodically (e.g., every minute) to build history.
+        """
+        now = time.time()
+        pending = self.get_pending_count()
+        running = self.get_running_count()
+
+        # Update EMA rates if we have previous samples
+        if self._queue_depth_samples:
+            prev_time, prev_pending, prev_running = self._queue_depth_samples[-1]
+            elapsed_hours = max(0.001, (now - prev_time) / 3600.0)
+
+            # Arrival rate: new work appearing (pending increased)
+            new_arrivals = max(0, pending - prev_pending + (prev_running - running))
+            current_arrival_rate = new_arrivals / elapsed_hours
+
+            # Completion rate: work completed (running decreased)
+            completed = max(0, prev_running - running + (pending - prev_pending))
+            current_completion_rate = completed / elapsed_hours
+
+            # Update EMAs
+            self._ema_arrival_rate = (
+                self._ema_alpha * current_arrival_rate +
+                (1 - self._ema_alpha) * self._ema_arrival_rate
+            )
+            self._ema_completion_rate = (
+                self._ema_alpha * current_completion_rate +
+                (1 - self._ema_alpha) * self._ema_completion_rate
+            )
+
+        # Store sample
+        self._queue_depth_samples.append((now, pending, running))
+
+        # Keep only last 24 hours of samples
+        cutoff = now - 86400
+        self._queue_depth_samples = [
+            s for s in self._queue_depth_samples if s[0] > cutoff
+        ]
+
+    def _predict_demand(self, hours_ahead: int = 2) -> int:
+        """Predict work demand based on historical patterns.
+
+        Uses exponential moving averages of arrival and completion rates
+        to forecast future queue depth.
+
+        Args:
+            hours_ahead: Number of hours to predict ahead
+
+        Returns:
+            Estimated number of pending items in the future
         """
         if not self.config.predictive_scaling:
             return self.get_pending_count()
 
-        # Simple prediction based on current queue growth rate
-        # In production, this would analyze historical patterns
         current_pending = self.get_pending_count()
-        current_running = self.get_running_count()
 
-        # Estimate based on running jobs completing and new jobs arriving
-        # This is a placeholder - real implementation would use ML or time series
-        estimated_completion_rate = current_running / max(1, hours_ahead)
-        estimated_arrival_rate = current_pending / max(1, hours_ahead)
+        # If no history yet, use current value with slight growth assumption
+        if len(self._queue_depth_samples) < 3:
+            # Assume 10% growth rate as default
+            return max(0, int(current_pending * (1.0 + 0.1 * hours_ahead)))
 
-        predicted = current_pending + (estimated_arrival_rate - estimated_completion_rate) * hours_ahead
+        # Use EMA rates to predict future queue depth
+        # Net change = arrivals - completions
+        net_rate_per_hour = self._ema_arrival_rate - self._ema_completion_rate
+
+        # Predict future pending count
+        predicted = current_pending + (net_rate_per_hour * hours_ahead)
+
+        # Also consider trend direction from recent samples
+        # Look at the last hour of samples for trend
+        now = time.time()
+        hour_ago = now - 3600
+        recent_samples = [s for s in self._queue_depth_samples if s[0] > hour_ago]
+
+        if len(recent_samples) >= 2:
+            # Calculate linear trend
+            first_pending = recent_samples[0][1]
+            last_pending = recent_samples[-1][1]
+            trend = last_pending - first_pending
+
+            # Weight trend into prediction (25% weight)
+            trend_extrapolated = trend * hours_ahead
+            predicted = 0.75 * predicted + 0.25 * (current_pending + trend_extrapolated)
+
+        logger.debug(
+            f"Demand prediction: current={current_pending}, "
+            f"arrival_rate={self._ema_arrival_rate:.1f}/hr, "
+            f"completion_rate={self._ema_completion_rate:.1f}/hr, "
+            f"predicted={int(predicted)} ({hours_ahead}h ahead)"
+        )
+
         return max(0, int(predicted))
 
     async def evaluate(self) -> ScalingDecision:

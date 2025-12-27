@@ -452,7 +452,11 @@ class NodeRecoveryDaemon(BaseDaemon[NodeRecoveryConfig]):
             return False
 
     async def _restart_lambda_node(self, node: NodeInfo) -> bool:
-        """Restart a Lambda Cloud instance."""
+        """Restart a Lambda Cloud instance.
+
+        Uses the Lambda Cloud API instance-operations/restart endpoint.
+        API Reference: https://cloud.lambdalabs.com/api/v1/docs
+        """
         if not self.config.lambda_api_key:
             logger.warning(
                 f"[NodeRecoveryDaemon] Cannot restart Lambda node {node.node_id}: "
@@ -473,22 +477,37 @@ class NodeRecoveryDaemon(BaseDaemon[NodeRecoveryConfig]):
             if self._http_session is None:
                 self._http_session = aiohttp.ClientSession()
 
+            # Lambda API uses Basic Auth with API key as username
+            # The trailing colon indicates no password
+            auth = aiohttp.BasicAuth(self.config.lambda_api_key, "")
             headers = {
-                "Authorization": f"Bearer {self.config.lambda_api_key}",
                 "Content-Type": "application/json",
             }
 
-            # Lambda Cloud API for instance restart
-            # Note: This is a placeholder - Lambda API may differ
-            url = f"https://cloud.lambdalabs.com/api/v1/instances/{node.instance_id}/restart"
+            # Lambda Cloud API restart endpoint
+            # POST https://cloud.lambdalabs.com/api/v1/instance-operations/restart
+            # Body: {"instance_ids": ["instance-id-here"]}
+            url = "https://cloud.lambdalabs.com/api/v1/instance-operations/restart"
+            payload = {"instance_ids": [node.instance_id]}
 
-            async with self._http_session.post(url, headers=headers) as resp:
+            async with self._http_session.post(
+                url, headers=headers, auth=auth, json=payload, timeout=30
+            ) as resp:
                 if resp.status == 200:
-                    logger.info(
-                        f"[NodeRecoveryDaemon] Successfully restarted Lambda node "
-                        f"{node.node_id} (instance: {node.instance_id})"
-                    )
-                    return True
+                    result = await resp.json()
+                    restarted = result.get("restarted_instances", [])
+                    if node.instance_id in [i.get("id") for i in restarted]:
+                        logger.info(
+                            f"[NodeRecoveryDaemon] Successfully restarted Lambda node "
+                            f"{node.node_id} (instance: {node.instance_id})"
+                        )
+                        return True
+                    else:
+                        logger.warning(
+                            f"[NodeRecoveryDaemon] Lambda restart response OK but instance "
+                            f"not in restarted list: {result}"
+                        )
+                        return True  # API call succeeded, assume restart initiated
                 else:
                     body = await resp.text()
                     logger.error(

@@ -763,7 +763,7 @@ class UnifiedDataSyncService:
         # Manifest replication
         if self.config.enable_manifest_replication and HAS_MANIFEST_REPLICATION:
             try:
-                hosts_config = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+                hosts_config = resolve_hosts_config_path()
                 self._manifest_replicator = create_replicator_from_config(
                     manifest_path=AI_SERVICE_ROOT / self.config.manifest_db_path,
                     hosts_config_path=hosts_config,
@@ -805,7 +805,7 @@ class UnifiedDataSyncService:
         # Gossip sync for P2P data replication
         if self.config.enable_gossip_sync and HAS_GOSSIP_SYNC:
             try:
-                hosts_config = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+                hosts_config = resolve_hosts_config_path()
                 peers_config = load_peer_config(hosts_config)
                 node_id = socket.gethostname()
                 self._gossip_daemon = GossipSyncDaemon(
@@ -2083,7 +2083,9 @@ class UnifiedDataSyncService:
 
         # Determine hosts config path
         if hosts_config_path is None:
-            hosts_config_path = config_path.parent / data.get("hosts_config_path", "remote_hosts.yaml")
+            hosts_config_path = resolve_hosts_config_path(
+                config_path.parent / data.get("hosts_config_path", "distributed_hosts.yaml")
+            )
 
         # Load hosts
         hosts = load_hosts_from_yaml(hosts_config_path)
@@ -2099,17 +2101,60 @@ class UnifiedDataSyncService:
 # Host Loading
 # =============================================================================
 
-def load_hosts_from_yaml(path: Path) -> list[HostConfig]:
-    """Load host configurations from YAML file."""
-    if not path.exists():
-        return []
+def resolve_hosts_config_path(config_path: Path | None = None) -> Path:
+    """Resolve host config path (SSoT: distributed_hosts.yaml)."""
+    if config_path is not None:
+        if config_path.exists():
+            return config_path
+        if config_path.name == "distributed_hosts.yaml":
+            fallback = config_path.parent / "remote_hosts.yaml"
+            if fallback.exists():
+                return fallback
+        return config_path
+    distributed = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
+    if distributed.exists():
+        return distributed
+    return AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
 
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
 
-    hosts = []
+def _load_hosts_from_distributed_hosts(data: dict) -> list[HostConfig]:
+    hosts: list[HostConfig] = []
+    for name, host_data in data.get("hosts", {}).items():
+        status = str(host_data.get("status", "")).lower()
+        enabled = host_data.get("sync_enabled")
+        if enabled is None:
+            enabled = status not in {"terminated", "offline", "suspended"}
+        if host_data.get("role", "").lower() == "coordinator":
+            enabled = False
+        if (host_data.get("selfplay_enabled") is False
+                and host_data.get("training_enabled") is False):
+            enabled = False
 
-    # Load standard hosts
+        ringrift_path = host_data.get("ringrift_path", "~/ringrift/ai-service")
+        ringrift_path = ringrift_path.rstrip("/")
+        remote_db_path = host_data.get("remote_db_path", f"{ringrift_path}/data/games")
+        is_ephemeral = bool(host_data.get("vast_instance_id") or host_data.get("storage_type") == "ram")
+        ssh_host = host_data.get("tailscale_ip") or host_data.get("ssh_host", "")
+        if not ssh_host:
+            continue
+
+        hosts.append(HostConfig(
+            name=name,
+            ssh_host=ssh_host,
+            ssh_user=host_data.get("ssh_user", "ubuntu"),
+            ssh_port=host_data.get("ssh_port", 22),
+            ssh_key=host_data.get("ssh_key"),
+            remote_db_path=remote_db_path,
+            enabled=enabled,
+            role=host_data.get("role", "selfplay"),
+            is_ephemeral=is_ephemeral,
+        ))
+    return hosts
+
+
+def _load_hosts_from_remote_hosts(data: dict) -> list[HostConfig]:
+    hosts: list[HostConfig] = []
+    # Load standard hosts (legacy schema)
     for name, host_data in data.get("standard_hosts", {}).items():
         hosts.append(HostConfig(
             name=name,
@@ -2121,7 +2166,7 @@ def load_hosts_from_yaml(path: Path) -> list[HostConfig]:
             is_ephemeral=False,
         ))
 
-    # Load vast hosts (ephemeral)
+    # Load vast hosts (legacy schema, ephemeral)
     for name, host_data in data.get("vast_hosts", {}).items():
         hosts.append(HostConfig(
             name=name,
@@ -2130,10 +2175,23 @@ def load_hosts_from_yaml(path: Path) -> list[HostConfig]:
             ssh_port=host_data.get("port", 22),
             remote_db_path=host_data.get("remote_path", "/dev/shm/games"),
             role=host_data.get("role", "selfplay"),
-            is_ephemeral=True,  # Vast.ai hosts are ephemeral
+            is_ephemeral=True,
         ))
 
     return hosts
+
+
+def load_hosts_from_yaml(path: Path) -> list[HostConfig]:
+    """Load host configurations from YAML file."""
+    if not path.exists():
+        return []
+
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+
+    if "hosts" in data:
+        return _load_hosts_from_distributed_hosts(data)
+    return _load_hosts_from_remote_hosts(data)
 
 
 # =============================================================================
@@ -2161,7 +2219,7 @@ Examples:
         """
     )
     parser.add_argument("--config", type=str, default="config/unified_loop.yaml", help="Config file")
-    parser.add_argument("--hosts", type=str, default="config/remote_hosts.yaml", help="Hosts file")
+    parser.add_argument("--hosts", type=str, default="config/distributed_hosts.yaml", help="Hosts file")
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--dry-run", action="store_true", help="Check what would sync")
     parser.add_argument("--interval", type=int, help="Override poll interval")
@@ -2178,7 +2236,7 @@ Examples:
     )
 
     config_path = AI_SERVICE_ROOT / args.config
-    hosts_path = AI_SERVICE_ROOT / args.hosts
+    hosts_path = resolve_hosts_config_path(AI_SERVICE_ROOT / args.hosts)
 
     if not config_path.exists():
         logger.error(f"Config file not found: {config_path}")

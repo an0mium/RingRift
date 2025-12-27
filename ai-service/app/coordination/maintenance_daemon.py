@@ -31,7 +31,7 @@ import os
 import shutil
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -322,42 +322,153 @@ class MaintenanceDaemon:
     async def _archive_old_games(self) -> None:
         """Archive games older than threshold to cold storage.
 
-        Note: This is a placeholder - actual implementation depends on
-        cold storage backend (S3, GCS, or just separate directory).
+        Archives old database files by:
+        1. Finding databases via GameDiscovery
+        2. Compressing them with gzip (if enabled)
+        3. Optionally uploading to S3
+        4. Removing the original file
         """
         try:
-            from app.distributed.unified_manifest import get_unified_manifest
+            from app.utils.game_discovery import GameDiscovery
 
-            manifest = get_unified_manifest()
-            if manifest is None:
-                return
-
-            # Get stats on games that could be archived
-            stats = manifest.get_manifest_stats()
+            discovery = GameDiscovery()
             threshold_days = self.config.archive_games_older_than_days
+            archive_dir = Path(self.config.archive_directory)
+            cutoff_time = time.time() - (threshold_days * 86400)
 
-            if self.config.dry_run:
+            all_dbs = discovery.find_all_databases()
+            archived_count = 0
+
+            for db_info in all_dbs:
+                db_path = Path(db_info.path)
+
+                # Skip archive directory and canonical databases
+                if "archive" in str(db_path).lower():
+                    continue
+                if "canonical" in db_path.name:
+                    continue
+
+                # Check modification time
+                try:
+                    mtime = db_path.stat().st_mtime
+                    if mtime > cutoff_time:
+                        continue  # Not old enough
+                except OSError:
+                    continue
+
+                age_days = (time.time() - mtime) / 86400
+
+                if self.config.dry_run:
+                    logger.info(
+                        f"[Maintenance] DRY RUN: Would archive {db_path.name} "
+                        f"({age_days:.1f} days old, {db_info.game_count} games)"
+                    )
+                    continue
+
+                # Archive the database
+                try:
+                    success = await self._archive_single_database(
+                        db_path, archive_dir, age_days
+                    )
+                    if success:
+                        archived_count += 1
+                        self._stats.games_archived += db_info.game_count
+                        logger.info(
+                            f"[Maintenance] Archived {db_path.name} "
+                            f"({db_info.game_count} games, {age_days:.1f} days old)"
+                        )
+                except Exception as e:
+                    logger.warning(f"[Maintenance] Failed to archive {db_path}: {e}")
+
+            if archived_count > 0:
                 logger.info(
-                    f"[Maintenance] DRY RUN: Would check {stats.total_games} games "
-                    f"for archival (>{threshold_days} days old)"
+                    f"[Maintenance] Archival complete: {archived_count} databases, "
+                    f"{self._stats.games_archived} games total"
                 )
-                return
-
-            # For now, just log that archival would happen
-            # Full implementation would:
-            # 1. Query games older than threshold
-            # 2. Export to compressed archive
-            # 3. Remove from active database
-            # 4. Update manifest
-            logger.debug(
-                f"[Maintenance] Archive check: {stats.total_games} games tracked, "
-                f"threshold={threshold_days} days"
-            )
 
         except ImportError:
-            pass
+            logger.debug("[Maintenance] GameDiscovery not available for archival")
         except (RuntimeError, OSError) as e:
-            logger.warning(f"[Maintenance] Archive check error: {e}")
+            logger.warning(f"[Maintenance] Archive error: {e}")
+
+    async def _archive_single_database(
+        self, db_path: Path, archive_dir: Path, age_days: float
+    ) -> bool:
+        """Archive a single database file.
+
+        Args:
+            db_path: Path to the database to archive
+            archive_dir: Directory to store archived files
+            age_days: Age of the database in days (for logging)
+
+        Returns:
+            True if archived successfully
+        """
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create archive filename with timestamp
+        timestamp = int(time.time())
+        if self.config.archive_compress:
+            archive_name = f"{db_path.stem}_{timestamp}.db.gz"
+            archive_path = archive_dir / archive_name
+
+            # Compress with gzip
+            with open(db_path, "rb") as f_in:
+                with gzip.open(archive_path, "wb", compresslevel=6) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+        else:
+            archive_name = f"{db_path.stem}_{timestamp}.db"
+            archive_path = archive_dir / archive_name
+            shutil.copy2(db_path, archive_path)
+
+        logger.debug(f"[Maintenance] Created archive: {archive_path}")
+
+        # Upload to S3 if configured
+        if self.config.archive_to_s3:
+            try:
+                await self._upload_to_s3(archive_path)
+                logger.debug(f"[Maintenance] Uploaded to S3: {archive_path.name}")
+            except Exception as e:
+                logger.warning(f"[Maintenance] S3 upload failed for {archive_path}: {e}")
+                # Continue anyway - local archive succeeded
+
+        # Remove original file
+        try:
+            db_path.unlink()
+            logger.debug(f"[Maintenance] Removed original: {db_path}")
+            return True
+        except OSError as e:
+            logger.warning(f"[Maintenance] Failed to remove original {db_path}: {e}")
+            return False
+
+    async def _upload_to_s3(self, archive_path: Path) -> None:
+        """Upload archived file to S3.
+
+        Args:
+            archive_path: Path to the archived file
+
+        Raises:
+            RuntimeError: If S3 upload fails
+        """
+        bucket = self.config.archive_s3_bucket
+        s3_key = f"archives/{archive_path.name}"
+
+        cmd = [
+            "aws", "s3", "cp",
+            str(archive_path),
+            f"s3://{bucket}/{s3_key}",
+            "--quiet",
+        ]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"S3 upload failed: {stderr.decode().strip()}")
 
     async def _cleanup_dlq(self) -> None:
         """Cleanup old dead letter queue entries."""

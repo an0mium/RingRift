@@ -1,5 +1,22 @@
 """Node Health Monitor with Eviction (December 2025).
 
+.. deprecated:: December 2025
+    This module is deprecated. Use :mod:`app.coordination.health_check_orchestrator`
+    instead, which provides more comprehensive multi-layer health checks including
+    SSH, P2P, Tailscale, and provider API checks.
+
+    Migration guide:
+        # OLD (deprecated)
+        from app.coordination.node_health_monitor import get_node_health_monitor
+        monitor = get_node_health_monitor()
+        available = monitor.is_node_available("node-1")
+
+        # NEW (recommended)
+        from app.coordination.health_check_orchestrator import get_health_orchestrator
+        orchestrator = get_health_orchestrator()
+        health = orchestrator.get_node_health("node-1")
+        available = health.is_available() if health else False
+
 Monitors cluster nodes for health and automatically evicts unhealthy nodes
 from task assignment to maintain cluster reliability.
 
@@ -10,7 +27,7 @@ Features:
 - Auto-recover when node responds again
 - Integration with event router for alerts
 
-Usage:
+Usage (DEPRECATED):
     from app.coordination.node_health_monitor import (
         NodeHealthMonitor,
         get_node_health_monitor,
@@ -29,6 +46,15 @@ Usage:
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "node_health_monitor module is deprecated as of December 2025. "
+    "Use health_check_orchestrator module instead for comprehensive health checks.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import asyncio
 import logging
