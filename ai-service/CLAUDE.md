@@ -536,6 +536,7 @@ Major consolidation effort completed December 2025:
 | `system_health_monitor.py` (scoring)                          | `unified_health_manager.py`              | ~200       | Complete |
 | 3× GumbelAction/GumbelNode copies                             | `gumbel_common.py`                       | ~150       | Complete |
 | `distributed/cluster_monitor.py`                              | `coordination/cluster_status_monitor.py` | ~40 (shim) | Complete |
+| `EloSyncManager` + `RegistrySyncManager`                      | `DatabaseSyncManager` base class         | ~567       | Complete |
 
 **Event System Improvements (December 2025):**
 
@@ -545,12 +546,11 @@ Major consolidation effort completed December 2025:
 
 **Remaining Consolidation Opportunities (Q1 2026):**
 
-| Opportunity                          | Current LOC | Savings | Priority |
-| ------------------------------------ | ----------- | ------- | -------- |
-| Unify sync managers (Elo + Registry) | 1,580       | ~410    | HIGH     |
-| Archive unified_cluster_monitor.py   | 951         | ~951    | MEDIUM   |
-| Split daemon_manager.py              | 3,253       | ~1,000  | MEDIUM   |
-| Archive node_health_monitor.py       | 386         | ~350    | LOW      |
+| Opportunity                        | Current LOC | Savings | Priority |
+| ---------------------------------- | ----------- | ------- | -------- |
+| Archive unified_cluster_monitor.py | 951         | ~951    | MEDIUM   |
+| Split daemon_manager.py            | 3,253       | ~1,000  | MEDIUM   |
+| Archive node_health_monitor.py     | 386         | ~350    | LOW      |
 
 **Bug Fixes (December 2025):**
 
@@ -599,10 +599,24 @@ Daemon health check coverage increased from 22% to ~50%+ for critical daemons.
 | Module                                      | Status     | Notes                                                   |
 | ------------------------------------------- | ---------- | ------------------------------------------------------- |
 | `app/distributed/sync_coordinator.py`       | **ACTIVE** | Main sync layer for P2P orchestrator                    |
+| `app/coordination/database_sync_manager.py` | **ACTIVE** | Base class for Elo/Registry sync (Dec 27, 2025)         |
+| `app/coordination/auto_sync_daemon.py`      | **ACTIVE** | Automated P2P data sync with strategies                 |
+| `app/coordination/sync_router.py`           | **ACTIVE** | Intelligent routing based on node capabilities          |
+| `app/coordination/sync_facade.py`           | **ACTIVE** | Unified programmatic entry point for sync               |
 | `app/coordination/sync_coordinator.py`      | DEPRECATED | Archive Q2 2026                                         |
 | `app/coordination/cluster_data_sync.py`     | DEPRECATED | Has callers, use `AutoSyncDaemon(strategy="broadcast")` |
 | `app/coordination/ephemeral_sync.py`        | DEPRECATED | Has callers, use `AutoSyncDaemon(strategy="ephemeral")` |
 | `app/coordination/system_health_monitor.py` | DEPRECATED | Has callers, use `unified_health_manager.py`            |
+
+**New Feedback Loop Modules (December 2025):**
+
+| Module                            | Purpose                                      |
+| --------------------------------- | -------------------------------------------- |
+| `evaluation_daemon.py`            | Auto-evaluate models after training          |
+| `gauntlet_feedback_controller.py` | Adjust training params based on eval results |
+| `feedback_loop_controller.py`     | Central feedback loop orchestration          |
+| `model_performance_watchdog.py`   | Track rolling win rates, detect regression   |
+| `quality_monitor_daemon.py`       | Monitor selfplay data quality                |
 
 See ADR-007 for P2P orchestrator decomposition details.
 
