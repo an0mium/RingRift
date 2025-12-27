@@ -327,7 +327,7 @@ class DistributedLock:
             """
             self._redis_client.eval(script, 1, f"lock:{self.name}", self._lock_id)
             logger.debug(f"Released Redis lock: {self.name}")
-        except Exception as e:
+        except (ConnectionError, TimeoutError, redis.RedisError) as e:
             logger.warning(f"Redis lock release failed: {e}")
 
     # File-based implementation
@@ -374,7 +374,7 @@ class DistributedLock:
                 try:
                     lock_path.unlink(missing_ok=True)
                     return self._acquire_file()
-                except Exception as e:
+                except OSError as e:
                     logger.debug(f"Failed to take over expired lock {self.name}: {e}")
             return False
 
@@ -395,7 +395,7 @@ class DistributedLock:
             fcntl.flock(self._file_fd, fcntl.LOCK_UN)
             os.close(self._file_fd)
             logger.debug(f"Released file lock: {self.name}")
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"File lock release failed: {e}")
         finally:
             self._file_fd = None
@@ -419,7 +419,7 @@ class DistributedLock:
                 return False  # Could acquire, so not locked
             except BlockingIOError:
                 return True  # Couldn't acquire, so locked
-        except Exception as e:
+        except OSError as e:
             logger.debug(f"Error checking lock status for {self.name}: {e}")
             return False
         finally:
@@ -443,7 +443,7 @@ class DistributedLock:
                     if time.time() - lock_time > lock_timeout:
                         logger.info(f"File lock expired: {self.name}")
                         return True
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.debug(f"Error reading lock file for {self.name}: {e}")
         return False
 
@@ -581,7 +581,7 @@ def cleanup_stale_locks(
                 except ValueError:
                     logger.debug(f"[DistributedLock] Invalid PID format in lock file: {lock_file.name}")
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             stats["errors"] += 1
             logger.debug(f"Error processing lock {lock_file}: {e}")
 

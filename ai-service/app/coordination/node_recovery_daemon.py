@@ -35,6 +35,8 @@ from enum import Enum
 from typing import Any
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.contracts import HealthCheckResult
+from app.coordination.protocols import CoordinatorStatus
 # December 2025: Use consolidated daemon stats base class
 from app.coordination.daemon_stats import JobDaemonStats
 
@@ -845,47 +847,64 @@ class NodeRecoveryDaemon(BaseDaemon[NodeRecoveryConfig]):
             except (OSError, IOError) as e:
                 logger.debug(f"Failed to emit recovery event (I/O error): {e}")
 
-    async def health_check(self) -> bool:
+    async def health_check(self) -> HealthCheckResult:
         """Check if the daemon is healthy.
 
-        Returns True if the daemon is running and functioning properly.
+        Returns HealthCheckResult for protocol compliance.
         Used by DaemonManager for crash detection and auto-restart.
 
-        Dec 2025: Added for DaemonManager health monitoring integration.
+        Dec 2025: Fixed to return HealthCheckResult instead of bool.
         """
+        is_healthy = True
+        message = "Node recovery daemon running"
+        status = CoordinatorStatus.RUNNING
+
         # Check if daemon is running
         if not self._running:
-            return False
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="Node recovery daemon not running",
+                details={"running": False},
+            )
 
         # Check if we have recent check data (within 2x check interval)
         if self._stats.last_job_time > 0:
             max_age = self.config.check_interval_seconds * 2
             age = time.time() - self._stats.last_job_time
             if age > max_age:
-                logger.warning(
-                    f"[{self._get_daemon_name()}] Health check: stale check data "
-                    f"(age={age:.0f}s, max={max_age}s)"
-                )
-                return False
+                is_healthy = False
+                status = CoordinatorStatus.DEGRADED
+                message = f"Stale check data (age={age:.0f}s, max={max_age}s)"
+                logger.warning(f"[{self._get_daemon_name()}] Health check: {message}")
 
         # Check for excessive failures
-        if self._stats.recovery_failures > 10:
+        if is_healthy and self._stats.recovery_failures > 10:
             # Allow if we also have successes (not just all failures)
             if self._stats.nodes_recovered == 0:
-                logger.warning(
-                    f"[{self._get_daemon_name()}] Health check: only failures, no recoveries "
-                    f"(failures={self._stats.recovery_failures})"
-                )
-                return False
+                is_healthy = False
+                status = CoordinatorStatus.DEGRADED
+                message = f"Only failures, no recoveries (failures={self._stats.recovery_failures})"
+                logger.warning(f"[{self._get_daemon_name()}] Health check: {message}")
 
         # Check HTTP session health if used
-        if self._http_session is not None and self._http_session.closed:
-            logger.warning(
-                f"[{self._get_daemon_name()}] Health check: HTTP session closed unexpectedly"
-            )
-            return False
+        if is_healthy and self._http_session is not None and self._http_session.closed:
+            is_healthy = False
+            status = CoordinatorStatus.DEGRADED
+            message = "HTTP session closed unexpectedly"
+            logger.warning(f"[{self._get_daemon_name()}] Health check: {message}")
 
-        return True
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message=message,
+            details={
+                "running": self._running,
+                "nodes_recovered": self._stats.nodes_recovered,
+                "recovery_failures": self._stats.recovery_failures,
+                "last_job_time": self._stats.last_job_time,
+            },
+        )
 
     def get_node_states(self) -> dict[str, dict[str, Any]]:
         """Get current node states."""
