@@ -122,18 +122,32 @@ class HealthCheckMixin:
         return getattr(self, "_running", True)
 
     def _get_cycle_count(self) -> int:
-        """Get cycle count from various attribute names."""
+        """Get cycle count from various attribute names.
+
+        Supports attribute names from:
+        - BaseDaemon: _cycles_completed
+        - HandlerBase: _cycle_count
+        - Generic: total_runs, _total_cycles, operations_count
+        """
         return (
-            getattr(self, "_cycle_count", 0)
+            getattr(self, "_cycles_completed", 0)  # BaseDaemon pattern
+            or getattr(self, "_cycle_count", 0)  # HandlerBase pattern
             or getattr(self, "total_runs", 0)
             or getattr(self, "_total_cycles", 0)
             or getattr(self, "operations_count", 0)
         )
 
     def _get_error_count(self) -> int:
-        """Get error count from various attribute names."""
+        """Get error count from various attribute names.
+
+        Supports attribute names from:
+        - BaseDaemon: _errors_count
+        - HandlerBase: _error_count
+        - Generic: failed_runs, _total_errors, errors_count
+        """
         return (
-            getattr(self, "_error_count", 0)
+            getattr(self, "_errors_count", 0)  # BaseDaemon pattern
+            or getattr(self, "_error_count", 0)  # HandlerBase pattern
             or getattr(self, "failed_runs", 0)
             or getattr(self, "_total_errors", 0)
             or getattr(self, "errors_count", 0)
