@@ -2804,7 +2804,8 @@ class AutoSyncDaemon:
             )
             return
 
-        # Merge games from pulled into canonical
+        # Merge games from pulled into canonical (Dec 27, 2025: Use context manager)
+        conn = None
         try:
             conn = sqlite3.connect(str(canonical_path), timeout=30.0)
             cursor = conn.cursor()
@@ -2836,8 +2837,10 @@ class AutoSyncDaemon:
             cursor.execute("SELECT COUNT(*) FROM games")
             after_count = cursor.fetchone()[0]
 
-            cursor.execute("DETACH DATABASE pulled")
-            conn.close()
+            try:
+                cursor.execute("DETACH DATABASE pulled")
+            except sqlite3.Error:
+                pass  # May already be detached
 
             new_games = after_count - before_count
             if new_games > 0:
@@ -2848,6 +2851,9 @@ class AutoSyncDaemon:
 
         except sqlite3.Error as e:
             logger.warning(f"[AutoSyncDaemon] Merge failed for {db_name}: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def _get_canonical_name(self, db_name: str) -> str:
         """Convert a database name to its canonical form.
