@@ -217,7 +217,7 @@ class JobReaperDaemon:
 
         except Exception as e:
             logger.error(f"Error getting timed out jobs: {e}")
-            self.stats.errors += 1
+            self.stats.errors_count += 1
 
         return timed_out
 

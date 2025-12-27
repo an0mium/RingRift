@@ -157,7 +157,7 @@ class DatabaseSyncManager(SyncManagerBase):
         state_path: Path,
         db_type: str,
         coordinator_host: str = "nebius-backbone-1",
-        sync_interval: float = 300.0,
+        sync_interval: float = 300.0,  # See TIMEOUTS.SYNC_INTERVAL
         p2p_url: str | None = None,
         enable_merge: bool = True,
         circuit_breaker_config: CircuitBreakerConfig | None = None,

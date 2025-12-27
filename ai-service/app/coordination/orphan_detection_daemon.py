@@ -46,6 +46,7 @@ class OrphanDetectionConfig:
     """Configuration for orphan detection daemon."""
 
     # Scan settings (Phase 3B.3: Dec 2025 - reduced from 30 min to 5 min)
+    # See app.config.timeout_config.TIMEOUTS.ORPHAN_SCAN_INTERVAL
     scan_interval_seconds: float = 300.0  # 5 minutes
     games_dir: str = "data/games"
 
