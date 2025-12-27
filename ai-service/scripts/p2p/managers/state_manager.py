@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.config.coordination_defaults import SQLiteDefaults
+
 if TYPE_CHECKING:
     from ..models import ClusterJob, NodeInfo
     from ..types import NodeRole
@@ -78,9 +80,6 @@ class StateManager:
         state_mgr.increment_cluster_epoch()
     """
 
-    # Connection timeout for SQLite (seconds)
-    DB_TIMEOUT = 30.0
-
     def __init__(self, db_path: Path, verbose: bool = False):
         """Initialize the StateManager.
 
@@ -100,9 +99,12 @@ class StateManager:
         """Create a database connection with proper settings.
 
         Uses WAL mode for concurrent access and extended timeout for busy handling.
+        Timeouts are configurable via RINGRIFT_SQLITE_* environment variables.
         """
-        conn = sqlite3.connect(str(self.db_path), timeout=self.DB_TIMEOUT)
-        conn.execute("PRAGMA busy_timeout=30000")
+        conn = sqlite3.connect(str(self.db_path), timeout=SQLiteDefaults.WRITE_TIMEOUT)
+        # Use WRITE_TIMEOUT * 1000 for busy_timeout (P2P state is critical infrastructure)
+        busy_timeout_ms = int(SQLiteDefaults.WRITE_TIMEOUT * 1000)
+        conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
         return conn
 
     def init_database(self) -> None:
