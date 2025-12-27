@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar, overload
 
@@ -235,43 +235,49 @@ class ConfigRegistry:
         """Load timing interval values from coordination_defaults.py."""
         try:
             from app.config.coordination_defaults import (
-                SyncDefaults,
                 HealthDefaults,
-                DaemonDefaults,
+                HeartbeatDefaults,
+                RetryDefaults,
+                SyncDefaults,
             )
 
             # Sync intervals
-            self._register("SYNC_INTERVAL", SyncDefaults.SYNC_INTERVAL,
+            self._register("DATA_SYNC_INTERVAL", SyncDefaults.DATA_SYNC_INTERVAL,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Default sync interval (seconds)")
-            self._register("GOSSIP_INTERVAL", SyncDefaults.GOSSIP_INTERVAL,
+                          "Default data sync interval (seconds)")
+            self._register("MODEL_SYNC_INTERVAL", SyncDefaults.MODEL_SYNC_INTERVAL,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Gossip protocol interval (seconds)")
-            self._register("HIGH_QUALITY_SYNC_INTERVAL", SyncDefaults.HIGH_QUALITY_SYNC_INTERVAL,
+                          "Model sync interval (seconds)")
+            self._register("ELO_SYNC_INTERVAL", SyncDefaults.ELO_SYNC_INTERVAL,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "High-quality data sync interval")
-            self._register("EPHEMERAL_SYNC_INTERVAL", SyncDefaults.EPHEMERAL_SYNC_INTERVAL,
+                          "Elo sync interval (seconds)")
+            self._register("SYNC_LOCK_TIMEOUT", SyncDefaults.LOCK_TIMEOUT,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Ephemeral node sync interval")
+                          "Sync lock timeout (seconds)")
 
             # Health check intervals
-            self._register("HEALTH_CHECK_INTERVAL", HealthDefaults.HEALTH_CHECK_INTERVAL,
+            self._register("HEALTH_SSH_TIMEOUT", HealthDefaults.SSH_TIMEOUT,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Health check interval (seconds)")
-            self._register("HEARTBEAT_INTERVAL", HealthDefaults.HEARTBEAT_INTERVAL,
+                          "SSH timeout for health checks (seconds)")
+            self._register("HEALTH_CACHE_TTL", HealthDefaults.HEALTHY_CACHE_TTL,
+                          ConfigCategory.INTERVALS, "coordination_defaults",
+                          "Healthy result cache TTL (seconds)")
+
+            # Heartbeat intervals
+            self._register("HEARTBEAT_INTERVAL", HeartbeatDefaults.INTERVAL,
                           ConfigCategory.INTERVALS, "coordination_defaults",
                           "Heartbeat interval (seconds)")
-            self._register("PEER_TIMEOUT", HealthDefaults.PEER_TIMEOUT,
+            self._register("HEARTBEAT_TIMEOUT", HeartbeatDefaults.TIMEOUT,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Peer timeout before marked dead (seconds)")
+                          "Heartbeat timeout before marked dead (seconds)")
 
-            # Daemon intervals
-            self._register("DAEMON_RESTART_DELAY", DaemonDefaults.RESTART_DELAY,
+            # Retry intervals
+            self._register("RETRY_BASE_DELAY", RetryDefaults.BASE_DELAY,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Base delay between daemon restart attempts")
-            self._register("DAEMON_HEALTH_CHECK_INTERVAL", DaemonDefaults.HEALTH_CHECK_INTERVAL,
+                          "Base delay between retry attempts")
+            self._register("RETRY_MAX_DELAY", RetryDefaults.MAX_DELAY,
                           ConfigCategory.INTERVALS, "coordination_defaults",
-                          "Daemon health check interval")
+                          "Maximum delay between retry attempts")
 
         except ImportError as e:
             logger.warning(f"[ConfigRegistry] Failed to load intervals: {e}")
@@ -280,28 +286,61 @@ class ConfigRegistry:
         """Load resource limit values."""
         try:
             from app.config.coordination_defaults import (
-                ResourceDefaults,
+                BandwidthDefaults,
+                HealthDefaults,
                 QueueDefaults,
+                ResourceLimitsDefaults,
+                SyncDefaults,
             )
 
-            # Resource limits
-            self._register("MAX_CONCURRENT_SYNCS", ResourceDefaults.MAX_CONCURRENT_SYNCS,
+            # Sync concurrency limits
+            self._register("MAX_CONCURRENT_SYNCS_PER_HOST", SyncDefaults.MAX_CONCURRENT_PER_HOST,
                           ConfigCategory.LIMITS, "coordination_defaults",
-                          "Maximum concurrent sync operations")
-            self._register("MAX_SYNC_BANDWIDTH_MBPS", ResourceDefaults.MAX_SYNC_BANDWIDTH_MBPS,
+                          "Maximum concurrent sync operations per host")
+            self._register("MAX_CONCURRENT_SYNCS_CLUSTER", SyncDefaults.MAX_CONCURRENT_CLUSTER,
                           ConfigCategory.LIMITS, "coordination_defaults",
-                          "Maximum sync bandwidth per node (MB/s)")
-            self._register("MAX_DISK_USAGE_PERCENT", ResourceDefaults.MAX_DISK_USAGE_PERCENT,
+                          "Maximum concurrent sync operations cluster-wide")
+
+            # Bandwidth limits
+            self._register("DEFAULT_UPLOAD_MBPS", BandwidthDefaults.DEFAULT_UPLOAD_MBPS,
                           ConfigCategory.LIMITS, "coordination_defaults",
-                          "Maximum disk usage before throttling")
+                          "Default upload bandwidth limit (MB/s)")
+            self._register("DEFAULT_DOWNLOAD_MBPS", BandwidthDefaults.DEFAULT_DOWNLOAD_MBPS,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Default download bandwidth limit (MB/s)")
+            self._register("MAX_CONCURRENT_TRANSFERS", BandwidthDefaults.MAX_CONCURRENT_TRANSFERS,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Maximum concurrent transfers per host")
+
+            # Health check limits
+            self._register("MAX_CONCURRENT_HEALTH_CHECKS", HealthDefaults.MAX_CONCURRENT_CHECKS,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Maximum concurrent health checks")
+            self._register("MIN_HEALTHY_HOSTS", HealthDefaults.MIN_HEALTHY_HOSTS,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Minimum required healthy hosts")
 
             # Queue limits
-            self._register("MAX_QUEUE_SIZE", QueueDefaults.MAX_QUEUE_SIZE,
+            self._register("TRAINING_DATA_SOFT_LIMIT", QueueDefaults.TRAINING_DATA_SOFT_LIMIT,
                           ConfigCategory.LIMITS, "coordination_defaults",
-                          "Maximum work queue size")
-            self._register("MAX_PENDING_JOBS", QueueDefaults.MAX_PENDING_JOBS,
+                          "Training data queue soft limit")
+            self._register("TRAINING_DATA_HARD_LIMIT", QueueDefaults.TRAINING_DATA_HARD_LIMIT,
                           ConfigCategory.LIMITS, "coordination_defaults",
-                          "Maximum pending jobs per node")
+                          "Training data queue hard limit")
+            self._register("PENDING_GAMES_SOFT_LIMIT", QueueDefaults.PENDING_GAMES_SOFT_LIMIT,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Pending games queue soft limit")
+            self._register("PENDING_GAMES_HARD_LIMIT", QueueDefaults.PENDING_GAMES_HARD_LIMIT,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Pending games queue hard limit")
+
+            # GPU tier limits
+            self._register("CONSUMER_MAX_SELFPLAY", ResourceLimitsDefaults.CONSUMER_MAX,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Max selfplay for consumer GPU tier")
+            self._register("DATACENTER_MAX_SELFPLAY", ResourceLimitsDefaults.DATACENTER_MAX,
+                          ConfigCategory.LIMITS, "coordination_defaults",
+                          "Max selfplay for datacenter GPU tier")
 
         except ImportError as e:
             logger.warning(f"[ConfigRegistry] Failed to load limits: {e}")
@@ -310,10 +349,10 @@ class ConfigRegistry:
         """Load quality threshold values."""
         try:
             from app.config.thresholds import (
+                LOW_QUALITY_THRESHOLD,
+                MEDIUM_QUALITY_THRESHOLD,
                 QUALITY_EXCELLENT_THRESHOLD,
                 QUALITY_GOOD_THRESHOLD,
-                MEDIUM_QUALITY_THRESHOLD,
-                LOW_QUALITY_THRESHOLD,
             )
 
             self._register("QUALITY_EXCELLENT_THRESHOLD", QUALITY_EXCELLENT_THRESHOLD,
@@ -338,12 +377,12 @@ class ConfigRegistry:
             from app.config.thresholds import (
                 ELO_TARGET_ALL_CONFIGS,
                 ELO_TARGETS_BY_CONFIG,
-                ELO_TIER_NOVICE,
-                ELO_TIER_INTERMEDIATE,
                 ELO_TIER_ADVANCED,
                 ELO_TIER_EXPERT,
-                ELO_TIER_MASTER,
                 ELO_TIER_GRANDMASTER,
+                ELO_TIER_INTERMEDIATE,
+                ELO_TIER_MASTER,
+                ELO_TIER_NOVICE,
             )
 
             self._register("ELO_TARGET_ALL_CONFIGS", ELO_TARGET_ALL_CONFIGS,
@@ -377,17 +416,26 @@ class ConfigRegistry:
     def _load_daemons(self) -> None:
         """Load daemon configuration."""
         try:
-            from app.config.coordination_defaults import DaemonDefaults
+            from app.config.coordination_defaults import (
+                RetryDefaults,
+                TaskLifecycleDefaults,
+            )
 
-            self._register("DAEMON_MAX_RESTARTS", DaemonDefaults.MAX_RESTARTS,
+            self._register("DAEMON_MAX_RESTARTS", RetryDefaults.MAX_RETRIES,
                           ConfigCategory.DAEMONS, "coordination_defaults",
                           "Maximum restart attempts per daemon")
-            self._register("DAEMON_RESTART_BACKOFF_MAX", DaemonDefaults.RESTART_BACKOFF_MAX,
+            self._register("DAEMON_RESTART_BACKOFF_MAX", RetryDefaults.MAX_DELAY,
                           ConfigCategory.DAEMONS, "coordination_defaults",
                           "Maximum backoff between restarts (seconds)")
-            self._register("DAEMON_SHUTDOWN_TIMEOUT", DaemonDefaults.SHUTDOWN_TIMEOUT,
+            self._register("DAEMON_HEARTBEAT_TIMEOUT", TaskLifecycleDefaults.HEARTBEAT_TIMEOUT,
                           ConfigCategory.DAEMONS, "coordination_defaults",
-                          "Timeout for graceful daemon shutdown")
+                          "Heartbeat timeout for task orphan detection")
+            self._register("DAEMON_ORPHAN_GRACE_PERIOD", TaskLifecycleDefaults.ORPHAN_GRACE_PERIOD,
+                          ConfigCategory.DAEMONS, "coordination_defaults",
+                          "Grace period for new tasks before orphan check")
+            self._register("DAEMON_MAX_HISTORY", TaskLifecycleDefaults.MAX_HISTORY,
+                          ConfigCategory.DAEMONS, "coordination_defaults",
+                          "Maximum tasks to track in history")
 
         except ImportError as e:
             logger.warning(f"[ConfigRegistry] Failed to load daemon config: {e}")
@@ -566,10 +614,10 @@ config_registry = get_config_registry
 
 
 __all__ = [
-    "ConfigRegistry",
     "ConfigCategory",
+    "ConfigRegistry",
     "ConfigValue",
+    "config_registry",
     "get_config_registry",
     "reset_config_registry",
-    "config_registry",
 ]
