@@ -65,6 +65,12 @@ from typing import Any
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from scripts.lib.process import (
+    SingletonLock,
+    find_processes_by_pattern,
+    kill_process,
+)
+
 from app.config.thresholds import (
     PROMOTION_THRESHOLDS_BY_CONFIG,
     GPU_MEMORY_WEIGHTS,
@@ -120,6 +126,10 @@ STATE_SAVE_INTERVAL_SECONDS = 300  # Save state every 5 minutes
 
 # PID file for master loop detection (December 2025)
 PID_FILE_PATH = Path(__file__).parent.parent / "data" / "coordination" / "master_loop.pid"
+LOCK_DIR = Path(__file__).parent.parent / "data" / "coordination"
+
+# Global singleton lock for duplicate process prevention (December 2025)
+_MASTER_LOCK: SingletonLock | None = None
 
 # Critical daemons that MUST start for autonomous operation (December 2025 - Gap 2 fix)
 # If any of these fail to start, the master loop should NOT proceed
@@ -395,24 +405,60 @@ class MasterLoopController:
         except Exception as e:
             logger.debug(f"[MasterLoop] Failed to update heartbeat: {e}")
 
-    def _create_pid_file(self) -> None:
-        """Create PID file for master loop detection (December 2025)."""
+    def _acquire_singleton_lock(self) -> bool:
+        """Acquire singleton lock for duplicate process prevention (December 2025).
+
+        Uses atomic file locking (fcntl) which is more reliable than PID file checks.
+
+        Returns:
+            True if lock acquired successfully
+        """
+        global _MASTER_LOCK
+
+        LOCK_DIR.mkdir(parents=True, exist_ok=True)
+
+        _MASTER_LOCK = SingletonLock("master_loop", lock_dir=LOCK_DIR)
+        if not _MASTER_LOCK.acquire():
+            holder_pid = _MASTER_LOCK.get_holder_pid()
+            if holder_pid:
+                logger.error(
+                    f"[MasterLoop] Another instance is already running (PID {holder_pid}). "
+                    f"Use --kill-duplicates to automatically terminate it."
+                )
+            else:
+                logger.error("[MasterLoop] Another instance is already running")
+            return False
+
+        logger.info(f"[MasterLoop] Acquired singleton lock (PID {os.getpid()})")
+
+        # Also write PID file for backward compatibility
         try:
             PID_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
             with open(PID_FILE_PATH, "w") as f:
                 f.write(str(os.getpid()))
-            logger.debug(f"[MasterLoop] Created PID file: {PID_FILE_PATH}")
         except Exception as e:
-            logger.warning(f"[MasterLoop] Failed to create PID file: {e}")
+            logger.debug(f"[MasterLoop] Failed to write PID file: {e}")
 
-    def _remove_pid_file(self) -> None:
-        """Remove PID file on shutdown (December 2025)."""
+        return True
+
+    def _release_singleton_lock(self) -> None:
+        """Release singleton lock on shutdown (December 2025)."""
+        global _MASTER_LOCK
+        if _MASTER_LOCK:
+            _MASTER_LOCK.release()
+            logger.debug("[MasterLoop] Released singleton lock")
+            _MASTER_LOCK = None
+
+        # Also remove PID file for backward compatibility
         try:
             if PID_FILE_PATH.exists():
                 PID_FILE_PATH.unlink()
-                logger.debug(f"[MasterLoop] Removed PID file: {PID_FILE_PATH}")
-        except Exception as e:
-            logger.warning(f"[MasterLoop] Failed to remove PID file: {e}")
+        except OSError:
+            pass
+
+    # Backward compatibility aliases
+    _create_pid_file = lambda self: self._acquire_singleton_lock()
+    _remove_pid_file = lambda self: self._release_singleton_lock()
 
     @staticmethod
     def is_running(pid_file: Path | None = None) -> bool:
@@ -1522,21 +1568,57 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Show current status and exit",
     )
+    parser.add_argument(
+        "--kill-duplicates",
+        action="store_true",
+        help="Kill any existing master loop processes before starting",
+    )
 
     return parser.parse_args()
+
+
+def _kill_duplicate_processes() -> None:
+    """Kill any existing master_loop processes (December 2025)."""
+    import time
+    pattern = r"master_loop\.py"
+    existing = find_processes_by_pattern(pattern, exclude_self=True)
+    if existing:
+        logger.info(f"[MasterLoop] Found {len(existing)} duplicate processes, killing...")
+        for proc in existing:
+            logger.info(f"[MasterLoop] Killing duplicate: PID {proc.pid}")
+            if kill_process(proc.pid, wait=True, timeout=5.0):
+                logger.info(f"[MasterLoop] Killed PID {proc.pid}")
+            else:
+                logger.warning(f"[MasterLoop] Failed to kill PID {proc.pid}")
+        # Wait a moment for locks to release
+        time.sleep(0.5)
 
 
 async def main() -> None:
     """Main entry point."""
     args = parse_args()
 
-    # Check for duplicate instance (December 2025)
-    if MasterLoopController.is_running():
-        logger.error(
-            "[MasterLoop] Another instance is already running. "
-            f"Check PID file: {PID_FILE_PATH}"
-        )
+    # Kill duplicates if requested (December 2025)
+    if args.kill_duplicates:
+        _kill_duplicate_processes()
+
+    # Check for duplicate instance using atomic file lock (December 2025)
+    global _MASTER_LOCK
+    LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    _MASTER_LOCK = SingletonLock("master_loop", lock_dir=LOCK_DIR)
+
+    if not _MASTER_LOCK.acquire():
+        holder_pid = _MASTER_LOCK.get_holder_pid()
+        if holder_pid:
+            logger.error(
+                f"[MasterLoop] Another instance is already running (PID {holder_pid}). "
+                f"Use --kill-duplicates to automatically terminate it."
+            )
+        else:
+            logger.error("[MasterLoop] Another instance is already running")
         sys.exit(1)
+
+    logger.info(f"[MasterLoop] Acquired singleton lock (PID {os.getpid()})")
 
     # Parse configs
     configs = None

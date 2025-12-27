@@ -1061,8 +1061,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.lib.file_formats import open_jsonl_file
 from scripts.lib.logging_config import setup_script_logging
+from scripts.lib.process import (
+    SingletonLock,
+    find_processes_by_pattern,
+    kill_process,
+    is_process_running,
+)
 
 logger = setup_script_logging("p2p_orchestrator")
+
+# Singleton lock for duplicate process prevention (December 2025)
+_P2P_LOCK: SingletonLock | None = None
 
 
 def _validate_p2p_dependencies() -> None:
@@ -27559,33 +27568,70 @@ print(json.dumps({{
                 logger.warning("HTTP server cleanup timed out after 30s")
 
 
-def main():
-    # Check for duplicate instance via PID file (December 2025)
-    ai_service_root = Path(__file__).parent.parent
-    pid_file = ai_service_root / "data" / "coordination" / "p2p_orchestrator.pid"
-    if pid_file.exists():
-        try:
-            old_pid = int(pid_file.read_text().strip())
-            # Check if process is still running
-            os.kill(old_pid, 0)  # Signal 0 = check existence
-            logger.error(
-                f"[P2P] Another instance is already running (PID {old_pid}). "
-                f"Kill it first or remove {pid_file}"
-            )
-            sys.exit(1)
-        except (ProcessLookupError, ValueError):
-            # Process doesn't exist, remove stale PID file
-            pid_file.unlink(missing_ok=True)
-        except PermissionError:
-            # Can't check (probably running as different user)
-            pass
+def _acquire_singleton_lock(kill_duplicates: bool = False) -> bool:
+    """Acquire singleton lock to prevent duplicate P2P orchestrator instances.
 
-    # Write our PID file
-    try:
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
-        pid_file.write_text(str(os.getpid()))
-    except OSError as e:
-        logger.warning(f"[P2P] Failed to write PID file: {e}")
+    Uses atomic file locking (fcntl) which is more reliable than PID file checks.
+
+    Args:
+        kill_duplicates: If True, kill any duplicate processes before acquiring lock
+
+    Returns:
+        True if lock acquired successfully
+    """
+    global _P2P_LOCK
+
+    lock_dir = Path(__file__).parent.parent / "data" / "coordination"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+
+    if kill_duplicates:
+        # Find and kill any existing p2p_orchestrator processes
+        pattern = r"p2p_orchestrator\.py"
+        existing = find_processes_by_pattern(pattern, exclude_self=True)
+        if existing:
+            logger.info(f"[P2P] Found {len(existing)} duplicate processes, killing...")
+            for proc in existing:
+                logger.info(f"[P2P] Killing duplicate: PID {proc.pid}")
+                if kill_process(proc.pid, wait=True, timeout=5.0):
+                    logger.info(f"[P2P] Killed PID {proc.pid}")
+                else:
+                    logger.warning(f"[P2P] Failed to kill PID {proc.pid}")
+            # Wait a moment for locks to release
+            time.sleep(0.5)
+
+    _P2P_LOCK = SingletonLock("p2p_orchestrator", lock_dir=lock_dir)
+    if not _P2P_LOCK.acquire():
+        holder_pid = _P2P_LOCK.get_holder_pid()
+        if holder_pid:
+            logger.error(
+                f"[P2P] Another instance is already running (PID {holder_pid}). "
+                f"Use --kill-duplicates to automatically terminate it."
+            )
+        else:
+            logger.error("[P2P] Another instance is already running")
+        return False
+
+    logger.info(f"[P2P] Acquired singleton lock (PID {os.getpid()})")
+    return True
+
+
+def _release_singleton_lock() -> None:
+    """Release the singleton lock on shutdown."""
+    global _P2P_LOCK
+    if _P2P_LOCK:
+        _P2P_LOCK.release()
+        logger.debug("[P2P] Released singleton lock")
+        _P2P_LOCK = None
+
+
+def main():
+    # Parse args early to check for kill-duplicates flag
+    import sys
+    kill_duplicates = "--kill-duplicates" in sys.argv
+
+    # Acquire singleton lock (December 2025: improved atomic locking)
+    if not _acquire_singleton_lock(kill_duplicates=kill_duplicates):
+        sys.exit(1)
 
     parser = argparse.ArgumentParser(description="P2P Orchestrator for RingRift cluster")
     parser.add_argument("--node-id", required=True, help="Unique identifier for this node")
@@ -27613,6 +27659,8 @@ def main():
                         help="When using ramdrive, sync to disk every N seconds (0 = no sync, default: 300)")
     parser.add_argument("--supervised", action="store_true",
                         help="Running under cluster_supervisor.py - disable self-restart logic")
+    parser.add_argument("--kill-duplicates", action="store_true",
+                        help="Kill any existing P2P orchestrator processes before starting")
 
     args = parser.parse_args()
 
@@ -27706,15 +27754,8 @@ def main():
                 # Dec 2025: Narrowed from bare Exception; best effort cleanup
                 logger.debug(f"Notifier close failed (best effort): {e}")
 
-            # December 2025: Clean up PID file on shutdown
-            try:
-                ai_service_root = Path(__file__).parent.parent
-                pid_file = ai_service_root / "data" / "coordination" / "p2p_orchestrator.pid"
-                if pid_file.exists():
-                    pid_file.unlink()
-                    logger.debug("[P2P] Removed PID file on shutdown")
-            except OSError as e:
-                logger.debug(f"[P2P] Failed to remove PID file: {e}")
+            # December 2025: Release singleton lock on shutdown
+            _release_singleton_lock()
 
 
 if __name__ == "__main__":
