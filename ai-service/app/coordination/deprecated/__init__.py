@@ -1,46 +1,46 @@
-"""Deprecated coordination modules.
+"""Deprecated coordination modules - ARCHIVED.
 
-These modules have been superseded by newer implementations.
-See README.md in this directory for migration guide.
+All deprecated modules have been moved to:
+  archive/deprecated_coordination/
 
-Moved to deprecated/ December 2025:
-- _deprecated_cross_process_events.py -> Use event_router instead
-- _deprecated_event_emitters.py -> Use event_router.emit() instead
-- _deprecated_health_check_orchestrator.py -> Use cluster.health instead
-- _deprecated_host_health_policy.py -> Use cluster.health instead
-- _deprecated_system_health_monitor.py -> Use cluster.health instead
+See archive/deprecated_coordination/README.md for:
+- Migration guides
+- Replacement module documentation
+- Verification commands
 
-Moved to deprecated/ December 27, 2025:
-- _deprecated_auto_evaluation_daemon.py -> Use evaluation_daemon + auto_promotion_daemon
-- _deprecated_sync_coordinator.py -> Use AutoSyncDaemon
-- _deprecated_queue_populator_daemon.py -> Use unified_queue_populator
+Archived December 27, 2025 (3,339 LOC total):
+- _deprecated_auto_evaluation_daemon.py -> evaluation_daemon + auto_promotion_daemon
+- _deprecated_cross_process_events.py -> event_router
+- _deprecated_event_emitters.py -> event_router.emit()
+- _deprecated_health_check_orchestrator.py -> unified_health_manager
+- _deprecated_host_health_policy.py -> unified_health_manager
+- _deprecated_queue_populator_daemon.py -> queue_populator
+- _deprecated_sync_coordinator.py -> AutoSyncDaemon + sync_router
+- _deprecated_system_health_monitor.py -> unified_health_manager
 """
 
 import warnings
 
-# Backwards-compatible imports with deprecation warnings
+
 def __getattr__(name: str):
-    """Lazy import with deprecation warning."""
-    deprecated_modules = {
-        "cross_process_events": "_deprecated_cross_process_events",
-        "event_emitters": "_deprecated_event_emitters",
-        "health_check_orchestrator": "_deprecated_health_check_orchestrator",
-        "host_health_policy": "_deprecated_host_health_policy",
-        "system_health_monitor": "_deprecated_system_health_monitor",
-        # December 27, 2025 additions
-        "auto_evaluation_daemon": "_deprecated_auto_evaluation_daemon",
-        "sync_coordinator": "_deprecated_sync_coordinator",
-        "queue_populator_daemon": "_deprecated_queue_populator_daemon",
+    """Raise clear error for archived modules."""
+    archived_modules = {
+        "cross_process_events": "event_router",
+        "event_emitters": "event_router",
+        "health_check_orchestrator": "unified_health_manager",
+        "host_health_policy": "unified_health_manager",
+        "system_health_monitor": "unified_health_manager",
+        "auto_evaluation_daemon": "daemon_manager with EVALUATION_DAEMON",
+        "sync_coordinator": "auto_sync_daemon + sync_router",
+        "queue_populator_daemon": "queue_populator",
     }
 
-    if name in deprecated_modules:
-        warnings.warn(
-            f"app.coordination.deprecated.{name} is deprecated. "
-            f"See app/coordination/deprecated/README.md for migration guide.",
-            DeprecationWarning,
-            stacklevel=2,
+    if name in archived_modules:
+        replacement = archived_modules[name]
+        raise ImportError(
+            f"app.coordination.deprecated.{name} has been archived. "
+            f"Use app.coordination.{replacement} instead. "
+            f"See archive/deprecated_coordination/README.md for migration."
         )
-        import importlib
-        return importlib.import_module(f".{deprecated_modules[name]}", __package__)
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

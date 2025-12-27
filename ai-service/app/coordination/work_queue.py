@@ -352,10 +352,27 @@ class WorkQueue:
 
         self._db_initialized = False
 
+    def _get_connection(self, timeout: float = 10.0) -> sqlite3.Connection:
+        """Get a SQLite connection with WAL mode and proper settings.
+
+        WAL (Write-Ahead Logging) provides:
+        - Better crash recovery (uncommitted transactions can be rolled back)
+        - Concurrent read access during writes
+        - Better performance for mixed read/write workloads
+
+        Returns:
+            A configured sqlite3.Connection
+        """
+        conn = sqlite3.connect(str(self.db_path), timeout=timeout)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=10000")
+        return conn
+
     def _load_items(self) -> None:
         """Load work items from database on startup."""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_connection()
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -407,7 +424,7 @@ class WorkQueue:
     def _save_item(self, item: WorkItem) -> None:
         """Save a work item to the database."""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_connection()
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -443,7 +460,7 @@ class WorkQueue:
     def _save_stats(self) -> None:
         """Save stats to the database."""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_connection()
             cursor = conn.cursor()
 
             for key, value in self.stats.items():
@@ -460,7 +477,7 @@ class WorkQueue:
     def _delete_item(self, work_id: str) -> None:
         """Delete a work item from the database."""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM work_items WHERE work_id = ?", (work_id,))
             conn.commit()
@@ -601,7 +618,7 @@ class WorkQueue:
             return False
 
         try:
-            conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+            conn = self._get_connection()
             cursor = conn.cursor()
 
             # Use BEGIN IMMEDIATE for write intent, preventing concurrent claims

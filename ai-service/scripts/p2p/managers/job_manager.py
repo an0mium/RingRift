@@ -328,12 +328,24 @@ class JobManager:
         )
         os.makedirs(iteration_dir, exist_ok=True)
 
-        # Send selfplay tasks to workers (would need HTTP client here)
-        # For now, this is a placeholder for the distributed coordination logic
-        # The actual HTTP calls would be made by the orchestrator
-
-        # If no workers available, run locally
-        if not state.worker_nodes:
+        # Dispatch selfplay tasks to workers via HTTP
+        if state.worker_nodes:
+            dispatch_results = await self._dispatch_selfplay_to_workers(
+                job_id=job_id,
+                workers=state.worker_nodes,
+                games_per_worker=games_per_worker,
+                remainder=remainder,
+                board_type=state.board_type,
+                num_players=state.num_players,
+                model_path=state.best_model_path,
+                output_dir=iteration_dir,
+            )
+            logger.info(
+                f"Dispatched selfplay to {len(dispatch_results)} workers: "
+                f"{sum(1 for r in dispatch_results.values() if r.get('success'))} succeeded"
+            )
+        else:
+            # If no workers available, run locally
             logger.info("No workers available, running selfplay locally")
             await self.run_local_selfplay(
                 job_id, state.games_per_iteration,

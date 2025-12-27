@@ -512,13 +512,22 @@ class TestConstants:
     """Test module constants."""
 
     def test_min_memory_threshold(self):
-        """Test MIN_MEMORY_GB_FOR_TASKS is reasonable."""
-        assert MIN_MEMORY_GB_FOR_TASKS == 16
+        """Test MIN_MEMORY_GB_FOR_TASKS is reasonable.
+
+        Dec 2025: Increased to 64GB for GH200 nodes.
+        """
+        assert MIN_MEMORY_GB_FOR_TASKS == 64
 
     def test_disk_warning_threshold(self):
-        """Test DISK_WARNING_THRESHOLD is reasonable."""
-        assert 80 <= DISK_WARNING_THRESHOLD <= 95
+        """Test DISK_WARNING_THRESHOLD is reasonable.
+
+        Dec 2025: Lowered to 65% for conservative disk management.
+        """
+        assert 60 <= DISK_WARNING_THRESHOLD <= 75
 
     def test_memory_warning_threshold(self):
-        """Test MEMORY_WARNING_THRESHOLD is reasonable."""
-        assert 80 <= MEMORY_WARNING_THRESHOLD <= 95
+        """Test MEMORY_WARNING_THRESHOLD is reasonable.
+
+        Dec 2025: Set to 75% (below 80% hard cap).
+        """
+        assert 70 <= MEMORY_WARNING_THRESHOLD <= 80

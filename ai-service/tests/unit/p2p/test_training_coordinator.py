@@ -798,9 +798,16 @@ class TestConstants:
     """Test module constants."""
 
     def test_min_memory_threshold(self):
-        """Test MIN_MEMORY_GB_FOR_TASKS constant."""
-        assert MIN_MEMORY_GB_FOR_TASKS == 8
+        """Test MIN_MEMORY_GB_FOR_TASKS constant.
+
+        Dec 2025: Increased to 64GB for GH200 nodes.
+        """
+        assert MIN_MEMORY_GB_FOR_TASKS == 64
 
     def test_leaderless_timeout(self):
-        """Test LEADERLESS_TRAINING_TIMEOUT constant."""
-        assert LEADERLESS_TRAINING_TIMEOUT == 180  # 3 minutes
+        """Test LEADERLESS_TRAINING_TIMEOUT constant.
+
+        Dec 2025: Reduced from 180s to 30s for faster decentralized operation.
+        With reliable failure detection, we can trigger local training quickly.
+        """
+        assert LEADERLESS_TRAINING_TIMEOUT == 30  # Quick failover

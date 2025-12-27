@@ -10126,6 +10126,11 @@ print(json.dumps(result))
         Distributes selfplay games across all available workers.
         Each worker runs selfplay using the current best model and reports
         progress back to the coordinator.
+
+        .. deprecated:: December 2025
+            This method duplicates JobManager.run_distributed_selfplay().
+            Future versions should delegate to self.job_manager.run_distributed_selfplay().
+            Scheduled for removal in Q2 2026.
         """
 
         state = self.improvement_loop_state.get(job_id)
@@ -10202,7 +10207,13 @@ print(json.dumps(result))
         self, job_id: str, num_games: int, board_type: str,
         num_players: int, model_path: str | None, output_dir: str
     ):
-        """Run selfplay locally using subprocess."""
+        """Run selfplay locally using subprocess.
+
+        .. deprecated:: December 2025
+            This method duplicates JobManager.run_local_selfplay().
+            Future versions should delegate to self.job_manager.run_local_selfplay().
+            Scheduled for removal in Q2 2026.
+        """
         import sys
 
         output_file = os.path.join(output_dir, f"{self.node_id}_games.jsonl")
@@ -10253,6 +10264,11 @@ print(json.dumps(result))
         """Export training data from selfplay games.
 
         Converts JSONL game records to training format (HDF5 or NPZ).
+
+        .. deprecated:: December 2025
+            This method duplicates JobManager.export_training_data().
+            Future versions should delegate to self.job_manager.export_training_data().
+            Scheduled for removal in Q2 2026.
         """
         import sys
 
