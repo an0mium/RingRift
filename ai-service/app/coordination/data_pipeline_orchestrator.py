@@ -2205,19 +2205,23 @@ class DataPipelineOrchestrator:
 
     async def _on_promotion_complete(self, result) -> None:
         """Handle promotion completion."""
-        iteration = result.iteration
+        # December 27, 2025: Handle both RouterEvent and StageCompletionResult
+        result = self._extract_stage_result(result)
+
+        iteration = getattr(result, "iteration", 0)
         record = self._ensure_iteration_record(iteration)
 
-        record.promoted = result.promoted
-        if result.promoted:
+        promoted = getattr(result, "promoted", False)
+        record.promoted = promoted
+        if promoted:
             self._total_promotions += 1
 
         self._transition_to(
             PipelineStage.COMPLETE,
             iteration,
             metadata={
-                "promoted": result.promoted,
-                "reason": result.promotion_reason,
+                "promoted": promoted,
+                "reason": getattr(result, "promotion_reason", ""),
             },
         )
 
@@ -2226,7 +2230,7 @@ class DataPipelineOrchestrator:
 
         # December 27, 2025: Trigger model sync after successful promotion
         # This ensures promoted models are distributed to all cluster nodes
-        if result.promoted and self.auto_trigger and self.auto_trigger_sync:
+        if promoted and self.auto_trigger and self.auto_trigger_sync:
             await self._trigger_model_sync_after_promotion(result)
 
     async def _update_curriculum_on_promotion(self, result) -> None:
@@ -2240,30 +2244,36 @@ class DataPipelineOrchestrator:
         try:
             from app.training.curriculum_feedback import get_curriculum_feedback
 
+            # December 27, 2025: Use getattr for safe attribute access
+            metadata = getattr(result, "metadata", {}) or {}
+
             # Get config key from result or tracked state
             config_key = None
-            if hasattr(result, "board_type") and hasattr(result, "num_players"):
-                config_key = f"{result.board_type}_{result.num_players}p"
+            board_type = getattr(result, "board_type", None)
+            num_players = getattr(result, "num_players", None)
+            if board_type and num_players:
+                config_key = f"{board_type}_{num_players}p"
             elif self._current_board_type and self._current_num_players:
                 config_key = f"{self._current_board_type}_{self._current_num_players}p"
-            elif hasattr(result, "metadata") and result.metadata:
-                config_key = result.metadata.get("config_key")
+            else:
+                config_key = metadata.get("config_key")
 
             if not config_key:
                 logger.debug("[DataPipelineOrchestrator] No config_key for curriculum update")
                 return
 
+            promoted = getattr(result, "promoted", False)
             feedback = get_curriculum_feedback()
             feedback.record_promotion(
                 config_key=config_key,
-                promoted=result.promoted,
-                new_elo=getattr(result, "new_elo", None) or result.metadata.get("new_elo"),
-                promotion_reason=getattr(result, "promotion_reason", "") or result.metadata.get("reason", ""),
+                promoted=promoted,
+                new_elo=getattr(result, "new_elo", None) or metadata.get("new_elo"),
+                promotion_reason=getattr(result, "promotion_reason", "") or metadata.get("reason", ""),
             )
 
             logger.info(
                 f"[DataPipelineOrchestrator] Curriculum updated for {config_key}: "
-                f"promoted={result.promoted}"
+                f"promoted={promoted}"
             )
 
         except ImportError:

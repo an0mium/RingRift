@@ -40,9 +40,9 @@ __all__ = [
 class AutoPromotionConfig:
     """Configuration for auto-promotion."""
     enabled: bool = True
-    # Minimum games required for promotion decision
-    min_games_vs_random: int = 20
-    min_games_vs_heuristic: int = 20
+    # Minimum games required for promotion decision - Dec 27, 2025: increased from 20 to 50
+    min_games_vs_random: int = 50
+    min_games_vs_heuristic: int = 50
     # Cooldown between promotion attempts (seconds)
     promotion_cooldown_seconds: float = 300.0  # 5 minutes
     # Whether to wait for both RANDOM and HEURISTIC results
@@ -51,6 +51,8 @@ class AutoPromotionConfig:
     consecutive_passes_required: int = 2
     # Dry run mode - log but don't actually promote
     dry_run: bool = False
+    # Dec 27, 2025: Minimum Elo improvement over previous model required for promotion
+    min_elo_improvement: float = 75.0  # Must gain 75+ Elo to promote
 
 
 @dataclass
@@ -63,6 +65,9 @@ class PromotionCandidate:
     consecutive_passes: int = 0
     last_evaluation_time: float = 0.0
     last_promotion_time: float = 0.0
+    # Dec 27, 2025: Track Elo improvement for stricter promotion
+    elo_improvement: float = 0.0  # Elo gain vs previous model
+    estimated_elo: float = 0.0  # Estimated Elo from evaluation
 
 
 class AutoPromotionDaemon:
@@ -270,6 +275,13 @@ class AutoPromotionDaemon:
 
             # Check consecutive passes
             if candidate.consecutive_passes >= self.config.consecutive_passes_required:
+                # Dec 27, 2025: Check Elo improvement requirement
+                if self.config.min_elo_improvement > 0 and candidate.elo_improvement < self.config.min_elo_improvement:
+                    logger.info(
+                        f"[AutoPromotion] {candidate.config_key}: "
+                        f"Elo improvement {candidate.elo_improvement:+.1f} < {self.config.min_elo_improvement} required"
+                    )
+                    return
                 await self._promote_model(candidate)
         else:
             # Reset streak on failure
