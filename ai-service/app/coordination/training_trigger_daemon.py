@@ -272,6 +272,24 @@ class TrainingTriggerDaemon:
                 self._event_subscriptions.append(unsub)
                 logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_THRESHOLD_REACHED events")
 
+            # Subscribe to quality updates to keep intensity in sync
+            if hasattr(DataEventType, 'QUALITY_SCORE_UPDATED'):
+                unsub = bus.subscribe(
+                    DataEventType.QUALITY_SCORE_UPDATED,
+                    self._on_quality_score_updated,
+                )
+                self._event_subscriptions.append(unsub)
+                logger.info("[TrainingTriggerDaemon] Subscribed to QUALITY_SCORE_UPDATED events")
+
+            # Subscribe to training blocks to pause intensity
+            if hasattr(DataEventType, 'TRAINING_BLOCKED_BY_QUALITY'):
+                unsub = bus.subscribe(
+                    DataEventType.TRAINING_BLOCKED_BY_QUALITY,
+                    self._on_training_blocked_by_quality,
+                )
+                self._event_subscriptions.append(unsub)
+                logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_BLOCKED_BY_QUALITY events")
+
             # December 2025: Subscribe to EVALUATION_COMPLETED for gauntlet → training feedback
             # This closes the critical feedback loop: model performance → training parameters
             if hasattr(DataEventType, 'EVALUATION_COMPLETED'):
@@ -339,6 +357,18 @@ class TrainingTriggerDaemon:
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training completion: {e}")
 
+    def _intensity_from_quality(self, quality_score: float) -> str:
+        """Map quality scores to training intensity."""
+        if quality_score >= 0.90:
+            return "hot_path"
+        if quality_score >= 0.80:
+            return "accelerated"
+        if quality_score >= 0.65:
+            return "normal"
+        if quality_score >= 0.50:
+            return "reduced"
+        return "paused"
+
     async def _on_training_threshold_reached(self, event: Any) -> None:
         """Handle training threshold reached events from master_loop."""
         try:
@@ -363,6 +393,40 @@ class TrainingTriggerDaemon:
 
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training threshold: {e}")
+
+    async def _on_quality_score_updated(self, event: Any) -> None:
+        """Handle quality score updates to keep intensity in sync."""
+        try:
+            payload = getattr(event, "payload", {})
+            config_key = payload.get("config_key") or payload.get("config")
+            if not config_key:
+                return
+
+            quality_score = float(payload.get("quality_score", 0.0))
+            state = self._get_or_create_state(config_key)
+            state.training_intensity = self._intensity_from_quality(quality_score)
+
+            logger.debug(
+                f"[TrainingTriggerDaemon] {config_key}: "
+                f"quality={quality_score:.2f} → intensity={state.training_intensity}"
+            )
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling quality update: {e}")
+
+    async def _on_training_blocked_by_quality(self, event: Any) -> None:
+        """Handle training blocked events to pause intensity."""
+        try:
+            payload = getattr(event, "payload", {})
+            config_key = payload.get("config_key") or payload.get("config")
+            if not config_key:
+                return
+
+            state = self._get_or_create_state(config_key)
+            state.training_intensity = "paused"
+
+            logger.info(f"[TrainingTriggerDaemon] {config_key}: training paused due to quality gate")
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling training blocked: {e}")
 
     async def _on_evaluation_completed(self, event: Any) -> None:
         """Handle gauntlet evaluation completion - adjust training parameters (Dec 2025).
@@ -579,6 +643,9 @@ class TrainingTriggerDaemon:
         # 1. Check if training already in progress
         if state.training_in_progress:
             return False, "training already in progress"
+
+        if state.training_intensity == "paused":
+            return False, "training intensity paused"
 
         # Phase 4: Check circuit breaker before triggering training
         if HAS_CIRCUIT_BREAKER and get_training_breaker:

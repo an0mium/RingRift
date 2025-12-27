@@ -57,14 +57,16 @@ EXCLUDED_NODES: frozenset[str] = frozenset()  # Deprecated - loaded dynamically
 # Use get_exclusion_policy().min_disk_free_gb instead
 MIN_DISK_FREE_GB = 50  # Deprecated - loaded dynamically
 
-# Sync interval (seconds) - 5 minutes
-SYNC_INTERVAL_SECONDS = 300
+# Sync interval (seconds) - 2 minutes (Dec 2025: reduced from 5 min for faster data availability)
+SYNC_INTERVAL_SECONDS = 120
 
-# Bandwidth limit per transfer (KB/s) - 20 MB/s
-SYNC_BANDWIDTH_LIMIT_KBPS = 20_000
+# Bandwidth limit per transfer (KB/s) - 50 MB/s (Dec 2025: increased from 20 MB/s)
+# Most nodes can handle higher bandwidth; reduces sync latency from 25min to 10min for large DBs
+SYNC_BANDWIDTH_LIMIT_KBPS = 50_000
 
-# Maximum concurrent syncs
-MAX_CONCURRENT_SYNCS = 3
+# Maximum concurrent syncs (Dec 2025: increased from 3 to 10 for 43-node cluster)
+# With 40+ nodes, 3 concurrent syncs creates a bottleneck
+MAX_CONCURRENT_SYNCS = 10
 
 # Database patterns to sync
 SYNC_DB_PATTERNS: list[str] = [

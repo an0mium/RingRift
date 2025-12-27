@@ -1063,12 +1063,16 @@ class SelfplayRunner(ABC):
                 move_probs = result.move_probs[i] if i < len(result.move_probs) else None
                 search_stats = result.search_stats[i] if i < len(result.search_stats) else None
 
-                # Apply move
+                # Apply move - keep reference to pre-move state for correct phase tracking
+                state_before = state
                 state_after = GameEngine.apply_move(state, move)
 
                 # Record move with MCTS data
+                # CRITICAL: Pass state_before to ensure phase is extracted from pre-move state,
+                # not inferred from previous iteration's post-move state (which causes game_over bug)
                 writer.add_move(
                     move=move,
+                    state_before=state_before,  # Fundamental fix: explicit pre-move state
                     state_after=state_after,
                     move_probs=move_probs,
                     search_stats=search_stats,
@@ -1206,8 +1210,12 @@ class SelfplayRunner(ABC):
         # Phase 4.1 Dec 2025: Closes feedback loop from GauntletFeedbackController
         adaptive_multiplier = getattr(self, "_adaptive_temperature_multiplier", 1.0)
 
-        # Combined scale factor
-        combined_scale = gauntlet_scale * adaptive_multiplier
+        # Get exploration boost (from ADAPTIVE_PARAMS_CHANGED events)
+        # Applied during opening moves to increase exploration diversity
+        exploration_boost = getattr(self, "_adaptive_exploration_boost", 0.0)
+
+        # Combined scale factor (exploration_boost increases temperature during opening)
+        combined_scale = gauntlet_scale * adaptive_multiplier * (1.0 + exploration_boost)
 
         # Use persistent scheduler with exploration boost (preferred)
         if self._temperature_scheduler is not None:
@@ -1416,15 +1424,18 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
             self.config.difficulty or 8
         )
 
-        # Apply difficulty multipliers (December 2025)
+        # Apply difficulty and adaptive multipliers (December 2025)
         # curriculum_difficulty: increased when curriculum advances
         # promotion_difficulty_boost: increased on failed promotions (harder opponents → stronger model)
+        # _adaptive_search_budget_multiplier: from ADAPTIVE_PARAMS_CHANGED events (Phase 4.1)
         combined_difficulty = self._curriculum_difficulty * self._promotion_difficulty_boost
-        budget = int(base_budget * combined_difficulty)
-        if combined_difficulty != 1.0:
+        adaptive_budget_mult = getattr(self, "_adaptive_search_budget_multiplier", 1.0)
+        budget = int(base_budget * combined_difficulty * adaptive_budget_mult)
+        if combined_difficulty != 1.0 or adaptive_budget_mult != 1.0:
             logger.info(
-                f"[Curriculum] Budget adjusted: {base_budget} * {combined_difficulty:.2f} = {budget} "
-                f"(curriculum={self._curriculum_difficulty:.2f}, promotion_boost={self._promotion_difficulty_boost:.2f})"
+                f"[Curriculum] Budget adjusted: {base_budget} * {combined_difficulty:.2f} * {adaptive_budget_mult:.2f} = {budget} "
+                f"(curriculum={self._curriculum_difficulty:.2f}, promotion_boost={self._promotion_difficulty_boost:.2f}, "
+                f"adaptive={adaptive_budget_mult:.2f})"
             )
 
         self._base_budget = base_budget  # Store for potential reinitialization
@@ -1448,13 +1459,15 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         from ..models import BoardType
         from ..game_engine import GameEngine
 
-        # Check if difficulty changed and reinitialize MCTS instances if needed
+        # Check if difficulty or adaptive params changed and reinitialize MCTS instances if needed
         combined_difficulty = self._curriculum_difficulty * self._promotion_difficulty_boost
-        new_budget = int(self._base_budget * combined_difficulty)
+        adaptive_budget_mult = getattr(self, "_adaptive_search_budget_multiplier", 1.0)
+        new_budget = int(self._base_budget * combined_difficulty * adaptive_budget_mult)
         if new_budget != self._current_budget:
             logger.info(
                 f"[Curriculum] Reinitializing MCTS: budget {self._current_budget} -> {new_budget} "
-                f"(curriculum={self._curriculum_difficulty:.2f}, promotion_boost={self._promotion_difficulty_boost:.2f})"
+                f"(curriculum={self._curriculum_difficulty:.2f}, promotion_boost={self._promotion_difficulty_boost:.2f}, "
+                f"adaptive={adaptive_budget_mult:.2f})"
             )
             from ..ai.factory import create_mcts
             self._current_budget = new_budget

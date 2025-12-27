@@ -124,7 +124,25 @@ class RingRiftDataset(Dataset):
                 # safe_load_npz tries without pickle first for security
                 npz_data = safe_load_npz(data_path)
                 # Convert to dict to force-load all arrays into memory
-                self.data = {k: np.asarray(v) for k, v in npz_data.items()}
+                # Skip metadata arrays that require pickle (game_ids, phases, move_types)
+                # These are not needed for training - only the numerical arrays are used
+                training_keys = {'features', 'globals', 'values', 'values_mp',
+                                'policy_indices', 'policy_values', 'move_numbers',
+                                'total_game_moves', 'num_players', 'player_numbers',
+                                'quality_score', 'heuristics', 'opponent_elo',
+                                'board_type', 'board_size', 'history_length',
+                                'feature_version', 'policy_encoding', 'encoder_version',
+                                'in_channels', 'export_version', 'encoder_type',
+                                'base_channels', 'spatial_size', 'policy_head_size'}
+                self.data = {}
+                for k in npz_data.keys():
+                    if k in training_keys:
+                        try:
+                            self.data[k] = np.asarray(npz_data[k])
+                        except (ValueError, TypeError) as e:
+                            # Skip arrays that fail to load (e.g., object arrays)
+                            logger.debug(f"Skipping array '{k}' due to load error: {e}")
+                    # else: skip metadata arrays like game_ids, phases, move_types
 
                 # ================================================================
                 # Early validation: Fail fast on encoder/dimension mismatches

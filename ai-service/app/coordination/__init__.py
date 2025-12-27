@@ -816,6 +816,17 @@ from app.coordination.sync_durability import (
     get_sync_wal,
 )
 
+# Sync Integrity (December 2025 - Checksum validation and integrity verification)
+from app.coordination.sync_integrity import (
+    IntegrityCheckResult,
+    IntegrityReport,
+    check_sqlite_integrity,
+    compute_db_checksum,
+    compute_file_checksum as sync_compute_file_checksum,  # Alias to avoid collision with transfer_verification
+    verify_checksum,
+    verify_sync_integrity,
+)
+
 # Module-level singleton placeholders for cleanup in shutdown_all_coordinators
 _selfplay_orchestrator = None
 _pipeline_orchestrator = None
@@ -1617,6 +1628,8 @@ __all__ = [
     "HostTargets",
     "HostTier",
     "HostType",
+    "IntegrityCheckResult",
+    "IntegrityReport",
     "IterationRecord",
     "JobHealthState",
     "JobPriority",
@@ -1776,6 +1789,7 @@ __all__ = [
     "check_host_health",
     "check_resource_thresholds",
     "check_spawn_allowed",
+    "check_sqlite_integrity",
     "checkpoint_games",
     "clear_health_cache",
     "collect_trace",
@@ -1783,6 +1797,7 @@ __all__ = [
     "complete_merge_operation",
     "complete_task_safe",
     "compute_batch_checksum",
+    "compute_db_checksum",
     "compute_file_checksum",
     "coordinate_async_task",
     "coordinate_task",
@@ -1892,6 +1907,7 @@ __all__ = [
     "get_shared_executor",
     "get_snapshot_coordinator",
     "get_stage_event_bus",
+    "get_stall_handler",
     "get_sync_coordinator",
     # Sync mutex helpers
     "get_sync_lock_context",
@@ -1998,6 +2014,7 @@ __all__ = [
     "reset_scheduler",
     "reset_snapshot_coordinator",
     "reset_stage_event_bus",
+    "reset_stall_handler",
     "reset_sync_coordinator",
     "reset_sync_mutex",
     "reset_sync_scheduler",
@@ -2053,8 +2070,10 @@ __all__ = [
     "update_training_progress",
     "validate_config",
     "verify_batch",
+    "verify_checksum",
     "verify_integration_health",
     "verify_integration_health_sync",
+    "verify_sync_integrity",
     "verify_transfer",
     "warn_if_orchestrator_running",
     "wire_cache_events",

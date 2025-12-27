@@ -383,6 +383,17 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
              'Improves learning velocity during positive feedback loops.'
     )
 
+    # Hard example mining for curriculum learning (2025-12)
+    parser.add_argument(
+        '--enable-hard-example-mining', action='store_true',
+        help='Enable hard example mining for curriculum learning. '
+             'Tracks per-sample losses to focus training on difficult examples.'
+    )
+    parser.add_argument(
+        '--hard-example-top-k', type=float, default=0.3,
+        help='Fraction of hard examples to prioritize (default: 0.3 = top 30%%)'
+    )
+
     # Regularization (2025-12)
     parser.add_argument(
         '--dropout', type=float, default=0.08,
@@ -882,6 +893,9 @@ def main() -> None:
         allow_stale_data=getattr(args, 'allow_stale_data', False),
         # Quality-aware sample filtering (December 2025)
         min_quality_score=getattr(args, 'min_quality_score', 0.0),
+        # Hard example mining for curriculum learning (2025-12)
+        hard_example_mining=getattr(args, 'enable_hard_example_mining', False),
+        hard_example_top_k=getattr(args, 'hard_example_top_k', 0.3),
     )
 
 

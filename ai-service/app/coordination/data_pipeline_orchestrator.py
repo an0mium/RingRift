@@ -42,6 +42,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from app.coordination.protocols import (
@@ -344,6 +346,8 @@ class DataPipelineOrchestrator:
 
         # Subscription state
         self._subscribed = False
+        self._prefer_stage_events = False
+        self._data_event_iteration = 0
 
         # Callbacks for stage transitions
         self._stage_callbacks: dict[PipelineStage, list[Callable]] = {}
@@ -609,6 +613,36 @@ class DataPipelineOrchestrator:
         if self._errors_count >= 10:
             self._coordinator_status = CoordinatorStatus.DEGRADED
 
+    def _should_process_stage_data_event(self, event_type: str) -> bool:
+        """Gate DataEventType stage handling when StageEvent is active."""
+        if self._prefer_stage_events:
+            logger.debug(
+                f"[DataPipelineOrchestrator] Skipping {event_type} data event "
+                "because stage events are active"
+            )
+            return False
+        return True
+
+    def _next_data_event_iteration(self) -> int:
+        """Return a best-effort iteration ID for data events."""
+        if self._current_iteration <= 0:
+            self._data_event_iteration = max(self._data_event_iteration, 1)
+            return self._data_event_iteration
+
+        if self._current_stage in (PipelineStage.IDLE, PipelineStage.COMPLETE):
+            self._data_event_iteration = max(self._data_event_iteration, self._current_iteration + 1)
+            return self._data_event_iteration
+
+        return self._current_iteration
+
+    def _current_iteration_for_data_event(self) -> int:
+        """Return current iteration or a fallback for data events."""
+        if self._current_iteration > 0:
+            return self._current_iteration
+        if self._data_event_iteration == 0:
+            self._data_event_iteration = 1
+        return self._data_event_iteration
+
     def subscribe_to_events(self) -> bool:
         """Subscribe to pipeline stage events.
 
@@ -639,6 +673,7 @@ class DataPipelineOrchestrator:
             bus.subscribe(StageEvent.ITERATION_COMPLETE, self._on_iteration_complete)
 
             self._subscribed = True
+            self._prefer_stage_events = True
             logger.info("[DataPipelineOrchestrator] Subscribed to stage events")
             return True
 
@@ -727,6 +762,40 @@ class DataPipelineOrchestrator:
                 self._on_work_queued,
             )
 
+            # Core pipeline events (DataEventType fallback for StageEvent wiring)
+            router.subscribe(
+                DataEventType.SELFPLAY_COMPLETE.value,
+                self._on_data_selfplay_complete,
+            )
+            router.subscribe(
+                DataEventType.DATA_SYNC_COMPLETED.value,
+                self._on_data_sync_completed,
+            )
+            router.subscribe(
+                DataEventType.DATA_SYNC_FAILED.value,
+                self._on_data_sync_failed,
+            )
+            router.subscribe(
+                DataEventType.TRAINING_COMPLETED.value,
+                self._on_data_training_completed,
+            )
+            router.subscribe(
+                DataEventType.TRAINING_FAILED.value,
+                self._on_data_training_failed,
+            )
+            router.subscribe(
+                DataEventType.EVALUATION_COMPLETED.value,
+                self._on_data_evaluation_completed,
+            )
+            router.subscribe(
+                DataEventType.EVALUATION_FAILED.value,
+                self._on_data_evaluation_failed,
+            )
+            router.subscribe(
+                DataEventType.MODEL_PROMOTED.value,
+                self._on_data_model_promoted,
+            )
+
             logger.info("[DataPipelineOrchestrator] Subscribed to data events")
             return True
 
@@ -801,6 +870,174 @@ class DataPipelineOrchestrator:
                 start_time=time.time(),
             )
         return self._iteration_records[iteration]
+
+    async def _on_data_selfplay_complete(self, event: Any) -> None:
+        """Handle SELFPLAY_COMPLETE data events as a fallback."""
+        if not self._should_process_stage_data_event("SELFPLAY_COMPLETE"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        config_key = payload.get("config_key") or payload.get("config")
+        games_generated = payload.get("games_played", payload.get("games_generated", 0))
+        metadata = {"config_key": config_key, **payload}
+
+        if not config_key or not games_generated:
+            return
+
+        board_type, num_players = self._get_board_config(metadata=metadata)
+        iteration = self._next_data_event_iteration()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            board_type=board_type,
+            num_players=num_players,
+            games_generated=games_generated,
+            success=payload.get("success", True),
+            error=payload.get("error"),
+            metadata=metadata,
+        )
+        await self._on_selfplay_complete(result)
+
+    async def _on_data_sync_completed(self, event: Any) -> None:
+        """Handle DATA_SYNC_COMPLETED data events as a fallback."""
+        if not self._should_process_stage_data_event("DATA_SYNC_COMPLETED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        config_key = payload.get("config") or payload.get("config_key")
+        games_synced = payload.get("games_synced", 0) or payload.get("files_synced", 0)
+        metadata = {"config_key": config_key, **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            success=True,
+            error=None,
+            metadata=metadata,
+        )
+        if games_synced:
+            metadata["games_synced"] = games_synced
+
+        await self._on_sync_complete(result)
+
+    async def _on_data_sync_failed(self, event: Any) -> None:
+        """Handle DATA_SYNC_FAILED data events as a fallback."""
+        if not self._should_process_stage_data_event("DATA_SYNC_FAILED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            success=False,
+            error=payload.get("error"),
+            metadata=metadata,
+        )
+        await self._on_sync_complete(result)
+
+    async def _on_data_training_completed(self, event: Any) -> None:
+        """Handle TRAINING_COMPLETED data events as a fallback."""
+        if not self._should_process_stage_data_event("TRAINING_COMPLETED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        config_key = payload.get("config") or payload.get("config_key")
+        metadata = {"config_key": config_key, **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        model_path = payload.get("checkpoint_path") or payload.get("model_path")
+        model_id = payload.get("model_id")
+        if not model_id and model_path:
+            model_id = Path(model_path).stem
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            board_type=payload.get("board_type"),
+            num_players=payload.get("num_players"),
+            model_id=model_id,
+            model_path=model_path,
+            train_loss=payload.get("final_train_loss") or payload.get("train_loss"),
+            val_loss=payload.get("final_val_loss") or payload.get("best_val_loss") or payload.get("val_loss"),
+            success=True,
+            error=None,
+            metadata=metadata,
+        )
+        await self._on_training_complete(result)
+
+    async def _on_data_training_failed(self, event: Any) -> None:
+        """Handle TRAINING_FAILED data events as a fallback."""
+        if not self._should_process_stage_data_event("TRAINING_FAILED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            success=False,
+            error=payload.get("error"),
+            metadata=metadata,
+        )
+        await self._on_training_failed(result)
+
+    async def _on_data_evaluation_completed(self, event: Any) -> None:
+        """Handle EVALUATION_COMPLETED data events as a fallback."""
+        if not self._should_process_stage_data_event("EVALUATION_COMPLETED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            win_rate=payload.get("win_rate", 0.0),
+            elo_delta=payload.get("elo_delta", 0.0),
+            model_path=payload.get("model_path") or payload.get("checkpoint_path"),
+            success=True,
+            error=None,
+            metadata=metadata,
+        )
+        await self._on_evaluation_complete(result)
+
+    async def _on_data_evaluation_failed(self, event: Any) -> None:
+        """Handle EVALUATION_FAILED data events as a fallback."""
+        if not self._should_process_stage_data_event("EVALUATION_FAILED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            success=False,
+            error=payload.get("error"),
+            metadata=metadata,
+        )
+        await self._on_evaluation_complete(result)
+
+    async def _on_data_model_promoted(self, event: Any) -> None:
+        """Handle MODEL_PROMOTED data events as a fallback."""
+        if not self._should_process_stage_data_event("MODEL_PROMOTED"):
+            return
+
+        payload = getattr(event, "payload", {}) or {}
+        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        iteration = self._current_iteration_for_data_event()
+
+        result = SimpleNamespace(
+            iteration=iteration,
+            promoted=payload.get("promoted", True),
+            promotion_reason=payload.get("promotion_reason") or payload.get("reason"),
+            board_type=payload.get("board_type"),
+            num_players=payload.get("num_players"),
+            metadata=metadata,
+        )
+        await self._on_promotion_complete(result)
 
     async def _on_selfplay_complete(self, result) -> None:
         """Handle selfplay completion."""

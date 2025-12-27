@@ -719,8 +719,13 @@ async def emit_crossboard_promotion_safe(
     Returns:
         True if emitted successfully, False otherwise.
     """
+    event_type = (
+        DataEventType.CROSSBOARD_PROMOTION.name
+        if DataEventType is not None
+        else "CROSSBOARD_PROMOTION"
+    )
     return await emit_event_safe(
-        "CROSSBOARD_PROMOTION",
+        event_type,
         {
             "candidate_id": candidate_id,
             "tier": tier,

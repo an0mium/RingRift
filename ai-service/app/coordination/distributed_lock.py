@@ -227,6 +227,21 @@ class DistributedLock:
             elapsed = time.time() - start_time
             if elapsed >= timeout:
                 logger.warning(f"Lock acquisition timed out for {self.name} after {timeout}s")
+                try:
+                    from app.distributed.event_helpers import emit_sync
+                    emit_sync(
+                        "LOCK_TIMEOUT",
+                        {
+                            "lock_name": self.name,
+                            "lock_id": self._lock_id,
+                            "timeout_seconds": timeout,
+                            "backend": "redis" if self._redis_client is not None else "file",
+                            "blocking": blocking,
+                        },
+                        source="distributed_lock",
+                    )
+                except ImportError:
+                    pass
                 return False
 
             # Wait and retry

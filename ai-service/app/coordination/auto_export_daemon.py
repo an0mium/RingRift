@@ -297,12 +297,16 @@ class AutoExportDaemon:
             logger.warning("[AutoExportDaemon] Stage events not available")
 
         try:
-            from app.distributed.data_events import DataEventType, get_event_bus
+            from app.coordination.event_router import DataEventType, get_router
 
-            bus = get_event_bus()
-            unsub = bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games)
-            self._event_subscriptions.append(unsub)
-            logger.info("[AutoExportDaemon] Subscribed to NEW_GAMES_AVAILABLE events")
+            router = get_router()
+            router.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games)
+            router.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete_event)
+            router.subscribe(DataEventType.DATA_SYNC_COMPLETED, self._on_data_sync_completed)
+            logger.info(
+                "[AutoExportDaemon] Subscribed to NEW_GAMES_AVAILABLE, SELFPLAY_COMPLETE, "
+                "DATA_SYNC_COMPLETED events"
+            )
         except ImportError:
             logger.warning("[AutoExportDaemon] Data events not available")
 
@@ -345,15 +349,8 @@ class AutoExportDaemon:
             if not games_synced or not config_key:
                 return
 
-            # Parse config key
-            parts = config_key.rsplit("_", 1)
-            if len(parts) != 2:
-                return
-
-            board_type = parts[0]
-            try:
-                num_players = int(parts[1].replace("p", ""))
-            except ValueError:
+            board_type, num_players = self._parse_config_key(config_key)
+            if not board_type or not num_players:
                 return
 
             logger.info(
@@ -379,6 +376,56 @@ class AutoExportDaemon:
         except Exception as e:
             logger.error(f"[AutoExportDaemon] Error handling new games event: {e}")
 
+    async def _on_selfplay_complete_event(self, event: Any) -> None:
+        """Handle SELFPLAY_COMPLETE data events."""
+        try:
+            payload = getattr(event, "payload", {}) or {}
+            config_key = payload.get("config_key") or payload.get("config")
+            games_generated = payload.get("games_played", payload.get("games_generated", 0))
+            if not config_key or not games_generated:
+                return
+
+            board_type, num_players = self._parse_config_key(config_key)
+            if not board_type or not num_players:
+                return
+
+            await self._record_games(config_key, board_type, num_players, games_generated)
+        except Exception as e:
+            logger.error(f"[AutoExportDaemon] Error handling SELFPLAY_COMPLETE event: {e}")
+
+    async def _on_data_sync_completed(self, event: Any) -> None:
+        """Handle DATA_SYNC_COMPLETED data events."""
+        try:
+            payload = getattr(event, "payload", {}) or {}
+            config_key = payload.get("config") or payload.get("config_key")
+            games_synced = payload.get("games_synced", 0) or payload.get("files_synced", 0)
+            if not config_key or not games_synced:
+                return
+
+            board_type, num_players = self._parse_config_key(config_key)
+            if not board_type or not num_players:
+                return
+
+            await self._record_games(config_key, board_type, num_players, games_synced)
+        except Exception as e:
+            logger.error(f"[AutoExportDaemon] Error handling DATA_SYNC_COMPLETED event: {e}")
+
+    def _parse_config_key(self, config_key: str) -> tuple[str | None, int | None]:
+        """Parse a config key like "square8_2p" into (board_type, num_players)."""
+        if "_" not in config_key or not config_key.endswith("p"):
+            return None, None
+
+        parts = config_key.rsplit("_", 1)
+        if len(parts) != 2:
+            return None, None
+
+        board_type = parts[0]
+        try:
+            num_players = int(parts[1].replace("p", ""))
+        except ValueError:
+            return None, None
+
+        return board_type, num_players
     async def _record_games(
         self, config_key: str, board_type: str, num_players: int, games: int
     ) -> None:

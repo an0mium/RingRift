@@ -177,7 +177,21 @@ class DataValidator:
             ))
             return result
 
-        return self.validate_arrays(dict(data))
+        # Only load arrays needed for validation (skip object arrays like game_ids, phases)
+        # This avoids triggering pickle errors on metadata arrays
+        validation_keys = {'features', 'globals', 'values', 'values_mp',
+                          'policy_indices', 'policy_values', 'move_numbers',
+                          'total_game_moves', 'num_players', 'player_numbers'}
+        arrays_dict = {}
+        for key in data.keys():
+            if key in validation_keys:
+                try:
+                    arrays_dict[key] = data[key]
+                except ValueError:
+                    # Skip object arrays that require pickle
+                    pass
+
+        return self.validate_arrays(arrays_dict)
 
     def validate_arrays(self, data: dict[str, np.ndarray]) -> ValidationResult:
         """Validate training data arrays.

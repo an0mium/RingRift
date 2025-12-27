@@ -82,25 +82,36 @@ P2POrchestrator now inherits from NetworkUtilsMixin, removing duplicated methods
 
 #### 2.1 `peer_manager.py` - Peer Discovery & Management (~3,000 lines)
 
-**Methods to extract:**
+**Status: ✅ Initial Extraction Complete (Dec 26, 2025)**
 
-| Method                               | Lines     | Description                |
-| ------------------------------------ | --------- | -------------------------- |
-| `_update_peer_reputation`            | 2643-...  | Track peer success/failure |
-| `_save_peer_to_cache`                | 2702-...  | SQLite peer persistence    |
-| `_get_bootstrap_peers_by_reputation` | 2759-...  | Prioritized peer list      |
-| `_get_tailscale_ip_for_peer`         | 3142-...  | Tailscale IP lookup        |
-| `_tailscale_urls_for_voter`          | 3222-...  | Multi-endpoint fallback    |
-| `_send_heartbeat_to_peer`            | 19266-... | Peer health check          |
-| `_bootstrap_from_known_peers`        | 19446-... | Initial peer discovery     |
-| `_follower_discovery_loop`           | 19799-... | Async discovery loop       |
-| `_check_dead_peers`                  | 20978-... | Peer failure detection     |
-| `_check_dead_peers_async`            | 20897-... | Async version              |
-| `_probe_nat_blocked_peers`           | 20577-... | NAT traversal              |
-| `_probe_nat_blocked_peer`            | 20769-... | Single peer probe          |
-| `_select_best_relay`                 | 20652-... | Relay selection            |
-| `_get_peer_health_score`             | 21334-... | Health scoring             |
-| `_record_p2p_sync_result`            | 21376-... | Sync metrics               |
+Extracted methods (PeerManagerMixin):
+| Method | Status | Description |
+| ------------------------------------ | ------------ | -------------------------- |
+| `_update_peer_reputation` | ✅ Extracted | Track peer success/failure |
+| `_save_peer_to_cache` | ✅ Extracted | SQLite peer persistence |
+| `_get_bootstrap_peers_by_reputation` | ✅ Extracted | Prioritized peer list |
+| `_get_peer_health_score` | ✅ Extracted | Health scoring |
+| `_record_p2p_sync_result` | ✅ Extracted | Sync metrics |
+| `_get_cached_peer_count` | ✅ Extracted | Cache count |
+| `_clear_peer_cache` | ✅ Extracted | Clear non-seed peers |
+| `_prune_stale_peers` | ✅ Extracted | Prune old peers |
+
+Tests: 15 tests in `tests/unit/scripts/test_peer_manager.py`
+
+**Remaining methods to extract:**
+
+| Method                        | Lines     | Description             |
+| ----------------------------- | --------- | ----------------------- |
+| `_get_tailscale_ip_for_peer`  | 3142-...  | Tailscale IP lookup     |
+| `_tailscale_urls_for_voter`   | 3222-...  | Multi-endpoint fallback |
+| `_send_heartbeat_to_peer`     | 19266-... | Peer health check       |
+| `_bootstrap_from_known_peers` | 19446-... | Initial peer discovery  |
+| `_follower_discovery_loop`    | 19799-... | Async discovery loop    |
+| `_check_dead_peers`           | 20978-... | Peer failure detection  |
+| `_check_dead_peers_async`     | 20897-... | Async version           |
+| `_probe_nat_blocked_peers`    | 20577-... | NAT traversal           |
+| `_probe_nat_blocked_peer`     | 20769-... | Single peer probe       |
+| `_select_best_relay`          | 20652-... | Relay selection         |
 
 **State to track:**
 

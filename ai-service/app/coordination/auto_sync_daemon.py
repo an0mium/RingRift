@@ -54,6 +54,20 @@ except ImportError:
     SYNC_MIN_QUALITY = 0.5
     SYNC_QUALITY_SAMPLE_SIZE = 20
 
+# Import quality extraction utilities
+try:
+    from app.distributed.quality_extractor import (
+        QualityExtractorConfig,
+        extract_quality_from_synced_db,
+        get_elo_lookup_from_service,
+    )
+    HAS_QUALITY_EXTRACTION = True
+except ImportError:
+    HAS_QUALITY_EXTRACTION = False
+    QualityExtractorConfig = None
+    extract_quality_from_synced_db = None
+    get_elo_lookup_from_service = None
+
 
 @dataclass
 class AutoSyncConfig:
@@ -80,6 +94,9 @@ class AutoSyncConfig:
     quality_filter_enabled: bool = True
     min_quality_for_sync: float = SYNC_MIN_QUALITY
     quality_sample_size: int = SYNC_QUALITY_SAMPLE_SIZE
+    # Quality extraction for priority-based training
+    enable_quality_extraction: bool = True
+    min_quality_score_for_priority: float = 0.7  # Only queue high-quality games
 
     @classmethod
     def from_config_file(cls, config_path: Path | None = None) -> AutoSyncConfig:
@@ -158,6 +175,9 @@ class SyncStats:
     # Quality filtering stats (December 2025)
     databases_skipped_quality: int = 0
     databases_quality_checked: int = 0
+    # Quality extraction stats (December 2025)
+    games_quality_extracted: int = 0
+    games_added_to_priority: int = 0
 
 
 class AutoSyncDaemon:
@@ -199,6 +219,18 @@ class AutoSyncDaemon:
         # Phase 9: Event subscription for DATA_STALE triggers
         self._subscribed = False
         self._urgent_sync_pending: dict[str, float] = {}  # config_key -> request_time
+
+        # Quality extraction for training data prioritization (December 2025)
+        self._quality_config: Any = None
+        self._elo_lookup: Any = None
+        if self.config.enable_quality_extraction and HAS_QUALITY_EXTRACTION:
+            try:
+                self._quality_config = QualityExtractorConfig()
+                self._elo_lookup = get_elo_lookup_from_service()
+                logger.info("Quality extraction enabled for training data prioritization")
+            except Exception as e:
+                logger.warning(f"Failed to initialize quality extraction: {e}")
+                self.config.enable_quality_extraction = False
 
         logger.info(
             f"AutoSyncDaemon initialized: node={self.node_id}, "
@@ -878,6 +910,119 @@ class AutoSyncDaemon:
         except (RuntimeError, OSError, ImportError) as e:
             logger.error(f"Disk cleanup failed: {e}")
 
+    async def _extract_quality_from_synced_db(self, db_path: Path) -> float:
+        """Extract quality scores from a synced database.
+
+        Computes average quality score across all games in the database
+        for training data prioritization.
+
+        Args:
+            db_path: Path to the synced database file
+
+        Returns:
+            Average quality score (0.0-1.0), or 0.0 if extraction fails
+        """
+        if not self.config.enable_quality_extraction or not HAS_QUALITY_EXTRACTION:
+            return 0.0
+
+        try:
+            # Extract quality for all games in the database
+            qualities = extract_quality_from_synced_db(
+                local_dir=db_path.parent,
+                elo_lookup=self._elo_lookup,
+                config=self._quality_config or QualityExtractorConfig(),
+            )
+
+            if not qualities or db_path.name not in qualities:
+                logger.debug(f"No quality scores extracted from {db_path.name}")
+                return 0.0
+
+            game_qualities = qualities[db_path.name]
+            if not game_qualities:
+                return 0.0
+
+            # Compute average quality
+            avg_quality = sum(q.quality_score for q in game_qualities) / len(game_qualities)
+
+            # Update stats
+            self._stats.games_quality_extracted += len(game_qualities)
+
+            # Add high-quality games to priority queue
+            high_quality_count = 0
+            for quality in game_qualities:
+                if quality.quality_score >= self.config.min_quality_score_for_priority:
+                    await self._update_priority_queue(
+                        config_key=f"{db_path.stem}",
+                        quality_score=quality.quality_score,
+                        game_count=1,
+                    )
+                    high_quality_count += 1
+
+            self._stats.games_added_to_priority += high_quality_count
+
+            logger.info(
+                f"Extracted quality from {db_path.name}: "
+                f"{len(game_qualities)} games, avg={avg_quality:.3f}, "
+                f"{high_quality_count} added to priority queue"
+            )
+
+            return avg_quality
+
+        except Exception as e:
+            logger.warning(f"Quality extraction failed for {db_path.name}: {e}")
+            return 0.0
+
+    async def _update_priority_queue(
+        self,
+        config_key: str,
+        quality_score: float,
+        game_count: int,
+    ) -> None:
+        """Update the priority queue with high-quality game data.
+
+        Emits QUALITY_SCORE_UPDATED event for curriculum learning integration.
+
+        Args:
+            config_key: Configuration identifier (e.g., "hex8_2p")
+            quality_score: Quality score (0.0-1.0)
+            game_count: Number of games at this quality level
+        """
+        try:
+            # Emit QUALITY_SCORE_UPDATED event for curriculum learning
+            from app.distributed.data_events import emit_quality_score_updated
+
+            # Determine quality category
+            if quality_score >= 0.8:
+                category = "excellent"
+                weight = 2.0
+            elif quality_score >= 0.7:
+                category = "good"
+                weight = 1.5
+            elif quality_score >= 0.6:
+                category = "adequate"
+                weight = 1.0
+            else:
+                category = "poor"
+                weight = 0.5
+
+            await emit_quality_score_updated(
+                game_id=config_key,
+                quality_score=quality_score,
+                quality_category=category,
+                training_weight=weight,
+                game_length=0,  # Not tracked at this level
+                is_decisive=True,  # Assume high-quality games are decisive
+                source="AutoSyncDaemon",
+            )
+
+            logger.debug(
+                f"Priority queue updated: {config_key} quality={quality_score:.3f} "
+                f"({category}), {game_count} games"
+            )
+
+        except Exception as e:
+            logger.debug(f"Failed to update priority queue for {config_key}: {e}")
+
     def _should_sync_database(self, db_path: Path) -> tuple[bool, str]:
         """Check if database meets minimum quality for sync.
 
@@ -1013,6 +1158,10 @@ class AutoSyncDaemon:
                     )
                     registered += count
 
+                    # Extract quality scores after successful registration
+                    if self.config.enable_quality_extraction:
+                        fire_and_forget(self._extract_quality_from_synced_db(db_path))
+
             except (OSError, RuntimeError) as e:
                 logger.debug(f"Failed to register games from {db_path}: {e}")
 
@@ -1119,11 +1268,19 @@ class AutoSyncDaemon:
                 "last_error": self._stats.last_error,
                 "databases_quality_checked": self._stats.databases_quality_checked,
                 "databases_skipped_quality": self._stats.databases_skipped_quality,
+                "games_quality_extracted": self._stats.games_quality_extracted,
+                "games_added_to_priority": self._stats.games_added_to_priority,
             },
             "quality_filter": {
                 "enabled": self.config.quality_filter_enabled,
                 "min_quality": self.config.min_quality_for_sync,
                 "sample_size": self.config.quality_sample_size,
+            },
+            "quality_extraction": {
+                "enabled": self.config.enable_quality_extraction,
+                "min_quality_for_priority": self.config.min_quality_score_for_priority,
+                "games_extracted": self._stats.games_quality_extracted,
+                "games_prioritized": self._stats.games_added_to_priority,
             },
             "gossip": gossip_status,
             "manifest": manifest_status,

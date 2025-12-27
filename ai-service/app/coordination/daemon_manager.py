@@ -2596,7 +2596,7 @@ class DaemonManager:
                 await asyncio.sleep(3600)
 
         except OSError as e:
-            if "Address already in use" in str(e):
+            if "address already in use" in str(e).lower():
                 logger.warning(f"Health server port {port} already in use, skipping")
             else:
                 logger.error(f"Health server failed: {e}")

@@ -100,18 +100,23 @@ class SyncDefaults:
     """Default values for sync operations.
 
     Used by: app/coordination/sync_mutex.py, app/distributed/sync_orchestrator.py
+
+    Dec 2025: Increased concurrency and reduced intervals for 43-node cluster:
+    - MAX_CONCURRENT_CLUSTER: 5 → 10 (3 was bottleneck with 40+ nodes)
+    - MAX_CONCURRENT_PER_HOST: 1 → 2 (high-bandwidth nodes can handle more)
+    - DATA_SYNC_INTERVAL: 300 → 120 (faster data availability)
     """
     # Sync lock timeout (seconds)
     LOCK_TIMEOUT: int = _env_int("RINGRIFT_SYNC_LOCK_TIMEOUT", 120)
 
-    # Maximum concurrent syncs per host
-    MAX_CONCURRENT_PER_HOST: int = _env_int("RINGRIFT_MAX_SYNCS_PER_HOST", 1)
+    # Maximum concurrent syncs per host (Dec 2025: 1 → 2 for faster throughput)
+    MAX_CONCURRENT_PER_HOST: int = _env_int("RINGRIFT_MAX_SYNCS_PER_HOST", 2)
 
-    # Maximum concurrent syncs cluster-wide
-    MAX_CONCURRENT_CLUSTER: int = _env_int("RINGRIFT_MAX_SYNCS_CLUSTER", 5)
+    # Maximum concurrent syncs cluster-wide (Dec 2025: 5 → 10 for 43-node cluster)
+    MAX_CONCURRENT_CLUSTER: int = _env_int("RINGRIFT_MAX_SYNCS_CLUSTER", 10)
 
-    # Data sync interval (seconds)
-    DATA_SYNC_INTERVAL: float = _env_float("RINGRIFT_DATA_SYNC_INTERVAL", 300.0)
+    # Data sync interval (seconds) (Dec 2025: 300 → 120 for faster availability)
+    DATA_SYNC_INTERVAL: float = _env_float("RINGRIFT_DATA_SYNC_INTERVAL", 120.0)
 
     # Model sync interval (seconds)
     MODEL_SYNC_INTERVAL: float = _env_float("RINGRIFT_MODEL_SYNC_INTERVAL", 600.0)

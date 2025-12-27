@@ -1615,6 +1615,7 @@ def main() -> None:
     args = parser.parse_args()
     mode = args.mode
     enforce_canonical_history = mode == "canonical"
+    emit_events = not bool(args.trace_game)
 
     if args.progress_every is not None:
         os.environ["RINGRIFT_PARITY_PROGRESS_EVERY"] = str(int(args.progress_every))
@@ -1646,6 +1647,39 @@ def main() -> None:
     if not db_paths:
         print("No GameReplayDB databases found.")
         return
+
+    emit_sync = None
+    parity_started_event = "PARITY_VALIDATION_STARTED"
+    parity_completed_event = "PARITY_VALIDATION_COMPLETED"
+    if emit_events:
+        try:
+            from app.distributed.event_helpers import emit_sync as _emit_sync
+            emit_sync = _emit_sync
+        except ImportError:
+            emit_sync = None
+
+        try:
+            from app.distributed.data_events import DataEventType
+            parity_started_event = DataEventType.PARITY_VALIDATION_STARTED.name
+            parity_completed_event = DataEventType.PARITY_VALIDATION_COMPLETED.name
+        except ImportError:
+            pass
+
+    if emit_sync is not None:
+        emit_sync(
+            parity_started_event,
+            {
+                "db_count": len(db_paths),
+                "db_path": args.db or "",
+                "mode": mode,
+                "view": args.view,
+                "limit_games_per_db": args.limit_games_per_db,
+                "include_game_ids_count": len(args.include_game_id or []),
+                "include_game_ids_file": args.include_game_ids_file or "",
+                "trace_mode": bool(args.trace_game),
+            },
+            source="check_ts_python_replay_parity",
+        )
 
     # Focused trace mode: find the requested game_id and emit a per-step trace,
     # then exit without running the full parity sweep.
@@ -1898,6 +1932,22 @@ def main() -> None:
             os.makedirs(summary_dir, exist_ok=True)
         with open(args.summary_json, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, sort_keys=True)
+
+    if emit_sync is not None:
+        emit_sync(
+            parity_completed_event,
+            {
+                "db_count": len(db_paths),
+                "total_games_checked": total_games,
+                "games_with_semantic_divergence": total_semantic_divergent,
+                "games_with_structural_issues": total_structural_issues,
+                "games_with_non_canonical_history": games_with_non_canonical_history,
+                "passed_canonical_parity_gate": bool(passed_canonical_parity_gate),
+                "mode": mode,
+                "view": args.view,
+            },
+            source="check_ts_python_replay_parity",
+        )
 
     # Cleanup temp DB if we created one
     if temp_db_path is not None:
