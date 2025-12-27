@@ -549,6 +549,54 @@ Standalone (no dependencies):
 
 ---
 
+## Startup Ordering
+
+**Critical:** Event subscribers must start before event emitters to prevent lost events.
+
+The correct startup order for coordinator nodes (December 2025 fix):
+
+```
+Phase 1: Core Infrastructure
+├── EVENT_ROUTER (must be first - all coordination depends on this)
+
+Phase 2: Health Monitoring
+├── NODE_HEALTH_MONITOR
+├── CLUSTER_MONITOR
+├── SYSTEM_HEALTH_MONITOR
+└── HEALTH_SERVER
+
+Phase 3: Event Subscribers (BEFORE emitters!)
+├── FEEDBACK_LOOP     # Subscribes to: TRAINING_COMPLETED, EVALUATION_COMPLETED
+└── DATA_PIPELINE     # Subscribes to: DATA_SYNC_COMPLETED, SELFPLAY_COMPLETE
+
+Phase 4: Event Emitters (sync daemons)
+├── AUTO_SYNC         # Emits: DATA_SYNC_COMPLETED
+├── CLUSTER_DATA_SYNC # Emits: DATA_SYNC_COMPLETED
+└── ELO_SYNC
+
+Phase 5: Automation Layer
+├── MODEL_DISTRIBUTION
+├── IDLE_RESOURCE
+├── UTILIZATION_OPTIMIZER
+├── QUEUE_POPULATOR
+├── AUTO_EXPORT
+├── EVALUATION
+├── AUTO_PROMOTION
+├── TOURNAMENT_DAEMON
+├── CURRICULUM_INTEGRATION
+├── NODE_RECOVERY
+├── TRAINING_NODE_WATCHER
+└── QUALITY_MONITOR
+```
+
+**Why this matters:** If `AUTO_SYNC` starts before `DATA_PIPELINE`, the `DATA_SYNC_COMPLETED`
+events are lost because the subscriber isn't running yet. This causes the pipeline to miss
+sync completions and never trigger NPZ exports.
+
+**Implementation:** See `scripts/master_loop.py:_get_daemon_list()` for the canonical startup order.
+
+---
+
 ## Priority Levels
 
 Daemons are categorized by priority for health monitoring and restart behavior.

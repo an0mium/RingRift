@@ -412,14 +412,14 @@ Unified training pipeline orchestration:
 
 The `DaemonManager` coordinates 60+ background services. See `docs/DAEMON_REGISTRY.md` for full reference.
 
-| Category  | Key Daemon Types                              | Purpose                      |
-| --------- | --------------------------------------------- | ---------------------------- |
-| Core      | `EVENT_ROUTER`, `DAEMON_WATCHDOG`             | Event bus, health monitoring |
-| Sync      | `AUTO_SYNC`, `MODEL_DISTRIBUTION`, `ELO_SYNC` | Data/model synchronization   |
-| Training  | `DATA_PIPELINE`, `SELFPLAY_COORDINATOR`       | Pipeline orchestration       |
-| Eval      | `EVALUATION`, `AUTO_PROMOTION`                | Model evaluation/promotion   |
-| Health    | `NODE_HEALTH_MONITOR`, `QUALITY_MONITOR`      | Cluster health               |
-| Resources | `IDLE_RESOURCE`, `NODE_RECOVERY`              | GPU utilization, recovery    |
+| Category  | Key Daemon Types                                             | Purpose                      |
+| --------- | ------------------------------------------------------------ | ---------------------------- |
+| Core      | `EVENT_ROUTER`, `DAEMON_WATCHDOG`                            | Event bus, health monitoring |
+| Sync      | `AUTO_SYNC`, `MODEL_DISTRIBUTION`, `ELO_SYNC`                | Data/model synchronization   |
+| Training  | `DATA_PIPELINE`, `SELFPLAY_COORDINATOR`, `TRAINING_ACTIVITY` | Pipeline orchestration       |
+| Eval      | `EVALUATION`, `AUTO_PROMOTION`                               | Model evaluation/promotion   |
+| Health    | `NODE_HEALTH_MONITOR`, `QUALITY_MONITOR`                     | Cluster health               |
+| Resources | `IDLE_RESOURCE`, `NODE_RECOVERY`                             | GPU utilization, recovery    |
 
 **Key files:**
 
@@ -428,6 +428,7 @@ The `DaemonManager` coordinates 60+ background services. See `docs/DAEMON_REGIST
 - **`daemon_types.py`**: `DaemonType` enum with all 63+ daemon types
 - **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
 - **`auto_sync_daemon.py`**: Automated P2P data sync with push-from-generator + gossip replication
+- **`training_activity_daemon.py`**: Detects training activity, triggers priority sync (Dec 2025)
 
 **Architecture (December 2025):**
 

@@ -397,8 +397,17 @@ class TrainingCoordinator:
             # Subscribe to data sync events (December 2025 - Phase 7.1.1 integration)
             bus.subscribe(DataEventType.DATA_SYNC_COMPLETED, self._on_data_sync_completed)
 
+            # Dec 27, 2025: Subscribe to pipeline events for training triggers
+            # NEW_GAMES_AVAILABLE - trigger training when fresh games arrive
+            if hasattr(DataEventType, 'NEW_GAMES_AVAILABLE'):
+                bus.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games_available)
+
+            # MODEL_PROMOTED - update training decisions based on promotions
+            if hasattr(DataEventType, 'MODEL_PROMOTED'):
+                bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
+
             self._subscribed = True
-            logger.info("[TrainingCoordinator] Subscribed to cluster health, regression, rollback, quality, and sync events")
+            logger.info("[TrainingCoordinator] Subscribed to cluster health, regression, rollback, quality, sync, and pipeline events")
         except Exception as e:
             self._subscribed = False
             logger.warning(f"[TrainingCoordinator] Failed to subscribe to cluster events: {e}")
@@ -1192,6 +1201,72 @@ class TrainingCoordinator:
         else:
             logger.debug(
                 f"[TrainingCoordinator] Ignoring non-selfplay sync: type={sync_type}"
+            )
+
+    def _on_new_games_available(self, event: Any) -> None:
+        """Handle NEW_GAMES_AVAILABLE event - mark training data ready.
+
+        Dec 27, 2025: Closes the selfplay → training feedback loop.
+        When new games are available from selfplay, we:
+        1. Mark pending training trigger for the config
+        2. Log for monitoring
+        3. Update per-config timestamps
+
+        This allows training to be triggered by fresh game data rather than
+        polling or fixed schedules.
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+
+        config_key = payload.get("config_key") or payload.get("config", "")
+        game_count = payload.get("game_count", 0)
+        source = payload.get("source", "unknown")
+
+        self._events_processed += 1
+
+        logger.info(
+            f"[TrainingCoordinator] New games available: config={config_key or 'unknown'}, "
+            f"games={game_count}, source={source}"
+        )
+
+        # Mark pending training trigger
+        self._pending_training_trigger = True
+
+        # Store per-config info
+        if config_key:
+            self._config_sync_times[config_key] = time.time()
+
+    def _on_model_promoted(self, event: Any) -> None:
+        """Handle MODEL_PROMOTED event - update training decisions.
+
+        Dec 27, 2025: Reacts to model promotions to update training state.
+        When a new model is promoted:
+        1. Clear any regression flags for that config
+        2. Update internal state about canonical model
+        3. Log for monitoring
+
+        This helps coordinate training decisions after successful promotions.
+        """
+        payload = event.payload if hasattr(event, 'payload') else {}
+
+        model_id = payload.get("model_id", "")
+        config_key = payload.get("config_key") or payload.get("config", "")
+        elo_gain = payload.get("elo_gain", 0.0)
+        promotion_type = payload.get("promotion_type", "standard")
+
+        self._events_processed += 1
+
+        logger.info(
+            f"[TrainingCoordinator] Model promoted: model={model_id}, "
+            f"config={config_key or 'unknown'}, elo_gain={elo_gain:+.1f}, "
+            f"type={promotion_type}"
+        )
+
+        # Clear any regression state for this config since we have a new good model
+        if config_key and config_key in getattr(self, '_regression_configs', set()):
+            self._regression_configs.discard(config_key)
+            logger.debug(
+                f"[TrainingCoordinator] Cleared regression state for {config_key} "
+                "after successful promotion"
             )
 
     @property

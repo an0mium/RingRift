@@ -876,6 +876,16 @@ from app.coordination.utils import (
 # Prefer importing from core_utils for new code
 from app.coordination import core_utils
 
+# Core Base Classes - Consolidated Module (December 2025)
+# This module consolidates: coordinator_base, coordinator_dependencies
+# Prefer importing from core_base for new code
+from app.coordination import core_base
+
+# Core Events - Consolidated Module (December 2025)
+# This module consolidates: event_router, event_mappings, event_emitters, event_normalization
+# Prefer importing from core_events for new code
+from app.coordination import core_events
+
 # Work Distribution (December 2025 - cluster work queue integration)
 from app.coordination.work_distributor import (
     DistributedWorkConfig,
@@ -1652,6 +1662,8 @@ def is_heartbeat_running() -> bool:
 __all__ = [
     # Consolidated modules (December 2025 - Phase 5)
     "core_utils",  # Consolidated tracing + distributed_lock + optional_imports + yaml_utils
+    "core_base",  # Consolidated coordinator_base + coordinator_dependencies
+    "core_events",  # Consolidated event_router + event_mappings + event_emitters + event_normalization
     # Constants
     "ELO_CURRICULUM_ENABLED",
     "HAS_AIOHTTP",
@@ -1690,7 +1702,6 @@ __all__ = [
     "ClusterSyncStats",
     "ClusterTransport",
     "CoordinatedTask",
-    "CoordinationSyncCoordinator",
     "CoordinatorBase",
     "CoordinatorConfig",
     "CoordinatorHealth",
@@ -1739,12 +1750,6 @@ __all__ = [
     "IterationRecord",
     "JobHealthState",
     "JobPriority",
-    "LambdaIdleConfig",
-    "LambdaIdleDaemon",
-    "LambdaNodeStatus",
-    "VastIdleConfig",
-    "VastIdleDaemon",
-    "VastNodeStatus",
     "MergeOperation",
     "MergeTransaction",
     "MetricTracker",
@@ -1752,7 +1757,6 @@ __all__ = [
     "MetricsAccumulator",
     "MetricsAnalysisOrchestrator",
     "MetricsConfig",
-    "ModelCacheEntry",
     "ModelLifecycleCoordinator",
     "ModelLifecycleStats",
     "ModelRecord",
@@ -2029,7 +2033,6 @@ __all__ = [
     "get_snapshot_coordinator",
     "get_stage_event_bus",
     "get_stall_handler",
-    "get_sync_coordinator",
     "get_sync_facade",
     # Sync mutex helpers
     "get_sync_lock_context",
@@ -2141,7 +2144,6 @@ __all__ = [
     "reset_snapshot_coordinator",
     "reset_stage_event_bus",
     "reset_stall_handler",
-    "reset_sync_coordinator",
     "reset_sync_facade",
     "reset_sync_mutex",
     "reset_sync_scheduler",

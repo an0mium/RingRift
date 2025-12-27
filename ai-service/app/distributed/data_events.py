@@ -120,6 +120,7 @@ class DataEventType(Enum):
     SELFPLAY_COMPLETE = "selfplay_complete"  # P0.2 Dec 2025: Selfplay batch finished
     SELFPLAY_TARGET_UPDATED = "selfplay_target_updated"  # Request more/fewer games
     SELFPLAY_RATE_CHANGED = "selfplay_rate_changed"  # Phase 19.3: Rate multiplier changed (>20%)
+    SELFPLAY_ALLOCATION_UPDATED = "selfplay_allocation_updated"  # Dec 2025: Allocation changed (exploration boost, curriculum)
 
     # Optimization events
     CMAES_TRIGGERED = "cmaes_triggered"

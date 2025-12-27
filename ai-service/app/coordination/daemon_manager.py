@@ -918,7 +918,23 @@ class DaemonManager:
                 router.subscribe(DataEventType.DAEMON_STATUS_CHANGED.value, self._on_daemon_status_changed)
                 logger.debug("[DaemonManager] Subscribed to DAEMON_STATUS_CHANGED")
 
-            logger.info("[DaemonManager] Subscribed to critical events (Phase 5, P0.3)")
+            # Dec 27, 2025: P2P cluster events for daemon lifecycle coordination
+            # HOST_OFFLINE - pause affected daemons when nodes leave cluster
+            if hasattr(DataEventType, 'HOST_OFFLINE'):
+                router.subscribe(DataEventType.HOST_OFFLINE.value, self._on_host_offline)
+                logger.debug("[DaemonManager] Subscribed to HOST_OFFLINE")
+
+            # HOST_ONLINE - resume/restart daemons when nodes rejoin
+            if hasattr(DataEventType, 'HOST_ONLINE'):
+                router.subscribe(DataEventType.HOST_ONLINE.value, self._on_host_online)
+                logger.debug("[DaemonManager] Subscribed to HOST_ONLINE")
+
+            # LEADER_ELECTED - trigger leader-only daemons when leadership changes
+            if hasattr(DataEventType, 'LEADER_ELECTED'):
+                router.subscribe(DataEventType.LEADER_ELECTED.value, self._on_leader_elected)
+                logger.debug("[DaemonManager] Subscribed to LEADER_ELECTED")
+
+            logger.info("[DaemonManager] Subscribed to critical events (Phase 5, P0.3, P2P cluster)")
 
             # Phase 7: Wire AutoRollbackHandler to actually perform model rollbacks
             # Without this, REGRESSION_CRITICAL events are logged but no rollback happens
@@ -1144,6 +1160,144 @@ class DaemonManager:
 
         except (RuntimeError, OSError, AttributeError) as e:
             logger.debug(f"[DaemonManager] Error handling DAEMON_STATUS_CHANGED: {e}")
+
+    async def _on_host_offline(self, event) -> None:
+        """Handle HOST_OFFLINE event - pause affected daemons when nodes leave cluster.
+
+        Dec 27, 2025: P2P cluster event integration. When a host goes offline,
+        pause daemons that depend on that host (e.g., sync daemons targeting that host,
+        distribution daemons, etc.).
+
+        Args:
+            event: The HOST_OFFLINE event with payload containing host_id, reason, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            host_id = payload.get("host_id", "unknown")
+            reason = payload.get("reason", "")
+
+            logger.info(
+                f"[DaemonManager] HOST_OFFLINE: {host_id}"
+                + (f" ({reason})" if reason else "")
+            )
+
+            # Notify sync-related daemons to exclude this host
+            for daemon_type in [DaemonType.AUTO_SYNC, DaemonType.MODEL_DISTRIBUTION]:
+                if daemon_type in self._daemons:
+                    info = self._daemons[daemon_type]
+                    if info.state == DaemonState.RUNNING and hasattr(info, 'instance'):
+                        daemon = info.instance
+                        if hasattr(daemon, 'mark_host_offline'):
+                            daemon.mark_host_offline(host_id)
+                            logger.debug(
+                                f"[DaemonManager] Marked host {host_id} offline for {daemon_type.value}"
+                            )
+
+        except (RuntimeError, OSError, AttributeError, KeyError) as e:
+            logger.debug(f"[DaemonManager] Error handling HOST_OFFLINE: {e}")
+
+    async def _on_host_online(self, event) -> None:
+        """Handle HOST_ONLINE event - resume/restart daemons when nodes rejoin.
+
+        Dec 27, 2025: P2P cluster event integration. When a host comes back online,
+        resume daemons and re-include the host in sync targets.
+
+        Args:
+            event: The HOST_ONLINE event with payload containing host_id, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            host_id = payload.get("host_id", "unknown")
+
+            logger.info(f"[DaemonManager] HOST_ONLINE: {host_id}")
+
+            # Notify sync-related daemons to re-include this host
+            for daemon_type in [DaemonType.AUTO_SYNC, DaemonType.MODEL_DISTRIBUTION]:
+                if daemon_type in self._daemons:
+                    info = self._daemons[daemon_type]
+                    if info.state == DaemonState.RUNNING and hasattr(info, 'instance'):
+                        daemon = info.instance
+                        if hasattr(daemon, 'mark_host_online'):
+                            daemon.mark_host_online(host_id)
+                            logger.debug(
+                                f"[DaemonManager] Marked host {host_id} online for {daemon_type.value}"
+                            )
+
+        except (RuntimeError, OSError, AttributeError, KeyError) as e:
+            logger.debug(f"[DaemonManager] Error handling HOST_ONLINE: {e}")
+
+    async def _on_leader_elected(self, event) -> None:
+        """Handle LEADER_ELECTED event - trigger leader-only daemons when leadership changes.
+
+        Dec 27, 2025: P2P cluster event integration. When a new leader is elected:
+        1. If we are the new leader: start leader-only daemons
+        2. If we lost leadership: stop leader-only daemons
+        3. Update all daemons with new leader info
+
+        Args:
+            event: The LEADER_ELECTED event with payload containing leader_id,
+                   previous_leader_id, is_self, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            leader_id = payload.get("leader_id", "unknown")
+            previous_leader_id = payload.get("previous_leader_id", "")
+            is_self = payload.get("is_self", False)
+
+            logger.info(
+                f"[DaemonManager] LEADER_ELECTED: {leader_id}"
+                + (f" (previous: {previous_leader_id})" if previous_leader_id else "")
+                + (" [THIS NODE]" if is_self else "")
+            )
+
+            # Leader-only daemons that should only run on the leader node
+            leader_only_daemons = [
+                DaemonType.DATA_PIPELINE,
+                DaemonType.AUTO_PROMOTION,
+                DaemonType.EVALUATION,
+                DaemonType.TRAINING_TRIGGER,
+            ]
+
+            if is_self:
+                # We became the leader - start leader-only daemons
+                for daemon_type in leader_only_daemons:
+                    if daemon_type in self._daemons:
+                        info = self._daemons[daemon_type]
+                        if info.state != DaemonState.RUNNING:
+                            logger.info(
+                                f"[DaemonManager] Starting leader-only daemon: {daemon_type.value}"
+                            )
+                            try:
+                                await self.start(daemon_type)
+                            except (RuntimeError, OSError) as e:
+                                logger.warning(
+                                    f"[DaemonManager] Failed to start {daemon_type.value}: {e}"
+                                )
+            else:
+                # We lost leadership or another node became leader - stop leader-only daemons
+                for daemon_type in leader_only_daemons:
+                    if daemon_type in self._daemons:
+                        info = self._daemons[daemon_type]
+                        if info.state == DaemonState.RUNNING:
+                            logger.info(
+                                f"[DaemonManager] Stopping leader-only daemon: {daemon_type.value}"
+                            )
+                            try:
+                                await self.stop(daemon_type)
+                            except (RuntimeError, OSError) as e:
+                                logger.warning(
+                                    f"[DaemonManager] Failed to stop {daemon_type.value}: {e}"
+                                )
+
+            # Notify all running daemons of the leadership change
+            for daemon_type, info in self._daemons.items():
+                if info.state == DaemonState.RUNNING and hasattr(info, 'instance'):
+                    daemon = info.instance
+                    if hasattr(daemon, 'on_leader_changed'):
+                        daemon.on_leader_changed(leader_id=leader_id, is_self=is_self)
+
+        except (RuntimeError, OSError, AttributeError, KeyError) as e:
+            logger.debug(f"[DaemonManager] Error handling LEADER_ELECTED: {e}")
 
     async def _ensure_coordination_wired(self) -> None:
         """Ensure coordination events are wired exactly once.

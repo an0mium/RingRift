@@ -60,151 +60,169 @@ logger = logging.getLogger(__name__)
 # Circuit Breaker for Pipeline Fault Tolerance (December 2025)
 # =============================================================================
 
-# December 2025: Import canonical CircuitState, alias as CircuitBreakerState for compatibility
+# December 2025: Import canonical CircuitBreaker and CircuitState
 try:
-    from app.distributed.circuit_breaker import CircuitState as CircuitBreakerState
+    from app.distributed.circuit_breaker import (
+        CircuitBreaker as CanonicalCircuitBreaker,
+        CircuitState as CircuitBreakerState,
+    )
+    _HAS_CANONICAL_CIRCUIT_BREAKER = True
 except ImportError:
     # Fallback if canonical module unavailable
+    _HAS_CANONICAL_CIRCUIT_BREAKER = False
+    CanonicalCircuitBreaker = None
+
     class CircuitBreakerState(Enum):
-        """Circuit breaker states."""
+        """Circuit breaker states (fallback)."""
         CLOSED = "closed"
         OPEN = "open"
         HALF_OPEN = "half_open"
 
 
-@dataclass
-class CircuitBreaker:
-    """Circuit breaker for pipeline stage fault tolerance.
+class PipelineCircuitBreaker:
+    """Circuit breaker wrapper for pipeline stage fault tolerance.
 
-    Prevents cascading failures by opening the circuit after repeated failures,
-    allowing the system to recover before resuming operations.
+    December 2025: Migrated to use canonical CircuitBreaker from
+    app.distributed.circuit_breaker with "pipeline" as the target.
+    Adds per-stage failure tracking for observability.
 
-    States:
-    - CLOSED: Normal operation, requests pass through
-    - OPEN: Circuit is tripped, requests are rejected
-    - HALF_OPEN: Testing if service recovered, limited requests allowed
-
-    Note (December 2025): This is a simplified local implementation for pipeline
-    stages. For per-host/per-target circuit breaking with Prometheus metrics and
-    exponential backoff, use app.distributed.circuit_breaker.CircuitBreaker instead.
-    Migration planned for Q1 2026.
+    This is a thin wrapper that:
+    1. Uses canonical CircuitBreaker with target="pipeline"
+    2. Tracks failures per stage for logging/metrics
+    3. Provides backward-compatible API
     """
 
-    failure_threshold: int = 3
-    reset_timeout_seconds: float = 60.0  # Reduced from 5 min to 1 min for faster recovery
-    half_open_max_requests: int = 1
+    # Default target name for pipeline-wide circuit
+    PIPELINE_TARGET = "pipeline"
 
-    # Internal state
-    _state: CircuitBreakerState = field(default=CircuitBreakerState.CLOSED)
-    _failure_count: int = 0
-    _success_count: int = 0
-    _last_failure_time: float = 0.0
-    _half_open_requests: int = 0
-    _failures_by_stage: dict[str, int] = field(default_factory=dict)
+    def __init__(
+        self,
+        failure_threshold: int = 3,
+        recovery_timeout: float = 60.0,
+        half_open_max_calls: int = 1,
+    ):
+        """Initialize pipeline circuit breaker.
+
+        Args:
+            failure_threshold: Failures before opening circuit
+            recovery_timeout: Seconds before trying half-open recovery
+            half_open_max_calls: Max test calls in half-open state
+        """
+        self._failures_by_stage: dict[str, int] = {}
+        self._success_count: int = 0
+
+        if _HAS_CANONICAL_CIRCUIT_BREAKER and CanonicalCircuitBreaker:
+            self._breaker = CanonicalCircuitBreaker(
+                failure_threshold=failure_threshold,
+                recovery_timeout=recovery_timeout,
+                half_open_max_calls=half_open_max_calls,
+                success_threshold=1,
+                operation_type="pipeline",
+            )
+        else:
+            # Minimal fallback for missing canonical module
+            self._breaker = None
+            self._fallback_state = CircuitBreakerState.CLOSED
+            self._fallback_failure_count = 0
+            self._fallback_last_failure_time = 0.0
+            self._failure_threshold = failure_threshold
+            self._recovery_timeout = recovery_timeout
 
     @property
     def is_open(self) -> bool:
         """Check if circuit is open (blocking requests)."""
-        if self._state == CircuitBreakerState.OPEN:
-            # Check if reset timeout has passed
-            if time.time() - self._last_failure_time >= self.reset_timeout_seconds:
-                self._transition_to_half_open()
-                return False
-            return True
-        return False
+        if self._breaker:
+            state = self._breaker.get_state(self.PIPELINE_TARGET)
+            return state == CircuitBreakerState.OPEN
+        return self._fallback_state == CircuitBreakerState.OPEN
 
     @property
     def is_closed(self) -> bool:
         """Check if circuit is closed (normal operation)."""
-        return self._state == CircuitBreakerState.CLOSED
+        if self._breaker:
+            state = self._breaker.get_state(self.PIPELINE_TARGET)
+            return state == CircuitBreakerState.CLOSED
+        return self._fallback_state == CircuitBreakerState.CLOSED
 
     @property
     def state(self) -> CircuitBreakerState:
         """Get current circuit state."""
-        # Check for automatic transition from OPEN to HALF_OPEN
-        if self._state == CircuitBreakerState.OPEN:
-            if time.time() - self._last_failure_time >= self.reset_timeout_seconds:
-                self._transition_to_half_open()
-        return self._state
+        if self._breaker:
+            return self._breaker.get_state(self.PIPELINE_TARGET)
+        return self._fallback_state
 
     def can_execute(self) -> bool:
         """Check if a request can be executed."""
-        state = self.state  # This may trigger OPEN -> HALF_OPEN transition
-
-        if state == CircuitBreakerState.CLOSED:
-            return True
-        elif state == CircuitBreakerState.HALF_OPEN:
-            return self._half_open_requests < self.half_open_max_requests
-        else:  # OPEN
-            return False
+        if self._breaker:
+            return self._breaker.can_execute(self.PIPELINE_TARGET)
+        return self._fallback_state != CircuitBreakerState.OPEN
 
     def record_success(self, stage: str = "") -> None:
         """Record a successful execution."""
         self._success_count += 1
-
-        if self._state == CircuitBreakerState.HALF_OPEN:
-            # Reset to closed on success in half-open state
-            self._transition_to_closed()
-            logger.info(
-                f"[CircuitBreaker] Recovered, transitioning to CLOSED after success in {stage}"
-            )
+        if self._breaker:
+            self._breaker.record_success(self.PIPELINE_TARGET)
+            if stage:
+                logger.debug(f"[PipelineCircuitBreaker] Success in stage: {stage}")
+        else:
+            self._fallback_state = CircuitBreakerState.CLOSED
+            self._fallback_failure_count = 0
 
     def record_failure(self, stage: str, error: str = "") -> None:
         """Record a failed execution."""
-        self._failure_count += 1
-        self._last_failure_time = time.time()
         self._failures_by_stage[stage] = self._failures_by_stage.get(stage, 0) + 1
-
-        if self._state == CircuitBreakerState.HALF_OPEN:
-            # Immediately trip back to open on any failure
-            self._transition_to_open()
-            logger.warning(
-                f"[CircuitBreaker] Failed in HALF_OPEN, reopening circuit: {stage} - {error}"
-            )
-        elif self._state == CircuitBreakerState.CLOSED:
-            if self._failure_count >= self.failure_threshold:
-                self._transition_to_open()
+        if self._breaker:
+            # Create an exception to pass to canonical breaker
+            err_obj = Exception(f"{stage}: {error}") if error else None
+            self._breaker.record_failure(self.PIPELINE_TARGET, err_obj)
+            logger.warning(f"[PipelineCircuitBreaker] Failure in {stage}: {error}")
+        else:
+            self._fallback_failure_count += 1
+            self._fallback_last_failure_time = time.time()
+            if self._fallback_failure_count >= self._failure_threshold:
+                self._fallback_state = CircuitBreakerState.OPEN
                 logger.warning(
-                    f"[CircuitBreaker] Threshold reached ({self._failure_count}), "
-                    f"opening circuit: {stage} - {error}"
+                    f"[PipelineCircuitBreaker] Threshold reached, opening circuit: {stage} - {error}"
                 )
-
-    def _transition_to_open(self) -> None:
-        """Transition to OPEN state."""
-        self._state = CircuitBreakerState.OPEN
-        self._half_open_requests = 0
-
-    def _transition_to_half_open(self) -> None:
-        """Transition to HALF_OPEN state."""
-        self._state = CircuitBreakerState.HALF_OPEN
-        self._half_open_requests = 0
-        logger.info("[CircuitBreaker] Reset timeout passed, transitioning to HALF_OPEN")
-
-    def _transition_to_closed(self) -> None:
-        """Transition to CLOSED state."""
-        self._state = CircuitBreakerState.CLOSED
-        self._failure_count = 0
-        self._half_open_requests = 0
 
     def reset(self) -> None:
         """Manually reset the circuit breaker."""
-        self._transition_to_closed()
         self._failures_by_stage.clear()
-        logger.info("[CircuitBreaker] Manually reset")
+        if self._breaker:
+            self._breaker.reset(self.PIPELINE_TARGET)
+        else:
+            self._fallback_state = CircuitBreakerState.CLOSED
+            self._fallback_failure_count = 0
+        logger.info("[PipelineCircuitBreaker] Manually reset")
 
     def get_status(self) -> dict[str, Any]:
         """Get circuit breaker status."""
+        if self._breaker:
+            status = self._breaker.get_status(self.PIPELINE_TARGET)
+            return {
+                "state": status.state.value,
+                "failure_count": status.failure_count,
+                "success_count": self._success_count,
+                "failures_by_stage": dict(self._failures_by_stage),
+                "last_failure_time": status.last_failure_time or 0.0,
+                "time_until_reset": status.time_since_open or 0,
+                "consecutive_opens": status.consecutive_opens,
+                "using_canonical": True,
+            }
         return {
-            "state": self.state.value,
-            "failure_count": self._failure_count,
+            "state": self._fallback_state.value,
+            "failure_count": self._fallback_failure_count,
             "success_count": self._success_count,
             "failures_by_stage": dict(self._failures_by_stage),
-            "last_failure_time": self._last_failure_time,
-            "time_until_reset": max(
-                0,
-                self.reset_timeout_seconds - (time.time() - self._last_failure_time)
-            ) if self._state == CircuitBreakerState.OPEN else 0,
+            "last_failure_time": self._fallback_last_failure_time,
+            "time_until_reset": 0,
+            "consecutive_opens": 0,
+            "using_canonical": False,
         }
+
+
+# Backward-compat alias (deprecated - use PipelineCircuitBreaker)
+CircuitBreaker = PipelineCircuitBreaker
 
 
 class PipelineStage(Enum):
@@ -317,15 +335,23 @@ class DataPipelineOrchestrator:
         self._last_quality_score: float = 0.0
 
         # Circuit breaker for fault tolerance (December 2025)
+        # Migrated to PipelineCircuitBreaker wrapping canonical CircuitBreaker
         cb_enabled = getattr(config, "circuit_breaker_enabled", True) if config else True
         cb_threshold = getattr(config, "circuit_breaker_failure_threshold", 3) if config else 3
-        cb_timeout = getattr(config, "circuit_breaker_reset_timeout_seconds", 300.0) if config else 300.0
-        cb_half_open = getattr(config, "circuit_breaker_half_open_max_requests", 1) if config else 1
+        # Support both old and new config names for timeout
+        cb_timeout = (
+            getattr(config, "circuit_breaker_recovery_timeout", None) or
+            getattr(config, "circuit_breaker_reset_timeout_seconds", 300.0)
+        ) if config else 300.0
+        cb_half_open = (
+            getattr(config, "circuit_breaker_half_open_max_calls", None) or
+            getattr(config, "circuit_breaker_half_open_max_requests", 1)
+        ) if config else 1
 
-        self._circuit_breaker = CircuitBreaker(
+        self._circuit_breaker = PipelineCircuitBreaker(
             failure_threshold=cb_threshold,
-            reset_timeout_seconds=cb_timeout,
-            half_open_max_requests=cb_half_open,
+            recovery_timeout=cb_timeout,
+            half_open_max_calls=cb_half_open,
         ) if cb_enabled else None
 
         # Current pipeline state
@@ -1123,6 +1149,36 @@ class DataPipelineOrchestrator:
 
         # Trigger priority sync if auto-trigger enabled
         if self.auto_trigger and self.auto_trigger_sync:
+            await self._trigger_orphan_recovery_sync(source_node, config_key, orphan_count)
+
+    async def _trigger_orphan_recovery_sync(
+        self, source_node: str | None, config_key: str | None, orphan_count: int
+    ) -> bool:
+        """Trigger priority sync for orphan recovery with retry.
+
+        Uses exponential backoff to retry failed sync operations.
+        December 2025: Added retry to address orphan detection → sync disconnect.
+
+        Args:
+            source_node: The node where orphans were detected
+            config_key: The board config (e.g., "hex8_2p")
+            orphan_count: Number of orphan games detected
+
+        Returns:
+            True if sync was successfully triggered, False otherwise
+        """
+        from app.utils.retry import RetryConfig
+
+        # Retry config: 4 attempts, 2s base delay, 30s max (exponential backoff)
+        retry_config = RetryConfig(
+            max_attempts=4,
+            base_delay=2.0,
+            max_delay=30.0,
+            exponential=True,
+            jitter=0.2,
+        )
+
+        for attempt in retry_config.attempts():
             try:
                 from app.coordination.sync_facade import get_sync_facade
 
@@ -1135,10 +1191,40 @@ class DataPipelineOrchestrator:
                         config_key=config_key,
                     )
                     logger.info(
-                        f"[DataPipelineOrchestrator] Triggered priority sync for orphan recovery"
+                        f"[DataPipelineOrchestrator] Triggered priority sync for orphan recovery "
+                        f"({orphan_count} games from {source_node})"
                     )
+                    return True
+                else:
+                    logger.warning("[DataPipelineOrchestrator] SyncFacade not available")
+                    return False
+
+            except (ConnectionError, TimeoutError, OSError) as e:
+                # Retryable network/connection errors
+                if attempt.is_last:
+                    logger.error(
+                        f"[DataPipelineOrchestrator] Orphan sync failed after "
+                        f"{attempt.number} attempts: {e}"
+                    )
+                    return False
+                else:
+                    logger.warning(
+                        f"[DataPipelineOrchestrator] Orphan sync attempt {attempt.number} "
+                        f"failed: {e}, retrying in {retry_config.get_delay(attempt.number):.1f}s"
+                    )
+                    await attempt.wait_async()
+
+            except ImportError:
+                # sync_facade not available - don't retry
+                logger.debug("[DataPipelineOrchestrator] sync_facade not available")
+                return False
+
             except Exception as e:
+                # Other errors - log and don't retry
                 logger.warning(f"[DataPipelineOrchestrator] Failed to trigger orphan sync: {e}")
+                return False
+
+        return False
 
     async def _on_orphan_games_registered(self, event: Any) -> None:
         """Handle ORPHAN_GAMES_REGISTERED events - update pipeline state.

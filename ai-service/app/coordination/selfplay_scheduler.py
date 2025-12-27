@@ -890,6 +890,11 @@ class SelfplayScheduler:
             f"{', '.join(f'{k}={sum(v.values())}' for k, v in allocation.items())}"
         )
 
+        # Dec 2025: Emit SELFPLAY_ALLOCATION_UPDATED for downstream consumers
+        # (IdleResourceDaemon, feedback loops, etc.)
+        if total_allocated > 0:
+            self._emit_allocation_updated(allocation, total_allocated, trigger="allocate_batch")
+
         return allocation
 
     def _allocate_to_nodes(
@@ -1788,6 +1793,14 @@ class SelfplayScheduler:
             except Exception as emit_err:
                 logger.debug(f"[SelfplayScheduler] Failed to emit target update: {emit_err}")
 
+            # Dec 2025: Also emit SELFPLAY_ALLOCATION_UPDATED for feedback loop tracking
+            self._emit_allocation_updated(
+                allocation=None,
+                total_games=0,
+                trigger=f"exploration_boost:{reason}",
+                config_key=config_key,
+            )
+
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling exploration boost: {e}")
 
@@ -2184,6 +2197,69 @@ class SelfplayScheduler:
         cutoff = now - self._allocation_window_seconds
         while self._allocation_history and self._allocation_history[0][0] < cutoff:
             self._allocation_history.popleft()
+
+    def _emit_allocation_updated(
+        self,
+        allocation: dict[str, dict[str, int]] | None,
+        total_games: int,
+        trigger: str,
+        config_key: str | None = None,
+    ) -> None:
+        """Emit SELFPLAY_ALLOCATION_UPDATED event.
+
+        December 2025: Notifies downstream consumers (IdleResourceDaemon, feedback
+        loops) when selfplay allocation has changed. This enables:
+        - IdleResourceDaemon to know which configs are prioritized
+        - Feedback loops to track allocation changes from their signals
+        - Monitoring to track allocation patterns over time
+
+        Args:
+            allocation: Dict of config_key -> {node_id: games} for batch allocations
+            total_games: Total games in this allocation
+            trigger: What caused this allocation (e.g., "allocate_batch", "exploration_boost")
+            config_key: Specific config that changed (for single-config updates)
+        """
+        try:
+            from app.coordination.event_router import DataEventType, get_event_bus
+
+            bus = get_event_bus()
+            if bus is None:
+                return
+
+            # Build allocation summary
+            if allocation:
+                configs_allocated = list(allocation.keys())
+                nodes_involved = set()
+                for node_games in allocation.values():
+                    nodes_involved.update(node_games.keys())
+            else:
+                configs_allocated = [config_key] if config_key else []
+                nodes_involved = set()
+
+            payload = {
+                "trigger": trigger,
+                "total_games": total_games,
+                "configs": configs_allocated,
+                "node_count": len(nodes_involved),
+                "timestamp": time.time(),
+            }
+
+            # Include exploration boosts for tracking feedback loop efficacy
+            if config_key and config_key in self._config_priorities:
+                priority = self._config_priorities[config_key]
+                payload["exploration_boost"] = priority.exploration_boost
+                payload["curriculum_weight"] = priority.curriculum_weight
+
+            bus.emit(DataEventType.SELFPLAY_ALLOCATION_UPDATED, payload)
+            logger.debug(
+                f"[SelfplayScheduler] Emitted SELFPLAY_ALLOCATION_UPDATED: "
+                f"trigger={trigger}, games={total_games}, configs={len(configs_allocated)}"
+            )
+
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Failed to emit allocation update: {e}")
 
     # =========================================================================
     # Per-Node Job Targeting (Dec 2025)

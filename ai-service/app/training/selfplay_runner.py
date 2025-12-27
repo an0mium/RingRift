@@ -1103,18 +1103,17 @@ class SelfplayRunner(ABC):
         self._notify_ephemeral_sync(result)
 
     def _notify_ephemeral_sync(self, result: GameResult) -> None:
-        """Notify EphemeralSyncDaemon of game completion for immediate sync.
+        """Notify AutoSyncDaemon of game completion for immediate sync.
 
         Phase 4A.5 (December 2025): Ensures games on ephemeral hosts (Vast.ai)
         are immediately synced to prevent data loss on termination.
 
-        December 2025: Migrated from deprecated ephemeral_sync module to
-        unified auto_sync_daemon.
+        December 2025: Uses unified auto_sync_daemon (not deprecated wrapper).
         """
         try:
-            from app.coordination.auto_sync_daemon import get_ephemeral_sync_daemon
+            from app.coordination.auto_sync_daemon import get_auto_sync_daemon
 
-            daemon = get_ephemeral_sync_daemon()
+            daemon = get_auto_sync_daemon()
             if not daemon.is_ephemeral:
                 return  # Not on ephemeral host, skip
 

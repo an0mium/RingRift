@@ -239,8 +239,10 @@ class TrainingActivityDaemon(BaseDaemon[TrainingActivityConfig]):
                     error=str(e),
                     source="TrainingActivityDaemon",
                 )
-            except Exception:
-                pass
+            except (ImportError, RuntimeError, OSError) as emit_err:
+                logger.debug(
+                    f"[{self._get_daemon_name()}] Failed to emit sync failure event: {emit_err}"
+                )
 
     def detect_local_training(self) -> bool:
         """Check if training is running locally.

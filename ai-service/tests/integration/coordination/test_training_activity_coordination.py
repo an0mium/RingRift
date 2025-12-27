@@ -323,7 +323,7 @@ class TestHealthCheckIntegration:
 
         assert health.healthy is True
         assert "3 training nodes" in health.message
-        assert health.details["training_nodes"] == ["node-1", "node-2", "node-3"]
+        assert sorted(health.details["training_nodes"]) == ["node-1", "node-2", "node-3"]
 
     @pytest.mark.asyncio
     async def test_get_status_includes_sync_count(self, reset_singletons):

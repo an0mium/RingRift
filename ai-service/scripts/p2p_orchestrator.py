@@ -2440,13 +2440,12 @@ class P2POrchestrator(
                 manager.register(elo_sync)
 
             # JobReaperLoop - enforces job timeouts and reassigns work
+            # December 27, 2025: Fixed constructor to match JobReaperLoop signature
+            # Previous version passed wrong parameters causing reaper to never run
             job_reaper = JobReaperLoop(
-                get_role=lambda: self.role,
-                get_work_queue=get_work_queue,
-                get_job_reaper=lambda: get_job_reaper(
-                    work_queue=get_work_queue(),
-                    ssh_config=getattr(self, 'ssh_config', None),
-                ),
+                get_active_jobs=self._get_all_active_jobs_for_reaper,
+                cancel_job=self._cancel_job_for_reaper,
+                get_job_heartbeats=self._get_job_heartbeats_for_reaper,
             )
             manager.register(job_reaper)
 
@@ -2475,6 +2474,108 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.error(f"LoopManager: failed to register loops: {e}")
             return False
+
+    # =========================================================================
+    # JobReaperLoop callbacks - December 27, 2025
+    # =========================================================================
+
+    def _get_all_active_jobs_for_reaper(self) -> dict[str, Any]:
+        """Get all active jobs across all job types for the job reaper.
+
+        Returns a flat dict of job_id -> job_info, where job_info includes:
+        - started_at: timestamp when job started
+        - claimed_at: timestamp when job was claimed (if applicable)
+        - status: current job status
+        - pid: process ID (for killing stuck processes)
+        - node_id: which node is running the job
+        """
+        result: dict[str, Any] = {}
+        with self.jobs_lock:
+            for job_type, jobs in self.active_jobs.items():
+                for job_id, job_info in jobs.items():
+                    if isinstance(job_info, dict):
+                        result[job_id] = {
+                            **job_info,
+                            "job_type": job_type,
+                        }
+                    else:
+                        # Handle non-dict job objects (legacy)
+                        result[job_id] = {
+                            "job_id": job_id,
+                            "job_type": job_type,
+                            "status": getattr(job_info, "status", "unknown"),
+                            "started_at": getattr(job_info, "started_at", 0),
+                            "pid": getattr(job_info, "pid", None),
+                        }
+        return result
+
+    async def _cancel_job_for_reaper(self, job_id: str) -> bool:
+        """Cancel a job by ID for the job reaper.
+
+        Attempts to:
+        1. Kill the process if PID is known
+        2. Update job status to 'cancelled'
+        3. Remove from active jobs dict
+        4. Emit TASK_ABANDONED event
+
+        Returns True if job was successfully cancelled.
+        """
+        import os
+        import signal
+
+        with self.jobs_lock:
+            # Find the job across all job types
+            for job_type, jobs in self.active_jobs.items():
+                if job_id in jobs:
+                    job_info = jobs[job_id]
+                    pid = job_info.get("pid") if isinstance(job_info, dict) else getattr(job_info, "pid", None)
+
+                    # Kill the process if we have a PID
+                    if pid:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                            logger.info(f"[JobReaper] Sent SIGTERM to pid {pid} for job {job_id}")
+                        except ProcessLookupError:
+                            logger.debug(f"[JobReaper] Process {pid} already dead for job {job_id}")
+                        except OSError as e:
+                            logger.warning(f"[JobReaper] Failed to kill pid {pid}: {e}")
+
+                    # Update status and remove from active jobs
+                    if isinstance(job_info, dict):
+                        job_info["status"] = "reaped"
+                    del jobs[job_id]
+
+                    # Emit event for coordination
+                    try:
+                        from app.coordination.event_router import emit_sync
+                        emit_sync("TASK_ABANDONED", {
+                            "job_id": job_id,
+                            "job_type": job_type,
+                            "reason": "reaped_by_job_reaper",
+                        })
+                    except ImportError:
+                        pass  # Event system not available
+
+                    logger.info(f"[JobReaper] Cancelled job {job_id} (type: {job_type})")
+                    return True
+
+        logger.debug(f"[JobReaper] Job {job_id} not found in active jobs")
+        return False
+
+    def _get_job_heartbeats_for_reaper(self) -> dict[str, float]:
+        """Get job heartbeat timestamps for the job reaper.
+
+        Returns dict of job_id -> last_heartbeat_time.
+        Jobs without recent heartbeats may be considered abandoned.
+        """
+        # Use jobs_started_at as a proxy for heartbeats
+        # In the future, this could be replaced with actual heartbeat tracking
+        result: dict[str, float] = {}
+        if hasattr(self, "jobs_started_at"):
+            for _node_id, jobs in self.jobs_started_at.items():
+                for job_id, start_time in jobs.items():
+                    result[job_id] = start_time
+        return result
 
     def _get_sync_router(self) -> SyncRouter | None:
         """Lazy-load SyncRouter singleton for intelligent sync routing."""
@@ -2610,6 +2711,78 @@ class P2POrchestrator(
             logger.warning(f"[P2P] Manager health: {len(unhealthy)}/{manager_count} unhealthy: {unhealthy}")
 
         return status
+
+    def health_check(self) -> "HealthCheckResult":
+        """Return health check result for daemon protocol compliance.
+
+        December 27, 2025: Added for DaemonManager integration. Returns a
+        HealthCheckResult that can be used by the daemon infrastructure for
+        health monitoring, auto-restart decisions, and liveness probes.
+
+        Returns:
+            HealthCheckResult with overall orchestrator health status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            class HealthCheckResult:
+                def __init__(self, healthy, status, message, details):
+                    self.healthy = healthy
+                    self.status = status
+                    self.message = message
+                    self.details = details
+
+            class CoordinatorStatus:
+                RUNNING = "running"
+                ERROR = "error"
+                STOPPED = "stopped"
+
+        # Get manager health status
+        manager_health = self._validate_manager_health()
+
+        # Calculate cluster metrics
+        uptime_seconds = time.time() - getattr(self, "start_time", time.time())
+        active_peers = sum(
+            1 for p in self.peers.values()
+            if time.time() - p.last_heartbeat < 120
+        )
+
+        details = {
+            "node_id": self.node_id,
+            "role": self.role.value if hasattr(self.role, "value") else str(self.role),
+            "leader_id": self.leader_id,
+            "active_peers": active_peers,
+            "total_peers": len(self.peers),
+            "uptime_seconds": uptime_seconds,
+            "managers_healthy": manager_health.get("all_healthy", False),
+            "unhealthy_managers": manager_health.get("unhealthy_count", 0),
+            "selfplay_jobs": self.self_info.selfplay_jobs if hasattr(self, "self_info") else 0,
+            "training_jobs": self.self_info.training_jobs if hasattr(self, "self_info") else 0,
+        }
+
+        # Determine overall health
+        is_healthy = manager_health.get("all_healthy", False)
+
+        # Additional health checks
+        if uptime_seconds < 10:
+            # Grace period for startup
+            is_healthy = True
+            message = "P2P Orchestrator starting up"
+            status = CoordinatorStatus.RUNNING
+        elif not is_healthy:
+            message = f"P2P Orchestrator unhealthy: {manager_health.get('unhealthy_count', 0)} unhealthy managers"
+            status = CoordinatorStatus.ERROR
+        else:
+            message = f"P2P Orchestrator healthy, {active_peers} peers active"
+            status = CoordinatorStatus.RUNNING
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message=message,
+            details=details,
+        )
 
     def _subscribe_to_daemon_events(self) -> bool:
         """Subscribe to daemon status events for observability.
@@ -7466,7 +7639,11 @@ class P2POrchestrator(
                 improvement_status = {"error": str(e)}
 
         # Get diversity metrics (delegated to SelfplayScheduler)
-        diversity_metrics = self.selfplay_scheduler.get_diversity_metrics()
+        # December 27, 2025: Added try-except to prevent 500 errors on memory-constrained nodes
+        try:
+            diversity_metrics = self.selfplay_scheduler.get_diversity_metrics()
+        except Exception as e:  # noqa: BLE001
+            diversity_metrics = {"error": str(e)}
 
         voter_ids = list(getattr(self, "voter_node_ids", []) or [])
         voters_alive = 0
@@ -7481,11 +7658,24 @@ class P2POrchestrator(
                     voters_alive += 1
 
         # Get P2P sync metrics (with error handling for new features)
+        # December 27, 2025: Wrapped all metric calls to prevent cascading 500 errors
         p2p_sync_metrics = getattr(self, "_p2p_sync_metrics", {})
-        gossip_metrics = self._get_gossip_metrics_summary()
-        distributed_training = self._get_distributed_training_summary()
-        cluster_elo = self._get_cluster_elo_summary()
-        node_recovery = self._get_node_recovery_metrics()
+        try:
+            gossip_metrics = self._get_gossip_metrics_summary()
+        except Exception as e:  # noqa: BLE001
+            gossip_metrics = {"error": str(e)}
+        try:
+            distributed_training = self._get_distributed_training_summary()
+        except Exception as e:  # noqa: BLE001
+            distributed_training = {"error": str(e)}
+        try:
+            cluster_elo = self._get_cluster_elo_summary()
+        except Exception as e:  # noqa: BLE001
+            cluster_elo = {"error": str(e)}
+        try:
+            node_recovery = self._get_node_recovery_metrics()
+        except Exception as e:  # noqa: BLE001
+            node_recovery = {"error": str(e)}
         try:
             leader_consensus = self._get_cluster_leader_consensus()
         except Exception as e:  # noqa: BLE001

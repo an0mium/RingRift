@@ -723,8 +723,10 @@ class ModelLifecycleCoordinator:
                                 "triggered_by": "ModelLifecycleCoordinator",
                             },
                         )
-                    except Exception:
-                        pass
+                    except (ImportError, RuntimeError, OSError) as emit_err:
+                        logger.debug(
+                            f"[ModelLifecycleCoordinator] Failed to emit rollback event: {emit_err}"
+                        )
                 else:
                     logger.error(
                         f"[ModelLifecycleCoordinator] Auto-rollback failed: {result.get('error')}"
