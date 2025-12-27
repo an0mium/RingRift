@@ -147,23 +147,28 @@ class P2PAutoDeployer:
 
     def _load_hosts_config(self) -> None:
         """Load hosts from distributed_hosts.yaml."""
-        config_path = ROOT / self.config.hosts_config_path
-
-        if not config_path.exists():
-            logger.warning(f"Hosts config not found: {config_path}")
-            return
-
+        # December 2025: Use cluster_config helpers instead of inline YAML loading
         try:
-            with open(config_path) as f:
-                data = yaml.safe_load(f) or {}
+            from app.config.cluster_config import load_cluster_config
 
-            self._hosts = data.get("hosts", {})
-            logger.info(f"Loaded {len(self._hosts)} hosts from config")
+            config = load_cluster_config()
+            self._hosts = config.hosts_raw
+            logger.info(f"Loaded {len(self._hosts)} hosts from cluster_config")
 
-        except (OSError, IOError) as e:
-            logger.error(f"Failed to read hosts config file: {e}")
-        except yaml.YAMLError as e:
-            logger.error(f"Failed to parse hosts config YAML: {e}")
+        except ImportError:
+            # Fallback to direct YAML loading if cluster_config not available
+            config_path = ROOT / self.config.hosts_config_path
+            if not config_path.exists():
+                logger.warning(f"Hosts config not found: {config_path}")
+                return
+
+            try:
+                with open(config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                self._hosts = data.get("hosts", {})
+                logger.info(f"Loaded {len(self._hosts)} hosts from YAML fallback")
+            except (OSError, IOError, yaml.YAMLError) as e:
+                logger.error(f"Failed to load hosts config: {e}")
 
     def _get_deployable_hosts(self) -> dict[str, dict[str, Any]]:
         """Get hosts that should have P2P deployed.
@@ -283,17 +288,14 @@ class P2PAutoDeployer:
         peers = []
         voter_nodes = []
 
-        # Try to get voters from config
-        config_path = ROOT / self.config.hosts_config_path
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    data = yaml.safe_load(f) or {}
-                voter_nodes = data.get("p2p_voters", [])
-            except (OSError, IOError) as e:
-                logger.debug(f"Failed to read P2P voter config: {e}")
-            except yaml.YAMLError as e:
-                logger.debug(f"Failed to parse P2P voter config YAML: {e}")
+        # December 2025: Use get_p2p_voters() instead of re-loading YAML
+        try:
+            from app.config.cluster_config import get_p2p_voters
+            voter_nodes = get_p2p_voters()
+        except ImportError:
+            logger.debug("cluster_config not available for P2P voters")
+        except Exception as e:
+            logger.debug(f"Failed to get P2P voters: {e}")
 
         # Build peer URLs from voter hosts
         for voter in voter_nodes[:5]:  # Max 5 peers
