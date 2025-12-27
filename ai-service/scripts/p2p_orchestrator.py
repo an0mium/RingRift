@@ -12461,10 +12461,35 @@ print(json.dumps(result))
             # Find the generated JSONL file
             jsonl_files = list(output_dir.glob("*.jsonl"))
             if not jsonl_files:
-                logger.info(f"GPU selfplay job {job_id}: No JSONL output found")
+                logger.warning(f"GPU selfplay job {job_id}: No JSONL output found")
+                with self.jobs_lock:
+                    job = self.local_jobs.get(job_id)
+                    if job:
+                        job.status = "failed"
+                        job.completed_at = time.time()
+                        job.error_message = "missing_jsonl_output"
                 return
 
             input_jsonl = jsonl_files[0]
+            try:
+                if input_jsonl.stat().st_size == 0:
+                    logger.warning(f"GPU selfplay job {job_id}: JSONL output is empty ({input_jsonl})")
+                    with self.jobs_lock:
+                        job = self.local_jobs.get(job_id)
+                        if job:
+                            job.status = "failed"
+                            job.completed_at = time.time()
+                            job.error_message = "empty_jsonl_output"
+                    return
+            except OSError as e:
+                logger.warning(f"GPU selfplay job {job_id}: Failed to stat JSONL output ({input_jsonl}): {e}")
+                with self.jobs_lock:
+                    job = self.local_jobs.get(job_id)
+                    if job:
+                        job.status = "failed"
+                        job.completed_at = time.time()
+                        job.error_message = "jsonl_stat_failed"
+                return
             validated_db = output_dir / "validated_games.db"
 
             logger.info(f"GPU selfplay job {job_id} completed, running CPU validation...")
@@ -21051,24 +21076,9 @@ print(json.dumps({{
         candidates.sort(key=lambda p: getattr(p, "load_score", 100))
         return candidates[0].node_id if candidates else ""
 
-    # =========================================================================
-    # DEPRECATED: _manifest_collection_loop - December 27, 2025
-    # This inline loop has been migrated to ManifestCollectionLoop in LoopManager.
-    # See scripts/p2p/loops/manifest_collection_loop.py for the new implementation.
-    # Task creation removed from _run() - this method is now DEAD CODE.
-    # Retained temporarily for reference; safe to remove in Q1 2026.
-    # =========================================================================
-    async def _manifest_collection_loop_DEPRECATED(self):
-        """DEPRECATED: Use ManifestCollectionLoop via LoopManager instead.
-
-        This method is retained for reference during the migration period.
-        It is NOT called anywhere - task creation was removed Dec 27, 2025.
-        """
-        raise NotImplementedError(
-            "_manifest_collection_loop is deprecated. "
-            "Use ManifestCollectionLoop via LoopManager instead. "
-            "See scripts/p2p/loops/manifest_collection_loop.py"
-        )
+    # NOTE: _manifest_collection_loop removed Dec 27, 2025
+    # Now handled by ManifestCollectionLoop via LoopManager
+    # See scripts/p2p/loops/manifest_collection_loop.py
 
     def _record_selfplay_stats_sample(self, manifest: ClusterDataManifest) -> None:
         """Record a lightweight selfplay totals sample for dashboard charts."""
