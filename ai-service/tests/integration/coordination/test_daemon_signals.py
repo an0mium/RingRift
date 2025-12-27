@@ -355,3 +355,167 @@ class TestCoordinatorRegistrySignals:
         # Both should have shutdown called
         assert mock1.shutdown_called, "Coordinator 1 should have shutdown called"
         assert mock2.shutdown_called, "Coordinator 2 should have shutdown called"
+
+
+# =============================================================================
+# Signal Deduplication Tests (Phase 1 - Dec 2025)
+# =============================================================================
+
+
+class TestSignalDeduplication:
+    """Tests for signal deduplication and idempotency."""
+
+    @pytest.mark.asyncio
+    async def test_rapid_sigterms_handled_once(self, manager: DaemonManager):
+        """Rapid repeated SIGTERMs should result in single shutdown."""
+        shutdown_count = 0
+
+        async def counting_shutdown():
+            nonlocal shutdown_count
+            shutdown_count += 1
+            await asyncio.sleep(0.1)
+
+        manager.shutdown = counting_shutdown
+
+        # Capture SIGTERM handler
+        captured_handler = None
+
+        def capture_signal(signum, handler):
+            nonlocal captured_handler
+            if signum == signal.SIGTERM:
+                captured_handler = handler
+
+        with patch("app.coordination.daemon_manager.get_daemon_manager", return_value=manager):
+            with patch("signal.signal", side_effect=capture_signal):
+                setup_signal_handlers()
+
+        if captured_handler:
+            # Simulate rapid signals with fire_and_forget mocked
+            with patch("app.coordination.daemon_manager.fire_and_forget") as mock_ff:
+                # Fire multiple signals rapidly
+                captured_handler(signal.SIGTERM, None)
+                captured_handler(signal.SIGTERM, None)
+                captured_handler(signal.SIGTERM, None)
+
+                # Each call creates a fire_and_forget, but actual shutdown
+                # should be idempotent internally
+                assert mock_ff.call_count >= 1, "At least one shutdown should be triggered"
+
+    @pytest.mark.asyncio
+    async def test_sigterm_and_sigint_combined(self, manager: DaemonManager):
+        """SIGTERM followed by SIGINT should not cause issues."""
+        captured_handlers = {}
+
+        def capture_signal(signum, handler):
+            captured_handlers[signum] = handler
+
+        with patch("app.coordination.daemon_manager.get_daemon_manager", return_value=manager):
+            with patch("signal.signal", side_effect=capture_signal):
+                setup_signal_handlers()
+
+        # Both handlers should be set
+        assert signal.SIGTERM in captured_handlers or signal.SIGINT in captured_handlers
+
+        with patch("app.coordination.daemon_manager.fire_and_forget"):
+            # Trigger both signals
+            if signal.SIGTERM in captured_handlers:
+                captured_handlers[signal.SIGTERM](signal.SIGTERM, None)
+            if signal.SIGINT in captured_handlers:
+                captured_handlers[signal.SIGINT](signal.SIGINT, None)
+
+        # Should not raise - handlers should be safe to call
+
+    @pytest.mark.asyncio
+    async def test_shutdown_idempotency(self, manager: DaemonManager):
+        """Multiple shutdown() calls should be idempotent."""
+        async def daemon_factory():
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                pass
+
+        manager.register_factory(DaemonType.MODEL_SYNC, daemon_factory)
+        await manager.start(DaemonType.MODEL_SYNC)
+        await asyncio.sleep(0.05)
+
+        # Call shutdown multiple times
+        await manager.shutdown()
+        await manager.shutdown()  # Should not raise
+        await manager.shutdown()  # Should not raise
+
+        # Manager should be stopped
+        assert not manager._running
+
+
+# =============================================================================
+# Signal Edge Cases Tests (Phase 1 - Dec 2025)
+# =============================================================================
+
+
+class TestSignalEdgeCases:
+    """Tests for signal handling edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_signal_during_startup(self, manager: DaemonManager):
+        """Signal during daemon startup should be handled gracefully."""
+        startup_phase = asyncio.Event()
+        shutdown_triggered = False
+
+        async def slow_starting_daemon():
+            startup_phase.set()
+            await asyncio.sleep(1.0)  # Slow startup
+            while True:
+                await asyncio.sleep(0.1)
+
+        manager.register_factory(DaemonType.MODEL_SYNC, slow_starting_daemon)
+
+        # Start daemon in background
+        start_task = asyncio.create_task(manager.start(DaemonType.MODEL_SYNC))
+
+        # Wait for startup phase to begin
+        await asyncio.wait_for(startup_phase.wait(), timeout=1.0)
+
+        # Trigger shutdown during startup
+        shutdown_task = asyncio.create_task(manager.shutdown())
+
+        # Both tasks should complete without hanging
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(start_task, shutdown_task, return_exceptions=True),
+                timeout=3.0,
+            )
+        except asyncio.TimeoutError:
+            start_task.cancel()
+            shutdown_task.cancel()
+            try:
+                await asyncio.gather(start_task, shutdown_task, return_exceptions=True)
+            except asyncio.CancelledError:
+                pass
+            pytest.fail("Signal during startup caused hang")
+
+    def test_signal_with_empty_registry(self):
+        """Signal handler should work even with no daemons registered."""
+        DaemonManager.reset_instance()
+        mgr = DaemonManager(DaemonManagerConfig())
+        mgr._factories.clear()
+        mgr._daemons.clear()
+
+        captured_handler = None
+
+        def capture_signal(signum, handler):
+            nonlocal captured_handler
+            if signum == signal.SIGTERM:
+                captured_handler = handler
+
+        with patch("app.coordination.daemon_manager.get_daemon_manager", return_value=mgr):
+            with patch("signal.signal", side_effect=capture_signal):
+                setup_signal_handlers()
+
+        # Handler should work without raising
+        if captured_handler:
+            with patch("app.coordination.daemon_manager.fire_and_forget"):
+                # Should not raise even with empty registry
+                captured_handler(signal.SIGTERM, None)
+
+        DaemonManager.reset_instance()

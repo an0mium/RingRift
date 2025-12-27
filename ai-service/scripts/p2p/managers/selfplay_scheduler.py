@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -166,6 +167,7 @@ class SelfplayScheduler:
         # Maps config_key -> current rate multiplier (1.0 = normal, >1 = boost, <1 = throttle)
         self._rate_multipliers: dict[str, float] = {}
         self._subscribed = False
+        self._subscription_lock = threading.Lock()  # Dec 2025: Prevent race in subscribe_to_events
 
         # Track previous targets for change detection (P0.2 Dec 2025)
         self._previous_targets: dict[str, int] = {}
@@ -227,40 +229,60 @@ class SelfplayScheduler:
 
         Subscribes to:
         - SELFPLAY_RATE_CHANGED: Adjust scheduling priority for configs
+
+        Dec 2025 P0.1: Thread-safe subscription with lock to prevent race condition
+        where _subscribed flag was set before subscriptions completed.
         """
+        # Fast path without lock
         if self._subscribed:
             return
 
-        try:
-            from app.coordination.event_router import DataEventType, get_event_bus
+        # Slow path with lock to prevent race condition
+        with self._subscription_lock:
+            # Double-check after acquiring lock
+            if self._subscribed:
+                return
 
-            bus = get_event_bus()
+            try:
+                from app.coordination.event_router import DataEventType, get_event_bus
 
-            # Subscribe to SELFPLAY_RATE_CHANGED for dynamic rate adjustment
-            if hasattr(DataEventType, "SELFPLAY_RATE_CHANGED"):
-                bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
-                logger.info("[SelfplayScheduler] Subscribed to SELFPLAY_RATE_CHANGED")
+                bus = get_event_bus()
+                subscribed_count = 0
 
-            # Dec 2025: Subscribe to EXPLORATION_BOOST for training anomaly feedback
-            if hasattr(DataEventType, "EXPLORATION_BOOST"):
-                bus.subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost)
-                logger.info("[SelfplayScheduler] Subscribed to EXPLORATION_BOOST")
+                # Subscribe to SELFPLAY_RATE_CHANGED for dynamic rate adjustment
+                if hasattr(DataEventType, "SELFPLAY_RATE_CHANGED"):
+                    bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
+                    subscribed_count += 1
+                    logger.info("[SelfplayScheduler] Subscribed to SELFPLAY_RATE_CHANGED")
 
-            # Dec 2025: Subscribe to TRAINING_COMPLETED to boost selfplay after training
-            if hasattr(DataEventType, "TRAINING_COMPLETED"):
-                bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_completed)
-                logger.info("[SelfplayScheduler] Subscribed to TRAINING_COMPLETED")
+                # Dec 2025: Subscribe to EXPLORATION_BOOST for training anomaly feedback
+                if hasattr(DataEventType, "EXPLORATION_BOOST"):
+                    bus.subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost)
+                    subscribed_count += 1
+                    logger.info("[SelfplayScheduler] Subscribed to EXPLORATION_BOOST")
 
-            # Dec 2025: Subscribe to ELO_VELOCITY_CHANGED for selfplay rate adjustment
-            if hasattr(DataEventType, "ELO_VELOCITY_CHANGED"):
-                bus.subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
-                logger.info("[SelfplayScheduler] Subscribed to ELO_VELOCITY_CHANGED")
+                # Dec 2025: Subscribe to TRAINING_COMPLETED to boost selfplay after training
+                if hasattr(DataEventType, "TRAINING_COMPLETED"):
+                    bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_completed)
+                    subscribed_count += 1
+                    logger.info("[SelfplayScheduler] Subscribed to TRAINING_COMPLETED")
 
-            self._subscribed = True
-        except ImportError:
-            logger.debug("[SelfplayScheduler] Event router not available")
-        except (RuntimeError, AttributeError) as e:
-            logger.warning(f"[SelfplayScheduler] Failed to subscribe: {e}")
+                # Dec 2025: Subscribe to ELO_VELOCITY_CHANGED for selfplay rate adjustment
+                if hasattr(DataEventType, "ELO_VELOCITY_CHANGED"):
+                    bus.subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
+                    subscribed_count += 1
+                    logger.info("[SelfplayScheduler] Subscribed to ELO_VELOCITY_CHANGED")
+
+                # Only mark subscribed after ALL subscriptions succeed
+                self._subscribed = True
+                logger.info(f"[SelfplayScheduler] Event subscriptions complete ({subscribed_count} events)")
+
+            except ImportError:
+                logger.debug("[SelfplayScheduler] Event router not available")
+                # Don't set _subscribed = False here, as it's already False
+            except (RuntimeError, AttributeError) as e:
+                logger.warning(f"[SelfplayScheduler] Failed to subscribe: {e}")
+                self._subscribed = False  # Ensure flag reflects reality on error
 
     async def _on_selfplay_rate_changed(self, event) -> None:
         """Handle SELFPLAY_RATE_CHANGED events from feedback loop.

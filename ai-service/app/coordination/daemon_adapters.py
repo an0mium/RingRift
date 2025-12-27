@@ -484,401 +484,7 @@ DataCleanupDaemonAdapter = _create_legacy_adapter(DaemonType.DATA_CLEANUP)
 
 
 # =============================================================================
-# Original Legacy Classes (Preserved for Reference, Now Unused)
-# =============================================================================
-# The following class definitions were the original implementations before
-# the December 2025 consolidation. They are preserved as comments for
-# historical reference but the actual implementations above use the
-# data-driven ConfigurableDaemonAdapter pattern.
-#
-# class DistillationDaemonAdapter(DaemonAdapter):
-    """Adapter for the distillation daemon."""
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.DISTILLATION
-
-    @property
-    def role(self) -> OrchestratorRole:
-        return OrchestratorRole.DISTILLATION_LEADER
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.training.distillation_daemon import DistillationDaemon
-
-            return DistillationDaemon()
-        except ImportError:
-            logger.warning("[DistillationDaemonAdapter] DistillationDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "run"):
-            await daemon.run()
-        elif hasattr(daemon, "start"):
-            await daemon.start()
-        else:
-            # Fallback: run indefinitely
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-
-class PromotionDaemonAdapter(DaemonAdapter):
-    """Adapter for the unified promotion daemon."""
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.UNIFIED_PROMOTION
-
-    @property
-    def role(self) -> OrchestratorRole:
-        return OrchestratorRole.PROMOTION_LEADER
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.training.unified_promotion_daemon import UnifiedPromotionDaemon
-
-            return UnifiedPromotionDaemon()
-        except ImportError:
-            logger.warning("[PromotionDaemonAdapter] UnifiedPromotionDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "run"):
-            await daemon.run()
-        elif hasattr(daemon, "start"):
-            await daemon.start()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-
-class ExternalDriveSyncAdapter(DaemonAdapter):
-    """Adapter for external drive sync daemon."""
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.EXTERNAL_DRIVE_SYNC
-
-    @property
-    def role(self) -> OrchestratorRole:
-        return OrchestratorRole.EXTERNAL_SYNC_LEADER
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.distributed.external_drive_sync import ExternalDriveSyncDaemon
-
-            return ExternalDriveSyncDaemon()
-        except ImportError:
-            logger.warning("[ExternalDriveSyncAdapter] ExternalDriveSyncDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "run"):
-            await daemon.run()
-        elif hasattr(daemon, "start"):
-            await daemon.start()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-
-class VastCpuPipelineAdapter(DaemonAdapter):
-    """Adapter for Vast.ai CPU pipeline daemon."""
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.VAST_CPU_PIPELINE
-
-    @property
-    def role(self) -> OrchestratorRole:
-        return OrchestratorRole.VAST_PIPELINE_LEADER
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.distributed.vast_cpu_pipeline import VastCpuPipelineDaemon
-
-            return VastCpuPipelineDaemon()
-        except ImportError:
-            logger.warning("[VastCpuPipelineAdapter] VastCpuPipelineDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "run"):
-            await daemon.run()
-        elif hasattr(daemon, "start"):
-            await daemon.start()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-
-class ClusterDataSyncAdapter(DaemonAdapter):
-    """Adapter for cluster-wide data sync daemon.
-
-    Ensures game databases are synchronized to all cluster nodes with
-    adequate storage, excluding development machines.
-    """
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.CLUSTER_DATA_SYNC
-
-    @property
-    def role(self) -> OrchestratorRole:
-        return OrchestratorRole.CLUSTER_DATA_SYNC_LEADER
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.coordination.auto_sync_daemon import AutoSyncDaemon
-
-            return AutoSyncDaemon()
-        except ImportError:
-            logger.warning("[ClusterDataSyncAdapter] AutoSyncDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "run"):
-            await daemon.run()
-        elif hasattr(daemon, "start"):
-            await daemon.start()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-    async def _health_check(self) -> bool:
-        """Check if sync daemon is healthy."""
-        if not self._daemon_instance:
-            return False
-        # Check if it's running and has synced recently (within 2 intervals)
-        # December 2025: Use daemon's config interval instead of deprecated constant
-        interval_seconds = getattr(
-            getattr(self._daemon_instance, "config", None),
-            "interval_seconds",
-            120,  # Fallback to legacy default
-        )
-        stats = self._daemon_instance.stats
-        if not stats.get("running"):
-            return False
-        last_sync = stats.get("last_sync_time", 0)
-        if time.time() - last_sync > interval_seconds * 2:
-            return False
-        return True
-
-
-class AutoSyncDaemonAdapter(DaemonAdapter):
-    """Adapter for automated P2P data sync daemon (December 2025).
-
-    Orchestrates data synchronization across the cluster using:
-    - Layer 1: Push-from-generator (immediate push to neighbors)
-    - Layer 2: P2P gossip replication (eventual consistency)
-
-    Excludes coordinator nodes (MacBooks) from receiving synced data.
-    """
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.AUTO_SYNC
-
-    @property
-    def role(self) -> OrchestratorRole | None:
-        # No exclusive role - runs on all nodes
-        return None
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.coordination.auto_sync_daemon import AutoSyncDaemon
-
-            return AutoSyncDaemon()
-        except ImportError:
-            logger.warning("[AutoSyncDaemonAdapter] AutoSyncDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "start"):
-            await daemon.start()
-            # Wait while daemon is running
-            while hasattr(daemon, "is_running") and daemon.is_running():
-                await asyncio.sleep(self.config.poll_interval_seconds)
-        elif hasattr(daemon, "run"):
-            await daemon.run()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-    async def _health_check(self) -> bool:
-        """Check if auto sync daemon is healthy."""
-        if not self._daemon_instance:
-            return False
-        if hasattr(self._daemon_instance, "is_running"):
-            return self._daemon_instance.is_running()
-        return True
-
-
-class NPZDistributionDaemonAdapter(DaemonAdapter):
-    """Adapter for distribution daemon (consolidated Dec 26, 2025).
-
-    DEPRECATED: Use MODEL_DISTRIBUTION which now handles both model and NPZ
-    distribution via UnifiedDistributionDaemon.
-
-    This adapter is preserved for backward compatibility but redirects to
-    the unified distribution daemon.
-    """
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.NPZ_DISTRIBUTION
-
-    @property
-    def role(self) -> OrchestratorRole | None:
-        # December 2025: No exclusive role since this is deprecated
-        # and delegates to UnifiedDistributionDaemon
-        return None
-
-    @property
-    def depends_on(self) -> list[DaemonType]:
-        return []
-
-    async def _create_daemon(self) -> Any:
-        import warnings
-
-        warnings.warn(
-            "NPZDistributionDaemonAdapter is deprecated. "
-            "Use MODEL_DISTRIBUTION with UnifiedDistributionDaemon instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        try:
-            from app.coordination.unified_distribution_daemon import (
-                UnifiedDistributionDaemon,
-            )
-
-            logger.info(
-                "[NPZDistributionDaemonAdapter] Redirecting to UnifiedDistributionDaemon"
-            )
-            return UnifiedDistributionDaemon()
-        except ImportError:
-            logger.warning(
-                "[NPZDistributionDaemonAdapter] UnifiedDistributionDaemon not available"
-            )
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "start"):
-            await daemon.start()
-        elif hasattr(daemon, "run"):
-            await daemon.run()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-    async def _health_check(self) -> bool:
-        """Check if NPZ distribution daemon is healthy."""
-        if not self._daemon_instance:
-            return False
-        if hasattr(self._daemon_instance, "_running"):
-            return self._daemon_instance._running
-        return True
-
-
-class OrphanDetectionDaemonAdapter(DaemonAdapter):
-    """Adapter for orphan game detection daemon (December 2025).
-
-    Periodically scans for game databases not registered in ClusterManifest
-    and auto-registers them. Prevents "invisible" training data.
-    """
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.ORPHAN_DETECTION
-
-    @property
-    def role(self) -> OrchestratorRole | None:
-        # Runs on all nodes to detect local orphans
-        return None
-
-    @property
-    def depends_on(self) -> list[DaemonType]:
-        return []
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.coordination.orphan_detection_daemon import OrphanDetectionDaemon
-
-            return OrphanDetectionDaemon()
-        except ImportError:
-            logger.warning("[OrphanDetectionDaemonAdapter] OrphanDetectionDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "start"):
-            await daemon.start()
-        elif hasattr(daemon, "run"):
-            await daemon.run()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-    async def _health_check(self) -> bool:
-        """Check if orphan detection daemon is healthy."""
-        if not self._daemon_instance:
-            return False
-        if hasattr(self._daemon_instance, "_running"):
-            return self._daemon_instance._running
-        return True
-
-
-class DataCleanupDaemonAdapter(DaemonAdapter):
-    """Adapter for data cleanup daemon (December 2025).
-
-    Automatically cleans up poor quality game databases by:
-    - Quarantining databases with quality < 30% (recoverable)
-    - Deleting databases with quality < 10% (with audit log)
-
-    All cleanup actions are logged to cleanup_audit.jsonl.
-    """
-
-    @property
-    def daemon_type(self) -> DaemonType:
-        return DaemonType.DATA_CLEANUP
-
-    @property
-    def role(self) -> OrchestratorRole | None:
-        # Runs on all nodes to clean local data
-        return None
-
-    @property
-    def depends_on(self) -> list[DaemonType]:
-        return []
-
-    async def _create_daemon(self) -> Any:
-        try:
-            from app.coordination.data_cleanup_daemon import DataCleanupDaemon
-
-            return DataCleanupDaemon()
-        except ImportError:
-            logger.warning("[DataCleanupDaemonAdapter] DataCleanupDaemon not available")
-            return None
-
-    async def _run_daemon(self, daemon: Any) -> None:
-        if hasattr(daemon, "start"):
-            await daemon.start()
-        elif hasattr(daemon, "run"):
-            await daemon.run()
-        else:
-            while self._running:
-                await asyncio.sleep(self.config.poll_interval_seconds)
-
-    async def _health_check(self) -> bool:
-        """Check if data cleanup daemon is healthy."""
-        if not self._daemon_instance:
-            return False
-        if hasattr(self._daemon_instance, "_running"):
-            return self._daemon_instance._running
-        return True
-
-
-# =============================================================================
-# Adapter Registry
+# Adapter Registry (uses legacy adapter classes for compatibility)
 # =============================================================================
 
 _ADAPTER_CLASSES: dict[DaemonType, type[DaemonAdapter]] = {
@@ -900,6 +506,8 @@ def get_daemon_adapter(
 ) -> DaemonAdapter | None:
     """Get an adapter for a daemon type.
 
+    December 2025: Now uses ConfigurableDaemonAdapter via ADAPTER_SPECS.
+
     Args:
         daemon_type: The type of daemon
         config: Optional adapter configuration
@@ -907,6 +515,12 @@ def get_daemon_adapter(
     Returns:
         DaemonAdapter instance or None if not available
     """
+    # First check ADAPTER_SPECS for data-driven adapters
+    spec = ADAPTER_SPECS.get(daemon_type)
+    if spec:
+        return ConfigurableDaemonAdapter(spec, config)
+
+    # Fallback to legacy registry
     adapter_class = _ADAPTER_CLASSES.get(daemon_type)
     if adapter_class:
         return adapter_class(config)
@@ -926,9 +540,20 @@ def register_adapter_class(
     _ADAPTER_CLASSES[daemon_type] = adapter_class
 
 
+def register_adapter_spec(spec: DaemonAdapterSpec) -> None:
+    """Register a daemon adapter specification.
+
+    December 2025: Preferred method for adding new adapters.
+
+    Args:
+        spec: The adapter specification
+    """
+    ADAPTER_SPECS[spec.daemon_type] = spec
+
+
 def get_available_adapters() -> list[DaemonType]:
     """Get list of daemon types with available adapters."""
-    return list(_ADAPTER_CLASSES.keys())
+    return list(set(_ADAPTER_CLASSES.keys()) | set(ADAPTER_SPECS.keys()))
 
 
 def register_all_adapters_with_manager() -> dict[DaemonType, bool]:
@@ -942,9 +567,10 @@ def register_all_adapters_with_manager() -> dict[DaemonType, bool]:
     manager = get_daemon_manager()
     results: dict[DaemonType, bool] = {}
 
-    for daemon_type, adapter_class in _ADAPTER_CLASSES.items():
+    # Register from ADAPTER_SPECS (preferred)
+    for daemon_type, spec in ADAPTER_SPECS.items():
         try:
-            adapter = adapter_class()
+            adapter = ConfigurableDaemonAdapter(spec)
             manager.register_factory(
                 daemon_type,
                 adapter.run,
@@ -963,17 +589,26 @@ def register_all_adapters_with_manager() -> dict[DaemonType, bool]:
 
 
 __all__ = [
-    "AutoSyncDaemonAdapter",
+    # Core classes
     "DaemonAdapter",
     "DaemonAdapterConfig",
+    "DaemonAdapterSpec",
+    "ConfigurableDaemonAdapter",
+    # Legacy adapter classes (backward compatibility)
+    "AutoSyncDaemonAdapter",
+    "ClusterDataSyncAdapter",
+    "DataCleanupDaemonAdapter",
     "DistillationDaemonAdapter",
     "ExternalDriveSyncAdapter",
     "NPZDistributionDaemonAdapter",
     "OrphanDetectionDaemonAdapter",
     "PromotionDaemonAdapter",
     "VastCpuPipelineAdapter",
+    # Registry and functions
+    "ADAPTER_SPECS",
     "get_available_adapters",
     "get_daemon_adapter",
     "register_adapter_class",
+    "register_adapter_spec",
     "register_all_adapters_with_manager",
 ]

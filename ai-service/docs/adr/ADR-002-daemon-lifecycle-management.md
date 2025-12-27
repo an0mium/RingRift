@@ -6,7 +6,7 @@
 
 ## Context
 
-The RingRift training infrastructure runs 30+ background daemons across 20+ nodes:
+The RingRift training infrastructure runs 62+ background daemons across 20+ nodes:
 
 - Selfplay generators
 - Data sync daemons

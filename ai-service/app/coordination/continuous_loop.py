@@ -104,6 +104,7 @@ class LoopStats:
     current_state: LoopState = LoopState.IDLE
     current_config: str = ""
     start_time: float = field(default_factory=time.time)
+    last_error: str | None = None  # December 2025: Added for health_check() reporting
 
 
 class ContinuousTrainingLoop:
@@ -158,11 +159,12 @@ class ContinuousTrainingLoop:
             logger.warning("Continuous loop already running")
             return
 
-        # Check if we should defer to unified_ai_loop
-        if self._is_unified_loop_running():
+        # December 2025 fix: Capture deferral state BEFORE creating new stats
+        # (previously DEFERRED was set then immediately overwritten by LoopStats())
+        should_defer = self._is_unified_loop_running()
+        if should_defer:
             logger.info("unified_ai_loop is running - deferring to it")
             logger.info("Use --force to override (not recommended)")
-            self.stats.current_state = LoopState.DEFERRED
 
         logger.info("Starting continuous training loop")
         logger.info(f"  Configs: {self.config.configs}")
@@ -175,6 +177,10 @@ class ContinuousTrainingLoop:
         self._running = True
         self._shutdown_event.clear()
         self.stats = LoopStats()
+
+        # Restore deferral state after stats creation
+        if should_defer:
+            self.stats.current_state = LoopState.DEFERRED
 
         # Wire up pipeline events with auto-trigger
         self._setup_pipeline()
@@ -244,13 +250,13 @@ class ContinuousTrainingLoop:
         """Set up pipeline orchestrator with auto-trigger."""
         try:
             from app.coordination.data_pipeline_orchestrator import (
-                get_orchestrator,
+                get_pipeline_orchestrator,
                 wire_pipeline_events,
             )
 
             # Wire up events with auto-trigger enabled
             wire_pipeline_events(auto_trigger=True)
-            self._orchestrator = get_orchestrator()
+            self._orchestrator = get_pipeline_orchestrator()
 
             logger.info("Pipeline events wired with auto-trigger enabled")
 

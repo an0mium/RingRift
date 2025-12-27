@@ -120,6 +120,133 @@ class HealthCheckResult:
             details=details,
         )
 
+    @classmethod
+    def from_metrics(
+        cls,
+        uptime_seconds: float,
+        events_processed: int = 0,
+        errors_count: int = 0,
+        error_rate: float | None = None,
+        last_activity_ago: float | None = None,
+        max_inactivity_seconds: float = 300.0,
+        max_error_rate: float = 0.1,
+        **extra_details: Any,
+    ) -> HealthCheckResult:
+        """Create a health check result from metrics.
+
+        December 2025: Added to standardize health check creation from metrics.
+
+        Args:
+            uptime_seconds: How long the component has been running
+            events_processed: Number of events processed
+            errors_count: Number of errors encountered
+            error_rate: Error rate (errors/events), computed if not provided
+            last_activity_ago: Seconds since last activity
+            max_inactivity_seconds: Max allowed inactivity before degraded
+            max_error_rate: Max error rate before unhealthy
+            **extra_details: Additional details to include
+
+        Returns:
+            HealthCheckResult with computed status
+        """
+        # Compute error rate if not provided
+        if error_rate is None and events_processed > 0:
+            error_rate = errors_count / events_processed
+        elif error_rate is None:
+            error_rate = 0.0
+
+        # Build details
+        details = {
+            "uptime_seconds": uptime_seconds,
+            "events_processed": events_processed,
+            "errors_count": errors_count,
+            "error_rate": round(error_rate, 4),
+            **extra_details,
+        }
+
+        if last_activity_ago is not None:
+            details["last_activity_ago"] = last_activity_ago
+
+        # Determine health status
+        if error_rate > max_error_rate:
+            return cls(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"High error rate: {error_rate:.1%} > {max_error_rate:.1%}",
+                details=details,
+            )
+
+        if last_activity_ago is not None and last_activity_ago > max_inactivity_seconds:
+            return cls(
+                healthy=True,  # Still running but degraded
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Inactive for {last_activity_ago:.0f}s (max: {max_inactivity_seconds:.0f}s)",
+                details=details,
+            )
+
+        if error_rate > max_error_rate / 2:
+            return cls(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Elevated error rate: {error_rate:.1%}",
+                details=details,
+            )
+
+        return cls(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message="OK",
+            details=details,
+        )
+
+    def health_score(self) -> float:
+        """Compute a health score from 0.0 (dead) to 1.0 (perfect health).
+
+        December 2025: Added for aggregate health scoring.
+
+        Returns:
+            Float between 0.0 and 1.0
+        """
+        if not self.healthy:
+            return 0.0
+
+        if self.status == CoordinatorStatus.ERROR:
+            return 0.1
+        elif self.status == CoordinatorStatus.DEGRADED:
+            return 0.7
+        elif self.status in (CoordinatorStatus.RUNNING, CoordinatorStatus.READY):
+            return 1.0
+        elif self.status == CoordinatorStatus.PAUSED:
+            return 0.5
+        elif self.status == CoordinatorStatus.DRAINING:
+            return 0.6
+        elif self.status == CoordinatorStatus.STOPPING:
+            return 0.3
+        elif self.status == CoordinatorStatus.STOPPED:
+            return 0.0
+        elif self.status == CoordinatorStatus.INITIALIZING:
+            return 0.8
+
+        return 0.5  # Unknown status
+
+    def with_details(self, **extra_details: Any) -> HealthCheckResult:
+        """Return a new HealthCheckResult with additional details.
+
+        Args:
+            **extra_details: Additional details to merge
+
+        Returns:
+            New HealthCheckResult with merged details
+        """
+        merged = {**self.details, **extra_details}
+        return HealthCheckResult(
+            healthy=self.healthy,
+            status=self.status,
+            message=self.message,
+            timestamp=self.timestamp,
+            details=merged,
+        )
+
 
 @dataclass
 class CoordinatorMetrics:

@@ -833,6 +833,8 @@ async def emit_evaluation_complete(
 ) -> bool:
     """Emit EVALUATION_COMPLETE event.
 
+    This is a critical event and uses retry logic to ensure delivery.
+
     Args:
         model_id: Model ID being evaluated
         board_type: Board type
@@ -865,7 +867,8 @@ async def emit_evaluation_complete(
         },
     )
 
-    return await _emit_stage_event(StageEvent.EVALUATION_COMPLETE, result)
+    # Use retry for this critical event (December 2025)
+    return await _emit_stage_event_with_retry(StageEvent.EVALUATION_COMPLETE, result)
 
 
 # =============================================================================
@@ -882,6 +885,8 @@ async def emit_promotion_complete(
     **metadata,
 ) -> bool:
     """Emit PROMOTION_COMPLETE event.
+
+    This is a critical event and uses retry logic to ensure delivery.
 
     Args:
         model_id: Model ID promoted
@@ -914,7 +919,8 @@ async def emit_promotion_complete(
         },
     )
 
-    return await _emit_stage_event(StageEvent.PROMOTION_COMPLETE, result)
+    # Use retry for this critical event (December 2025)
+    return await _emit_stage_event_with_retry(StageEvent.PROMOTION_COMPLETE, result)
 
 
 def emit_promotion_complete_sync(

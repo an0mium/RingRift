@@ -118,11 +118,12 @@ class TestCircuitBreaker:
 
     def test_half_open_closes_on_success(self):
         """Circuit should close after success in half-open state."""
-        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
+        # Canonical breaker has min backoff of 0.1s, so use that as base
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.1)
 
-        # Trip and wait for half-open (canonical uses 2x backoff, so wait 0.03s for 0.01*2=0.02 effective)
+        # Trip and wait for half-open (canonical uses min 0.1s backoff + jitter)
         cb.record_failure("test")
-        time.sleep(0.03)
+        time.sleep(0.25)  # Wait well past 0.1*2=0.2 effective timeout
         # Trigger HALF_OPEN transition via can_execute()
         assert cb.can_execute()
         assert cb.state == CircuitBreakerState.HALF_OPEN
@@ -133,23 +134,22 @@ class TestCircuitBreaker:
 
     def test_half_open_reopens_on_failure(self):
         """Circuit should reopen on failure in half-open state."""
-        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.05)
+        # Use longer timeout to ensure reliable test (min backoff is 0.1s with 2x multiplier)
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.1)
 
         # Trip the circuit
         cb.record_failure("test")
         assert cb.state == CircuitBreakerState.OPEN
 
-        # Wait for half-open transition
-        time.sleep(0.1)
-        _ = cb.state  # Trigger state check which may transition to HALF_OPEN
+        # Wait for half-open transition (canonical uses 2x backoff + min 0.1s)
+        time.sleep(0.25)
+        # Trigger HALF_OPEN transition via can_execute()
+        assert cb.can_execute()
+        assert cb.state == CircuitBreakerState.HALF_OPEN
 
-        # If we're in half-open, record another failure
-        if cb.state == CircuitBreakerState.HALF_OPEN:
-            cb.record_failure("test")
-            assert cb.state == CircuitBreakerState.OPEN
-        else:
-            # Still open, which is also valid
-            assert cb.state == CircuitBreakerState.OPEN
+        # Record another failure - should reopen the circuit
+        cb.record_failure("test")
+        assert cb.state == CircuitBreakerState.OPEN
 
     def test_get_status_dict(self):
         """get_status should return correct status dictionary."""

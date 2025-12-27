@@ -390,10 +390,11 @@ class TestHealthCheck:
     def test_health_check_initial_state(self, facade):
         """Should return healthy status initially."""
         health = facade.health_check()
-        assert health["status"] == "healthy"
-        assert health["operations_count"] == 0
-        assert health["errors_count"] == 0
-        assert health["backends_loaded"] == 0
+        # health_check() returns HealthCheckResult object (Dec 2025)
+        assert health.healthy is True
+        assert health.details["operations_count"] == 0
+        assert health.details["errors_count"] == 0
+        assert health.details["backends_loaded"] == 0
 
     def test_health_check_after_successful_syncs(self, facade):
         """Should remain healthy after successful syncs."""
@@ -404,9 +405,9 @@ class TestHealthCheck:
         facade._stats["by_backend"] = {"auto_sync": 10}
 
         health = facade.health_check()
-        assert health["status"] == "healthy"
-        assert health["operations_count"] == 10
-        assert health["errors_count"] == 0
+        assert health.healthy is True
+        assert health.details["operations_count"] == 10
+        assert health.details["errors_count"] == 0
 
     def test_health_check_elevated_error_rate(self, facade):
         """Should return degraded with elevated error rate (>20%)."""
@@ -416,8 +417,10 @@ class TestHealthCheck:
         facade._stats["total_errors"] = 3  # 30% error rate
 
         health = facade.health_check()
-        assert health["status"] == "degraded"
-        assert "Elevated error rate" in health["last_error"]
+        # DEGRADED status indicates degraded (not quite unhealthy)
+        from app.coordination.protocols import CoordinatorStatus
+        assert health.status == CoordinatorStatus.DEGRADED
+        assert "Elevated error rate" in health.message
 
     def test_health_check_high_error_rate(self, facade):
         """Should return unhealthy with high error rate (>50%)."""
@@ -427,15 +430,15 @@ class TestHealthCheck:
         facade._stats["total_errors"] = 6  # 60% error rate
 
         health = facade.health_check()
-        assert health["status"] == "unhealthy"
-        assert "High error rate" in health["last_error"]
+        assert health.healthy is False
+        assert "High error rate" in health.message
 
     def test_health_check_includes_bytes_transferred(self, facade):
         """Should include total bytes transferred."""
         facade._stats["total_bytes"] = 1024000
 
         health = facade.health_check()
-        assert health["total_bytes_transferred"] == 1024000
+        assert health.details["total_bytes_transferred"] == 1024000
 
     def test_health_check_backend_counts(self, facade):
         """Should track backends loaded and by_backend stats."""
@@ -446,9 +449,9 @@ class TestHealthCheck:
         facade._stats["by_backend"] = {"auto_sync": 5, "distributed": 3}
 
         health = facade.health_check()
-        assert health["backends_loaded"] == 2
-        assert health["by_backend"]["auto_sync"] == 5
-        assert health["by_backend"]["distributed"] == 3
+        assert health.details["backends_loaded"] == 2
+        assert health.details["by_backend"]["auto_sync"] == 5
+        assert health.details["by_backend"]["distributed"] == 3
 
 
 # =============================================================================

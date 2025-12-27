@@ -366,9 +366,9 @@ async def create_work_queue_monitor() -> None:
 async def create_data_pipeline() -> None:
     """Create and run data pipeline orchestrator (December 2025)."""
     try:
-        from app.coordination.data_pipeline_orchestrator import get_orchestrator
+        from app.coordination.data_pipeline_orchestrator import get_pipeline_orchestrator
 
-        orchestrator = get_orchestrator()
+        orchestrator = get_pipeline_orchestrator()
         await orchestrator.start()
         await _wait_for_daemon(orchestrator)
     except ImportError as e:

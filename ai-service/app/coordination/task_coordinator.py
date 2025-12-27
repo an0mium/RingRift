@@ -64,6 +64,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from app.coordination.singleton_mixin import SingletonMixin
+
 logger = logging.getLogger(__name__)
 
 # Use centralized event emitters (December 2025)
@@ -819,32 +821,23 @@ class TaskHeartbeatMonitor:
 # Task Coordinator
 # ============================================
 
-class TaskCoordinator:
+class TaskCoordinator(SingletonMixin):
     """
     Global task coordinator singleton.
 
     Provides centralized control over task spawning across all orchestrators.
+
+    December 27, 2025: Migrated to SingletonMixin (Wave 4 Phase 1).
     """
-
-    _instance: Optional['TaskCoordinator'] = None
-    _lock = threading.RLock()
-
-    @classmethod
-    def get_instance(cls) -> 'TaskCoordinator':
-        """Get or create the singleton instance."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
 
     @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton (for testing)."""
-        with cls._lock:
-            if cls._instance:
-                cls._instance._shutdown()
-            cls._instance = None
+        """Override to call _shutdown() before clearing instance."""
+        with cls._get_lock():
+            if cls.has_instance():
+                instance = cls.get_instance()
+                instance._shutdown()
+            super().reset_instance()
 
     def __init__(self):
         # Configuration

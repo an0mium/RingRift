@@ -166,7 +166,7 @@ class RepairStats(JobDaemonStats):
 
     December 2025: Now extends JobDaemonStats for consistent tracking.
     Inherits: jobs_processed, jobs_succeeded, jobs_failed, jobs_timed_out,
-              avg_duration_seconds, last_success_time, record_job_success(), etc.
+              last_job_time, avg_operation_duration, record_job_success(), etc.
     """
 
     # Repair-specific fields
@@ -191,13 +191,13 @@ class RepairStats(JobDaemonStats):
 
     @property
     def last_repair_time(self) -> float:
-        """Alias for last_success_time."""
-        return self.last_success_time
+        """Alias for last_job_time (from JobDaemonStats)."""
+        return self.last_job_time
 
     @property
     def avg_repair_duration_seconds(self) -> float:
-        """Alias for avg_duration_seconds."""
-        return self.avg_duration_seconds
+        """Alias for avg_operation_duration (from DaemonStatsBase)."""
+        return self.avg_operation_duration
 
     # Convenience methods
     def record_repair_start(self) -> None:
