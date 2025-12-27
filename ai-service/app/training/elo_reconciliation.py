@@ -289,7 +289,7 @@ class EloReconciler:
         persist_history: bool = True,
     ):
         self.local_db_path = local_db_path or (AI_SERVICE_ROOT / "data" / "unified_elo.db")
-        self.remote_hosts_config = remote_hosts_config or (AI_SERVICE_ROOT / "config" / "remote_hosts.yaml")
+        self.remote_hosts_config = remote_hosts_config or (AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml")
         self.ssh_timeout = ssh_timeout
         self.conflict_resolution = conflict_resolution
         self.track_history = track_history
@@ -986,23 +986,36 @@ else:
         return len(ratings)
 
     def _load_p2p_hosts(self) -> list[str]:
-        """Load P2P hosts from config."""
+        """Load P2P hosts from distributed_hosts.yaml (legacy fallback supported)."""
         if not self.remote_hosts_config.exists():
-            return []
+            legacy_path = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+            if legacy_path.exists():
+                self.remote_hosts_config = legacy_path
+            else:
+                return []
 
         try:
             import yaml
             with open(self.remote_hosts_config) as f:
-                config = yaml.safe_load(f)
+                config = yaml.safe_load(f) or {}
 
             hosts = []
-
-            # GH200 and other standard hosts
-            for name, info in config.get("standard_hosts", {}).items():
-                if "gh200" in name.lower() or info.get("role", "") == "selfplay":
-                    host = info.get("ssh_host")
+            if "hosts" in config:
+                for name, info in config.get("hosts", {}).items():
+                    if not info.get("p2p_enabled", True):
+                        continue
+                    status = str(info.get("status", "")).lower()
+                    if status in {"terminated", "offline", "suspended"}:
+                        continue
+                    host = info.get("tailscale_ip") or info.get("ssh_host")
                     if host:
                         hosts.append(host)
+            else:
+                for name, info in config.get("standard_hosts", {}).items():
+                    if "gh200" in name.lower() or info.get("role", "") == "selfplay":
+                        host = info.get("ssh_host")
+                        if host:
+                            hosts.append(host)
 
             return hosts
 

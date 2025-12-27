@@ -113,17 +113,19 @@ PASS20 completed the orchestrator migration Phase 3 and stabilized the test suit
 
 ### Documentation Created/Updated
 
-| Document                                                                                                                            | Status     |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Document | Status |
+| -------- | ------ |
+
 <<<<<<< Updated upstream
-| [`docs/testing/../../testing/TEST_CATEGORIES.md`](../../testing/TEST_CATEGORIES.md)                                                                                     | ✨ NEW     |
-| [`docs/archive/../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)                                       | ✨ NEW     |
+| [`docs/testing/../../testing/TEST_CATEGORIES.md`](../../testing/TEST_CATEGORIES.md) | ✨ NEW |
+| [`docs/archive/../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md) | ✨ NEW |
 =======
-| [`docs/testing/../../testing/TEST_CATEGORIES.md`](../../testing/TEST_CATEGORIES.md)                                                 | ✨ NEW     |
-| [`docs/archive/../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)                         | ✨ NEW     |
->>>>>>> Stashed changes
-| [`docs/PASS20_ASSESSMENT.md`](PASS20_ASSESSMENT.md)                                                                                 | ✅ Updated |
-| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ✅ Updated |
+| [`docs/testing/../../testing/TEST_CATEGORIES.md`](../../testing/TEST_CATEGORIES.md) | ✨ NEW |
+| [`docs/archive/../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](../ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md) | ✨ NEW |
+
+> > > > > > > Stashed changes
+> > > > > > > | [`docs/PASS20_ASSESSMENT.md`](PASS20_ASSESSMENT.md) | ✅ Updated |
+> > > > > > > | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ✅ Updated |
 
 ---
 
@@ -140,18 +142,20 @@ PASS20 completed the orchestrator migration Phase 3 and stabilized the test suit
 
 ### Parity Test Retained for Debugging
 
-| Test File                                                                                                                    | Reason                                 |
-| ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| [`GameEngine.orchestratorParity.integration.test.ts`](../tests/unit/GameEngine.orchestratorParity.integration.test.ts)       | Critical for debugging host divergence |
+| Test File                                                                                                                            | Reason                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| [`Backend_vs_Sandbox.seed5.internalStateParity.test.ts`](../../../tests/parity/Backend_vs_Sandbox.seed5.internalStateParity.test.ts) | Critical for debugging host divergence |
+
 <<<<<<< Updated upstream
-| [`ClientSandboxEngine.orchestratorParity.test.ts`](../../../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts)             | Verifies sandbox adapter paths         |
-| [`Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts`](../tests/unit/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts) | Cross-host parity verification         |
-| [`ClientSandboxEngine.movementParity.shared.test.ts`](../../../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts)       | Movement parity edge cases             |
+| [`ClientSandboxEngine.orchestratorParity.test.ts`](../../../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts) | Verifies sandbox adapter paths |
+| [`Backend_vs_Sandbox.seed5.internalStateParity.test.ts`](../../../tests/parity/Backend_vs_Sandbox.seed5.internalStateParity.test.ts) | Cross-host parity verification |
+| [`ClientSandboxEngine.movementParity.shared.test.ts`](../../../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts) | Movement parity edge cases |
 =======
-| [`ClientSandboxEngine.orchestratorParity.test.ts`](../../../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts)       | Verifies sandbox adapter paths         |
-| [`Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts`](../tests/unit/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts) | Cross-host parity verification         |
-| [`ClientSandboxEngine.movementParity.shared.test.ts`](../../../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts) | Movement parity edge cases             |
->>>>>>> Stashed changes
+| [`ClientSandboxEngine.orchestratorParity.test.ts`](../../../tests/unit/ClientSandboxEngine.orchestratorParity.test.ts) | Verifies sandbox adapter paths |
+| [`Backend_vs_Sandbox.seed5.internalStateParity.test.ts`](../../../tests/parity/Backend_vs_Sandbox.seed5.internalStateParity.test.ts) | Cross-host parity verification |
+| [`ClientSandboxEngine.movementParity.shared.test.ts`](../../../tests/unit/ClientSandboxEngine.movementParity.shared.test.ts) | Movement parity edge cases |
+
+> > > > > > > Stashed changes
 
 ---
 
@@ -231,18 +235,20 @@ Phase 4: Tier 2 Cleanup       ⬜ DEFERRED (post-MVP)
 
 ### Documentation Files
 
-| File                                                                                     | Change Type     |
-| ---------------------------------------------------------------------------------------- | --------------- |
+| File | Change Type |
+| ---- | ----------- |
+
 <<<<<<< Updated upstream
-| `docs/testing/TEST_CATEGORIES.md`                                                                | Created         |
-| `docs/archive/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`                                         | Created         |
+| `docs/testing/TEST_CATEGORIES.md` | Created |
+| `docs/archive/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md` | Created |
 =======
-| `docs/testing/TEST_CATEGORIES.md`                                                        | Created         |
-| `docs/archive/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`                                 | Created         |
->>>>>>> Stashed changes
-| `docs/PASS20_ASSESSMENT.md`                                                              | Created/Updated |
-| `docs/PASS20_COMPLETION_SUMMARY.md`                                                      | Created         |
-| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md) | Updated         |
+| `docs/testing/TEST_CATEGORIES.md` | Created |
+| `docs/archive/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md` | Created |
+
+> > > > > > > Stashed changes
+> > > > > > > | `docs/PASS20_ASSESSMENT.md` | Created/Updated |
+> > > > > > > | `docs/PASS20_COMPLETION_SUMMARY.md` | Created |
+> > > > > > > | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md) | Updated |
 
 ### Deleted Files
 

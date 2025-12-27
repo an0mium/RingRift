@@ -15,7 +15,7 @@ PASS22 completed the **achievable-without-Docker subtasks** from the production 
 
 - ✅ Comprehensive project documentation index created (110+ documents)
 - ✅ 7 missing Prometheus metrics implemented in MetricsService
-- ✅ KeyboardShortcutsHelp component fully tested (0% → 100% coverage, 32 tests)
+- ✅ KeyboardShortcutsHelp component retired; related tests removed in current tree
 - ✅ Environment variables documentation synchronized (5 added, 1 updated, 1 deprecated)
 - ✅ 6 core project documents updated with PASS20-21 progress
 - ✅ Observability infrastructure score maintained at 4.5/5
@@ -40,7 +40,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 
 - Branch coverage plateau at 52.67% (unchanged since PASS21)
 - 7 dashboard metrics not implemented in MetricsService
-- KeyboardShortcutsHelp component 0% covered (accessibility gap)
+- KeyboardShortcutsHelp component 0% covered (accessibility gap; component since removed)
 - Documentation index missing (110+ docs not cataloged)
 
 ---
@@ -65,7 +65,7 @@ PASS22 represents a **pragmatic subset** of the originally planned production po
 - Responsive behavior
 - Dark mode compatibility
 
-**Deliverable:** [`tests/components/KeyboardShortcutsHelp.test.tsx`](../tests/components/KeyboardShortcutsHelp.test.tsx)
+**Deliverable:** `tests/components/KeyboardShortcutsHelp.test.tsx` (removed; component retired)
 
 ---
 
@@ -303,38 +303,40 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 ### Documentation Files
 
 <<<<<<< Updated upstream
-| File                                                                | Lines     | Status | Purpose                                   |
+| File | Lines | Status | Purpose |
 | :------------------------------------------------------------------ | :-------- | :----- | :---------------------------------------- |
-| [`docs/PASS22_ASSESSMENT_REPORT.md`](PASS22_ASSESSMENT_REPORT.md)   | 740       | ✅ NEW | Comprehensive assessment identifying gaps |
-| [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md)             | 891       | ✅ NEW | Complete documentation catalog            |
-| [`docs/PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md) | This file | ✅ NEW | This completion summary                   |
+| [`docs/PASS22_ASSESSMENT_REPORT.md`](PASS22_ASSESSMENT_REPORT.md) | 740 | ✅ NEW | Comprehensive assessment identifying gaps |
+| [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) | 891 | ✅ NEW | Complete documentation catalog |
+| [`docs/PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md) | This file | ✅ NEW | This completion summary |
 =======
-| File                                                                      | Lines     | Status | Purpose                                   |
+| File | Lines | Status | Purpose |
 | :------------------------------------------------------------------------ | :-------- | :----- | :---------------------------------------- |
-| [`docs/PASS22_ASSESSMENT_REPORT.md`](PASS22_ASSESSMENT_REPORT.md)         | 740       | ✅ NEW | Comprehensive assessment identifying gaps |
-| [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) | 891       | ✅ NEW | Complete documentation catalog            |
-| [`docs/PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md)       | This file | ✅ NEW | This completion summary                   |
->>>>>>> Stashed changes
+| [`docs/PASS22_ASSESSMENT_REPORT.md`](PASS22_ASSESSMENT_REPORT.md) | 740 | ✅ NEW | Comprehensive assessment identifying gaps |
+| [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) | 891 | ✅ NEW | Complete documentation catalog |
+| [`docs/PASS22_COMPLETION_SUMMARY.md`](PASS22_COMPLETION_SUMMARY.md) | This file | ✅ NEW | This completion summary |
+
+> > > > > > > Stashed changes
 
 ### Test Files
 
-| File                                                                                                    | Tests | Coverage | Status |
-| :------------------------------------------------------------------------------------------------------ | :---- | :------- | :----- |
-| [`tests/components/KeyboardShortcutsHelp.test.tsx`](../tests/components/KeyboardShortcutsHelp.test.tsx) | 32    | 100%     | ✅ NEW |
+| File                                              | Tests | Coverage | Status |
+| :------------------------------------------------ | :---- | :------- | :----- |
+| `tests/components/KeyboardShortcutsHelp.test.tsx` | 32    | 100%     | ✅ NEW |
 
 ### Code Changes
 
 <<<<<<< Updated upstream
-| File                                                                                | Change        | Impact                 |
+| File | Change | Impact |
 | :---------------------------------------------------------------------------------- | :------------ | :--------------------- |
-| [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) | +7 metrics    | Dashboard completeness |
-| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md)                         | +5 vars, sync | Configuration accuracy |
-=======
-| File                                                                                                     | Change        | Impact                 |
-| :------------------------------------------------------------------------------------------------------- | :------------ | :--------------------- |
-| [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts)                | +7 metrics    | Dashboard completeness |
+| [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) | +7 metrics | Dashboard completeness |
 | [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) | +5 vars, sync | Configuration accuracy |
->>>>>>> Stashed changes
+=======
+| File | Change | Impact |
+| :------------------------------------------------------------------------------------------------------- | :------------ | :--------------------- |
+| [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) | +7 metrics | Dashboard completeness |
+| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) | +5 vars, sync | Configuration accuracy |
+
+> > > > > > > Stashed changes
 
 ### Documentation Updates
 
@@ -674,7 +676,7 @@ All PASS22 objectives achieved within scope constraints. Deferred tasks have cle
 - [`docs/../../../DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) - Complete documentation catalog
 - [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) - Synchronized configuration reference
 - [`src/server/services/MetricsService.ts`](../../../src/server/services/MetricsService.ts) - Metrics implementation
-- [`tests/components/KeyboardShortcutsHelp.test.tsx`](../tests/components/KeyboardShortcutsHelp.test.tsx) - Accessibility tests
+- `tests/components/KeyboardShortcutsHelp.test.tsx` - Accessibility tests
 
 ---
 

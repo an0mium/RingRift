@@ -606,7 +606,7 @@ def create_replicator_from_config(
 
     Args:
         manifest_path: Path to local manifest DB
-        hosts_config_path: Path to remote_hosts.yaml
+        hosts_config_path: Path to distributed_hosts.yaml (legacy remote_hosts.yaml supported)
         min_replicas: Minimum replicas required for safety (default: 3)
         external_backup_path: Optional path for external drive backup
 
@@ -616,23 +616,47 @@ def create_replicator_from_config(
     replica_hosts = []
     hosts_data = safe_load_yaml(hosts_config_path, default={}, log_errors=True)
 
-    # Use standard hosts as replicas (prefer GH200 nodes for redundancy)
-    for name, host_data in hosts_data.get("standard_hosts", {}).items():
-        # Skip training-only hosts, prefer selfplay hosts
-        role = host_data.get("role", "")
-        if "training" in role.lower() and "selfplay" not in role.lower():
-            continue
+    if "hosts" in hosts_data:
+        for name, host_data in hosts_data.get("hosts", {}).items():
+            if not host_data.get("p2p_enabled", True):
+                continue
+            status = str(host_data.get("status", "")).lower()
+            if status in {"terminated", "offline", "suspended"}:
+                continue
+            role = host_data.get("role", "")
+            if "training" in role.lower() and "selfplay" not in role.lower():
+                continue
 
-        replica_hosts.append(ReplicaHost(
-            name=name,
-            ssh_host=host_data.get("ssh_host", ""),
-            ssh_user=host_data.get("ssh_user", "ubuntu"),
-            ssh_port=host_data.get("ssh_port", 22),
-            remote_path=host_data.get(
-                "data_manifest_path",
-                "~/ringrift/ai-service/data/data_manifest.db"
-            ),
-        ))
+            ringrift_path = host_data.get("ringrift_path", "~/ringrift/ai-service").rstrip("/")
+            default_manifest = f"{ringrift_path}/data/data_manifest.db"
+            ssh_host = host_data.get("tailscale_ip") or host_data.get("ssh_host", "")
+            if not ssh_host:
+                continue
+
+            replica_hosts.append(ReplicaHost(
+                name=name,
+                ssh_host=ssh_host,
+                ssh_user=host_data.get("ssh_user", "ubuntu"),
+                ssh_port=host_data.get("ssh_port", 22),
+                remote_path=host_data.get("data_manifest_path", default_manifest),
+            ))
+    else:
+        # Legacy remote_hosts.yaml schema
+        for name, host_data in hosts_data.get("standard_hosts", {}).items():
+            role = host_data.get("role", "")
+            if "training" in role.lower() and "selfplay" not in role.lower():
+                continue
+
+            replica_hosts.append(ReplicaHost(
+                name=name,
+                ssh_host=host_data.get("ssh_host", ""),
+                ssh_user=host_data.get("ssh_user", "ubuntu"),
+                ssh_port=host_data.get("ssh_port", 22),
+                remote_path=host_data.get(
+                    "data_manifest_path",
+                    "~/ringrift/ai-service/data/data_manifest.db"
+                ),
+            ))
 
     # Limit to first N hosts to avoid excessive replication
     replica_hosts = replica_hosts[:5]

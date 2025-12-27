@@ -429,7 +429,10 @@ class UnifiedModelLoader:
                 map_location=self.device,
                 warn_on_unsafe=False,
             )
-        except (RuntimeError, FileNotFoundError, OSError, ValueError) as e:
+        except Exception as e:
+            # torch.load can raise a wide variety of exceptions (e.g. pickle.UnpicklingError)
+            # when the file is corrupt or not a real checkpoint. In allow_fresh mode we
+            # treat any load failure as non-fatal and fall back to a fresh model.
             logger.warning(f"Failed to load checkpoint {path}: {e}")
             if not allow_fresh:
                 raise

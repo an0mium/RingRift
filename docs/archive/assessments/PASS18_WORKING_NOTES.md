@@ -15,7 +15,7 @@ Last updated: 2025-11-30 (PASS18 in-progress).
   - [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1)
   - [RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md:1)
   - [DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md:1) and [docs/INDEX.md](../../INDEX.md:1)
-  - Jest test results from [jest-results.json](jest-results.json:1) (local run, many TS suites currently red).
+  - Jest test results from `jest-results.json` (local artifact; not tracked in repo).
   - Frontend code: [GameHUD.tsx](../../../src/client/components/GameHUD.tsx:1), [VictoryModal.tsx](../../../src/client/components/VictoryModal.tsx:1), [gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts:1), [ClientSandboxEngine.ts](../../../src/client/sandbox/ClientSandboxEngine.ts:1).
 
 ## 2. Snapshot of prior passes (for comparison)
@@ -40,7 +40,7 @@ Last updated: 2025-11-30 (PASS18 in-progress).
     - [captureSequenceEnumeration.test.ts](../../../tests/unit/captureSequenceEnumeration.test.ts:1) – backend vs sandbox capture sequence parity.
     - [RefactoredEngine.test.ts](../../../tests/unit/RefactoredEngine.test.ts:1) – capture, chain continuation, eliminate-stack behaviour.
     - [GameEngine.chainCapture.test.ts](../../../tests/unit/GameEngine.chainCapture.test.ts:1) and [GameEngine.chainCaptureChoiceIntegration.test.ts](../../../tests/unit/GameEngine.chainCaptureChoiceIntegration.test.ts:1) – complex chain-capture enforcement and choice enumeration.
-    - [GameEngine.territoryDisconnection.test.ts](tests/unit/GameEngine.territoryDisconnection.test.ts:1) and [ClientSandboxEngine.territoryDisconnection.hex.test.ts](../../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts:1) – territory disconnection and processing.
+    - [BoardManager.territoryDisconnection.test.ts](../../../tests/unit/BoardManager.territoryDisconnection.test.ts:1) and [ClientSandboxEngine.territoryDisconnection.hex.test.ts](../../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts:1) – territory disconnection and processing.
     - [Sandbox_vs_Backend.aiRngParity.test.ts](../../../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:1) and [Sandbox_vs_Backend.aiRngFullParity.test.ts](../../../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1) – RNG-aligned sandbox vs backend AI move selection.
     - [RulesBackendFacade.test.ts](../../../tests/unit/RulesBackendFacade.test.ts:1) – TS↔Python rules host behaviour in `python` and `shadow` modes.
   - Many of these tests previously passed in PASS16/17; clusters of failures now indicate instability or expectation drift around complex rules parity and host orchestration.
@@ -112,10 +112,10 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
 
 ## 6. Test health snapshot (TS & Python – qualitative)
 
-- **TypeScript / Jest (local run via [jest-results.json](jest-results.json:1))**
+- **TypeScript / Jest (local run via `jest-results.json`)**
   - Many suites pass (core movement, basic placement, victory, components, contexts), but notable **failing clusters** include:
     - Advanced capture sequence enumeration and chain-capture enforcement (files listed in §3.1).
-    - Territory disconnection and combined line+territory scenarios (e.g. [RulesMatrix.Territory.MiniRegion.test.ts](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:1), [GameEngine.territoryDisconnection.test.ts](tests/unit/GameEngine.territoryDisconnection.test.ts:1)).
+    - Territory disconnection and combined line+territory scenarios (e.g. [RulesMatrix.Territory.MiniRegion.test.ts](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:1), [BoardManager.territoryDisconnection.test.ts](../../../tests/unit/BoardManager.territoryDisconnection.test.ts:1)).
     - Sandbox vs backend RNG parity and AI move-alignment (AI RNG smoke and full parity tests).
     - RulesBackendFacade python-mode semantics (extra `makeMove` calls vs expectations).
   - Interpretation: the underlying architecture and shared engine remain strong, but **TS host integration and advanced parity surfaces are currently unstable**.

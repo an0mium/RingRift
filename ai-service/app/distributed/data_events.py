@@ -311,6 +311,10 @@ class DataEventType(Enum):
     # Note: SYNC_STALLED, NODE_OVERLOADED, TRAINING_LOSS_TREND already defined above
     TRAINING_EARLY_STOPPED = "training_early_stopped"  # Early stopping triggered (stagnation/regression)
 
+    # Cluster-wide idle state broadcast events (December 2025)
+    IDLE_STATE_BROADCAST = "idle_state_broadcast"  # Node broadcasting its idle state to cluster
+    IDLE_STATE_REQUEST = "idle_state_request"  # Request all nodes to broadcast idle state
+
 
 @dataclass
 class DataEvent:

@@ -14,7 +14,7 @@
 
 ## Executive Summary
 
-Pass 12 examined 10 infrastructure and support areas not previously scrutinized in Passes 1-11. The codebase demonstrates **strong operational readiness** with comprehensive monitoring (616+ alert rules), robust CI/CD (10 jobs including E2E blocking), and well-tested service layers. All previous pass claims were **verified**. The weakest area is **Client Component Test Coverage** (only 3 React component test files), while the hardest unsolved problem remains **shared helper module stubs** (3 of 6 designed modules still throw TODO errors). The deprecated folder is empty and can be removed. One critical finding: the `test-websocket.ts` file appears unused.
+Pass 12 examined 10 infrastructure and support areas not previously scrutinized in Passes 1-11. The codebase demonstrates **strong operational readiness** with comprehensive monitoring (616+ alert rules), robust CI/CD (10 jobs including E2E blocking), and well-tested service layers. All previous pass claims were **verified**. The weakest area is **Client Component Test Coverage** (only 3 React component test files), while the hardest unsolved problem remains **shared helper module stubs** (3 of 6 designed modules still throw TODO errors). The deprecated folder has been removed. One critical finding: `test-websocket.ts` has since been removed.
 
 ---
 
@@ -106,11 +106,11 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Evidence:**
 
 - [`archive/`](../../../archive): Contains 29 historical documents with [`ARCHIVE_VERIFICATION_SUMMARY.md`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md) (240 lines) documenting verification status
-- [`deprecated/`](../deprecated/): **Empty folder** - can be safely deleted
+- `deprecated/`: **Removed** - stale references should be dropped
 
 **Recommendations:**
 
-- Delete empty `deprecated/` folder
+- Confirm no remaining references to `deprecated/`
 - Archive folder is well-organized with clear historical context
 
 ---
@@ -121,7 +121,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Evidence:**
 Found only 3 React component test files:
 
-- [`tests/unit/GameContext.reconnect.test.tsx`](../tests/unit/GameContext.reconnect.test.tsx): WebSocket reconnection testing
+- [`tests/unit/GameContext.test.tsx`](../../../tests/unit/GameContext.test.tsx:501): WebSocket reconnection testing
 - [`tests/unit/GameEventLog.snapshot.test.tsx`](../../../tests/unit/GameEventLog.snapshot.test.tsx): Snapshot testing
 - [`tests/unit/LobbyPage.test.tsx`](../../../tests/unit/LobbyPage.test.tsx): Lobby page testing
 
@@ -156,12 +156,12 @@ Found only 3 React component test files:
 - [`WebSocketServer.rulesBackend.integration.test.ts`](../../../tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
 - [`WebSocketServer.humanDecisionById.integration.test.ts`](../../../tests/unit/WebSocketServer.humanDecisionById.integration.test.ts)
 - [`WebSocketInteractionHandler.test.ts`](../../../tests/unit/WebSocketInteractionHandler.test.ts)
-- [`AIWebSocketResilience.test.ts`](../tests/unit/AIWebSocketResilience.test.ts)
+- [`AIWebSocketResilience.test.ts`](../../../tests/unit/ai/AIWebSocketResilience.test.ts)
 - And 4+ more integration tests
 
 **Potential Issue:**
 
-- [`src/server/websocket/test-websocket.ts`](../src/server/websocket/test-websocket.ts): Appears to be a test utility file in production code - should verify if used or can be deleted
+- `src/server/websocket/test-websocket.ts`: Removed; verify no lingering references in tests or docs
 
 ---
 
@@ -208,59 +208,63 @@ Found only 3 React component test files:
 ### Pass 11 Claims
 
 <<<<<<< Updated upstream
-| Claim                                                  | Status      | Evidence                                                                                                                                                                     |
+| Claim | Status | Evidence |
 | ------------------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 73 API client tests in `tests/unit/api.client.test.ts` | ✅ VERIFIED | File exists, 1367 lines                                                                                                                                                      |
+| 73 API client tests in `tests/unit/api.client.test.ts` | ✅ VERIFIED | File exists, 1367 lines |
 =======
-| Claim                                                  | Status      | Evidence                                                                                                                                                                           |
+| Claim | Status | Evidence |
 | ------------------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 73 API client tests in `tests/unit/api.client.test.ts` | ✅ VERIFIED | File exists, 1367 lines                                                                                                                                                            |
->>>>>>> Stashed changes
-| 11 chain capture parity tests                          | ✅ VERIFIED | [`ai-service/tests/parity/test_chain_capture_parity.py`](../../../ai-service/tests/parity/test_chain_capture_parity.py) (699 lines) with 3 test classes containing 11 test methods |
+| 73 API client tests in `tests/unit/api.client.test.ts` | ✅ VERIFIED | File exists, 1367 lines |
+
+> > > > > > > Stashed changes
+> > > > > > > | 11 chain capture parity tests | ✅ VERIFIED | [`ai-service/tests/parity/test_chain_capture_parity.py`](../../../ai-service/tests/parity/test_chain_capture_parity.py) (699 lines) with 3 test classes containing 11 test methods |
 
 ### Pass 10 Claims
 
 <<<<<<< Updated upstream
-| Claim                                                        | Status      | Evidence                                                                                                          |
+| Claim | Status | Evidence |
 | ------------------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------- |
-| 63 RatingService tests in `tests/unit/RatingService.test.ts` | ✅ VERIFIED | File exists (781 lines) with 63+ test blocks                                                                      |
+| 63 RatingService tests in `tests/unit/RatingService.test.ts` | ✅ VERIFIED | File exists (781 lines) with 63+ test blocks |
 =======
-| Claim                                                        | Status      | Evidence                                                                                                                            |
+| Claim | Status | Evidence |
 | ------------------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 63 RatingService tests in `tests/unit/RatingService.test.ts` | ✅ VERIFIED | File exists (781 lines) with 63+ test blocks                                                                                        |
->>>>>>> Stashed changes
-| E2E blocking in CI                                           | ✅ VERIFIED | [`../../../.github/workflows/ci.yml:280-433`](../../../.github/workflows/ci.yml:280) shows `e2e-tests` job with proper dependencies |
+| 63 RatingService tests in `tests/unit/RatingService.test.ts` | ✅ VERIFIED | File exists (781 lines) with 63+ test blocks |
+
+> > > > > > > Stashed changes
+> > > > > > > | E2E blocking in CI | ✅ VERIFIED | [`../../../.github/workflows/ci.yml:280-433`](../../../.github/workflows/ci.yml:280) shows `e2e-tests` job with proper dependencies |
 
 ### Pass 8 Claims
 
 <<<<<<< Updated upstream
-| Claim                                 | Status      | Evidence                                                                                                                                                                                                                                                                                                  |
+| Claim | Status | Evidence |
 | ------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OrchestratorRolloutService (51 tests) | ✅ VERIFIED | [`tests/unit/OrchestratorRolloutService.test.ts`](../../../tests/unit/OrchestratorRolloutService.test.ts) - exactly 51 `it()` blocks found                                                                                                                                                                      |
-| ShadowModeComparator (44 tests)       | ✅ VERIFIED | [`tests/unit/ShadowModeComparator.test.ts`](../tests/unit/ShadowModeComparator.test.ts) - exactly 44 `it()` blocks found                                                                                                                                                                                  |
+| OrchestratorRolloutService (51 tests) | ✅ VERIFIED | [`tests/unit/OrchestratorRolloutService.test.ts`](../../../tests/unit/OrchestratorRolloutService.test.ts) - exactly 51 `it()` blocks found |
+| ShadowModeComparator (44 tests) | ✅ VERIFIED | Tests removed; see `tests/TEST_LAYERS.md` for the canonical note on ShadowMode removal |
 =======
-| Claim                                 | Status      | Evidence                                                                                                                                                                                                                                                                                                        |
+| Claim | Status | Evidence |
 | ------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OrchestratorRolloutService (51 tests) | ✅ VERIFIED | [`tests/unit/OrchestratorRolloutService.test.ts`](../../../tests/unit/OrchestratorRolloutService.test.ts) - exactly 51 `it()` blocks found                                                                                                                                                                      |
-| ShadowModeComparator (44 tests)       | ✅ VERIFIED | [`tests/unit/ShadowModeComparator.test.ts`](../tests/unit/ShadowModeComparator.test.ts) - exactly 44 `it()` blocks found                                                                                                                                                                                        |
->>>>>>> Stashed changes
-| 9 feature flags                       | ✅ VERIFIED | [`src/server/config/unified.ts:224-237`](../../../src/server/config/unified.ts:224): `adapterEnabled`, `rolloutPercentage`, `shadowModeEnabled`, `allowlistUsers`, `denylistUsers`, `circuitBreaker.enabled`, `circuitBreaker.errorThresholdPercent`, `circuitBreaker.errorWindowSeconds`, `latencyThresholdMs` |
+| OrchestratorRolloutService (51 tests) | ✅ VERIFIED | [`tests/unit/OrchestratorRolloutService.test.ts`](../../../tests/unit/OrchestratorRolloutService.test.ts) - exactly 51 `it()` blocks found |
+| ShadowModeComparator (44 tests) | ✅ VERIFIED | Tests removed; see `tests/TEST_LAYERS.md` for the canonical note on ShadowMode removal |
+
+> > > > > > > Stashed changes
+> > > > > > > | 9 feature flags | ✅ VERIFIED | [`src/server/config/unified.ts:224-237`](../../../src/server/config/unified.ts:224): `adapterEnabled`, `rolloutPercentage`, `shadowModeEnabled`, `allowlistUsers`, `denylistUsers`, `circuitBreaker.enabled`, `circuitBreaker.errorThresholdPercent`, `circuitBreaker.errorWindowSeconds`, `latencyThresholdMs` |
 
 ### Pass 9 Claims
 
 <<<<<<< Updated upstream
-| Claim                              | Status          | Evidence                                                                                                                              |
+| Claim | Status | Evidence |
 | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Code splitting in `vite.config.ts` | ✅ VERIFIED     | [`vite.config.ts`](../../../vite.config.ts) contains `manualChunks` with 4 vendor bundles                                                   |
-| 22 validators in `validators.ts`   | ⚠️ RENAMED      | Validators are in [`src/shared/validation/schemas.ts`](../../../src/shared/validation/schemas.ts) (545 lines) with 28+ Zod schemas exported |
-| 68 validation tests                | ⚠️ NOT VERIFIED | No `websocketSchemas.test.ts` found; validation tests may be distributed across other files                                           |
+| Code splitting in `vite.config.ts` | ✅ VERIFIED | [`vite.config.ts`](../../../vite.config.ts) contains `manualChunks` with 4 vendor bundles |
+| 22 validators in `validators.ts` | ⚠️ RENAMED | Validators are in [`src/shared/validation/schemas.ts`](../../../src/shared/validation/schemas.ts) (545 lines) with 28+ Zod schemas exported |
+| 68 validation tests | ⚠️ NOT VERIFIED | No `websocketSchemas.test.ts` found; validation tests may be distributed across other files |
 =======
-| Claim                              | Status          | Evidence                                                                                                                                    |
+| Claim | Status | Evidence |
 | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Code splitting in `vite.config.ts` | ✅ VERIFIED     | [`vite.config.ts`](../../../vite.config.ts) contains `manualChunks` with 4 vendor bundles                                                   |
-| 22 validators in `validators.ts`   | ⚠️ RENAMED      | Validators are in [`src/shared/validation/schemas.ts`](../../../src/shared/validation/schemas.ts) (545 lines) with 28+ Zod schemas exported |
-| 68 validation tests                | ⚠️ NOT VERIFIED | No `websocketSchemas.test.ts` found; validation tests may be distributed across other files                                                 |
->>>>>>> Stashed changes
+| Code splitting in `vite.config.ts` | ✅ VERIFIED | [`vite.config.ts`](../../../vite.config.ts) contains `manualChunks` with 4 vendor bundles |
+| 22 validators in `validators.ts` | ⚠️ RENAMED | Validators are in [`src/shared/validation/schemas.ts`](../../../src/shared/validation/schemas.ts) (545 lines) with 28+ Zod schemas exported |
+| 68 validation tests | ⚠️ NOT VERIFIED | No `websocketSchemas.test.ts` found; validation tests may be distributed across other files |
+
+> > > > > > > Stashed changes
 
 ---
 
@@ -276,8 +280,8 @@ Found only 3 React component test files:
 
 ### Stale Configurations
 
-1. [`deprecated/`](../deprecated/) - Empty folder, can be deleted
-2. [`src/server/websocket/test-websocket.ts`](../src/server/websocket/test-websocket.ts) - Appears unused, verify before deletion
+1. `deprecated/` - Removed; ensure no references remain
+2. `src/server/websocket/test-websocket.ts` - Removed; ensure no references remain
 
 ### Stale Code Patterns
 
@@ -349,7 +353,7 @@ Found only 3 React component test files:
 
 **Area:** Codebase Hygiene  
 **Agent:** code  
-**Description:** Remove the empty `deprecated/` folder.
+**Description:** Verify the removed `deprecated/` folder has no lingering references.
 
 **Acceptance Criteria:**
 
@@ -364,7 +368,7 @@ Found only 3 React component test files:
 
 **Area:** Codebase Hygiene  
 **Agent:** debug  
-**Description:** Determine if `src/server/websocket/test-websocket.ts` is used in production or tests, and remove if unused.
+**Description:** Confirm no references remain to the removed `src/server/websocket/test-websocket.ts` helper.
 
 **Acceptance Criteria:**
 

@@ -139,42 +139,33 @@ class AutoSyncConfig:
     @classmethod
     def from_config_file(cls, config_path: Path | None = None) -> AutoSyncConfig:
         """Load configuration from distributed_hosts.yaml or unified_loop.yaml."""
-        base_dir = Path(__file__).resolve().parent.parent.parent
-
-        # Try distributed_hosts.yaml first (canonical source)
-        if config_path is None:
-            config_path = base_dir / "config" / "distributed_hosts.yaml"
+        from app.config.cluster_config import load_cluster_config
 
         config = cls()
 
-        # Load from distributed_hosts.yaml
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    data = yaml.safe_load(f)
+        # Load from distributed_hosts.yaml via cluster_config helper
+        try:
+            cluster_cfg = load_cluster_config(config_path)
 
-                # Get sync_routing settings
-                sync_routing = data.get("sync_routing", {})
-                config.max_disk_usage_percent = sync_routing.get(
-                    "max_disk_usage_percent", 70.0
-                )
-                config.target_disk_usage_percent = sync_routing.get(
-                    "target_disk_usage_percent", 60.0
-                )
+            # Get sync_routing settings
+            config.max_disk_usage_percent = cluster_cfg.sync_routing.max_disk_usage_percent
+            config.target_disk_usage_percent = cluster_cfg.sync_routing.target_disk_usage_percent
 
-                # Get auto_sync settings
-                auto_sync = data.get("auto_sync", {})
-                config.enabled = auto_sync.get("enabled", True)
-                config.interval_seconds = auto_sync.get("interval_seconds", 60)  # Dec 2025: Match dataclass
-                config.gossip_interval_seconds = auto_sync.get("gossip_interval_seconds", 30)  # Dec 2025: Match
-                config.exclude_hosts = auto_sync.get("exclude_hosts", [])
-                config.skip_nfs_sync = auto_sync.get("skip_nfs_sync", True)
-                config.max_concurrent_syncs = auto_sync.get("max_concurrent_syncs", 4)
-                config.min_games_to_sync = auto_sync.get("min_games_to_sync", 10)
-                config.bandwidth_limit_mbps = auto_sync.get("bandwidth_limit_mbps", 20)
+            # Get auto_sync settings
+            auto_sync = cluster_cfg.auto_sync
+            config.enabled = auto_sync.enabled
+            config.interval_seconds = auto_sync.interval_seconds
+            config.gossip_interval_seconds = auto_sync.gossip_interval_seconds
+            config.exclude_hosts = list(auto_sync.exclude_hosts)
+            config.skip_nfs_sync = auto_sync.skip_nfs_sync
+            config.max_concurrent_syncs = auto_sync.max_concurrent_syncs
+            config.min_games_to_sync = auto_sync.min_games_to_sync
+            config.bandwidth_limit_mbps = auto_sync.bandwidth_limit_mbps
 
-            except (OSError, ValueError) as e:
-                logger.warning(f"Failed to load config from {config_path}: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to load cluster config: {e}")
+
+        base_dir = Path(__file__).resolve().parent.parent.parent
 
         # Fallback to unified_loop.yaml
         unified_config_path = base_dir / "config" / "unified_loop.yaml"

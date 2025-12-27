@@ -1667,6 +1667,8 @@ class P2POrchestrator(
         )
 
         # Phase 2A Refactoring: SyncPlanner for data synchronization
+        # NOTE: request_peer_manifest is wired AFTER SyncPlanner creation
+        # because _request_peer_manifest is a method on this class
         self.sync_planner = SyncPlanner(
             node_id=self.node_id,
             data_directory=self.get_data_directory(),
@@ -1674,6 +1676,8 @@ class P2POrchestrator(
             get_self_info=lambda: self.self_info,
             peers_lock=self.peers_lock,
             is_leader=lambda: self._is_leader(),
+            request_peer_manifest=lambda peer_id: self._request_peer_manifest_sync(peer_id),
+            check_disk_capacity=lambda: check_disk_has_capacity(),
             config=SyncPlannerConfig(),
         )
 
@@ -4013,6 +4017,43 @@ class P2POrchestrator(
         except Exception as e:
             logger.error(f"hashing file {file_path}: {e}")
             return ""
+
+    def _request_peer_manifest_sync(self, peer_id: str) -> NodeDataManifest | None:
+        """Synchronous wrapper for requesting peer manifest.
+
+        Used by SyncPlanner which expects a sync callback.
+        Runs the async version in a new event loop.
+
+        Args:
+            peer_id: The peer's node ID to request from
+
+        Returns:
+            NodeDataManifest or None if request failed
+        """
+        # Look up peer info
+        with self.peers_lock:
+            peer_info = self.peers.get(peer_id)
+
+        if not peer_info:
+            logger.debug(f"Peer {peer_id} not found in peers dict")
+            return None
+
+        # Run async version in event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're in an async context, use run_coroutine_threadsafe
+                import concurrent.futures
+                future = asyncio.run_coroutine_threadsafe(
+                    self._request_peer_manifest(peer_info), loop
+                )
+                return future.result(timeout=15)
+            else:
+                # If no loop is running, use asyncio.run
+                return asyncio.run(self._request_peer_manifest(peer_info))
+        except Exception as e:
+            logger.debug(f"Failed to request manifest from {peer_id}: {e}")
+            return None
 
     async def _request_peer_manifest(self, peer_info: NodeInfo) -> NodeDataManifest | None:
         """Request data manifest from a peer node."""

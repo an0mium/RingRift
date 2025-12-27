@@ -554,6 +554,8 @@ def _load_peers_from_remote_hosts(data: dict) -> dict[str, dict]:
 
 def load_peer_config(config_path: Path) -> dict[str, dict]:
     """Load peer configuration from distributed_hosts.yaml (legacy: remote_hosts.yaml)."""
+    if not config_path.exists():
+        return {}
     with open(config_path) as f:
         data = yaml.safe_load(f) or {}
 

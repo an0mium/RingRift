@@ -101,16 +101,12 @@ class ReplicationManager(BaseRegistry):
 
     def _load_config(self, config_path: Path) -> None:
         """Load host configuration and build sync policies."""
-        if not config_path.exists():
-            logger.warning(f"No config found at {config_path}")
-            return
+        from app.config.cluster_config import load_cluster_config
 
         try:
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-            self._hosts_config = config.get("hosts", {})
-            self._build_sync_policies(config)
+            cluster_cfg = load_cluster_config(config_path)
+            self._hosts_config = cluster_cfg.hosts_raw
+            self._build_sync_policies_from_cluster_config(cluster_cfg)
 
         except Exception as e:
             logger.error(f"Failed to load config: {e}")

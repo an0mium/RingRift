@@ -3,26 +3,35 @@
 
 from __future__ import annotations
 
-import ast
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 
+_IMPORT_RE = re.compile(r"^\s*(from|import)\s+scripts(\.|\\b)")
+
+
 def _find_layer_violations(app_root: Path) -> list[tuple[Path, int, str]]:
     violations: list[tuple[Path, int, str]] = []
+
+    if shutil.which("rg"):
+        result = subprocess.run(
+            ["rg", "-n", r"^\s*(from|import)\s+scripts(\.|\\b)", str(app_root)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout:
+            for line in result.stdout.strip().splitlines():
+                path_str, lineno_str, content = line.split(":", 2)
+                violations.append((Path(path_str), int(lineno_str), content.strip()))
+        return violations
+
     for path in app_root.rglob("*.py"):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name.startswith("scripts"):
-                        violations.append((path, node.lineno, alias.name))
-            elif isinstance(node, ast.ImportFrom):
-                if node.module and node.module.startswith("scripts"):
-                    violations.append((path, node.lineno, node.module))
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if _IMPORT_RE.match(line):
+                violations.append((path, lineno, line.strip()))
     return violations
 
 

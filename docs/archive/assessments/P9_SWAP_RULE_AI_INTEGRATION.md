@@ -50,7 +50,7 @@ if move.type == MoveType.SWAP_SIDES:
 
 ### 2. Heuristic Weights Configuration
 
-**File**: [`ai-service/app/ai/heuristic_weights.py`](..ai-service/app/ai/heuristic_weights.py)
+**File**: [`ai-service/app/ai/heuristic_weights.py`](../../../ai-service/app/ai/heuristic_weights.py)
 
 #### Added New Weight to Registry
 
@@ -97,7 +97,7 @@ if (swapMoves.length > 0 && playerNumber === 2) {
 
 ### 4. Neural Network Action Space Enhancement
 
-**File**: [`ai-service/app/ai/neural_net.py`](../ai-service/app/ai/neural_net.py)
+**Files**: [`ai-service/app/ai/neural_net/square_encoding.py`](../../../ai-service/app/ai/neural_net/square_encoding.py), [`ai-service/app/ai/neural_net/square_architectures.py`](../../../ai-service/app/ai/neural_net/square_architectures.py)
 
 #### Added `swap_sides` to Action Encoding
 

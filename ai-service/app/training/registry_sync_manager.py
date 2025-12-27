@@ -167,23 +167,36 @@ class RegistrySyncManager:
 
     async def _discover_nodes(self):
         """Discover cluster nodes from hosts config."""
-        hosts_config = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+        hosts_config = AI_SERVICE_ROOT / "config" / "distributed_hosts.yaml"
         if not hosts_config.exists():
-            return
+            legacy = AI_SERVICE_ROOT / "config" / "remote_hosts.yaml"
+            if legacy.exists():
+                hosts_config = legacy
+            else:
+                return
 
         try:
             import yaml
             with open(hosts_config) as f:
                 config = yaml.safe_load(f)
 
-            for host in config.get('hosts', []):
-                hostname = host.get('name', host.get('hostname', ''))
-                if hostname and hostname != os.uname().nodename:
-                    self.nodes[hostname] = NodeInfo(
-                        hostname=hostname,
-                        tailscale_ip=host.get('tailscale_ip'),
-                        ssh_port=host.get('ssh_port', 22),
-                    )
+            if "hosts" in config:
+                for hostname, host in config.get("hosts", {}).items():
+                    if hostname and hostname != os.uname().nodename:
+                        self.nodes[hostname] = NodeInfo(
+                            hostname=hostname,
+                            tailscale_ip=host.get("tailscale_ip"),
+                            ssh_port=host.get("ssh_port", 22),
+                        )
+            else:
+                for host in config.get("hosts", []):
+                    hostname = host.get("name", host.get("hostname", ""))
+                    if hostname and hostname != os.uname().nodename:
+                        self.nodes[hostname] = NodeInfo(
+                            hostname=hostname,
+                            tailscale_ip=host.get("tailscale_ip"),
+                            ssh_port=host.get("ssh_port", 22),
+                        )
         except Exception as e:
             logger.warning(f"Failed to discover nodes: {e}")
 

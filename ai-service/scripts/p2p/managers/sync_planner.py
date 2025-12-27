@@ -30,6 +30,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Event emission helper - imported lazily to avoid circular imports
+_emit_event: Callable[[str, dict], None] | None = None
+
+
+def _get_event_emitter() -> Callable[[str, dict], None] | None:
+    """Get the event emitter function, initializing if needed."""
+    global _emit_event
+    if _emit_event is None:
+        try:
+            from app.coordination.event_router import emit_sync
+            _emit_event = emit_sync
+        except ImportError:
+            # Event system not available
+            pass
+    return _emit_event
+
 
 # Constants (match p2p/constants.py)
 MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 50 * 1024 * 1024  # 50MB threshold for sampling
@@ -146,6 +162,29 @@ class SyncPlanner:
 
         # Statistics
         self.stats = SyncStats()
+
+    def _emit_sync_event(self, event_type: str, **kwargs) -> None:
+        """Emit a sync lifecycle event if the event system is available.
+
+        Args:
+            event_type: One of DATA_SYNC_STARTED, DATA_SYNC_COMPLETED, DATA_SYNC_FAILED
+            **kwargs: Additional event data
+        """
+        emitter = _get_event_emitter()
+        if emitter is None:
+            return
+
+        payload = {
+            "node_id": self.node_id,
+            "timestamp": time.time(),
+            **kwargs,
+        }
+
+        try:
+            emitter(event_type, payload)
+            logger.debug(f"Emitted {event_type}")
+        except Exception as e:
+            logger.debug(f"Failed to emit {event_type}: {e}")
 
     # ============================================
     # Local Manifest Collection

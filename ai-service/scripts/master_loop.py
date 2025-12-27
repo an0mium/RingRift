@@ -479,6 +479,73 @@ class MasterLoopController:
         except Exception as e:
             return {"healthy": False, "error": str(e)}
 
+    async def _verify_p2p_connectivity(self) -> tuple[bool, list[str]]:
+        """Pre-flight check: Verify P2P orchestrator is accessible on voter nodes.
+
+        December 2025: Added as part of Phase E cluster integration.
+        Prevents master loop from starting if P2P cluster is unavailable.
+
+        Returns:
+            Tuple of (success, list of error messages)
+        """
+        import aiohttp
+        from app.config.distributed_hosts import load_hosts_config
+
+        errors = []
+        config = load_hosts_config()
+
+        # Get voter nodes from config
+        voters = config.get("p2p_cluster", {}).get("voters", [])
+        if not voters:
+            # No voters configured, skip check
+            logger.warning("[MasterLoop] No P2P voters configured, skipping P2P health check")
+            return True, []
+
+        p2p_port = config.get("p2p_cluster", {}).get("port", 8770)
+        reachable = 0
+        total = len(voters)
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5.0)) as session:
+            for voter in voters:
+                # Find host info for this voter
+                host_info = next(
+                    (h for h in config.get("hosts", []) if h.get("name") == voter),
+                    None,
+                )
+                if not host_info:
+                    errors.append(f"Voter {voter} not found in hosts config")
+                    continue
+
+                host = host_info.get("host")
+                if not host:
+                    errors.append(f"Voter {voter} has no host address")
+                    continue
+
+                url = f"http://{host}:{p2p_port}/status"
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            reachable += 1
+                            logger.debug(f"[MasterLoop] P2P voter {voter} is reachable")
+                        else:
+                            errors.append(f"Voter {voter}: HTTP {resp.status}")
+                except asyncio.TimeoutError:
+                    errors.append(f"Voter {voter}: timeout")
+                except aiohttp.ClientError as e:
+                    errors.append(f"Voter {voter}: {type(e).__name__}")
+
+        # Require quorum (>50%) of voters to be reachable
+        quorum = (total // 2) + 1
+        if reachable < quorum:
+            logger.error(
+                f"[MasterLoop] P2P quorum not met: {reachable}/{total} voters reachable "
+                f"(need {quorum}). Errors: {errors}"
+            )
+            return False, errors
+
+        logger.info(f"[MasterLoop] P2P connectivity verified: {reachable}/{total} voters reachable")
+        return True, errors
+
     # =========================================================================
     # Lifecycle
     # =========================================================================
@@ -516,6 +583,28 @@ class MasterLoopController:
             )
         except Exception as e:
             logger.error(f"[MasterLoop] Coordination bootstrap failed: {e}")
+
+        # December 2025 (Phase E): Verify P2P cluster connectivity before proceeding
+        # This prevents silent failures when P2P is unavailable
+        try:
+            p2p_ok, p2p_errors = await self._verify_p2p_connectivity()
+            if not p2p_ok:
+                logger.warning(
+                    f"[MasterLoop] P2P cluster not fully available: {p2p_errors}. "
+                    "Proceeding with reduced cluster functionality."
+                )
+                # Emit warning event for monitoring
+                try:
+                    from app.coordination.event_router import publish_sync, DataEventType
+                    publish_sync(
+                        DataEventType.P2P_CLUSTER_UNHEALTHY,
+                        {"errors": p2p_errors, "timestamp": time.time()},
+                        source="master_loop",
+                    )
+                except Exception:
+                    pass  # Event emission is best-effort
+        except Exception as e:
+            logger.warning(f"[MasterLoop] P2P connectivity check failed: {e}")
 
         # Start daemons
         if not self.skip_daemons:

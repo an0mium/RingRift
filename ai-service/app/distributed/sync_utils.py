@@ -67,23 +67,24 @@ class TransferVerificationResult:
 def _compute_checksum(path: Path, algorithm: str = "sha256") -> str:
     """Compute checksum of a file using streaming read.
 
+    Uses app.utils.checksum_utils as the canonical implementation.
+
     Args:
         path: Path to the file
         algorithm: Hash algorithm (sha256, sha1, md5)
 
     Returns:
-        Hex-encoded checksum string
+        Hex-encoded checksum string, or "" on error
     """
-    import hashlib
-
-    hasher = hashlib.new(algorithm)
-    chunk_size = 65536  # 64KB chunks for large files
-
     try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(chunk_size), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
+        from app.utils.checksum_utils import LARGE_CHUNK_SIZE, compute_file_checksum
+
+        return compute_file_checksum(
+            path,
+            algorithm=algorithm,
+            chunk_size=LARGE_CHUNK_SIZE,  # 64KB for large files
+            return_empty_for_missing=True,
+        )
     except Exception as e:
         logger.error(f"Failed to compute checksum for {path}: {e}")
         return ""
