@@ -322,25 +322,24 @@ def check_sqlite_integrity(db_path: Path) -> tuple[bool, list[str]]:
     errors = []
 
     try:
+        # Dec 2025: Use context manager to prevent connection leaks
         # Open read-only to avoid locking issues
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
-        cursor = conn.cursor()
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10) as conn:
+            cursor = conn.cursor()
 
-        # Run integrity check
-        cursor.execute("PRAGMA integrity_check")
-        results = cursor.fetchall()
+            # Run integrity check
+            cursor.execute("PRAGMA integrity_check")
+            results = cursor.fetchall()
 
-        conn.close()
-
-        # Check results
-        # SQLite returns a single row with "ok" if everything is fine
-        # Otherwise, returns multiple rows describing errors
-        if len(results) == 1 and results[0][0] == "ok":
-            return True, []
-        else:
-            errors = [str(row[0]) for row in results]
-            logger.warning(f"[SyncIntegrity] Database {db_path} integrity check failed: {errors}")
-            return False, errors
+            # Check results
+            # SQLite returns a single row with "ok" if everything is fine
+            # Otherwise, returns multiple rows describing errors
+            if len(results) == 1 and results[0][0] == "ok":
+                return True, []
+            else:
+                errors = [str(row[0]) for row in results]
+                logger.warning(f"[SyncIntegrity] Database {db_path} integrity check failed: {errors}")
+                return False, errors
 
     except sqlite3.DatabaseError as e:
         error_msg = f"Database error: {e}"
@@ -548,26 +547,25 @@ def prepare_database_for_transfer(db_path: Path) -> tuple[bool, str]:
         return False, f"Database not found: {db_path}"
 
     try:
-        conn = sqlite3.connect(str(db_path))
+        # Dec 2025: Use context manager to prevent connection leaks
+        with sqlite3.connect(str(db_path)) as conn:
+            # Check current journal mode
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            logger.info(f"[TransferSafety] {db_path.name}: current journal mode = {mode}")
 
-        # Check current journal mode
-        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-        logger.info(f"[TransferSafety] {db_path.name}: current journal mode = {mode}")
+            # Checkpoint any WAL data
+            if mode.upper() == "WAL":
+                logger.info(f"[TransferSafety] {db_path.name}: checkpointing WAL...")
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
-        # Checkpoint any WAL data
-        if mode.upper() == "WAL":
-            logger.info(f"[TransferSafety] {db_path.name}: checkpointing WAL...")
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            # Switch to DELETE mode (simpler, no sidecar files)
+            conn.execute("PRAGMA journal_mode=DELETE")
+            conn.commit()
 
-        # Switch to DELETE mode (simpler, no sidecar files)
-        conn.execute("PRAGMA journal_mode=DELETE")
-        conn.commit()
-
-        # VACUUM to consolidate database
-        logger.info(f"[TransferSafety] {db_path.name}: running VACUUM...")
-        conn.execute("VACUUM")
-        conn.commit()
-        conn.close()
+            # VACUUM to consolidate database
+            logger.info(f"[TransferSafety] {db_path.name}: running VACUUM...")
+            conn.execute("VACUUM")
+            conn.commit()
 
         # Verify no WAL files remain
         wal_path = db_path.with_suffix(db_path.suffix + "-wal")

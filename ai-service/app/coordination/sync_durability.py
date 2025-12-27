@@ -737,45 +737,45 @@ class DeadLetterQueue:
         """Initialize DLQ database schema."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.executescript("""
-            CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id TEXT NOT NULL,
-                source_host TEXT NOT NULL,
-                target_host TEXT NOT NULL,
-                error_message TEXT NOT NULL,
-                error_type TEXT NOT NULL,
-                retry_count INTEGER DEFAULT 0,
-                added_at REAL NOT NULL,
-                last_retry_at REAL,
-                resolved INTEGER DEFAULT 0,
-                resolved_at REAL
-            );
+        # Dec 2025: Use context manager to prevent connection leaks
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.executescript("""
+                CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    source_host TEXT NOT NULL,
+                    target_host TEXT NOT NULL,
+                    error_message TEXT NOT NULL,
+                    error_type TEXT NOT NULL,
+                    retry_count INTEGER DEFAULT 0,
+                    added_at REAL NOT NULL,
+                    last_retry_at REAL,
+                    resolved INTEGER DEFAULT 0,
+                    resolved_at REAL
+                );
 
-            -- Indexes for efficient queries
-            CREATE INDEX IF NOT EXISTS idx_dlq_resolved
-            ON dead_letter_queue(resolved, added_at);
+                -- Indexes for efficient queries
+                CREATE INDEX IF NOT EXISTS idx_dlq_resolved
+                ON dead_letter_queue(resolved, added_at);
 
-            CREATE INDEX IF NOT EXISTS idx_dlq_game_id
-            ON dead_letter_queue(game_id);
+                CREATE INDEX IF NOT EXISTS idx_dlq_game_id
+                ON dead_letter_queue(game_id);
 
-            CREATE INDEX IF NOT EXISTS idx_dlq_error_type
-            ON dead_letter_queue(error_type);
+                CREATE INDEX IF NOT EXISTS idx_dlq_error_type
+                ON dead_letter_queue(error_type);
 
-            -- Metadata table
-            CREATE TABLE IF NOT EXISTS dlq_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at REAL NOT NULL
-            );
+                -- Metadata table
+                CREATE TABLE IF NOT EXISTS dlq_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                );
 
-            INSERT OR IGNORE INTO dlq_metadata (key, value, updated_at)
-            VALUES ('schema_version', '1.0', strftime('%s', 'now'));
-        """)
-        conn.commit()
-        conn.close()
+                INSERT OR IGNORE INTO dlq_metadata (key, value, updated_at)
+                VALUES ('schema_version', '1.0', strftime('%s', 'now'));
+            """)
+            conn.commit()
         logger.debug(f"Initialized DeadLetterQueue at {self.db_path}")
 
     def add(

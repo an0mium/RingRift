@@ -130,6 +130,11 @@ class DaemonManager:
         self._shutdown_event = asyncio.Event()
         self._lock = asyncio.Lock()
 
+        # Dec 2025: Track if coordination events have been wired
+        # This ensures SyncRouter.wire_to_event_router() is called even when
+        # daemons are started individually (not via start_all())
+        self._coordination_wired = False
+
         # Register cleanup
         atexit.register(self._sync_shutdown)
 
@@ -673,6 +678,11 @@ class DaemonManager:
         Returns:
             True if started successfully
         """
+        # Dec 2025: Ensure coordination events (including SyncRouter) are wired
+        # before any daemon starts. This fixes the integration gap where
+        # master_loop.py calls start() individually instead of start_all().
+        await self._ensure_coordination_wired()
+
         result = await self._lifecycle.start(daemon_type)
         if result:
             # Dec 2025 fix: Ensure health loop is running after any daemon starts
@@ -854,7 +864,8 @@ class DaemonManager:
 
             # Phase 8 (Dec 2025): Wire ALL coordination event subscriptions at startup
             # This ensures daemons receive events they need before verification
-            await self._wire_coordination_events()
+            # Uses _ensure_coordination_wired for consistency with individual start() calls
+            await self._ensure_coordination_wired()
 
             # Phase 5: Subscribe to REGRESSION_CRITICAL events for centralized handling
             await self._subscribe_to_critical_events()
@@ -1133,6 +1144,24 @@ class DaemonManager:
 
         except (RuntimeError, OSError, AttributeError) as e:
             logger.debug(f"[DaemonManager] Error handling DAEMON_STATUS_CHANGED: {e}")
+
+    async def _ensure_coordination_wired(self) -> None:
+        """Ensure coordination events are wired exactly once.
+
+        December 2025: Fixes critical integration gap where SyncRouter was not
+        auto-wired when daemons were started individually (via start()) instead
+        of via start_all().
+
+        This method is idempotent - calling it multiple times is safe.
+        It tracks whether wiring has already been done and skips if so.
+        """
+        if self._coordination_wired:
+            return
+
+        # Wire coordination events (includes SyncRouter.wire_to_event_router())
+        await self._wire_coordination_events()
+        self._coordination_wired = True
+        logger.debug("[DaemonManager] Coordination events wired on first daemon start")
 
     async def _wire_coordination_events(self) -> None:
         """Wire ALL coordination event subscriptions at startup.

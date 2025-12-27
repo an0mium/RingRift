@@ -1041,6 +1041,42 @@ class UnifiedFeedbackOrchestrator:
         """
         return dict(self._states)
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check orchestrator health for CoordinatorProtocol compliance.
+
+        December 2025: Added for unified daemon health monitoring.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=True,  # Stopped is not unhealthy
+                status=CoordinatorStatus.STOPPED,
+                message="UnifiedFeedbackOrchestrator not running",
+            )
+
+        if not self._subscribed:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message="Not subscribed to events",
+            )
+
+        # Check if we have any states (have we processed any events?)
+        configs_tracked = len(self._states)
+        if configs_tracked == 0:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message="Running (no configs tracked yet)",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Healthy ({configs_tracked} configs, {self._total_adjustments} adjustments)",
+        )
+
     def get_metrics(self) -> dict[str, Any]:
         """Get orchestrator metrics for dashboard integration.
 
