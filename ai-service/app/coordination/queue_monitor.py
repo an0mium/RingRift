@@ -47,12 +47,16 @@ from pathlib import Path
 from typing import Any
 
 # NOTE:
-#   This module maintains the legacy 4-level BackpressureLevel used by queue monitoring
-#   (NONE/SOFT/HARD/STOP). Resource/cluster-wide backpressure uses
-#   `app.coordination.types.BackpressureLevel`.
+#   This module previously defined a legacy 4-level BackpressureLevel (NONE/SOFT/HARD/STOP).
+#   December 2025: Now imports from types.py which contains the unified superset.
+#   The canonical BackpressureLevel supports both queue-based (NONE/SOFT/HARD/STOP)
+#   and resource-based (NONE/LOW/MEDIUM/HIGH/CRITICAL) levels.
 
 # Default database location
 DEFAULT_MONITOR_DB = Path("/tmp/ringrift_coordination/queue_monitor.db")
+
+# Import canonical BackpressureLevel from types.py
+from app.coordination.types import BackpressureLevel  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -146,17 +150,9 @@ DEFAULT_QUEUE_CONFIG = {
 }
 
 
-class BackpressureLevel(str, Enum):
-    """Backpressure severity level for queue monitoring.
-
-    This is the legacy queue monitor contract (4 levels). Other coordination
-    components may use the richer `app.coordination.types.BackpressureLevel`.
-    """
-
-    NONE = "none"
-    SOFT = "soft"
-    HARD = "hard"
-    STOP = "stop"
+# BackpressureLevel is now imported from app.coordination.types
+# The canonical enum supports: NONE, LOW, SOFT, MEDIUM, HARD, HIGH, CRITICAL, STOP
+# This module uses: NONE, SOFT, HARD, STOP (queue-based subset)
 
 
 @dataclass

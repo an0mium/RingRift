@@ -35,12 +35,14 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
 import os
 import socket
 import sqlite3
 import threading
 import time
+import weakref
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -117,16 +119,23 @@ class SyncMutex:
         self.db_path = db_path or DEFAULT_SYNC_DB
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
+        # Track all connections for cleanup on process exit (Dec 2025)
+        self._all_connections: weakref.WeakSet[sqlite3.Connection] = weakref.WeakSet()
+        self._connections_lock = threading.Lock()
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
         if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(str(self.db_path), timeout=float(SQLITE_TIMEOUT))
-            self._local.conn.row_factory = sqlite3.Row
-            self._local.conn.execute('PRAGMA journal_mode=WAL')
-            self._local.conn.execute(f'PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}')
-            self._local.conn.execute('PRAGMA synchronous=NORMAL')
+            conn = sqlite3.connect(str(self.db_path), timeout=float(SQLITE_TIMEOUT))
+            conn.row_factory = sqlite3.Row
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute(f'PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}')
+            conn.execute('PRAGMA synchronous=NORMAL')
+            self._local.conn = conn
+            # Track connection for cleanup on process exit (Dec 2025)
+            with self._connections_lock:
+                self._all_connections.add(conn)
         return self._local.conn
 
     def _init_db(self) -> None:
@@ -522,10 +531,31 @@ class SyncMutex:
         }
 
     def close(self) -> None:
-        """Close database connection."""
+        """Close the current thread's database connection."""
         if hasattr(self._local, "conn") and self._local.conn:
             self._local.conn.close()
             self._local.conn = None
+
+    def close_all(self) -> int:
+        """Close all tracked database connections (Dec 2025).
+
+        Call this on process exit to ensure no connections are leaked.
+        Returns the number of connections closed.
+        """
+        closed = 0
+        with self._connections_lock:
+            for conn in list(self._all_connections):
+                try:
+                    conn.close()
+                    closed += 1
+                except (sqlite3.Error, sqlite3.ProgrammingError):
+                    # Connection may already be closed
+                    pass
+            self._all_connections.clear()
+        # Also clear thread-local reference if present
+        if hasattr(self._local, "conn"):
+            self._local.conn = None
+        return closed
 
 
 # Global singleton instance
@@ -547,8 +577,21 @@ def reset_sync_mutex() -> None:
     global _sync_mutex
     with _mutex_lock:
         if _sync_mutex is not None:
-            _sync_mutex.close()
+            _sync_mutex.close_all()  # Close ALL connections, not just current thread
         _sync_mutex = None
+
+
+def _cleanup_on_exit() -> None:
+    """Cleanup handler for process exit (Dec 2025)."""
+    global _sync_mutex
+    if _sync_mutex is not None:
+        closed = _sync_mutex.close_all()
+        if closed > 0:
+            logger.debug(f"[SyncMutex] Closed {closed} connection(s) on exit")
+
+
+# Register cleanup handler
+atexit.register(_cleanup_on_exit)
 
 
 # Convenience functions
