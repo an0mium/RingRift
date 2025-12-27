@@ -23,5 +23,5 @@ Cluster setup, operations, and cloud infrastructure.
 | [UNIFIED_AI_LOOP_DEPLOYMENT](UNIFIED_AI_LOOP_DEPLOYMENT.md)                 | Deployment guide           |
 | [PIPELINE_ORCHESTRATOR](PIPELINE_ORCHESTRATOR.md)                           | Pipeline orchestration     |
 | [BOTTLENECK_ANALYSIS](BOTTLENECK_ANALYSIS.md)                               | Performance bottlenecks    |
-| [GPU_RULES_PARITY_AUDIT](GPU_RULES_PARITY_AUDIT.md)                         | GPU/CPU parity audit       |
+| `GPU_RULES_PARITY_AUDIT.md` (local-only, gitignored)                        | GPU/CPU parity audit       |
 | [RESOURCE_MANAGEMENT](RESOURCE_MANAGEMENT.md)                               | Resource management        |

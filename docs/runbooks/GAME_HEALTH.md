@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `LongRunningGames` on `ringrift_game_duration_seconds_bucket`), and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `LongRunningGames` on `ringrift_game_duration_seconds_bucket`), and scrape configuration in `monitoring/prometheus.yml`.
 > - **Game session lifecycle:** `GameSession` and `GameSessionManager` (`src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`), WebSocket server (`src/server/websocket/server.ts`), and game session state machines under `src/shared/stateMachines/gameSession.ts` and `src/shared/stateMachines/connection.ts`.
 > - **Rules semantics:** Shared engine helpers, aggregates, and orchestrator in `src/shared/engine/**`, plus supporting rules docs (`RULES_CANONICAL_SPEC.md`, `../rules/COMPLETE_RULES.md`, `../rules/COMPACT_RULES.md`).
 > - **Persistence & retention:** `GamePersistenceService` and data lifecycle logic (`src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`, `docs/security/DATA_LIFECYCLE_AND_PRIVACY.md`).

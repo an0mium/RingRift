@@ -100,7 +100,7 @@ Each canonical DB has an accompanying parity gate JSON:
 
 The authoritative inventory of canonical vs legacy databases is maintained in:
 
-📄 [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md)
+📄 `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored)
 
 **Data Classification:**
 
@@ -702,13 +702,13 @@ PYTHONPATH=. python scripts/diff_state_bundle.py --bundle <bundle.json>
 <<<<<<< Updated upstream
 | File | Purpose |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) | Canonical vs legacy data inventory |
+| `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) | Canonical vs legacy data inventory |
 | [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec |
 | [`AGENTS.md`](../../AGENTS.md) | Agent guidelines including parity rules |
 =======
 | File | Purpose |
 | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) | Canonical vs legacy data inventory |
+| `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) | Canonical vs legacy data inventory |
 | [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec |
 | [`AGENTS.md`](../../AGENTS.md) | Agent guidelines including parity rules |
 

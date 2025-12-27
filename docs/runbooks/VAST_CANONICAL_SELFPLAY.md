@@ -287,5 +287,5 @@ Estimates based on ~$0.06/hr instances (RTX 3070 class):
 
 ## See Also
 
-- [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) - Canonical vs legacy DB inventory
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Canonical vs legacy DB inventory
 - [`AI_TRAINING_AND_DATASETS.md`](../ai/AI_TRAINING_AND_DATASETS.md) - Training data requirements

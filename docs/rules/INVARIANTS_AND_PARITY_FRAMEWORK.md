@@ -128,7 +128,7 @@ This section defines the canonical invariants we care about operationally. Each 
 | **Python tests / soaks** | Parity of `compute_progress_snapshot` vs `computeProgressSnapshot` validated indirectly via contract vectors and parity tests described in [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](PYTHON_PARITY_REQUIREMENTS.md). No dedicated Python S‑monotonic soak yet (gap). |
 
 > > > > > > > Stashed changes
-> > > > > > > | **Ops / alerts** | Violations from the TS soak harness flow into the same invariant metrics and `OrchestratorInvariantViolations*` alerts as `INV-STATE-STRUCTURAL`. Long‑running games that frequently hit `maxTurns` in soak summaries (see [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json)) are treated as soft signals of potential progress issues. |
+> > > > > > > | **Ops / alerts** | Violations from the TS soak harness flow into the same invariant metrics and `OrchestratorInvariantViolations*` alerts as `INV-STATE-STRUCTURAL`. Long‑running games that frequently hit `maxTurns` in soak summaries (see `results/orchestrator_soak_summary.json` (generated artifact, local-only)) are treated as soft signals of potential progress issues. |
 
 ### 2.3 Active-No-Moves: Global Legal Actions for the Active Player
 
@@ -336,12 +336,12 @@ Intuitively, ANM means "P still has material but literally no way to act": no pl
 
 **Enforcement mapping**
 
-| Channel          | Mechanisms                                                                                                                                                                                                                                                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TS soaks**     | [`run-orchestrator-soak.ts`](../../scripts/run-orchestrator-soak.ts) records `hitMaxTurns` per game and reports `maxTurnsGames` in summaries such as [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json). Hitting `maxTurns` is treated as a soft anomaly and should remain rare. |
-| **Python tests** | [`test_self_play_stability.py`](../../ai-service/tests/test_self_play_stability.py) asserts that games do not exceed `env.max_moves` and that `env.step` remains exception‑free under strict invariant.                                                                                                                |
-| **Python soaks** | [`run_self_play_soak.py`](../../ai-service/scripts/run_self_play_soak.py) tracks per‑game length and termination reason; repeated `max_moves_reached` or `no_legal_moves_for_current_player` reasons under strict invariant indicate potential progress bugs.                                                          |
-| **Ops / alerts** | Long-running games and stalled sessions contribute to `LongRunningGames` and game‑latency alerts in [`alerts.yml`](../../monitoring/prometheus/alerts.yml), and may correlate with orchestrator invariant alerts. No dedicated termination alert exists yet for `maxTurns` anomalies (gap).                            |
+| Channel          | Mechanisms                                                                                                                                                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TS soaks**     | [`run-orchestrator-soak.ts`](../../scripts/run-orchestrator-soak.ts) records `hitMaxTurns` per game and reports `maxTurnsGames` in summaries such as `results/orchestrator_soak_summary.json` (generated artifact, local-only). Hitting `maxTurns` is treated as a soft anomaly and should remain rare. |
+| **Python tests** | [`test_self_play_stability.py`](../../ai-service/tests/test_self_play_stability.py) asserts that games do not exceed `env.max_moves` and that `env.step` remains exception‑free under strict invariant.                                                                                                 |
+| **Python soaks** | [`run_self_play_soak.py`](../../ai-service/scripts/run_self_play_soak.py) tracks per‑game length and termination reason; repeated `max_moves_reached` or `no_legal_moves_for_current_player` reasons under strict invariant indicate potential progress bugs.                                           |
+| **Ops / alerts** | Long-running games and stalled sessions contribute to `LongRunningGames` and game‑latency alerts in [`alerts.yml`](../../monitoring/prometheus/alerts.yml), and may correlate with orchestrator invariant alerts. No dedicated termination alert exists yet for `maxTurns` anomalies (gap).             |
 
 ### 2.6 Orchestrator vs Host Validation
 
@@ -646,7 +646,7 @@ This section lists concrete, tagged follow‑ups for subsequent tasks. Each bull
 
 - **B2‑1 – Multi‑board soak coverage for progress invariants** (`INV-S-MONOTONIC`, `INV-TERMINATION`)
   - Expand `npm run soak:orchestrator:short` and/or add a new profile to cover `square19` and `hexagonal` with moderate `gamesPerBoard`.
-  - Ensure summaries (e.g. [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json)) are archived per board type and inspected as part of rollout.
+  - Ensure summaries (e.g. `results/orchestrator_soak_summary.json` (generated artifact, local-only)) are archived per board type and inspected as part of rollout.
 
 - **B2‑2 – Explicit `maxTurns` anomaly handling** (`INV-TERMINATION`)
   - Treat high `maxTurnsGames` counts in soak summaries as a soft invariant breach and optionally wire a threshold into CI (e.g. "no more than N% of games may hit `maxTurns`").

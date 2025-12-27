@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIServiceDown` based on `ringrift_service_status{service="aiService"}`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIServiceDown` based on `ringrift_service_status{service="aiService"}`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Health and status surfaces:** `ServiceStatusManager` and `HealthCheckService` (`src/server/services/ServiceStatusManager.ts`, `src/server/services/HealthCheckService.ts`) behind `/health` and `/ready`, plus the `ringrift_service_status` metric.
 > - **AI integration:** `AIServiceClient` and AI orchestration (`src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`, `src/server/game/ai/AIPlayer.ts`) including circuit breaker, timeouts, and fallback behaviour.
 > - **AI service implementation:** FastAPI app in `ai-service/app/main.py` (endpoints `/`, `/health`, `/metrics`, `/ai/move`, `/ai/evaluate`, `/ai/choice/*`, `/ai/cache`).
@@ -404,7 +404,7 @@ sum(rate(ringrift_ai_requests_total[10m]))
   - `docs/runbooks/SERVICE_OFFLINE.md`
 - **Ops / config SSoT:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/operations/ENVIRONMENT_VARIABLES.md`

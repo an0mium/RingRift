@@ -108,7 +108,7 @@ logger.info(`Orchestrator adapter mode: ${orchestratorEnabled ? 'ENABLED' : 'DIS
 });
 ````
 
-**Evidence:** [`../../../.env.staging-118`](../../../.env.staging)
+**Evidence:** [`.env.staging.example`](../../../.env.staging.example)
 
 ```env
 # Orchestrator adapter for unified turn processing (Phase 3 migration)

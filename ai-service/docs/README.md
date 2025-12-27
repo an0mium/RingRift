@@ -103,5 +103,5 @@ Historical documentation and status reports.
 ## See Also
 
 - [Main docs/](../../docs) - Product documentation
-- [TRAINING_DATA_REGISTRY](../TRAINING_DATA_REGISTRY.md) - Training data inventory
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Training data inventory
 - [RULES_CANONICAL_SPEC](../../RULES_CANONICAL_SPEC.md) - Canonical rules

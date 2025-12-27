@@ -56,7 +56,7 @@ Taken together, these artefacts turn rules UX into a measurable, iterated system
   - [`ai-service/scripts/run_tier_training_pipeline.py`](../../../ai-service/scripts/run_tier_training_pipeline.py)
   - [`ai-service/scripts/run_full_tier_gating.py`](../../../ai-service/scripts/run_full_tier_gating.py)
 - Candidate registry and promotion:
-  - [`ai-service/config/tier_candidate_registry.square8_2p.json`](../../../ai-service/config/tier_candidate_registry.square8_2p.json)
+  - `ai-service/config/tier_candidate_registry.square8_2p.json` (local-only, gitignored)
   - [`ai-service/app/training/tier_promotion_registry.py`](../../../ai-service/app/training/tier_promotion_registry.py)
   - [`ai-service/scripts/apply_tier_promotion_plan.py`](../../../ai-service/scripts/apply_tier_promotion_plan.py)
 - Calibration analysis:
@@ -302,7 +302,7 @@ The guardrails should be light enough to be usable in day-to-day work, but stric
 
 - Ladder pipeline and registry:
   - [`docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](../../ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md)
-  - [`ai-service/config/tier_candidate_registry.square8_2p.json`](../../../ai-service/config/tier_candidate_registry.square8_2p.json)
+  - `ai-service/config/tier_candidate_registry.square8_2p.json` (local-only, gitignored)
   - [`ai-service/app/training/tier_promotion_registry.py`](../../../ai-service/app/training/tier_promotion_registry.py)
 - Calibration and monitoring:
   - [`docs/ai/AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](../../ai/AI_DIFFICULTY_CALIBRATION_ANALYSIS.md)

@@ -6,7 +6,7 @@
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
 > - Prometheus alert rules in `monitoring/prometheus/alerts.yml` (e.g. `HighP99Latency`, `HighP99LatencyCritical`, `HighP95Latency`, `HighMedianLatency`, `HighGameMoveLatency`).
-> - Prometheus configuration in `monitoring/prometheus/prometheus.yml`.
+> - Prometheus configuration in `monitoring/prometheus.yml`.
 > - HTTP and game-move metrics exposed by the backend (via `metricsMiddleware` and related instrumentation).
 > - Resource and dependency alerts (memory, event loop lag, DB/Redis response time) defined alongside latency alerts.
 >

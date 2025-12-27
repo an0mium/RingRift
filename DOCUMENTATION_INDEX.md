@@ -193,15 +193,12 @@ Operational configuration and infrastructure documentation.
 
 ### Cluster Monitoring Infrastructure
 
-Production monitoring scripts for the distributed training cluster. See [ai-service/scripts/monitoring/README.md](ai-service/scripts/monitoring/README.md) for full documentation.
+Production monitoring tooling for the distributed training cluster. For tracked docs/utilities, see `ai-service/scripts/monitor/README.md` and `monitoring/README.md`. Shell-based CloudWatch/cron scripts under `ai-service/scripts/monitoring/` are local-only (gitignored).
 
-| Script/Document                                                                                | Purpose                                       |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| [cluster_health_check.sh](ai-service/scripts/monitoring/cluster_health_check.sh)               | Node status, quorum, CPU/memory, disk alerts  |
-| [selfplay_throughput_monitor.sh](ai-service/scripts/monitoring/selfplay_throughput_monitor.sh) | Game generation throughput monitoring         |
-| [training_pipeline_monitor.sh](ai-service/scripts/monitoring/training_pipeline_monitor.sh)     | NNUE training, Elo tournaments, model gating  |
-| [setup_cloudwatch.sh](ai-service/scripts/monitoring/setup_cloudwatch.sh)                       | CloudWatch alarms, dashboard, SNS setup       |
-| [README.md](ai-service/scripts/monitoring/README.md)                                           | Monitoring quick start and environment config |
+| Script/Document                        | Purpose                                |
+| -------------------------------------- | -------------------------------------- |
+| `ai-service/scripts/monitor/README.md` | Python monitoring utilities            |
+| `monitoring/README.md`                 | Prometheus/Grafana/Loki stack overview |
 
 **Deployed infrastructure:**
 
@@ -366,7 +363,7 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | [ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md](ai-service/docs/roadmaps/GPU_PIPELINE_ROADMAP.md)                                         | GPU selfplay pipeline development roadmap       |
 | [ai-service/docs/architecture/GPU_ARCHITECTURE_SIMPLIFICATION.md](ai-service/docs/architecture/GPU_ARCHITECTURE_SIMPLIFICATION.md)           | GPU architecture design notes                   |
-| [ai-service/docs/infrastructure/GPU_RULES_PARITY_AUDIT.md](ai-service/docs/infrastructure/GPU_RULES_PARITY_AUDIT.md)                         | GPU vs CPU rules parity verification            |
+| `ai-service/docs/infrastructure/GPU_RULES_PARITY_AUDIT.md` (local-only, gitignored)                                                          | GPU vs CPU rules parity verification            |
 | [ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) | Cloud training infrastructure (Lambda, Vast.ai) |
 
 ### Data Formats & Schemas
@@ -379,11 +376,11 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 
 ### Analysis & Status Reports
 
-| Document                                                                                                                                                       | Purpose                         |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| [ai-service/docs/archive/status_reports/TRAINING_PIPELINE_STATUS_2025_12_12.md](ai-service/docs/archive/status_reports/TRAINING_PIPELINE_STATUS_2025_12_12.md) | Training pipeline status update |
-| [ai-service/AI_ASSESSMENT_REPORT.md](ai-service/AI_ASSESSMENT_REPORT.md)                                                                                       | AI service technical assessment |
-| [ai-service/AI_IMPROVEMENT_PLAN.md](ai-service/AI_IMPROVEMENT_PLAN.md)                                                                                         | AI service improvement roadmap  |
+| Document                                                                                                 | Purpose                         |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `ai-service/docs/archive/status_reports/TRAINING_PIPELINE_STATUS_2025_12_12.md` (local-only, gitignored) | Training pipeline status update |
+| [ai-service/AI_ASSESSMENT_REPORT.md](ai-service/AI_ASSESSMENT_REPORT.md)                                 | AI service technical assessment |
+| [ai-service/AI_IMPROVEMENT_PLAN.md](ai-service/AI_IMPROVEMENT_PLAN.md)                                   | AI service improvement roadmap  |
 
 ---
 

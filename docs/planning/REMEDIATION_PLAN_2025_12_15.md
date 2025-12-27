@@ -9,7 +9,7 @@
 - [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md)
 - [`KNOWN_ISSUES.md`](../../KNOWN_ISSUES.md)
 - [[`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md)](../archive/historical/CURRENT_STATE_ASSESSMENT.md)
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md)
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored)
 - [`docs/ux/UX_RULES_TEACHING_GAP_ANALYSIS.md`](../ux/UX_RULES_TEACHING_GAP_ANALYSIS.md)
 
 ---

@@ -647,7 +647,7 @@ The router automatically maps between event systems:
 - [ORCHESTRATOR_GUIDE.md](../app/training/ORCHESTRATOR_GUIDE.md) - Detailed orchestrator migration
 - [DEPRECATION_TIMELINE.md](./DEPRECATION_TIMELINE.md) - Full deprecation schedule
 - [AGENTS.md](../AGENTS.md) - Canonical database requirements
-- [TRAINING_DATA_REGISTRY.md](../TRAINING_DATA_REGISTRY.md) - Database provenance
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Database provenance
 
 ---
 

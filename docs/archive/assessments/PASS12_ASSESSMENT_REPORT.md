@@ -25,7 +25,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Score:** 5/5  
 **Evidence:**
 
-- [`monitoring/prometheus/prometheus.yml`](../../../monitoring/prometheus/prometheus.yml) (167 lines): Comprehensive scrape configuration for app:3000, ai-service:8001, optional Redis/Postgres/Nginx exporters
+- [`monitoring/prometheus.yml`](../../../monitoring/prometheus.yml) (167 lines): Comprehensive scrape configuration for app:3000, ai-service:8001, optional Redis/Postgres/Nginx exporters
 - [`monitoring/prometheus/alerts.yml`](../../../monitoring/prometheus/alerts.yml) (616 lines): 9 alert groups covering availability, latency, resources, business metrics, AI service, degradation, rate-limiting, rules-parity, service-response
 - [`monitoring/alertmanager/alertmanager.yml`](../../../monitoring/alertmanager/alertmanager.yml) (280 lines): Team-based routing (backend, ai, product), severity-based escalation (critical → immediate, warning → 4h)
 

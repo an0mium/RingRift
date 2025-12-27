@@ -347,13 +347,13 @@ This keeps the AI boundary consistent:
   | Final loss | 0.7188 |
   | **Loss reduction** | **53.5%** |
   | Architecture | HexNeuralNet (CNN + global features) |
-  | Checkpoint | [`checkpoint_epoch_5.pth`](../../ai-service/checkpoints/checkpoint_epoch_5.pth) (~283 MB) |
+  | Checkpoint | `ai-service/checkpoints/checkpoint_epoch_5.pth` (local-only artifact) (~283 MB) |
 
 ---
 
 ## 6. Evaluation Results (Statistical Analysis)
 
-Data source: [`statistical_analysis_report.json`](../../ai-service/results/statistical_analysis_report.json)
+Data source: `ai-service/results/statistical_analysis_report.json` (generated artifact, local-only)
 
 ### Statistical Methods
 
@@ -468,12 +468,12 @@ Data source: [`statistical_analysis_report.json`](../../ai-service/results/stati
 
 ### Generated Artifacts
 
-| File                                                                                            | Size    | Description                           |
-| ----------------------------------------------------------------------------------------------- | ------- | ------------------------------------- |
-| [`checkpoint_epoch_5.pth`](../../ai-service/checkpoints/checkpoint_epoch_5.pth)                 | ~283 MB | Trained neural network                |
-| [`heuristic_weights_optimized.json`](../../ai-service/heuristic_weights_optimized.json)         | 1 KB    | CMA-ES optimized weights (18 weights) |
-| [`statistical_analysis_report.json`](../../ai-service/results/statistical_analysis_report.json) | 8 KB    | Full statistical analysis             |
-| `results/*.json`                                                                                | Various | All evaluation game logs              |
+| File                                                                                    | Size    | Description                           |
+| --------------------------------------------------------------------------------------- | ------- | ------------------------------------- |
+| `ai-service/checkpoints/checkpoint_epoch_5.pth` (local-only artifact)                   | ~283 MB | Trained neural network                |
+| [`heuristic_weights_optimized.json`](../../ai-service/heuristic_weights_optimized.json) | 1 KB    | CMA-ES optimized weights (18 weights) |
+| `ai-service/results/statistical_analysis_report.json` (generated artifact, local-only)  | 8 KB    | Full statistical analysis             |
+| `results/*.json`                                                                        | Various | All evaluation game logs              |
 
 ---
 
@@ -510,23 +510,23 @@ This run applied the extended CMA-ES tooling to the cleaned-up balanced heuristi
 
 **Training configuration (CMA-ES Run #1):**
 
-| Parameter                         | Value                                                                                                                               |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Board                             | `square8`                                                                                                                           |
-| Baseline profile id               | `heuristic_v1_balanced` (Python registry in [`heuristic_weights.py`](../../ai-service/app/ai/heuristic_weights.py))                 |
-| Run id                            | `v1_balanced_longrun_01` (dir [`logs/cmaes/runs/v1_balanced_longrun_01/`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01)) |
-| Generations `G`                   | **6**                                                                                                                               |
-| Population size `λ`               | **12**                                                                                                                              |
-| Games per candidate `K`           | **16** (total ≈ 6 × 12 × 16 = **1152** self-play games)                                                                             |
-| Max moves per game                | **200**                                                                                                                             |
-| Opponent mode                     | `baseline-plus-incumbent`                                                                                                           |
-| Initial sigma                     | `0.5`                                                                                                                               |
-| CMA-ES seed                       | `12345`                                                                                                                             |
-| Baseline weights snapshot         | [`baseline_weights.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/baseline_weights.json)                            |
-| Final best weights                | [`best_weights.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json)                                    |
-| Run metadata                      | [`run_meta.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/run_meta.json)                                            |
-| Generation summaries              | [`generations/`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/generations)                                               |
-| Checkpoints (per-generation best) | [`checkpoints/`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/checkpoints)                                               |
+| Parameter                         | Value                                                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Board                             | `square8`                                                                                                           |
+| Baseline profile id               | `heuristic_v1_balanced` (Python registry in [`heuristic_weights.py`](../../ai-service/app/ai/heuristic_weights.py)) |
+| Run id                            | `v1_balanced_longrun_01` (dir `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/` (local-only))                    |
+| Generations `G`                   | **6**                                                                                                               |
+| Population size `λ`               | **12**                                                                                                              |
+| Games per candidate `K`           | **16** (total ≈ 6 × 12 × 16 = **1152** self-play games)                                                             |
+| Max moves per game                | **200**                                                                                                             |
+| Opponent mode                     | `baseline-plus-incumbent`                                                                                           |
+| Initial sigma                     | `0.5`                                                                                                               |
+| CMA-ES seed                       | `12345`                                                                                                             |
+| Baseline weights snapshot         | `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/baseline_weights.json` (local-only)                              |
+| Final best weights                | `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json` (local-only)                                  |
+| Run metadata                      | `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/run_meta.json` (local-only)                                      |
+| Generation summaries              | `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/generations` (local-only)                                        |
+| Checkpoints (per-generation best) | `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/checkpoints` (local-only)                                        |
 
 Key implementation details:
 
@@ -536,7 +536,7 @@ Key implementation details:
 
 **Runtime:**
 
-- CMA-ES training wall-clock for Run #1 was approximately **4.2 hours** (from `created_at` in [`run_meta.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/run_meta.json) to the `timestamp` in [`best_weights.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json)).
+- CMA-ES training wall-clock for Run #1 was approximately **4.2 hours** (from `created_at` in `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/run_meta.json` (local-only) to the `timestamp` in `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json` (local-only)).
 - Average game length during CMA-ES evaluation and subsequent head-to-head matches was ≈ **47 moves**, consistent with the earlier short calibration run `v1_balanced_calibration_01`.
 
 ### 10.2 Evaluation Results vs Baseline and Random
@@ -552,10 +552,10 @@ Two evaluation batteries were run using [`evaluate_ai_models.py`](../../ai-servi
   - Board: `square8`
   - Games: **800**
   - Seed: **12345**
-  - CMA-ES weights: [`best_weights.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json)
-  - Output JSON: [`cmaes_vs_baseline.longrun01.json`](../../ai-service/results/cmaes_vs_baseline.longrun01.json)
+  - CMA-ES weights: `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json` (local-only)
+  - Output JSON: `ai-service/results/cmaes_vs_baseline.longrun01.json` (generated artifact, local-only)
 
-**Aggregate results (from [`cmaes_vs_baseline.longrun01.json`](../../ai-service/results/cmaes_vs_baseline.longrun01.json) and the updated [`statistical_analysis_report.json`](../../ai-service/results/statistical_analysis_report.json)):**
+**Aggregate results (from `ai-service/results/cmaes_vs_baseline.longrun01.json` (generated artifact, local-only) and the updated `ai-service/results/statistical_analysis_report.json` (generated artifact, local-only)):**
 
 | Metric                              | Value                    |
 | ----------------------------------- | ------------------------ |
@@ -575,7 +575,7 @@ Two evaluation batteries were run using [`evaluate_ai_models.py`](../../ai-servi
   - Exact 400–400 split, no draws.
   - 95% confidence interval is tightly centered around 50%.
   - Binomial exact test reports **p = 1.0**, Cohen’s _h_ = 0.0 (negligible effect).
-- The updated key finding in [`statistical_analysis_report.json`](../../ai-service/results/statistical_analysis_report.json) confirms:
+- The updated key finding in `ai-service/results/statistical_analysis_report.json` (generated artifact, local-only) confirms:
   > “CMA-ES optimization did NOT provide statistically significant improvement over baseline.”
 
 This extended run therefore **reinforces** the original conclusion in §6 that the existing balanced heuristic profile is already near a local optimum for the current feature set on Square8.
@@ -586,10 +586,10 @@ This extended run therefore **reinforces** the original conclusion in §6 that t
   - Board: `square8`
   - Games: **400**
   - Seed: **23456**
-  - CMA-ES weights: [`best_weights.json`](../../ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json)
-  - Output JSON: [`cmaes_vs_random.longrun01.json`](../../ai-service/results/cmaes_vs_random.longrun01.json)
+  - CMA-ES weights: `ai-service/logs/cmaes/runs/v1_balanced_longrun_01/best_weights.json` (local-only)
+  - Output JSON: `ai-service/results/cmaes_vs_random.longrun01.json` (generated artifact, local-only)
 
-**Aggregate results (from [`cmaes_vs_random.longrun01.json`](../../ai-service/results/cmaes_vs_random.longrun01.json) and the updated report):**
+**Aggregate results (from `ai-service/results/cmaes_vs_random.longrun01.json` (generated artifact, local-only) and the updated report):**
 
 | Metric                           | Value                            |
 | -------------------------------- | -------------------------------- |

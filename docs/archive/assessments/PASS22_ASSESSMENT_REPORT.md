@@ -808,7 +808,7 @@ Measurable outcomes:
 
 - [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) - Success criteria
 - [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) - Phased roadmap
-- [`coverage/coverage-summary.json`](../../../coverage/coverage-summary.json) - Coverage metrics
+- `coverage/coverage-summary.json` (local-only artifact) - Coverage metrics
 
 **Operations:**
 

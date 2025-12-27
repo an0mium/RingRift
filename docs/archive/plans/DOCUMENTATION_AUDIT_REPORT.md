@@ -852,7 +852,7 @@ This pass focused on **closing remaining automated SSoT gaps** and wiring the do
 
 - Existence of core operational artefacts:
   - `docker-compose.yml`, `docker-compose.staging.yml`, `Dockerfile`
-  - `monitoring/prometheus/alerts.yml`, `monitoring/prometheus/prometheus.yml`, `monitoring/alertmanager/alertmanager.yml`
+  - `monitoring/prometheus/alerts.yml`, `monitoring/prometheus.yml`, `monitoring/alertmanager/alertmanager.yml`
 - Presence of the CI workflow (`.github/workflows/ci.yml`) and the CI/security doc (`docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md`).
 - Exact matching between **CI job display names** (under `name:` in `ci.yml`) and human-readable labels in the CI/security doc.
 

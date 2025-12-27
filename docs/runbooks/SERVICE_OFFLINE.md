@@ -6,7 +6,7 @@
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
 > - Prometheus alert rules in `monitoring/prometheus/alerts.yml` (e.g. `ServiceOffline`, `ServiceMinimalMode`, `ServiceDegraded`, `ringrift_degradation_level`, `DatabaseDown`).
-> - Prometheus configuration in `monitoring/prometheus/prometheus.yml`.
+> - Prometheus configuration in `monitoring/prometheus.yml`.
 > - Backend degradation and offline plumbing in `src/server/services/ServiceStatusManager.ts` and `src/server/middleware/degradationHeaders.ts`.
 > - Health / readiness and dependency checks implemented by `HealthCheckService` and related routes.
 >

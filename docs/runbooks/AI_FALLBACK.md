@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alerts `AIFallbackRateHigh`, `AIFallbackRateCritical` based on `ringrift_ai_fallback_total` and `ringrift_ai_requests_total`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alerts `AIFallbackRateHigh`, `AIFallbackRateCritical` based on `ringrift_ai_fallback_total` and `ringrift_ai_requests_total`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Metrics surfaces:** Backend metrics that count AI requests and fallbacks (e.g. `ringrift_ai_requests_total`, `ringrift_ai_fallback_total`, AI latency metrics) exposed via `/metrics` on the Node app and, where configured, on the Python AI service (`ai-service/app/main.py`).
 > - **AI integration and fallback logic:** `AIServiceClient`, `AIEngine`, and related components (`src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`, `src/server/game/ai/AIPlayer.ts`) that decide when to call the remote AI vs. local heuristic fallback and which metrics to increment.
 > - **AI incidents:** `docs/incidents/AI_SERVICE.md` (sections on fallback behaviour, AI quality, and incident handling).
@@ -352,7 +352,7 @@ You are done when:
   - `docs/runbooks/SERVICE_DEGRADATION.md`
 - **Ops / config SSoT:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/operations/ENVIRONMENT_VARIABLES.md`

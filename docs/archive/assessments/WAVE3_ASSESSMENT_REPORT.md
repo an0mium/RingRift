@@ -23,18 +23,20 @@ Following the successful completion of Wave 2 remediation (18 subtasks addressin
 
 Project goals are documented in a clear hierarchy:
 
-| Document                                                                                                                            | Lines | Purpose                  | Status     |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------------------ | ---------- |
+| Document | Lines | Purpose | Status |
+| -------- | ----- | ------- | ------ |
+
 <<<<<<< Updated upstream
-| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)                                                                                           | 464   | Canonical goals SSoT     | ✅ Current |
-| [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md)                                                                                   | ~600  | Phased roadmap with SLOs | ✅ Current |
-| [`README.md`](../../../README.md)                                                                                                         | ~300  | High-level overview      | ✅ Current |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) | 464 | Canonical goals SSoT | ✅ Current |
+| [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) | ~600 | Phased roadmap with SLOs | ✅ Current |
+| [`README.md`](../../../README.md) | ~300 | High-level overview | ✅ Current |
 =======
-| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)                                                                                     | 464   | Canonical goals SSoT     | ✅ Current |
-| [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md)                                                                       | ~600  | Phased roadmap with SLOs | ✅ Current |
-| [`README.md`](../../../README.md)                                                                                                   | ~300  | High-level overview      | ✅ Current |
->>>>>>> Stashed changes
-| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ~500  | Implementation snapshot  | ✅ Current |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) | 464 | Canonical goals SSoT | ✅ Current |
+| [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) | ~600 | Phased roadmap with SLOs | ✅ Current |
+| [`README.md`](../../../README.md) | ~300 | High-level overview | ✅ Current |
+
+> > > > > > > Stashed changes
+> > > > > > > | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ~500 | Implementation snapshot | ✅ Current |
 
 **Key Goals from PROJECT_GOALS.md:**
 
@@ -159,7 +161,7 @@ The remaining `as any` casts fall into categories:
 - [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md) - Rules SSoT
 - [`ringrift_complete_rules.md`](../../../ringrift_complete_rules.md) - Human-readable rules
 - [`docs/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md) - Engine API
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md) - Training data status
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Training data status
 - [`docs/runbooks/INDEX.md`](../../runbooks/INDEX.md) - Operations runbooks
 
 **Gaps:** None critical. Archive index exists at [`docs/../../../archive/INDEX.md`](../../../archive/INDEX.md).
@@ -447,21 +449,22 @@ Secondary priorities (W3-9 through W3-14) provide incremental improvements to te
 ## Related Documents
 
 <<<<<<< Updated upstream
-| Document                                                                              | Purpose                              |
+| Document | Purpose |
 | ------------------------------------------------------------------------------------- | ------------------------------------ |
-| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)                                             | Canonical goals and success criteria |
-| [`WAVE2_ASSESSMENT_REPORT.md`](WAVE2_ASSESSMENT_REPORT.md)                            | Prior wave assessment                |
-| [`PROJECT_WEAKNESS_ASSESSMENT.md`](PROJECT_WEAKNESS_ASSESSMENT.md)                    | Detailed weakness analysis           |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) | Canonical goals and success criteria |
+| [`WAVE2_ASSESSMENT_REPORT.md`](WAVE2_ASSESSMENT_REPORT.md) | Prior wave assessment |
+| [`PROJECT_WEAKNESS_ASSESSMENT.md`](PROJECT_WEAKNESS_ASSESSMENT.md) | Detailed weakness analysis |
 =======
-| Document                                                                                    | Purpose                              |
+| Document | Purpose |
 | ------------------------------------------------------------------------------------------- | ------------------------------------ |
-| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md)                                             | Canonical goals and success criteria |
-| [`WAVE2_ASSESSMENT_REPORT.md`](WAVE2_ASSESSMENT_REPORT.md)                                  | Prior wave assessment                |
-| [`PROJECT_WEAKNESS_ASSESSMENT.md`](PROJECT_WEAKNESS_ASSESSMENT.md)                          | Detailed weakness analysis           |
->>>>>>> Stashed changes
-| [`TODO.md`](../../../TODO.md)                                                               | Active task tracker                  |
-| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md)                                               | Issue tracker                        |
-| [`ai-service/parity_fixtures/COVERAGE.md`](../../../ai-service/parity_fixtures/COVERAGE.md) | Parity fixture coverage              |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) | Canonical goals and success criteria |
+| [`WAVE2_ASSESSMENT_REPORT.md`](WAVE2_ASSESSMENT_REPORT.md) | Prior wave assessment |
+| [`PROJECT_WEAKNESS_ASSESSMENT.md`](PROJECT_WEAKNESS_ASSESSMENT.md) | Detailed weakness analysis |
+
+> > > > > > > Stashed changes
+> > > > > > > | [`TODO.md`](../../../TODO.md) | Active task tracker |
+> > > > > > > | [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) | Issue tracker |
+> > > > > > > | [`ai-service/parity_fixtures/COVERAGE.md`](../../../ai-service/parity_fixtures/COVERAGE.md) | Parity fixture coverage |
 
 ---
 

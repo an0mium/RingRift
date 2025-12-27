@@ -6,7 +6,7 @@
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
 > - Prometheus alert rules in `monitoring/prometheus/alerts.yml` (e.g. `HighWebSocketConnections`, metric `ringrift_websocket_connections`).
-> - Prometheus configuration in `monitoring/prometheus/prometheus.yml`.
+> - Prometheus configuration in `monitoring/prometheus.yml`.
 > - WebSocket server implementation and topology in the backend (e.g. `src/server/websocket/server.ts`, `WebSocketInteractionHandler`, deployment topology).
 >
 > **Precedence:** Connection limits, deployment topology, and alert thresholds are defined by **code + configuration + infrastructure**. This runbook provides investigation and mitigation steps but is **not** authoritative for limits or semantics.

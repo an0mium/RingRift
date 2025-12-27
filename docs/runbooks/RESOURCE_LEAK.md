@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `resources`, alert `HighActiveHandles`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `resources`, alert `HighActiveHandles`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Runtime metrics:** The `nodejs_active_handles_total` metric exported by the Node.js process and exposed on the `/metrics` endpoint.
 > - **Service implementation & lifecycle:**
 >   - Connection and session management in `src/server/websocket/server.ts`, `src/server/game/WebSocketInteractionHandler.ts`, `src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`.
@@ -253,7 +253,7 @@ Before considering a resource-leak incident resolved, confirm:
 
 - **Monitoring & thresholds:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `monitoring/README.md`
   - `docs/operations/ALERTING_THRESHOLDS.md`
 

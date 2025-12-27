@@ -234,7 +234,7 @@ The orchestrator now wraps all phase transitions and move validation. When it's 
 - [`FSM_MIGRATION_STATUS_2025_12.md`](../architecture/FSM_MIGRATION_STATUS_2025_12.md) - Orchestrator migration status
 - [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) - Original rollout plan
 - [`KNOWN_ISSUES.md`](../../KNOWN_ISSUES.md) - TH-NEW-1 tracks skipped tests
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) - Parity gate status
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Parity gate status
 
 ---
 

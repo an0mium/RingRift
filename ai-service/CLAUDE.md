@@ -415,6 +415,28 @@ Unified training pipeline orchestration:
 - **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
 - **`auto_sync_daemon.py`**: Automated P2P data sync with push-from-generator + gossip replication
 
+**Data Distribution (Dec 2025):**
+
+- **`scripts/dynamic_data_distribution.py`**: HTTP-based distribution daemon for training data
+  - Distributes NPZ/DB files from OWC (mac-studio:8780) to training nodes
+  - Rsync fallback for large files (>100MB), aria2/curl fallback for downloads
+  - Capacity-aware (skips nodes with <50GB free)
+- **`scripts/dynamic_space_manager.py`**: Proactive disk space management
+  - Cleanup at 60% usage (before 70% threshold)
+  - Deletes old logs, empty databases, old checkpoints
+- **`scripts/consolidate_jsonl_databases.py`**: Merge scattered jsonl_aggregated.db files
+  - Consolidates 44 source databases (147GB) into per-config canonical databases
+  - Deduplicates by game_id
+- **`scripts/orchestrated_data_sync.py`**: Config-aware data sync
+  - Detects pending training, syncs relevant data only
+
+**Batch Rsync (Dec 2025):**
+
+- **`app/coordination/sync_bandwidth.py`**: Now includes `BatchRsync` class
+  - `sync_files()` - Transfer multiple files in single rsync operation
+  - `sync_directory()` - Directory sync with include/exclude patterns
+  - Bandwidth-coordinated with `BandwidthManager`
+
 **Sync CLI (supported):**
 
 - Use `scripts/unified_data_sync.py` for operational sync CLI usage.
@@ -919,3 +941,53 @@ PYTHONPATH=. python3 scripts/auto_promote.py --gauntlet \
 
 - vs RANDOM: 85% win rate required
 - vs HEURISTIC: 60% win rate required
+
+## Recent Changes (Dec 27, 2025)
+
+### Data Distribution Infrastructure
+
+New scripts for automated data distribution from OWC to training nodes:
+
+- **`dynamic_data_distribution.py`**: Daemon running on mac-studio (PID active)
+  - HTTP distribution with rsync fallback for large files (>100MB)
+  - aria2/curl fallback chain for failed downloads
+  - 5-minute distribution cycle
+- **`dynamic_space_manager.py`**: Daemon running on mac-studio
+  - Proactive cleanup at 60% disk usage
+  - Cleans old logs, empty DBs, old checkpoints
+- **`consolidate_jsonl_databases.py`**: Database consolidation script
+  - Merges 44 jsonl_aggregated.db files (147GB) into per-config databases
+  - hex8_4p: 3,210+ games consolidated
+- **`scheduled_npz_export.py`**: Updated to search jsonl_aggregated databases
+  - Now finds games across all cluster node snapshots
+
+### Batch Rsync
+
+Added `BatchRsync` class to `sync_bandwidth.py`:
+
+```python
+from app.coordination.sync_bandwidth import get_batch_rsync
+
+batch = get_batch_rsync()
+result = await batch.sync_files(
+    source_dir="/data/games/",
+    dest="ubuntu@gpu-node:/data/games/",
+    host="gpu-node",
+    files=["game1.db", "game2.db", "game3.db"],
+)
+```
+
+### GPU Vectorization Status
+
+Current state of `app/ai/gpu_parallel_games.py`:
+
+- Only 1 `.item()` call remains (statistics tracking, not in hot path)
+- 6-10x speedup on CUDA vs CPU
+- MPS (Apple Silicon) remains slow due to kernel launch overhead
+- 99 `.cpu()` / 96 `.numpy()` calls for data extraction (not in hot loops)
+
+### Active Daemons on mac-studio
+
+- `dynamic_data_distribution.py` - 5min cycle
+- `dynamic_space_manager.py` - 30min cycle
+- `scheduled_npz_export.py` - 2hr cycle

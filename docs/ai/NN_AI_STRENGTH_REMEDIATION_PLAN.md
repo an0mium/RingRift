@@ -51,7 +51,7 @@ RingRift currently has no strong Neural Network (NN) based AI despite having sub
 
 ### 1.3 Training Data Availability
 
-Based on [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md):
+Based on `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored):
 
 | Board     | Players | Database                  | Games  | Status          | Target |
 | --------- | ------- | ------------------------- | ------ | --------------- | ------ |
@@ -541,7 +541,7 @@ python scripts/check_ts_python_replay_parity.py \
 
 ## 8. Related Documentation
 
-- [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) - Data provenance
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Data provenance
 - [`NN_STRENGTHENING_PLAN.md`](../../ai-service/docs/planning/NN_STRENGTHENING_PLAN.md) - Detailed strengthening plan
 - [`NEURAL_AI_ARCHITECTURE.md`](../../ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md) - Architecture reference
 - [`AI_IMPROVEMENT_PLAN.md`](../../ai-service/AI_IMPROVEMENT_PLAN.md) - Overall AI improvement plan

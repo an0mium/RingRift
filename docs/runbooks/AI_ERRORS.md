@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIErrorsIncreasing` based on `ringrift_ai_requests_total{outcome="error"}`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIErrorsIncreasing` based on `ringrift_ai_requests_total{outcome="error"}`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Metrics surfaces:** AI request outcome metrics emitted by the backend (e.g. `ringrift_ai_requests_total` with labels such as `outcome`) and associated latency/fallback metrics.
 > - **AI integration & error handling:** `AIServiceClient`, `AIEngine`, and related backend components that classify AI failures into structured error codes (`AI_SERVICE_TIMEOUT`, `AI_SERVICE_UNAVAILABLE`, `AI_SERVICE_ERROR`, `AI_SERVICE_OVERLOADED`) and decide when to fall back (`src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`).
 > - **AI service implementation:** FastAPI AI service in `ai-service/app/main.py` and underlying AI engines, which may raise errors surfaced as HTTP 5xx to the backend.
@@ -359,7 +359,7 @@ You are done when:
   - `docs/runbooks/HIGH_ERROR_RATE.md`
 - **Ops / config SSoT:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/operations/ENVIRONMENT_VARIABLES.md`

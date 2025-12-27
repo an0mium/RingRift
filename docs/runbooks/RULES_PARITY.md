@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `rules-parity`, alerts `RulesParityValidationMismatch`, `RulesParityHashMismatch`, `RulesParityGameStatusMismatch`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `rules-parity`, alerts `RulesParityValidationMismatch`, `RulesParityHashMismatch`, `RulesParityGameStatusMismatch`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Canonical rules semantics:** Shared TypeScript engine helpers, aggregates, and orchestrator under `src/shared/engine/**`, plus contracts and v2 contract vectors in `src/shared/engine/contracts/**` and `tests/fixtures/contract-vectors/v2/**`.
 > - **Parity metrics & logging:** `rulesParityMetrics` and `logRulesMismatch` in `src/server/utils/rulesParityMetrics.ts`, and the `RulesBackendFacade` / `PythonRulesClient` parity harness in `src/server/game/RulesBackendFacade.ts` and `src/server/services/PythonRulesClient.ts`.
 > - **Python rules implementation:** Canonical Python rules engine in `ai-service/app/game_engine/__init__.py` and the derived/parity-focused modules under `ai-service/app/rules/**` (`default_engine.py`, `validators/*.py`, `mutators/*.py`).
@@ -383,7 +383,7 @@ Before considering a rules-parity incident resolved:
 
 - **Monitoring SSoT & ops:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `monitoring/README.md`
   - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/operations/OPERATIONS_DB.md`

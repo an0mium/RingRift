@@ -18,12 +18,12 @@ For general environment setup, see [`QUICKSTART.md`](../../QUICKSTART.md) and [`
 
 ## 1. Environments & Database Expectations
 
-RingRift uses PostgreSQL as the primary persistence layer and Prisma as the ORM. All schema changes must flow through checked-in Prisma migrations under [`prisma/migrations`](../../prisma/migrations/20251119080345_init/migration.sql).
+RingRift uses PostgreSQL as the primary persistence layer and Prisma as the ORM. All schema changes must flow through the Prisma schema and generated migrations under `prisma/migrations/` (local-only, gitignored).
 
 At a high level:
 
 - **Local development** uses a Postgres container from [`docker-compose.yml`](../../docker-compose.yml) or a local Postgres instance.
-- **Staging** is a single-node Docker Compose stack using [`docker-compose.yml`](../../docker-compose.yml) + [`docker-compose.staging.yml`](../../docker-compose.staging.yml) and the [`.env.staging`](../../.env.staging) template.
+- **Staging** is a single-node Docker Compose stack using [`docker-compose.yml`](../../docker-compose.yml) + [`docker-compose.staging.yml`](../../docker-compose.staging.yml) and the [`.env.staging.example`](../../.env.staging.example) template.
 - **Production** is expected to use a managed or self-operated Postgres instance; the exact hosting platform is out of scope for this repo, but the workflows below assume:
   - A stable `DATABASE_URL` for the primary database.
   - Regular automated backups or snapshots managed by infra/ops.
@@ -101,7 +101,7 @@ to verify that backups are usable.
 Staging is intended to look like a small production deployment while still living on a developer or CI host:
 
 - Single-node stack defined by [`docker-compose.yml`](../../docker-compose.yml) + [`docker-compose.staging.yml`](../../docker-compose.staging.yml).
-- Uses `.env` based on [`.env.staging`](../../.env.staging) for secrets and connection strings.
+- Uses `.env.staging` (local, derived from [`.env.staging.example`](../../.env.staging.example)) for secrets and connection strings.
 - The `app` service runs:
 
   ```bash
@@ -206,10 +206,10 @@ This workflow applies to any schema change in [`prisma/schema.prisma`](../../pri
    npm test
    ```
 
-4. Inspect the generated SQL under [`prisma/migrations`](../../prisma/migrations/20251119080345_init/migration.sql) to confirm it matches intent (especially for destructive changes).
+4. Inspect the generated SQL under `prisma/migrations/` (local-only, gitignored) to confirm it matches intent (especially for destructive changes).
 5. Commit **both**:
    - The updated [`prisma/schema.prisma`](../../prisma/schema.prisma).
-   - The new directory under [`prisma/migrations`](../../prisma/migrations/20251119080345_init/migration.sql).
+   - The new directory under `prisma/migrations/` (local-only, gitignored).
 
 ### 2.2 Staging rollout
 

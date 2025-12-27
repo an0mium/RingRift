@@ -251,7 +251,7 @@ cat data/rollback_history.json | jq '.[0:5]'
 - [Pipeline Orchestrator](../docs/infrastructure/PIPELINE_ORCHESTRATOR.md) - CI/CD pipeline orchestration
 - [Distributed Selfplay](../docs/training/DISTRIBUTED_SELFPLAY.md) - Remote host setup
 - [Cloud Infrastructure](../docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) - AWS/cloud deployment
-- [Cluster Monitoring](../scripts/monitoring/README.md) - CloudWatch setup
+- [Cluster Monitoring](../scripts/monitor/README.md) - Monitoring utilities (CloudWatch scripts in `scripts/monitoring/` are local-only)
 
 ---
 

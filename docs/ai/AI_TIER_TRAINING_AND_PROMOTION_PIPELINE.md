@@ -726,7 +726,7 @@ This pair of commands exercises the full tier training + gating pipeline for a m
 
 #### 8.4.2 Full pipeline run (when canonical data is available)
 
-When canonical Square-8 2-player replay DBs exist and have passed the unified gate in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md):
+When canonical Square-8 2-player replay DBs exist and have passed the unified gate in `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored):
 
 1. Run [`run_tier_training_pipeline.py`](../../ai-service/scripts/run_tier_training_pipeline.py) **without** `--demo` so that it can:
    - Generate or select training datasets derived **only** from DBs marked `canonical` in the registry.
@@ -742,7 +742,7 @@ In both cases you should keep each candidate’s artefacts under a dedicated `--
 
 #### 8.4.3 Canonical data and compute constraints
 
-- **Canonical-only training data:** Real training runs for D2–D10 must be wired so that all self-play or replay-derived datasets are generated from DBs whose status is `canonical` in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md). DBs marked `legacy_noncanonical`, `pending_gate`, or `DEPRECATED_R10` must not be used for new ladder training.
+- **Canonical-only training data:** Real training runs for D2–D10 must be wired so that all self-play or replay-derived datasets are generated from DBs whose status is `canonical` in `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored). DBs marked `legacy_noncanonical`, `pending_gate`, or `DEPRECATED_R10` must not be used for new ladder training.
 - **Default to demo in CI:** CI and quick local checks should use the `--demo` pipeline described above; heavy training runs are reserved for dedicated training environments with explicit operator sign-off.
 - **Alignment with tier config JSON:** The small JSON descriptor [`tier_training_pipeline.square8_2p.json`](../../ai-service/config/tier_training_pipeline.square8_2p.json) mirrors the demo defaults (seeds, gating overrides) and is used by tests as a shape contract. Future Code-mode work can thread this config through the orchestrators to centralise per-tier settings.
 

@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIRequestHighLatency` based on `ringrift_ai_request_duration_seconds_bucket`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIRequestHighLatency` based on `ringrift_ai_request_duration_seconds_bucket`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Metrics surfaces:** AI latency and request metrics emitted by the backend (e.g. `ringrift_ai_request_duration_seconds_bucket`, `ringrift_ai_requests_total`, `ringrift_ai_fallback_total`) and, where configured, Python AI metrics (`AI_MOVE_LATENCY`, `AI_MOVE_REQUESTS` in `ai-service/app/metrics.py`, exposed from `ai-service/app/main.py` via `/metrics`).
 > - **AI integration & timeouts:** `AIServiceClient` configuration and behaviour (`src/server/services/AIServiceClient.ts`), especially `requestTimeoutMs`, concurrency limits, and circuit breaker; AI orchestration in `AIEngine` and related components.
 > - **AI service implementation:** FastAPI AI service in `ai-service/app/main.py`, including difficulty profiles (`_CANONICAL_DIFFICULTY_PROFILES`) and move-selection endpoints.
@@ -436,7 +436,7 @@ When adjusting these profiles, keep them:
   - `docs/runbooks/HIGH_LATENCY.md`
 - **Ops / config SSoT:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `docs/operations/ALERTING_THRESHOLDS.md`
   - `docs/planning/DEPLOYMENT_REQUIREMENTS.md`
   - `docs/operations/ENVIRONMENT_VARIABLES.md`

@@ -142,7 +142,7 @@ await publish(
 ## Related Documentation
 
 - [Sync Architecture](sync_architecture.md) - Detailed sync layer documentation
-- [Tournament Consolidation](TOURNAMENT_CONSOLIDATION.md) - Tournament system analysis
+- `TOURNAMENT_CONSOLIDATION.md` (local-only, gitignored) - Tournament system analysis
 
 ## Module Count by Directory
 

@@ -7,7 +7,7 @@
 >
 > - `docker-compose.yml` - Base Docker Compose configuration
 > - `docker-compose.staging.yml` - Staging overlay
-> - `.env.staging` - Staging environment template
+> - `.env.staging.example` - Staging environment template
 > - `docs/runbooks/DEPLOYMENT_INITIAL.md` - Initial deployment reference
 
 ---
@@ -108,10 +108,10 @@ echo "DB_PASSWORD=$DB_PASSWORD"
 
 ```bash
 # Copy staging template
-cp .env.staging .env
+cp .env.staging.example .env.staging
 
 # Edit with actual values
-nano .env
+nano .env.staging
 ```
 
 **Critical Variables:**

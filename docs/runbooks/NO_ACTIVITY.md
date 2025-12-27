@@ -6,7 +6,7 @@
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
 > - Prometheus alert rules in `monitoring/prometheus/alerts.yml` (e.g. `NoActiveGames`, `ringrift_games_active`).
-> - Prometheus configuration in `monitoring/prometheus/prometheus.yml`.
+> - Prometheus configuration in `monitoring/prometheus.yml`.
 > - Product expectations for game activity and the behaviour of the game session / matchmaking stack.
 >
 > **Precedence:** Alert thresholds, business expectations, and metric definitions are owned by monitoring configs, product requirements, and backend code. This runbook describes **how to investigate and react** when the alert fires; it is **not** a source of truth for thresholds or semantics.

@@ -135,7 +135,7 @@ The difficulty step between adjacent tiers should be perceptible.
 
 - Binary indicator: 1 if tier has a promoted, active model; 0 otherwise
 - Any tier without an active model is an **Informational** alert
-- Tracked via [`tier_candidate_registry.square8_2p.json`](../../ai-service/config/tier_candidate_registry.square8_2p.json)
+- Tracked via `ai-service/config/tier_candidate_registry.square8_2p.json` (local-only, gitignored)
 
 ### Human Calibration Metrics
 
@@ -288,7 +288,7 @@ Response time: **Next business day** review, **weekly** summary
 | Calibration Telemetry | Human win rate, perceived difficulty, game length, abandonment | Client events via [`difficultyCalibrationTelemetry.ts`](../../src/client/utils/difficultyCalibrationTelemetry.ts) |
 | Tier Evaluation Runs  | Win rates vs opponents, Elo calculations                       | [`run_tier_evaluation.py`](../../ai-service/scripts/run_tier_evaluation.py) output                                |
 | Perf Benchmarks       | Decision latency (avg, p95)                                    | [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py) output                        |
-| Candidate Registry    | Model status, promotion history                                | [`tier_candidate_registry.square8_2p.json`](../../ai-service/config/tier_candidate_registry.square8_2p.json)      |
+| Candidate Registry    | Model status, promotion history                                | `ai-service/config/tier_candidate_registry.square8_2p.json` (local-only, gitignored)                              |
 | Calibration Analysis  | Aggregated calibration metrics per window                      | [`analyze_difficulty_calibration.py`](../../ai-service/scripts/analyze_difficulty_calibration.py) output          |
 
 #### Collection Frequency

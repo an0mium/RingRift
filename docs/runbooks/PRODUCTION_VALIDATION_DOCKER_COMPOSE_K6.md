@@ -7,7 +7,7 @@
 >
 > - `docker-compose.yml` – canonical local/staging stack definition (app, Postgres, Redis, AI service, Prometheus, Alertmanager, Grafana, nginx).
 > - `tests/load/README.md` – k6 scenario definitions and SLO thresholds.
-> - `monitoring/prometheus/prometheus.yml` and `monitoring/prometheus/alerts.yml` – scrape and alert rules.
+> - `monitoring/prometheus.yml` and `monitoring/prometheus/alerts.yml` – scrape and alert rules.
 > - `monitoring/grafana/dashboards/*.json` – Game Performance, Rules Correctness, and System Health dashboards.
 > - `docs/PASS22_ASSESSMENT_REPORT.md` – PASS22 production validation goals and success criteria.
 >

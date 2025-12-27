@@ -6,7 +6,7 @@
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
 > - Prometheus alert rules in `monitoring/prometheus/alerts.yml` (e.g. `NoWebSocketConnections`, `HighWebSocketConnections`, metric `ringrift_websocket_connections`).
-> - Prometheus configuration in `monitoring/prometheus/prometheus.yml`.
+> - Prometheus configuration in `monitoring/prometheus.yml`.
 > - WebSocket server implementation in the backend (e.g. `src/server/websocket/server.ts`, `WebSocketInteractionHandler` and related tests).
 > - HTTP and degradation behaviour documented in other runbooks (`NO_TRAFFIC.md`, `SERVICE_DEGRADATION.md`, `SERVICE_OFFLINE.md`).
 >

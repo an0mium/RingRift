@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `resources`, alerts `HighMemoryUsage`, `HighMemoryUsageCritical`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `resources`, alerts `HighMemoryUsage`, `HighMemoryUsageCritical`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Metrics & instrumentation:** The `process_resident_memory_bytes` metric exported by the Node.js process via `prom-client` and exposed through the server’s `/metrics` endpoint (`src/server/services/MetricsService.ts`).
 > - **Service implementation & lifecycle:**
 >   - Game/session lifecycle and retention in `src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`, `src/server/services/GamePersistenceService.ts`, `src/server/services/DataRetentionService.ts`.
@@ -269,7 +269,7 @@ Before considering a high-memory incident resolved, confirm:
 
 - **Monitoring & thresholds:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `monitoring/README.md`
   - `docs/operations/ALERTING_THRESHOLDS.md`
 

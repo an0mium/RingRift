@@ -517,10 +517,10 @@ These conditions defined "Success" for Phase 2 in the context of P18.4-4; rollou
     [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
   - Smoke variant (single-game fast check):
     `npm run soak:orchestrator:smoke` producing
-    [`results/orchestrator_soak_smoke.json`](../../results/orchestrator_soak_smoke.json).
+    `results/orchestrator_soak_smoke.json` (generated artifact, local-only).
   - For deeper offline or scheduled runs (not required for this SLO) see
     `npm run soak:orchestrator:nightly`, which produces
-    [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json).
+    `results/orchestrator_soak_summary.json` (generated artifact, local-only).
 - **Target:**
   - `totalInvariantViolations == 0` and no S-invariant or host-consistency
     violations recorded in the summary.

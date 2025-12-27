@@ -18,7 +18,7 @@ python scripts/health_alerting.py --check
 python scripts/vast_p2p_sync.py --sync-code
 
 # Monitor cluster (live)
-watch -n 30 ./scripts/monitoring/cluster_health_check.sh --verbose
+watch -n 30 python scripts/monitor/health.py --host localhost --port 8770
 ```
 
 ### Emergency Commands

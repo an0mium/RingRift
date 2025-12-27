@@ -269,7 +269,7 @@ The `HexNeuralNet` class exists with proper architecture. As of 2025-12-22:
 
 **Status (2025-12-05):** ✅ **DOCUMENTED**
 
-**Current State:** A **Training Data Registry** now exists at [`TRAINING_DATA_REGISTRY.md`](./TRAINING_DATA_REGISTRY.md) that:
+**Current State:** A **Training Data Registry** now exists at `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) that:
 
 - Classifies all game replay databases as **canonical**, **legacy_noncanonical**, or **pending_gate**.
 - Documents model provenance: which training data each `.pth` checkpoint was trained on.

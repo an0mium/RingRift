@@ -60,7 +60,10 @@ Ensure these ports are available before deployment:
 Copy and configure the staging environment file:
 
 ```bash
-# The .env.staging file is version-controlled as a template
+# The .env.staging.example file is version-controlled as a template
+# Copy it to a local .env.staging before editing
+cp .env.staging.example .env.staging
+
 # Edit it to replace all placeholders
 nano .env.staging
 ```

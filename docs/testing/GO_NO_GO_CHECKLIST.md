@@ -265,7 +265,7 @@ These gates ensure the monitoring / alerting surface and deployment configuratio
   - **Automation / commands**
     - From the project root:
       - `npm run validate:deployment` → [`scripts/validate-deployment-config.ts`](../../scripts/validate-deployment-config.ts)
-        - Validates `.env.example`, `docker-compose*.yml`, env schema (`src/server/config/env.ts`), `.env.staging`, and CI workflow alignment.
+        - Validates `.env.example`, `.env.staging.example`, `docker-compose*.yml`, env schema (`src/server/config/env.ts`), and CI workflow alignment.
       - For a **prod-preview style deployment**, optionally run the production preview go/no-go harness:
         - `./node_modules/.bin/ts-node scripts/run-prod-preview-go-no-go.ts --env prod-preview --expectedTopology single`
         - and attach the resulting `results/ops/prod_preview_go_no_go.prod-preview.*.json` report as evidence.
@@ -341,7 +341,7 @@ These gates ensure the monitoring / alerting surface and deployment configuratio
     - Confirmed presence of dashboards and alert rules referenced in [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md).
   - **References**
     - Alerts & thresholds: [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md).
-    - Prometheus config: [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml), [`monitoring/prometheus/prometheus.yml`](../../monitoring/prometheus/prometheus.yml).
+    - Prometheus config: [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml), [`monitoring/prometheus.yml`](../../monitoring/prometheus.yml).
 
 - [ ] **Monitoring stack is live and wired to real notification channels for the target environment**
   - **Automation / commands**

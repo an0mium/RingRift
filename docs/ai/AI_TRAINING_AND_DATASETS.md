@@ -130,7 +130,7 @@ generate_dataset(
 
 The older hard-coded `if __name__ == "__main__": generate_dataset(num_games=2)` path has been replaced by this CLI, so you no longer need to edit the file to change `num_games`, `board_type`, or the output location.
 
-Canonical training runs must draw their replay data from databases that have passed the unified canonical self-play gate (`canonical_ok == true` and, for supported board types, `fe_territory_fixtures_ok == true`) and are listed as `canonical` in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md); the gate and its FE/territory fixtures are driven by [`generate_canonical_selfplay.py`](../../ai-service/scripts/generate_canonical_selfplay.py).
+Canonical training runs must draw their replay data from databases that have passed the unified canonical self-play gate (`canonical_ok == true` and, for supported board types, `fe_territory_fixtures_ok == true`) and are listed as `canonical` in `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored); the gate and its FE/territory fixtures are driven by [`generate_canonical_selfplay.py`](../../ai-service/scripts/generate_canonical_selfplay.py).
 
 For existing DBs or manual validation runs, use the combined parity + canonical history gate and record the summary alongside the DB:
 

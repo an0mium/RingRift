@@ -67,7 +67,7 @@ The hierarchy below orders sources by normative authority. Higher bullets win on
 **6. Operational / rollout SSoTs (derived over engine + hosts)**
 
 - Orchestrator posture and legacy shutdown: [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md), historical phase tables in [`docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`](../archive/ORCHESTRATOR_ROLLOUT_PHASES.md), and the operator runbook in [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md) (historical playbook in [`docs/archive/ORCHESTRATOR_ROLLOUT_RUNBOOK_PHASES.md`](../archive/ORCHESTRATOR_ROLLOUT_RUNBOOK_PHASES.md)).
-- Strict invariant soaks and termination guarantees: [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md), orchestrator soak harness in [`scripts/run-orchestrator-soak.ts`](../../scripts/run-orchestrator-soak.ts) with summaries under [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json).
+- Strict invariant soaks and termination guarantees: [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md), orchestrator soak harness in [`scripts/run-orchestrator-soak.ts`](../../scripts/run-orchestrator-soak.ts) with summaries under `results/orchestrator_soak_summary.json` (generated artifact, local-only).
 - Shared engine and aggregate design: [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md), [`docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`](../architecture/SHARED_ENGINE_CONSOLIDATION_PLAN.md), [`docs/DOMAIN_AGGREGATE_DESIGN.md`](../architecture/DOMAIN_AGGREGATE_DESIGN.md).
 
 **7. Implementation status / meta-docs (status only, non-semantic)**

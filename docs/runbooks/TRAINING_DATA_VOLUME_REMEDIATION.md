@@ -515,7 +515,7 @@ done
 
 ### 2. Update TRAINING_DATA_REGISTRY.md
 
-After all tasks complete successfully, update [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) with:
+After all tasks complete successfully, update `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) with:
 
 1. Updated game counts for each canonical database
 2. Date of last gate summary
@@ -549,7 +549,7 @@ cat /tmp/volume_summary.txt
 
 - [`TRAINING_DATA_VOLUME_REMEDIATION_PLAN.md`](../planning/TRAINING_DATA_VOLUME_REMEDIATION_PLAN.md) - Detailed remediation plan
 - [`VAST_CANONICAL_SELFPLAY.md`](VAST_CANONICAL_SELFPLAY.md) - Vast.ai-specific setup
-- [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) - Database inventory and classification
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Database inventory and classification
 - [`AI_TRAINING_AND_DATASETS.md`](../ai/AI_TRAINING_AND_DATASETS.md) - Training data requirements
 
 ## Appendix: Monitoring Long-Running Tasks

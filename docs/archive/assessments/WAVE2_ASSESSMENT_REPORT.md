@@ -186,7 +186,7 @@ RingRift maintains two game engines that must produce identical results:
 
 ### 5.3 Evidence from Training Data Registry
 
-From [`TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md):
+From `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored):
 
 | Database                | Status          | Issue                                                 |
 | ----------------------- | --------------- | ----------------------------------------------------- |
@@ -462,6 +462,6 @@ The hardest problem has evolved from "AI ladder documentation" to "AI ladder imp
 - [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md) - Prior assessment
 - [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) - Issue tracker
 - [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) - Phased roadmap
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md) - Training data status
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Training data status
 
 _Last updated: 2025-12-06_

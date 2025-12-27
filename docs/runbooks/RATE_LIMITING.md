@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `rate-limiting`, alerts `HighRateLimitHits`, `SustainedRateLimiting`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `rate-limiting`, alerts `HighRateLimitHits`, `SustainedRateLimiting`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Metrics & instrumentation:** The `ringrift_rate_limit_hits_total` counter defined in `src/server/services/MetricsService.ts`, and emitted by rate-limiting middleware in `src/server/middleware/rateLimiter.ts`.
 > - **Rate limiting implementation & configuration:**
 >   - Core rate limiting logic and middleware in `src/server/middleware/rateLimiter.ts`.
@@ -300,7 +300,7 @@ Before considering a rate-limiting incident resolved, verify:
 
 - **Monitoring & thresholds:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `monitoring/README.md`
   - `docs/operations/ALERTING_THRESHOLDS.md`
 

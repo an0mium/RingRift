@@ -211,7 +211,7 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **File Examined:**
 
-- [`ai-service/results/statistical_analysis_report.json`](../../../ai-service/results/statistical_analysis_report.json) (312 lines)
+- `ai-service/results/statistical_analysis_report.json` (generated artifact, local-only) (312 lines)
 
 | Criterion                   | Score (0-5) | Notes                                         |
 | --------------------------- | ----------- | --------------------------------------------- |

@@ -23,7 +23,7 @@ While the project has:
 
 - ✅ **Comprehensive alert definitions** (742 lines in `monitoring/prometheus/alerts.yml`)
 - ✅ **Detailed alerting documentation** (`docs/operations/ALERTING_THRESHOLDS.md`)
-- ✅ **Monitoring architecture defined** (`monitoring/prometheus/prometheus.yml`)
+- ✅ **Monitoring architecture defined** (`monitoring/prometheus.yml`)
 
 It **completely lacks**:
 
@@ -853,7 +853,7 @@ For detailed per-scenario PASS24.1 baselines and their relationship to P22.10, s
 
 - [`docs/testing/../../testing/TEST_CATEGORIES.md`](../../testing/TEST_CATEGORIES.md) - Test categorization
 - [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) - Active issues
-- [`coverage/coverage-summary.json`](../../../coverage/coverage-summary.json) - Coverage metrics
+- `coverage/coverage-summary.json` (local-only artifact) - Coverage metrics
 
 ---
 

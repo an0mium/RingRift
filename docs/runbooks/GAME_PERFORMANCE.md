@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `HighGameMoveLatency` on `ringrift_game_move_latency_seconds_bucket`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `HighGameMoveLatency` on `ringrift_game_move_latency_seconds_bucket`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Metrics & instrumentation:** `MetricsService` and move latency recording in `src/server/services/MetricsService.ts` (histogram `ringrift_game_move_latency_seconds` with `board_type` and `phase` labels) and HTTP metrics driven by `metricsMiddleware` (`src/server/middleware/metricsMiddleware.ts`).
 > - **Game orchestration:** Shared TS rules engine and orchestrator in `src/shared/engine/**` (turn orchestrator, aggregates, movement/capture/territory/victory logic), plus `GameEngine` / `RuleEngine` on the server (`src/server/game/GameEngine.ts`, `src/server/game/RuleEngine.ts`, `src/server/game/turn/TurnEngine.ts`).
 > - **Session & real-time layer:** `GameSession` / `GameSessionManager` (`src/server/game/GameSession.ts`, `src/server/game/GameSessionManager.ts`), WebSocket server (`src/server/websocket/server.ts`), and associated state machines in `src/shared/stateMachines/**`.

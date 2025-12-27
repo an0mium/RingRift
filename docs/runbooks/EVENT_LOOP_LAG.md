@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `resources`, alerts `HighEventLoopLag`, `HighEventLoopLagCritical`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (group `resources`, alerts `HighEventLoopLag`, `HighEventLoopLagCritical`) and scrape configuration in `monitoring/prometheus.yml`.
 > - **Runtime metrics:** The `nodejs_eventloop_lag_seconds` metric exported by the Node.js process (via `prom-client` / runtime observers) and exposed on the `/metrics` endpoint.
 > - **Service implementation & request lifecycle:**
 >   - HTTP middleware and routing in `src/server/middleware/*` and `src/server/routes/**`.
@@ -271,7 +271,7 @@ Before considering an event-loop-lag incident resolved, confirm:
 
 - **Monitoring & thresholds:**
   - `monitoring/prometheus/alerts.yml`
-  - `monitoring/prometheus/prometheus.yml`
+  - `monitoring/prometheus.yml`
   - `monitoring/README.md`
   - `docs/operations/ALERTING_THRESHOLDS.md`
 

@@ -1109,7 +1109,7 @@ The parity issues were addressed through:
 **Previously failing game (now passing):**
 
 - Game: `915ab7de-ef80-47cd-820d-e9798dd85fdc`
-- Bundle: [`canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json`](ai-service/parity_failures/square19_postfix_bundles/canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json)
+- Bundle: `ai-service/parity_failures/square19_postfix_bundles/canonical_square19__915ab7de-ef80-47cd-820d-e9798dd85fdc__k695.state_bundle.json` (local-only artifact)
 - Historical divergence at **ts_k=695** after `skip_territory_processing` where Python advanced to `forced_elimination` while TS advanced to `game_over`.
 
 **Fix implemented (TS-side, Dec 26, 2025):**

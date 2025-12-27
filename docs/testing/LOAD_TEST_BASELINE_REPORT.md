@@ -26,11 +26,11 @@
   - `GET /health` against `http://localhost:3000/health`
   - `POST /api/auth/login` via [`loginAndGetToken()`](../../tests/load/auth/helpers.js)
 - Both requests failed with `dial tcp 127.0.0.1:3000: connect: connection refused`, indicating the staging backend was not reachable at the time of the run.
-- [`loginAndGetToken()`](../../tests/load/auth/helpers.js) threw, and k6 aborted during setup (no scenario iterations ran), but [`makeHandleSummary()`](../../tests/load/summary.js) still produced a compact JSON summary at [`results/load/game-creation.staging.summary.json`](../../results/load/game-creation.staging.summary.json).
+- [`loginAndGetToken()`](../../tests/load/auth/helpers.js) threw, and k6 aborted during setup (no scenario iterations ran), but [`makeHandleSummary()`](../../tests/load/summary.js) still produced a compact JSON summary at `results/load/game-creation.staging.summary.json` (generated artifact, local-only).
 
 **Observed metrics vs SLOs – Game Creation (staging, backend unreachable):**
 
-Values below are from [`results/load/game-creation.staging.summary.json`](../../results/load/game-creation.staging.summary.json) and the `staging` thresholds in [`thresholds.json`](../../tests/load/config/thresholds.json):
+Values below are from `results/load/game-creation.staging.summary.json` (generated artifact, local-only) and the `staging` thresholds in [`thresholds.json`](../../tests/load/config/thresholds.json):
 
 | Metric                                      | Observed (this run)        | Staging SLO / threshold                                          | Verdict       | Notes                                                                                          |
 | ------------------------------------------- | -------------------------- | ---------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------- |

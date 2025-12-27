@@ -397,7 +397,7 @@ PYTHONPATH=. python scripts/run_parity_healthcheck.py --fail-on-mismatch
 ### Related Documentation
 
 - [`docs/PARITY_VERIFICATION_RUNBOOK.md`](../../docs/runbooks/PARITY_VERIFICATION_RUNBOOK.md) - Full parity verification documentation
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) - Canonical data inventory
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Canonical data inventory
 - [`AGENTS.md`](../../AGENTS.md) - Section 4 (TS↔Python Parity)
 
 ---
@@ -540,7 +540,7 @@ npm run validate:monitoring
 
 | File                                       | Tool Used | Checks                          |
 | ------------------------------------------ | --------- | ------------------------------- |
-| `monitoring/prometheus/prometheus.yml`     | promtool  | Config syntax, scrape configs   |
+| `monitoring/prometheus.yml`                | promtool  | Config syntax, scrape configs   |
 | `monitoring/prometheus/alerts.yml`         | promtool  | PromQL syntax, rule format      |
 | `monitoring/alertmanager/alertmanager.yml` | amtool    | Routing, receivers, inhibitions |
 

@@ -648,4 +648,4 @@ python pipeline_orchestrator.py (removed) --iterations 1
 - [P2P_ORCHESTRATOR_AUTH.md](P2P_ORCHESTRATOR_AUTH.md) - P2P authentication
 - [GPU_PIPELINE_ROADMAP.md](../roadmaps/GPU_PIPELINE_ROADMAP.md) - GPU acceleration plans
 - [AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md](../../../docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) - Tier gating details
-- [TRAINING_DATA_REGISTRY.md](../../TRAINING_DATA_REGISTRY.md) - Canonical data sources
+- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Canonical data sources

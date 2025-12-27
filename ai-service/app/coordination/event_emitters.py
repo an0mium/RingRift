@@ -101,6 +101,121 @@ USE_UNIFIED_ROUTER = True
 # Helper Functions
 # =============================================================================
 
+async def _emit_data_event(
+    event_type: DataEventType,
+    payload: dict[str, Any],
+    source: str = "event_emitters",
+    log_message: str | None = None,
+    log_level: str = "debug",
+) -> bool:
+    """Emit a DataEvent with standardized error handling.
+
+    Consolidates the repeated try/except/bus.publish pattern used by
+    30+ DataEvent emitter functions, saving ~300 LOC of boilerplate.
+
+    December 2025: Created during code consolidation initiative.
+
+    Args:
+        event_type: The DataEventType enum value
+        payload: Event payload dict (timestamp auto-added if missing)
+        source: Event source identifier
+        log_message: Optional log message (uses event_type.value if None)
+        log_level: Log level for success ("debug", "info", "warning")
+
+    Returns:
+        True if emitted successfully, False otherwise
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        bus = get_data_bus()
+        if bus is None:
+            return False
+
+        # Auto-add timestamp if not present
+        if "timestamp" not in payload:
+            payload["timestamp"] = _get_timestamp()
+
+        event = DataEvent(
+            event_type=event_type,
+            payload=payload,
+            source=source,
+        )
+
+        await bus.publish(event)
+
+        msg = log_message or f"Emitted {event_type.value}"
+        if log_level == "info":
+            logger.info(msg)
+        elif log_level == "warning":
+            logger.warning(msg)
+        else:
+            logger.debug(msg)
+
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to emit {event_type.value}: {e}")
+        return False
+
+
+def _emit_data_event_sync(
+    event_type: DataEventType,
+    payload: dict[str, Any],
+    source: str = "event_emitters",
+    log_message: str | None = None,
+) -> bool:
+    """Synchronous version of _emit_data_event for use in sync contexts.
+
+    Uses fire_and_forget to schedule the async emission.
+
+    Args:
+        event_type: The DataEventType enum value
+        payload: Event payload dict
+        source: Event source identifier
+        log_message: Optional log message
+
+    Returns:
+        True if scheduled successfully, False otherwise
+    """
+    if not HAS_DATA_EVENTS:
+        return False
+
+    try:
+        from app.utils.async_utils import fire_and_forget
+        import asyncio
+
+        asyncio.get_running_loop()
+
+        # Add timestamp if missing
+        if "timestamp" not in payload:
+            payload["timestamp"] = _get_timestamp()
+
+        async def _emit():
+            bus = get_data_bus()
+            if bus is None:
+                return
+            event = DataEvent(
+                event_type=event_type,
+                payload=payload,
+                source=source,
+            )
+            await bus.publish(event)
+            msg = log_message or f"Emitted {event_type.value}"
+            logger.debug(msg)
+
+        fire_and_forget(_emit(), name=f"emit_{event_type.value}")
+        return True
+
+    except RuntimeError:
+        # No event loop - cannot emit sync
+        return False
+    except Exception as e:
+        logger.debug(f"Failed to schedule {event_type.value} emission: {e}")
+        return False
+
+
 def _get_timestamp() -> str:
     """Get current timestamp in ISO format."""
     return datetime.now().isoformat()

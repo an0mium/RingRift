@@ -215,7 +215,7 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
 
 - **Scope:**
   - Use existing tooling such as [`scripts/run-orchestrator-soak.ts`](../../../scripts/run-orchestrator-soak.ts) and [`scripts/generate-orchestrator-contract-vectors.ts`](../../../scripts/generate-orchestrator-contract-vectors.ts) to run orchestrator-first soaks under representative board types and player counts.
-  - Capture outputs in results artefacts like [`results/orchestrator_soak_smoke.json`](../../../results/orchestrator_soak_smoke.json) and [`results/orchestrator_soak_summary.json`](../../../results/orchestrator_soak_summary.json), and extend them as needed.
+  - Capture outputs in results artefacts like `results/orchestrator_soak_smoke.json` (generated artifact, local-only) and `results/orchestrator_soak_summary.json` (generated artifact, local-only), and extend them as needed.
   - Build lightweight debugging harnesses to quickly repro and triage any discovered mismatches (for example, scripts under `scripts/` that replay failing seeds via both legacy and orchestrator paths and dump traces).
 
 - **Acceptance criteria:**

@@ -843,7 +843,7 @@ learner.update_from_game(winner)
 
 - [Root CLAUDE.md](../../../CLAUDE.md) - Project overview
 - [AI Service CLAUDE.md](../../CLAUDE.md) - AI service context
-- [Cluster Monitor](../distributed/README_cluster_monitor.md) - Cluster management
+- [Cluster Connectivity Runbook](../../docs/runbooks/CLUSTER_CONNECTIVITY.md) - Cluster management checks
 
 ---
 

@@ -1443,17 +1443,24 @@ class SelfplayScheduler:
                     f"exploration {old_boost:.2f} → {priority.exploration_boost:.2f}"
                 )
 
-                # Emit curriculum rebalanced event
+                # Emit curriculum rebalanced event via centralized emitter (Dec 2025)
                 try:
-                    from app.coordination.event_router import DataEventType, get_event_bus
+                    from app.coordination.event_emitters import emit_curriculum_updated
+                    import asyncio
 
-                    bus = get_event_bus()
-                    if bus:
-                        bus.emit(DataEventType.CURRICULUM_REBALANCED, {
-                            "config_key": config_key,
-                            "weight": priority.curriculum_weight,
-                            "reason": f"opponent_mastered:{opponent_level}",
-                        })
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(emit_curriculum_updated(
+                            config_key=config_key,
+                            new_weight=priority.curriculum_weight,
+                            trigger=f"opponent_mastered:{opponent_level}",
+                        ))
+                    else:
+                        asyncio.run(emit_curriculum_updated(
+                            config_key=config_key,
+                            new_weight=priority.curriculum_weight,
+                            trigger=f"opponent_mastered:{opponent_level}",
+                        ))
                 except Exception as emit_err:
                     logger.debug(f"[SelfplayScheduler] Failed to emit curriculum rebalanced: {emit_err}")
             else:

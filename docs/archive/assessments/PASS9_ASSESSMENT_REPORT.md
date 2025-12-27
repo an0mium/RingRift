@@ -604,7 +604,7 @@ GamePage/
 > > > > > > > | Client Components | [`BoardView.tsx`](../../../src/client/components/BoardView.tsx), [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx) |
 > > > > > > > | Client Hooks | [`useGameConnection.ts`](../../../src/client/hooks/useGameConnection.ts), [`useGameState.ts`](../../../src/client/hooks/useGameState.ts) |
 > > > > > > > | Build Config | [`vite.config.ts`](../../../vite.config.ts), [`tailwind.config.js`](../../../tailwind.config.js) |
-> > > > > > > | Monitoring | [`prometheus.yml`](../../../monitoring/prometheus/prometheus.yml), [`alerts.yml`](../../../monitoring/prometheus/alerts.yml) |
+> > > > > > > | Monitoring | [`prometheus.yml`](../../../monitoring/prometheus.yml), [`alerts.yml`](../../../monitoring/prometheus/alerts.yml) |
 > > > > > > > <<<<<<< Updated upstream
 
 # | Alerting | [`alertmanager.yml`](../../../monitoring/alertmanager/alertmanager.yml) |

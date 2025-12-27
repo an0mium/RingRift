@@ -1214,7 +1214,7 @@ After deployment, establish baselines for:
 ## Files Reference
 
 - **Alert Rules**: [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml)
-- **Prometheus Config**: [`monitoring/prometheus/prometheus.yml`](../../monitoring/prometheus/prometheus.yml)
+- **Prometheus Config**: [`monitoring/prometheus.yml`](../../monitoring/prometheus.yml)
 - **Alertmanager Config**: [`monitoring/alertmanager/alertmanager.yml`](../../monitoring/alertmanager/alertmanager.yml)
 - **Metrics Service**: [`src/server/services/MetricsService.ts`](../../src/server/services/MetricsService.ts)
 
