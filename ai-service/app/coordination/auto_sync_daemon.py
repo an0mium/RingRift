@@ -46,6 +46,7 @@ from app.coordination.sync_integrity import (
     compute_file_checksum,
     verify_sync_integrity,
 )
+from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
 from app.core.async_context import fire_and_forget, safe_create_task
 
 if TYPE_CHECKING:
@@ -877,6 +878,7 @@ class AutoSyncDaemon:
         """Rsync a database to a target node.
 
         December 2025: Consolidated from ephemeral_sync.py
+        December 2025: Added sync mutex to prevent concurrent syncs to same target
 
         Args:
             db_path: Local database path
@@ -885,6 +887,15 @@ class AutoSyncDaemon:
         Returns:
             True if successful
         """
+        # Create lock key: target_node + filename to prevent concurrent writes
+        db_name = Path(db_path).name if db_path else "unknown"
+        lock_key = f"{target_node}:{db_name}"
+
+        # Acquire sync lock to prevent race conditions
+        if not acquire_sync_lock(lock_key, operation="rsync", timeout=60):
+            logger.debug(f"[AutoSyncDaemon] Could not acquire lock for {lock_key}, skipping")
+            return False
+
         try:
             from app.coordination.sync_bandwidth import rsync_with_bandwidth_limit
             from app.coordination.sync_router import get_sync_router
@@ -908,6 +919,9 @@ class AutoSyncDaemon:
         except (RuntimeError, OSError, asyncio.TimeoutError) as e:
             logger.debug(f"[AutoSyncDaemon] Rsync error: {e}")
             return False
+        finally:
+            # Always release the lock
+            release_sync_lock(lock_key)
 
     async def _direct_rsync(self, db_path: str, target_node: str) -> bool:
         """Direct rsync without bandwidth management.

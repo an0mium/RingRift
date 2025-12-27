@@ -42,8 +42,11 @@ class TestTaskType:
         assert TaskType.BACKGROUND_LOOP.value == "background_loop"
 
     def test_task_type_count(self):
-        """Should have exactly 12 task types."""
-        assert len(TaskType) == 12
+        """Should have exactly 14 task types.
+
+        Dec 2025: Increased from 12 to 14 with addition of new task types.
+        """
+        assert len(TaskType) == 14
 
 
 class TestResourceType:

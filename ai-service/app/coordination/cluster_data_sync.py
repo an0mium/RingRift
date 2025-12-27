@@ -297,6 +297,9 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
 
     For NFS-connected nodes (Lambda cluster), this is a no-op since they
     share storage. For other nodes, uses rsync over SSH.
+
+    Uses sync mutex to prevent concurrent syncs to the same destination file,
+    which could cause corruption or race conditions (December 2025 fix).
     """
     start_time = time.time()
 
