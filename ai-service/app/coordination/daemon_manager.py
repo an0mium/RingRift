@@ -344,8 +344,25 @@ class DaemonManager:
 
         December 2025: Added as part of Phase 8 startup validation.
         Critical subsystems that must be importable for daemons to function.
+        December 27, 2025: Added startup order validation (Wave 4 Phase 1).
         """
         errors = []
+
+        # Validate daemon startup order consistency first
+        # This catches dependency violations early before any daemon starts
+        try:
+            from app.coordination.daemon_types import validate_startup_order_consistency
+            is_consistent, violations = validate_startup_order_consistency()
+            if not is_consistent:
+                for violation in violations:
+                    error_msg = f"Startup order violation: {violation}"
+                    logger.error(f"[DaemonManager] {error_msg}")
+                    errors.append(error_msg)
+            else:
+                logger.debug("[DaemonManager] Daemon startup order validated successfully")
+        except ImportError as e:
+            logger.warning(f"[DaemonManager] Could not validate startup order: {e}")
+
         critical_modules = [
             ("app.coordination.event_router", "Event routing"),
             ("app.coordination.sync_router", "Sync routing"),
