@@ -891,7 +891,7 @@ def train_model(
 
             structure_failed = False
             for path in structure_paths:
-                from pathlib import Path
+                # Path already imported at module level (line 34)
                 struct_result = validate_npz_structure(Path(path), require_policy=True)
                 if not distributed or is_main_process():
                     if struct_result.valid:
