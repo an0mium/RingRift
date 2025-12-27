@@ -35,6 +35,9 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+# December 2025: Use centralized P2P leader detection from app.core.node
+from app.core.node import check_p2p_leader_status, get_this_node_id
+
 if TYPE_CHECKING:
     from app.coordination.work_queue import WorkQueue
 
@@ -82,72 +85,6 @@ class ReaperStats:
     errors: int = 0
     leader_checks: int = 0
     not_leader_skips: int = 0
-
-
-def _get_node_id() -> str:
-    """Get this node's ID for leader comparison."""
-    import os
-    import socket
-
-    # Try environment variable first
-    node_id = os.environ.get("RINGRIFT_NODE_ID")
-    if node_id:
-        return node_id
-
-    # Fall back to hostname
-    return socket.gethostname()
-
-
-async def _check_p2p_leader_status() -> tuple[bool, str | None]:
-    """Check if this node is the P2P cluster leader.
-
-    Returns:
-        Tuple of (is_leader, leader_id)
-        - (True, node_id) if this node is the leader
-        - (False, leader_id) if another node is the leader
-        - (False, None) if P2P is unavailable or error
-
-    December 2025: Added for P2P leader awareness in JobReaper.
-    """
-    import aiohttp
-
-    this_node = _get_node_id()
-
-    # Dec 2025: Use centralized P2P URL helper
-    from app.config.ports import get_local_p2p_url
-    p2p_base = get_local_p2p_url()
-    p2p_url = f"{p2p_base}/status"
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                p2p_url, timeout=aiohttp.ClientTimeout(total=LEADER_CHECK_TIMEOUT)
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    leader_id = data.get("leader_id")
-                    is_leader = data.get("is_leader", False)
-
-                    # Check by is_leader flag first
-                    if is_leader:
-                        return True, leader_id
-
-                    # Check by comparing node IDs
-                    if leader_id and leader_id == this_node:
-                        return True, leader_id
-
-                    return False, leader_id
-
-    except ImportError:
-        logger.warning("aiohttp not available for P2P leader check")
-        # Fall back to assuming we're NOT the leader (safer default)
-        return False, None
-    except asyncio.TimeoutError:
-        logger.warning("P2P status check timed out")
-        return False, None
-    except Exception as e:
-        logger.debug(f"P2P leader check failed: {e}")
-        return False, None
 
 
 class JobReaperDaemon:
@@ -402,7 +339,7 @@ class JobReaperDaemon:
         while self.running:
             try:
                 # Check if this node is the P2P leader (December 2025)
-                is_leader, leader_id = await _check_p2p_leader_status()
+                is_leader, leader_id = await check_p2p_leader_status(timeout=LEADER_CHECK_TIMEOUT)
                 self.stats.leader_checks += 1
 
                 if not is_leader:
@@ -494,8 +431,10 @@ async def is_p2p_leader() -> bool:
         if await is_p2p_leader():
             # Perform leader-only action
             ...
+
+    December 2025: Now uses centralized check_p2p_leader_status from app.core.node
     """
-    is_leader, _ = await _check_p2p_leader_status()
+    is_leader, _ = await check_p2p_leader_status()
     return is_leader
 
 
@@ -504,8 +443,10 @@ def get_node_id() -> str:
 
     Returns:
         The node ID string.
+
+    December 2025: Now uses centralized get_this_node_id from app.core.node
     """
-    return _get_node_id()
+    return get_this_node_id()
 
 
 # =============================================================================

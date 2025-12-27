@@ -53,6 +53,10 @@ __all__ = [
     "HealthStatus",
     "ProviderInfo",
     "JobStatus",
+    # P2P leader detection utilities
+    "get_this_node_id",
+    "check_p2p_leader_status",
+    "get_is_leader_sync",
 ]
 
 
@@ -725,6 +729,103 @@ class NodeInfo:
             health=HealthStatus(health=NodeHealth.HEALTHY, state=NodeState.ONLINE),
             provider=ProviderInfo.detect_from_node_id(node_id),
         )
+
+
+# =============================================================================
+# P2P Leader Detection Utilities (December 2025)
+# Consolidated from job_reaper.py and other modules
+# =============================================================================
+
+def get_this_node_id() -> str:
+    """Get this node's ID for leader comparison.
+
+    Returns the node ID from:
+    1. RINGRIFT_NODE_ID environment variable (if set)
+    2. Hostname as fallback
+
+    Returns:
+        Node identifier string
+    """
+    node_id = os.environ.get("RINGRIFT_NODE_ID")
+    if node_id:
+        return node_id
+    return socket.gethostname()
+
+
+async def check_p2p_leader_status(timeout: float = 5.0) -> tuple[bool, str | None]:
+    """Check if this node is the P2P cluster leader.
+
+    December 2025: Consolidated from job_reaper.py for reuse across modules.
+
+    Args:
+        timeout: Timeout in seconds for the P2P status check
+
+    Returns:
+        Tuple of (is_leader, leader_id):
+        - (True, node_id) if this node is the leader
+        - (False, leader_id) if another node is the leader
+        - (False, None) if P2P is unavailable or error
+    """
+    try:
+        import aiohttp
+    except ImportError:
+        return False, None
+
+    this_node = get_this_node_id()
+
+    # Get P2P URL from centralized config
+    try:
+        from app.config.ports import get_local_p2p_url
+        p2p_base = get_local_p2p_url()
+    except ImportError:
+        p2p_base = os.environ.get("RINGRIFT_P2P_URL", "http://localhost:8770")
+
+    p2p_url = f"{p2p_base}/status"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                p2p_url, timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    leader_id = data.get("leader_id")
+                    is_leader = data.get("is_leader", False)
+
+                    # Check by is_leader flag first
+                    if is_leader:
+                        return True, leader_id
+
+                    # Check by comparing node IDs
+                    if leader_id and leader_id == this_node:
+                        return True, leader_id
+
+                    return False, leader_id
+
+    except Exception:
+        # Assume not leader on any error (safer default)
+        return False, None
+
+
+def get_is_leader_sync(timeout: float = 5.0) -> bool:
+    """Synchronous wrapper for leader check.
+
+    Args:
+        timeout: Timeout in seconds for the P2P status check
+
+    Returns:
+        True if this node is the leader, False otherwise
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        # Can't run sync in running loop, return False (safe default)
+        return False
+    except RuntimeError:
+        # No running loop, create one
+        is_leader, _ = asyncio.run(check_p2p_leader_status(timeout))
+        return is_leader
 
 
 # Compatibility aliases
