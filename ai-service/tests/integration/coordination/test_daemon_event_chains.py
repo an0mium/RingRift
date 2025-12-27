@@ -179,7 +179,7 @@ class TestRegressionDetectedChain:
         # Setup: Track a model using correct dataclass
         config_key = "hex8_2p"
         model_id = "model_123"
-        coordinator._model_records[model_id] = ModelRecord(
+        coordinator._models[model_id] = ModelRecord(
             model_id=model_id,
             state=ModelState.PRODUCTION,
         )
@@ -213,7 +213,7 @@ class TestRegressionDetectedChain:
 
         config_key = "hex8_2p"
         model_id = "model_123"
-        coordinator._model_records[model_id] = ModelRecord(
+        coordinator._models[model_id] = ModelRecord(
             model_id=model_id,
             state=ModelState.PRODUCTION,
         )
@@ -317,12 +317,12 @@ class TestEventChainIntegration:
         config_key = "hex8_2p"
 
         # Initialize with baseline priority
-        scheduler._priorities[config_key] = ConfigPriority(
+        scheduler._config_priorities[config_key] = ConfigPriority(
             config_key=config_key,
             exploration_boost=1.0,
         )
 
-        initial_boost = scheduler._priorities[config_key].exploration_boost
+        initial_boost = scheduler._config_priorities[config_key].exploration_boost
 
         # Simulate feedback loop detecting training stall
         boost_event = {
@@ -334,7 +334,7 @@ class TestEventChainIntegration:
 
         scheduler._on_exploration_boost(boost_event)
 
-        final_boost = scheduler._priorities[config_key].exploration_boost
+        final_boost = scheduler._config_priorities[config_key].exploration_boost
 
         # Verify exploration increased
         assert final_boost > initial_boost
