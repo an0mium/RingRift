@@ -134,7 +134,7 @@ class TestDatabaseHelpers:
 
     def test_execute_db_query_no_db_path(self, mixin_no_db: TestMixin) -> None:
         """Test graceful handling when no db_path is set."""
-        result = mixin._execute_db_query(
+        result = mixin_no_db._execute_db_query(
             "SELECT * FROM test_table",
             fetch=True,
         )
@@ -254,13 +254,20 @@ class TestEventEmission:
         assert len(mixin._emit_event_calls) == 1
         assert mixin._emit_event_calls[0] == ("TEST_EVENT", {"key": "value"})
 
-    def test_safe_emit_event_no_handler(self, mixin_no_db: TestMixin) -> None:
+    def test_safe_emit_event_no_handler(self) -> None:
         """Test when no _emit_event method exists."""
-        # Remove the method if it exists
-        if hasattr(mixin_no_db, "_emit_event"):
-            delattr(mixin_no_db, "_emit_event")
+        # Create a mixin without _emit_event method
+        class TestMixinNoEmit(P2PMixinBase):
+            MIXIN_TYPE = "test_no_emit"
 
-        result = mixin_no_db._safe_emit_event("TEST_EVENT", {"key": "value"})
+            def __init__(self) -> None:
+                self.node_id = "test-node"
+                self.peers: dict[str, Any] = {}
+                self.peers_lock = threading.RLock()
+                # Note: No _emit_event method defined
+
+        mixin = TestMixinNoEmit()
+        result = mixin._safe_emit_event("TEST_EVENT", {"key": "value"})
         assert result is False
 
     def test_safe_emit_event_empty_payload(self, mixin: TestMixin) -> None:

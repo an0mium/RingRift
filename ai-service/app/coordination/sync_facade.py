@@ -56,6 +56,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -668,48 +670,53 @@ class SyncFacade:
             },
         }
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self) -> HealthCheckResult:
         """Check health status of SyncFacade.
 
         December 27, 2025: Added to meet P2P manager health_check() standard.
+        Updated to return HealthCheckResult (Dec 27, 2025).
 
         Returns:
-            Dict with status, sync statistics, and backend health.
+            HealthCheckResult with status, sync statistics, and backend health.
         """
-        status = "healthy"
+        coordinator_status = CoordinatorStatus.RUNNING
         errors_count = self._stats.get("total_errors", 0)
-        last_error: str | None = None
+        message = ""
 
         # Check error rate
         total_syncs = self._stats.get("total_syncs", 0)
         if total_syncs > 0:
             error_rate = errors_count / total_syncs
             if error_rate > 0.5:
-                status = "unhealthy"
-                last_error = f"High error rate: {error_rate:.0%}"
+                coordinator_status = CoordinatorStatus.STOPPED
+                message = f"High error rate: {error_rate:.0%}"
             elif error_rate > 0.2:
-                status = "degraded"
-                last_error = f"Elevated error rate: {error_rate:.0%}"
+                coordinator_status = CoordinatorStatus.DEGRADED
+                message = f"Elevated error rate: {error_rate:.0%}"
 
         # Check if any backends are loaded
         backends_loaded_count = sum(1 for v in self._backends_loaded.values() if v)
         if backends_loaded_count == 0 and total_syncs == 0:
             # No backends loaded yet (normal at startup)
-            status = "healthy"
+            coordinator_status = CoordinatorStatus.RUNNING
         elif backends_loaded_count == 0 and total_syncs > 0:
             # Tried syncs but no backends available
-            status = "degraded"
-            last_error = "No sync backends available"
+            coordinator_status = CoordinatorStatus.DEGRADED
+            message = "No sync backends available"
 
-        return {
-            "status": status,
-            "operations_count": total_syncs,
-            "errors_count": errors_count,
-            "last_error": last_error,
-            "backends_loaded": backends_loaded_count,
-            "total_bytes_transferred": self._stats.get("total_bytes", 0),
-            "by_backend": self._stats.get("by_backend", {}),
-        }
+        healthy = coordinator_status == CoordinatorStatus.RUNNING
+        return HealthCheckResult(
+            healthy=healthy,
+            status=coordinator_status,
+            message=message,
+            details={
+                "operations_count": total_syncs,
+                "errors_count": errors_count,
+                "backends_loaded": backends_loaded_count,
+                "total_bytes_transferred": self._stats.get("total_bytes", 0),
+                "by_backend": self._stats.get("by_backend", {}),
+            },
+        )
 
     @classmethod
     def get_instance(cls) -> SyncFacade:

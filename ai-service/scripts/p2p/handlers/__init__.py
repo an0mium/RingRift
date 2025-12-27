@@ -54,6 +54,29 @@ See individual handler modules for endpoint documentation.
 """
 
 from .base import BaseP2PHandler, P2PHandlerProtocol, make_json_response, make_error_response
+# Dec 2025: Additional handler utilities
+from .handlers_base import (
+    safe_handler,
+    leader_only,
+    voter_only,
+    EventBridgeManager,
+    get_event_bridge,
+    HandlerStatusMixin,
+    success_response,
+    error_response,
+    parse_json_request,
+    validate_node_id,
+)
+from .handlers_utils import (
+    get_peer_info,
+    get_alive_peers,
+    format_timestamp,
+    time_since,
+    is_expired,
+    RetryStrategy,
+    RetryResult,
+    MetricsCollector,
+)
 from .admin import AdminHandlersMixin
 from .delivery import DeliveryHandlersMixin
 from .network_discovery import NetworkDiscoveryMixin

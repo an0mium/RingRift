@@ -733,23 +733,24 @@ class SyncRouter:
             ),
         }
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self) -> HealthCheckResult:
         """Check health status of SyncRouter.
 
         December 27, 2025: Added to meet P2P manager health_check() standard.
+        Updated to return HealthCheckResult (Dec 27, 2025).
 
         Returns:
-            Dict with status, node counts, and configuration health.
+            HealthCheckResult with status, node counts, and configuration health.
         """
-        status = "healthy"
+        coordinator_status = CoordinatorStatus.RUNNING
         errors_count = 0
-        last_error: str | None = None
+        message = ""
 
         # Check node capabilities are loaded
         total_nodes = len(self._node_capabilities)
         if total_nodes == 0:
-            status = "degraded"
-            last_error = "No node capabilities loaded"
+            coordinator_status = CoordinatorStatus.DEGRADED
+            message = "No node capabilities loaded"
 
         # Check manifest availability
         manifest_healthy = False
@@ -758,13 +759,13 @@ class SyncRouter:
                 self._manifest, "find_game"
             )
         except Exception as e:
-            status = "unhealthy"
-            last_error = f"Manifest error: {e}"
+            coordinator_status = CoordinatorStatus.STOPPED
+            message = f"Manifest error: {e}"
             errors_count += 1
 
-        if not manifest_healthy and status == "healthy":
-            status = "degraded"
-            last_error = "Cluster manifest not available"
+        if not manifest_healthy and coordinator_status == CoordinatorStatus.RUNNING:
+            coordinator_status = CoordinatorStatus.DEGRADED
+            message = "Cluster manifest not available"
 
         # Count enabled vs disabled nodes
         enabled_nodes = sum(
@@ -775,24 +776,28 @@ class SyncRouter:
 
         # If all nodes are disabled, that's degraded
         if enabled_nodes == 0 and total_nodes > 0:
-            status = "degraded"
-            last_error = "All nodes have sync disabled"
+            coordinator_status = CoordinatorStatus.DEGRADED
+            message = "All nodes have sync disabled"
 
-        return {
-            "status": status,
-            "operations_count": total_nodes,  # Number of configured nodes
-            "errors_count": errors_count,
-            "last_error": last_error,
-            "total_nodes": total_nodes,
-            "enabled_nodes": enabled_nodes,
-            "manifest_available": manifest_healthy,
-            "training_nodes": sum(
-                1 for c in self._node_capabilities.values() if c.is_training_node
-            ),
-            "priority_nodes": sum(
-                1 for c in self._node_capabilities.values() if c.is_priority_node
-            ),
-        }
+        healthy = coordinator_status == CoordinatorStatus.RUNNING
+        return HealthCheckResult(
+            healthy=healthy,
+            status=coordinator_status,
+            message=message,
+            details={
+                "operations_count": total_nodes,
+                "errors_count": errors_count,
+                "total_nodes": total_nodes,
+                "enabled_nodes": enabled_nodes,
+                "manifest_available": manifest_healthy,
+                "training_nodes": sum(
+                    1 for c in self._node_capabilities.values() if c.is_training_node
+                ),
+                "priority_nodes": sum(
+                    1 for c in self._node_capabilities.values() if c.is_priority_node
+                ),
+            },
+        )
 
     # =========================================================================
     # Event Integration (December 2025)

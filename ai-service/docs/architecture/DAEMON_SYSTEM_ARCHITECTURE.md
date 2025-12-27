@@ -137,12 +137,15 @@ Some daemons must start before others:
 
 ```
 AUTO_SYNC ─────────────┐
-CLUSTER_DATA_SYNC ─────┤
+                       │
                        ├──→ TRAINING_TRIGGER ──→ EVALUATION ──→ AUTO_PROMOTION
 AUTO_EXPORT ───────────┤
                        │
 QUALITY_MONITOR ───────┘
 ```
+
+Note: `CLUSTER_DATA_SYNC` was removed from the dependency graph (deprecated Dec 2025).
+`AUTO_SYNC` with appropriate strategy replaces both `EPHEMERAL_SYNC` and `CLUSTER_DATA_SYNC`.
 
 ## Event Integration
 
