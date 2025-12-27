@@ -38,6 +38,9 @@ from typing import TYPE_CHECKING, Any, Optional
 # December 2025: Use centralized P2P leader detection from app.core.node
 from app.core.node import check_p2p_leader_status, get_this_node_id
 
+# December 2025: Use consolidated daemon stats base class
+from app.coordination.daemon_stats import JobDaemonStats
+
 if TYPE_CHECKING:
     from app.coordination.work_queue import WorkQueue
 
@@ -75,16 +78,51 @@ class BlacklistedNode:
 
 
 @dataclass
-class ReaperStats:
-    """Statistics for the job reaper."""
-    jobs_reaped: int = 0
-    jobs_reassigned: int = 0
+class ReaperStats(JobDaemonStats):
+    """Statistics for the job reaper.
+
+    December 2025: Now extends JobDaemonStats for consistent tracking.
+    Inherits: jobs_processed, jobs_succeeded, jobs_failed, jobs_timed_out,
+              jobs_reassigned, errors_count, consecutive_failures, etc.
+    """
+
+    # Reaper-specific fields (not in base class)
     processes_killed: int = 0
     nodes_blacklisted: int = 0
-    last_check: Optional[float] = None
-    errors: int = 0
     leader_checks: int = 0
     not_leader_skips: int = 0
+
+    # Backward compatibility aliases
+    @property
+    def jobs_reaped(self) -> int:
+        """Alias for jobs_timed_out (backward compatibility)."""
+        return self.jobs_timed_out
+
+    @property
+    def last_check(self) -> float | None:
+        """Alias for last_check_time (backward compatibility)."""
+        return self.last_check_time if self.last_check_time > 0 else None
+
+    @property
+    def errors(self) -> int:
+        """Alias for errors_count (backward compatibility)."""
+        return self.errors_count
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert stats to dictionary with reaper-specific fields."""
+        base = super().to_dict()
+        base.update({
+            # Reaper-specific
+            "processes_killed": self.processes_killed,
+            "nodes_blacklisted": self.nodes_blacklisted,
+            "leader_checks": self.leader_checks,
+            "not_leader_skips": self.not_leader_skips,
+            # Backward compat aliases
+            "jobs_reaped": self.jobs_reaped,
+            "last_check": self.last_check,
+            "errors": self.errors,
+        })
+        return base
 
 
 class JobReaperDaemon:
@@ -245,7 +283,7 @@ class JobReaperDaemon:
             # Mark as timed out in work queue
             try:
                 self.work_queue.timeout_work(job_id)
-                self.stats.jobs_reaped += 1
+                self.stats.record_job_timeout()
                 logger.info(f"Marked job {job_id} as TIMEOUT")
 
                 # Emit WORK_TIMEOUT event for pipeline coordination
@@ -268,7 +306,7 @@ class JobReaperDaemon:
 
             except Exception as e:
                 logger.error(f"Error marking job {job_id} as timeout: {e}")
-                self.stats.errors += 1
+                self.stats.record_failure(e)
 
             # Blacklist the node if it's a repeat offender
             if node_id:
@@ -301,18 +339,18 @@ class JobReaperDaemon:
                         work_id,
                         excluded_nodes=list(excluded_nodes),
                     )
-                    self.stats.jobs_reassigned += 1
+                    self.stats.record_job_reassigned()
                     logger.info(
                         f"Reassigned job {work_id} for retry (attempt {attempts + 1}/{MAX_REASSIGN_ATTEMPTS}), "
                         f"excluding nodes: {excluded_nodes}"
                     )
                 except Exception as e:
                     logger.error(f"Error reassigning job {work_id}: {e}")
-                    self.stats.errors += 1
+                    self.stats.record_failure(e)
 
         except Exception as e:
             logger.error(f"Error in reassignment loop: {e}")
-            self.stats.errors += 1
+            self.stats.record_failure(e)
 
     async def _cleanup_expired_blacklists(self):
         """Remove expired entries from the blacklist."""
@@ -363,7 +401,7 @@ class JobReaperDaemon:
                     )
                     self.stats.not_leader_skips = 0
 
-                self.stats.last_check = time.time()
+                self.stats.record_attempt()  # Updates last_check_time
 
                 # Cleanup expired blacklists
                 await self._cleanup_expired_blacklists()
@@ -376,7 +414,7 @@ class JobReaperDaemon:
 
             except Exception as e:
                 logger.error(f"Error in reaper loop: {e}")
-                self.stats.errors += 1
+                self.stats.record_failure(e)
 
             await asyncio.sleep(self.check_interval)
 
@@ -387,12 +425,13 @@ class JobReaperDaemon:
         self.running = False
 
     def get_stats(self) -> dict[str, Any]:
-        """Get daemon statistics."""
-        return {
-            "jobs_reaped": self.stats.jobs_reaped,
-            "jobs_reassigned": self.stats.jobs_reassigned,
-            "processes_killed": self.stats.processes_killed,
-            "nodes_blacklisted": self.stats.nodes_blacklisted,
+        """Get daemon statistics.
+
+        December 2025: Now uses base class to_dict() for consistency.
+        """
+        stats = self.stats.to_dict()
+        # Add daemon-specific runtime info
+        stats.update({
             "currently_blacklisted": len(self.blacklisted_nodes),
             "blacklisted_nodes": [
                 {
@@ -403,13 +442,9 @@ class JobReaperDaemon:
                 }
                 for bl in self.blacklisted_nodes.values()
             ],
-            "last_check": self.stats.last_check,
-            "errors": self.stats.errors,
             "running": self.running,
-            # P2P leader awareness stats (December 2025)
-            "leader_checks": self.stats.leader_checks,
-            "not_leader_skips": self.stats.not_leader_skips,
-        }
+        })
+        return stats
 
 
 # =============================================================================
