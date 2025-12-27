@@ -113,8 +113,9 @@ async def _check_p2p_leader_status() -> tuple[bool, str | None]:
 
     this_node = _get_node_id()
 
-    # Try P2P status endpoint (Dec 2025: use configurable URL)
-    p2p_base = os.environ.get("RINGRIFT_P2P_URL", "http://localhost:8770")
+    # Dec 2025: Use centralized P2P URL helper
+    from app.config.ports import get_local_p2p_url
+    p2p_base = get_local_p2p_url()
     p2p_url = f"{p2p_base}/status"
 
     try:

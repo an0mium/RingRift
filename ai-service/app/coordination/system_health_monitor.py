@@ -152,10 +152,11 @@ class SystemHealthMonitorDaemon:
     def _get_cluster_status(self) -> dict[str, Any]:
         """Get cluster status from P2P or cluster monitor."""
         try:
-            # Try P2P status first (Dec 2025: use configurable URL)
+            # Dec 2025: Use centralized P2P URL helper
             import requests
+            from app.config.ports import get_local_p2p_url
 
-            p2p_url = os.environ.get("RINGRIFT_P2P_URL", "http://localhost:8770")
+            p2p_url = get_local_p2p_url()
             response = requests.get(f"{p2p_url}/status", timeout=5)
             if response.ok:
                 return response.json()

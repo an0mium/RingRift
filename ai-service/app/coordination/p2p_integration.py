@@ -140,8 +140,9 @@ def _get_p2p_seeds() -> list[str]:
     if seeds_str:
         return [s.strip() for s in seeds_str.split(",") if s.strip()]
 
-    # Default seeds based on common P2P ports (Dec 2025: consistent with RINGRIFT_P2P_URL)
-    default_url = os.environ.get("RINGRIFT_P2P_URL", "http://localhost:8770")
+    # Dec 2025: Use centralized P2P URL helper
+    from app.config.ports import get_local_p2p_url
+    default_url = get_local_p2p_url()
     default_seeds = os.environ.get(
         "RINGRIFT_P2P_DEFAULT_SEEDS",
         default_url

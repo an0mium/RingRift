@@ -659,12 +659,13 @@ class SyncOrchestrator:
     async def _subscribe_to_sync_triggers(self) -> None:
         """Subscribe to events that should trigger syncs."""
         try:
+            # P0.5 (December 2025): Use get_router() instead of deprecated get_stage_event_bus()
             from app.coordination.event_router import (
                 StageEvent,
-                get_stage_event_bus,
+                get_router,
             )
 
-            bus = get_stage_event_bus()
+            router = get_router()
 
             # Sync after selfplay completes (new games to sync)
             async def on_selfplay_complete(result):
@@ -675,7 +676,7 @@ class SyncOrchestrator:
                     )
                     await self.sync_data()
 
-            bus.subscribe(StageEvent.SELFPLAY_COMPLETE, on_selfplay_complete)
+            router.subscribe(StageEvent.SELFPLAY_COMPLETE, on_selfplay_complete)
 
             # Sync after training completes (new model to sync)
             async def on_training_complete(result):
@@ -686,7 +687,7 @@ class SyncOrchestrator:
                     await self.sync_models()
                     await self.sync_registry()
 
-            bus.subscribe(StageEvent.TRAINING_COMPLETE, on_training_complete)
+            router.subscribe(StageEvent.TRAINING_COMPLETE, on_training_complete)
 
             # Sync after promotion (update registry)
             async def on_promotion_complete(result):
@@ -696,7 +697,7 @@ class SyncOrchestrator:
                     )
                     await self.sync_registry()
 
-            bus.subscribe(StageEvent.PROMOTION_COMPLETE, on_promotion_complete)
+            router.subscribe(StageEvent.PROMOTION_COMPLETE, on_promotion_complete)
 
             logger.debug("[SyncOrchestrator] Subscribed to sync trigger events")
 

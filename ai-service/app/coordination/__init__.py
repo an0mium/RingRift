@@ -661,6 +661,25 @@ from app.coordination.unified_health_manager import (
     wire_health_events,
 )
 
+# Health Facade - unified entry point for all health operations (December 2025)
+# Preferred over direct imports from node_health_monitor or system_health_monitor
+from app.coordination.health_facade import (
+    # Node-level health (from health_check_orchestrator)
+    get_health_orchestrator,
+    HealthCheckOrchestrator,
+    NodeHealthDetails,
+    get_node_health,
+    get_healthy_nodes,
+    get_unhealthy_nodes,
+    get_degraded_nodes,
+    get_offline_nodes,
+    mark_node_retired,
+    # Cluster summary
+    get_cluster_health_summary,
+    # Backward compat (deprecated)
+    get_node_health_monitor,
+)
+
 # OptimizationCoordinator - unified optimization management
 from app.coordination.optimization_coordinator import (
     OptimizationCoordinator,
@@ -1929,6 +1948,7 @@ __all__ = [
     "get_cluster_summary",
     "get_cluster_summary_safe",
     "get_cluster_transport",
+    "get_cluster_health_summary",  # Health Facade (December 2025)
     "get_cluster_utilization",
     "get_config",
     "get_config_game_counts",
@@ -1937,6 +1957,7 @@ __all__ = [
     "get_cpu_rich_hosts",
     "get_dlq",
     "get_cross_coordinator_health",
+    "get_degraded_nodes",  # Health Facade (December 2025)
     "get_current_node_id",
     "get_current_pipeline_stage",
     "get_current_task_context",
@@ -1951,8 +1972,10 @@ __all__ = [
     "get_event_router",
     "get_gpu_rich_hosts",
     "get_health_manager",
+    "get_health_orchestrator",  # Health Facade (December 2025)
     "get_health_summary",
     "get_healthy_hosts",
+    "get_healthy_nodes",  # Health Facade (December 2025)
     "get_host_bandwidth_status",
     "get_host_targets",
     "get_host_targets_safe",
@@ -1960,6 +1983,9 @@ __all__ = [
     "get_metrics_orchestrator",
     "get_model_coordinator",
     "get_next_sync_target",
+    "get_node_health",  # Health Facade (December 2025)
+    "get_node_health_monitor",  # Health Facade (December 2025) - deprecated
+    "get_offline_nodes",  # Health Facade (December 2025)
     "get_optimal_concurrency",
     "get_optimal_transfer_time",
     "get_optimization_coordinator",
@@ -2005,6 +2031,7 @@ __all__ = [
     "get_system_health",
     "get_system_health_level",
     "get_system_health_score",
+    "get_unhealthy_nodes",  # Health Facade (December 2025)
     "get_target_job_count",
     "get_task_lifecycle_coordinator",
     "get_task_resource_type",

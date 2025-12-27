@@ -40,10 +40,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -66,7 +69,11 @@ def _dataset_has_multi_player_values(data_path: str) -> bool:
     try:
         with np.load(data_path, mmap_mode='r') as f:
             return 'values_mp' in f and 'num_players' in f
-    except Exception:
+    except FileNotFoundError:
+        logger.debug(f"Dataset not found: {data_path}")
+        return False
+    except Exception as e:
+        logger.warning(f"Error checking dataset {data_path}: {e}")
         return False
 
 

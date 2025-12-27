@@ -40,10 +40,8 @@ from __future__ import annotations
 
 import asyncio
 import atexit
-import contextlib
 import logging
 import os
-import random
 import signal
 import time
 import warnings
@@ -56,8 +54,6 @@ from app.core.async_context import fire_and_forget, safe_create_task
 # Daemon types extracted to dedicated module (Dec 2025)
 from app.coordination.daemon_types import (
     CRITICAL_DAEMONS,
-    DAEMON_RESTART_RESET_AFTER,
-    MAX_RESTART_DELAY,
     DaemonInfo,
     DaemonManagerConfig,
     DaemonState,
@@ -360,6 +356,13 @@ class DaemonManager:
             DaemonType.JOB_SCHEDULER,
             self._create_job_scheduler,
             depends_on=[DaemonType.EVENT_ROUTER],
+        )
+
+        # Resource optimizer (December 2025) - optimizes resource allocation via PID controller
+        self.register_factory(
+            DaemonType.RESOURCE_OPTIMIZER,
+            self._create_resource_optimizer,
+            depends_on=[DaemonType.EVENT_ROUTER, DaemonType.JOB_SCHEDULER],
         )
 
         # Idle resource daemon (Phase 20) - monitors idle GPUs and spawns selfplay
@@ -2495,6 +2498,64 @@ class DaemonManager:
         except ImportError as e:
             logger.warning(f"JobScheduler dependencies not available: {e}")
             # Not critical - cluster can still run without centralized scheduling
+
+    async def _create_resource_optimizer(self) -> None:
+        """Create and run resource optimizer daemon (December 2025).
+
+        PID-based resource optimization for cluster workload management:
+        - Tracks GPU/CPU utilization targets (70-90%)
+        - Emits SCALE_UP/SCALE_DOWN recommendations
+        - Integrates with JobScheduler for admission control
+
+        P0 (December 2025): Added missing factory method to fix daemon creation.
+        """
+        try:
+            from app.coordination.resource_optimizer import ResourceOptimizer
+
+            # Create optimizer instance
+            optimizer = ResourceOptimizer()
+
+            # Subscribe to utilization events if available
+            try:
+                from app.coordination.event_router import get_event_bus, DataEventType
+
+                bus = get_event_bus()
+
+                def on_utilization_update(event):
+                    """Handle utilization updates for PID controller."""
+                    payload = event.payload if hasattr(event, "payload") else event
+                    resource_type = payload.get("resource_type", "gpu")
+                    utilization = payload.get("utilization", 0.0)
+                    optimizer.update_utilization(resource_type, utilization)
+
+                if hasattr(DataEventType, "UTILIZATION_UPDATED"):
+                    bus.subscribe(DataEventType.UTILIZATION_UPDATED, on_utilization_update)
+                    logger.info("[ResourceOptimizer] Subscribed to UTILIZATION_UPDATED events")
+
+            except ImportError as e:
+                logger.debug(f"[ResourceOptimizer] Could not subscribe to events: {e}")
+
+            # Main optimization loop
+            import asyncio
+
+            while True:
+                try:
+                    # Get optimization recommendation
+                    rec = optimizer.get_optimization_recommendation()
+                    if rec and rec.action.name != "MAINTAIN":
+                        logger.info(
+                            f"[ResourceOptimizer] Recommendation: {rec.action.name} "
+                            f"(current util: {rec.current_utilization:.1f}%)"
+                        )
+
+                except (RuntimeError, OSError) as e:
+                    logger.debug(f"[ResourceOptimizer] Optimization cycle error: {e}")
+
+                await asyncio.sleep(60)  # Check every minute
+
+        except ImportError as e:
+            logger.warning(f"ResourceOptimizer not available: {e}")
+            # Not critical - cluster can still run without optimization
 
     async def _create_idle_resource(self) -> None:
         """Create and run idle resource daemon (December 2025 - Phase 20).

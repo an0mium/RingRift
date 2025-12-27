@@ -71,6 +71,7 @@ from .network_loops import (
     TailscaleRecoveryLoop,
 )
 from .queue_populator_loop import QueuePopulatorLoop
+from .training_sync_loop import TrainingSyncLoop
 
 __all__ = [
     # Base
@@ -102,4 +103,6 @@ __all__ = [
     "IdleDetectionLoop",
     "JobReaperConfig",
     "JobReaperLoop",
+    # Training
+    "TrainingSyncLoop",
 ]

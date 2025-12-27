@@ -2,7 +2,7 @@
 
 Cluster-wide coordination infrastructure for the RingRift AI training pipeline.
 
-**159 modules** (111K+ LOC) providing event-driven orchestration, resource management, and fault tolerance.
+**151 modules** (~230K LOC) providing event-driven orchestration, resource management, and fault tolerance.
 
 > **Note**: Consolidation target is 15 modules. See [Consolidation Roadmap](../../docs/planning/CONSOLIDATION_ROADMAP.md).
 

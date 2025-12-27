@@ -183,8 +183,12 @@ class DatabaseSyncManager(SyncManagerBase):
         self.db_path = Path(db_path)
         self.db_type = db_type
         self.coordinator_host = coordinator_host
-        # Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
-        self.p2p_url = p2p_url or os.environ.get("RINGRIFT_P2P_URL") or os.environ.get("P2P_URL", "http://localhost:8770")
+        # Dec 2025: Use centralized P2P URL helper from app.config.ports
+        if p2p_url:
+            self.p2p_url = p2p_url
+        else:
+            from app.config.ports import get_local_p2p_url
+            self.p2p_url = get_local_p2p_url()
         self.enable_merge = enable_merge
 
         # Override state with database-specific version

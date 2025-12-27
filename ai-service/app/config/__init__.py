@@ -54,6 +54,7 @@ __all__ = [
     "P2P_DEFAULT_PORT",
     "get_data_server_url",
     "get_health_check_url",
+    "get_local_p2p_url",
     "get_p2p_base_url",
     "get_p2p_status_url",
     # Threshold constants
@@ -160,7 +161,7 @@ def __getattr__(name: str):
     # Port configuration (lightweight)
     if name in ("DATA_SERVER_PORT", "GOSSIP_PORT", "HEALTH_CHECK_PORT", "METRICS_PORT",
                 "P2P_DEFAULT_PORT", "get_data_server_url", "get_health_check_url",
-                "get_p2p_base_url", "get_p2p_status_url"):
+                "get_local_p2p_url", "get_p2p_base_url", "get_p2p_status_url"):
         if "ports" not in _lazy_cache:
             from app.config.ports import (
                 DATA_SERVER_PORT as _DSP,
@@ -170,6 +171,7 @@ def __getattr__(name: str):
                 P2P_DEFAULT_PORT as _PDP,
                 get_data_server_url as _gdsu,
                 get_health_check_url as _ghcu,
+                get_local_p2p_url as _glpu,
                 get_p2p_base_url as _gpbu,
                 get_p2p_status_url as _gpsu,
             )
@@ -181,6 +183,7 @@ def __getattr__(name: str):
                 "P2P_DEFAULT_PORT": _PDP,
                 "get_data_server_url": _gdsu,
                 "get_health_check_url": _ghcu,
+                "get_local_p2p_url": _glpu,
                 "get_p2p_base_url": _gpbu,
                 "get_p2p_status_url": _gpsu,
             }

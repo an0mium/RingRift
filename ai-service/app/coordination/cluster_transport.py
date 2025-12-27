@@ -224,10 +224,12 @@ class ClusterTransport:
         connect_timeout: int = DEFAULT_CONNECT_TIMEOUT,
         operation_timeout: int = DEFAULT_OPERATION_TIMEOUT,
     ):
-        # Dec 2025: Standardized to RINGRIFT_P2P_URL with legacy fallback
-        self.p2p_url = p2p_url or os.environ.get("RINGRIFT_P2P_URL") or os.environ.get(
-            "P2P_URL", "http://localhost:8770"
-        )
+        # Dec 2025: Use centralized P2P URL helper
+        if p2p_url:
+            self.p2p_url = p2p_url
+        else:
+            from app.config.ports import get_local_p2p_url
+            self.p2p_url = get_local_p2p_url()
         self.connect_timeout = connect_timeout
         self.operation_timeout = operation_timeout
         # Canonical circuit breaker (tracks all targets internally)
