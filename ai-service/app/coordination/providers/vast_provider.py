@@ -268,3 +268,36 @@ class VastProvider(CloudProvider):
             GPUType.GH200_96GB: 3.00,
         }
         return cost_map.get(gpu_type, 0.5)
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check provider health for CoordinatorProtocol compliance.
+
+        December 2025: Added for daemon health monitoring integration.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        cli_available = self._cli_path is not None
+        configured = self.is_configured()
+
+        if not cli_available:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="VastProvider: vastai CLI not found",
+                details={"cli_path": None, "configured": False},
+            )
+
+        if not configured:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message="VastProvider: API key not configured",
+                details={"cli_path": self._cli_path, "configured": False},
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message="VastProvider: CLI available and configured",
+            details={"cli_path": self._cli_path, "configured": True},
+        )

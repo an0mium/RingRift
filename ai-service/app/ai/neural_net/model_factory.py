@@ -45,6 +45,11 @@ from .v5_heavy import (
     RingRiftCNN_v5_Heavy,
     HexNeuralNet_v5_Heavy,
 )
+from .v6_large import (
+    create_v6_model,
+    V6_LARGE_CONFIG,
+    V6_XL_CONFIG,
+)
 
 # GNN imports (optional - requires PyTorch Geometric)
 try:
@@ -64,8 +69,8 @@ __all__ = [
     "get_model_config_for_board",
 ]
 
-# Valid memory tier options
-VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "gnn", "hybrid")
+# Valid memory tier options (v6 added December 2025)
+VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "v6", "v6-xl", "gnn", "hybrid")
 
 # ============================================================================
 # Memory Tier Quick Reference (December 2025)
@@ -73,9 +78,11 @@ VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", 
 #
 # | Tier     | Model Class          | Params  | Features              | Use Case                    |
 # |----------|----------------------|---------|------------------------|----------------------------|
-# | v4       | RingRiftCNN_v4       | ~5.1M   | Attention, spatial     | Default, NAS-optimized     |
+# | v6       | V5 Heavy (scaled)    | ~25M    | 256 filters, 10 SE, 8 attn| 1800+ Elo target (NEW)   |
+# | v6-xl    | V5 Heavy (max)       | ~35M    | 320 filters + GNN      | 2000+ Elo target (NEW)     |
 # | v5       | RingRiftCNN_v5_Heavy | ~6.2M   | SE+Attn+FiLM, heuristics| Max strength (21 heuristics)|
 # | v5-gnn   | RingRiftCNN_v5_Heavy | ~6.3M   | v5 + GNN refinement    | Max strength + connectivity|
+# | v4       | RingRiftCNN_v4       | ~5.1M   | Attention, spatial     | Default, NAS-optimized     |
 # | v3-high  | RingRiftCNN_v3       | ~7.0M   | SE, spatial policy     | Spatial reasoning          |
 # | v3-low   | RingRiftCNN_v3_Lite  | ~1.8M   | SE lite, spatial       | Low memory spatial         |
 # | high     | RingRiftCNN_v2       | ~11M    | SE, global pool        | Legacy high-capacity       |
