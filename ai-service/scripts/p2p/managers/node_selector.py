@@ -379,6 +379,97 @@ class NodeSelector:
         }
 
     # =========================================================================
+    # Event Subscription (December 27, 2025)
+    # =========================================================================
+
+    def subscribe_to_events(self) -> None:
+        """Subscribe to health-related events to track unhealthy nodes.
+
+        December 27, 2025: Added to populate _unhealthy_nodes from events.
+        This allows NodeSelector to filter out unhealthy nodes during selection.
+        """
+        if getattr(self, "_subscribed", False):
+            return
+
+        try:
+            from app.coordination.event_router import get_event_bus
+            from app.distributed.data_events import DataEventType
+
+            bus = get_event_bus()
+
+            # Subscribe to HOST_OFFLINE to mark nodes as unhealthy
+            if hasattr(DataEventType, "HOST_OFFLINE"):
+                bus.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline)
+                logger.info("[NodeSelector] Subscribed to HOST_OFFLINE")
+
+            # Subscribe to NODE_RECOVERED to clear unhealthy status
+            if hasattr(DataEventType, "NODE_RECOVERED"):
+                bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
+                logger.info("[NodeSelector] Subscribed to NODE_RECOVERED")
+
+            # Subscribe to HOST_ONLINE to clear offline nodes
+            if hasattr(DataEventType, "HOST_ONLINE"):
+                bus.subscribe(DataEventType.HOST_ONLINE, self._on_host_online)
+                logger.info("[NodeSelector] Subscribed to HOST_ONLINE")
+
+            self._subscribed = True
+        except ImportError:
+            logger.debug("[NodeSelector] Event router not available")
+        except (RuntimeError, AttributeError) as e:
+            logger.warning(f"[NodeSelector] Failed to subscribe: {e}")
+
+    async def _on_host_offline(self, event) -> None:
+        """Handle HOST_OFFLINE events - mark node as unhealthy."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id", "")
+            reason = payload.get("reason", "host_offline")
+
+            if not node_id:
+                return
+
+            self._unhealthy_nodes.add(node_id)
+            self._unhealthy_reasons[node_id] = reason
+            logger.info(f"[NodeSelector] Marked {node_id} as unhealthy: {reason}")
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[NodeSelector] Error handling host offline: {e}")
+
+    async def _on_host_online(self, event) -> None:
+        """Handle HOST_ONLINE events - clear unhealthy status."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id", "")
+
+            if not node_id:
+                return
+
+            if node_id in self._unhealthy_nodes:
+                self._unhealthy_nodes.discard(node_id)
+                self._unhealthy_reasons.pop(node_id, None)
+                logger.info(f"[NodeSelector] Cleared unhealthy status for {node_id}")
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[NodeSelector] Error handling host online: {e}")
+
+    async def _on_node_recovered(self, event) -> None:
+        """Handle NODE_RECOVERED events - clear unhealthy status."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id", "") or payload.get("host", "")
+
+            if not node_id:
+                return
+
+            if node_id in self._unhealthy_nodes:
+                self._unhealthy_nodes.discard(node_id)
+                self._unhealthy_reasons.pop(node_id, None)
+                logger.info(f"[NodeSelector] Cleared unhealthy status for recovered node {node_id}")
+
+        except (AttributeError, KeyError, TypeError) as e:
+            logger.debug(f"[NodeSelector] Error handling node recovered: {e}")
+
+    # =========================================================================
     # Health Check (December 2025)
     # =========================================================================
 

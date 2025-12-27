@@ -125,6 +125,8 @@ class EvaluationDaemon:
             "content_hash_skips": 0,
             "concurrent_skips": 0,
         }
+        # Task reference for proper cleanup (December 2025)
+        self._worker_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the evaluation daemon."""
@@ -135,8 +137,8 @@ class EvaluationDaemon:
         self._running = True
         self._subscribe_to_events()
 
-        # Start the evaluation worker
-        asyncio.create_task(self._evaluation_worker())
+        # Start the evaluation worker and store task for proper cleanup
+        self._worker_task = asyncio.create_task(self._evaluation_worker())
 
         logger.info(
             f"[EvaluationDaemon] Started. "
@@ -151,6 +153,14 @@ class EvaluationDaemon:
 
         self._running = False
         self._unsubscribe_from_events()
+
+        # Cancel worker task if running (December 2025)
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except asyncio.CancelledError:
+                pass  # Expected on cancellation
 
         logger.info(
             f"[EvaluationDaemon] Stopped. "

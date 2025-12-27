@@ -63,21 +63,30 @@ Framework for collecting human feedback:
 
 ```python
 from app.evaluation.human_eval import (
-    HumanEvalSession,
-    PositionEvaluation,
+    EvaluationType,
+    MoveQuality,
+    EvaluationTask,
+    EvaluationResponse,
+    EvaluatorProfile,
+    HumanEvalServer,
 )
 
-# Create evaluation session
-session = HumanEvalSession(evaluator_id="expert_1")
+# Create an evaluation task
+task = EvaluationTask(
+    task_id="task_001",
+    game_id="game_123",
+    eval_type=EvaluationType.MOVE_QUALITY,
+    position_fen="...",  # Board state
+)
 
-# Record position evaluation
-eval = PositionEvaluation(
-    position_id="pos_001",
-    preferred_move="d4-e5",
+# Create evaluator response
+response = EvaluationResponse(
+    task_id="task_001",
+    evaluator_id="expert_1",
+    move_quality=MoveQuality.EXCELLENT,
     confidence=0.9,
     reasoning="Creates line threat",
 )
-session.add_evaluation(eval)
 ```
 
 ## Usage Examples
@@ -85,10 +94,36 @@ session.add_evaluation(eval)
 ### Running a Benchmark Suite
 
 ```python
-from app.evaluation.benchmark_suite import BenchmarkRunner
+from app.evaluation.benchmark_suite import (
+    BenchmarkSuite,
+    BenchmarkResult,
+    BenchmarkSuiteResult,
+    InferenceBenchmark,
+    PolicyAccuracyBenchmark,
+)
 
-runner = BenchmarkRunner(model_path="models/hex8_2p.pth")
-suite = runner.run_standard_suite()
+# Create benchmarks
+inference = InferenceBenchmark(
+    name="inference_time",
+    model_path="models/hex8_2p.pth",
+)
+policy = PolicyAccuracyBenchmark(
+    name="policy_accuracy",
+    model_path="models/hex8_2p.pth",
+)
+
+# Run benchmarks
+results = [
+    inference.run(),
+    policy.run(),
+]
+
+# Create suite result
+suite = BenchmarkSuiteResult(
+    suite_name="standard_eval",
+    model_id="hex8_2p_v3",
+    results=results,
+)
 
 print(f"Aggregate score: {suite.compute_aggregate_score():.3f}")
 for result in suite.results:

@@ -34,6 +34,7 @@ Configuration Import Guide:
 """
 
 import os
+import warnings
 from dataclasses import dataclass, field
 
 from app.models import BoardType
@@ -780,6 +781,14 @@ class SelfPlayConfig:
     def num_games(self) -> int:
         """Alias for games_per_iteration for compatibility with SelfplayConfig."""
         return self.games_per_iteration
+
+    def __post_init__(self):
+        warnings.warn(
+            "SelfPlayConfig from app.training.config is deprecated since Dec 2025. "
+            "Use app.training.selfplay_config.SelfplayConfig instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
 
 @dataclass

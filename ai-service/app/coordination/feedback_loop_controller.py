@@ -895,12 +895,15 @@ class FeedbackLoopController:
 
             # Emit the event (handle both sync and async contexts)
             try:
-                asyncio.create_task(emit_quality_check_requested(
-                    config_key=config_key,
-                    reason=reason,
-                    source="FeedbackLoopController",
-                    priority=priority,
-                ))
+                _safe_create_task(
+                    emit_quality_check_requested(
+                        config_key=config_key,
+                        reason=reason,
+                        source="FeedbackLoopController",
+                        priority=priority,
+                    ),
+                    context=f"emit_quality_check_requested:{config_key}",
+                )
             except RuntimeError:
                 # No running event loop, run synchronously
                 asyncio.run(emit_quality_check_requested(
@@ -936,16 +939,18 @@ class FeedbackLoopController:
 
         # P11-CRITICAL-1: Emit EXPLORATION_BOOST event to notify selfplay/temperature schedulers
         try:
-            import asyncio
             from app.coordination.event_router import emit_exploration_boost
 
-            asyncio.create_task(emit_exploration_boost(
-                config_key=config_key,
-                boost_factor=boost,
-                reason="loss_anomaly",
-                anomaly_count=anomaly_count,
-                source="FeedbackLoopController",
-            ))
+            _safe_create_task(
+                emit_exploration_boost(
+                    config_key=config_key,
+                    boost_factor=boost,
+                    reason="loss_anomaly",
+                    anomaly_count=anomaly_count,
+                    source="FeedbackLoopController",
+                ),
+                context=f"emit_exploration_boost:loss_anomaly:{config_key}",
+            )
             logger.debug(
                 f"[FeedbackLoopController] Emitted EXPLORATION_BOOST event for {config_key}"
             )
@@ -989,16 +994,18 @@ class FeedbackLoopController:
 
         # P11-CRITICAL-1: Emit EXPLORATION_BOOST event
         try:
-            import asyncio
             from app.coordination.event_router import emit_exploration_boost
 
-            asyncio.create_task(emit_exploration_boost(
-                config_key=config_key,
-                boost_factor=boost,
-                reason="stall",
-                anomaly_count=stall_epochs // 5,  # Use stall count as pseudo-anomaly count
-                source="FeedbackLoopController",
-            ))
+            _safe_create_task(
+                emit_exploration_boost(
+                    config_key=config_key,
+                    boost_factor=boost,
+                    reason="stall",
+                    anomaly_count=stall_epochs // 5,  # Use stall count as pseudo-anomaly count
+                    source="FeedbackLoopController",
+                ),
+                context=f"emit_exploration_boost:stall:{config_key}",
+            )
         except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 

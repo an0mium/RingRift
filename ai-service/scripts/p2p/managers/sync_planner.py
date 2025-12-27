@@ -83,7 +83,36 @@ def _get_event_type_value(event_name: str) -> str:
     try:
         return getattr(_DataEventType, enum_name).value
     except AttributeError:
+        # Dec 2025: Log warning instead of silent fallback
+        logger.warning(f"[SyncPlanner] Event type {enum_name} not found in DataEventType enum")
         return event_name
+
+
+# Required event types for sync operations
+REQUIRED_SYNC_EVENT_TYPES = ["DATA_SYNC_STARTED", "DATA_SYNC_COMPLETED", "DATA_SYNC_FAILED"]
+
+def _validate_event_types() -> bool:
+    """Validate all required event types exist at startup.
+
+    Dec 2025: Ensures sync events won't fail silently due to missing enum values.
+
+    Returns:
+        True if all required event types exist, False otherwise
+    """
+    try:
+        from app.distributed.data_events import DataEventType
+        missing = []
+        for event in REQUIRED_SYNC_EVENT_TYPES:
+            if not hasattr(DataEventType, event):
+                missing.append(event)
+        if missing:
+            logger.error(f"[SyncPlanner] Missing required event types: {missing}")
+            return False
+        logger.debug("[SyncPlanner] All required event types validated")
+        return True
+    except ImportError:
+        logger.debug("[SyncPlanner] DataEventType not available, skipping validation")
+        return True  # Not a failure if module unavailable
 
 
 # Constants (match p2p/constants.py)
@@ -201,6 +230,9 @@ class SyncPlanner:
 
         # Statistics
         self.stats = SyncStats()
+
+        # Dec 2025: Validate event types at startup to catch config issues early
+        _validate_event_types()
 
     def _emit_sync_event(self, event_type: str, **kwargs) -> None:
         """Emit a sync lifecycle event if the event system is available.

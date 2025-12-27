@@ -3080,7 +3080,7 @@ def get_pipeline_orchestrator() -> DataPipelineOrchestrator:
 
 
 def wire_pipeline_events(
-    auto_trigger: bool = False,
+    auto_trigger: bool = True,  # Dec 2025: Default to True for full pipeline loop
     training_epochs: int | None = None,
     training_batch_size: int | None = None,
     training_model_version: str | None = None,
@@ -3088,7 +3088,7 @@ def wire_pipeline_events(
     """Wire pipeline events to the orchestrator.
 
     Args:
-        auto_trigger: If True, automatically trigger downstream stages
+        auto_trigger: If True, automatically trigger downstream stages (default: True)
         training_epochs: Override default training epochs
         training_batch_size: Override default training batch size
         training_model_version: Override default model version

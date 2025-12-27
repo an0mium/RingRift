@@ -12,6 +12,7 @@ import os
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -19,6 +20,22 @@ if TYPE_CHECKING:
     from ..models import ClusterJob, ImprovementLoopState, NodeInfo
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class JobManagerStats:
+    """Statistics for job manager monitoring.
+
+    December 27, 2025: Added to track job lifecycle events for observability.
+    """
+
+    jobs_spawned: int = 0
+    jobs_completed: int = 0
+    jobs_failed: int = 0
+    jobs_cancelled: int = 0
+    nodes_recovered: int = 0
+    hosts_offline: int = 0
+    hosts_online: int = 0
 
 # Event emission helper - imported lazily to avoid circular imports
 _emit_event: Callable[[str, dict], None] | None = None
@@ -131,6 +148,9 @@ class JobManager:
         # Event subscription state (December 2025)
         self._subscribed = False
 
+        # Statistics tracking (December 27, 2025)
+        self.stats = JobManagerStats()
+
     # =========================================================================
     # Event Subscriptions (December 2025)
     # =========================================================================
@@ -186,6 +206,7 @@ class JobManager:
 
             # Cancel all jobs running on offline host
             cancelled = 0
+            cancelled_jobs: list[tuple[str, str]] = []  # (job_type, job_id) tuples
             with self.jobs_lock:
                 for job_type, jobs in self.active_jobs.items():
                     for job_id, job in list(jobs.items()):
@@ -198,9 +219,23 @@ class JobManager:
                                 else:
                                     job.status = "cancelled"
                                 cancelled += 1
+                                cancelled_jobs.append((job_type, job_id))
                                 logger.info(f"[JobManager] Cancelled {job_type} job {job_id} on offline node {node_id}")
 
+            # December 27, 2025: Emit TASK_ABANDONED events for cancelled jobs
+            # This allows SelfplayOrchestrator and other subscribers to track abandoned work
+            for job_type, job_id in cancelled_jobs:
+                self._emit_task_event(
+                    "TASK_ABANDONED",
+                    job_id=job_id,
+                    job_type=job_type,
+                    reason="host_offline",
+                    offline_node=node_id,
+                )
+                self.stats.jobs_cancelled += 1
+
             if cancelled > 0:
+                self.stats.hosts_offline += 1
                 logger.info(f"[JobManager] Cancelled {cancelled} jobs on offline node {node_id}")
 
         except (AttributeError, KeyError, TypeError) as e:
@@ -216,6 +251,9 @@ class JobManager:
                 return
 
             logger.info(f"[JobManager] HOST_ONLINE: {node_id}, node available for jobs")
+
+            # Track for observability
+            self.stats.hosts_online += 1
 
             # Note: Job rescheduling is handled by the scheduler, not the job manager
             # This is logged for observability

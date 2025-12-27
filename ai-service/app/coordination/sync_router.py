@@ -22,8 +22,10 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -77,6 +79,7 @@ class NodeSyncCapability:
     provider: str = "unknown"
     disk_usage_percent: float = 0.0
     available_gb: float = 0.0
+    last_sync_time: float = 0.0  # Dec 2025: Timestamp of last successful sync
 
 
 class SyncRouter:
@@ -90,6 +93,9 @@ class SyncRouter:
 
     # P2.3 Dec 2025: Capacity refresh interval (5 minutes)
     CAPACITY_REFRESH_INTERVAL = 300.0
+
+    # Dec 2025: Sync timestamp state file
+    _SYNC_STATE_FILE = Path("data/sync/.node_sync_timestamps.json")
 
     def __init__(
         self,
@@ -113,6 +119,9 @@ class SyncRouter:
 
         # P2.3 Dec 2025: Capacity refresh tracking
         self._last_capacity_refresh = 0.0
+
+        # Dec 2025: Load persisted sync timestamps
+        self._load_sync_timestamps()
 
         logger.info(f"SyncRouter initialized: {len(self._node_capabilities)} nodes")
 
@@ -411,6 +420,16 @@ class SyncRouter:
         elif cap.disk_usage_percent > 70:
             priority -= 20
 
+        # December 2025: Time-since-sync priority weighting
+        # Nodes not synced recently get priority boost (up to 30 points for 1 hour)
+        if cap.last_sync_time > 0:
+            seconds_since_sync = time.time() - cap.last_sync_time
+            time_weight = min((seconds_since_sync / 3600.0) * 30, 30)
+            priority += int(time_weight)
+        else:
+            # Never synced = maximum time weight
+            priority += 30
+
         return priority
 
     def _get_target_reason(self, cap: NodeSyncCapability) -> str:
@@ -425,6 +444,53 @@ class SyncRouter:
             reasons.append("ephemeral")
 
         return ", ".join(reasons) if reasons else "available"
+
+    # =========================================================================
+    # December 2025: Sync Timestamp Persistence
+    # =========================================================================
+
+    def _load_sync_timestamps(self) -> None:
+        """Load persisted sync timestamps from JSON file."""
+        if not self._SYNC_STATE_FILE.exists():
+            return
+
+        try:
+            with open(self._SYNC_STATE_FILE) as f:
+                data = json.load(f)
+            loaded_count = 0
+            for node_id, timestamp in data.items():
+                if node_id in self._node_capabilities:
+                    self._node_capabilities[node_id].last_sync_time = timestamp
+                    loaded_count += 1
+            if loaded_count:
+                logger.debug(f"[SyncRouter] Loaded sync timestamps for {loaded_count} nodes")
+        except Exception as e:
+            logger.warning(f"[SyncRouter] Failed to load sync timestamps: {e}")
+
+    def _save_sync_timestamps(self) -> None:
+        """Persist sync timestamps to JSON file."""
+        try:
+            self._SYNC_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                node_id: cap.last_sync_time
+                for node_id, cap in self._node_capabilities.items()
+                if cap.last_sync_time > 0
+            }
+            with open(self._SYNC_STATE_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.warning(f"[SyncRouter] Failed to save sync timestamps: {e}")
+
+    def record_sync_success(self, node_id: str) -> None:
+        """Record successful sync to a node, updating timestamp.
+
+        Args:
+            node_id: The node that was successfully synced to
+        """
+        if node_id in self._node_capabilities:
+            self._node_capabilities[node_id].last_sync_time = time.time()
+            self._save_sync_timestamps()
+            logger.debug(f"[SyncRouter] Recorded sync success for {node_id}")
 
     def should_sync_to_node(
         self,

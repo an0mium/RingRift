@@ -16,7 +16,7 @@ import time
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from app.config.coordination_defaults import DaemonLoopDefaults
 
@@ -290,6 +290,10 @@ class DaemonInfo:
     # When daemons are started, they set ready_event when initialization completes
     ready_event: asyncio.Event | None = None
     ready_timeout: float = 30.0  # Max time to wait for daemon to be ready
+
+    # December 2025: Store daemon instance for health_check() calls
+    # Set by factory functions in daemon_runners.py
+    instance: Any | None = None
 
     @property
     def uptime_seconds(self) -> float:

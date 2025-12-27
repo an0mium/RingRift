@@ -1,11 +1,43 @@
 # RingRift AI Service Deprecation Timeline
 
-**Last Updated:** 2025-12-21
+**Last Updated:** 2025-12-27
 **Document Purpose:** Track deprecated modules and their planned removal dates.
 
 ---
 
 ## Active Deprecations
+
+### Coordination Module Deprecations (December 2025)
+
+| Module                                      | Status     | Deprecation Date | Target Removal | Replacement                            |
+| ------------------------------------------- | ---------- | ---------------- | -------------- | -------------------------------------- |
+| `app/coordination/node_health_monitor.py`   | Deprecated | Dec 2025         | Q2 2026        | `health_check_orchestrator.py`         |
+| `app/coordination/sync_coordinator.py`      | Deprecated | Dec 2025         | Q2 2026        | `auto_sync_daemon.py`                  |
+| `app/coordination/system_health_monitor.py` | Deprecated | Dec 2025         | Q2 2026        | `unified_health_manager.py`            |
+| `app/coordination/cluster_data_sync.py`     | Deprecated | Dec 2025         | Q2 2026        | `AutoSyncDaemon(strategy="broadcast")` |
+| `app/coordination/ephemeral_sync.py`        | Deprecated | Dec 2025         | Q2 2026        | `AutoSyncDaemon(strategy="ephemeral")` |
+
+### Training Module Deprecations (December 2025)
+
+| Module/Class                                           | Status     | Deprecation Date | Target Removal | Replacement                                          |
+| ------------------------------------------------------ | ---------- | ---------------- | -------------- | ---------------------------------------------------- |
+| `SmartCheckpointManager` (advanced_training.py)        | Deprecated | Dec 2025         | Q2 2026        | `UnifiedCheckpointManager` (checkpoint_unified.py)   |
+| `SelfPlayConfig` (config.py)                           | Deprecated | Dec 2025         | Q2 2026        | `SelfplayConfig` (selfplay_config.py)                |
+| `app/training/checkpointing.py`                        | Deprecated | Dec 2025         | Q2 2026        | `checkpoint_unified.py`                              |
+| `app/training/data_pipeline_controller.py`             | Deprecated | Dec 2025         | Q2 2026        | `data_pipeline_orchestrator.py`                      |
+| `app/training/distributed.py` (DistributedTrainer)     | Deprecated | Dec 2025         | Q2 2026        | `distributed_unified.py` (UnifiedDistributedTrainer) |
+| `app/training/fault_tolerance.py` (retry_with_backoff) | Deprecated | Dec 2025         | Q2 2026        | `app.core.error_handler.retry`                       |
+
+### Archived Modules (December 2025)
+
+The following modules have been archived to `archive/deprecated_coordination/`:
+
+- `queue_populator_daemon.py` → Use `unified_queue_populator.py`
+- `queue_populator.py` (original) → Now re-export module
+- `replication_monitor.py` → Use `unified_replication_daemon.py`
+- `replication_repair_daemon.py` → Use `unified_replication_daemon.py`
+- `model_distribution_daemon.py` → Use `unified_distribution_daemon.py`
+- `npz_distribution_daemon.py` → Use `unified_distribution_daemon.py`
 
 ### Legacy Rules Engine Components
 

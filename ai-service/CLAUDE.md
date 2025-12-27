@@ -795,6 +795,112 @@ Verified and tested coordination module integration:
 
 See ADR-007 for P2P orchestrator decomposition details.
 
+### Event System Reference (December 2025)
+
+The coordination infrastructure uses an event-driven architecture with 30+ event types. Key events for pipeline coordination:
+
+| Event                     | Emitter                  | Subscribers                                   | Purpose                               |
+| ------------------------- | ------------------------ | --------------------------------------------- | ------------------------------------- |
+| `TRAINING_STARTED`        | TrainingCoordinator      | SyncRouter, IdleShutdown, DataPipeline        | Pause idle detection, prioritize sync |
+| `TRAINING_COMPLETED`      | TrainingCoordinator      | FeedbackLoop, DataPipeline, ModelDistribution | Trigger evaluation pipeline           |
+| `EVALUATION_COMPLETED`    | GameGauntlet             | FeedbackLoop, CurriculumIntegration           | Adjust curriculum weights             |
+| `EVALUATION_PROGRESS`     | GameGauntlet             | MetricsAnalysisOrchestrator                   | Real-time tracking of eval progress   |
+| `CURRICULUM_REBALANCED`   | CurriculumIntegration    | SelfplayScheduler, SelfplayOrchestrator       | Update selfplay allocation weights    |
+| `ELO_VELOCITY_CHANGED`    | QueuePopulator           | SelfplayScheduler, UnifiedFeedback            | Adjust selfplay rate dynamically      |
+| `ELO_SIGNIFICANT_CHANGE`  | EloSyncManager           | CurriculumIntegration, DataPipeline           | Trigger curriculum rebalancing        |
+| `MODEL_PROMOTED`          | PromotionController      | ModelDistribution, FeedbackLoop               | Distribute new model to cluster       |
+| `MODEL_UPDATED`           | ModelRegistry            | UnifiedDistributionDaemon                     | Sync model metadata to nodes          |
+| `PROMOTION_FAILED`        | AutoPromotionDaemon      | ModelLifecycleCoordinator, DataPipeline       | Track failed promotions, notify       |
+| `ADAPTIVE_PARAMS_CHANGED` | ImprovementOptimizer     | EvaluationFeedbackHandler, TrainingTrigger    | Apply real-time LR adjustments        |
+| `DATA_SYNC_COMPLETED`     | P2POrchestrator          | DataPipelineOrchestrator                      | Trigger NPZ export after sync         |
+| `NEW_GAMES_AVAILABLE`     | DataPipelineOrchestrator | SelfplayScheduler, ExportScheduler            | Trigger training pipeline             |
+| `REGRESSION_DETECTED`     | ModelPerformanceWatchdog | ModelLifecycleCoordinator, DataPipeline       | Rollback bad models                   |
+
+**Subscribing to Events:**
+
+```python
+from app.coordination.event_router import DataEventType, get_event_bus
+
+bus = get_event_bus()
+bus.subscribe(DataEventType.TRAINING_COMPLETED, my_handler)
+
+async def my_handler(event: dict) -> None:
+    config_key = event.get("config_key")
+    model_path = event.get("model_path")
+    # Process event...
+```
+
+### P2P Background Loops (December 2025)
+
+The P2P orchestrator uses `LoopManager` to coordinate 5 background loops. Located in `scripts/p2p/loops/`:
+
+| Loop                       | File                  | Interval | Purpose                                    |
+| -------------------------- | --------------------- | -------- | ------------------------------------------ |
+| `JobReaperLoop`            | `job_loops.py`        | 5 min    | Clean stale jobs (1hr), stuck jobs (2hr)   |
+| `IdleDetectionLoop`        | `job_loops.py`        | 30 sec   | Detect idle GPUs, trigger selfplay         |
+| `WorkerPullLoop`           | `job_loops.py`        | 30 sec   | Workers poll leader for work (pull model)  |
+| `WorkQueueMaintenanceLoop` | `job_loops.py`        | 5 min    | Check timeouts, cleanup old items (24hr)   |
+| `SelfHealingLoop`          | `resilience_loops.py` | 5 min    | Recover stuck jobs, clean stale processes  |
+| `PredictiveMonitoringLoop` | `resilience_loops.py` | 5 min    | Track trends, emit alerts before threshold |
+
+**Configuration Example:**
+
+```python
+from scripts.p2p.loops.job_loops import JobReaperLoop, JobReaperConfig
+
+config = JobReaperConfig(
+    stale_job_threshold_seconds=1800.0,  # 30 minutes
+    stuck_job_threshold_seconds=3600.0,  # 1 hour
+    max_jobs_to_reap_per_cycle=5,
+)
+loop = JobReaperLoop(
+    get_active_jobs=orchestrator.get_jobs,
+    cancel_job=orchestrator.cancel_job,
+    config=config,
+)
+```
+
+**Test Coverage (December 27, 2025):**
+
+- `tests/unit/p2p/test_job_loops.py`: 37 tests for JobReaperLoop, IdleDetectionLoop
+- `tests/unit/p2p/test_resilience_loops.py`: 25 tests for SelfHealingLoop, PredictiveMonitoringLoop
+
+### Daemon Health Monitoring (December 2025)
+
+85%+ of critical daemons now support `health_check()`. Query health programmatically:
+
+```python
+from app.coordination.daemon_manager import get_daemon_manager
+from app.coordination.daemon_types import DaemonType
+
+dm = get_daemon_manager()
+
+# Get single daemon health
+health = await dm.get_daemon_health(DaemonType.AUTO_SYNC)
+# Returns: {"status": "healthy", "running": True, "last_sync": ..., "errors_count": 0}
+
+# Get all daemon health
+all_health = dm.get_all_daemon_health()
+# Returns dict of DaemonType -> health status
+
+# Liveness probe (for Kubernetes/Docker)
+if dm.liveness_probe():
+    print("All critical daemons healthy")
+```
+
+**Daemons with health_check():**
+
+| Daemon                 | Key Health Metrics                                  |
+| ---------------------- | --------------------------------------------------- |
+| `AUTO_SYNC`            | Last sync time, files synced, error rate            |
+| `DATA_PIPELINE`        | Stage status, last NPZ export, pending games        |
+| `FEEDBACK_LOOP`        | Subscribed events, last feedback, training active   |
+| `SELFPLAY_COORDINATOR` | Active configs, jobs dispatched, curriculum weights |
+| `EVALUATION`           | Last eval, queue depth, pass rate                   |
+| `NODE_RECOVERY`        | Recoveries attempted, success rate                  |
+| `CLUSTER_WATCHDOG`     | Nodes monitored, alerts generated                   |
+| `P2P_BACKEND`          | Connection status, leader ID, peer count            |
+
 ### Migration Guides
 
 Full migration documentation is in the archive:

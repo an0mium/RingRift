@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 import subprocess
 import time
 from collections import deque
@@ -906,6 +907,12 @@ class SmartCheckpointManager:
         max_interval_epochs: int = 10,
         improvement_threshold: float = 0.01,
     ):
+        warnings.warn(
+            "SmartCheckpointManager is deprecated since Dec 2025. "
+            "Use app.training.checkpoint_unified.UnifiedCheckpointManager instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.save_dir = Path(save_dir)
         self.top_k = top_k
         self.min_interval = min_interval_epochs

@@ -180,8 +180,15 @@ class TrainingActivityDaemon(BaseDaemon[TrainingActivityConfig]):
                 ) as resp:
                     if resp.status == 200:
                         return await resp.json()
-        except Exception:
-            pass
+        except ImportError:
+            # aiohttp not installed - expected in some environments
+            logger.debug("aiohttp not available for P2P status check")
+        except (asyncio.TimeoutError, OSError, ConnectionError) as e:
+            # Connection failures - expected when P2P daemon not running
+            logger.debug(f"P2P status check failed (expected): {e}")
+        except Exception as e:
+            # Unexpected errors - log at warning level
+            logger.warning(f"Unexpected error checking P2P status: {e}")
         return None
 
     async def _on_training_detected(self, nodes: set[str]) -> None:
