@@ -148,7 +148,8 @@ class SSHConnectionManager:
 
         try:
             # Use asyncio to avoid blocking
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.setblocking(False)
 

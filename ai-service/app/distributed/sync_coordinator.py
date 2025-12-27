@@ -410,7 +410,8 @@ class SyncCoordinator:
         errors: list[str] = []
 
         pre_snapshot = self._snapshot_files(local_dir, include_patterns)
-        loop = asyncio.get_event_loop()
+        # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+        loop = asyncio.get_running_loop()
 
         for host in hosts[:3]:
             if host.name.lower() == hostname:

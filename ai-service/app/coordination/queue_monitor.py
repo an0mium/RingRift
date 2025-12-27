@@ -34,6 +34,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import sqlite3
 import threading
@@ -47,6 +48,8 @@ from typing import Any
 
 # Default database location
 DEFAULT_MONITOR_DB = Path("/tmp/ringrift_coordination/queue_monitor.db")
+
+logger = logging.getLogger(__name__)
 
 # Import centralized timeout thresholds
 try:
@@ -331,7 +334,7 @@ class QueueMonitor:
                     try:
                         callback(backpressure)
                     except Exception as e:
-                        print(f"[QueueMonitor] Callback error: {e}")
+                        logger.error(f"Callback error: {e}")
 
         conn.commit()
         return backpressure

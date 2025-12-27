@@ -2494,6 +2494,76 @@ class DaemonManager:
                 f'# TYPE daemon_uptime_seconds counter',
                 f'daemon_uptime_seconds {summary.get("liveness", {}).get("uptime_seconds", 0)}',
             ]
+
+            # Selfplay throughput metrics
+            try:
+                from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+                metrics = get_selfplay_scheduler().get_metrics()
+                lines.extend([
+                    '',
+                    '# HELP selfplay_games_allocated_total Total selfplay games allocated',
+                    '# TYPE selfplay_games_allocated_total counter',
+                    f"selfplay_games_allocated_total {metrics.get('games_allocated_total', 0)}",
+                    '# HELP selfplay_games_allocated_last_hour Selfplay games allocated in last hour',
+                    '# TYPE selfplay_games_allocated_last_hour gauge',
+                    f"selfplay_games_allocated_last_hour {metrics.get('games_allocated_last_hour', 0)}",
+                    '# HELP selfplay_games_per_hour Current selfplay allocation rate',
+                    '# TYPE selfplay_games_per_hour gauge',
+                    f"selfplay_games_per_hour {metrics.get('games_per_hour', 0.0)}",
+                ])
+            except Exception:
+                pass
+
+            # Cluster sync throughput metrics
+            try:
+                from app.coordination.cluster_data_sync import get_cluster_data_sync_daemon
+
+                metrics = get_cluster_data_sync_daemon().get_metrics()
+                lines.extend([
+                    '',
+                    '# HELP cluster_sync_count_total Total sync cycles executed',
+                    '# TYPE cluster_sync_count_total counter',
+                    f"cluster_sync_count_total {metrics.get('sync_count', 0)}",
+                    '# HELP cluster_sync_bytes_last_cycle Bytes synced in last cycle',
+                    '# TYPE cluster_sync_bytes_last_cycle gauge',
+                    f"cluster_sync_bytes_last_cycle {metrics.get('last_sync_bytes', 0)}",
+                    '# HELP cluster_sync_throughput_bytes_per_sec Last cycle throughput (bytes/sec)',
+                    '# TYPE cluster_sync_throughput_bytes_per_sec gauge',
+                    f"cluster_sync_throughput_bytes_per_sec {metrics.get('last_sync_throughput_bps', 0.0)}",
+                    '# HELP cluster_sync_total_bytes Total bytes synced',
+                    '# TYPE cluster_sync_total_bytes counter',
+                    f"cluster_sync_total_bytes {metrics.get('total_bytes_synced', 0)}",
+                ])
+            except Exception:
+                pass
+
+            # Event router metrics
+            try:
+                from app.coordination.event_router import get_router
+
+                stats = get_router().get_stats()
+                lines.extend([
+                    '',
+                    '# HELP event_router_events_routed_total Total events routed',
+                    '# TYPE event_router_events_routed_total counter',
+                    f"event_router_events_routed_total {stats.get('total_events_routed', 0)}",
+                    '# HELP event_router_duplicates_prevented_total Duplicate events prevented',
+                    '# TYPE event_router_duplicates_prevented_total counter',
+                    f"event_router_duplicates_prevented_total {stats.get('duplicates_prevented', 0)}",
+                    '# HELP event_router_content_duplicates_prevented_total Content-hash duplicates prevented',
+                    '# TYPE event_router_content_duplicates_prevented_total counter',
+                    f"event_router_content_duplicates_prevented_total {stats.get('content_duplicates_prevented', 0)}",
+                    '# HELP event_router_events_routed_by_type_total Events routed by type',
+                    '# TYPE event_router_events_routed_by_type_total counter',
+                ])
+                for event_type, count in stats.get("events_routed_by_type", {}).items():
+                    safe_event = str(event_type).replace('"', "'")
+                    lines.append(
+                        f"event_router_events_routed_by_type_total{{event=\"{safe_event}\"}} {count}"
+                    )
+            except Exception:
+                pass
             return web.Response(text='\n'.join(lines), content_type='text/plain')
 
         async def handle_status(request):

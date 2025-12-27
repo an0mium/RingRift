@@ -1401,7 +1401,7 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
     def __init__(self, config: SelfplayConfig):
         config.engine_mode = EngineMode.GUMBEL_MCTS
         super().__init__(config)
-        self._mcts = None
+        self._mcts_instances: dict = {}  # MCTS instance per player
 
     def setup(self) -> None:
         super().setup()
@@ -1430,15 +1430,17 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         self._base_budget = base_budget  # Store for potential reinitialization
         self._current_budget = budget
 
-        # Use "standard" mode which has select_move() interface
-        # "tensor" mode is for batch game processing with search_batch()
-        self._mcts = create_mcts(
-            board_type=board_type.value,
-            num_players=self.config.num_players,
-            mode="standard",
-            simulation_budget=budget,
-            device=self.config.device or "cuda",
-        )
+        # Create MCTS instances for each player (required for correct move generation)
+        # Each player needs their own MCTS with correct player_number for get_valid_moves
+        for p in range(1, self.config.num_players + 1):
+            self._mcts_instances[p] = create_mcts(
+                board_type=board_type.value,
+                num_players=self.config.num_players,
+                player_number=p,  # Critical: pass correct player_number
+                mode="standard",
+                simulation_budget=budget,
+                device=self.config.device or "cuda",
+            )
 
     def run_game(self, game_idx: int) -> GameResult:
         import uuid
@@ -1446,7 +1448,7 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
         from ..models import BoardType
         from ..game_engine import GameEngine
 
-        # Check if difficulty changed and reinitialize MCTS if needed
+        # Check if difficulty changed and reinitialize MCTS instances if needed
         combined_difficulty = self._curriculum_difficulty * self._promotion_difficulty_boost
         new_budget = int(self._base_budget * combined_difficulty)
         if new_budget != self._current_budget:
@@ -1456,13 +1458,15 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
             )
             from ..ai.factory import create_mcts
             self._current_budget = new_budget
-            self._mcts = create_mcts(
-                board_type=self.config.board_type,
-                num_players=self.config.num_players,
-                mode="standard",
-                simulation_budget=new_budget,
-                device=self.config.device or "cuda",
-            )
+            for p in range(1, self.config.num_players + 1):
+                self._mcts_instances[p] = create_mcts(
+                    board_type=self.config.board_type,
+                    num_players=self.config.num_players,
+                    player_number=p,
+                    mode="standard",
+                    simulation_budget=new_budget,
+                    device=self.config.device or "cuda",
+                )
 
         start_time = time.time()
         game_id = str(uuid.uuid4())
@@ -1501,14 +1505,15 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                 # No interactive moves and no bookkeeping required - game is stuck
                 break
 
-            # Get move from MCTS (GumbelMCTSAI only takes game_state, computes valid moves internally)
-            move = self._mcts.select_move(state)
+            # Get move from MCTS (use correct player's MCTS instance)
+            mcts = self._mcts_instances[state.current_player]
+            move = mcts.select_move(state)
 
             # Extract MCTS distribution data after move selection
             # get_visit_distribution() returns (moves, probs) from last search
             # get_search_stats() returns rich stats from GPU tree search (may be None for CPU)
             try:
-                moves_list, probs_list = self._mcts.get_visit_distribution()
+                moves_list, probs_list = mcts.get_visit_distribution()
                 if moves_list and probs_list:
                     # Convert to dict format: {move_key: probability}
                     move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
@@ -1518,7 +1523,7 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                 move_probs = None
 
             try:
-                search_stats = self._mcts.get_search_stats()
+                search_stats = mcts.get_search_stats()
             except AttributeError:
                 search_stats = None
 
@@ -1662,6 +1667,7 @@ class GNNSelfplayRunner(SelfplayRunner):
         moves = []
         move_objects = []  # Actual Move objects for DB storage
         samples = []
+        move_probs_list = []  # Policy distributions for training (like GumbelMCTSSelfplayRunner)
         device = next(self._model.parameters()).device
         is_hex = board_type.value in ("hexagonal", "hex8")
         board_size = state.board.grid_size if hasattr(state.board, "grid_size") else 8
@@ -1684,11 +1690,13 @@ class GNNSelfplayRunner(SelfplayRunner):
                         # Record bookkeeping move in game history, but NOT as training sample
                         moves.append({"player": current_player, "move": str(bookkeeping_move)})
                         move_objects.append(bookkeeping_move)
+                        move_probs_list.append(None)  # No policy for bookkeeping
                         continue
                 # No interactive moves and no bookkeeping required - game is stuck
                 break
 
             # Convert state to graph for GNN
+            move_probs = None  # Policy distribution for training
             with torch.no_grad():
                 try:
                     if is_hex:
@@ -1714,17 +1722,32 @@ class GNNSelfplayRunner(SelfplayRunner):
                     gumbel = torch.distributions.Gumbel(0, 1).sample(policy.shape).to(device)
                     sampled = policy + gumbel
 
+                    # Convert policy to probabilities for training data
+                    probs = F.softmax(policy, dim=-1)
+
                     # Select from valid moves only
                     # For now, use simple mapping: take top-k and pick randomly
                     # This is a simplification - proper action indexing would improve quality
                     move_idx = random.randrange(len(valid_moves))
                     move = valid_moves[move_idx]
 
+                    # Capture policy distribution for training (like GumbelMCTSSelfplayRunner)
+                    try:
+                        move_probs = {str(m): float(probs[i % len(probs)].cpu()) for i, m in enumerate(valid_moves)}
+                        # Normalize to sum to 1
+                        total = sum(move_probs.values())
+                        if total > 0:
+                            move_probs = {k: v / total for k, v in move_probs.items()}
+                    except Exception:
+                        move_probs = None
+
                 except Exception as e:
                     # Fallback to random move on any error
                     logger.debug(f"GNN inference error, using random: {e}")
                     move = random.choice(valid_moves)
                     policy_logits = None
+
+            move_probs_list.append(move_probs)
 
             # Record sample for training
             if self.config.store_history_entries and policy_logits is not None:
@@ -1768,6 +1791,7 @@ class GNNSelfplayRunner(SelfplayRunner):
             initial_state=initial_state,
             final_state=state,
             move_objects=move_objects,
+            move_probs=move_probs_list,  # Policy distributions for training
         )
 
 

@@ -52,7 +52,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Union
 
-from app.core.async_context import fire_and_forget
+from app.core.async_context import fire_and_forget, safe_create_task
 
 logger = logging.getLogger(__name__)
 
@@ -195,9 +195,9 @@ class UnifiedEventRouter:
         self._lock = asyncio.Lock()
         self._sync_lock = threading.Lock()
 
-        # Event history for auditing
-        self._event_history: list[RouterEvent] = []
-        self._max_history = 1000
+        # Event history for auditing - use deque with maxlen for O(1) bounded append
+        self._event_history: deque[RouterEvent] = deque(maxlen=1000)
+        self._max_history = 1000  # Kept for compatibility
 
         # Deduplication: track seen event IDs and content hashes to prevent loops
         self._seen_events: set[str] = set()  # event_id based
@@ -275,11 +275,11 @@ class UnifiedEventRouter:
         # Run async dispatch in sync context
         try:
             asyncio.get_running_loop()
-            task = asyncio.create_task(
-                self._dispatch(router_event, exclude_origin=True)
+            # Use safe_create_task for automatic error handling (December 2025)
+            safe_create_task(
+                self._dispatch(router_event, exclude_origin=True),
+                name="event_router_dispatch",
             )
-            # Add error callback to prevent silent failures (December 2025 hardening)
-            task.add_done_callback(self._handle_dispatch_task_error)
         except RuntimeError:
             # No running loop - use sync dispatch
             self._dispatch_sync(router_event, exclude_origin=True)
@@ -498,10 +498,8 @@ class UnifiedEventRouter:
                 if oldest_hash not in self._seen_hashes_order:
                     self._seen_content_hashes.discard(oldest_hash)
 
-            # Track in history
+            # Track in history (deque with maxlen handles bounds automatically)
             self._event_history.append(event)
-            if len(self._event_history) > self._max_history:
-                self._event_history = self._event_history[-self._max_history:]
 
             # Update metrics
             self._events_routed[event.event_type] = (
@@ -572,10 +570,8 @@ class UnifiedEventRouter:
                 if oldest_hash not in self._seen_hashes_order:
                     self._seen_content_hashes.discard(oldest_hash)
 
-            # Track in history
+            # Track in history (deque with maxlen handles bounds automatically)
             self._event_history.append(event)
-            if len(self._event_history) > self._max_history:
-                self._event_history = self._event_history[-self._max_history:]
 
             # Update metrics
             self._events_routed[event.event_type] = (

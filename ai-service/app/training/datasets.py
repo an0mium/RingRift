@@ -23,6 +23,7 @@ from app.ai.neural_net import (
 )
 from app.models import BoardType
 from app.training.hex_augmentation import HexSymmetryTransform
+from app.utils.numpy_utils import safe_load_npz
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,8 @@ class RingRiftDataset(Dataset):
                 # re-read from disk. For training efficiency, we load everything
                 # into RAM upfront. For very large datasets, consider using
                 # HDF5 or raw .npy files instead.
-                npz_data = np.load(data_path, allow_pickle=True)
+                # safe_load_npz tries without pickle first for security
+                npz_data = safe_load_npz(data_path)
                 # Convert to dict to force-load all arrays into memory
                 self.data = {k: np.asarray(v) for k, v in npz_data.items()}
 
@@ -1254,8 +1256,8 @@ def convert_npz_to_hdf5(
     logger.info(f"Converting {npz_path} to HDF5 format...")
 
     try:
-        # Load NPZ
-        npz_data = np.load(npz_path, allow_pickle=True)
+        # Load NPZ - safe_load_npz tries without pickle first for security
+        npz_data = safe_load_npz(npz_path)
         data = {k: np.asarray(v) for k, v in npz_data.items()}
 
         if 'features' not in data or 'values' not in data:

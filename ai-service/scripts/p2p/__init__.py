@@ -97,6 +97,12 @@ from .resource_detector import (
     ResourceDetectorMixin,
 )
 
+# Re-export network utilities (Dec 26, 2025)
+from .network_utils import (
+    NetworkUtils,
+    NetworkUtilsMixin,
+)
+
 # Re-export client utilities
 from .client import (
     P2PClient,
@@ -117,6 +123,9 @@ __all__ = [
     # Resource detection (Dec 26, 2025)
     'ResourceDetector',
     'ResourceDetectorMixin',
+    # Network utilities (Dec 26, 2025)
+    'NetworkUtils',
+    'NetworkUtilsMixin',
     # Constants
     'DEFAULT_PORT',
     'DISK_CRITICAL_THRESHOLD',

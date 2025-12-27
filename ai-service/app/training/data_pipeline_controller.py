@@ -1289,13 +1289,15 @@ class DataPipelineController:
         if self._streaming_pipeline is not None and self._is_running:
             # Schedule stop in event loop if running
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self.stop_streaming())
-                else:
-                    loop.run_until_complete(self.stop_streaming())
+                # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(self.stop_streaming())
             except RuntimeError:
-                pass
+                # No running loop - create one
+                try:
+                    asyncio.run(self.stop_streaming())
+                except Exception:
+                    pass
 
         self._streaming_pipeline = None
         logger.info("DataPipelineController closed")

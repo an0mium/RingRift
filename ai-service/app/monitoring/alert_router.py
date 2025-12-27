@@ -141,7 +141,8 @@ class SlackIntegration:
                 headers={"Content-Type": "application/json"}
             )
             # Run in thread pool to not block
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, lambda: urlopen(req, timeout=10))
             return True
         except Exception as e:
@@ -189,7 +190,8 @@ class DiscordIntegration:
                 data=data,
                 headers={"Content-Type": "application/json"}
             )
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, lambda: urlopen(req, timeout=10))
             return True
         except Exception as e:
@@ -238,7 +240,8 @@ class PagerDutyIntegration:
                 data=data,
                 headers={"Content-Type": "application/json"}
             )
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, lambda: urlopen(req, timeout=10))
             logger.info(f"Sent PagerDuty alert: {alert.alert_type}")
             return True
@@ -264,7 +267,8 @@ class PagerDutyIntegration:
                 data=data,
                 headers={"Content-Type": "application/json"}
             )
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, lambda: urlopen(req, timeout=10))
             return True
         except Exception as e:

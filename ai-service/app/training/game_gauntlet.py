@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import random
+import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -110,6 +111,19 @@ def get_adaptive_max_workers(requested: int = 4) -> int:
     except (OSError, AttributeError):
         # If we can't check load, use conservative default
         return min(requested, 2)
+
+
+def _allow_parallel_opponents() -> bool:
+    """Return True if it's safe to use parallel opponent evaluation."""
+    try:
+        import multiprocessing as mp
+        main_module = sys.modules.get("__main__")
+        main_file = getattr(main_module, "__file__", None)
+        if not main_file:
+            return False
+        return mp.current_process().name == "MainProcess"
+    except Exception:
+        return False
 
 
 class BaselineOpponent(Enum):
@@ -701,13 +715,16 @@ def _evaluate_single_opponent(
 
                 bus = get_event_bus()
                 if bus:
-                    config_key = f"{board_type}_{num_players}p"
+                    board_value = getattr(board_type, "value", board_type)
+                    if board_value is None:
+                        board_value = "unknown"
+                    config_key = f"{board_value}_{num_players}p"
                     current_win_rate = result["wins"] / result["games"] if result["games"] > 0 else 0.0
                     bus.publish_sync(DataEvent(
                         event_type=DataEventType.EVALUATION_PROGRESS,
                         payload={
                             "config_key": config_key,
-                            "board_type": board_type,
+                            "board_type": board_value,
                             "baseline": baseline_name,
                             "games_completed": result["games"],
                             "games_total": games_per_opponent,
@@ -832,6 +849,10 @@ def run_baseline_gauntlet(
     # Evaluate opponents (parallel or sequential)
     # Phase 5: Parallel evaluation for ~2x speedup with multiple opponents
     opponent_eval_results: list[dict[str, Any]] = []
+
+    if parallel_opponents and len(opponents) > 1 and not _allow_parallel_opponents():
+        logger.debug("[gauntlet] Parallel opponent evaluation disabled (unsafe multiprocessing context)")
+        parallel_opponents = False
 
     if parallel_opponents and len(opponents) > 1:
         # Parallel evaluation using ThreadPoolExecutor

@@ -38,6 +38,8 @@ from typing import Any
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -145,7 +147,7 @@ class ReanalysisEngine:
         """
         logger.info(f"[Reanalysis] Loading {npz_path}")
 
-        with np.load(npz_path, allow_pickle=True) as data:
+        with safe_load_npz(npz_path) as data:
             features = data["features"]
             globals_vec = data.get("globals", np.zeros((len(features), 8)))
             values = data["values"]
@@ -637,7 +639,7 @@ class ReanalyzedDataset(Dataset):
             if not path.exists():
                 continue
             try:
-                with np.load(path, allow_pickle=True) as data:
+                with safe_load_npz(path) as data:
                     all_features.append(data["features"])
                     all_globals.append(data.get("globals", np.zeros((len(data["features"]), 8))))
                     all_values.append(data["values"])

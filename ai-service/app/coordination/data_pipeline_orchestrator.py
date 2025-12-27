@@ -997,6 +997,7 @@ class DataPipelineOrchestrator:
         try:
             from pathlib import Path
             import numpy as np
+            from app.utils.numpy_utils import safe_load_npz
 
             # Check if file exists
             if not Path(npz_path).exists():
@@ -1004,7 +1005,7 @@ class DataPipelineOrchestrator:
                 return True  # Allow training if we can't check
 
             # Load NPZ and check for quality metadata
-            with np.load(npz_path, allow_pickle=True) as data:
+            with safe_load_npz(npz_path) as data:
                 # Try to get quality scores from NPZ metadata
                 if "quality_scores" in data:
                     quality_scores = data["quality_scores"]

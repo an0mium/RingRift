@@ -18,6 +18,7 @@ scripts/p2p/
 ├── utils.py              # General utilities (46 lines)
 ├── metrics_manager.py    # Metrics recording & history (Dec 26, 2025)
 ├── resource_detector.py  # System resource detection (Dec 26, 2025)
+├── network_utils.py      # Peer address & URL utilities (Dec 26, 2025)
 ├── handlers/             # HTTP handler mixins
 │   ├── work_queue.py     # Work queue handlers (471 lines)
 │   ├── election.py       # Election handlers (349 lines)
@@ -57,20 +58,182 @@ Extract handlers into `scripts/p2p/handlers/`:
 | ---------------------- | ----- | ------- | ------------ |
 | `metrics_manager.py`   | 268   | 6       | ✅ Extracted |
 | `resource_detector.py` | 340   | 8       | ✅ Extracted |
-| `network_manager.py`   | ~179  | 10      | Pending      |
+| `network_utils.py`     | 310   | 9       | ✅ Extracted |
 
-**Progress: 27,522 → 27,182 lines (-340 lines, ~1.1% additional reduction)**
+**Progress: 27,522 → 27,586 lines (after mixin integration)**
+**Total reduction: 29,767 → 27,586 lines (-2,181 lines, ~7.3%)**
+
+### Mixin Integration (Dec 26, 2025)
+
+P2POrchestrator now inherits from NetworkUtilsMixin, removing duplicated methods:
+
+- `_parse_peer_address` → provided by mixin
+- `_url_for_peer` → provided by mixin
+- `_urls_for_peer` → provided by mixin
+- `_is_tailscale_host` → provided by mixin
+- `_local_has_tailscale` → P2POrchestrator-specific override retained
 
 **Note:** `data_sync.py` handlers skipped - they depend on internal methods (`check_disk_has_capacity`, `_handle_sync_pull_request`) and peer lookup state that would require significant refactoring.
 
 ### Phase 2: Core Logic Extraction (TARGET: ~10,000 lines)
 
-| Module               | Lines | Methods | Description                     |
-| -------------------- | ----- | ------- | ------------------------------- |
-| `peer_manager.py`    | ~3000 | 40      | Peer discovery, gossip, cache   |
-| `leader_election.py` | ~2000 | 25      | Bully algorithm, leases, voters |
-| `job_scheduler.py`   | ~3000 | 35      | Work queue, auto-scaling        |
-| `data_sync_core.py`  | ~2000 | 20      | P2P rsync, manifests            |
+**Status: Planning (Dec 26, 2025)**
+**Current orchestrator size: 27,586 lines**
+
+#### 2.1 `peer_manager.py` - Peer Discovery & Management (~3,000 lines)
+
+**Methods to extract:**
+
+| Method                               | Lines     | Description                |
+| ------------------------------------ | --------- | -------------------------- |
+| `_update_peer_reputation`            | 2643-...  | Track peer success/failure |
+| `_save_peer_to_cache`                | 2702-...  | SQLite peer persistence    |
+| `_get_bootstrap_peers_by_reputation` | 2759-...  | Prioritized peer list      |
+| `_get_tailscale_ip_for_peer`         | 3142-...  | Tailscale IP lookup        |
+| `_tailscale_urls_for_voter`          | 3222-...  | Multi-endpoint fallback    |
+| `_send_heartbeat_to_peer`            | 19266-... | Peer health check          |
+| `_bootstrap_from_known_peers`        | 19446-... | Initial peer discovery     |
+| `_follower_discovery_loop`           | 19799-... | Async discovery loop       |
+| `_check_dead_peers`                  | 20978-... | Peer failure detection     |
+| `_check_dead_peers_async`            | 20897-... | Async version              |
+| `_probe_nat_blocked_peers`           | 20577-... | NAT traversal              |
+| `_probe_nat_blocked_peer`            | 20769-... | Single peer probe          |
+| `_select_best_relay`                 | 20652-... | Relay selection            |
+| `_get_peer_health_score`             | 21334-... | Health scoring             |
+| `_record_p2p_sync_result`            | 21376-... | Sync metrics               |
+
+**State to track:**
+
+- `_peers: dict[str, NodeInfo]` - Active peers
+- `_peer_last_seen: dict[str, float]` - Last heartbeat times
+- `_peer_reputations: dict[str, float]` - Success rates
+- `_nat_blocked_peers: set[str]` - Peers behind NAT
+
+**Dependencies:** `network_utils.py`, `models.py`, `constants.py`
+
+#### 2.2 `leader_election.py` - Bully Algorithm & Leases (~2,000 lines)
+
+**Methods to extract:**
+
+| Method                                 | Lines     | Description                |
+| -------------------------------------- | --------- | -------------------------- |
+| `_is_leader`                           | 1347-...  | Leader check (private)     |
+| `is_leader`                            | 1409-...  | Leader check (public)      |
+| `_load_voter_node_ids`                 | 1650-...  | Load voter config          |
+| `_maybe_adopt_voter_node_ids`          | 1704-...  | Dynamic voter update       |
+| `_has_voter_quorum`                    | 1740-...  | Quorum check               |
+| `_release_voter_grant_if_self`         | 1766-...  | Grant release              |
+| `_enable_partition_local_election`     | 1779-...  | Network partition handling |
+| `_restore_original_voters`             | 1841-...  | Voter recovery             |
+| `_get_eligible_voters`                 | 1876-...  | Eligible voter list        |
+| `_manage_dynamic_voters`               | 1919-...  | Dynamic voter management   |
+| `_check_leader_health`                 | 1989-...  | Leader health check        |
+| `_acquire_voter_lease_quorum`          | 2032-...  | Lease acquisition          |
+| `_determine_leased_leader_from_voters` | 2116-...  | Leader determination       |
+| `_query_arbiter_for_leader`            | 2197-...  | Arbiter fallback           |
+| `_get_leader_peer`                     | 2251-...  | Get leader NodeInfo        |
+| `_proxy_to_leader`                     | 2280-...  | Request proxying           |
+| `_start_election`                      | 21065-... | Election initiation        |
+| `_become_leader`                       | 21157-... | Leader promotion           |
+| `_is_leader_eligible`                  | 20844-... | Eligibility check          |
+| `_maybe_adopt_leader_from_peers`       | 20864-... | Leader adoption            |
+
+**State to track:**
+
+- `_leader_id: str | None` - Current leader
+- `_leader_lease_id: str | None` - Active lease
+- `_lease_expires_at: float` - Lease expiry
+- `_voter_node_ids: list[str]` - Voter list
+- `_is_leader_elected: bool` - Election state
+
+**Dependencies:** `peer_manager.py`, `network.py`, `constants.py`
+
+#### 2.3 `job_scheduler.py` - Work Queue & Auto-Scaling (~3,500 lines)
+
+**Methods to extract:**
+
+| Method                            | Lines     | Description           |
+| --------------------------------- | --------- | --------------------- |
+| `_can_spawn_process`              | 1468-...  | Resource check        |
+| `_count_local_jobs`               | 3502-...  | Job counting          |
+| `_stop_all_local_jobs`            | 6288-...  | Job cleanup           |
+| `_run_gpu_selfplay_job`           | 7246-...  | GPU selfplay dispatch |
+| `_start_auto_training`            | 6034-...  | Auto-training trigger |
+| `_dispatch_training_job`          | 10281-... | Training dispatch     |
+| `_dispatch_improvement_training`  | 10705-... | Improvement cycle     |
+| `_handle_training_job_completion` | 10890-... | Job completion        |
+| `_find_running_training_job`      | 10251-... | Running job lookup    |
+| `_find_resumable_training_job`    | 10261-... | Resumable job lookup  |
+| `handle_start_job`                | 7032-...  | Job start handler     |
+| `handle_stop_job`                 | 7071-...  | Job stop handler      |
+| `handle_job_kill`                 | 7091-...  | Job kill handler      |
+| `handle_restart_stuck_jobs`       | 7169-...  | Stuck job recovery    |
+
+**State to track:**
+
+- `_local_jobs: dict[str, JobInfo]` - Running jobs
+- `_job_history: deque` - Completed jobs
+- `_auto_training_enabled: bool` - Auto-training flag
+- `_last_job_dispatch: dict[str, float]` - Cooldowns
+
+**Dependencies:** `work_queue` module, `peer_manager.py`, `constants.py`
+
+#### 2.4 `gossip_protocol.py` - State Synchronization (~1,500 lines)
+
+**Methods to extract:**
+
+| Method                             | Lines     | Description            |
+| ---------------------------------- | --------- | ---------------------- |
+| `_gossip_state_to_peers`           | 21814-... | State broadcast        |
+| `_get_gossip_known_states`         | 21952-... | Known state collection |
+| `_get_peer_endpoints_for_gossip`   | 21963-... | Peer endpoints         |
+| `_process_gossip_response`         | 21991-... | Response handling      |
+| `_process_gossip_peer_endpoints`   | 22059-... | Endpoint processing    |
+| `_try_connect_gossip_peer`         | 22087-... | Peer connection        |
+| `_record_gossip_metrics`           | 22134-... | Metrics recording      |
+| `_voter_heartbeat_loop`            | 20328-... | Voter heartbeat        |
+| `_send_voter_heartbeat`            | 20395-... | Heartbeat send         |
+| `_try_voter_alternative_endpoints` | 20431-... | Endpoint fallback      |
+| `_discover_voter_peer`             | 20462-... | Voter discovery        |
+| `_refresh_voter_mesh`              | 20485-... | Mesh refresh           |
+
+**State to track:**
+
+- `_known_states: dict[str, dict]` - Peer states
+- `_gossip_round: int` - Round counter
+- `_last_gossip: float` - Last gossip time
+
+**Dependencies:** `peer_manager.py`, `network.py`
+
+#### Extraction Order
+
+1. **`peer_manager.py`** (Week 1)
+   - Lowest dependencies, foundational for other modules
+   - Test: Peer discovery, reputation tracking, NAT probing
+
+2. **`leader_election.py`** (Week 1-2)
+   - Depends on peer_manager
+   - Test: Election, lease acquisition, quorum checks
+
+3. **`gossip_protocol.py`** (Week 2)
+   - Depends on peer_manager
+   - Test: State sync, mesh refresh
+
+4. **`job_scheduler.py`** (Week 2-3)
+   - Depends on peer_manager, leader_election
+   - Test: Job dispatch, resource checks, auto-scaling
+
+#### Expected Reduction
+
+| Module               | Lines  | Reduction |
+| -------------------- | ------ | --------- |
+| `peer_manager.py`    | ~2,500 | 9%        |
+| `leader_election.py` | ~2,000 | 7%        |
+| `gossip_protocol.py` | ~1,500 | 5%        |
+| `job_scheduler.py`   | ~3,500 | 13%       |
+| **Total Phase 2**    | ~9,500 | **34%**   |
+
+**Target: 27,586 → ~18,000 lines after Phase 2**
 
 ### Phase 3: Final Orchestrator (~5,000 lines)
 

@@ -333,18 +333,19 @@ class EphemeralSyncDaemon:
             logger.warning(f"Received termination signal {sig}")
             # Run final sync in separate event loop if needed
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # Schedule the sync with error handling
-                    safe_create_task(
-                        self._handle_termination(),
-                        name="ephemeral_termination_sync",
-                    )
-                else:
-                    loop.run_until_complete(self._handle_termination())
+                # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                loop = asyncio.get_running_loop()
+                # Schedule the sync with error handling
+                safe_create_task(
+                    self._handle_termination(),
+                    name="ephemeral_termination_sync",
+                )
             except RuntimeError:
-                # No event loop, just log
-                logger.error("Cannot run final sync - no event loop")
+                # No running loop - create one
+                try:
+                    asyncio.run(self._handle_termination())
+                except Exception as e:
+                    logger.error(f"Cannot run final sync: {e}")
 
         # Handle common termination signals
         for sig in (signal.SIGTERM, signal.SIGINT):

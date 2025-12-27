@@ -710,9 +710,9 @@ def wire_orchestrator_events() -> MultiProviderOrchestrator:
             """Handle cluster status change - trigger async discovery."""
             # Schedule discovery on next event loop
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(orchestrator.discover_all())
+                # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(orchestrator.discover_all())
             except RuntimeError:
                 pass  # No event loop, skip
 

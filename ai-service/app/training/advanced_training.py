@@ -33,6 +33,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from app.utils.numpy_utils import safe_load_npz
 from app.utils.torch_utils import safe_load_checkpoint
 
 # December 2025: Import from extracted modules for backward compatibility
@@ -1886,7 +1887,7 @@ class StreamingNPZLoader:
                 self._total_samples += 100000
             else:
                 try:
-                    with np.load(path, allow_pickle=True) as data:
+                    with safe_load_npz(path) as data:
                         if 'features' in data:
                             self._total_samples += len(data['features'])
                 except Exception as e:
@@ -1903,7 +1904,7 @@ class StreamingNPZLoader:
 
     def _load_local_chunk(self, path: str, start: int, end: int) -> dict[str, np.ndarray]:
         """Load chunk from local file."""
-        with np.load(path, allow_pickle=True) as data:
+        with safe_load_npz(path) as data:
             chunk = {}
             for key in data.files:
                 arr = data[key]

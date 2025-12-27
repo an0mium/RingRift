@@ -59,7 +59,9 @@ class S3BackupConfig:
     # Backup settings
     backup_timeout_seconds: float = 600.0  # 10 minute timeout for backup
     backup_models: bool = True
-    backup_databases: bool = False  # Disabled by default (large)
+    # Dec 2025: Enabled database backup for disaster recovery
+    # Only backs up canonical_*.db files (not full selfplay DBs)
+    backup_databases: bool = True
     backup_state: bool = True
 
     # Retry settings

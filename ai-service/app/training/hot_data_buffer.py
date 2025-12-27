@@ -420,12 +420,10 @@ class HotDataBuffer:
                 loop = asyncio.get_running_loop()
                 loop.create_task(bus.publish(event))
             except RuntimeError:
-                # No running loop - try to get/create one
+                # No running loop - create one
+                # Dec 2025: Use new_event_loop() instead of deprecated get_event_loop()
                 if self._event_loop is None:
-                    try:
-                        self._event_loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        self._event_loop = asyncio.new_event_loop()
+                    self._event_loop = asyncio.new_event_loop()
 
                 if self._event_loop and not self._event_loop.is_closed():
                     if self._event_loop.is_running():

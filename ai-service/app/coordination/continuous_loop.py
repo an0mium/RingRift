@@ -42,6 +42,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.core.async_context import safe_create_task
+
 if TYPE_CHECKING:
     from app.coordination.data_pipeline_orchestrator import DataPipelineOrchestrator
 
@@ -168,7 +170,10 @@ class ContinuousTrainingLoop:
         self._setup_pipeline()
 
         # Start the main loop
-        self._task = asyncio.create_task(self._run_loop())
+        self._task = safe_create_task(
+            self._run_loop(),
+            name="continuous_training_loop",
+        )
 
     async def stop(self) -> None:
         """Stop the continuous training loop gracefully."""

@@ -27,6 +27,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 import time
@@ -36,6 +37,8 @@ from pathlib import Path
 from typing import Any
 
 from app.utils.yaml_utils import safe_load_yaml
+
+logger = logging.getLogger(__name__)
 
 # Import hardware-aware selfplay limits from resource_optimizer (single source of truth)
 # Lazy import to avoid circular dependency
@@ -267,7 +270,7 @@ class ResourceTargetManager:
                     for key, value in tier_values.items():
                         overrides[tier][key] = value
             except KeyError:
-                print(f"[ResourceTargets] Unknown tier: {tier_name}")
+                logger.warning(f"Unknown tier: {tier_name}")
 
         return overrides
 
@@ -614,7 +617,7 @@ class ResourceTargetManager:
                 )
                 conn.commit()
         except Exception as e:
-            print(f"[ResourceTargets] DB flush error: {e}")
+            logger.error(f"DB flush error: {e}")
 
     def _update_adaptive_targets(self) -> None:
         """Update targets based on historical utilization patterns."""

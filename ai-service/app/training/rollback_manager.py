@@ -1213,9 +1213,9 @@ class QualityRollbackWatcher:
                 )
                 import asyncio
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.ensure_future(bus.publish(event))
+                    # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                    loop = asyncio.get_running_loop()
+                    asyncio.ensure_future(bus.publish(event))
                 except RuntimeError:
                     pass
         except Exception as e:

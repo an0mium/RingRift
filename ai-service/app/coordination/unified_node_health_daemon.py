@@ -437,7 +437,8 @@ async def run_daemon(config: DaemonConfig | None = None) -> None:
     daemon = UnifiedNodeHealthDaemon(config)
 
     # Handle signals
-    loop = asyncio.get_event_loop()
+    # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+    loop = asyncio.get_running_loop()
 
     def signal_handler():
         logger.info("[Daemon] Received shutdown signal")

@@ -709,6 +709,7 @@ class MasterLoopController:
             bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
             bus.subscribe(DataEventType.QUALITY_SCORE_UPDATED, self._on_quality_assessed)
             bus.subscribe(DataEventType.TRAINING_BLOCKED_BY_QUALITY, self._on_training_blocked_by_quality)
+            bus.subscribe(DataEventType.LOCK_TIMEOUT, self._on_lock_timeout)
 
             logger.info("[MasterLoop] Subscribed to pipeline events (including quality + evaluation progress)")
         except Exception as e:
@@ -837,6 +838,22 @@ class MasterLoopController:
                 logger.info(f"[MasterLoop] Training blocked ({details})")
         except Exception as e:
             logger.debug(f"[MasterLoop] Error handling training blocked event: {e}")
+
+    def _on_lock_timeout(self, event: Any) -> None:
+        """Handle lock timeout events from sync coordination."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            host = payload.get("host", "unknown")
+            operation = payload.get("operation", "unknown")
+            wait_duration = payload.get("wait_duration")
+            wait_timeout = payload.get("wait_timeout")
+
+            logger.warning(
+                f"[MasterLoop] Lock timeout: host={host} op={operation} "
+                f"waited={wait_duration} timeout={wait_timeout}"
+            )
+        except Exception as e:
+            logger.debug(f"[MasterLoop] Error handling lock timeout event: {e}")
 
     def _on_quality_assessed(self, event: Any) -> None:
         """Handle data quality assessment event.

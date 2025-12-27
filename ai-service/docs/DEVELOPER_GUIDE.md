@@ -510,6 +510,18 @@ The training system uses a unified loop with event-driven components:
 
 All thresholds come from `unified_config.py`.
 
+### Master Loop Profiles
+
+The unified automation controller supports daemon profiles:
+
+- `minimal`: sync + health daemons only
+- `standard` (default): full automation (selfplay, training, evaluation, promotion)
+- `full`: every non-deprecated daemon
+
+```bash
+python scripts/master_loop.py --profile minimal
+```
+
 ## Testing
 
 ```bash

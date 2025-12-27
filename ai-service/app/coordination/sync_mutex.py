@@ -303,10 +303,10 @@ class SyncMutex:
         indicating cluster bottlenecks or dead locks.
         """
         try:
-            from app.coordination.event_router import publish_sync
+            from app.coordination.event_router import publish_sync, DataEventType
 
             publish_sync(
-                "LOCK_TIMEOUT",
+                DataEventType.LOCK_TIMEOUT,
                 payload={
                     "host": host,
                     "operation": operation,

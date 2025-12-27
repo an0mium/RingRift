@@ -123,7 +123,8 @@ def detect_node_type(node_id: str) -> str:
 async def fetch_p2p_status() -> dict[str, Any]:
     """Fetch current P2P orchestrator status."""
     try:
-        loop = asyncio.get_event_loop()
+        # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def fetch():
             req = Request(P2P_STATUS_URL, headers={"Accept": "application/json"})

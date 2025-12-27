@@ -44,10 +44,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Import centralized thresholds for quality filtering
+try:
+    from app.config.thresholds import (
+        SYNC_MIN_QUALITY,
+        SYNC_QUALITY_SAMPLE_SIZE,
+    )
+except ImportError:
+    SYNC_MIN_QUALITY = 0.5
+    SYNC_QUALITY_SAMPLE_SIZE = 20
+
 
 @dataclass
 class AutoSyncConfig:
-    """Configuration for automated data sync."""
+    """Configuration for automated data sync.
+
+    Quality thresholds are loaded from app.config.thresholds for centralized configuration.
+    """
     enabled: bool = True
     interval_seconds: int = 60  # December 2025: Reduced from 300s for faster data discovery
     gossip_interval_seconds: int = 30  # December 2025: Reduced from 60s for faster replication
@@ -63,6 +76,10 @@ class AutoSyncConfig:
     auto_cleanup_enabled: bool = True
     # Use ClusterManifest for tracking
     use_cluster_manifest: bool = True
+    # Quality-based sync filtering - from centralized config
+    quality_filter_enabled: bool = True
+    min_quality_for_sync: float = SYNC_MIN_QUALITY
+    quality_sample_size: int = SYNC_QUALITY_SAMPLE_SIZE
 
     @classmethod
     def from_config_file(cls, config_path: Path | None = None) -> AutoSyncConfig:
@@ -138,6 +155,9 @@ class SyncStats:
     bytes_transferred: int = 0
     last_sync_time: float = 0.0
     last_error: str | None = None
+    # Quality filtering stats (December 2025)
+    databases_skipped_quality: int = 0
+    databases_quality_checked: int = 0
 
 
 class AutoSyncDaemon:
@@ -858,6 +878,85 @@ class AutoSyncDaemon:
         except (RuntimeError, OSError, ImportError) as e:
             logger.error(f"Disk cleanup failed: {e}")
 
+    def _should_sync_database(self, db_path: Path) -> tuple[bool, str]:
+        """Check if database meets minimum quality for sync.
+
+        Samples recent games and computes average quality score.
+        Databases with avg quality below threshold are skipped to save bandwidth.
+
+        Args:
+            db_path: Path to the database file
+
+        Returns:
+            Tuple of (should_sync, reason_message)
+        """
+        if not self.config.quality_filter_enabled:
+            return True, "Quality filter disabled"
+
+        import sqlite3
+
+        try:
+            from app.quality.unified_quality import compute_game_quality_from_params
+
+            conn = sqlite3.connect(str(db_path), timeout=5)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT game_id, game_status, winner, termination_reason,
+                       total_moves, board_type
+                FROM games
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (self.config.quality_sample_size,))
+
+            games = cursor.fetchall()
+            conn.close()
+
+            if len(games) < 5:
+                # Too few games to assess quality reliably
+                return True, f"Too few games to assess ({len(games)})"
+
+            # Compute quality scores for sampled games
+            qualities = []
+            for g in games:
+                try:
+                    q = compute_game_quality_from_params(
+                        game_id=g["game_id"],
+                        game_status=g["game_status"],
+                        winner=g["winner"],
+                        termination_reason=g["termination_reason"],
+                        total_moves=g["total_moves"],
+                        board_type=g["board_type"] or "square8",
+                    )
+                    qualities.append(q.quality_score)
+                except (KeyError, TypeError, ValueError) as e:
+                    logger.debug(f"Quality check error for game: {e}")
+                    qualities.append(0.3)  # Assume poor quality on error
+
+            if not qualities:
+                return True, "No quality scores computed"
+
+            avg_quality = sum(qualities) / len(qualities)
+            self._stats.databases_quality_checked += 1
+
+            if avg_quality < self.config.min_quality_for_sync:
+                self._stats.databases_skipped_quality += 1
+                return False, f"Low quality: {avg_quality:.2f} < {self.config.min_quality_for_sync}"
+
+            return True, f"Quality OK: {avg_quality:.2f}"
+
+        except sqlite3.OperationalError as e:
+            # Table doesn't exist or schema mismatch - skip silently
+            if "no such column" in str(e) or "no such table" in str(e):
+                return True, f"Schema check skipped: {e}"
+            logger.warning(f"Quality check DB error for {db_path.name}: {e}")
+            return True, f"DB error, default to sync: {e}"
+        except ImportError as e:
+            logger.warning(f"Quality module not available: {e}")
+            return True, "Quality module unavailable"
+        except (RuntimeError, OSError, ConnectionError) as e:
+            logger.warning(f"Quality check failed for {db_path.name}: {e}")
+            return True, f"Check failed, default to sync: {e}"
+
     async def _register_synced_data(self) -> None:
         """Register synced games to ClusterManifest."""
         if not self._cluster_manifest:
@@ -873,8 +972,16 @@ class AutoSyncDaemon:
         import sqlite3
 
         registered = 0
+        skipped_quality = 0
         for db_path in data_dir.glob("*.db"):
             if db_path.name.startswith(".") or "manifest" in db_path.name:
+                continue
+
+            # Quality check before registering
+            should_register, reason = self._should_sync_database(db_path)
+            if not should_register:
+                logger.info(f"Skipping registration for {db_path.name}: {reason}")
+                skipped_quality += 1
                 continue
 
             try:
@@ -909,11 +1016,14 @@ class AutoSyncDaemon:
             except (OSError, RuntimeError) as e:
                 logger.debug(f"Failed to register games from {db_path}: {e}")
 
-        if registered > 0:
-            logger.info(f"Registered {registered} games to ClusterManifest")
+        if registered > 0 or skipped_quality > 0:
+            logger.info(
+                f"Registered {registered} games to ClusterManifest "
+                f"(skipped {skipped_quality} low-quality databases)"
+            )
 
     async def _get_pending_sync_data(self) -> int:
-        """Get count of games pending sync."""
+        """Get count of games pending sync (from quality-passing databases)."""
         # Check local game count vs expected
         base_dir = Path(__file__).resolve().parent.parent.parent
         data_dir = base_dir / "data" / "games"
@@ -923,10 +1033,19 @@ class AutoSyncDaemon:
 
         import sqlite3
         total_games = 0
+        skipped_dbs = 0
 
         for db_path in data_dir.glob("*.db"):
             if "schema" in db_path.name or "wal" in db_path.name:
                 continue
+
+            # Quality filter - skip low quality databases
+            should_sync, reason = self._should_sync_database(db_path)
+            if not should_sync:
+                logger.debug(f"Excluding {db_path.name} from pending count: {reason}")
+                skipped_dbs += 1
+                continue
+
             try:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.execute("SELECT COUNT(*) FROM games")
@@ -934,6 +1053,9 @@ class AutoSyncDaemon:
                 conn.close()
             except (OSError, RuntimeError) as e:
                 logger.debug(f"Failed to count games in {db_path}: {e}")
+
+        if skipped_dbs > 0:
+            logger.debug(f"Excluded {skipped_dbs} low-quality databases from sync count")
 
         return total_games
 
@@ -995,6 +1117,13 @@ class AutoSyncDaemon:
                 "games_synced": self._stats.games_synced,
                 "last_sync_time": self._stats.last_sync_time,
                 "last_error": self._stats.last_error,
+                "databases_quality_checked": self._stats.databases_quality_checked,
+                "databases_skipped_quality": self._stats.databases_skipped_quality,
+            },
+            "quality_filter": {
+                "enabled": self.config.quality_filter_enabled,
+                "min_quality": self.config.min_quality_for_sync,
+                "sample_size": self.config.quality_sample_size,
             },
             "gossip": gossip_status,
             "manifest": manifest_status,

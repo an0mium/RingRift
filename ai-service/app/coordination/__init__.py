@@ -357,6 +357,13 @@ from app.coordination.daemon_manager import (
     setup_signal_handlers,
 )
 
+# LambdaIdleDaemon - monitors and terminates idle Lambda GPU nodes (December 2025)
+from app.coordination.lambda_idle_daemon import (
+    LambdaIdleConfig,
+    LambdaIdleDaemon,
+    LambdaNodeStatus,
+)
+
 # DataPipelineOrchestrator - unified pipeline stage coordination
 from app.coordination.data_pipeline_orchestrator import (
     DataPipelineOrchestrator,
@@ -787,6 +794,19 @@ from app.coordination.work_distributor import (
     distribute_selfplay,
     distribute_training,
     get_work_distributor,
+)
+
+# Sync Durability (December 2025 - WAL and DLQ for sync operations)
+from app.coordination.sync_durability import (
+    DeadLetterEntry,
+    DeadLetterQueue,
+    DLQStats,
+    SyncStatus,
+    SyncWAL,
+    SyncWALEntry,
+    WALStats,
+    get_dlq,
+    get_sync_wal,
 )
 
 # Module-level singleton placeholders for cleanup in shutdown_all_coordinators
@@ -1559,6 +1579,9 @@ __all__ = [
     "CoordinatorStatus",
     "CrossCoordinatorHealthProtocol",
     "CrossProcessEvent",
+    "DLQStats",
+    "DeadLetterEntry",
+    "DeadLetterQueue",
     "CrossProcessEventPoller",
     "CrossProcessEventQueue",
     "DaemonInfo",
@@ -1590,6 +1613,9 @@ __all__ = [
     "IterationRecord",
     "JobHealthState",
     "JobPriority",
+    "LambdaIdleConfig",
+    "LambdaIdleDaemon",
+    "LambdaNodeStatus",
     "MergeOperation",
     "MergeTransaction",
     "MetricTracker",
@@ -1676,6 +1702,9 @@ __all__ = [
     "SyncRecommendation",
     "SyncScheduler",
     "SyncStats",
+    "SyncStatus",
+    "SyncWAL",
+    "SyncWALEntry",
     "TaskContext",
     "TaskCoordinator",
     "TaskDurationRecord",
@@ -1706,6 +1735,7 @@ __all__ = [
     "UnifiedHealthManager",
     "UnifiedRegistry",
     "UtilizationTargets",
+    "WALStats",
     "WriteThrough",
     "ack_event",
     "ack_event_safe",
@@ -1797,6 +1827,7 @@ __all__ = [
     "get_coordinator",
     "get_coordinator_safe",
     "get_cpu_rich_hosts",
+    "get_dlq",
     "get_cross_coordinator_health",
     "get_current_node_id",
     "get_current_pipeline_stage",
@@ -1860,6 +1891,7 @@ __all__ = [
     "get_sync_recommendations",
     "get_sync_scheduler",
     "get_sync_stats",
+    "get_sync_wal",
     "get_system_health",
     "get_target_job_count",
     "get_task_lifecycle_coordinator",

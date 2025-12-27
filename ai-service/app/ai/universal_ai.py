@@ -137,7 +137,7 @@ class UniversalAI(BaseAI):
         except Exception as e:
             logger.warning(f"Failed to get encoder: {e}, using NeuralNetAI fallback")
             # Fallback to NeuralNetAI which has built-in encoding
-            from archive.deprecated_ai._neural_net_legacy import NeuralNetAI
+            from app.ai.neural_net import NeuralNetAI
 
             # Create a minimal NeuralNetAI just for encoding
             self._encoder = NeuralNetAI(

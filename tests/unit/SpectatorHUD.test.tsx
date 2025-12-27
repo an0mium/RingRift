@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { SpectatorHUD, type SpectatorHUDProps } from '../../src/client/components/SpectatorHUD';
+import { PHASE_INFO } from '../../src/client/adapters/gameViewModels';
 import type { Player, Move, GamePhase } from '../../src/shared/types/game';
 import type { PositionEvaluationPayload } from '../../src/shared/types/websocket';
 
@@ -91,8 +92,11 @@ describe('SpectatorHUD', () => {
     it('displays current phase', () => {
       render(<SpectatorHUD {...defaultProps} phase="movement" />);
 
-      // Phase is rendered with icon and beginner-friendly label
-      expect(screen.getByText(/Your Move/)).toBeInTheDocument();
+      // Phase label comes from PHASE_INFO via SpectatorHUD.getPhaseDisplay()
+      // Note: the rendered chip includes an icon prefix.
+      expect(
+        screen.getByText(PHASE_INFO.movement.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
 
     it('displays turn and move numbers', () => {
@@ -318,41 +322,52 @@ describe('SpectatorHUD', () => {
   });
 
   describe('Phase Display', () => {
-    // Beginner-friendly phase labels from PHASE_INFO in gameViewModels.ts
     it('shows correct phase for ring_placement', () => {
       render(<SpectatorHUD {...defaultProps} phase="ring_placement" />);
 
-      expect(screen.getByText(/Place Rings/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.ring_placement.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
 
     it('shows correct phase for movement', () => {
       render(<SpectatorHUD {...defaultProps} phase="movement" />);
 
-      expect(screen.getByText(/Your Move/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.movement.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
 
     it('shows correct phase for chain_capture', () => {
       render(<SpectatorHUD {...defaultProps} phase="chain_capture" />);
 
-      expect(screen.getByText(/Keep Capturing!/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.chain_capture.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
 
     it('shows correct phase for line_processing', () => {
       render(<SpectatorHUD {...defaultProps} phase="line_processing" />);
 
-      expect(screen.getByText(/Line Scored!/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.line_processing.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
 
     it('shows correct phase for territory_processing', () => {
       render(<SpectatorHUD {...defaultProps} phase="territory_processing" />);
 
-      expect(screen.getByText(/Territory!/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.territory_processing.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
 
     it('shows correct phase for forced_elimination', () => {
       render(<SpectatorHUD {...defaultProps} phase="forced_elimination" />);
 
-      expect(screen.getByText(/Blocked!/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.forced_elimination.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
     });
   });
 
@@ -379,19 +394,20 @@ describe('SpectatorHUD', () => {
     it('displays spectator hint for the current phase', () => {
       render(<SpectatorHUD {...defaultProps} phase="movement" />);
 
-      // The phase info should include spectator hints
-      // Phase label should be visible
-      expect(screen.getByText(/Movement Phase/)).toBeInTheDocument();
-      // Spectator hint text should be visible
-      expect(screen.getByText(/Player is choosing a move/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.movement.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
+      expect(screen.getByText(PHASE_INFO.movement.spectatorHint)).toBeInTheDocument();
     });
 
     it('surfaces spectator hint text for terminal game_over phase', () => {
       render(<SpectatorHUD {...defaultProps} phase="game_over" />);
 
-      expect(screen.getByText(/Game Over/)).toBeInTheDocument();
+      expect(
+        screen.getByText(PHASE_INFO.game_over.label, { exact: false, selector: 'span' })
+      ).toBeInTheDocument();
       // SpectatorHUD renders spectatorHint, not description
-      expect(screen.getByText(/Game finished/)).toBeInTheDocument();
+      expect(screen.getByText(PHASE_INFO.game_over.spectatorHint)).toBeInTheDocument();
     });
   });
 

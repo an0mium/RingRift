@@ -1395,6 +1395,28 @@ MIN_SELFPLAY_GAMES_PER_HOUR = 100
 
 
 # =============================================================================
+# Game Recording Quality Thresholds (December 2025)
+# =============================================================================
+
+# Pre-recording validation gates
+RECORDING_MIN_MOVES = 5  # Minimum moves to record a game
+RECORDING_MAX_MOVES = 500  # Maximum moves before suspicious
+RECORDING_REQUIRE_VICTORY_TYPE = True  # Require canonical victory type
+RECORDING_REQUIRE_COMPLETED_STATUS = True  # Require completed game status
+
+# Quality-based sync filtering
+SYNC_MIN_QUALITY = 0.5  # Skip syncing databases with avg quality < 50%
+SYNC_QUALITY_SAMPLE_SIZE = 20  # Sample this many recent games for quality check
+
+# Data cleanup thresholds
+CLEANUP_QUALITY_THRESHOLD_DELETE = 0.1  # Delete if avg quality < 10%
+CLEANUP_QUALITY_THRESHOLD_QUARANTINE = 0.3  # Quarantine if avg quality < 30%
+CLEANUP_MOVE_COVERAGE_THRESHOLD = 0.1  # Quarantine if <10% have move data
+CLEANUP_MIN_GAMES_BEFORE_DELETE = 100  # Don't delete DBs with few games
+CLEANUP_SCAN_INTERVAL_SECONDS = 3600  # 1 hour between scans
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 

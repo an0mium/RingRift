@@ -400,7 +400,7 @@ class CrossProcessEventQueue:
             conn.commit()
             return True
         except sqlite3.Error as e:
-            print(f"[CrossProcessEvents] Error acking event {event_id}: {e}")
+            logger.error(f"Error acking event {event_id}: {e}")
             return False
 
     def ack_batch(self, subscriber_id: str, event_ids: list[int]) -> int:

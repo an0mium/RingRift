@@ -252,6 +252,7 @@ from scripts.p2p.handlers import (
     TournamentHandlersMixin,
     WorkQueueHandlersMixin,
 )
+from scripts.p2p.network_utils import NetworkUtilsMixin
 
 # Import constants from the refactored module (Phase 2 refactoring - consolidated)
 from scripts.p2p.constants import (
@@ -895,6 +896,7 @@ class P2POrchestrator(
     TournamentHandlersMixin,
     CMAESHandlersMixin,
     SSHTournamentHandlersMixin,
+    NetworkUtilsMixin,
 ):
     """Main P2P orchestrator class that runs on each node.
 
@@ -909,6 +911,7 @@ class P2POrchestrator(
     - TournamentHandlersMixin: Tournament handlers (handle_tournament_*)
     - CMAESHandlersMixin: CMA-ES optimization handlers (handle_cmaes_*)
     - SSHTournamentHandlersMixin: SSH tournament handlers (handle_ssh_tournament_*)
+    - NetworkUtilsMixin: Peer address parsing, URL building, Tailscale detection
     """
 
     def __init__(
@@ -2238,107 +2241,7 @@ class P2POrchestrator(
 
         return None
 
-    def _parse_peer_address(self, peer_addr: str) -> tuple[str, str, int]:
-        """Parse `--peers` entries.
-
-        Supports:
-        - `host`
-        - `host:port`
-        - `http://host[:port]`
-        - `https://host[:port]`
-        """
-        peer_addr = (peer_addr or "").strip()
-        if not peer_addr:
-            raise ValueError("Empty peer address")
-
-        if "://" in peer_addr:
-            parsed = urlparse(peer_addr)
-            scheme = (parsed.scheme or "http").lower()
-            host = parsed.hostname or ""
-            if not host:
-                raise ValueError(f"Invalid peer URL: {peer_addr}")
-            if parsed.port is not None:
-                port = int(parsed.port)
-            else:
-                port = 443 if scheme == "https" else DEFAULT_PORT
-            return scheme, host, port
-
-        # Back-compat: host[:port]
-        parts = peer_addr.split(":", 1)
-        host = parts[0]
-        port = int(parts[1]) if len(parts) > 1 and parts[1] else DEFAULT_PORT
-        return "http", host, port
-
-    def _url_for_peer(self, peer: NodeInfo, path: str) -> str:
-        scheme = (getattr(peer, "scheme", None) or "http").lower()
-        host = str(getattr(peer, "host", "") or "").strip()
-        try:
-            port = int(getattr(peer, "port", DEFAULT_PORT) or DEFAULT_PORT)
-        except (ValueError):
-            port = DEFAULT_PORT
-
-        rh = (getattr(peer, "reported_host", "") or "").strip()
-        try:
-            rp = int(getattr(peer, "reported_port", 0) or 0)
-        except (ValueError):
-            rp = 0
-
-        if rh and rp:
-            # Prefer reported endpoints when the observed endpoint is loopback
-            # (proxy/relay artifacts).
-            if host in {"127.0.0.1", "localhost", "0.0.0.0", "::1"} or (self._local_has_tailscale() and self._is_tailscale_host(rh)):
-                host, port = rh, rp
-
-        return f"{scheme}://{host}:{port}{path}"
-
-    def _urls_for_peer(self, peer: NodeInfo, path: str) -> list[str]:
-        """Return candidate URLs for reaching a peer.
-
-        Includes both the observed reachable endpoint (`host`/`port`) and the
-        peer's self-reported endpoint (`reported_host`/`reported_port`) when
-        available. This improves resilience in mixed network environments
-        (public IP vs overlay networks like Tailscale, port-mapped listeners).
-        """
-        scheme = (getattr(peer, "scheme", None) or "http").lower()
-        urls: list[str] = []
-
-        def _add(host: Any, port: Any) -> None:
-            try:
-                h = str(host or "").strip()
-                p = int(port)
-            except (ValueError, AttributeError):
-                return
-            if not h or p <= 0:
-                return
-            url = f"{scheme}://{h}:{p}{path}"
-            if url not in urls:
-                urls.append(url)
-
-        rh = (getattr(peer, "reported_host", "") or "").strip()
-        try:
-            rp = int(getattr(peer, "reported_port", 0) or 0)
-        except (ValueError):
-            rp = 0
-
-        host = str(getattr(peer, "host", "") or "").strip()
-        try:
-            port = int(getattr(peer, "port", 0) or 0)
-        except (ValueError):
-            port = 0
-
-        # Prefer Tailscale endpoints first when available locally; otherwise try
-        # the observed endpoint first.
-        reported_preferred = False
-        if rh and rp and self._local_has_tailscale() and self._is_tailscale_host(rh):
-            _add(rh, rp)
-            reported_preferred = True
-
-        _add(host, port)
-
-        if rh and rp and (not reported_preferred) and (rh != host or rp != port):
-            _add(rh, rp)
-
-        return urls
+    # _parse_peer_address, _url_for_peer, _urls_for_peer provided by NetworkUtilsMixin
 
     def _auth_headers(self) -> dict[str, str]:
         if not self.auth_token:
@@ -3222,20 +3125,7 @@ class P2POrchestrator(
         except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError, KeyError, IndexError, AttributeError):
             return ""
 
-    def _is_tailscale_host(self, host: str) -> bool:
-        """Return True when `host` looks like a Tailscale mesh endpoint."""
-        h = (host or "").strip()
-        if not h:
-            return False
-        if h.endswith(".ts.net"):
-            return True
-        try:
-            ip = ipaddress.ip_address(h)
-        except ValueError:
-            return False
-        if not isinstance(ip, ipaddress.IPv4Address):
-            return False
-        return ip in TAILSCALE_CGNAT_NETWORK
+    # _is_tailscale_host provided by NetworkUtilsMixin
 
     def _local_has_tailscale(self) -> bool:
         """Best-effort: True when this node appears to have a Tailscale address."""

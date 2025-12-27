@@ -198,6 +198,18 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     "cache_invalidated": "CACHE_INVALIDATED",
     "registry_updated": "REGISTRY_UPDATED",
     "metrics_updated": "METRICS_UPDATED",
+    # Model management events
+    "model_updated": "MODEL_UPDATED",
+    "model_sync_requested": "MODEL_SYNC_REQUESTED",
+    "model_distribution_complete": "MODEL_DISTRIBUTION_COMPLETE",
+    # Database/orphan detection events
+    "database_created": "DATABASE_CREATED",
+    "orphan_games_detected": "ORPHAN_GAMES_DETECTED",
+    "orphan_games_registered": "ORPHAN_GAMES_REGISTERED",
+    # Parity validation events
+    "parity_validation_started": "PARITY_VALIDATION_STARTED",
+    "parity_validation_completed": "PARITY_VALIDATION_COMPLETED",
+    "parity_failure_rate_changed": "PARITY_FAILURE_RATE_CHANGED",
 }
 
 # Reverse mapping: CrossProcess → DataEventType

@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
+
 if TYPE_CHECKING:
     from app.models.core import GameState
 
@@ -466,7 +468,7 @@ class NPZDatasetWriter:
         if not output_path.exists():
             raise FileNotFoundError(f"Cannot append to non-existent file: {output_path}")
 
-        with np.load(str(output_path), allow_pickle=True) as data:
+        with safe_load_npz(str(output_path)) as data:
             # Load existing arrays
             existing_features = data["features"]
             existing_globals = data["globals"]
@@ -520,7 +522,7 @@ class NPZDatasetWriter:
             Dictionary containing all arrays from the file
         """
         path = Path(path)
-        with np.load(str(path), allow_pickle=True) as data:
+        with safe_load_npz(str(path)) as data:
             return {key: data[key] for key in data.files}
 
     @staticmethod
@@ -534,7 +536,7 @@ class NPZDatasetWriter:
             Number of samples in the dataset
         """
         path = Path(path)
-        with np.load(str(path), allow_pickle=True) as data:
+        with safe_load_npz(str(path)) as data:
             if "values" in data:
                 return len(data["values"])
             if "features" in data:

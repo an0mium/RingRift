@@ -22,6 +22,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
+from app.utils.numpy_utils import safe_load_npz
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ class HybridPolicyDataset(Dataset):
         board_type: str = "hex8",
         action_space_size: int = 6158,
     ):
-        data = np.load(npz_path, allow_pickle=True)
+        data = safe_load_npz(npz_path)
 
         self.features = data["features"]  # (N, C, H, W)
         self.globals = data["globals"]    # (N, G)
@@ -181,7 +183,7 @@ def main():
     # Load data
     logger.info(f"Loading data from {args.data_path}")
 
-    data = np.load(args.data_path, allow_pickle=True)
+    data = safe_load_npz(args.data_path)
     board_size = int(data["board_size"])
     in_channels = data["features"].shape[1]
 

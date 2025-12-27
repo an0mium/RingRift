@@ -47,6 +47,16 @@ if TYPE_CHECKING:
     from torch import Tensor
 
 logger = logging.getLogger(__name__)
+_PYG_WARNING_EMITTED = False
+
+
+def _warn_pyg_once(message: str) -> None:
+    """Log PyG warnings once per process."""
+    global _PYG_WARNING_EMITTED
+    if _PYG_WARNING_EMITTED:
+        return
+    logger.warning(message)
+    _PYG_WARNING_EMITTED = True
 
 # Check for PyTorch Geometric
 try:
@@ -55,7 +65,7 @@ try:
     HAS_PYG = True
 except ImportError:
     HAS_PYG = False
-    logger.warning("PyTorch Geometric not installed - GNN layers disabled")
+    _warn_pyg_once("PyTorch Geometric not installed - GNN layers disabled")
 
 
 class SEBlock(nn.Module):

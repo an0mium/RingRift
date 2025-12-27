@@ -37,12 +37,15 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.db.game_replay import GameReplayDB, GameWriter
 from app.models import BoardType, GameState, Move
@@ -53,6 +56,7 @@ from app.utils.canonical_naming import (
     normalize_board_type,
     normalize_database_filename,
 )
+from app.utils.victory_type import is_valid_victory_type
 
 # -----------------------------------------------------------------------------
 # Environment variable configuration (from recording.py)
@@ -103,6 +107,133 @@ def get_default_db_path() -> str:
     DEFAULT_SELFPLAY_DB_PATH.
     """
     return os.environ.get("RINGRIFT_SELFPLAY_DB_PATH", DEFAULT_SELFPLAY_DB_PATH)
+
+
+# -----------------------------------------------------------------------------
+# RecordingQualityGate - Pre-recording validation
+# -----------------------------------------------------------------------------
+
+# Import centralized thresholds
+try:
+    from app.config.thresholds import (
+        RECORDING_MAX_MOVES,
+        RECORDING_MIN_MOVES,
+        RECORDING_REQUIRE_COMPLETED_STATUS,
+        RECORDING_REQUIRE_VICTORY_TYPE,
+    )
+except ImportError:
+    # Fallback if thresholds not available
+    RECORDING_MIN_MOVES = 5
+    RECORDING_MAX_MOVES = 500
+    RECORDING_REQUIRE_VICTORY_TYPE = True
+    RECORDING_REQUIRE_COMPLETED_STATUS = True
+
+
+@dataclass
+class RecordingQualityGate:
+    """Validate game data quality before recording.
+
+    This gate enforces minimum quality standards for recorded games:
+    - Minimum number of moves
+    - Valid/canonical victory types
+    - Completed game status
+    - Consistent winner information
+
+    Thresholds are loaded from app.config.thresholds for centralized configuration.
+
+    Usage:
+        gate = RecordingQualityGate()
+        valid, error = gate.validate(initial_state, final_state, moves, metadata)
+        if not valid:
+            logger.warning(f"Game rejected: {error}")
+            return None
+    """
+
+    # Quality thresholds - loaded from centralized config
+    min_moves: int = RECORDING_MIN_MOVES
+    max_moves: int = RECORDING_MAX_MOVES
+    require_victory_type: bool = RECORDING_REQUIRE_VICTORY_TYPE
+    require_completed_status: bool = RECORDING_REQUIRE_COMPLETED_STATUS
+    require_move_data: bool = True
+    enabled: bool = True  # Set to False to disable gate
+
+    def validate(
+        self,
+        initial_state: GameState,
+        final_state: GameState,
+        moves: list[Move],
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[bool, str | None]:
+        """Validate game data for recording.
+
+        Args:
+            initial_state: GameState at the start of the game
+            final_state: GameState at the end of the game
+            moves: List of all moves in the game
+            metadata: Optional metadata dict with termination_reason, etc.
+
+        Returns:
+            Tuple of (is_valid, error_reason).
+            If is_valid is True, error_reason is None.
+        """
+        if not self.enabled:
+            return True, None
+
+        metadata = metadata or {}
+
+        # Check minimum moves
+        if len(moves) < self.min_moves:
+            return False, f"Too few moves: {len(moves)} < {self.min_moves}"
+
+        # Check maximum moves (sanity check)
+        if len(moves) > self.max_moves:
+            return False, f"Too many moves: {len(moves)} > {self.max_moves}"
+
+        # Check move data completeness
+        if self.require_move_data:
+            issues = self._validate_move_completeness(moves)
+            if issues:
+                return False, f"Move data incomplete: {issues[0]}"
+
+        # Check victory type
+        victory_type = metadata.get("termination_reason")
+        if self.require_victory_type:
+            if not is_valid_victory_type(victory_type):
+                return False, f"Invalid victory type: {victory_type!r}"
+
+        # Check game completed
+        if self.require_completed_status:
+            status = final_state.game_status.value
+            if status not in ("completed", "finished"):
+                return False, f"Game not completed: {status}"
+
+        # Check winner consistency
+        if final_state.winner is None:
+            # Stalemate and timeout can have no winner
+            if victory_type not in ("stalemate", "timeout"):
+                return False, f"No winner but victory type is {victory_type!r}"
+
+        return True, None
+
+    def _validate_move_completeness(self, moves: list[Move]) -> list[str]:
+        """Validate that moves have required fields."""
+        issues = []
+        for i, move in enumerate(moves):
+            if not hasattr(move, "type") or move.type is None:
+                issues.append(f"Move {i}: Missing move type")
+            if not hasattr(move, "player") or move.player is None:
+                issues.append(f"Move {i}: Missing player")
+            # Position can be None for some move types (e.g., pass, no_action)
+        return issues
+
+
+# Default quality gate instance
+_default_quality_gate = RecordingQualityGate()
+
+
+def get_default_quality_gate() -> RecordingQualityGate:
+    """Get the default quality gate instance."""
+    return _default_quality_gate
 
 
 def validate_move_fsm(
@@ -261,7 +392,9 @@ def record_completed_game(
     game_id: str | None = None,
     store_history_entries: bool = True,
     snapshot_interval: int | None = None,
-) -> str:
+    quality_gate: RecordingQualityGate | None = None,
+    skip_quality_check: bool = False,
+) -> str | None:
     """Record a completed game in one shot.
 
     This is a convenience function for scripts that collect moves in a list
@@ -280,10 +413,23 @@ def record_completed_game(
         snapshot_interval: Store snapshots every N moves for NNUE training.
             Defaults to 20 (via RINGRIFT_SNAPSHOT_INTERVAL env var).
             Set to 0 to disable periodic snapshots.
+        quality_gate: Optional custom quality gate. If None, uses default gate.
+        skip_quality_check: If True, skip quality validation entirely.
 
     Returns:
-        The game ID that was stored
+        The game ID that was stored, or None if the game was rejected by quality gate.
     """
+    # Quality gate validation
+    if not skip_quality_check:
+        gate = quality_gate or _default_quality_gate
+        valid, error = gate.validate(initial_state, final_state, moves, metadata)
+        if not valid:
+            logger.warning(
+                f"Game rejected by quality gate: {error} "
+                f"(moves={len(moves)}, board={initial_state.board_type.value})"
+            )
+            return None
+
     gid = game_id or str(uuid.uuid4())
 
     # Determine snapshot interval (default to 20 for NNUE training support)
@@ -386,7 +532,9 @@ def record_completed_game_with_parity_check(
     parity_mode: str | None = None,
     store_history_entries: bool = True,
     snapshot_interval: int | None = None,
-) -> str:
+    quality_gate: RecordingQualityGate | None = None,
+    skip_quality_check: bool = False,
+) -> str | None:
     """Record a completed game and optionally validate parity with TS engine.
 
     This is the same as record_completed_game but adds on-the-fly parity
@@ -411,14 +559,16 @@ def record_completed_game_with_parity_check(
         snapshot_interval: Store snapshots every N moves for NNUE training.
             Defaults to 20 (via RINGRIFT_SNAPSHOT_INTERVAL env var).
             Set to 0 to disable periodic snapshots.
+        quality_gate: Optional custom quality gate. If None, uses default gate.
+        skip_quality_check: If True, skip quality validation entirely.
 
     Returns:
-        The game ID that was stored
+        The game ID that was stored, or None if rejected by quality gate.
 
     Raises:
         ParityValidationError: If parity_mode is 'strict' and divergence is found
     """
-    # First record the game
+    # First record the game (with quality gate validation)
     gid = record_completed_game(
         db=db,
         initial_state=initial_state,
@@ -428,7 +578,13 @@ def record_completed_game_with_parity_check(
         game_id=game_id,
         store_history_entries=store_history_entries,
         snapshot_interval=snapshot_interval,
+        quality_gate=quality_gate,
+        skip_quality_check=skip_quality_check,
     )
+
+    # If game was rejected by quality gate, return None
+    if gid is None:
+        return None
 
     # Then validate parity if enabled
     from app.db.parity_validator import (
@@ -645,7 +801,9 @@ def record_completed_game_with_nnue_cache(
     snapshot_interval: int | None = None,
     cache_nnue_features: bool = True,
     sample_every_n_moves: int = 1,
-) -> str:
+    quality_gate: RecordingQualityGate | None = None,
+    skip_quality_check: bool = False,
+) -> str | None:
     """Record a completed game and cache NNUE features in one call.
 
     This combines record_completed_game with automatic NNUE feature extraction,
@@ -662,11 +820,13 @@ def record_completed_game_with_nnue_cache(
         snapshot_interval: Store snapshots every N moves
         cache_nnue_features: If True (default), extract and cache NNUE features
         sample_every_n_moves: Sample positions every N moves for NNUE features
+        quality_gate: Optional custom quality gate. If None, uses default gate.
+        skip_quality_check: If True, skip quality validation entirely.
 
     Returns:
-        The game ID that was stored
+        The game ID that was stored, or None if rejected by quality gate.
     """
-    # Record the game
+    # Record the game (with quality gate validation)
     gid = record_completed_game(
         db=db,
         initial_state=initial_state,
@@ -676,7 +836,13 @@ def record_completed_game_with_nnue_cache(
         game_id=game_id,
         store_history_entries=store_history_entries,
         snapshot_interval=snapshot_interval,
+        quality_gate=quality_gate,
+        skip_quality_check=skip_quality_check,
     )
+
+    # If game was rejected by quality gate, return None
+    if gid is None:
+        return None
 
     # Cache NNUE features if requested and game has a winner
     if cache_nnue_features and final_state.winner is not None:

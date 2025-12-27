@@ -320,6 +320,9 @@ class ClusterDataSyncDaemon:
         self._sync_count = 0
         self._last_sync_time: float = 0.0
         self._last_sync_results: list[SyncResult] = []
+        self._last_sync_bytes: int = 0
+        self._last_sync_duration: float = 0.0
+        self._total_bytes_synced: int = 0
 
     @property
     def is_running(self) -> bool:
@@ -343,6 +346,22 @@ class ClusterDataSyncDaemon:
                 }
                 for r in self._last_sync_results
             ],
+        }
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Get sync throughput metrics for monitoring."""
+        throughput_bps = (
+            self._last_sync_bytes / self._last_sync_duration
+            if self._last_sync_duration > 0
+            else 0.0
+        )
+        return {
+            "sync_count": self._sync_count,
+            "last_sync_time": self._last_sync_time,
+            "last_sync_bytes": self._last_sync_bytes,
+            "last_sync_duration_seconds": self._last_sync_duration,
+            "last_sync_throughput_bps": throughput_bps,
+            "total_bytes_synced": self._total_bytes_synced,
         }
 
     async def start(self) -> None:
@@ -430,6 +449,14 @@ class ClusterDataSyncDaemon:
                 r for r in results
                 if isinstance(r, SyncResult)
             ]
+
+            self._last_sync_bytes = sum(
+                r.bytes_transferred for r in self._last_sync_results if r.success
+            )
+            self._last_sync_duration = sum(
+                r.duration_seconds for r in self._last_sync_results if r.success
+            )
+            self._total_bytes_synced += self._last_sync_bytes
 
             # Log summary
             successful = sum(1 for r in self._last_sync_results if r.success)

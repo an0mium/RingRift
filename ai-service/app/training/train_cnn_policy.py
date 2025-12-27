@@ -16,6 +16,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 
+from app.utils.numpy_utils import safe_load_npz
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -129,7 +131,7 @@ class PolicyDataset(Dataset):
     """Dataset for policy training."""
 
     def __init__(self, npz_path: str, action_space_size: int = 8192):
-        data = np.load(npz_path, allow_pickle=True)
+        data = safe_load_npz(npz_path)
 
         self.features = torch.from_numpy(data["features"]).float()
         self.globals = torch.from_numpy(data["globals"]).float()
@@ -265,7 +267,7 @@ def main():
     logger.info(f"Loading data from {args.data_path}")
 
     # Get board size and action space from data
-    data = np.load(args.data_path, allow_pickle=True)
+    data = safe_load_npz(args.data_path)
     board_size = int(data["board_size"])
     input_channels = data["features"].shape[1]
     global_features = data["globals"].shape[1]

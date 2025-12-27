@@ -19,6 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
+
 from app.ai.descent_ai import DescentAI
 from app.ai.gumbel_mcts_ai import GumbelMCTSAI
 
@@ -1602,7 +1604,7 @@ def generate_dataset(
     write_mp = multi_player_values
     if os.path.exists(output_path):
         try:
-            with np.load(output_path, allow_pickle=True) as data:
+            with safe_load_npz(output_path) as data:
                 # Check if keys exist (handling potential format changes)
                 if 'features' in data:
                     existing_features = data['features']

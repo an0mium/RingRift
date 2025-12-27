@@ -398,7 +398,8 @@ class UnifiedInventory:
             import urllib.request
 
             url = f"http://{host}:{P2P_DEFAULT_PORT}/health"
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
 
             def fetch():
                 with urllib.request.urlopen(url, timeout=5) as resp:

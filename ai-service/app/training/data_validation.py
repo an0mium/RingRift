@@ -58,6 +58,7 @@ from typing import Any
 import numpy as np
 
 from app.utils.checksum_utils import compute_string_checksum
+from app.utils.numpy_utils import safe_load_npz
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,8 @@ class DataValidator:
         path = Path(path)
 
         try:
-            data = np.load(path, allow_pickle=True, mmap_mode='r')
+            # safe_load_npz tries without pickle first for security
+            data = safe_load_npz(path, mmap_mode='r')
         except Exception as e:
             result = ValidationResult(valid=False, total_samples=0)
             result.add_issue(ValidationIssue(

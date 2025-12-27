@@ -207,6 +207,11 @@ class FeedbackLoopController:
             if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
                 bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
 
+            # Subscribe to DATABASE_CREATED for data awareness (December 2025 - Phase 4A.3)
+            # This provides early visibility into new databases before DataPipelineOrchestrator
+            if hasattr(DataEventType, 'DATABASE_CREATED'):
+                bus.subscribe(DataEventType.DATABASE_CREATED, self._on_database_created)
+
             # Phase 8: Subscribe to training loss anomaly events (December 2025)
             # Closes critical feedback loop: training loss anomaly → quality check/exploration boost
             event_count = 6
@@ -279,6 +284,10 @@ class FeedbackLoopController:
             # Phase 23.1: Unsubscribe from rate change events
             if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
                 bus.unsubscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
+
+            # Unsubscribe from DATABASE_CREATED
+            if hasattr(DataEventType, 'DATABASE_CREATED'):
+                bus.unsubscribe(DataEventType.DATABASE_CREATED, self._on_database_created)
 
             # Phase 8: Unsubscribe from training loss events
             if hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
@@ -515,6 +524,45 @@ class FeedbackLoopController:
 
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling rate change: {e}")
+
+    def _on_database_created(self, event: Any) -> None:
+        """Handle DATABASE_CREATED event (December 2025 - Phase 4A.3).
+
+        Provides early awareness of new databases for feedback loop coordination.
+        This handler primarily logs and tracks database creation for monitoring.
+        The main processing happens in DataPipelineOrchestrator.
+
+        Actions:
+        1. Log database creation for visibility
+        2. Track creation timestamps for freshness monitoring
+        3. Update state for potential training triggers
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            db_path = payload.get("db_path", "")
+            config_key = payload.get("config_key", "")
+            board_type = payload.get("board_type", "")
+            num_players = payload.get("num_players", 0)
+            node_id = payload.get("node_id", "")
+
+            if not config_key:
+                return
+
+            state = self._get_or_create_state(config_key)
+
+            # Track database creation time for freshness awareness
+            if not hasattr(state, 'last_database_created'):
+                state.last_database_created = 0.0
+            state.last_database_created = time.time()
+
+            logger.info(
+                f"[FeedbackLoopController] New database created for {config_key}: "
+                f"{db_path} on {node_id}"
+            )
+
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+            logger.debug(f"[FeedbackLoopController] Error handling database_created: {e}")
 
     def _on_training_loss_anomaly(self, event: Any) -> None:
         """Handle training loss anomaly events (Phase 8).
@@ -1116,23 +1164,23 @@ class FeedbackLoopController:
                 target_games = int(base_games * (1 + 0.3 * consecutive_regressions))
 
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        task = _safe_create_task(
-                            emit_selfplay_target_updated(
-                                config_key=config_key,
-                                target_games=target_games,
-                                reason=f"regression_detected_elo_drop_{elo_drop:.0f}",
-                                priority=2,  # High priority
-                                source="feedback_loop_controller.py",
-                            ),
-                            f"emit_selfplay_target_updated_regression({config_key})",
+                    # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                    loop = asyncio.get_running_loop()
+                    task = _safe_create_task(
+                        emit_selfplay_target_updated(
+                            config_key=config_key,
+                            target_games=target_games,
+                            reason=f"regression_detected_elo_drop_{elo_drop:.0f}",
+                            priority=2,  # High priority
+                            source="feedback_loop_controller.py",
+                        ),
+                        f"emit_selfplay_target_updated_regression({config_key})",
+                    )
+                    if task:
+                        logger.info(
+                            f"[FeedbackLoopController] Emitted SELFPLAY_TARGET_UPDATED for {config_key}: "
+                            f"{target_games} games (exploration_boost={exploration_boost:.1f}x, priority=2)"
                         )
-                        if task:
-                            logger.info(
-                                f"[FeedbackLoopController] Emitted SELFPLAY_TARGET_UPDATED for {config_key}: "
-                                f"{target_games} games (exploration_boost={exploration_boost:.1f}x, priority=2)"
-                            )
                 except RuntimeError:
                     logger.debug("[FeedbackLoopController] No event loop for SELFPLAY_TARGET_UPDATED")
 
@@ -1712,23 +1760,23 @@ class FeedbackLoopController:
                 target_games = int(base_games * (1 + 0.5 * failure_count))
 
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        task = _safe_create_task(
-                            emit_selfplay_target_updated(
-                                config_key=config_key,
-                                target_games=target_games,
-                                reason=f"promotion_failure_x{failure_count}",
-                                priority=priority,
-                                source="feedback_loop_controller.py",
-                            ),
-                            f"emit_selfplay_target_updated({config_key})",
+                    # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                    loop = asyncio.get_running_loop()
+                    task = _safe_create_task(
+                        emit_selfplay_target_updated(
+                            config_key=config_key,
+                            target_games=target_games,
+                            reason=f"promotion_failure_x{failure_count}",
+                            priority=priority,
+                            source="feedback_loop_controller.py",
+                        ),
+                        f"emit_selfplay_target_updated({config_key})",
+                    )
+                    if task:
+                        logger.info(
+                            f"[FeedbackLoopController] Emitted SELFPLAY_TARGET_UPDATED: "
+                            f"{config_key} -> {target_games} games (priority={priority})"
                         )
-                        if task:
-                            logger.info(
-                                f"[FeedbackLoopController] Emitted SELFPLAY_TARGET_UPDATED: "
-                                f"{config_key} -> {target_games} games (priority={priority})"
-                            )
                 except RuntimeError:
                     pass  # No event loop available
 

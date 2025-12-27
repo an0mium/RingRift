@@ -21,6 +21,7 @@ import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, random_split
 
 from app.models import BoardType
+from app.utils.numpy_utils import safe_load_npz
 from app.training.data_loader import (
     StreamingDataLoader,
     WeightedStreamingDataLoader,
@@ -556,7 +557,7 @@ def validate_dataset_metadata(
         return metadata
 
     try:
-        with np.load(data_path, mmap_mode="r", allow_pickle=True) as d:
+        with safe_load_npz(data_path, mmap_mode="r") as d:
             # Extract metadata
             if "features" in d:
                 feat_shape = d["features"].shape

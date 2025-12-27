@@ -450,7 +450,8 @@ class NPZDistributionDaemon:
             from app.utils.checksum_utils import compute_file_checksum, LARGE_CHUNK_SIZE
 
             # Run in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             checksum = await loop.run_in_executor(
                 None,
                 lambda: compute_file_checksum(path, chunk_size=LARGE_CHUNK_SIZE),

@@ -833,3 +833,20 @@ threshold = config.training.trigger_threshold_games
 # Or use convenience functions
 threshold = get_training_threshold()
 ```
+
+---
+
+## Master Loop Profiles
+
+The unified automation entrypoint (`scripts/master_loop.py`) supports `--profile`
+to control which daemons are started:
+
+- `minimal`: sync + health (event router, health monitors, auto sync)
+- `standard` (default): full automation (selfplay, training, evaluation, promotion)
+- `full`: all non-deprecated daemons
+
+Example:
+
+```bash
+python scripts/master_loop.py --profile minimal
+```

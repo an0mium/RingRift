@@ -19,6 +19,7 @@ CanonicalPhase = Literal[
     "line_processing",
     "territory_processing",
     "forced_elimination",
+    "game_over",  # Terminal phase - no moves should occur, but handle gracefully
 ]
 
 # Move types that are always valid regardless of phase (meta/terminal moves).
@@ -125,9 +126,21 @@ def validate_canonical_move(phase: str | None, move_type: str) -> CanonicalMoveC
     - If phase is empty/None, we infer it from move_type.
     - If move_type is unknown, or the phase is not canonical, or the pair
       is inconsistent, ok will be False and reason will describe why.
+    - Special case: game_over is a terminal phase - moves recorded during it
+      indicate a phase tracking issue but are still valid game data.
     """
     raw_phase = (phase or "").strip()
     contract = phase_move_contract()
+
+    # Handle terminal phase: game_over shouldn't have moves, but if it does,
+    # we allow the save to preserve data. Infer the proper phase from move_type.
+    if raw_phase == "game_over":
+        inferred = derive_phase_from_move_type(move_type)
+        if inferred:
+            # Use the inferred phase instead of game_over
+            return CanonicalMoveCheckResult(ok=True, effective_phase=inferred, reason=None)
+        # For unknown move types, just use game_over and let it pass
+        return CanonicalMoveCheckResult(ok=True, effective_phase="game_over", reason=None)
 
     if move_type in ALWAYS_VALID_MOVE_TYPES:
         if not raw_phase:

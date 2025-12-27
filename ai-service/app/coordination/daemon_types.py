@@ -205,6 +205,9 @@ class DaemonType(Enum):
     # Cluster watchdog (December 2025) - self-healing cluster utilization monitor
     CLUSTER_WATCHDOG = "cluster_watchdog"
 
+    # Data cleanup (December 2025) - auto-quarantine/delete poor quality databases
+    DATA_CLEANUP = "data_cleanup"
+
 
 class DaemonState(Enum):
     """State of a daemon."""

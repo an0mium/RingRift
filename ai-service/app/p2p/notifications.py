@@ -209,13 +209,11 @@ class NotificationManager:
     def send_sync(self, event: NotificationEvent) -> bool:
         """Send notification synchronously."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Schedule as task if already in async context
-                asyncio.create_task(self.send_async(event))
-                return True
-            else:
-                return loop.run_until_complete(self.send_async(event))
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
+            # Schedule as task if already in async context
+            asyncio.create_task(self.send_async(event))
+            return True
         except RuntimeError:
             # No event loop - create one
             return asyncio.run(self.send_async(event))

@@ -376,6 +376,24 @@ hosts:
     runpod_id: yu03gfn71vrsj7
     p2p_enabled: true
 
+  # New RunPod A100 provisioned Dec 26, 2025 (500GB storage)
+  runpod-a100-storage-1:
+    ssh_host: 213.173.105.7
+    ssh_port: 30015
+    ssh_user: root
+    ssh_key: ~/.runpod/ssh/RunPod-Key-Go
+    ringrift_path: /workspace/ringrift/ai-service
+    venv_activate: source /workspace/ringrift/ai-service/venv/bin/activate
+    memory_gb: 80
+    cpus: 24
+    gpu: A100 PCIe
+    gpu_vram_gb: 80
+    role: gpu_selfplay
+    status: ready
+    runpod_id: a0h3cf7yg1duiv
+    p2p_enabled: true
+    note: A100 80GB with 500GB volume storage
+
   runpod-l40s-2:
     ssh_host: 193.183.22.62
     ssh_port: 1182

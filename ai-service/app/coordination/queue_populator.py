@@ -155,13 +155,15 @@ class ConfigTarget:
                     )
 
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(_emit())
-                    else:
-                        asyncio.run(_emit())
+                    # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(_emit())
                 except RuntimeError:
-                    pass  # No event loop available
+                    # No running loop - create one
+                    try:
+                        asyncio.run(_emit())
+                    except Exception as e:
+                        logger.debug(f"Failed to emit velocity change event: {e}")
 
                 logger.debug(
                     f"[ConfigTarget] Velocity changed for {self.config_key}: "

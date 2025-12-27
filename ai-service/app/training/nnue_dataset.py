@@ -27,6 +27,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, IterableDataset, Sampler
 
+from app.utils.numpy_utils import safe_load_npz
+
 from ..ai.nnue import (
     FEATURE_PLANES,
     extract_features_from_gamestate,
@@ -1150,7 +1152,7 @@ class NNUESQLiteDataset(Dataset):
         if mmap_mode:
             logger.info(f"Using memory-mapped loading for {file_size_mb:.1f}MB cache file")
 
-        data = np.load(cache_path, allow_pickle=True, mmap_mode=mmap_mode)
+        data = safe_load_npz(cache_path, mmap_mode=mmap_mode)
 
         features = data['features']
         values = data['values']

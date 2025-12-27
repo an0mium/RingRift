@@ -263,6 +263,15 @@ class TrainingTriggerDaemon:
             self._event_subscriptions.append(unsub)
             logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_COMPLETED events")
 
+            # Honor master_loop-triggered training requests + intensity hints
+            if hasattr(DataEventType, 'TRAINING_THRESHOLD_REACHED'):
+                unsub = bus.subscribe(
+                    DataEventType.TRAINING_THRESHOLD_REACHED,
+                    self._on_training_threshold_reached,
+                )
+                self._event_subscriptions.append(unsub)
+                logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_THRESHOLD_REACHED events")
+
             # December 2025: Subscribe to EVALUATION_COMPLETED for gauntlet → training feedback
             # This closes the critical feedback loop: model performance → training parameters
             if hasattr(DataEventType, 'EVALUATION_COMPLETED'):
@@ -329,6 +338,31 @@ class TrainingTriggerDaemon:
 
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training completion: {e}")
+
+    async def _on_training_threshold_reached(self, event: Any) -> None:
+        """Handle training threshold reached events from master_loop."""
+        try:
+            payload = getattr(event, "payload", {})
+            config_key = payload.get("config") or payload.get("config_key")
+            if not config_key:
+                return
+
+            board_type = payload.get("board_type")
+            num_players = payload.get("num_players")
+            state = self._get_or_create_state(config_key, board_type, num_players)
+
+            intensity = payload.get("priority") or payload.get("training_intensity")
+            if intensity:
+                state.training_intensity = intensity
+                logger.debug(
+                    f"[TrainingTriggerDaemon] {config_key}: "
+                    f"training_intensity set to {intensity}"
+                )
+
+            await self._maybe_trigger_training(config_key)
+
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling training threshold: {e}")
 
     async def _on_evaluation_completed(self, event: Any) -> None:
         """Handle gauntlet evaluation completion - adjust training parameters (Dec 2025).
@@ -919,8 +953,8 @@ class TrainingTriggerDaemon:
 
                             # Get sample count from file (approximate)
                             try:
-                                import numpy as np
-                                with np.load(npz_path, allow_pickle=True) as data:
+                                from app.utils.numpy_utils import safe_load_npz
+                                with safe_load_npz(npz_path) as data:
                                     state.npz_sample_count = len(data.get("values", []))
                             except (FileNotFoundError, OSError, ValueError, ImportError):
                                 pass

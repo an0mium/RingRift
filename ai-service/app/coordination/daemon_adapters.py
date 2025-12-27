@@ -37,6 +37,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.async_context import safe_create_task
+
 from .daemon_manager import DaemonType
 from .orchestrator_registry import OrchestratorRole, get_registry
 
@@ -151,7 +153,10 @@ class DaemonAdapter(ABC):
 
     async def _run_with_health_monitoring(self) -> None:
         """Run daemon with periodic health checks."""
-        health_task = asyncio.create_task(self._health_monitor_loop())
+        health_task = safe_create_task(
+            self._health_monitor_loop(),
+            name="daemon_health_monitor",
+        )
 
         try:
             await self._run_daemon(self._daemon_instance)
@@ -510,6 +515,56 @@ class OrphanDetectionDaemonAdapter(DaemonAdapter):
         return True
 
 
+class DataCleanupDaemonAdapter(DaemonAdapter):
+    """Adapter for data cleanup daemon (December 2025).
+
+    Automatically cleans up poor quality game databases by:
+    - Quarantining databases with quality < 30% (recoverable)
+    - Deleting databases with quality < 10% (with audit log)
+
+    All cleanup actions are logged to cleanup_audit.jsonl.
+    """
+
+    @property
+    def daemon_type(self) -> DaemonType:
+        return DaemonType.DATA_CLEANUP
+
+    @property
+    def role(self) -> OrchestratorRole | None:
+        # Runs on all nodes to clean local data
+        return None
+
+    @property
+    def depends_on(self) -> list[DaemonType]:
+        return []
+
+    async def _create_daemon(self) -> Any:
+        try:
+            from app.coordination.data_cleanup_daemon import DataCleanupDaemon
+
+            return DataCleanupDaemon()
+        except ImportError:
+            logger.warning("[DataCleanupDaemonAdapter] DataCleanupDaemon not available")
+            return None
+
+    async def _run_daemon(self, daemon: Any) -> None:
+        if hasattr(daemon, "start"):
+            await daemon.start()
+        elif hasattr(daemon, "run"):
+            await daemon.run()
+        else:
+            while self._running:
+                await asyncio.sleep(self.config.poll_interval_seconds)
+
+    async def _health_check(self) -> bool:
+        """Check if data cleanup daemon is healthy."""
+        if not self._daemon_instance:
+            return False
+        if hasattr(self._daemon_instance, "_running"):
+            return self._daemon_instance._running
+        return True
+
+
 # =============================================================================
 # Adapter Registry
 # =============================================================================
@@ -523,6 +578,7 @@ _ADAPTER_CLASSES: dict[DaemonType, type[DaemonAdapter]] = {
     DaemonType.AUTO_SYNC: AutoSyncDaemonAdapter,
     DaemonType.NPZ_DISTRIBUTION: NPZDistributionDaemonAdapter,
     DaemonType.ORPHAN_DETECTION: OrphanDetectionDaemonAdapter,
+    DaemonType.DATA_CLEANUP: DataCleanupDaemonAdapter,
 }
 
 

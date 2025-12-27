@@ -35,13 +35,13 @@ def main():
     print(f"After reassignment, player_number: {ai.player_number}")
     print(f'Has use_incremental_search after reassignment: {hasattr(ai, "use_incremental_search")}')
 
-    # Load checkpoint
+    # Load checkpoint (using safe loader for security)
     ckpt = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "checkpoint_final_epoch_5.pth")
     if os.path.exists(ckpt):
-        import torch
+        from app.utils.torch_utils import safe_load_checkpoint
 
         print(f"\nLoading checkpoint: {ckpt}")
-        checkpoint = torch.load(ckpt, map_location="cpu", weights_only=False)
+        checkpoint = safe_load_checkpoint(ckpt, map_location="cpu")
         if ai.neural_net is not None and "model_state_dict" in checkpoint:
             ai.neural_net.model.load_state_dict(checkpoint["model_state_dict"])
             ai.neural_net.model.eval()

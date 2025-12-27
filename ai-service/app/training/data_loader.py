@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
 from app.utils.resource_guard import LIMITS, check_memory, get_memory_usage
 
 try:
@@ -78,10 +79,10 @@ class FileHandle:
         if ext in ('.npz', '.npy'):
             self._format = 'npz'
             # Use mmap_mode='r' for memory-efficient access
-            self._data = np.load(
+            # safe_load_npz tries without pickle first, falls back if needed
+            self._data = safe_load_npz(
                 self.path,
                 mmap_mode='r',
-                allow_pickle=True,
             )
 
             if 'features' not in self._data:
@@ -1672,7 +1673,8 @@ def get_sample_count(data_path: str) -> int:
 
     if ext in ('.npz', '.npy'):
         # Load with mmap and check only the values array shape
-        data = np.load(data_path, mmap_mode='r', allow_pickle=True)
+        # safe_load_npz tries without pickle first for security
+        data = safe_load_npz(data_path, mmap_mode='r')
         if 'values' in data:
             return len(data['values'])
         elif 'features' in data:

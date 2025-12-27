@@ -49,6 +49,20 @@ from scripts.lib.logging_config import setup_script_logging
 logger = setup_script_logging("run_gauntlet")
 
 
+def _configure_multiprocessing() -> None:
+    """Configure multiprocessing for spawn-safe entrypoints."""
+    try:
+        import multiprocessing as mp
+
+        mp.freeze_support()
+        try:
+            mp.set_start_method("spawn")
+        except RuntimeError:
+            pass  # Start method already set
+    except Exception:
+        pass
+
+
 # Default timeout for gauntlet execution (30 minutes)
 DEFAULT_GAUNTLET_TIMEOUT = 1800
 # Heartbeat interval for progress logging (60 seconds)
@@ -325,4 +339,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    _configure_multiprocessing()
     asyncio.run(main())

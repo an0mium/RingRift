@@ -448,7 +448,8 @@ class StreamingDataPipeline:
         This allows the async event loop to continue while waiting for
         the synchronous sqlite3 query to complete.
         """
-        loop = asyncio.get_event_loop()
+        # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+        loop = asyncio.get_running_loop()
         games = await loop.run_in_executor(
             self._db_executor,
             self.poller.get_new_games,

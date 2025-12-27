@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -43,6 +44,8 @@ from typing import Any
 
 # Default database location
 DEFAULT_SCHEDULER_DB = Path("/tmp/ringrift_coordination/duration_scheduler.db")
+
+logger = logging.getLogger(__name__)
 
 # Import centralized timeout thresholds
 try:
@@ -478,7 +481,7 @@ class DurationScheduler:
             conn.commit()
             return True
         except sqlite3.Error as e:
-            print(f"[DurationScheduler] Error scheduling task: {e}")
+            logger.error(f"Error scheduling task: {e}")
             return False
 
     def get_scheduled_tasks(

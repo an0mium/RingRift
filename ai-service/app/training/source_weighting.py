@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
+
 if TYPE_CHECKING:
     from torch.utils.data import Dataset
 
@@ -238,7 +240,7 @@ def create_weighted_sampler_for_npz(npz_path: str, config: SourceWeightConfig | 
     """
     import numpy as np
 
-    data = np.load(npz_path, allow_pickle=True)
+    data = safe_load_npz(npz_path)
 
     # Try to find engine mode data
     engine_modes = None
@@ -280,7 +282,7 @@ def add_engine_mode_to_npz(
     """
     import numpy as np
 
-    data = dict(np.load(input_path, allow_pickle=True))
+    data = dict(safe_load_npz(input_path))
 
     # Get sample count from first array
     n_samples = None

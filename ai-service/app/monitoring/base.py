@@ -514,9 +514,9 @@ class MonitorRegistry:
             # Fire and forget
             import asyncio
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(router.publish(event_type.value, payload, source="monitor_registry"))
+                # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                loop = asyncio.get_running_loop()
+                loop.create_task(router.publish(event_type.value, payload, source="monitor_registry"))
             except RuntimeError:
                 pass
 

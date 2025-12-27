@@ -63,6 +63,7 @@ class SyncRoute:
     reason: str = ""
     estimated_size_bytes: int = 0
     bandwidth_limit_mbps: int | None = None
+    quality_score: float = 0.0  # Dec 2025: Quality-based priority boost
 
 
 @dataclass
@@ -135,8 +136,21 @@ class SyncRouter:
             self._hosts_config = config.get("hosts", {})
             self._sync_routing = config.get("sync_routing", {})
 
+            # Dec 2025: Load allowed_external_storage for coordinator backup
+            self._external_storage: list[dict[str, Any]] = self._sync_routing.get(
+                "allowed_external_storage", []
+            )
+
             # Build node capabilities from hosts config
             self._build_node_capabilities()
+
+            # Dec 2025: Log external storage config
+            if self._external_storage:
+                for storage in self._external_storage:
+                    logger.info(
+                        f"[SyncRouter] External storage configured: "
+                        f"{storage.get('host')} -> {storage.get('path')}"
+                    )
 
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
@@ -144,6 +158,13 @@ class SyncRouter:
     def _build_node_capabilities(self) -> None:
         """Build node capability information from config."""
         priority_hosts = set(self._sync_routing.get("priority_hosts", []))
+
+        # Dec 2025: Build external storage lookup for coordinator backup
+        external_storage_hosts = {}
+        for storage in getattr(self, "_external_storage", []):
+            host = storage.get("host", "")
+            if host:
+                external_storage_hosts[host] = storage
 
         for host_name, host_config in self._hosts_config.items():
             role = host_config.get("role", "selfplay")
@@ -161,6 +182,12 @@ class SyncRouter:
                 provider = "aws"
             elif any(x in host_name.lower() for x in ["mac", "mbp"]):
                 provider = "mac"
+            elif "runpod" in host_name.lower():
+                provider = "runpod"
+            elif "nebius" in host_name.lower():
+                provider = "nebius"
+            elif "vultr" in host_name.lower():
+                provider = "vultr"
 
             # Check if shares NFS (Lambda nodes with same provider)
             shares_nfs = provider == "lambda"
@@ -174,19 +201,53 @@ class SyncRouter:
             # Get sync policy from manifest
             policy = self._manifest.get_sync_policy(host_name)
 
+            # Dec 2025: Override with external storage config if present
+            # This enables coordinator backup via external drives
+            if host_name in external_storage_hosts:
+                ext_config = external_storage_hosts[host_name]
+                can_receive_games = ext_config.get("receive_games", False)
+                can_receive_models = ext_config.get("receive_models", False)
+                can_receive_npz = ext_config.get("receive_npz", False)
+                is_priority = True  # External storage is priority for backup
+            else:
+                can_receive_games = policy.receive_games
+                can_receive_models = policy.receive_models
+                can_receive_npz = policy.receive_npz
+                is_priority = host_name in priority_hosts
+
             cap = NodeSyncCapability(
                 node_id=host_name,
-                can_receive_games=policy.receive_games,
-                can_receive_models=policy.receive_models,
-                can_receive_npz=policy.receive_npz,
+                can_receive_games=can_receive_games,
+                can_receive_models=can_receive_models,
+                can_receive_npz=can_receive_npz,
                 is_training_node=is_training,
-                is_priority_node=host_name in priority_hosts,
+                is_priority_node=is_priority,
                 is_ephemeral=is_ephemeral,
                 shares_nfs=shares_nfs,
                 provider=provider,
             )
 
             self._node_capabilities[host_name] = cap
+
+    def get_external_storage_path(self, host: str, data_type: str) -> str | None:
+        """Get the external storage path for a host and data type.
+
+        December 2025: Supports coordinator backup via external drives.
+
+        Args:
+            host: Hostname to check
+            data_type: Type of data ("games", "models", "npz")
+
+        Returns:
+            Storage path if configured, None otherwise
+        """
+        for storage in getattr(self, "_external_storage", []):
+            if storage.get("host") == host:
+                base_path = storage.get("path", "")
+                subdirs = storage.get("subdirs", {})
+                subdir = subdirs.get(data_type, data_type)
+                return f"{base_path}/{subdir}" if base_path else None
+        return None
 
     def get_sync_targets(
         self,
@@ -491,12 +552,18 @@ class SyncRouter:
         self,
         game_id: str,
         min_copies: int = 2,
+        quality_score: float | None = None,
     ) -> list[SyncRoute]:
         """Plan replication routes for a game.
+
+        December 2025: Now supports quality-based priority boost.
+        High-quality games get synced first for faster training data availability.
 
         Args:
             game_id: Game to replicate
             min_copies: Minimum number of copies desired
+            quality_score: Optional quality score (0-1). If not provided,
+                          will attempt to fetch from manifest.
 
         Returns:
             List of SyncRoute describing the sync plan
@@ -511,6 +578,14 @@ class SyncRouter:
         if copies_needed <= 0:
             return routes
 
+        # Get quality score if not provided (Dec 2025: Quality-based priority)
+        if quality_score is None:
+            quality_score = self._get_game_quality_score(game_id)
+
+        # Compute quality priority boost (0-30 points based on quality)
+        # High-quality games get significant priority boost for faster sync
+        quality_priority_boost = int(quality_score * 30) if quality_score else 0
+
         # Get targets
         targets = self._manifest.get_replication_targets(
             game_id,
@@ -524,15 +599,59 @@ class SyncRouter:
             if not source:
                 source = list(current_nodes)[0] if current_nodes else self.node_id
 
+            # Apply quality boost to priority
+            adjusted_priority = target.priority + quality_priority_boost
+
             routes.append(SyncRoute(
                 source_node=source,
                 target_node=target.node_id,
                 data_type=DataType.GAME,
-                priority=target.priority,
-                reason=target.reason,
+                priority=adjusted_priority,
+                reason=target.reason + (f" (quality={quality_score:.2f})" if quality_score else ""),
+                quality_score=quality_score or 0.0,
             ))
 
+        # Sort by quality-adjusted priority (highest first)
+        routes.sort(key=lambda r: r.priority, reverse=True)
+
         return routes
+
+    def _get_game_quality_score(self, game_id: str) -> float:
+        """Get quality score for a game from manifest or compute it.
+
+        December 2025: Integrates with unified_quality for quality-based sync.
+        """
+        # Try manifest first (metadata might have quality)
+        try:
+            metadata = self._manifest.get_game_metadata(game_id)
+            if metadata and hasattr(metadata, 'quality_score'):
+                return metadata.quality_score or 0.0
+        except Exception as e:
+            logger.debug(f"Failed to get quality score from manifest for {game_id}: {e}")
+
+        # Try unified quality scorer
+        try:
+            from app.quality.unified_quality import get_quality_scorer
+
+            # Get game details from manifest
+            locations = self._manifest.find_game(game_id)
+            if locations:
+                loc = locations[0]
+                if hasattr(loc, 'game_length') and hasattr(loc, 'winner'):
+                    scorer = get_quality_scorer()
+                    quality = scorer.compute_game_quality(
+                        game_id=game_id,
+                        game_length=getattr(loc, 'game_length', 50),
+                        winner=getattr(loc, 'winner', None),
+                        avg_player_elo=getattr(loc, 'avg_elo', 1200.0),
+                    )
+                    return quality.overall_score
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"[SyncRouter] Could not get quality for {game_id}: {e}")
+
+        return 0.5  # Default neutral quality
 
     def get_node_capability(self, node_id: str) -> NodeSyncCapability | None:
         """Get sync capability information for a node."""

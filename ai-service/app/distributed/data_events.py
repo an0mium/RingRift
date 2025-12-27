@@ -182,6 +182,7 @@ class DataEventType(Enum):
     MODEL_DISTRIBUTION_COMPLETE = "model_distribution_complete"  # Dec 2025: Model distributed to cluster
     P2P_CLUSTER_HEALTHY = "p2p_cluster_healthy"
     P2P_CLUSTER_UNHEALTHY = "p2p_cluster_unhealthy"
+    P2P_NODE_DEAD = "p2p_node_dead"  # Dec 2025: Single node dead (vs P2P_NODES_DEAD for batch)
     P2P_NODES_DEAD = "p2p_nodes_dead"
     P2P_SELFPLAY_SCALED = "p2p_selfplay_scaled"
 

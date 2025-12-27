@@ -41,6 +41,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.async_context import safe_create_task
+
 logger = logging.getLogger(__name__)
 
 
@@ -121,7 +123,10 @@ class AutoEvaluationDaemon:
         await self._subscribe_to_events()
 
         # Start background task
-        self._task = asyncio.create_task(self._monitor_loop())
+        self._task = safe_create_task(
+            self._monitor_loop(),
+            name="auto_evaluation_monitor",
+        )
         self._task.add_done_callback(self._on_task_done)
 
     async def stop(self) -> None:
@@ -367,7 +372,10 @@ class AutoEvaluationDaemon:
             return
 
         # Start evaluation
-        asyncio.create_task(self._run_evaluation(model_path))
+        safe_create_task(
+            self._run_evaluation(model_path),
+            name=f"evaluation_{Path(model_path).stem}",
+        )
         self._evaluation_queue.pop(0)
 
     async def _run_evaluation(self, model_path: str) -> bool:
@@ -460,7 +468,8 @@ class AutoEvaluationDaemon:
             board_type_enum = BoardType[board_type.upper()]
 
             # Run gauntlet in thread to not block event loop
-            loop = asyncio.get_event_loop()
+            # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
@@ -657,12 +666,13 @@ class AutoEvaluationDaemon:
         self, model_path: str, board_type: str, num_players: int
     ) -> None:
         """Public method to queue a model for evaluation."""
-        asyncio.create_task(
+        safe_create_task(
             self._queue_evaluation(
                 model_path=model_path,
                 board_type=board_type,
                 num_players=num_players,
-            )
+            ),
+            name=f"queue_eval_{Path(model_path).stem}",
         )
 
     def get_status(self) -> dict[str, Any]:

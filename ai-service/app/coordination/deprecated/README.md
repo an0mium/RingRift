@@ -2,6 +2,20 @@
 
 **December 2025**: This directory contains deprecated modules that have been consolidated.
 
+## Archived Modules (December 26, 2025)
+
+The following modules have been moved here from the parent directory:
+
+| Module                                     | Replacement           | Notes                      |
+| ------------------------------------------ | --------------------- | -------------------------- |
+| `_deprecated_cross_process_events.py`      | `event_router.py`     | Cross-process event queue  |
+| `_deprecated_event_emitters.py`            | `event_router.emit()` | Centralized event emission |
+| `_deprecated_health_check_orchestrator.py` | `cluster.health`      | Health check orchestration |
+| `_deprecated_host_health_policy.py`        | `cluster.health`      | Host health policies       |
+| `_deprecated_system_health_monitor.py`     | `cluster.health`      | System health monitoring   |
+
+Import from `app.coordination.deprecated.*` will emit deprecation warnings.
+
 ## Consolidation Summary
 
 The `app/coordination/` module was consolidated from 75 modules → 15 focused components organized into 4 packages:

@@ -43,6 +43,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, WeightedRandomSampler, random_split
 
+from app.utils.numpy_utils import safe_load_npz
 from app.utils.torch_utils import safe_load_checkpoint
 
 # Training metrics extracted to dedicated module (December 2025)
@@ -1097,10 +1098,9 @@ def train_model(
         if data_path_str:
             try:
                 if os.path.exists(data_path_str):
-                    with np.load(
+                    with safe_load_npz(
                         data_path_str,
                         mmap_mode="r",
-                        allow_pickle=True,
                     ) as d:
                         if "features" in d:
                             feat_shape = d["features"].shape
@@ -1299,7 +1299,7 @@ def train_model(
             if data_path_str:
                 try:
                     if os.path.exists(data_path_str):
-                        with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as d:
+                        with safe_load_npz(data_path_str, mmap_mode="r") as d:
                             if "globals" in d:
                                 glob_shape = d["globals"].shape
                                 if len(glob_shape) >= 2:
@@ -1454,7 +1454,7 @@ def train_model(
             # This catches encoding mismatches that would cause -1e9 masked logits
             if model_version in ('v3', 'v4') and data_path_str:
                 try:
-                    with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as d:
+                    with safe_load_npz(data_path_str, mmap_mode="r") as d:
                         if "policy_indices" in d:
                             hex_board_size = 9 if config.board_type == BoardType.HEX8 else 25
                             hex_r = 4 if config.board_type == BoardType.HEX8 else 12
@@ -1529,7 +1529,7 @@ def train_model(
             heuristic_check_path = data_path
         if heuristic_check_path and os.path.exists(heuristic_check_path):
             try:
-                with np.load(heuristic_check_path, mmap_mode="r", allow_pickle=True) as d:
+                with safe_load_npz(heuristic_check_path, mmap_mode="r") as d:
                     if "heuristics" in d:
                         heuristic_shape = d["heuristics"].shape
                         if len(heuristic_shape) >= 2:
@@ -1563,7 +1563,7 @@ def train_model(
             data_path_str = data_path
         if data_path_str and os.path.exists(data_path_str):
             try:
-                with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as d:
+                with safe_load_npz(data_path_str, mmap_mode="r") as d:
                     if "features" in d:
                         feat_shape = d["features"].shape
                         if len(feat_shape) >= 2:
@@ -2201,7 +2201,7 @@ def train_model(
         is_npz = bool(first_path and first_path.endswith(".npz"))
         try:
             if first_path and os.path.exists(first_path):
-                with np.load(first_path, mmap_mode="r", allow_pickle=True) as d:
+                with safe_load_npz(first_path, mmap_mode="r") as d:
                     if "features" in d:
                         feat_shape = d["features"].shape
                         if len(feat_shape) >= 2:
@@ -2615,7 +2615,7 @@ def train_model(
         elo_sample_weights: np.ndarray | None = None
         if enable_elo_weighting and data_path_str and os.path.exists(data_path_str):
             try:
-                with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as npz_data:
+                with safe_load_npz(data_path_str, mmap_mode="r") as npz_data:
                     if "opponent_elo" in npz_data:
                         from app.training.elo_weighting import compute_elo_weights
                         opponent_elos = np.array(npz_data["opponent_elo"])
@@ -2649,7 +2649,7 @@ def train_model(
         quality_sample_weights: np.ndarray | None = None
         if data_path_str and os.path.exists(data_path_str):
             try:
-                with np.load(data_path_str, mmap_mode="r", allow_pickle=True) as npz_data:
+                with safe_load_npz(data_path_str, mmap_mode="r") as npz_data:
                     if "quality_score" in npz_data:
                         quality_scores = np.array(npz_data["quality_score"])
                         # Apply min_quality_score filter as a mask
@@ -4282,9 +4282,9 @@ def train_model(
                     import asyncio
                     config_key = f"{config.board_type.value}_{num_players}p"
                     try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            asyncio.ensure_future(publish_epoch_completed(
+                        # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                        loop = asyncio.get_running_loop()
+                        asyncio.ensure_future(publish_epoch_completed(
                                 config_key=config_key,
                                 epoch=epoch + 1,
                                 total_epochs=config.epochs_per_iter,
@@ -4321,16 +4321,16 @@ def train_model(
                             )
                             # Fire-and-forget async emission
                             try:
-                                loop = asyncio.get_event_loop()
-                                if loop.is_running():
-                                    asyncio.ensure_future(emit_training_loss_anomaly(
-                                        config_key=config_key,
-                                        current_loss=avg_val_loss,
-                                        avg_loss=avg_recent_loss,
-                                        epoch=epoch + 1,
-                                        anomaly_ratio=anomaly_ratio,
-                                        source="train.py",
-                                    ))
+                                # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                                loop = asyncio.get_running_loop()
+                                asyncio.ensure_future(emit_training_loss_anomaly(
+                                    config_key=config_key,
+                                    current_loss=avg_val_loss,
+                                    avg_loss=avg_recent_loss,
+                                    epoch=epoch + 1,
+                                    anomaly_ratio=anomaly_ratio,
+                                    source="train.py",
+                                ))
                             except RuntimeError:
                                 # No event loop - skip emission (OK in non-async context)
                                 pass
@@ -4359,17 +4359,17 @@ def train_model(
                                     f"improvement_rate={improvement_rate:.2%}"
                                 )
                                 try:
-                                    loop = asyncio.get_event_loop()
-                                    if loop.is_running():
-                                        asyncio.ensure_future(emit_training_loss_trend(
-                                            config_key=config_key,
-                                            trend=trend,
-                                            epoch=epoch + 1,
-                                            current_loss=current_avg,
-                                            previous_loss=previous_avg,
-                                            improvement_rate=improvement_rate,
-                                            source="train.py",
-                                        ))
+                                    # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+                                    loop = asyncio.get_running_loop()
+                                    asyncio.ensure_future(emit_training_loss_trend(
+                                        config_key=config_key,
+                                        trend=trend,
+                                        epoch=epoch + 1,
+                                        current_loss=current_avg,
+                                        previous_loss=previous_avg,
+                                        improvement_rate=improvement_rate,
+                                        source="train.py",
+                                    ))
                                 except RuntimeError:
                                     pass
                 except (RuntimeError, ConnectionError, TimeoutError, AttributeError) as e:

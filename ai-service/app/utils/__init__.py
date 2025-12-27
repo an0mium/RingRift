@@ -6,6 +6,7 @@ and consolidated for maintainability.
 Modules:
     debug_utils: State comparison and parity debugging utilities
     torch_utils: Safe PyTorch operations including device detection (canonical)
+    numpy_utils: Safe NumPy operations including secure NPZ loading (Dec 2025)
     env_config: Typed environment variable access
     game_discovery: Unified game database discovery across all storage patterns
 
@@ -32,8 +33,11 @@ from __future__ import annotations
 __all__ = [
     "debug_utils",
     "env_config",
+    "numpy_utils",
     "torch_utils",
     "game_discovery",
+    # Safe NPZ loading (numpy_utils)
+    "safe_load_npz",
     # Device management (lazy)
     "get_device",
     "get_device_info",
@@ -76,6 +80,13 @@ _lazy_cache: dict = {}
 
 def __getattr__(name: str):
     """Lazy import for torch-dependent utilities."""
+
+    # Safe NPZ loading (numpy_utils - loads numpy)
+    if name == "safe_load_npz":
+        if "numpy_utils" not in _lazy_cache:
+            from app.utils.numpy_utils import safe_load_npz as _slnpz
+            _lazy_cache["numpy_utils"] = {"safe_load_npz": _slnpz}
+        return _lazy_cache["numpy_utils"]["safe_load_npz"]
 
     # Device management (torch_utils - loads torch)
     if name in ("get_device", "get_device_info"):

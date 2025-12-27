@@ -81,6 +81,8 @@ from typing import Any
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,7 +155,7 @@ def verify_npz_checksums(
     computed = {}
 
     try:
-        with np.load(npz_path, allow_pickle=True) as data:
+        with safe_load_npz(npz_path) as data:
             # Look for embedded checksums if not provided
             if expected_checksums is None:
                 if "data_checksums" in data:
@@ -836,7 +838,8 @@ class DatabaseQualityChecker:
                     break
 
             # Always emit QUALITY_SCORE_UPDATED
-            asyncio.get_event_loop().run_until_complete(
+            # Dec 2025: Use asyncio.run() instead of deprecated get_event_loop().run_until_complete()
+            asyncio.run(
                 emit_data_event(
                     event_type=DataEventType.QUALITY_SCORE_UPDATED,
                     payload={
@@ -855,7 +858,8 @@ class DatabaseQualityChecker:
             # Emit LOW_QUALITY_DATA_WARNING if score drops below threshold
             QUALITY_THRESHOLD = 0.8
             if report.quality_score < QUALITY_THRESHOLD:
-                asyncio.get_event_loop().run_until_complete(
+                # Dec 2025: Use asyncio.run() instead of deprecated get_event_loop().run_until_complete()
+                asyncio.run(
                     emit_data_event(
                         event_type=DataEventType.LOW_QUALITY_DATA_WARNING,
                         payload={
@@ -1030,7 +1034,7 @@ class TrainingDataValidator:
             return False
 
         try:
-            data = np.load(npz_path, allow_pickle=True)
+            data = safe_load_npz(npz_path)
 
             # Check required arrays
             available = set(data.keys())
@@ -1105,7 +1109,7 @@ class TrainingDataValidator:
             return stats
 
         try:
-            data = np.load(npz_path, allow_pickle=True)
+            data = safe_load_npz(npz_path)
             features = data["features"]
 
             # Overall statistics
@@ -1169,7 +1173,7 @@ class TrainingDataValidator:
             return outliers
 
         try:
-            data = np.load(npz_path, allow_pickle=True)
+            data = safe_load_npz(npz_path)
             features = data["features"]
             values = data["values"]
 
@@ -1231,7 +1235,7 @@ class TrainingDataValidator:
         issues = []
 
         try:
-            data = np.load(npz_path, allow_pickle=True)
+            data = safe_load_npz(npz_path)
             values = data["values"]
 
             # Validate value range
@@ -1467,7 +1471,7 @@ Examples:
         else:
             # Check if checksums exist but skip verification
             try:
-                with np.load(args.npz, allow_pickle=True) as data:
+                with safe_load_npz(args.npz) as data:
                     has_checksums = "data_checksums" in data
                     if has_checksums:
                         print(f"Checksums present: Yes (use --verify-checksums to verify)")

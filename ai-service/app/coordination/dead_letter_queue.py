@@ -41,6 +41,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Awaitable
 
+from app.core.async_context import safe_create_task
+
 logger = logging.getLogger(__name__)
 
 # Default database path
@@ -612,7 +614,10 @@ class DLQRetryDaemon:
             return
 
         self._running = True
-        self._task = asyncio.create_task(self._run_loop())
+        self._task = safe_create_task(
+            self._run_loop(),
+            name="dlq_retry_loop",
+        )
         logger.info(
             f"[DLQRetryDaemon] Started (interval={self.interval}s, "
             f"max_attempts={self.max_attempts})"

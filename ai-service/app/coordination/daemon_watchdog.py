@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from app.core.async_context import safe_create_task
+
 if TYPE_CHECKING:
     from app.coordination.daemon_manager import DaemonManager
 
@@ -334,7 +336,10 @@ class DaemonWatchdog:
             return
 
         self._running = True
-        self._task = asyncio.create_task(self._health_check_loop())
+        self._task = safe_create_task(
+            self._health_check_loop(),
+            name="daemon_watchdog",
+        )
         self._task.add_done_callback(self._handle_task_error)
 
     def _handle_task_error(self, task: asyncio.Task) -> None:

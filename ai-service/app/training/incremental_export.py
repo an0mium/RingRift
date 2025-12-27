@@ -54,6 +54,8 @@ from typing import Any
 
 import numpy as np
 
+from app.utils.numpy_utils import safe_load_npz
+
 logger = logging.getLogger(__name__)
 
 # Default paths
@@ -330,7 +332,7 @@ class ShardManager:
             if max_samples and total_samples >= max_samples:
                 break
 
-            with np.load(shard_path, allow_pickle=True) as data:
+            with safe_load_npz(shard_path) as data:
                 n_samples = len(data["features"])
 
                 # Limit samples if needed
@@ -394,7 +396,7 @@ class ShardManager:
         total = 0
         for shard_path in self.get_all_shards():
             try:
-                with np.load(shard_path, allow_pickle=True) as data:
+                with safe_load_npz(shard_path) as data:
                     total += len(data["features"])
             except (OSError, ValueError, KeyError):
                 pass

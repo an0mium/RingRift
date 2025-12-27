@@ -66,6 +66,7 @@ __all__ = [
 
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -245,6 +246,11 @@ class SelfplayScheduler:
 
         # Load priority overrides from config (Dec 2025)
         self._load_priority_overrides()
+
+        # Allocation metrics (rolling 1h window)
+        self._allocation_window_seconds = 3600
+        self._allocation_history: deque[tuple[float, int]] = deque()
+        self._games_allocated_total = 0
 
     def _load_priority_overrides(self) -> None:
         """Load board_priority_overrides from unified_loop.yaml.
@@ -750,6 +756,11 @@ class SelfplayScheduler:
                 priority = self._config_priorities[config_key]
                 priority.games_allocated = sum(node_allocation.values())
                 priority.nodes_allocated = list(node_allocation.keys())
+
+        total_allocated = sum(
+            sum(node_games.values()) for node_games in allocation.values()
+        )
+        self._record_allocation(total_allocated)
 
         logger.info(
             f"[SelfplayScheduler] Allocated {len(allocation)} configs: "
@@ -1671,6 +1682,31 @@ class SelfplayScheduler:
     # =========================================================================
     # Status & Metrics
     # =========================================================================
+
+    def _record_allocation(self, games_allocated: int) -> None:
+        """Record allocation metrics for rolling throughput tracking."""
+        if games_allocated <= 0:
+            return
+        now = time.time()
+        self._games_allocated_total += games_allocated
+        self._allocation_history.append((now, games_allocated))
+
+        cutoff = now - self._allocation_window_seconds
+        while self._allocation_history and self._allocation_history[0][0] < cutoff:
+            self._allocation_history.popleft()
+
+    def get_metrics(self) -> dict[str, Any]:
+        """Get throughput metrics for monitoring."""
+        recent_games = sum(games for _, games in self._allocation_history)
+        window_hours = self._allocation_window_seconds / 3600.0
+        games_per_hour = recent_games / window_hours if window_hours > 0 else 0.0
+
+        return {
+            "games_allocated_total": self._games_allocated_total,
+            "games_allocated_last_hour": recent_games,
+            "games_per_hour": games_per_hour,
+            "allocation_window_seconds": self._allocation_window_seconds,
+        }
 
     def get_status(self) -> dict[str, Any]:
         """Get scheduler status."""

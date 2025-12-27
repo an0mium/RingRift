@@ -264,10 +264,9 @@ describe('VictoryModal – GameEndExplanation-driven copy', () => {
     expect(screen.getByText('🏰 Alice Wins!')).toBeInTheDocument();
 
     // Assert mini-region semantics without pinning exact prose.
-    const description = screen.getByText(
-      /Victory by territory after resolving the final disconnected mini-region/i
-    );
+    const description = screen.getByText(/final disconnected mini-region/i);
     expect(description).toBeInTheDocument();
+    expect(description).toHaveTextContent(/Territory Control/i);
     expect(description).toHaveTextContent(/rules compared Territory spaces/i);
   });
 

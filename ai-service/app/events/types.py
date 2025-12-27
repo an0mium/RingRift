@@ -384,8 +384,11 @@ class RingRiftEventType(Enum):
     P2P_CLUSTER_UNHEALTHY = "p2p_cluster_unhealthy"
     """P2P cluster is unhealthy."""
 
+    P2P_NODE_DEAD = "p2p_node_dead"
+    """Single P2P node detected as dead (Dec 2025)."""
+
     P2P_NODES_DEAD = "p2p_nodes_dead"
-    """P2P nodes detected as dead."""
+    """P2P nodes detected as dead (batch)."""
 
     P2P_SELFPLAY_SCALED = "p2p_selfplay_scaled"
     """P2P selfplay scaled up/down."""

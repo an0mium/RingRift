@@ -352,7 +352,7 @@ class EnhancementsWrapper:
                 gradient_surgery_enabled=self.config.enable_gradient_surgery,
                 batch_scheduling_enabled=self.config.enable_batch_scheduling,
                 elo_weighting_enabled=self.config.enable_elo_weighting,
-                curriculum_learning_enabled=self.config.enable_curriculum,
+                curriculum_enabled=self.config.enable_curriculum,
                 augmentation_enabled=self.config.enable_augmentation,
                 reanalysis_enabled=self.config.enable_reanalysis,
                 reanalysis_blend_ratio=self.config.reanalysis_blend_ratio,
@@ -396,6 +396,43 @@ class EnhancementsWrapper:
         if self._manager is not None:
             return self._manager.get_curriculum_parameters()
         return {}
+
+    def should_distill(self, current_epoch: int) -> bool:
+        """Check if knowledge distillation should be triggered.
+
+        Args:
+            current_epoch: Current training epoch number
+
+        Returns:
+            True if distillation should be performed
+        """
+        if self._manager is not None:
+            return self._manager.should_distill(current_epoch)
+        return False
+
+    def run_distillation(self, current_epoch: int, dataloader: Any) -> bool:
+        """Run knowledge distillation from ensemble to current model.
+
+        Args:
+            current_epoch: Current training epoch
+            dataloader: Training data loader
+
+        Returns:
+            True if distillation was successful
+        """
+        if self._manager is not None:
+            return self._manager.run_distillation(current_epoch, dataloader)
+        return False
+
+    def get_distillation_stats(self) -> dict[str, Any]:
+        """Get distillation statistics.
+
+        Returns:
+            Dictionary with distillation statistics
+        """
+        if self._manager is not None:
+            return self._manager.get_distillation_stats()
+        return {"enabled": False}
 
     @property
     def available(self) -> bool:
@@ -1791,6 +1828,245 @@ class UnifiedTrainingOrchestrator:
     def online_learning_available(self) -> bool:
         """Check if online learning is available."""
         return self._online_learning.available
+
+    # =========================================================================
+    # Reanalysis Pipeline Integration
+    # =========================================================================
+
+    def should_reanalyze(self, config_key: str = "") -> bool:
+        """Check if reanalysis should be triggered.
+
+        Reanalysis improves training data quality by using MCTS to generate
+        higher-quality value targets, providing +40-120 Elo improvement.
+
+        Reanalysis is triggered when:
+        1. Reanalysis is enabled
+        2. Reanalysis engine is initialized
+        3. Model has improved by at least min_model_elo_delta
+        4. Sufficient time has passed since last reanalysis
+
+        Args:
+            config_key: Config identifier (unused, for API compatibility)
+
+        Returns:
+            True if reanalysis should be performed
+        """
+        if not self._enhancements.available:
+            return False
+
+        try:
+            return self._enhancements._manager.should_reanalyze()
+        except (AttributeError, TypeError):
+            return False
+
+    def run_reanalysis(
+        self,
+        config_key: str = "",
+        npz_path: str | None = None,
+        db_path: str | None = None,
+        num_players: int | None = None,
+    ) -> dict[str, Any]:
+        """Execute reanalysis on cached training data.
+
+        Reanalyzes positions using the current model and blends values
+        with original targets using MuZero-style weighted averaging.
+
+        If MCTS mode is enabled and a database path is provided, uses GPU
+        Gumbel MCTS search for higher-quality soft policy targets.
+
+        Args:
+            config_key: Config identifier (unused, for API compatibility)
+            npz_path: Path to NPZ file to reanalyze (for inference-only mode)
+            db_path: Path to game database for MCTS-based reanalysis
+            num_players: Number of players (defaults to config.num_players)
+
+        Returns:
+            Result dict with:
+            - success: True if reanalysis completed successfully
+            - output_path: Path to reanalyzed NPZ file (if success=True)
+            - positions_reanalyzed: Number of positions reanalyzed
+            - error: Error message (if success=False)
+        """
+        if not self._enhancements.available:
+            return {
+                "success": False,
+                "error": "Enhancements not available",
+                "positions_reanalyzed": 0,
+            }
+
+        # Use configured num_players if not provided
+        if num_players is None:
+            num_players = self.config.num_players
+
+        try:
+            output_path = self._enhancements._manager.process_reanalysis(
+                npz_path=npz_path,
+                db_path=db_path,
+                num_players=num_players,
+            )
+
+            if output_path is not None:
+                # Get stats from reanalysis engine
+                stats = self._enhancements._manager.get_reanalysis_stats()
+                return {
+                    "success": True,
+                    "output_path": output_path,
+                    "positions_reanalyzed": stats.get("positions_reanalyzed", 0),
+                    "games_reanalyzed": stats.get("games_reanalyzed", 0),
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Reanalysis returned None",
+                    "positions_reanalyzed": 0,
+                }
+        except Exception as e:
+            logger.error(f"[Orchestrator] Reanalysis failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "positions_reanalyzed": 0,
+            }
+
+    def get_reanalysis_stats(self) -> dict[str, Any]:
+        """Get reanalysis statistics.
+
+        Returns:
+            Dictionary with reanalysis statistics:
+            - enabled: Whether reanalysis is enabled
+            - positions_reanalyzed: Total positions reanalyzed
+            - games_reanalyzed: Total games reanalyzed
+            - last_reanalysis_time: Unix timestamp of last reanalysis
+            - last_reanalysis_step: Training step of last reanalysis
+            - blend_ratio: Value blend ratio (new vs old)
+            - use_mcts: Whether MCTS mode is enabled
+            - mcts_simulations: Number of MCTS simulations per position
+            - capture_q_values: Whether Q-values are captured
+            - capture_uncertainty: Whether uncertainty is captured
+        """
+        if not self._enhancements.available:
+            return {"enabled": False}
+
+        try:
+            return self._enhancements._manager.get_reanalysis_stats()
+        except (AttributeError, TypeError):
+            return {"enabled": False}
+
+    # =========================================================================
+    # Knowledge Distillation Pipeline Integration
+    # =========================================================================
+
+    def should_distill(self, config_key: str = "") -> bool:
+        """Check if knowledge distillation should be triggered.
+
+        Distillation compresses ensemble knowledge into the current model,
+        providing +15-25 Elo improvement through teacher ensemble averaging.
+
+        Distillation is triggered when:
+        1. Distillation is enabled
+        2. Checkpoint directory is set
+        3. Sufficient epochs have passed since last distillation
+        4. At least 2 teacher checkpoints are available
+
+        Args:
+            config_key: Config identifier (unused, for API compatibility)
+
+        Returns:
+            True if distillation should be performed
+        """
+        if not self._enhancements.available:
+            return False
+
+        try:
+            return self._enhancements.should_distill(self._epoch)
+        except (AttributeError, TypeError):
+            return False
+
+    def run_distillation(
+        self,
+        config_key: str = "",
+        dataloader: Any | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """Execute knowledge distillation from ensemble to current model.
+
+        Distills knowledge from best historical checkpoints into the
+        current model using soft targets (high temperature softmax).
+
+        Args:
+            config_key: Config identifier (unused, for API compatibility)
+            dataloader: Training data loader (required)
+            **kwargs: Additional arguments (reserved for future use)
+
+        Returns:
+            Result dict with:
+            - success: True if distillation completed successfully
+            - teachers_used: Number of teacher checkpoints used
+            - epochs_trained: Number of distillation epochs
+            - error: Error message (if success=False)
+        """
+        if not self._enhancements.available:
+            return {
+                "success": False,
+                "error": "Enhancements not available",
+                "teachers_used": 0,
+            }
+
+        if dataloader is None:
+            return {
+                "success": False,
+                "error": "Dataloader required for distillation",
+                "teachers_used": 0,
+            }
+
+        try:
+            success = self._enhancements.run_distillation(self._epoch, dataloader)
+
+            if success:
+                # Get stats from distillation
+                stats = self._enhancements.get_distillation_stats()
+                return {
+                    "success": True,
+                    "teachers_used": stats.get("available_teachers", 0),
+                    "epochs_trained": stats.get("interval_epochs", 0),
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Distillation returned False",
+                    "teachers_used": 0,
+                }
+        except Exception as e:
+            logger.error(f"[Orchestrator] Distillation failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "teachers_used": 0,
+            }
+
+    def get_distillation_stats(self) -> dict[str, Any]:
+        """Get distillation statistics.
+
+        Returns:
+            Dictionary with distillation statistics:
+            - enabled: Whether distillation is enabled
+            - temperature: Softmax temperature for soft targets
+            - alpha: Weight of soft targets vs hard targets
+            - last_distillation_epoch: Epoch of last distillation
+            - available_teachers: Number of teacher checkpoints available
+            - interval_epochs: Epochs between distillation runs
+        """
+        if not self._enhancements.available:
+            return {"enabled": False}
+
+        try:
+            return self._enhancements.get_distillation_stats()
+        except (AttributeError, TypeError):
+            return {"enabled": False}
+
+    # =========================================================================
+    # Rollback Manager Integration
+    # =========================================================================
 
     @property
     def rollback_available(self) -> bool:

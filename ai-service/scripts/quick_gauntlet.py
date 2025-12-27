@@ -17,6 +17,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.training.game_gauntlet import run_baseline_gauntlet, BaselineOpponent
 
 
+def _configure_multiprocessing() -> None:
+    """Configure multiprocessing for spawn-safe entrypoints."""
+    try:
+        import multiprocessing as mp
+
+        mp.freeze_support()
+        try:
+            mp.set_start_method("spawn")
+        except RuntimeError:
+            pass  # Start method already set
+    except Exception:
+        pass
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -112,4 +126,5 @@ def main():
 
 
 if __name__ == "__main__":
+    _configure_multiprocessing()
     main()

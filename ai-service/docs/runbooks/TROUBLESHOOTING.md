@@ -206,6 +206,23 @@ for m in models:
    python scripts/auto_promote.py --sync-to-cluster --model models/hex8_2p/best.pth
    ```
 
+**Gauntlet progress events:**
+
+If you are monitoring `EVALUATION_PROGRESS` events, the payload now includes
+`config_key` and `board_type` so you can attribute progress to a specific
+config:
+
+```json
+{
+  "config_key": "square19_2p",
+  "board_type": "square19",
+  "baseline": "random",
+  "games_completed": 10,
+  "games_total": 100,
+  "current_win_rate": 0.55
+}
+```
+
 ---
 
 ## Database Locked

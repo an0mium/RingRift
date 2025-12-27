@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.async_context import safe_create_task
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,7 +109,10 @@ class AutoExportDaemon:
         await self._subscribe_to_events()
 
         # Start background monitoring task
-        self._task = asyncio.create_task(self._monitor_loop())
+        self._task = safe_create_task(
+            self._monitor_loop(),
+            name="auto_export_monitor",
+        )
         self._task.add_done_callback(self._on_task_done)
 
     async def stop(self) -> None:
@@ -425,7 +430,10 @@ class AutoExportDaemon:
             return
 
         # Trigger export
-        asyncio.create_task(self._run_export(config_key))
+        safe_create_task(
+            self._run_export(config_key),
+            name=f"export_{config_key}",
+        )
 
     async def _run_export(self, config_key: str) -> bool:
         """Run the export subprocess for a configuration."""

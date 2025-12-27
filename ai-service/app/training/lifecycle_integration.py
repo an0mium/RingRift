@@ -285,7 +285,8 @@ class BackgroundSelfplayService(Service):
             return True, None, 0
 
         # Run in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
+        # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             lambda: self._manager.wait_for_current(timeout),

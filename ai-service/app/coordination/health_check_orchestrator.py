@@ -36,6 +36,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+from app.core.async_context import safe_create_task
 from app.providers import (
     AWSManager,
     HetznerManager,
@@ -214,7 +215,10 @@ class HealthCheckOrchestrator:
             return
 
         self._running = True
-        self._task = asyncio.create_task(self._check_loop())
+        self._task = safe_create_task(
+            self._check_loop(),
+            name="health_check_loop",
+        )
         logger.info(
             f"[HealthCheckOrchestrator] Started (interval={self.check_interval}s)"
         )

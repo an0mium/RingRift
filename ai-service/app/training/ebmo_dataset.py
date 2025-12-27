@@ -37,6 +37,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 
+from app.utils.numpy_utils import safe_load_npz
+
 logger = logging.getLogger(__name__)
 
 
@@ -240,7 +242,8 @@ class GameDataParser:
             Dict with arrays or None if invalid
         """
         try:
-            data = np.load(path, allow_pickle=True)
+            # safe_load_npz tries without pickle first for security
+            data = safe_load_npz(path)
 
             # Validate required keys
             required = ["features", "values"]
