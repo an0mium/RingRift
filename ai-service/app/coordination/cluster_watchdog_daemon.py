@@ -18,6 +18,8 @@ Usage:
 
     daemon = ClusterWatchdogDaemon()
     await daemon.start()
+
+Dec 2025: Refactored to use BaseDaemon base class (~80 LOC reduction).
 """
 
 from __future__ import annotations
@@ -26,19 +28,13 @@ import asyncio
 import logging
 import os
 import shlex
-import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.coordination.protocols import (
-    CoordinatorStatus,
-    register_coordinator,
-    unregister_coordinator,
-)
-from app.core.async_context import safe_create_task
+from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +52,13 @@ from app.coordination.event_emitters import (
 
 
 @dataclass
-class ClusterWatchdogConfig:
-    """Configuration for cluster watchdog daemon."""
-    enabled: bool = True
-    # How often to check cluster (5 minutes)
-    check_interval_seconds: int = 300
+class ClusterWatchdogConfig(DaemonConfig):
+    """Configuration for cluster watchdog daemon.
+
+    Extends DaemonConfig with watchdog-specific settings.
+    """
+
+    # Watchdog-specific settings
     # Minimum GPU utilization threshold - below this, spawn selfplay
     min_gpu_utilization: float = 20.0
     # Maximum consecutive failures before escalation
@@ -84,16 +82,16 @@ class ClusterWatchdogConfig:
     games_per_spawn: int = 1000
 
     @classmethod
-    def from_env(cls) -> ClusterWatchdogConfig:
+    def from_env(cls, prefix: str = "RINGRIFT_WATCHDOG") -> "ClusterWatchdogConfig":
         """Load configuration from environment variables."""
         config = cls()
-        config.enabled = os.environ.get("RINGRIFT_WATCHDOG_ENABLED", "1") == "1"
-        config.check_interval_seconds = int(
-            os.environ.get("RINGRIFT_WATCHDOG_INTERVAL", "300")
-        )
-        config.min_gpu_utilization = float(
-            os.environ.get("RINGRIFT_WATCHDOG_MIN_GPU", "20.0")
-        )
+        # Load base config
+        config.enabled = os.environ.get(f"{prefix}_ENABLED", "1") == "1"
+        if os.environ.get(f"{prefix}_INTERVAL"):
+            config.check_interval_seconds = int(os.environ.get(f"{prefix}_INTERVAL", "300"))
+        # Load watchdog-specific
+        if os.environ.get(f"{prefix}_MIN_GPU"):
+            config.min_gpu_utilization = float(os.environ.get(f"{prefix}_MIN_GPU", "20.0"))
         return config
 
 
@@ -136,107 +134,39 @@ class WatchdogCycleStats:
 # =============================================================================
 
 
-class ClusterWatchdogDaemon:
+class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
     """Self-healing daemon for cluster utilization.
 
     Monitors all provider nodes and auto-spawns selfplay on idle GPUs.
+
+    Inherits from BaseDaemon which provides:
+    - Lifecycle management (start/stop)
+    - Coordinator protocol registration
+    - Protected main loop with error handling
+    - Health check interface
     """
 
     def __init__(self, config: ClusterWatchdogConfig | None = None):
-        self.config = config or ClusterWatchdogConfig.from_env()
-        self._running = False
-        self._task: asyncio.Task | None = None
+        super().__init__(config)
         self._nodes: dict[str, WatchdogNodeStatus] = {}
         self._config_index = 0  # Cycle through selfplay configs
         self._last_cycle_stats: WatchdogCycleStats | None = None
-        self._hostname = socket.gethostname()
-        self._start_time = 0.0
 
         # Path to cluster_activator.py for node discovery
         self._activator_path = Path(__file__).parent.parent.parent / "scripts" / "cluster_activator.py"
 
-    @property
-    def is_running(self) -> bool:
-        """Check if daemon is running."""
-        return self._running
+    @staticmethod
+    def _get_default_config() -> ClusterWatchdogConfig:
+        """Return default configuration."""
+        return ClusterWatchdogConfig.from_env()
 
-    @property
-    def uptime_seconds(self) -> float:
-        """Get daemon uptime in seconds."""
-        if self._start_time > 0:
-            return time.time() - self._start_time
-        return 0.0
-
-    async def start(self) -> None:
-        """Start the watchdog daemon."""
-        if self._running:
-            logger.warning("[ClusterWatchdog] Already running")
-            return
-
-        if not self.config.enabled:
-            logger.info("[ClusterWatchdog] Disabled via config")
-            return
-
-        self._running = True
-        self._start_time = time.time()
-
-        # Register with coordinator registry
-        register_coordinator(
-            "cluster_watchdog",
-            CoordinatorStatus(
-                coordinator_type="cluster_watchdog",
-                is_running=True,
-                host=self._hostname,
-                start_time=self._start_time,
-            ),
-        )
-
+    async def _on_start(self) -> None:
+        """Log watchdog-specific startup info."""
         logger.info(
-            f"[ClusterWatchdog] Starting on {self._hostname} "
-            f"(interval={self.config.check_interval_seconds}s, "
-            f"min_gpu={self.config.min_gpu_utilization}%)"
+            f"[{self._get_daemon_name()}] Config: "
+            f"interval={self.config.check_interval_seconds}s, "
+            f"min_gpu={self.config.min_gpu_utilization}%"
         )
-
-        self._task = safe_create_task(
-            self._main_loop(),
-            name="cluster_watchdog_main",
-        )
-
-    async def stop(self) -> None:
-        """Stop the watchdog daemon."""
-        if not self._running:
-            return
-
-        logger.info("[ClusterWatchdog] Stopping...")
-        self._running = False
-
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
-
-        unregister_coordinator("cluster_watchdog")
-        logger.info("[ClusterWatchdog] Stopped")
-
-    async def _main_loop(self) -> None:
-        """Main watchdog loop."""
-        try:
-            while self._running:
-                try:
-                    await self._run_cycle()
-                except Exception as e:
-                    logger.error(f"[ClusterWatchdog] Cycle failed: {e}")
-
-                # Wait for next cycle
-                await asyncio.sleep(self.config.check_interval_seconds)
-
-        except asyncio.CancelledError:
-            logger.debug("[ClusterWatchdog] Main loop cancelled")
-        except Exception as e:
-            logger.error(f"[ClusterWatchdog] Main loop crashed: {e}")
-            self._running = False
 
     async def _run_cycle(self) -> None:
         """Run a single watchdog cycle."""
@@ -638,32 +568,34 @@ class ClusterWatchdogDaemon:
             return False
 
     def get_status(self) -> dict[str, Any]:
-        """Get daemon status for monitoring."""
-        return {
-            "running": self._running,
-            "hostname": self._hostname,
-            "uptime_seconds": self.uptime_seconds,
-            "config": {
-                "check_interval": self.config.check_interval_seconds,
-                "min_gpu_utilization": self.config.min_gpu_utilization,
-            },
-            "tracked_nodes": len(self._nodes),
-            "last_cycle": {
-                "discovered": self._last_cycle_stats.nodes_discovered if self._last_cycle_stats else 0,
-                "reachable": self._last_cycle_stats.nodes_reachable if self._last_cycle_stats else 0,
-                "idle": self._last_cycle_stats.nodes_idle if self._last_cycle_stats else 0,
-                "activated": self._last_cycle_stats.nodes_activated if self._last_cycle_stats else 0,
-                "failed": self._last_cycle_stats.nodes_failed if self._last_cycle_stats else 0,
-            } if self._last_cycle_stats else None,
-            "nodes": [
-                {
-                    "id": n.node_id,
-                    "provider": n.provider,
-                    "gpu_util": n.gpu_utilization,
-                    "processes": n.python_processes,
-                    "reachable": n.is_reachable,
-                    "failures": n.consecutive_failures,
-                }
-                for n in self._nodes.values()
-            ],
-        }
+        """Get daemon status for monitoring.
+
+        Extends base class status with watchdog-specific fields.
+        """
+        status = super().get_status()
+
+        # Add watchdog-specific config
+        status["config"]["min_gpu_utilization"] = self.config.min_gpu_utilization
+
+        # Add watchdog-specific stats
+        status["tracked_nodes"] = len(self._nodes)
+        status["last_cycle"] = {
+            "discovered": self._last_cycle_stats.nodes_discovered if self._last_cycle_stats else 0,
+            "reachable": self._last_cycle_stats.nodes_reachable if self._last_cycle_stats else 0,
+            "idle": self._last_cycle_stats.nodes_idle if self._last_cycle_stats else 0,
+            "activated": self._last_cycle_stats.nodes_activated if self._last_cycle_stats else 0,
+            "failed": self._last_cycle_stats.nodes_failed if self._last_cycle_stats else 0,
+        } if self._last_cycle_stats else None
+        status["nodes"] = [
+            {
+                "id": n.node_id,
+                "provider": n.provider,
+                "gpu_util": n.gpu_utilization,
+                "processes": n.python_processes,
+                "reachable": n.is_reachable,
+                "failures": n.consecutive_failures,
+            }
+            for n in self._nodes.values()
+        ]
+
+        return status

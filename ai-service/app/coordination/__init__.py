@@ -384,6 +384,13 @@ from app.coordination.daemon_factory import (
     reset_daemon_factory,
 )
 
+# BaseDaemon - abstract base class for all cluster daemons (December 2025)
+# Consolidates ~650 LOC of lifecycle, coordinator protocol, and error handling patterns
+from app.coordination.base_daemon import (
+    BaseDaemon,
+    DaemonConfig,
+)
+
 # Idle Daemon Backward Compatibility (December 2025)
 # DEPRECATED: LambdaIdleDaemon and VastIdleDaemon are consolidated into UnifiedIdleShutdownDaemon
 # Use create_lambda_idle_daemon() or create_vast_idle_daemon() factory functions instead
@@ -1630,6 +1637,7 @@ __all__ = [
     "BackpressureLevel",
     "BandwidthAllocation",
     "BandwidthManager",
+    "BaseDaemon",
     "BatchChecksum",
     "BoundedHistory",
     "CacheConfig",

@@ -20,6 +20,8 @@ Environment variables:
     LAMBDA_API_KEY: Lambda Cloud API key for instance management
     RINGRIFT_NODE_RECOVERY_ENABLED: Enable/disable recovery (default: 1)
     RINGRIFT_NODE_RECOVERY_INTERVAL: Check interval in seconds (default: 300)
+
+Dec 2025: Refactored to use BaseDaemon base class (~100 LOC reduction).
 """
 
 from __future__ import annotations
@@ -27,19 +29,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import socket
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
-from app.coordination.protocols import (
-    CoordinatorStatus,
-    register_coordinator,
-    unregister_coordinator,
-)
-from app.core.async_context import safe_create_task
+from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +64,12 @@ class NodeProvider(Enum):
 
 
 @dataclass
-class NodeRecoveryConfig:
-    """Configuration for node recovery."""
-    enabled: bool = True
-    check_interval_seconds: int = 300  # 5 minutes
+class NodeRecoveryConfig(DaemonConfig):
+    """Configuration for node recovery.
+
+    Extends DaemonConfig with recovery-specific settings.
+    """
+
     # Provider-specific settings
     lambda_api_key: str = ""
     vast_api_key: str = ""
@@ -86,13 +83,12 @@ class NodeRecoveryConfig:
     preemptive_recovery_enabled: bool = True
 
     @classmethod
-    def from_env(cls) -> NodeRecoveryConfig:
+    def from_env(cls, prefix: str = "RINGRIFT_NODE_RECOVERY") -> "NodeRecoveryConfig":
         """Load configuration from environment variables."""
         config = cls()
-        config.enabled = os.environ.get("RINGRIFT_NODE_RECOVERY_ENABLED", "1") == "1"
-        config.check_interval_seconds = int(
-            os.environ.get("RINGRIFT_NODE_RECOVERY_INTERVAL", "300")
-        )
+        config.enabled = os.environ.get(f"{prefix}_ENABLED", "1") == "1"
+        if os.environ.get(f"{prefix}_INTERVAL"):
+            config.check_interval_seconds = int(os.environ.get(f"{prefix}_INTERVAL", "300"))
         config.lambda_api_key = os.environ.get("LAMBDA_API_KEY", "")
         config.vast_api_key = os.environ.get("VAST_API_KEY", "")
         config.runpod_api_key = os.environ.get("RUNPOD_API_KEY", "")
@@ -129,103 +125,52 @@ class RecoveryStats:
     last_error: str | None = None
 
 
-class NodeRecoveryDaemon:
+class NodeRecoveryDaemon(BaseDaemon[NodeRecoveryConfig]):
     """Daemon that monitors nodes and triggers recovery actions.
 
     Continuously monitors cluster for terminated or failing nodes
     and automatically triggers recovery when possible.
+
+    Inherits from BaseDaemon which provides:
+    - Lifecycle management (start/stop)
+    - Coordinator protocol registration
+    - Protected main loop with error handling
+    - Health check interface
     """
 
     def __init__(self, config: NodeRecoveryConfig | None = None):
-        self.config = config or NodeRecoveryConfig.from_env()
-        self.node_id = socket.gethostname()
-        self._running = False
+        super().__init__(config)
         self._stats = RecoveryStats()
-        self._monitor_task: asyncio.Task | None = None
 
         # Track node states
         self._node_states: dict[str, NodeInfo] = {}
 
-        # CoordinatorProtocol state
-        self._coordinator_status = CoordinatorStatus.INITIALIZING
-        self._start_time: float = 0.0
-        self._events_processed: int = 0
-        self._errors_count: int = 0
-        self._last_error: str = ""
-
         # HTTP session for API calls
         self._http_session = None
 
+    @staticmethod
+    def _get_default_config() -> NodeRecoveryConfig:
+        """Return default configuration."""
+        return NodeRecoveryConfig.from_env()
+
+    async def _on_start(self) -> None:
+        """Initialize on startup."""
         logger.info(
-            f"NodeRecoveryDaemon initialized: node={self.node_id}, "
+            f"[{self._get_daemon_name()}] Config: "
             f"interval={self.config.check_interval_seconds}s, "
             f"lambda_api={'set' if self.config.lambda_api_key else 'not set'}"
         )
-
-    def is_running(self) -> bool:
-        """Check if the daemon is running."""
-        return self._running
-
-    async def start(self) -> None:
-        """Start the node recovery daemon."""
-        if not self.config.enabled:
-            self._coordinator_status = CoordinatorStatus.STOPPED
-            logger.info("NodeRecoveryDaemon disabled by config")
-            return
-
-        if self._coordinator_status == CoordinatorStatus.RUNNING:
-            return  # Already running
-
-        self._running = True
-        self._coordinator_status = CoordinatorStatus.RUNNING
-        self._start_time = time.time()
-        logger.info(f"Starting NodeRecoveryDaemon on {self.node_id}")
-
-        # Register with coordinator protocol
-        try:
-            register_coordinator("node_recovery", self)
-        except Exception as e:
-            logger.debug(f"Failed to register coordinator: {e}")
-
         # Subscribe to P2P node death events
         self._subscribe_to_events()
 
-        # Start monitoring loop
-        self._monitor_task = safe_create_task(
-            self._monitor_loop(),
-            name="node_recovery_monitor"
-        )
-
-    async def stop(self) -> None:
-        """Stop the node recovery daemon."""
-        if self._coordinator_status == CoordinatorStatus.STOPPED:
-            return  # Already stopped
-
-        self._coordinator_status = CoordinatorStatus.STOPPING
-        logger.info("Stopping NodeRecoveryDaemon...")
-        self._running = False
-
-        # Stop monitor task
-        if self._monitor_task:
-            self._monitor_task.cancel()
-            try:
-                await self._monitor_task
-            except asyncio.CancelledError:
-                pass
-
+    async def _on_stop(self) -> None:
+        """Cleanup on shutdown."""
         # Close HTTP session
         if self._http_session:
             await self._http_session.close()
 
-        # Unregister coordinator
-        try:
-            unregister_coordinator("node_recovery")
-        except (KeyError, RuntimeError, AttributeError):
-            pass
-
-        self._coordinator_status = CoordinatorStatus.STOPPED
         logger.info(
-            f"NodeRecoveryDaemon stopped. Stats: "
+            f"[{self._get_daemon_name()}] Stats: "
             f"{self._stats.nodes_recovered} recovered, "
             f"{self._stats.recovery_failures} failures"
         )
@@ -265,21 +210,14 @@ class NodeRecoveryDaemon:
                     f"(failures: {node.consecutive_failures})"
                 )
 
-    async def _monitor_loop(self) -> None:
-        """Main monitoring loop."""
-        while self._running:
-            try:
-                await self._check_nodes()
-                self._stats.total_checks += 1
-                self._stats.last_check_time = time.time()
-                await asyncio.sleep(self.config.check_interval_seconds)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self._errors_count += 1
-                self._last_error = str(e)
-                logger.error(f"Monitor loop error: {e}")
-                await asyncio.sleep(60)  # Back off on error
+    async def _run_cycle(self) -> None:
+        """Run one recovery cycle.
+
+        Called by BaseDaemon's protected main loop.
+        """
+        await self._check_nodes()
+        self._stats.total_checks += 1
+        self._stats.last_check_time = time.time()
 
     async def _check_nodes(self) -> None:
         """Check all known nodes and trigger recovery if needed."""
@@ -820,21 +758,6 @@ class NodeRecoveryDaemon:
             except (OSError, IOError) as e:
                 logger.debug(f"Failed to emit recovery event (I/O error): {e}")
 
-    def get_stats(self) -> dict[str, Any]:
-        """Get daemon statistics."""
-        return {
-            "running": self._running,
-            "uptime_seconds": time.time() - self._start_time if self._start_time else 0,
-            "total_checks": self._stats.total_checks,
-            "nodes_recovered": self._stats.nodes_recovered,
-            "recovery_failures": self._stats.recovery_failures,
-            "preemptive_recoveries": self._stats.preemptive_recoveries,
-            "last_check_time": self._stats.last_check_time,
-            "last_error": self._stats.last_error,
-            "tracked_nodes": len(self._node_states),
-            "errors_count": self._errors_count,
-        }
-
     def get_node_states(self) -> dict[str, dict[str, Any]]:
         """Get current node states."""
         return {
@@ -849,16 +772,23 @@ class NodeRecoveryDaemon:
             for node_id, node in self._node_states.items()
         }
 
-    # CoordinatorProtocol methods
-    async def health_check(self) -> dict[str, Any]:
-        """Perform health check."""
-        return {
-            "healthy": self._running,
-            "status": self._coordinator_status.value,
-            "stats": self.get_stats(),
-            "nodes": self.get_node_states(),
-        }
+    def get_status(self) -> dict[str, Any]:
+        """Get daemon status for monitoring.
 
-    def get_status(self) -> CoordinatorStatus:
-        """Get coordinator status."""
-        return self._coordinator_status
+        Extends base class status with recovery-specific fields.
+        """
+        status = super().get_status()
+
+        # Add recovery-specific stats
+        status["recovery_stats"] = {
+            "total_checks": self._stats.total_checks,
+            "nodes_recovered": self._stats.nodes_recovered,
+            "recovery_failures": self._stats.recovery_failures,
+            "preemptive_recoveries": self._stats.preemptive_recoveries,
+            "last_check_time": self._stats.last_check_time,
+            "last_error": self._stats.last_error,
+        }
+        status["tracked_nodes"] = len(self._node_states)
+        status["nodes"] = self.get_node_states()
+
+        return status
