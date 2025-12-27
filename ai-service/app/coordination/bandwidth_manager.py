@@ -96,13 +96,11 @@ except ImportError:
     MEASUREMENT_WINDOW = 300  # 5 minutes
 
 
-class TransferPriority(Enum):
-    """Priority levels for bandwidth allocation."""
-    CRITICAL = "critical"   # Emergency/urgent transfers
-    HIGH = "high"           # Production data
-    NORMAL = "normal"       # Regular sync
-    LOW = "low"             # Bulk transfers
-    BACKGROUND = "background"  # Best effort
+# December 2025: Import TransferPriority from canonical source
+from app.coordination.types import TransferPriority
+
+# TransferPriority is now imported from app.coordination.types
+# Canonical values: CRITICAL, HIGH, NORMAL, LOW, BACKGROUND
 
 
 @dataclass

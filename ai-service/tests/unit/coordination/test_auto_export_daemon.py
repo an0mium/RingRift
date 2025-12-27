@@ -191,12 +191,19 @@ class TestAutoExportDaemon:
             assert result == expected, f"Failed for: {output}"
 
     def test_config_defaults(self):
-        """Test AutoExportConfig default values."""
+        """Test AutoExportConfig default values.
+
+        December 2025: Thresholds lowered for faster training iteration:
+        - min_games_threshold: 500 → 100 → 50
+        - export_cooldown_seconds: 1800 → 300 → 60
+        """
         config = AutoExportConfig()
 
         assert config.enabled is True
-        assert config.min_games_threshold == 100
-        assert config.export_cooldown_seconds == 300
+        # Lowered from 100 → 50 (Dec 2025) for faster training iteration
+        assert config.min_games_threshold == 50
+        # Reduced from 300s → 60s (Dec 2025) to minimize training data lag
+        assert config.export_cooldown_seconds == 60
         assert config.max_concurrent_exports == 2
         assert config.use_incremental_export is True
         assert config.require_completed_games is True

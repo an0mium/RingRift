@@ -53,15 +53,13 @@ DEGRADED_COOLDOWN_SECONDS = CoordinatorHealthDefaults.DEGRADED_COOLDOWN
 INIT_FAILURE_MAX_RETRIES = CoordinatorHealthDefaults.INIT_FAILURE_MAX_RETRIES
 
 
-class CoordinatorState(Enum):
-    """State of a coordinator."""
+# December 2025: Import CoordinatorHealthState from canonical source
+from app.coordination.types import CoordinatorHealthState
 
-    UNKNOWN = "unknown"
-    HEALTHY = "healthy"
-    UNHEALTHY = "unhealthy"
-    DEGRADED = "degraded"
-    SHUTDOWN = "shutdown"
-    INIT_FAILED = "init_failed"
+# CoordinatorHealthState is now imported from app.coordination.types
+# Canonical values: UNKNOWN, HEALTHY, UNHEALTHY, DEGRADED, SHUTDOWN, INIT_FAILED
+# Backward-compat alias:
+CoordinatorState = CoordinatorHealthState
 
 
 @dataclass

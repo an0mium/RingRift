@@ -77,14 +77,11 @@ logger = logging.getLogger(__name__)
 # Enums (consolidated from both modules)
 # =============================================================================
 
+# December 2025: Import ErrorSeverity from canonical source
+from app.coordination.types import ErrorSeverity
 
-class ErrorSeverity(Enum):
-    """Error severity levels."""
-
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
+# ErrorSeverity is now imported from app.coordination.types
+# Canonical values: INFO, WARNING, ERROR, CRITICAL
 
 
 class SystemHealthLevel(Enum):
