@@ -157,6 +157,7 @@ class NodeResilience:
         self.last_registration = 0
         self.p2p_connected = False
         self.p2p_unhealthy_since: float | None = None  # Grace period tracking
+        self.p2p_last_start_attempt: float | None = None  # Startup grace period tracking
         self.running = True
         self._last_good_coordinator: str = ""
 
@@ -652,6 +653,19 @@ class NodeResilience:
             pass
         return False
 
+    def _is_in_startup_grace_period(self) -> bool:
+        """Check if we're within the startup grace period since last P2P start attempt.
+
+        During this period (default 120s), avoid killing port holders to give P2P
+        time to load state and become responsive. This prevents restart loops when
+        P2P takes time to load large state files.
+        """
+        if self.p2p_last_start_attempt is None:
+            return False
+        grace_period = int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "120"))
+        elapsed = time.time() - self.p2p_last_start_attempt
+        return elapsed < grace_period
+
     def start_p2p_orchestrator(self) -> bool:
         """Start the P2P orchestrator if not running.
 
@@ -665,11 +679,23 @@ class NodeResilience:
 
         # Check port availability and clear if needed
         if not self._check_port_available(self.config.p2p_port):
+            # Don't kill port holder during startup grace period
+            if self._is_in_startup_grace_period():
+                grace_remaining = int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "120")) - (time.time() - (self.p2p_last_start_attempt or 0))
+                logger.info(
+                    f"Port {self.config.p2p_port} in use but within startup grace period "
+                    f"({grace_remaining:.0f}s remaining) - waiting for P2P to initialize"
+                )
+                return False  # Don't kill, just wait
+
             logger.warning(f"Port {self.config.p2p_port} is in use, attempting to clear...")
             if not self._kill_port_holder(self.config.p2p_port):
                 logger.error(f"Could not free port {self.config.p2p_port}")
                 return False
             logger.info(f"Port {self.config.p2p_port} is now available")
+
+        # Mark the start attempt timestamp before launching
+        self.p2p_last_start_attempt = time.time()
 
         try:
             # Prefer systemd on full VM hosts to avoid split-brain between
@@ -1295,6 +1321,7 @@ class NodeResilience:
         if p2p_healthy and cluster_connected:
             # P2P is healthy - clear grace period tracking
             self.p2p_unhealthy_since = None
+            self.p2p_last_start_attempt = None  # Clear startup grace period
             if not self.p2p_connected:
                 logger.info("P2P connection restored - stopping direct fallback processes")
                 self.stop_direct_fallback_processes()
