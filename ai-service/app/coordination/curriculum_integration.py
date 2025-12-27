@@ -124,15 +124,16 @@ class MomentumToCurriculumBridge:
                 logger.debug("[MomentumToCurriculumBridge] Event router not available")
                 return False
 
-            router.subscribe(DataEventType.EVALUATION_COMPLETED.value, self._on_evaluation_completed)
+            # Use enum directly (router normalizes both enum and .value)
+            router.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_completed)
 
             # Phase 21.2: Subscribe to SELFPLAY_RATE_CHANGED for Elo momentum → curriculum sync
             if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
-                router.subscribe(DataEventType.SELFPLAY_RATE_CHANGED.value, self._on_selfplay_rate_changed)
+                router.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
 
             # December 2025: Subscribe to ELO_SIGNIFICANT_CHANGE for curriculum rebalance triggers
             if hasattr(DataEventType, 'ELO_SIGNIFICANT_CHANGE'):
-                router.subscribe(DataEventType.ELO_SIGNIFICANT_CHANGE.value, self._on_elo_significant_change)
+                router.subscribe(DataEventType.ELO_SIGNIFICANT_CHANGE, self._on_elo_significant_change)
 
             self._event_subscribed = True
             logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE")
@@ -157,11 +158,11 @@ class MomentumToCurriculumBridge:
 
             router = get_router()
             if router:
-                router.unsubscribe(DataEventType.EVALUATION_COMPLETED.value, self._on_evaluation_completed)
+                router.unsubscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_completed)
                 if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
-                    router.unsubscribe(DataEventType.SELFPLAY_RATE_CHANGED.value, self._on_selfplay_rate_changed)
+                    router.unsubscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
                 if hasattr(DataEventType, 'ELO_SIGNIFICANT_CHANGE'):
-                    router.unsubscribe(DataEventType.ELO_SIGNIFICANT_CHANGE.value, self._on_elo_significant_change)
+                    router.unsubscribe(DataEventType.ELO_SIGNIFICANT_CHANGE, self._on_elo_significant_change)
             self._event_subscribed = False
         except (ImportError, AttributeError, TypeError, RuntimeError):
             # ImportError: modules not available

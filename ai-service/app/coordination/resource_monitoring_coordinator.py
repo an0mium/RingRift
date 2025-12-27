@@ -206,12 +206,13 @@ class ResourceMonitoringCoordinator:
 
             router = get_router()
 
-            router.subscribe(DataEventType.CLUSTER_CAPACITY_CHANGED.value, self._on_cluster_capacity_changed)
-            router.subscribe(DataEventType.NODE_CAPACITY_UPDATED.value, self._on_node_capacity_updated)
-            router.subscribe(DataEventType.BACKPRESSURE_ACTIVATED.value, self._on_backpressure_activated)
-            router.subscribe(DataEventType.BACKPRESSURE_RELEASED.value, self._on_backpressure_released)
-            router.subscribe(DataEventType.RESOURCE_CONSTRAINT.value, self._on_resource_constraint)
-            router.subscribe(DataEventType.JOB_PREEMPTED.value, self._on_job_preempted)
+            # Use enum directly (router normalizes both enum and .value)
+            router.subscribe(DataEventType.CLUSTER_CAPACITY_CHANGED, self._on_cluster_capacity_changed)
+            router.subscribe(DataEventType.NODE_CAPACITY_UPDATED, self._on_node_capacity_updated)
+            router.subscribe(DataEventType.BACKPRESSURE_ACTIVATED, self._on_backpressure_activated)
+            router.subscribe(DataEventType.BACKPRESSURE_RELEASED, self._on_backpressure_released)
+            router.subscribe(DataEventType.RESOURCE_CONSTRAINT, self._on_resource_constraint)
+            router.subscribe(DataEventType.JOB_PREEMPTED, self._on_job_preempted)
 
             self._subscribed = True
             logger.info("[ResourceMonitoringCoordinator] Subscribed to resource events")
