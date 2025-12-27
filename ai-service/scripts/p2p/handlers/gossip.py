@@ -80,8 +80,13 @@ class GossipHandlersMixin:
             content_encoding = request.headers.get("Content-Encoding", "")
             if content_encoding == "gzip":
                 compressed_body = await request.read()
-                decompressed = gzip.decompress(compressed_body)
-                data = json.loads(decompressed.decode("utf-8"))
+                try:
+                    decompressed = gzip.decompress(compressed_body)
+                    data = json.loads(decompressed.decode("utf-8"))
+                except gzip.BadGzipFile:
+                    # Sender claimed gzip but sent uncompressed - fall back to JSON
+                    logger.debug("Sender claimed gzip but sent uncompressed data, falling back to JSON")
+                    data = json.loads(compressed_body.decode("utf-8"))
             else:
                 data = await request.json()
         except (json.JSONDecodeError, AttributeError):
