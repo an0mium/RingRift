@@ -86,11 +86,17 @@ __all__ = [
 
 
 class CoordinatorStatus(str, Enum):
-    """Status of a coordinator."""
+    """Status of a coordinator.
+
+    December 2025 Phase 11: Canonical enum combining values from both
+    protocols.py and coordinator_base.py.
+    """
 
     INITIALIZING = "initializing"
+    READY = "ready"  # Added from coordinator_base.py
     RUNNING = "running"
     PAUSED = "paused"
+    DRAINING = "draining"  # Added from coordinator_base.py
     STOPPING = "stopping"
     STOPPED = "stopped"
     ERROR = "error"

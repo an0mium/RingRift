@@ -53,15 +53,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CoordinatorStatus(str, Enum):
-    """Common status values for coordinators."""
-    INITIALIZING = "initializing"
-    READY = "ready"
-    RUNNING = "running"
-    PAUSED = "paused"
-    DRAINING = "draining"
-    ERROR = "error"
-    STOPPED = "stopped"
+# December 2025 Phase 11: Import canonical CoordinatorStatus from protocols.py
+# This module previously defined its own CoordinatorStatus enum.
+# For backward compatibility, we import and re-export from protocols.py.
+from app.coordination.protocols import CoordinatorStatus  # noqa: F401
+
+# Backward compatibility alias with deprecation warning
+def _deprecated_coordinator_status():
+    """DEPRECATED: Import CoordinatorStatus from app.coordination.protocols instead."""
+    import warnings
+    warnings.warn(
+        "coordinator_base.CoordinatorStatus is deprecated. "
+        "Import from app.coordination.protocols instead.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 @dataclass

@@ -1696,9 +1696,17 @@ class DaemonManager:
         return manual_metrics
 
     # =========================================================================
-    # DEPRECATED: Old Daemon Factories (December 2025)
-    # These methods are no longer used - runner functions moved to daemon_runners.py
-    # TODO: Remove after verifying no external callers (Q1 2026)
+    # ARCHIVED: Old Daemon Factory Methods (December 2025)
+    # =========================================================================
+    # STATUS: These methods are DEAD CODE - all factories migrated to daemon_runners.py
+    # EXCEPTION: _create_health_server (line ~2949) still active - uses self.liveness_probe()
+    #
+    # Removal Plan (Q2 2026):
+    # 1. All _create_* methods EXCEPT _create_health_server can be deleted
+    # 2. Verified via: grep -n "self\._create_" daemon_manager.py -> only _create_health_server
+    # 3. These 60+ methods total ~1,600 LOC that will be removed
+    #
+    # DO NOT ADD NEW METHODS HERE - add to daemon_runners.py instead
     # =========================================================================
 
     async def _create_sync_coordinator(self) -> None:
