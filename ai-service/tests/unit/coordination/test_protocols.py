@@ -3,35 +3,31 @@
 from __future__ import annotations
 
 import asyncio
-import pytest
 import time
 from typing import Any
 
+import pytest
+
 from app.coordination.protocols import (
-    # Enums and dataclasses
-    CoordinatorStatus,
-    HealthCheckResult,
-    CoordinatorMetrics,
-    # Protocols
-    CoordinatorProtocol,
-    DaemonProtocol,
-    EventDrivenProtocol,
-    ConfigurableProtocol,
-    # Base classes
     BaseCoordinator,
     BaseDaemon,
-    # Validation helpers
-    validate_coordinator,
+    ConfigurableProtocol,
+    CoordinatorMetrics,
+    CoordinatorProtocol,
+    CoordinatorStatus,
+    DaemonProtocol,
+    EventDrivenProtocol,
+    HealthCheckResult,
+    get_all_metrics,
+    get_coordinator,
+    get_registered_coordinators,
+    health_check_all,
     is_coordinator,
     is_daemon,
     is_event_driven,
-    # Registry functions
     register_coordinator,
     unregister_coordinator,
-    get_registered_coordinators,
-    get_coordinator,
-    health_check_all,
-    get_all_metrics,
+    validate_coordinator,
 )
 
 

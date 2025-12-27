@@ -101,11 +101,17 @@ except ImportError:
     SSHClient = None  # type: ignore
 
 try:
-    from .sync_utils import rsync_directory
+    from .sync_utils import (
+        TransferVerificationResult,
+        rsync_directory,
+        rsync_directory_verified,
+    )
     HAS_RSYNC = True
 except ImportError:
     HAS_RSYNC = False
     rsync_directory = None
+    rsync_directory_verified = None
+    TransferVerificationResult = None
 
 try:
     from app.metrics.orchestrator import (
@@ -403,8 +409,12 @@ class SyncCoordinator:
         remote_subdir: str,
         include_patterns: list[str],
     ) -> tuple[int, int, list[str]]:
-        if not HAS_RSYNC or rsync_directory is None:
-            return 0, 0, ["rsync not available"]
+        # Dec 2025: Use verified rsync to prevent silent corruption
+        if not HAS_RSYNC or rsync_directory_verified is None:
+            # Fallback to unverified if verified not available
+            if rsync_directory is None:
+                return 0, 0, ["rsync not available"]
+            logger.warning("rsync_directory_verified not available, using unverified sync")
 
         try:
             from app.distributed.hosts import load_remote_hosts
@@ -429,9 +439,10 @@ class SyncCoordinator:
 
             remote_dir = f"{host.work_directory.rstrip('/')}/{remote_subdir.lstrip('/')}"
             try:
-                success = await loop.run_in_executor(
+                # Dec 2025: Use rsync_directory_verified for post-transfer verification
+                result = await loop.run_in_executor(
                     None,
-                    lambda _host=host, _remote_dir=remote_dir: rsync_directory(
+                    lambda _host=host, _remote_dir=remote_dir: rsync_directory_verified(
                         _host,
                         _remote_dir,
                         local_dir,
@@ -440,8 +451,14 @@ class SyncCoordinator:
                         timeout=self._config.ssh_timeout,
                     ),
                 )
-                if not success:
-                    errors.append(f"rsync failed for {host.name}")
+                if not result.success:
+                    errors.append(f"rsync failed for {host.name}: {result.error}")
+                    continue
+                if result.quarantined:
+                    logger.warning(
+                        f"Corrupted files quarantined from {host.name}: {result.quarantine_path}"
+                    )
+                    errors.append(f"rsync verification failed for {host.name}, files quarantined")
                     continue
             except Exception as e:
                 errors.append(f"rsync error for {host.name}: {e}")
