@@ -9,6 +9,26 @@ Prefer using `app.ai.neural_net` for new code.
 
 from __future__ import annotations
 
-# Re-export the deprecated implementation.
-# The underlying module already emits a DeprecationWarning.
-from archive.deprecated_ai.ebmo_ai import *  # noqa: F401,F403
+import warnings
+
+# Emit deprecation warning on import
+warnings.warn(
+    "app.ai.ebmo_ai is deprecated and will be removed in Q2 2026. "
+    "Use app.ai.neural_net for new code.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+# Re-export the deprecated implementation with validation
+try:
+    from archive.deprecated_ai.ebmo_ai import (
+        EBMO_AI,
+        EBMOConfig,
+    )
+    __all__ = ["EBMO_AI", "EBMOConfig"]
+except ImportError as e:
+    raise ImportError(
+        f"Failed to import EBMO from archive/deprecated_ai: {e}. "
+        "The EBMO implementation has been archived. If you need this module, "
+        "ensure archive/deprecated_ai/ebmo_ai.py exists."
+    ) from e

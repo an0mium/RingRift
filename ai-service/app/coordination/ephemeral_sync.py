@@ -380,7 +380,7 @@ class EphemeralSyncDaemon:
         this ephemeral node terminates, reducing job loss.
         """
         try:
-            from app.distributed.data_events import emit_host_offline
+            from app.coordination.event_router import emit_host_offline
 
             await emit_host_offline(
                 host=self.node_id,
@@ -735,8 +735,7 @@ class EphemeralSyncDaemon:
             db_paths: Database paths that were synced
         """
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
             if router:

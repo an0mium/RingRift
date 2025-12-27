@@ -231,6 +231,142 @@ def get_board_priority_overrides() -> dict[str, int]:
     return {}
 
 
+# =============================================================================
+# P2P Event Emission Helpers (December 2025 - CRITICAL gap fix)
+# =============================================================================
+# These helpers safely emit events for P2P lifecycle changes. Events enable:
+# - LeadershipCoordinator to track leader changes
+# - UnifiedHealthManager to respond to node failures
+# - Cluster-wide coordination on membership changes
+
+_p2p_event_emitters_available: bool | None = None
+
+
+def _check_event_emitters() -> bool:
+    """Check if event emitters are available (cached check)."""
+    global _p2p_event_emitters_available
+    if _p2p_event_emitters_available is not None:
+        return _p2p_event_emitters_available
+
+    try:
+        from app.distributed.data_events import (
+            emit_host_online,
+            emit_host_offline,
+            emit_leader_elected,
+        )
+        _p2p_event_emitters_available = True
+        return True
+    except ImportError:
+        _p2p_event_emitters_available = False
+        return False
+
+
+async def _emit_p2p_host_offline(node_id: str, reason: str = "timeout", last_seen: float | None = None) -> None:
+    """Safely emit HOST_OFFLINE event when a peer goes offline/is retired.
+
+    Args:
+        node_id: The node that went offline
+        reason: Why the node went offline (timeout, retired, error)
+        last_seen: Timestamp when node was last seen
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        from app.distributed.data_events import emit_host_offline
+        await emit_host_offline(
+            host=node_id,
+            reason=reason,
+            last_seen=last_seen,
+            source="p2p_orchestrator",
+        )
+        logger.debug(f"[P2P Event] Emitted HOST_OFFLINE for {node_id}")
+    except Exception as e:
+        logger.debug(f"[P2P Event] Failed to emit HOST_OFFLINE: {e}")
+
+
+async def _emit_p2p_host_online(node_id: str, capabilities: list[str] | None = None) -> None:
+    """Safely emit HOST_ONLINE event when a peer comes back online.
+
+    Args:
+        node_id: The node that came back online
+        capabilities: List of node capabilities (gpu, cpu, etc.)
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        from app.distributed.data_events import emit_host_online
+        await emit_host_online(
+            host=node_id,
+            capabilities=capabilities or [],
+            source="p2p_orchestrator",
+        )
+        logger.debug(f"[P2P Event] Emitted HOST_ONLINE for {node_id}")
+    except Exception as e:
+        logger.debug(f"[P2P Event] Failed to emit HOST_ONLINE: {e}")
+
+
+async def _emit_p2p_leader_elected(leader_id: str, term: int = 0) -> None:
+    """Safely emit LEADER_ELECTED event when this node becomes leader.
+
+    Args:
+        leader_id: The new leader node ID
+        term: Election term number
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        from app.distributed.data_events import emit_leader_elected
+        await emit_leader_elected(
+            leader_id=leader_id,
+            term=term,
+            source="p2p_orchestrator",
+        )
+        logger.info(f"[P2P Event] Emitted LEADER_ELECTED for {leader_id}")
+    except Exception as e:
+        logger.debug(f"[P2P Event] Failed to emit LEADER_ELECTED: {e}")
+
+
+def _emit_p2p_host_offline_sync(node_id: str, reason: str = "timeout", last_seen: float | None = None) -> None:
+    """Synchronous version: emit HOST_OFFLINE via fire-and-forget task.
+
+    For use in sync code paths like _check_dead_peers().
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_emit_p2p_host_offline(node_id, reason, last_seen))
+        else:
+            # No running loop - skip (event system likely not initialized)
+            pass
+    except RuntimeError:
+        # No event loop available
+        pass
+
+
+def _emit_p2p_host_online_sync(node_id: str, capabilities: list[str] | None = None) -> None:
+    """Synchronous version: emit HOST_ONLINE via fire-and-forget task.
+
+    For use in sync code paths like _check_dead_peers().
+    """
+    if not _check_event_emitters():
+        return
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_emit_p2p_host_online(node_id, capabilities))
+        else:
+            pass
+    except RuntimeError:
+        pass
+
+
 # Add project root to path for scripts.lib imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

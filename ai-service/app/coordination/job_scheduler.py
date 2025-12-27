@@ -849,7 +849,7 @@ class PriorityJobScheduler:
 
         # Emit JOB_PREEMPTED event
         try:
-            from app.distributed.data_events import DataEvent, DataEventType, get_event_bus
+            from app.coordination.event_router import DataEvent, DataEventType, get_event_bus
 
             await get_event_bus().publish(DataEvent(
                 event_type=DataEventType.JOB_PREEMPTED,
@@ -1546,12 +1546,7 @@ class NodeOverloadedHandler:
             return True
 
         try:
-            from app.distributed.data_events import DataEventType
-
-            try:
-                from app.coordination.event_router import get_event_bus
-            except ImportError:
-                from app.distributed.data_events import get_event_bus
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
 

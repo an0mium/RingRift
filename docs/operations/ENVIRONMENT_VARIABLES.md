@@ -309,6 +309,124 @@ AI service base URL.
 
 **Docker Compose:** Use `http://ai-service:8001`
 
+### `AI_SERVICE_PORT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `8001`   |
+| Required | No       |
+
+Port the Python AI service binds to when started directly (FastAPI/uvicorn).
+
+### `AI_LOG_LEVEL`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | `INFO`   |
+| Required | No       |
+
+Log level for the Python AI service container. In `docker-compose.*`, this is mapped to the
+container's `LOG_LEVEL` env var (the TypeScript server does not read `AI_LOG_LEVEL`).
+
+### `RINGRIFT_ENV`
+
+| Property | Value                                          |
+| -------- | ---------------------------------------------- |
+| Type     | `string`                                       |
+| Values   | `development`, `staging`, `production`, `test` |
+| Default  | `development`                                  |
+| Required | No                                             |
+
+Environment mode for the Python AI service. Used for error sanitization and
+assertion behavior inside `ai-service/app/main.py` and helpers.
+
+### `CORS_ORIGINS`
+
+| Property | Value                      |
+| -------- | -------------------------- |
+| Type     | `string` (comma-separated) |
+| Default  | `*`                        |
+| Required | No                         |
+
+CORS allow-list for the Python AI service (`ai-service/app/main.py`). When unset or empty,
+the service falls back to `*`. This is separate from the backend's `CORS_ORIGIN`.
+
+### `ADMIN_API_KEY`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+Admin key for protected AI-service endpoints (for example cache management).
+When unset, the AI service generates an ephemeral key at startup.
+
+### `RINGRIFT_NODE_ROLE`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | (empty)  |
+| Required | No       |
+
+When set, the AI service auto-starts the matching daemon profile on boot (see
+`ai-service/app/coordination/daemon_manager.py`).
+
+### `RINGRIFT_START_DAEMONS`
+
+| Property | Value                     |
+| -------- | ------------------------- |
+| Type     | `boolean`                 |
+| Values   | `true`, `false`, `1`, `0` |
+| Default  | `0`                       |
+| Required | No                        |
+
+Legacy toggle to start the core daemon set on AI-service boot.
+
+### `RINGRIFT_AI_TIMEOUT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `30.0`   |
+| Required | No       |
+
+Hard timeout in seconds for AI move/evaluation operations inside the Python service.
+
+### `RINGRIFT_AI_INSTANCE_CACHE`
+
+| Property | Value                     |
+| -------- | ------------------------- |
+| Type     | `boolean`                 |
+| Values   | `true`, `false`, `1`, `0` |
+| Default  | `true`                    |
+| Required | No                        |
+
+Enable the AI instance cache (re-uses tree search instances for active games).
+
+### `RINGRIFT_AI_INSTANCE_CACHE_TTL_SEC`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `1800`   |
+| Required | No       |
+
+Time-to-live in seconds for cached AI instances.
+
+### `RINGRIFT_AI_INSTANCE_CACHE_MAX`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `512`    |
+| Required | No       |
+
+Maximum number of cached AI instances before eviction.
+
 ### `RINGRIFT_AI_SERVICE_URL`
 
 | Property | Value                              |
@@ -324,7 +442,7 @@ Client-side AI service URL used by the React app (for example, by `ReplayService
 | Property | Value    |
 | -------- | -------- |
 | Type     | `number` |
-| Default  | `5000`   |
+| Default  | `30000`  |
 | Required | No       |
 
 AI service request timeout in milliseconds.

@@ -266,6 +266,60 @@ except ImportError:
         return False
 
 
+def _validate_sync_dependencies() -> None:
+    """Validate sync subsystem dependencies at startup.
+
+    Logs warnings for missing optional components and their impact.
+    Called at module import time for early visibility.
+    """
+    critical = []
+    optional_missing = []
+
+    # Critical components
+    if not HAS_MANIFEST_REPLICATION:
+        critical.append("manifest_replication (cluster manifest sync)")
+    if not HAS_UNIFIED_MANIFEST:
+        critical.append("unified_manifest (data tracking)")
+
+    # Optional components (degrade gracefully)
+    if not HAS_P2P_FALLBACK:
+        optional_missing.append("p2p_sync_client (P2P fallback disabled)")
+    if not HAS_CONTENT_DEDUP:
+        optional_missing.append("content_deduplication (dedup disabled)")
+    if not HAS_QUALITY_EXTRACTION:
+        optional_missing.append("quality_extractor (priority sync disabled)")
+    if not HAS_STORAGE_PROVIDER:
+        optional_missing.append("storage_provider (NFS detection disabled)")
+    if not HAS_INGESTION_WAL:
+        optional_missing.append("ingestion_wal (crash recovery disabled)")
+    if not HAS_CIRCUIT_BREAKER:
+        optional_missing.append("circuit_breaker (no fault tolerance)")
+    if not HAS_ARIA2_TRANSPORT:
+        optional_missing.append("aria2_transport (using slower rsync)")
+    if not HAS_GOSSIP_SYNC:
+        optional_missing.append("gossip_sync (P2P replication disabled)")
+
+    if critical:
+        logger.error(
+            f"[UnifiedDataSync] Critical sync dependencies missing: {', '.join(critical)}. "
+            "Sync operations may fail."
+        )
+
+    if optional_missing:
+        logger.info(
+            f"[UnifiedDataSync] Optional dependencies unavailable: {', '.join(optional_missing)}"
+        )
+
+    logger.debug(
+        f"[UnifiedDataSync] Sync subsystems: manifest={HAS_MANIFEST_REPLICATION}, "
+        f"p2p={HAS_P2P_FALLBACK}, dedup={HAS_CONTENT_DEDUP}, aria2={HAS_ARIA2_TRANSPORT}"
+    )
+
+
+# Validate at module load time
+_validate_sync_dependencies()
+
+
 # =============================================================================
 # Configuration
 # =============================================================================

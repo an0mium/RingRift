@@ -292,8 +292,7 @@ class QualityMonitorDaemon:
     ) -> None:
         """Emit appropriate quality event based on state change."""
         try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_router
+            from app.coordination.event_router import DataEventType, get_router
 
             router = get_router()
 

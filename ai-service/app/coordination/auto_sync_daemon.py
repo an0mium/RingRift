@@ -750,7 +750,7 @@ class AutoSyncDaemon:
     async def _emit_sync_failed(self, error: str) -> None:
         """Emit DATA_SYNC_FAILED event."""
         try:
-            from app.distributed.data_events import emit_data_sync_failed
+            from app.coordination.event_router import emit_data_sync_failed
             await emit_data_sync_failed(
                 host=self.node_id,
                 error=error,
@@ -763,8 +763,7 @@ class AutoSyncDaemon:
     async def _emit_sync_completed(self, games_synced: int, bytes_transferred: int = 0) -> None:
         """Emit DATA_SYNC_COMPLETED event for feedback loop coupling."""
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
             if router:
@@ -1003,7 +1002,7 @@ class AutoSyncDaemon:
         """
         try:
             # Emit QUALITY_SCORE_UPDATED event for curriculum learning
-            from app.distributed.data_events import emit_quality_score_updated
+            from app.coordination.event_router import emit_quality_score_updated
 
             # Determine quality category
             if quality_score >= 0.8:
@@ -1306,8 +1305,7 @@ class AutoSyncDaemon:
     async def _emit_sync_verification_failed(self, db_name: str, error: str) -> None:
         """Emit SYNC_VERIFICATION_FAILED event for feedback loop."""
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
             if router:

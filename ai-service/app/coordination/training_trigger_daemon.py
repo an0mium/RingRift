@@ -265,7 +265,7 @@ class TrainingTriggerDaemon:
             logger.warning("[TrainingTriggerDaemon] Stage events not available")
 
         try:
-            from app.distributed.data_events import DataEventType, get_event_bus
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             # Subscribe to training completion to track state

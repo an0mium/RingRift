@@ -519,8 +519,7 @@ class ModelLifecycleCoordinator:
 
         # Attempt recovery via model distribution daemon
         try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_router, DataEventType
 
             router = get_router()
 

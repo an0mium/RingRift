@@ -17,7 +17,7 @@ AI move generation has multiple layers of timeout/budget protection:
 
 | Parameter       | Default Value | Env Variable                    | Description                          |
 | --------------- | ------------- | ------------------------------- | ------------------------------------ |
-| Request Timeout | 5000ms        | `AI_SERVICE_REQUEST_TIMEOUT_MS` | Max wait for AI service response     |
+| Request Timeout | 30000ms       | `AI_SERVICE_REQUEST_TIMEOUT_MS` | Max wait for AI service response     |
 | Rules Timeout   | 5000ms        | `AI_RULES_REQUEST_TIMEOUT_MS`   | Max wait for Python rules validation |
 | Max Concurrent  | 16            | `AI_MAX_CONCURRENT_REQUESTS`    | Concurrent AI request limit          |
 | Circuit Breaker | 60000ms       | (hardcoded)                     | Cooldown after repeated failures     |
@@ -60,7 +60,7 @@ From `docs/operations/SLO_VERIFICATION.md` and `tests/load/config/thresholds.jso
 When the AI service fails (timeout, error, overload), the system falls back to local heuristics:
 
 1. **Service unavailable**: Immediate fallback to local move selection
-2. **Timeout**: After `requestTimeoutMs` (5s default), fallback triggered
+2. **Timeout**: After `requestTimeoutMs` (30s default), fallback triggered
 3. **Overload**: If concurrent limit reached, proactive fallback
 4. **Circuit breaker**: After repeated failures, 60s cooldown before retrying
 
@@ -126,7 +126,7 @@ ringrift_service_status{service="ai_service"}
 
 ```bash
 AI_SERVICE_URL=http://localhost:8765
-AI_SERVICE_REQUEST_TIMEOUT_MS=5000
+AI_SERVICE_REQUEST_TIMEOUT_MS=30000
 AI_RULES_REQUEST_TIMEOUT_MS=5000
 AI_MAX_CONCURRENT_REQUESTS=16
 ```

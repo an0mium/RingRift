@@ -11,6 +11,35 @@ Canonical engine/rules code does NOT depend on GMO.
 
 from __future__ import annotations
 
-# Re-export the deprecated implementation.
-# The underlying module already emits a DeprecationWarning.
-from archive.deprecated_ai.gmo_ai import *  # noqa: F401,F403
+import warnings
+
+# Emit deprecation warning on import
+warnings.warn(
+    "app.ai.gmo_ai is deprecated and will be removed in Q2 2026. "
+    "Use app.ai.neural_net for new code.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+# Re-export the deprecated implementation with validation
+try:
+    from archive.deprecated_ai.gmo_ai import (
+        GMOAI,
+        GMOConfig,
+        GMOValueNetWithUncertainty,
+        MoveEncoder,
+        StateEncoder,
+    )
+    __all__ = [
+        "GMOAI",
+        "GMOConfig",
+        "GMOValueNetWithUncertainty",
+        "MoveEncoder",
+        "StateEncoder",
+    ]
+except ImportError as e:
+    raise ImportError(
+        f"Failed to import GMO from archive/deprecated_ai: {e}. "
+        "The GMO implementation has been archived. If you need this module, "
+        "ensure archive/deprecated_ai/gmo_ai.py exists."
+    ) from e

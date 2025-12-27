@@ -45,7 +45,7 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
-from app.distributed.data_events import DataEventType
+from app.coordination.event_router import DataEventType
 
 logger = logging.getLogger(__name__)
 
@@ -836,8 +836,7 @@ class GauntletFeedbackController:
             reason: Reason for the adjustments
         """
         try:
-            from app.distributed.data_events import DataEventType, DataEvent
-            from app.coordination.event_router import get_router
+            from app.coordination.event_router import DataEventType, DataEvent, get_router
 
             # Build payload based on actions taken
             payload = {

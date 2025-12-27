@@ -236,8 +236,12 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # Model sync daemon (December 2025)
-        self.register_factory(DaemonType.MODEL_SYNC, self._create_model_sync)
+        # Model sync daemon (December 2025) - emits MODEL_SYNC_* events
+        self.register_factory(
+            DaemonType.MODEL_SYNC,
+            self._create_model_sync,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Model distribution daemon (December 2025) - depends on EVENT_ROUTER for MODEL_PROMOTED events
         self.register_factory(
@@ -246,8 +250,12 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # P2P backend (December 2025)
-        self.register_factory(DaemonType.P2P_BACKEND, self._create_p2p_backend)
+        # P2P backend (December 2025) - emits P2P_CLUSTER_* events
+        self.register_factory(
+            DaemonType.P2P_BACKEND,
+            self._create_p2p_backend,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Unified promotion daemon (December 2025) - depends on EVENT_ROUTER for EVALUATION_COMPLETED events
         self.register_factory(
@@ -256,8 +264,12 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # Cluster monitor (December 2025)
-        self.register_factory(DaemonType.CLUSTER_MONITOR, self._create_cluster_monitor)
+        # Cluster monitor (December 2025) - emits CLUSTER_STATUS_* events
+        self.register_factory(
+            DaemonType.CLUSTER_MONITOR,
+            self._create_cluster_monitor,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Feedback loop controller (December 2025) - depends on EVENT_ROUTER for all feedback signals
         self.register_factory(
@@ -310,8 +322,12 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # Orphan detection daemon (December 2025) - detects unregistered game databases
-        self.register_factory(DaemonType.ORPHAN_DETECTION, self._create_orphan_detection)
+        # Orphan detection daemon (December 2025) - emits ORPHAN_GAMES_* events
+        self.register_factory(
+            DaemonType.ORPHAN_DETECTION,
+            self._create_orphan_detection,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Data cleanup daemon (December 2025) - auto-quarantine/delete poor quality databases
         self.register_factory(
@@ -320,8 +336,12 @@ class DaemonManager:
             depends_on=[DaemonType.EVENT_ROUTER],
         )
 
-        # Node health monitor (December 2025) - unified cluster health maintenance
-        self.register_factory(DaemonType.NODE_HEALTH_MONITOR, self._create_node_health_monitor)
+        # Node health monitor (December 2025) - emits HEALTH_* events
+        self.register_factory(
+            DaemonType.NODE_HEALTH_MONITOR,
+            self._create_node_health_monitor,
+            depends_on=[DaemonType.EVENT_ROUTER],
+        )
 
         # Adapter-based daemons (December 2025 - Phase 2)
         # These use daemon adapters for lazy initialization
@@ -601,9 +621,7 @@ class DaemonManager:
     async def start(self, daemon_type: DaemonType) -> bool:
         """Start a specific daemon.
 
-        P0.3 Dec 2025: Now waits for daemon to signal readiness before returning.
-        This prevents race conditions where dependent daemons start before
-        their dependencies have completed initialization.
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
 
         Args:
             daemon_type: Type of daemon to start
@@ -611,191 +629,7 @@ class DaemonManager:
         Returns:
             True if started successfully
         """
-        # Check for deprecated daemon types and emit warning
-        _check_deprecated_daemon(daemon_type)
-
-        async with self._lock:
-            info = self._daemons.get(daemon_type)
-            if info is None:
-                logger.error(f"Unknown daemon type: {daemon_type}")
-                return False
-
-            if info.state == DaemonState.RUNNING:
-                logger.debug(f"{daemon_type.value} already running")
-                return True
-
-            # Check dependencies - wait for them to be READY not just RUNNING
-            # Dec 2025: Added timeout to prevent deadlocks
-            DEPENDENCY_READY_TIMEOUT = 30.0  # seconds
-            for dep in info.depends_on:
-                dep_info = self._daemons.get(dep)
-                if dep_info is None or dep_info.state != DaemonState.RUNNING:
-                    logger.warning(f"Cannot start {daemon_type.value}: dependency {dep.value} not running")
-                    return False
-                # P0.3: Wait for dependency to signal readiness with timeout
-                if dep_info.ready_event and not dep_info.ready_event.is_set():
-                    logger.info(
-                        f"Waiting for {dep.value} to be ready before starting {daemon_type.value}"
-                    )
-                    try:
-                        # Release lock while waiting to prevent deadlock
-                        self._lock.release()
-                        try:
-                            await asyncio.wait_for(
-                                dep_info.ready_event.wait(),
-                                timeout=DEPENDENCY_READY_TIMEOUT,
-                            )
-                        finally:
-                            await self._lock.acquire()
-                    except asyncio.TimeoutError:
-                        logger.error(
-                            f"Dependency {dep.value} not ready after {DEPENDENCY_READY_TIMEOUT}s, "
-                            f"cannot start {daemon_type.value}"
-                        )
-                        return False
-
-            # Get factory
-            factory = self._factories.get(daemon_type)
-            if factory is None:
-                logger.error(f"No factory registered for {daemon_type.value}")
-                return False
-
-            # P0.3: Create readiness event for this daemon.
-            #
-            # NOTE: Most daemon factories in this codebase do not explicitly call
-            # mark_daemon_ready(). To avoid deadlocking dependency start order,
-            # we auto-set ready after a short delay for backward compatibility.
-            info.ready_event = asyncio.Event()
-
-            # Start daemon
-            info.state = DaemonState.STARTING
-            try:
-                info.task = safe_create_task(
-                    self._run_daemon(daemon_type, factory),
-                    name=f"daemon_{daemon_type.value}",
-                )
-                info.start_time = time.time()
-                info.state = DaemonState.RUNNING
-
-                # Dec 2025: Auto-set readiness after brief delay for backward compatibility.
-                # Daemons can call mark_daemon_ready() earlier for explicit signaling.
-                # This delay allows daemons to complete critical initialization.
-                async def _auto_set_ready():
-                    await asyncio.sleep(0.5)  # Brief delay for initialization
-                    if info.ready_event and not info.ready_event.is_set():
-                        info.ready_event.set()
-                        logger.debug(f"{daemon_type.value} auto-marked as ready")
-
-                safe_create_task(
-                    _auto_set_ready(),
-                    name=f"auto_ready_{daemon_type.value}",
-                )
-
-                logger.info(f"Started daemon: {daemon_type.value}")
-                return True
-
-            except (RuntimeError, OSError, ImportError) as e:
-                info.state = DaemonState.FAILED
-                info.last_error = str(e)
-                logger.error(f"Failed to start {daemon_type.value}: {e}")
-                return False
-
-    async def _run_daemon(
-        self,
-        daemon_type: DaemonType,
-        factory: Callable[[], Coroutine[Any, Any, None]]
-    ) -> None:
-        """Run a daemon with error handling and restart logic.
-
-        Features:
-        - Import errors are treated as permanent failures (IMPORT_FAILED state)
-        - Restart count resets after DAEMON_RESTART_RESET_AFTER seconds of stability
-        - Exponential backoff for restart delays (capped at MAX_RESTART_DELAY)
-        """
-        info = self._daemons[daemon_type]
-
-        while not self._shutdown_event.is_set():
-            # Reset restart counter after period of stability
-            if info.last_failure_time > 0:
-                time_since_failure = time.time() - info.last_failure_time
-                if time_since_failure > DAEMON_RESTART_RESET_AFTER:
-                    if info.restart_count > 0:
-                        logger.info(
-                            f"{daemon_type.value} stable for {DAEMON_RESTART_RESET_AFTER}s, "
-                            f"resetting restart count from {info.restart_count} to 0"
-                        )
-                        info.restart_count = 0
-                        info.last_failure_time = 0.0
-
-            try:
-                info.stable_since = time.time()  # Mark start of stable period
-                await factory()
-            except asyncio.CancelledError:
-                logger.debug(f"{daemon_type.value} cancelled")
-                break
-            except ImportError as e:
-                # Import errors are permanent - require code/environment fix
-                info.last_error = str(e)
-                info.import_error = str(e)
-                # P0.5: Use helper for event emission
-                self._update_daemon_state(
-                    info, DaemonState.IMPORT_FAILED,
-                    reason="import_error", error=str(e)
-                )
-                info.last_failure_time = time.time()
-                logger.error(
-                    f"{daemon_type.value} import failed permanently: {e}. "
-                    f"Fix the import and restart the daemon manager."
-                )
-                # Don't retry import failures - they need manual intervention
-                break
-            except (RuntimeError, OSError, ConnectionError, asyncio.CancelledError) as e:
-                info.last_error = str(e)
-                info.last_failure_time = time.time()
-                info.stable_since = 0.0
-                if isinstance(e, asyncio.CancelledError):
-                    raise  # Re-raise cancellation
-                logger.error(f"{daemon_type.value} failed: {e}")
-
-                if not info.auto_restart:
-                    # P0.5: Use helper for event emission
-                    self._update_daemon_state(
-                        info, DaemonState.FAILED,
-                        reason="exception", error=str(e)
-                    )
-                    break
-
-                if info.restart_count >= info.max_restarts:
-                    logger.error(f"{daemon_type.value} exceeded max restarts, stopping")
-                    # P0.5: Use helper for event emission
-                    self._update_daemon_state(
-                        info, DaemonState.FAILED,
-                        reason="max_restarts_exceeded", error=str(e)
-                    )
-                    break
-
-                # Restart with exponential backoff + jitter to prevent thundering herd
-                info.restart_count += 1
-                # P0.5: Use helper for event emission
-                self._update_daemon_state(
-                    info, DaemonState.RESTARTING,
-                    reason="auto_restart", error=str(e)
-                )
-                base_delay = min(info.restart_delay * (2 ** (info.restart_count - 1)), MAX_RESTART_DELAY)
-                # Add ±10% jitter to prevent all daemons restarting at same time
-                jitter = base_delay * 0.1 * (random.random() * 2 - 1)  # -10% to +10%
-                delay = max(1.0, base_delay + jitter)  # Minimum 1 second
-                logger.info(f"Restarting {daemon_type.value} (attempt {info.restart_count}) in {delay:.1f}s (base={base_delay:.1f}s)")
-                await asyncio.sleep(delay)
-                # P0.5: Use helper for event emission
-                self._update_daemon_state(
-                    info, DaemonState.RUNNING,
-                    reason="restart_complete"
-                )
-                info.start_time = time.time()
-
-        if info.state not in (DaemonState.FAILED, DaemonState.IMPORT_FAILED):
-            info.state = DaemonState.STOPPED
+        return await self._lifecycle.start(daemon_type)
 
     def mark_daemon_ready(self, daemon_type: DaemonType) -> bool:
         """Explicitly mark a daemon as ready for dependent daemons.
@@ -833,10 +667,7 @@ class DaemonManager:
     async def stop(self, daemon_type: DaemonType) -> bool:
         """Stop a specific daemon with timeout escalation.
 
-        Uses a three-phase shutdown approach:
-        1. Cancel task and wait for graceful shutdown (shutdown_timeout)
-        2. If still running, wait additional grace period (force_kill_timeout)
-        3. If still stuck, log error but continue (task may be leaked)
+        Delegates to DaemonLifecycleManager (Dec 2025 extraction).
 
         Args:
             daemon_type: Type of daemon to stop
@@ -844,48 +675,7 @@ class DaemonManager:
         Returns:
             True if stopped successfully (or was already stopped)
         """
-        async with self._lock:
-            info = self._daemons.get(daemon_type)
-            if info is None:
-                return False
-
-            if info.state == DaemonState.STOPPED:
-                return True
-
-            info.state = DaemonState.STOPPING
-
-            if info.task is not None:
-                # Phase 1: Cancel and wait for graceful shutdown
-                info.task.cancel()
-                try:
-                    await asyncio.wait_for(info.task, timeout=self.config.shutdown_timeout)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        f"Timeout stopping {daemon_type.value} after {self.config.shutdown_timeout}s, "
-                        f"waiting additional {self.config.force_kill_timeout}s"
-                    )
-                    # Phase 2: Additional grace period for stubborn tasks
-                    try:
-                        await asyncio.wait_for(info.task, timeout=self.config.force_kill_timeout)
-                    except asyncio.TimeoutError:
-                        # Phase 3: Task is truly stuck - log but don't block
-                        logger.error(
-                            f"Daemon {daemon_type.value} failed to stop after "
-                            f"{self.config.shutdown_timeout + self.config.force_kill_timeout}s total. "
-                            f"Task may be leaked. Consider investigating the daemon's shutdown handler."
-                        )
-                        # Clear the task reference to prevent memory leaks
-                        # The task is likely stuck in a blocking operation
-                        info.task = None
-                    except asyncio.CancelledError:
-                        pass
-                except asyncio.CancelledError:
-                    pass
-
-            info.state = DaemonState.STOPPED
-            info.task = None
-            logger.info(f"Stopped daemon: {daemon_type.value}")
-            return True
+        return await self._lifecycle.stop(daemon_type)
 
     async def restart_failed_daemon(
         self,

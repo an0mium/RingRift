@@ -20,6 +20,7 @@ config = get_config()
 | `RINGRIFT_TRAINING_THRESHOLD`         | Training trigger threshold                  | 500                         |
 | `RINGRIFT_MIN_GAMES_FOR_TRAINING`     | Alias for training trigger threshold        | 500                         |
 | `RINGRIFT_ELO_DB`                     | Elo database path                           | `data/elo/elo.db`           |
+| `AI_SERVICE_PORT`                     | Port for the FastAPI AI service             | `8001`                      |
 | `ADMIN_API_KEY`                       | Admin API key (`X-Admin-Key`) for /admin/\* | Generated per boot if unset |
 | `CORS_ORIGINS`                        | Comma-separated CORS allowlist              | `*`                         |
 | `GAME_REPLAY_DB_PATH`                 | Replay DB path for `/api/replay/*`          | `data/games/selfplay.db`    |

@@ -351,8 +351,7 @@ class SyncRouter:
 
         # Emit capacity refresh event for cluster-wide updates
         try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_event_bus
+            from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
             if bus:
@@ -687,8 +686,7 @@ class SyncRouter:
         - HOST_ONLINE/OFFLINE: Update node capabilities
         """
         try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_event_router
+            from app.coordination.event_router import DataEventType, get_event_router
 
             router = get_event_router()
 
