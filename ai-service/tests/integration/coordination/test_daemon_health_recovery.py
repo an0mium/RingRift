@@ -47,6 +47,35 @@ def fast_config():
 
 
 @pytest.fixture
+def no_restart_config():
+    """Create config with auto-restart disabled for crash detection tests."""
+    return DaemonManagerConfig(
+        health_check_interval=0.05,  # 50ms
+        shutdown_timeout=0.5,
+        recovery_cooldown=0.1,
+        auto_restart_failed=False,  # Disabled for crash detection tests
+        max_restart_attempts=3,
+    )
+
+
+@pytest.fixture
+def no_restart_manager(no_restart_config):
+    """Create fresh DaemonManager with auto-restart disabled."""
+    DaemonManager.reset_instance()
+    mgr = DaemonManager(no_restart_config)
+    mgr._factories.clear()
+    mgr._daemons.clear()
+    yield mgr
+    mgr._running = False
+    if mgr._shutdown_event:
+        mgr._shutdown_event.set()
+    for info in list(mgr._daemons.values()):
+        if info.task and not info.task.done():
+            info.task.cancel()
+    DaemonManager.reset_instance()
+
+
+@pytest.fixture
 def manager(fast_config):
     """Create fresh DaemonManager for each test."""
     DaemonManager.reset_instance()

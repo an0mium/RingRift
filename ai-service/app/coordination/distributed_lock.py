@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 # Unified Lock Protocol (December 2025)
 # =============================================================================
 
-from typing import Protocol, runtime_checkable
+from typing import Generator, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -463,7 +463,9 @@ def release_training_lock(lock: DistributedLock | None) -> None:
 
 
 @contextmanager
-def training_lock(config_key: str, timeout: int = DEFAULT_ACQUIRE_TIMEOUT):
+def training_lock(
+    config_key: str, timeout: int = DEFAULT_ACQUIRE_TIMEOUT
+) -> Generator[DistributedLock | None, None, None]:
     """Context manager for training lock.
 
     Usage:

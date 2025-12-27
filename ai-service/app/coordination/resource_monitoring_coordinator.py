@@ -269,7 +269,7 @@ class ResourceMonitoringCoordinator:
         # Check for threshold violations
         self._check_node_thresholds(node)
 
-    async def _on_backpressure_activated(self, event) -> None:
+    async def _on_backpressure_activated(self, event: Any) -> None:
         """Handle BACKPRESSURE_ACTIVATED event."""
         payload = event.payload
         node_id = payload.get("node_id", "")
