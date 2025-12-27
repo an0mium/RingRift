@@ -1453,6 +1453,45 @@ class P2POrchestrator(
             config=SyncPlannerConfig(),
         )
 
+        # Phase 2B Refactoring: SelfplayScheduler for priority-based selfplay allocation
+        # Uses optional dependency injection - callbacks can be wired incrementally
+        self.selfplay_scheduler = SelfplayScheduler(
+            get_cluster_elo_fn=lambda: self._get_cluster_elo_summary(),
+            load_curriculum_weights_fn=lambda: self._load_curriculum_weights(),
+            get_board_priority_overrides_fn=lambda: getattr(self, "board_priority_overrides", {}),
+            verbose=self.verbose,
+        )
+
+        # Phase 2B Refactoring: JobManager for job spawning and lifecycle
+        self.job_manager = JobManager(
+            ringrift_path=self.ringrift_path,
+            node_id=self.node_id,
+            peers=self.peers,
+            peers_lock=self.peers_lock,
+            active_jobs=self.active_jobs,
+            jobs_lock=self.jobs_lock,
+            improvement_loop_state=self.improvement_loop_state,
+            distributed_tournament_state=self.distributed_tournament_state,
+        )
+
+        # Phase 2B Refactoring: TrainingCoordinator for training dispatch and completion
+        self.training_coordinator = TrainingCoordinator(
+            ringrift_path=Path(self.ringrift_path),
+            get_cluster_data_manifest=lambda: self.cluster_data_manifest,
+            get_training_jobs=lambda: self.training_jobs,
+            get_training_lock=lambda: self.training_lock,
+            get_peers=lambda: self.peers,
+            get_peers_lock=lambda: self.peers_lock,
+            get_self_info=lambda: self.self_info,
+            training_thresholds=self.training_thresholds,
+            games_at_last_nnue_train=getattr(self, "games_at_last_nnue_train", None),
+            games_at_last_cmaes_train=getattr(self, "games_at_last_cmaes_train", None),
+            improvement_cycle_manager=getattr(self, "improvement_cycle_manager", None),
+            auth_headers=lambda: self._auth_headers(),
+            urls_for_peer=lambda node_id: self._urls_for_peer(node_id),
+            save_state_callback=lambda: self._save_state(),
+        )
+
         print(
             f"[P2P] Initialized node {node_id} on {host}:{port} "
             f"(advertise {self.advertise_host}:{self.advertise_port})"
