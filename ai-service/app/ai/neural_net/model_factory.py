@@ -242,7 +242,7 @@ def _create_hex_model(
     """Create a hexagonal board model based on memory tier.
 
     Args:
-        tier: Memory tier (v5, v5-gnn, v4, v3-high, v3-low, high, low)
+        tier: Memory tier (v6, v6-xl, v5, v5-gnn, v4, v3-high, v3-low, high, low)
         in_channels: Number of input channels
         global_features: Number of global feature dimensions
         num_res_blocks: Number of residual blocks (or None for default)
@@ -252,6 +252,16 @@ def _create_hex_model(
         policy_size: Size of the policy output
         num_players: Number of players
     """
+    # V6 models (December 2025 - scaled for 2000+ Elo)
+    if tier in ("v6", "v6-xl"):
+        board_type = "hex8" if board_size == 9 else "hexagonal"
+        variant = "xl" if tier == "v6-xl" else "large"
+        return create_v6_model(
+            board_type=board_type,
+            num_players=num_players,
+            variant=variant,
+        )
+
     if tier in ("v5", "v5-gnn"):
         return HexNeuralNet_v5_Heavy(
             board_size=board_size,
@@ -394,6 +404,16 @@ def _create_square_model(
     num_players: int = 4,
 ) -> nn.Module:
     """Create a square board model based on memory tier."""
+    # V6 models (December 2025 - scaled for 2000+ Elo)
+    if tier in ("v6", "v6-xl"):
+        board_type = "square8" if board_size == 8 else "square19"
+        variant = "xl" if tier == "v6-xl" else "large"
+        return create_v6_model(
+            board_type=board_type,
+            num_players=num_players,
+            variant=variant,
+        )
+
     if tier in ("v5", "v5-gnn"):
         return RingRiftCNN_v5_Heavy(
             board_size=board_size,
@@ -562,6 +582,22 @@ def _get_tier_config(board_type: BoardType, tier: str) -> dict[str, Any]:
             "estimated_params_m": 6.4 if is_hex8 else 6.6 if is_hex else 6.3,
             "recommended_model": "HexNeuralNet_v5_Heavy" if is_hex else "RingRiftCNN_v5_Heavy",
             "description": "V5 Heavy + GNN refinement (~6.3-6.6M params, requires PyTorch Geometric)",
+            "requires_pyg": True,
+        },
+        # V6 models - December 2025 ML acceleration for 2000+ Elo
+        "v6": {
+            "num_res_blocks": 18,  # 10 SE + 8 attention
+            "num_filters": 256,
+            "estimated_params_m": 25.0 if is_hex8 else 28.0 if is_hex else 25.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy (v6 config)" if is_hex else "RingRiftCNN_v5_Heavy (v6 config)",
+            "description": "V6 Large: Scaled for 1800+ Elo (~25M params, 256 filters, 49 heuristics)",
+        },
+        "v6-xl": {
+            "num_res_blocks": 22,  # 12 SE + 10 attention
+            "num_filters": 320,
+            "estimated_params_m": 35.0 if is_hex8 else 38.0 if is_hex else 35.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy (v6-xl config)" if is_hex else "RingRiftCNN_v5_Heavy (v6-xl config)",
+            "description": "V6 XL: Maximum capacity for 2000+ Elo (~35M params, 320 filters, GNN)",
             "requires_pyg": True,
         },
         "gnn": {

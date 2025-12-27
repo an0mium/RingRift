@@ -231,3 +231,36 @@ class HetznerProvider(CloudProvider):
     async def get_available_gpus(self) -> dict[GPUType, int]:
         """Hetzner has no GPUs."""
         return {GPUType.CPU_ONLY: 100}  # Effectively unlimited CPU
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check provider health for CoordinatorProtocol compliance.
+
+        December 2025: Added for daemon health monitoring integration.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        cli_available = self._cli_path is not None
+        configured = self.is_configured()
+
+        if not cli_available and not self._token:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="HetznerProvider: hcloud CLI not found and no API token",
+                details={"cli_path": None, "has_token": False, "configured": False},
+            )
+
+        if not configured:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message="HetznerProvider: not configured",
+                details={"cli_path": self._cli_path, "has_token": bool(self._token), "configured": False},
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message="HetznerProvider: configured",
+            details={"cli_path": self._cli_path, "has_token": bool(self._token), "configured": True},
+        )

@@ -269,3 +269,36 @@ class VultrProvider(CloudProvider):
             GPUType.H100_80GB: 3.99,
         }
         return cost_map.get(gpu_type, 0.0)
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check provider health for CoordinatorProtocol compliance.
+
+        December 2025: Added for daemon health monitoring integration.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        cli_available = self._cli_path is not None
+        configured = self.is_configured()
+
+        if not cli_available:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="VultrProvider: vultr-cli not found",
+                details={"cli_path": None, "configured": False},
+            )
+
+        if not configured:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message="VultrProvider: config file not found",
+                details={"cli_path": self._cli_path, "configured": False},
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message="VultrProvider: CLI available and configured",
+            details={"cli_path": self._cli_path, "configured": True},
+        )

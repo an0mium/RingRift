@@ -75,9 +75,7 @@ ENHANCED_PARAMS = {
     # Early stopping patience
     'early_stopping_patience': 10,
 
-    # Mixed precision for speed
-    'mixed_precision': True,
-    'amp_dtype': 'bfloat16',
+    # Note: Mixed precision enabled by default in train.py when CUDA available
 }
 
 
@@ -153,10 +151,8 @@ def build_train_command(args: argparse.Namespace) -> list[str]:
     # Early stopping
     cmd.extend(['--early-stopping-patience', str(args.early_stopping_patience)])
 
-    # Mixed precision
-    if args.mixed_precision:
-        cmd.append('--mixed-precision')
-        cmd.extend(['--amp-dtype', args.amp_dtype])
+    # Note: Mixed precision flags not yet exposed on train.py CLI
+    # Training uses bfloat16 by default when CUDA is available
 
     # Save path
     if args.save_path:
@@ -298,21 +294,7 @@ Examples:
         help='Early stopping patience'
     )
 
-    # Mixed precision
-    parser.add_argument(
-        '--mixed-precision', action='store_true',
-        default=ENHANCED_PARAMS['mixed_precision'],
-        help='Enable mixed precision training'
-    )
-    parser.add_argument(
-        '--no-mixed-precision', action='store_true',
-        help='Disable mixed precision'
-    )
-    parser.add_argument(
-        '--amp-dtype', type=str,
-        default=ENHANCED_PARAMS['amp_dtype'],
-        help='AMP dtype (bfloat16 or float16)'
-    )
+    # Note: Mixed precision enabled automatically by train.py on CUDA
 
     # Output
     parser.add_argument(
@@ -339,8 +321,6 @@ Examples:
         args.enable_hard_example_mining = False
     if args.no_outcome_weighted_policy:
         args.enable_outcome_weighted_policy = False
-    if args.no_mixed_precision:
-        args.mixed_precision = False
 
     return args
 
@@ -360,7 +340,6 @@ def main():
     logger.info(f"Quality weighting: {args.enable_quality_weighting}")
     logger.info(f"Hard example mining: {args.enable_hard_example_mining}")
     logger.info(f"Outcome-weighted policy: {args.enable_outcome_weighted_policy}")
-    logger.info(f"Mixed precision: {args.mixed_precision}")
     logger.info("=" * 60)
 
     # Build command
