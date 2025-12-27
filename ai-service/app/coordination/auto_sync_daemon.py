@@ -1502,6 +1502,11 @@ class AutoSyncDaemon:
             }
         except (OSError, asyncio.CancelledError, subprocess.SubprocessError) as e:
             logger.error(f"[AutoSyncDaemon] Sync to {target['node_id']} error: {e}")
+            # Dec 2025: Emit DATA_SYNC_FAILED for sync exceptions
+            fire_and_forget(
+                self._emit_sync_failure(target["node_id"], str(source), str(e)),
+                error_callback=lambda exc: logger.debug(f"Failed to emit sync failure: {exc}"),
+            )
             return {
                 "source": str(source),
                 "target": target["node_id"],
