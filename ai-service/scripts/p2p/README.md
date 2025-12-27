@@ -62,8 +62,8 @@ Extract handlers into `scripts/p2p/handlers/`:
 | `leader_election.py`   | 198   | 5       | ✅ Extracted |
 | `gossip_metrics.py`    | 227   | 7       | ✅ Extracted |
 
-**Progress: 27,522 → 27,216 lines (Phase 2 continued)**
-**Total reduction: 29,767 → 27,216 lines (-2,551 lines, ~8.6%)**
+**Progress: 27,522 → 27,223 lines (Phase 2 continued)**
+**Total reduction: 29,767 → 27,223 lines (-2,544 lines, ~8.5%)**
 
 ### Dec 26, 2025 Session Summary
 
@@ -84,6 +84,15 @@ Extract handlers into `scripts/p2p/handlers/`:
 3. Added 24 unit tests for `gossip_metrics.py`
 4. Tailscale URL building now in reusable mixin
 5. Gossip health monitoring via `_get_gossip_health_status()` (latency, activity, stale rate)
+
+**P2P Stability Fixes (Dec 2025):**
+
+6. Pre-flight dependency validation (aiohttp, psutil, yaml) - commit 1270b64
+7. Gzip magic byte detection in gossip handler - commit 1270b64
+8. 120s startup grace period for slow state loading - commit dade90f
+9. SystemExit handling in task wrapper - commit 6649601
+10. /dev/shm fallback for macOS compatibility - commit 6649601
+11. Clear port binding error messages - commit 6649601
 
 **Remaining Large Methods (for future extraction):**
 
@@ -363,6 +372,8 @@ The remaining P2POrchestrator class should coordinate:
 
 ## Usage
 
+### P2P Client (Python)
+
 ```python
 # External client usage
 from scripts.p2p import P2PClient
@@ -375,6 +386,56 @@ from scripts.p2p.constants import PEER_TIMEOUT, HEARTBEAT_INTERVAL
 
 # Models
 from scripts.p2p.models import NodeInfo, ClusterJob
+```
+
+### Cluster Update Script (NEW - Dec 2025)
+
+Update all cluster nodes to latest code:
+
+```bash
+# Update all nodes (default: commit 88ca80cb2)
+python scripts/update_all_nodes.py
+
+# Update with P2P restart
+python scripts/update_all_nodes.py --restart-p2p
+
+# Update to specific commit
+python scripts/update_all_nodes.py --commit abc1234
+
+# Dry run (preview only)
+python scripts/update_all_nodes.py --dry-run
+
+# Limit parallelism
+python scripts/update_all_nodes.py --max-parallel 5
+```
+
+**Features:**
+
+- Parallel updates (default: 10 concurrent)
+- Auto-detects node paths by provider
+- Skips coordinator nodes (local-mac, mac-studio)
+- Skips nodes with status != ready
+- Optional P2P orchestrator restart
+- Git stash before pull
+- Commit verification after update
+- Summary report with success/failure counts
+
+**Example output:**
+
+```
+✅ Successfully updated: 28 nodes
+  - runpod-h100: Updated to abc1234, P2P restarted
+  - vast-5090-1: Updated to abc1234
+  ...
+
+⏭️  Skipped: 3 nodes
+  - mac-studio: SKIPPED: Coordinator node
+  - vast-retired: SKIPPED: Status is retired
+
+❌ Failed: 1 node
+  - nebius-h100-2: Connection failed: timeout
+
+📊 Total: 32 nodes
 ```
 
 ## File Locations

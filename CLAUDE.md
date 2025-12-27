@@ -116,15 +116,59 @@ cd ai-service
 python scripts/check_ts_python_replay_parity.py --db data/games/my_games.db
 ```
 
-## Cluster Infrastructure (Optional)
+## Cluster Infrastructure
 
-For distributed training, configure `ai-service/config/distributed_hosts.yaml` with your GPU nodes. The P2P mesh network supports:
+RingRift uses a P2P mesh network for distributed training across ~52 configured nodes (Dec 2025).
 
-- Automatic leader election
-- Data synchronization across nodes
-- Job distribution and monitoring
+### Active Cluster (Dec 2025)
 
-See `ai-service/config/distributed_hosts.template.yaml` for configuration format.
+**Lambda Labs account terminated Dec 2025. All Lambda nodes permanently removed.**
+
+| Provider | Nodes | GPUs                               | Status |
+| -------- | ----- | ---------------------------------- | ------ |
+| Vast.ai  | ~30   | RTX 5090, 4090, 3090, A40, 4060 Ti | Active |
+| RunPod   | 6     | H100, A100, L40S, RTX 3090 Ti      | Active |
+| Nebius   | 4     | H100 (80GB), L40S                  | Active |
+| Vultr    | 3     | A100 (20GB vGPU)                   | Active |
+| Hetzner  | 4     | CPU only (P2P voters)              | Active |
+| Local    | 2     | Mac Studio M3 (coordinator)        | Active |
+
+### Cluster Management
+
+```bash
+# Check cluster status via P2P
+curl -s http://localhost:8770/status | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"Leader: {d.get(\"leader_id\")}"); print(f"Alive: {d.get(\"alive_peers\")}")'
+
+# Or use the monitor
+cd ai-service && python -m app.distributed.cluster_monitor
+
+# Update all nodes to latest code (NEW - Dec 2025)
+cd ai-service && python scripts/update_all_nodes.py --restart-p2p
+```
+
+**Update Script** - Update all nodes in parallel:
+
+```bash
+# Update all nodes
+python scripts/update_all_nodes.py
+
+# With P2P restart
+python scripts/update_all_nodes.py --restart-p2p
+
+# Dry run preview
+python scripts/update_all_nodes.py --dry-run
+```
+
+**P2P Stability Fixes** (commits 1270b64, dade90f, 6649601):
+
+- Pre-flight dependency validation (aiohttp, psutil, yaml)
+- Gzip magic byte detection in gossip handler
+- 120s startup grace period for slow state loading
+- SystemExit handling in task wrapper
+- /dev/shm fallback for macOS compatibility
+- Clear port binding error messages
+
+See `ai-service/config/distributed_hosts.yaml` for full cluster configuration.
 
 ## Key Features
 

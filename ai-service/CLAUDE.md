@@ -487,15 +487,22 @@ ai-service/
 └── tests/               # Test suite
 ```
 
-## Cluster Infrastructure (Optional)
+## Cluster Infrastructure
 
-For distributed training across multiple GPU nodes, configure `config/distributed_hosts.yaml`. See `config/distributed_hosts.template.yaml` for the format.
+RingRift uses a P2P mesh network for distributed training across ~52 configured nodes (Dec 2025).
 
-The P2P mesh network supports:
+### Active Cluster (Dec 2025)
 
-- Automatic leader election
-- Data synchronization across nodes
-- Job distribution and monitoring
+| Provider | Nodes | GPUs                               | Status |
+| -------- | ----- | ---------------------------------- | ------ |
+| Vast.ai  | ~30   | RTX 5090, 4090, 3090, A40, 4060 Ti | Active |
+| RunPod   | 6     | H100, A100, L40S, RTX 3090 Ti      | Active |
+| Nebius   | 4     | H100 (80GB), L40S                  | Active |
+| Vultr    | 3     | A100 (20GB vGPU)                   | Active |
+| Hetzner  | 4     | CPU only (voters)                  | Active |
+| Local    | 2     | Mac Studio M3 (coordinator)        | Active |
+
+### P2P Cluster Management
 
 ```bash
 # Check cluster status (when P2P daemon is running)
@@ -503,7 +510,98 @@ python -m app.distributed.cluster_monitor
 
 # Watch mode (live updates)
 python -m app.distributed.cluster_monitor --watch --interval 10
+
+# Update all nodes to latest code (parallel)
+python scripts/update_all_nodes.py --restart-p2p
+
+# Dry run to preview updates
+python scripts/update_all_nodes.py --dry-run
 ```
+
+### Cluster Update Script (NEW - Dec 2025)
+
+The `update_all_nodes.py` script updates the entire cluster in parallel:
+
+```bash
+# Update all nodes to latest git commit
+python scripts/update_all_nodes.py
+
+# Update with P2P orchestrator restart
+python scripts/update_all_nodes.py --restart-p2p
+
+# Update to specific commit
+python scripts/update_all_nodes.py --commit abc1234
+
+# Preview changes without applying
+python scripts/update_all_nodes.py --dry-run
+
+# Limit parallel updates
+python scripts/update_all_nodes.py --max-parallel 5
+```
+
+**Features:**
+
+- Parallel updates across all configured nodes
+- Automatic path detection by provider (RunPod, Vast, Nebius, etc.)
+- Optional P2P orchestrator restart
+- Connection retry with timeout
+- Detailed summary report
+
+**Update paths by provider:**
+
+- RunPod: `/workspace/ringrift/ai-service`
+- Vast.ai: `~/ringrift/ai-service` or `/workspace/ringrift/ai-service`
+- Nebius: `~/ringrift/ai-service`
+- Vultr/Hetzner: `/root/ringrift/ai-service`
+- Mac Studio: `~/Development/RingRift/ai-service`
+
+### P2P Crash Fixes (Dec 2025)
+
+Recent stability improvements to P2P orchestrator:
+
+**1. Dependency Validation (commit 1270b64)**
+
+- Pre-flight checks for aiohttp, psutil, yaml modules
+- Clear exit (code 2) with missing dependency message
+- Extended validation in node_resilience.py
+
+**2. Gzip Handling (commit 1270b64)**
+
+- Magic byte detection (0x1f 0x8b) before decompression
+- Handles clients that set Content-Encoding: gzip but send raw JSON
+- Reduces 500 errors from gossip endpoint
+
+**3. Startup Grace Period (commit dade90f)**
+
+- 120-second grace period during P2P startup
+- Prevents killing processes during slow state file loading
+- Configurable via `RINGRIFT_P2P_STARTUP_GRACE_PERIOD`
+
+**4. SystemExit Handling (commit 6649601)**
+
+- Catches SystemExit in \_safe_task_wrapper
+- Prevents "Task exception was never retrieved" log pollution
+
+**5. /dev/shm Fallback (commit 6649601)**
+
+- Graceful fallback to disk storage when /dev/shm unavailable
+- Fixes macOS compatibility and permission issues
+
+**6. Port Binding Errors (commit 6649601)**
+
+- Clear error messages for port 8770 conflicts
+- Suggested remediation: `lsof -i :8770` and `pkill -f p2p_orchestrator`
+
+### Cluster Configuration
+
+The cluster is configured via `config/distributed_hosts.yaml`:
+
+- **P2P Voters**: 5 stable nodes for leader election (quorum = 3)
+  - nebius-backbone-1, nebius-h100-3, hetzner-cpu1, hetzner-cpu2, vultr-a100-20gb
+  - Only non-containerized, non-NAT-blocked nodes
+- **Auto-sync**: 60s interval (reduced from 300s for fresher data)
+- **Gossip interval**: 15s (reduced from 60s for faster propagation)
+- **Bandwidth limits**: 100 MB/s (RunPod/Nebius), 50 MB/s (Vast/Vultr)
 
 ## Auto-Promotion Workflow
 

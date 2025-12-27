@@ -2,8 +2,9 @@
 
 Cluster setup, operations, and cloud infrastructure.
 
-> **Note (Dec 2025):** Lambda Labs account suspended pending support ticket resolution.
-> Current active providers: Nebius, RunPod, Vast.ai, Vultr, Hetzner.
+> **Update (Dec 2025):** Lambda Labs account terminated. All Lambda nodes permanently removed.
+> Current active providers: Vast.ai (~30 nodes), RunPod (6), Nebius (4), Vultr (3), Hetzner (4), Local (2).
+> Total: ~52 configured nodes in `config/distributed_hosts.yaml`.
 
 ## Contents
 

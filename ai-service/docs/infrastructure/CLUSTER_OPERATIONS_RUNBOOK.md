@@ -43,6 +43,48 @@ ssh gpu-primary 'ps aux | grep -E "(selfplay|train)" | grep -v grep | wc -l'
 
 ## Common Operations
 
+### Update All Cluster Nodes (NEW - Dec 2025)
+
+Update all nodes to the latest code in parallel:
+
+```bash
+# From coordinator (mac-studio or local-mac)
+cd ~/Development/RingRift/ai-service
+
+# Update all nodes to latest git commit
+python scripts/update_all_nodes.py
+
+# Update with P2P orchestrator restart
+python scripts/update_all_nodes.py --restart-p2p
+
+# Preview changes without applying
+python scripts/update_all_nodes.py --dry-run
+
+# Update to specific commit
+python scripts/update_all_nodes.py --commit abc1234
+
+# Limit parallel updates (default: 10)
+python scripts/update_all_nodes.py --max-parallel 5
+```
+
+**Features:**
+
+- Updates all nodes in `config/distributed_hosts.yaml`
+- Skips coordinator nodes and nodes with status != ready
+- Auto-detects paths by provider (RunPod, Vast, Nebius, etc.)
+- Git stash before pull, commit verification after
+- Optional P2P orchestrator restart
+- Detailed summary report
+
+**Example output:**
+
+```
+✅ Successfully updated: 45 nodes
+⏭️  Skipped: 4 nodes (coordinator, retired)
+❌ Failed: 3 nodes (connection timeout)
+📊 Total: 52 nodes
+```
+
 ### Start/Stop GPU Selfplay Workers
 
 Supported board types: `square8`, `hex8`, `square19`, `hexagonal`
@@ -154,6 +196,62 @@ ssh gpu-primary 'cd ~/ringrift/ai-service && \
    ```bash
    ssh $HOST 'find ~/ringrift/ai-service/data/selfplay -name "*.jsonl" -mtime +7 -delete'
    ```
+
+### P2P Orchestrator Crashes (FIXED - Dec 2025)
+
+**Recent fixes deployed (commits 1270b64, dade90f, 6649601):**
+
+**Problem: Missing dependencies**
+
+```bash
+# Check if dependencies are installed
+ssh $HOST 'python3 -c "import aiohttp, psutil, yaml"'
+
+# Install if missing
+ssh $HOST 'cd ~/ringrift/ai-service && source venv/bin/activate && pip install aiohttp psutil pyyaml'
+```
+
+**Problem: Port 8770 already in use**
+
+```bash
+# Find what's using the port
+ssh $HOST 'lsof -i :8770'
+
+# Kill old P2P process
+ssh $HOST 'pkill -f p2p_orchestrator'
+
+# Wait 5 seconds, then restart
+ssh $HOST 'sleep 5 && cd ~/ringrift/ai-service && nohup python scripts/p2p_orchestrator.py > logs/p2p.log 2>&1 &'
+```
+
+**Problem: Slow startup (loading state files)**
+
+- P2P now has 120-second grace period (configurable via `RINGRIFT_P2P_STARTUP_GRACE_PERIOD`)
+- No action needed - node_resilience will wait before checking
+
+**Problem: Gossip endpoint 500 errors**
+
+- Fixed: Gzip magic byte detection (0x1f 0x8b)
+- Handles clients that set Content-Encoding: gzip but send raw JSON
+- Update nodes to latest code: `python scripts/update_all_nodes.py`
+
+**Problem: /dev/shm not accessible (macOS, permissions)**
+
+- Fixed: Automatic fallback to disk storage
+- No action needed - P2P will use temp directory
+
+**Check P2P health:**
+
+```bash
+# Via HTTP
+curl -s http://$HOST:8770/status | jq .
+
+# Check logs
+ssh $HOST 'tail -100 ~/ringrift/ai-service/logs/p2p.log'
+
+# Check process
+ssh $HOST 'ps aux | grep p2p_orchestrator | grep -v grep'
+```
 
 ### Training Stuck
 
