@@ -133,7 +133,7 @@ await shutdown_all_coordinators()
 
 #### Daemon Types Reference
 
-63+ daemon types organized by category (all with DAEMON_DEPENDENCIES defined as of Dec 2025):
+66 daemon types organized by category (all with DAEMON_DEPENDENCIES defined as of Dec 2025):
 
 **Core Infrastructure:**
 | Daemon Type | Purpose | Critical | Auto-Restart | Dependencies |
