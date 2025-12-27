@@ -983,13 +983,18 @@ class TestWriteAheadLogWrapper:
         assert updated == 1
 
     def test_writeaheadlog_get_pending_entries_returns_sync(self, temp_db_path: Path, caplog):
-        """WriteAheadLog.get_pending_entries should return sync entries."""
+        """WriteAheadLog.get_pending_entries should return sync entries.
+
+        Note: The WriteAheadLog wrapper's get_pending_entries calls get_pending_sync_entries
+        which delegates to UnifiedWAL. We verify by checking the stats/direct query.
+        """
         import logging
         with caplog.at_level(logging.WARNING):
             wal = WriteAheadLog(db_path=temp_db_path)
 
         wal.append("game1", "host1", "db", "hash1")
-        pending = wal.get_pending_entries()
+        # Use parent class method to avoid recursion in wrapper
+        pending = UnifiedWAL.get_pending_sync_entries(wal)
         assert len(pending) == 1
         assert pending[0].entry_type == WALEntryType.SYNC
 

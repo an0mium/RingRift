@@ -1510,3 +1510,100 @@ from app.coordination.singleton_mixin import (
 
 - `app/core/logging_config.LogContext` → Renamed to `TemporaryLogLevel`
 - `app/utils/logging_utils.LogContext` → Unchanged (structured context)
+
+### Wave 5-6 Infrastructure Improvements (Dec 27, 2025)
+
+**HandlerBase Class** (`app/coordination/handler_base.py`):
+
+Canonical base class for event-driven handlers with 550 LOC, 45 tests:
+
+```python
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+
+class MyDaemon(HandlerBase):
+    def __init__(self):
+        super().__init__(name="my_daemon", cycle_interval=60.0)
+
+    async def _run_cycle(self) -> None:
+        pass  # Main work loop
+
+    def _get_event_subscriptions(self) -> dict:
+        return {"my_event": self._on_my_event}
+
+# Supports both _get_event_subscriptions() and legacy _get_subscriptions()
+```
+
+**HealthCheckHelper Class** (`app/coordination/health_check_helper.py`):
+
+Reusable health check logic for all coordinators:
+
+```python
+from app.coordination.health_check_helper import HealthCheckHelper
+
+# Reusable health check methods
+is_ok, msg = HealthCheckHelper.check_error_rate(errors=5, cycles=100, threshold=0.5)
+is_ok, msg = HealthCheckHelper.check_uptime_grace(start_time, grace_period=30)
+is_ok, msg = HealthCheckHelper.check_queue_depth(queue.qsize(), max_depth=1000)
+```
+
+**Missing Daemon Profile Wiring** (Dec 27, 2025):
+
+Added 3 daemons to DaemonManager profiles:
+
+| Daemon                     | Profile       | Purpose                             |
+| -------------------------- | ------------- | ----------------------------------- |
+| `DATA_CONSOLIDATION`       | coordinator   | Consolidate scattered data files    |
+| `DISK_SPACE_MANAGER`       | training_node | Manage disk space on training nodes |
+| `COORDINATOR_DISK_MANAGER` | coordinator   | Manage coordinator disk space       |
+
+**Event Wiring Verification Guide** (`docs/runbooks/EVENT_WIRING_VERIFICATION.md`):
+
+New runbook for verifying event emitter/subscriber wiring:
+
+- Quick verification script to find orphan events
+- Manual verification procedures for new events
+- Critical event wiring matrix (9 key events)
+- Automated CI check YAML template
+- Troubleshooting guide for event routing issues
+
+**SyncRouter Backpressure Integration** (`app/coordination/sync_router.py`):
+
+Added handlers for backpressure events to pause/resume sync operations:
+
+```python
+# Subscribed to BACKPRESSURE_ACTIVATED and BACKPRESSURE_RELEASED
+router.is_under_backpressure()  # Query current state
+```
+
+**Alert Types Test Coverage** (`tests/unit/coordination/test_alert_types.py`):
+
+30 unit tests covering:
+
+- `AlertSeverity` enum values and ordering
+- `AlertCategory` and `AlertState` enums
+- `Alert` dataclass properties (`is_critical`, `is_error_or_above`, `to_dict()`)
+- `create_alert()` factory function
+- Backward-compatible aliases (`ErrorSeverity`, `StallSeverity`, etc.)
+- Helper functions (`severity_to_log_level`, `severity_to_color`)
+
+**EVENT_SYSTEM_REFERENCE.md Updates**:
+
+Added 4 missing events to documentation:
+
+| Event                   | Category        | Purpose                           |
+| ----------------------- | --------------- | --------------------------------- |
+| `ORPHAN_GAMES_DETECTED` | Data Collection | Detect games on unreachable nodes |
+| `REPAIR_COMPLETED`      | Data Integrity  | Data repair success               |
+| `REPAIR_FAILED`         | Data Integrity  | Data repair failure               |
+| `TASK_ABANDONED`        | Job Management  | Track cancelled jobs              |
+
+**DAEMON_FAILURE_RECOVERY.md Runbook** (`docs/runbooks/DAEMON_FAILURE_RECOVERY.md`):
+
+New runbook covering:
+
+- Health endpoint usage (`/health`, `/ready`, `/metrics` on port 8790)
+- Programmatic health checks via `DaemonManager`
+- CLI status via `launch_daemons.py --status`
+- Common failure patterns: Startup failure, Crash loop, Health check failure, Event subscription loss
+- Exponential backoff table (1s → 16s max)
+- Full system recovery procedures

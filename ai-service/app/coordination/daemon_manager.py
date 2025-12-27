@@ -546,17 +546,28 @@ class DaemonManager:
         December 27, 2025: Added to fix startup order issues where daemons
         start before their dependencies are ready, causing lost events.
 
+        Important: use the *currently registered* dependencies (DaemonInfo.depends_on)
+        rather than a static registry lookup.
+
+        This keeps production behavior the same (default daemons are registered from
+        the declarative registry with their dependencies), while allowing tests to
+        register ad-hoc daemons without accidentally inheriting registry dependencies.
+
         Args:
             daemon_type: Type of daemon being started
         """
-        from app.coordination.daemon_registry import DAEMON_REGISTRY
+        info = self._daemons.get(daemon_type)
+        if info is None:
+            return
 
-        spec = DAEMON_REGISTRY.get(daemon_type)
-        if not spec or not spec.depends_on:
-            return  # No dependencies to wait for
+        deps = list(info.depends_on or [])
+        if not deps:
+            return
 
-        for dep in spec.depends_on:
-            if not await self._wait_for_daemon_ready(dep, timeout=30.0):
+        timeout = getattr(self.config, "dependency_wait_timeout", 30.0)
+
+        for dep in deps:
+            if not await self._wait_for_daemon_ready(dep, timeout=timeout):
                 logger.warning(
                     f"[DaemonManager] Dependency {dep.name} not ready for {daemon_type.name}, "
                     "proceeding anyway (may lose early events)"
@@ -568,7 +579,6 @@ class DaemonManager:
         """Wait for a specific daemon to be running and healthy.
 
         December 27, 2025: Added to support dependency-based startup ordering.
-        Polls daemon status at 0.5s intervals until ready or timeout.
 
         Args:
             daemon_type: Type of daemon to wait for
@@ -578,6 +588,8 @@ class DaemonManager:
             True if daemon is ready, False if timed out
         """
         import time
+
+        poll_interval = getattr(self.config, "dependency_poll_interval", 0.5)
 
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -593,7 +605,7 @@ class DaemonManager:
                         return True
                     # If health check exists but returns unhealthy, keep waiting
                     if status == "unhealthy":
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(poll_interval)
                         continue
                 except (AttributeError, ValueError, RuntimeError, asyncio.TimeoutError):
                     # No health check available, just check running state
@@ -603,7 +615,7 @@ class DaemonManager:
                     f"[DaemonManager] Dependency {daemon_type.name} is running (no health status)"
                 )
                 return True
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(poll_interval)
 
         logger.warning(
             f"[DaemonManager] Timed out waiting {timeout}s for {daemon_type.name}"
@@ -1313,8 +1325,15 @@ class DaemonManager:
 
         This method is idempotent - calling it multiple times is safe.
         It tracks whether wiring has already been done and skips if so.
+
+        Tests can disable the bootstrap via DaemonManagerConfig.enable_coordination_wiring.
         """
         if self._coordination_wired:
+            return
+
+        if not getattr(self.config, "enable_coordination_wiring", True):
+            self._coordination_wired = True
+            logger.debug("[DaemonManager] Coordination wiring disabled by config")
             return
 
         # Wire coordination events (includes SyncRouter.wire_to_event_router())

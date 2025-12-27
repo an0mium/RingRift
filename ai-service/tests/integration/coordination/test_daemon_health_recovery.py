@@ -38,6 +38,11 @@ from app.coordination.daemon_types import (
 def fast_config():
     """Create config with very short intervals for fast tests."""
     return DaemonManagerConfig(
+        # Keep these tests isolated from the full coordination bootstrap.
+        # They validate DaemonManager health-loop behavior, not cluster wiring.
+        enable_coordination_wiring=False,
+        dependency_wait_timeout=0.25,
+        dependency_poll_interval=0.01,
         health_check_interval=0.05,  # 50ms
         shutdown_timeout=0.5,
         recovery_cooldown=0.1,
