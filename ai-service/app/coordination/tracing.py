@@ -47,7 +47,7 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
@@ -238,7 +238,7 @@ def set_trace_id(trace_id: str, name: str = "continued") -> TraceContext:
 
 
 @contextmanager
-def new_trace(name: str = "unnamed", **tags):
+def new_trace(name: str = "unnamed", **tags: Any) -> Generator[TraceContext, None, None]:
     """Context manager to start a new trace.
 
     Args:
@@ -262,7 +262,9 @@ def new_trace(name: str = "unnamed", **tags):
 
 
 @contextmanager
-def with_trace(trace_id: str, name: str = "continued", **tags):
+def with_trace(
+    trace_id: str, name: str = "continued", **tags: Any
+) -> Generator[TraceContext, None, None]:
     """Context manager to continue an existing trace.
 
     Args:

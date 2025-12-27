@@ -895,6 +895,82 @@ class SyncRouter:
         except Exception as e:
             logger.warning(f"[SyncRouter] Error handling cluster capacity changed: {e}")
 
+    async def _on_model_sync_requested(self, event: Any) -> None:
+        """Handle MODEL_SYNC_REQUESTED event - trigger model re-download from healthy nodes.
+
+        December 2025: Wired to address critical gap where model sync requests were
+        emitted but had no subscribers. This handler routes models from healthy nodes
+        to requesting nodes.
+
+        Args:
+            event: Event with payload containing model_id, requesting_node, reason
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event
+            model_id = payload.get("model_id", "")
+            requesting_node = payload.get("node_id", "") or payload.get("requesting_node", "")
+            reason = payload.get("reason", "sync_requested")
+
+            if not model_id or not requesting_node:
+                logger.debug(
+                    f"[SyncRouter] MODEL_SYNC_REQUESTED missing model_id or node: {payload}"
+                )
+                return
+
+            logger.info(
+                f"[SyncRouter] Model sync requested: {model_id} for {requesting_node}, "
+                f"reason: {reason}"
+            )
+
+            # Find nodes that have this model and can serve as sources
+            sources = self.get_sync_targets(
+                data_type=DataType.MODEL,
+                exclude_nodes=[requesting_node],
+                max_targets=3,
+            )
+
+            if not sources:
+                logger.warning(
+                    f"[SyncRouter] No sources found for model {model_id}"
+                )
+                return
+
+            # Select the best source (first one - highest priority)
+            source_node = sources[0].node_id
+
+            logger.info(
+                f"[SyncRouter] Routing model {model_id} from {source_node} "
+                f"to {requesting_node}"
+            )
+
+            # Emit sync routing decision
+            await self._emit_sync_routing_decision(
+                source=source_node,
+                targets=[requesting_node],
+                data_type=DataType.MODEL,
+                reason=f"model_sync:{model_id}:{reason}",
+            )
+
+            # Also emit a MODEL_SYNC_STARTED event for tracking
+            try:
+                from app.coordination.event_router import get_router
+
+                router = get_router()
+                await router.publish(
+                    "MODEL_SYNC_STARTED",
+                    {
+                        "model_id": model_id,
+                        "source_node": source_node,
+                        "target_node": requesting_node,
+                        "reason": reason,
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"[SyncRouter] Could not emit MODEL_SYNC_STARTED: {e}")
+
+        except Exception as e:
+            logger.error(f"[SyncRouter] Error handling model sync request: {e}")
+
     async def _emit_capacity_refresh(
         self,
         change_type: str,

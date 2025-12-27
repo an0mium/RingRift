@@ -350,7 +350,7 @@ class TestErrorTracking:
     """Tests for daemon error tracking."""
 
     @pytest.mark.asyncio
-    async def test_last_error_recorded_on_crash(self, manager: DaemonManager):
+    async def test_last_error_recorded_on_crash(self, no_restart_manager: DaemonManager):
         """last_error should be set when daemon crashes."""
         error_message = "Test error message for tracking"
 
@@ -358,21 +358,22 @@ class TestErrorTracking:
             await asyncio.sleep(0.02)
             raise ValueError(error_message)
 
-        manager.register_factory(DaemonType.TRAINING_TRIGGER, error_daemon)
+        no_restart_manager.register_factory(DaemonType.TRAINING_TRIGGER, error_daemon)
 
-        await manager.start(DaemonType.TRAINING_TRIGGER)
+        await no_restart_manager.start(DaemonType.TRAINING_TRIGGER)
         await asyncio.sleep(0.2)
 
-        info = manager._daemons[DaemonType.TRAINING_TRIGGER]
+        info = no_restart_manager._daemons[DaemonType.TRAINING_TRIGGER]
         assert info.last_error is not None
         assert error_message in info.last_error
 
-        await manager.shutdown()
+        await no_restart_manager.shutdown()
 
     @pytest.mark.asyncio
     async def test_restart_count_incremented_on_restart(self, manager: DaemonManager):
         """restart_count should increment each time daemon restarts."""
         call_count = 0
+        stable_running = asyncio.Event()
 
         async def count_daemon():
             nonlocal call_count
@@ -381,12 +382,18 @@ class TestErrorTracking:
             if call_count < 3:
                 raise RuntimeError(f"Crash #{call_count}")
             # Run stably on 3rd attempt
+            stable_running.set()
             await asyncio.sleep(10)
 
         manager.register_factory(DaemonType.DATA_PIPELINE, count_daemon)
 
         await manager.start(DaemonType.DATA_PIPELINE)
-        await asyncio.sleep(1.0)
+
+        # Wait for stable run to start
+        try:
+            await asyncio.wait_for(stable_running.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            pass  # May timeout, check restart count anyway
 
         info = manager._daemons[DaemonType.DATA_PIPELINE]
         # restart_count should match number of restarts (not initial start)
