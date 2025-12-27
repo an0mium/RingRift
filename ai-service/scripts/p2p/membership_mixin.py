@@ -12,14 +12,17 @@ Features:
 - Hybrid mode: SWIM when available, HTTP fallback
 - Event emission for membership changes
 - Graceful handling of missing swim-p2p dependency
+
+Refactored to use P2PMixinBase - Dec 27, 2025
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Optional
+
+from scripts.p2p.p2p_mixin_base import P2PMixinBase
 
 if TYPE_CHECKING:
     from threading import RLock
@@ -28,42 +31,41 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Import SWIM adapter with graceful fallback
-try:
-    from app.p2p.swim_adapter import SwimConfig, SwimMembershipManager
+# Import SWIM adapter with graceful fallback using protocol_utils
+from scripts.p2p.protocol_utils import safe_import
 
-    SWIM_ADAPTER_AVAILABLE = True
-except ImportError:
-    SWIM_ADAPTER_AVAILABLE = False
-    SwimMembershipManager = None
-    SwimConfig = None
+_, SwimConfig, SwimMembershipManager, SWIM_ADAPTER_AVAILABLE = safe_import(
+    "app.p2p.swim_adapter", "SwimConfig", "SwimMembershipManager"
+)
+if not SWIM_ADAPTER_AVAILABLE:
     logger.debug("swim_adapter not available - SWIM features disabled")
 
-# Import constants with fallbacks
-try:
-    from scripts.p2p.constants import (
-        MEMBERSHIP_MODE,
-        PEER_TIMEOUT,
-        SWIM_BIND_PORT,
-        SWIM_ENABLED,
-        SWIM_FAILURE_TIMEOUT,
-        SWIM_INDIRECT_PING_COUNT,
-        SWIM_PING_INTERVAL,
-        SWIM_SUSPICION_TIMEOUT,
-    )
-except ImportError:
-    SWIM_ENABLED = False
-    SWIM_BIND_PORT = 7947
-    SWIM_FAILURE_TIMEOUT = 5.0
-    SWIM_SUSPICION_TIMEOUT = 3.0
-    SWIM_PING_INTERVAL = 1.0
-    SWIM_INDIRECT_PING_COUNT = 3
-    MEMBERSHIP_MODE = "http"
-    PEER_TIMEOUT = 90
+# Load constants with fallbacks using base class helper
+_CONSTANTS = P2PMixinBase._load_config_constants({
+    "SWIM_ENABLED": False,
+    "SWIM_BIND_PORT": 7947,
+    "SWIM_FAILURE_TIMEOUT": 5.0,
+    "SWIM_SUSPICION_TIMEOUT": 3.0,
+    "SWIM_PING_INTERVAL": 1.0,
+    "SWIM_INDIRECT_PING_COUNT": 3,
+    "MEMBERSHIP_MODE": "http",
+    "PEER_TIMEOUT": 90,
+})
+
+SWIM_ENABLED = _CONSTANTS["SWIM_ENABLED"]
+SWIM_BIND_PORT = _CONSTANTS["SWIM_BIND_PORT"]
+SWIM_FAILURE_TIMEOUT = _CONSTANTS["SWIM_FAILURE_TIMEOUT"]
+SWIM_SUSPICION_TIMEOUT = _CONSTANTS["SWIM_SUSPICION_TIMEOUT"]
+SWIM_PING_INTERVAL = _CONSTANTS["SWIM_PING_INTERVAL"]
+SWIM_INDIRECT_PING_COUNT = _CONSTANTS["SWIM_INDIRECT_PING_COUNT"]
+MEMBERSHIP_MODE = _CONSTANTS["MEMBERSHIP_MODE"]
+PEER_TIMEOUT = _CONSTANTS["PEER_TIMEOUT"]
 
 
-class MembershipMixin:
+class MembershipMixin(P2PMixinBase):
     """Mixin providing SWIM-based membership management.
+
+    Inherits from P2PMixinBase for shared event emission helpers.
 
     Requires the implementing class to have:
     State:
@@ -74,6 +76,8 @@ class MembershipMixin:
     Methods:
     - _emit_event(event_type, payload) - Optional event emission
     """
+
+    MIXIN_TYPE = "membership"
 
     # Type hints for IDE support (implemented by P2POrchestrator)
     node_id: str
@@ -91,15 +95,15 @@ class MembershipMixin:
             True if SWIM was initialized successfully, False otherwise
         """
         if not SWIM_ENABLED:
-            logger.debug("SWIM disabled via RINGRIFT_SWIM_ENABLED")
+            self._log_debug("SWIM disabled via RINGRIFT_SWIM_ENABLED")
             return False
 
         if not SWIM_ADAPTER_AVAILABLE:
-            logger.warning("SWIM enabled but swim_adapter not available")
+            self._log_warning("SWIM enabled but swim_adapter not available")
             return False
 
         if SwimMembershipManager is None or SwimConfig is None:
-            logger.warning("SWIM enabled but SwimMembershipManager/SwimConfig not importable")
+            self._log_warning("SWIM enabled but SwimMembershipManager/SwimConfig not importable")
             return False
 
         try:
@@ -121,14 +125,14 @@ class MembershipMixin:
                 on_member_failed=self._on_swim_member_failed,
             )
 
-            logger.info(
+            self._log_info(
                 f"SWIM membership initialized on port {SWIM_BIND_PORT} "
                 f"(failure_timeout={SWIM_FAILURE_TIMEOUT}s)"
             )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to initialize SWIM membership: {e}", exc_info=True)
+            self._log_error(f"Failed to initialize SWIM membership: {e}")
             self._swim_manager = None
             return False
 
@@ -148,14 +152,14 @@ class MembershipMixin:
             self._swim_started = started
 
             if started:
-                logger.info(f"SWIM membership started for node {self.node_id}")
+                self._log_info(f"SWIM membership started for node {self.node_id}")
             else:
-                logger.warning("SWIM membership failed to start")
+                self._log_warning("SWIM membership failed to start")
 
             return started
 
         except Exception as e:
-            logger.error(f"Error starting SWIM membership: {e}", exc_info=True)
+            self._log_error(f"Error starting SWIM membership: {e}")
             self._swim_started = False
             return False
 
@@ -167,9 +171,9 @@ class MembershipMixin:
         if self._swim_manager is not None:
             try:
                 await self._swim_manager.stop()
-                logger.info("SWIM membership stopped")
+                self._log_info("SWIM membership stopped")
             except Exception as e:
-                logger.warning(f"Error stopping SWIM membership: {e}")
+                self._log_warning(f"Error stopping SWIM membership: {e}")
             finally:
                 self._swim_started = False
 
@@ -182,7 +186,7 @@ class MembershipMixin:
         Args:
             member_id: Node ID of the member that became alive
         """
-        logger.info(f"SWIM: member {member_id} is now ALIVE")
+        self._log_info(f"SWIM: member {member_id} is now ALIVE")
 
         # Update peer last_heartbeat to mark as alive
         with self.peers_lock:
@@ -190,8 +194,15 @@ class MembershipMixin:
                 self.peers[member_id].last_heartbeat = time.time()
                 self.peers[member_id].consecutive_failures = 0
 
-        # Emit host online event
-        self._emit_host_online(member_id)
+        # Emit host online event using base class helper
+        self._safe_emit_event(
+            "HOST_ONLINE",
+            {
+                "node_id": member_id,
+                "timestamp": time.time(),
+                "source": "swim" if self._swim_started else "http",
+            },
+        )
 
     def _on_swim_member_failed(self, member_id: str) -> None:
         """Handle SWIM member failure detection.
@@ -203,7 +214,7 @@ class MembershipMixin:
         Args:
             member_id: Node ID of the member that failed
         """
-        logger.warning(f"SWIM: member {member_id} is now FAILED")
+        self._log_warning(f"SWIM: member {member_id} is now FAILED")
 
         # Update peer state
         with self.peers_lock:
@@ -212,8 +223,15 @@ class MembershipMixin:
                 peer.consecutive_failures += 1
                 peer.last_failure_time = time.time()
 
-        # Emit host offline event
-        self._emit_host_offline(member_id)
+        # Emit host offline event using base class helper
+        self._safe_emit_event(
+            "HOST_OFFLINE",
+            {
+                "node_id": member_id,
+                "timestamp": time.time(),
+                "source": "swim" if self._swim_started else "http",
+            },
+        )
 
     def is_peer_alive_hybrid(self, peer_id: str) -> bool:
         """Check if a peer is alive using SWIM or HTTP based on MEMBERSHIP_MODE.
@@ -229,7 +247,7 @@ class MembershipMixin:
             try:
                 return self._swim_manager.is_peer_alive(peer_id)
             except Exception as e:
-                logger.debug(f"SWIM is_peer_alive error for {peer_id}: {e}")
+                self._log_debug(f"SWIM is_peer_alive error for {peer_id}: {e}")
                 # Fall through to HTTP check
 
         # HTTP fallback (or primary if MEMBERSHIP_MODE == "http")
@@ -254,7 +272,7 @@ class MembershipMixin:
                 if swim_alive:
                     return swim_alive
             except Exception as e:
-                logger.debug(f"SWIM get_alive_peers error: {e}")
+                self._log_debug(f"SWIM get_alive_peers error: {e}")
                 # Fall through to HTTP check
 
         # HTTP fallback
@@ -291,45 +309,3 @@ class MembershipMixin:
             "membership_mode": MEMBERSHIP_MODE,
             "swim": swim_summary,
         }
-
-    def _emit_host_online(self, node_id: str) -> None:
-        """Emit event when a host comes online.
-
-        Args:
-            node_id: Node ID that came online
-        """
-        try:
-            # Check if _emit_event exists (optional method)
-            emit_fn = getattr(self, "_emit_event", None)
-            if callable(emit_fn):
-                emit_fn(
-                    "HOST_ONLINE",
-                    {
-                        "node_id": node_id,
-                        "timestamp": time.time(),
-                        "source": "swim" if self._swim_started else "http",
-                    },
-                )
-        except Exception as e:
-            logger.debug(f"Error emitting HOST_ONLINE event: {e}")
-
-    def _emit_host_offline(self, node_id: str) -> None:
-        """Emit event when a host goes offline.
-
-        Args:
-            node_id: Node ID that went offline
-        """
-        try:
-            # Check if _emit_event exists (optional method)
-            emit_fn = getattr(self, "_emit_event", None)
-            if callable(emit_fn):
-                emit_fn(
-                    "HOST_OFFLINE",
-                    {
-                        "node_id": node_id,
-                        "timestamp": time.time(),
-                        "source": "swim" if self._swim_started else "http",
-                    },
-                )
-        except Exception as e:
-            logger.debug(f"Error emitting HOST_OFFLINE event: {e}")

@@ -35,42 +35,34 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Import constants with fallbacks
-try:
-    from scripts.p2p.constants import (
-        CONSENSUS_MODE,
-        DEFAULT_PORT,
-        RAFT_AUTO_UNLOCK_TIME,
-        RAFT_BIND_PORT,
-        RAFT_COMPACTION_MIN_ENTRIES,
-        RAFT_ENABLED,
-    )
-except ImportError:
-    RAFT_ENABLED = False
-    RAFT_BIND_PORT = 4321
-    RAFT_COMPACTION_MIN_ENTRIES = 1000
-    RAFT_AUTO_UNLOCK_TIME = 300.0
-    CONSENSUS_MODE = "bully"
-    DEFAULT_PORT = 8770
+# Import constants with fallbacks using protocol_utils
+from scripts.p2p.protocol_utils import load_constants, safe_import, safe_import_from
 
-# Try to import pysyncobj - graceful fallback if unavailable
-PYSYNCOBJ_AVAILABLE = False
-_SyncObj = None
-_SyncObjConf = None
-_replicated = None
-_ReplDict = None
-_ReplLockManager = None
+_consts = load_constants(
+    "CONSENSUS_MODE", "DEFAULT_PORT", "RAFT_AUTO_UNLOCK_TIME",
+    "RAFT_BIND_PORT", "RAFT_COMPACTION_MIN_ENTRIES", "RAFT_ENABLED",
+    defaults={
+        "RAFT_ENABLED": False,
+        "RAFT_BIND_PORT": 4321,
+        "RAFT_COMPACTION_MIN_ENTRIES": 1000,
+        "RAFT_AUTO_UNLOCK_TIME": 300.0,
+        "CONSENSUS_MODE": "bully",
+        "DEFAULT_PORT": 8770,
+    },
+)
+RAFT_ENABLED = _consts["RAFT_ENABLED"]
+RAFT_BIND_PORT = _consts["RAFT_BIND_PORT"]
+RAFT_COMPACTION_MIN_ENTRIES = _consts["RAFT_COMPACTION_MIN_ENTRIES"]
+RAFT_AUTO_UNLOCK_TIME = _consts["RAFT_AUTO_UNLOCK_TIME"]
+CONSENSUS_MODE = _consts["CONSENSUS_MODE"]
+DEFAULT_PORT = _consts["DEFAULT_PORT"]
 
-try:
-    from pysyncobj import SyncObj as _SyncObj
-    from pysyncobj import SyncObjConf as _SyncObjConf
-    from pysyncobj import replicated as _replicated
-    from pysyncobj.batteries import ReplDict as _ReplDict
-    from pysyncobj.batteries import ReplLockManager as _ReplLockManager
-
-    PYSYNCOBJ_AVAILABLE = True
-except ImportError:
-    pass
+# Try to import pysyncobj - graceful fallback if unavailable using protocol_utils
+_, _SyncObj, _SyncObjConf, _replicated, PYSYNCOBJ_AVAILABLE = safe_import(
+    "pysyncobj", "SyncObj", "SyncObjConf", "replicated"
+)
+_ReplDict, _ = safe_import_from("pysyncobj.batteries", "ReplDict")
+_ReplLockManager, _ = safe_import_from("pysyncobj.batteries", "ReplLockManager")
 
 
 def get_work_queue():

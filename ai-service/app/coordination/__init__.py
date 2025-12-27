@@ -934,7 +934,6 @@ from app.coordination.sync_bloom_filter import (
 # NOTE: This module re-exports everything from sync_durability, sync_integrity,
 # sync_stall_handler, and sync_bloom_filter. Use this for convenience:
 #   from app.coordination.sync_safety import SyncWAL, verify_sync_integrity, ...
-from app.coordination.sync_safety import get_module_summary as get_sync_safety_summary
 
 # Module-level singleton placeholders for cleanup in shutdown_all_coordinators
 _selfplay_orchestrator = None
