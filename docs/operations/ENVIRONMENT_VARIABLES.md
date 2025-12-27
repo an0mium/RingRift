@@ -593,6 +593,29 @@ and `ai-service/app/config/env.py` unless noted.
 | `RINGRIFT_BACKPRESSURE_MEMORY_THRESHOLD`  | `85.0`             | Memory utilization (%) threshold to trigger backpressure.   | Advanced |
 | `RINGRIFT_BACKPRESSURE_DISK_THRESHOLD`    | `90.0`             | Disk utilization (%) threshold to trigger backpressure.     | Advanced |
 | `RINGRIFT_BACKPRESSURE_COOLDOWN`          | `30`               | Backpressure cooldown (seconds) before re-evaluating.       | Advanced |
+| `RINGRIFT_BP_WEIGHT_QUEUE`                | `0.30`             | Backpressure weight for queue depth.                        | Advanced |
+| `RINGRIFT_BP_WEIGHT_TRAINING`             | `0.25`             | Backpressure weight for training saturation.                | Advanced |
+| `RINGRIFT_BP_WEIGHT_DISK`                 | `0.20`             | Backpressure weight for disk pressure.                      | Advanced |
+| `RINGRIFT_BP_WEIGHT_SYNC`                 | `0.15`             | Backpressure weight for sync backlog.                       | Advanced |
+| `RINGRIFT_BP_WEIGHT_MEMORY`               | `0.10`             | Backpressure weight for memory pressure.                    | Advanced |
+| `RINGRIFT_BP_QUEUE_LOW`                   | `0.3`              | Queue pressure threshold (low, 0-1).                        | Advanced |
+| `RINGRIFT_BP_QUEUE_MEDIUM`                | `0.5`              | Queue pressure threshold (medium, 0-1).                     | Advanced |
+| `RINGRIFT_BP_QUEUE_HIGH`                  | `0.7`              | Queue pressure threshold (high, 0-1).                       | Advanced |
+| `RINGRIFT_BP_QUEUE_CRITICAL`              | `0.9`              | Queue pressure threshold (critical, 0-1).                   | Advanced |
+| `RINGRIFT_BP_CACHE_TTL`                   | `10.0`             | Backpressure cache TTL (seconds).                           | Advanced |
+| `RINGRIFT_BP_COOLDOWN`                    | `5`                | Backpressure recalculation cooldown (seconds).              | Advanced |
+| `RINGRIFT_QUEUE_TRAINING_SOFT`            | `100000`           | Soft limit for training data queue depth.                   | Advanced |
+| `RINGRIFT_QUEUE_TRAINING_HARD`            | `500000`           | Hard limit for training data queue depth.                   | Advanced |
+| `RINGRIFT_QUEUE_TRAINING_TARGET`          | `50000`            | Target training data queue depth.                           | Advanced |
+| `RINGRIFT_QUEUE_GAMES_SOFT`               | `1000`             | Soft limit for pending games queue depth.                   | Advanced |
+| `RINGRIFT_QUEUE_GAMES_HARD`               | `5000`             | Hard limit for pending games queue depth.                   | Advanced |
+| `RINGRIFT_QUEUE_GAMES_TARGET`             | `500`              | Target pending games queue depth.                           | Advanced |
+| `RINGRIFT_QUEUE_EVAL_SOFT`                | `50`               | Soft limit for evaluation queue depth.                      | Advanced |
+| `RINGRIFT_QUEUE_EVAL_HARD`                | `200`              | Hard limit for evaluation queue depth.                      | Advanced |
+| `RINGRIFT_QUEUE_EVAL_TARGET`              | `20`               | Target evaluation queue depth.                              | Advanced |
+| `RINGRIFT_QUEUE_SYNC_SOFT`                | `100`              | Soft limit for sync queue depth.                            | Advanced |
+| `RINGRIFT_QUEUE_SYNC_HARD`                | `500`              | Hard limit for sync queue depth.                            | Advanced |
+| `RINGRIFT_QUEUE_SYNC_TARGET`              | `50`               | Target sync queue depth.                                    | Advanced |
 | `RINGRIFT_DAEMON_CHECK_INTERVAL`          | `300`              | Daemon supervisor check interval (seconds).                 | Advanced |
 | `RINGRIFT_DAEMON_HEALTH_INTERVAL`         | `60`               | Health check interval for daemons (seconds).                | Advanced |
 | `RINGRIFT_DAEMON_CRITICAL_CHECK_INTERVAL` | `30`               | Health check interval for critical daemons (seconds).       | Advanced |
@@ -640,6 +663,15 @@ and `ai-service/app/config/env.py` unless noted.
 | `RINGRIFT_MAX_TRAINING_TOTAL`             | `3`                | Max concurrent training jobs cluster-wide.                  | Advanced |
 | `RINGRIFT_TRAINING_TIMEOUT_HOURS`         | `24.0`             | Training timeout in hours.                                  | Advanced |
 | `RINGRIFT_TRAINING_MIN_INTERVAL`          | `1200`             | Min seconds between training launches per config.           | Advanced |
+| `RINGRIFT_SCALE_UP_QUEUE_DEPTH`           | `100`              | Queue depth threshold to scale up.                          | Advanced |
+| `RINGRIFT_SCALE_DOWN_QUEUE_DEPTH`         | `10`               | Queue depth threshold to scale down.                        | Advanced |
+| `RINGRIFT_SCALE_DOWN_IDLE_MINUTES`        | `30`               | Idle minutes before scaling down.                           | Advanced |
+| `RINGRIFT_SCALE_UP_COOLDOWN_MINUTES`      | `5`                | Cooldown between scale-up events (minutes).                 | Advanced |
+| `RINGRIFT_SCALE_DOWN_COOLDOWN_MINUTES`    | `10`               | Cooldown between scale-down events (minutes).               | Advanced |
+| `RINGRIFT_MAX_INSTANCES`                  | `10`               | Max instances allowed by auto-scaler.                       | Advanced |
+| `RINGRIFT_MIN_INSTANCES`                  | `1`                | Min instances to keep alive.                                | Advanced |
+| `RINGRIFT_GPU_SCALE_UP_THRESHOLD`         | `85`               | GPU utilization (%) threshold to scale up.                  | Advanced |
+| `RINGRIFT_GPU_SCALE_DOWN_THRESHOLD`       | `30`               | GPU utilization (%) threshold to scale down.                | Advanced |
 | `RINGRIFT_NPX_PATH`                       | unset              | Override path for `npx` used in TS replay parity checks.    | Tooling  |
 | `RINGRIFT_SKIP_SCRIPT_INIT_IMPORTS`       | unset              | Skip heavy imports in `scripts/__init__.py` (parity/tools). | Tooling  |
 
