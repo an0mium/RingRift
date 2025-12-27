@@ -25757,20 +25757,20 @@ print(json.dumps({{
                     # ================================================================
                     # GUMBEL MCTS - HIGHEST PRIORITY (70% of jobs should use Gumbel)
                     # GPU-accelerated Gumbel Top-K MCTS for high-quality training data
-                    # Priority 10 ensures ~70% selection over priority 8 mixed modes
+                    # 3p/4p get priority 12 (underrepresented), 2p get priority 10
                     # ================================================================
                     {"board_type": "hex8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "hex8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "hex8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 10},
+                    {"board_type": "hex8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: +20% for underrepresented
+                    {"board_type": "hex8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: +20% for underrepresented
                     {"board_type": "square8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 10},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: +20% for underrepresented
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 10},  # Already has most data
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
+                    {"board_type": "square19", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
+                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
                     # ================================================================
                     # UNDERREPRESENTED COMBINATIONS - MIXED MODE (PRIORITY 8)
                     # "mixed" mode provides varied AI matchups (NNUE, MCTS, heuristic combos)

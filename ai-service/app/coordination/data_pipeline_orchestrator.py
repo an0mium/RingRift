@@ -1757,7 +1757,7 @@ class DataPipelineOrchestrator:
             self._transition_to(
                 PipelineStage.TRAINING,
                 iteration,
-                metadata=result.metadata,
+                metadata=metadata,
             )
 
             # Auto-trigger training if enabled (December 2025)
@@ -1769,7 +1769,7 @@ class DataPipelineOrchestrator:
                 PipelineStage.IDLE,
                 iteration,
                 success=False,
-                metadata={"error": result.error},
+                metadata={"error": getattr(result, "error", "Unknown error")},
             )
 
     async def _auto_trigger_training(self, iteration: int, npz_path: str) -> None:
@@ -2023,32 +2023,39 @@ class DataPipelineOrchestrator:
 
     async def _on_training_started(self, result) -> None:
         """Handle training start."""
-        iteration = result.iteration
+        # December 27, 2025: Handle both RouterEvent and StageCompletionResult
+        result = self._extract_stage_result(result)
+
+        iteration = getattr(result, "iteration", 0)
         self._ensure_iteration_record(iteration)
         self._stage_start_times[PipelineStage.TRAINING] = time.time()
 
     async def _on_training_complete(self, result) -> None:
         """Handle training completion."""
-        iteration = result.iteration
+        # December 27, 2025: Handle both RouterEvent and StageCompletionResult
+        result = self._extract_stage_result(result)
+
+        iteration = getattr(result, "iteration", 0)
         record = self._ensure_iteration_record(iteration)
 
-        record.model_id = result.model_id
+        record.model_id = getattr(result, "model_id", None)
         self._total_models += 1
 
-        if result.success:
+        if getattr(result, "success", True):
             self._transition_to(
                 PipelineStage.EVALUATION,
                 iteration,
                 metadata={
-                    "model_id": result.model_id,
-                    "train_loss": result.train_loss,
-                    "val_loss": result.val_loss,
+                    "model_id": getattr(result, "model_id", None),
+                    "train_loss": getattr(result, "train_loss", None),
+                    "val_loss": getattr(result, "val_loss", None),
                 },
             )
 
             # Auto-trigger evaluation if enabled (December 2025)
             if self.auto_trigger and self.auto_trigger_evaluation:
-                model_path = getattr(result, "model_path", None) or result.metadata.get("model_path")
+                metadata = getattr(result, "metadata", {}) or {}
+                model_path = getattr(result, "model_path", None) or metadata.get("model_path")
                 if model_path:
                     await self._auto_trigger_evaluation(iteration, model_path)
         else:
@@ -2056,7 +2063,7 @@ class DataPipelineOrchestrator:
                 PipelineStage.IDLE,
                 iteration,
                 success=False,
-                metadata={"error": result.error},
+                metadata={"error": getattr(result, "error", "Unknown error")},
             )
 
     async def _auto_trigger_evaluation(self, iteration: int, model_path: str) -> None:
@@ -2098,38 +2105,45 @@ class DataPipelineOrchestrator:
 
     async def _on_training_failed(self, result) -> None:
         """Handle training failure."""
-        iteration = result.iteration
+        # December 27, 2025: Handle both RouterEvent and StageCompletionResult
+        result = self._extract_stage_result(result)
+
+        iteration = getattr(result, "iteration", 0)
         record = self._ensure_iteration_record(iteration)
-        record.error = result.error
+        record.error = getattr(result, "error", "Unknown error")
 
         self._transition_to(
             PipelineStage.IDLE,
             iteration,
             success=False,
-            metadata={"error": result.error},
+            metadata={"error": getattr(result, "error", "Unknown error")},
         )
 
     async def _on_evaluation_complete(self, result) -> None:
         """Handle evaluation completion."""
-        iteration = result.iteration
+        # December 27, 2025: Handle both RouterEvent and StageCompletionResult
+        result = self._extract_stage_result(result)
+
+        iteration = getattr(result, "iteration", 0)
         record = self._ensure_iteration_record(iteration)
 
-        record.elo_delta = result.elo_delta or 0.0
+        record.elo_delta = getattr(result, "elo_delta", 0.0) or 0.0
 
-        if result.success:
+        if getattr(result, "success", True):
             self._transition_to(
                 PipelineStage.PROMOTION,
                 iteration,
                 metadata={
-                    "win_rate": result.win_rate,
-                    "elo_delta": result.elo_delta,
+                    "win_rate": getattr(result, "win_rate", None),
+                    "elo_delta": getattr(result, "elo_delta", None),
                 },
             )
 
             # Auto-trigger promotion if enabled (December 2025)
             if self.auto_trigger and self.auto_trigger_promotion:
-                model_path = getattr(result, "model_path", None) or result.metadata.get("model_path")
-                gauntlet_results = result.metadata if hasattr(result, "metadata") else {}
+                metadata = getattr(result, "metadata", {}) or {}
+                model_path = getattr(result, "model_path", None) or metadata.get("model_path")
+                gauntlet_results = metadata
                 if model_path:
                     await self._auto_trigger_promotion(iteration, model_path, gauntlet_results)
 
@@ -2142,7 +2156,7 @@ class DataPipelineOrchestrator:
                 PipelineStage.IDLE,
                 iteration,
                 success=False,
-                metadata={"error": result.error},
+                metadata={"error": getattr(result, "error", "Unknown error")},
             )
 
     async def _auto_trigger_promotion(
