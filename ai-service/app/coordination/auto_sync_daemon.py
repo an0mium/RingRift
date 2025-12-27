@@ -397,9 +397,10 @@ class AutoSyncDaemon:
         if Path("/workspace").exists():
             return True
 
-        # Check hostname patterns
-        hostname = self.node_id.lower()
-        if hostname.startswith("vast-") or hostname.startswith("c."):
+        # Check provider via canonical detection
+        from app.config.cluster_config import get_host_provider
+        provider = get_host_provider(self.node_id)
+        if provider == "vast":
             return True
 
         # Check for spot instance markers
@@ -563,16 +564,9 @@ class AutoSyncDaemon:
             if platform.system() == "Darwin":
                 return "mac"
 
-        # Check hostname patterns
-        hostname = self.node_id.lower()
-        if hostname.startswith("lambda-"):
-            return "lambda"
-        if hostname.startswith("vast-") or hostname.startswith("c."):
-            return "vast"
-        if "hetzner" in hostname:
-            return "hetzner"
-
-        return "unknown"
+        # Use canonical provider detection
+        from app.config.cluster_config import get_host_provider
+        return get_host_provider(self.node_id)
 
     def _check_nfs_mount(self) -> bool:
         """Check if NFS storage is mounted."""

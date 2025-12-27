@@ -167,9 +167,9 @@ class EphemeralSyncDaemon:
         if Path("/workspace").exists():
             return True
 
-        # Check hostname patterns
-        hostname = self.node_id.lower()
-        if hostname.startswith("vast-") or hostname.startswith("c."):
+        # Check provider via canonical detection
+        from app.config.cluster_config import get_host_provider
+        if get_host_provider(self.node_id) == "vast":
             return True
 
         # Check for spot instance markers

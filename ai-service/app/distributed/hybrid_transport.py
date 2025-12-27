@@ -52,6 +52,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from app.config.cluster_config import get_host_provider
+
 logger = logging.getLogger(__name__)
 
 # Thresholds for transport switching
@@ -505,7 +507,7 @@ class HybridTransport:
             pass
 
         # Legacy: Always enable SSH for Vast nodes
-        if node_id.startswith("vast-"):
+        if get_host_provider(node_id) == "vast":
             state.ssh_available = True
             return True
 
@@ -749,7 +751,7 @@ class HybridTransport:
 
         # Probe SSH
         ssh = await self._get_ssh_transport()
-        if ssh and node_id.startswith("vast-"):
+        if ssh and get_host_provider(node_id) == "vast":
             start = time.time()
             reachable, _ = await ssh.check_connectivity(node_id)
             results["ssh"] = (reachable, (time.time() - start) * 1000)

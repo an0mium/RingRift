@@ -31,6 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.config.cluster_config import get_host_provider
+
 logger = logging.getLogger(__name__)
 
 # Try to import hybrid transport for distributed execution
@@ -1008,8 +1010,9 @@ class DistributedNNGauntlet:
             # Gauntlet is CPU-bound, so prefer strong CPUs over GPUs
             def gauntlet_worker_priority(w):
                 node_id = w["node_id"]
-                is_vast = node_id.startswith("vast-")
-                is_lambda_gpu = node_id.startswith("lambda-") and w["has_gpu"]
+                provider = get_host_provider(node_id)
+                is_vast = provider == "vast"
+                is_lambda_gpu = provider == "lambda" and w["has_gpu"]
                 total_jobs = w["selfplay_jobs"] + w["training_jobs"]
 
                 # Lower score = higher priority

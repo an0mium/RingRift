@@ -76,10 +76,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import logging
 import psutil
 
 # Use centralized path constants
 from app.utils.paths import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 COORDINATION_DIR = DATA_DIR / "coordination"
 LOCK_DIR = COORDINATION_DIR / "locks"

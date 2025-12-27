@@ -39,6 +39,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.config.cluster_config import get_host_provider
+
 if TYPE_CHECKING:
     pass
 
@@ -138,7 +140,7 @@ class StorageProvider(ABC):
         if not self.capabilities.skip_rsync_for_shared:
             return False
         # Skip rsync between Lambda nodes (both have NFS)
-        return bool(target_node.startswith("lambda-") and self.provider_type == StorageProviderType.LAMBDA_NFS)
+        return bool(get_host_provider(target_node) == "lambda" and self.provider_type == StorageProviderType.LAMBDA_NFS)
 
     def ensure_directories(self) -> None:
         """Ensure all storage directories exist."""
@@ -296,7 +298,7 @@ class LambdaNFSProvider(StorageProvider):
             return False
 
         # Skip rsync between Lambda nodes (both have NFS)
-        return bool(target_node.startswith("lambda-") and self.provider_type == StorageProviderType.LAMBDA_NFS)
+        return bool(get_host_provider(target_node) == "lambda" and self.provider_type == StorageProviderType.LAMBDA_NFS)
 
     @property
     def is_nfs_healthy(self) -> bool:
@@ -425,8 +427,8 @@ def detect_storage_provider() -> StorageProviderType:
         return StorageProviderType.VAST_EPHEMERAL
 
     # Check hostname patterns
-    hostname = socket.gethostname().lower()
-    if "lambda" in hostname or hostname.startswith("lambda-"):
+    hostname = socket.gethostname()
+    if get_host_provider(hostname) == "lambda":
         # Lambda node but NFS not mounted yet
         return StorageProviderType.LAMBDA_NFS
 
