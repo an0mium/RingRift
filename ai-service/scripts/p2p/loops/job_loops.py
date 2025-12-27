@@ -293,6 +293,7 @@ class IdleDetectionLoop(BaseLoop):
         return {
             "currently_idle": len(self._idle_since),
             "total_detections": self._detected_count,
+            "skipped_not_leader": self._skipped_not_leader,
             "idle_nodes": list(self._idle_since.keys()),
             **self.stats.to_dict(),
         }

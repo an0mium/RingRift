@@ -546,6 +546,38 @@ def _emit_cluster_capacity_changed_sync(
         pass
 
 
+async def _emit_task_abandoned(
+    task_id: str,
+    task_type: str,
+    reason: str,
+    node_id: str = "",
+) -> None:
+    """Safely emit TASK_ABANDONED event when a job is cancelled.
+
+    December 2025: Enables SelfplayOrchestrator to track intentionally
+    cancelled tasks separately from failed tasks.
+
+    Args:
+        task_id: The cancelled job/task ID
+        task_type: Type of task (selfplay, training, ssh_tournament)
+        reason: Why the task was abandoned (user_cancelled, etc.)
+        node_id: Node where task was running (optional)
+    """
+    try:
+        from app.coordination.event_emitters import emit_task_abandoned
+        await emit_task_abandoned(
+            task_id=task_id,
+            task_type=task_type,
+            node_id=node_id or "unknown",
+            reason=reason,
+        )
+        logger.debug(f"[P2P Event] Emitted TASK_ABANDONED for {task_id}")
+    except ImportError:
+        pass  # Event emitters not available
+    except Exception as e:
+        logger.debug(f"[P2P Event] Failed to emit TASK_ABANDONED: {e}")
+
+
 # Add project root to path for scripts.lib imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -2038,6 +2070,7 @@ class P2POrchestrator(
                 get_role=lambda: self.role,
                 get_peers=lambda: self.peers,
                 get_work_queue=get_work_queue,
+                on_idle_detected=self._auto_start_selfplay,
             )
             manager.register(idle_detection)
 
@@ -18147,6 +18180,13 @@ print(json.dumps(result))
                     local_job.status = "stopped"
                     self.local_jobs[job_id] = local_job
                 self._save_state()
+                # Emit TASK_ABANDONED event (December 2025)
+                await _emit_task_abandoned(
+                    task_id=job_id,
+                    task_type=getattr(local_job, "job_type", "local"),
+                    reason="user_cancelled",
+                    node_id=self.node_id,
+                )
                 return web.json_response({"success": True, "message": f"Job {job_id} stopped"})
 
             with self.ssh_tournament_lock:
@@ -18159,23 +18199,40 @@ print(json.dumps(result))
                     ssh_run.status = "cancelled"
                     ssh_run.completed_at = time.time()
                     self.ssh_tournament_runs[job_id] = ssh_run
+                # Emit TASK_ABANDONED event (December 2025)
+                await _emit_task_abandoned(
+                    task_id=job_id,
+                    task_type="ssh_tournament",
+                    reason="user_cancelled",
+                    node_id=self.node_id,
+                )
                 return web.json_response({"success": True, "message": f"SSH tournament {job_id} cancelled"})
 
             # Check training jobs
+            training_cancelled = False
             with self.training_lock:
                 if job_id in self.training_jobs:
                     job = self.training_jobs[job_id]
                     if job.status in ["pending", "queued"]:
                         job.status = "cancelled"
-                        return web.json_response({
-                            "success": True,
-                            "message": f"Training job {job_id} cancelled",
-                        })
+                        training_cancelled = True
                     else:
                         return web.json_response({
                             "success": False,
                             "error": f"Cannot cancel job in status: {job.status}",
                         }, status=400)
+            if training_cancelled:
+                # Emit TASK_ABANDONED event (December 2025)
+                await _emit_task_abandoned(
+                    task_id=job_id,
+                    task_type="training",
+                    reason="user_cancelled",
+                    node_id=self.node_id,
+                )
+                return web.json_response({
+                    "success": True,
+                    "message": f"Training job {job_id} cancelled",
+                })
 
             return web.json_response({
                 "success": False,
@@ -26126,18 +26183,33 @@ print(json.dumps({{
             return await handler(request)
 
         app = web.Application(middlewares=[auth_middleware])
-        app.router.add_post('/heartbeat', self.handle_heartbeat)
-        app.router.add_get('/status', self.handle_status)
-        app.router.add_get('/external_work', self.handle_external_work)
 
-        # Work queue routes (centralized work distribution)
-        app.router.add_post('/work/add', self.handle_work_add)
-        app.router.add_post('/work/add_batch', self.handle_work_add_batch)
-        app.router.add_get('/work/claim', self.handle_work_claim)
-        app.router.add_post('/work/start', self.handle_work_start)
-        app.router.add_post('/work/complete', self.handle_work_complete)
-        app.router.add_post('/work/fail', self.handle_work_fail)
-        app.router.add_get('/work/status', self.handle_work_status)
+        # Register all routes from centralized route registry (December 2025)
+        # Replaces 200+ individual route registrations with declarative registry
+        _routes_registered = False
+        try:
+            from scripts.p2p.routes import register_all_routes
+            route_count = register_all_routes(app, self)
+            logger.info(f"Registered {route_count} HTTP routes from route registry")
+            _routes_registered = True
+        except ImportError as e:
+            logger.warning(f"Route registry not available, using inline routes: {e}")
+            _routes_registered = False
+
+        # Skip legacy route registrations if registry succeeded
+        # These are kept as fallback and will be removed in a future cleanup
+        if not _routes_registered:
+            app.router.add_post('/heartbeat', self.handle_heartbeat)
+            app.router.add_get('/status', self.handle_status)
+            app.router.add_get('/external_work', self.handle_external_work)
+            # Work queue routes (centralized work distribution)
+            app.router.add_post('/work/add', self.handle_work_add)
+            app.router.add_post('/work/add_batch', self.handle_work_add_batch)
+            app.router.add_get('/work/claim', self.handle_work_claim)
+            app.router.add_post('/work/start', self.handle_work_start)
+            app.router.add_post('/work/complete', self.handle_work_complete)
+            app.router.add_post('/work/fail', self.handle_work_fail)
+            app.router.add_get('/work/status', self.handle_work_status)
         app.router.add_get('/work/populator', self.handle_populator_status)
         app.router.add_get('/work/node/{node_id}', self.handle_work_for_node)
         app.router.add_post('/work/cancel', self.handle_work_cancel)

@@ -777,3 +777,263 @@ class SyncPlanner:
             "active_sync_jobs": len(self._active_sync_jobs),
             "sync_in_progress": self._sync_in_progress,
         }
+
+    # ============================================
+    # Selfplay to Training Nodes Sync
+    # ============================================
+
+    async def sync_selfplay_to_training_nodes(
+        self,
+        *,
+        get_training_nodes: Callable[[], list["NodeInfo"]],
+        should_sync_to_node: Callable[["NodeInfo"], bool],
+        should_cleanup_source: Callable[["NodeInfo"], bool],
+        collect_manifest: Callable[[], Any],
+        execute_sync_job: Callable[["DataSyncJob"], Any],
+        cleanup_synced_files: Callable[[str, list[str]], Any],
+        get_sync_router: Callable[[], Any] | None = None,
+        cluster_manifest: "ClusterDataManifest | None" = None,
+        max_files_per_job: int = 50,
+    ) -> dict[str, Any]:
+        """Sync selfplay data to training primary nodes.
+
+        This method orchestrates syncing selfplay data from source nodes
+        to training-capable nodes, with disk-aware filtering and cleanup.
+
+        Args:
+            get_training_nodes: Callback to get training primary nodes
+            should_sync_to_node: Callback to check if node has disk capacity
+            should_cleanup_source: Callback to check if source needs cleanup
+            collect_manifest: Async callback to collect cluster manifest
+            execute_sync_job: Async callback to execute a sync job
+            cleanup_synced_files: Async callback to cleanup files on source
+            get_sync_router: Optional callback to get SyncRouter for quality routing
+            cluster_manifest: Optional pre-collected cluster manifest
+            max_files_per_job: Maximum files per sync job (default: 50)
+
+        Returns:
+            Dict with sync results:
+            - success: bool
+            - training_nodes: list of node IDs synced to
+            - sync_jobs_created: number of jobs created
+            - successful_syncs: number of successful syncs
+            - sources_cleaned: number of sources cleaned up
+
+        December 2025: Extracted from P2POrchestrator._sync_selfplay_to_training_nodes()
+        """
+        from ..models import DataSyncJob
+
+        # Get training primary nodes
+        training_nodes = get_training_nodes()
+        if not training_nodes:
+            return {"success": False, "error": "No training nodes available"}
+
+        # Filter by disk space - try SyncRouter first for quality-based routing
+        router = get_sync_router() if get_sync_router else None
+        if router is not None:
+            try:
+                # Refresh capacity data before routing
+                if hasattr(router, 'refresh_all_capacity'):
+                    router.refresh_all_capacity()
+
+                # Get sync targets with quality-based priority
+                targets = router.get_sync_targets(
+                    data_type="game",
+                    exclude_nodes=[self.node_id],
+                    max_targets=len(training_nodes),
+                )
+                if targets:
+                    # Filter to training nodes only
+                    eligible_training_nodes = [
+                        n for n in training_nodes
+                        if any(t.node_id == n.node_id for t in targets)
+                    ]
+                    if eligible_training_nodes:
+                        logger.info(
+                            f"SyncRouter: selected {len(eligible_training_nodes)} "
+                            f"training nodes with quality-based routing"
+                        )
+                    else:
+                        eligible_training_nodes = [
+                            n for n in training_nodes if should_sync_to_node(n)
+                        ]
+                else:
+                    eligible_training_nodes = [
+                        n for n in training_nodes if should_sync_to_node(n)
+                    ]
+            except Exception as e:
+                logger.debug(f"SyncRouter fallback: {e}")
+                eligible_training_nodes = [
+                    n for n in training_nodes if should_sync_to_node(n)
+                ]
+        else:
+            eligible_training_nodes = [
+                n for n in training_nodes if should_sync_to_node(n)
+            ]
+
+        if not eligible_training_nodes:
+            return {"success": False, "error": "All training nodes have critical disk usage"}
+
+        logger.info(f"Training sync: {len(eligible_training_nodes)} eligible training nodes")
+        for node in eligible_training_nodes:
+            gpu_power = node.gpu_power_score() if hasattr(node, 'gpu_power_score') else 0
+            disk_pct = node.disk_percent if hasattr(node, 'disk_percent') else 0
+            gpu_name = node.gpu_name if hasattr(node, 'gpu_name') else "unknown"
+            logger.info(
+                f"  - {node.node_id}: {gpu_name} (power={gpu_power}, disk={disk_pct:.1f}%)"
+            )
+
+        # Emit DATA_SYNC_STARTED event
+        sync_start_time = time.time()
+        self._emit_sync_event(
+            "DATA_SYNC_STARTED",
+            sync_type="training_sync",
+            target_nodes=[n.node_id for n in eligible_training_nodes],
+        )
+
+        # Collect cluster manifest if not provided
+        manifest = cluster_manifest
+        if not manifest:
+            logger.info("Collecting fresh cluster manifest for training sync...")
+            manifest = await collect_manifest()
+
+        if not manifest:
+            return {"success": False, "error": "Failed to collect cluster manifest"}
+
+        # Track source nodes that need cleanup after sync
+        sources_to_cleanup: dict[str, list[str]] = {}
+
+        # Find selfplay files that training nodes don't have
+        sync_jobs: list[DataSyncJob] = []
+
+        for target_node in eligible_training_nodes:
+            target_manifest = manifest.node_manifests.get(target_node.node_id)
+            target_files: set[str] = set()
+            if target_manifest:
+                target_files = set(target_manifest.files_by_path.keys())
+
+            # Find source nodes with selfplay data this target doesn't have
+            for source_id, source_manifest in manifest.node_manifests.items():
+                if source_id == target_node.node_id:
+                    continue
+
+                # Check if source node needs disk cleanup
+                source_node = self._get_peers().get(source_id)
+                needs_cleanup = source_node and should_cleanup_source(source_node)
+
+                # Find selfplay files to sync (with mtime comparison)
+                files_to_sync = []
+                for file_info in source_manifest.files:
+                    if file_info.file_type != "selfplay":
+                        continue
+
+                    # Check if target needs this file
+                    target_file_info = (
+                        target_manifest.files_by_path.get(file_info.path)
+                        if target_manifest else None
+                    )
+
+                    should_sync = False
+                    if file_info.path not in target_files:
+                        # Target doesn't have file at all
+                        should_sync = True
+                    elif (
+                        target_file_info and
+                        file_info.modified_time > target_file_info.modified_time + 60
+                    ):
+                        # Source is newer (60s tolerance for clock skew)
+                        should_sync = True
+
+                    if should_sync:
+                        files_to_sync.append(file_info.path)
+
+                if files_to_sync:
+                    job_id = (
+                        f"training_sync_{source_id}_to_{target_node.node_id}_"
+                        f"{int(time.time())}"
+                    )
+                    job = DataSyncJob(
+                        job_id=job_id,
+                        source_node=source_id,
+                        target_node=target_node.node_id,
+                        files=files_to_sync[:max_files_per_job],
+                        status="pending",
+                    )
+                    sync_jobs.append(job)
+                    self._active_sync_jobs[job_id] = job
+                    self.stats.sync_jobs_created += 1
+                    logger.info(
+                        f"Created training sync job: {len(files_to_sync)} files "
+                        f"from {source_id} to {target_node.node_id}"
+                    )
+
+                    # Track files for cleanup if source has high disk usage
+                    if needs_cleanup:
+                        if source_id not in sources_to_cleanup:
+                            sources_to_cleanup[source_id] = []
+                        sources_to_cleanup[source_id].extend(
+                            files_to_sync[:max_files_per_job]
+                        )
+
+        # Execute sync jobs
+        successful_syncs = 0
+        for job in sync_jobs:
+            try:
+                success = await execute_sync_job(job)
+                if success:
+                    job.status = "completed"
+                    job.completed_at = time.time()
+                    successful_syncs += 1
+                    self.stats.sync_jobs_completed += 1
+                else:
+                    job.status = "failed"
+                    self.stats.sync_jobs_failed += 1
+            except Exception as e:
+                logger.info(f"Sync job {job.job_id} failed: {e}")
+                job.status = "failed"
+                job.error_message = str(e)
+                self.stats.sync_jobs_failed += 1
+
+        # Cleanup source nodes with high disk usage after successful syncs
+        cleanup_results = {}
+        if successful_syncs > 0 and sources_to_cleanup:
+            logger.info(
+                f"Running post-sync cleanup on {len(sources_to_cleanup)} source nodes..."
+            )
+            for source_id, files in sources_to_cleanup.items():
+                try:
+                    success = await cleanup_synced_files(source_id, files)
+                    cleanup_results[source_id] = success
+                except Exception as e:
+                    logger.debug(f"Cleanup failed for {source_id}: {e}")
+                    cleanup_results[source_id] = False
+
+        self.stats.last_sync_execution = time.time()
+
+        # Emit DATA_SYNC_COMPLETED event
+        if successful_syncs > 0 or not sync_jobs:
+            self._emit_sync_event(
+                "DATA_SYNC_COMPLETED",
+                sync_type="training_sync",
+                duration_seconds=time.time() - sync_start_time,
+                sync_jobs_created=len(sync_jobs),
+                successful_syncs=successful_syncs,
+                target_nodes=[n.node_id for n in eligible_training_nodes],
+            )
+        else:
+            self._emit_sync_event(
+                "DATA_SYNC_FAILED",
+                sync_type="training_sync",
+                duration_seconds=time.time() - sync_start_time,
+                sync_jobs_created=len(sync_jobs),
+                successful_syncs=0,
+                error="All sync jobs failed",
+            )
+
+        return {
+            "success": True,
+            "training_nodes": [n.node_id for n in eligible_training_nodes],
+            "sync_jobs_created": len(sync_jobs),
+            "successful_syncs": successful_syncs,
+            "sources_cleaned": sum(1 for v in cleanup_results.values() if v),
+        }
