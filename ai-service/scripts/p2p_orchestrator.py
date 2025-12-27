@@ -511,7 +511,15 @@ from scripts.p2p.utils import (
     systemd_notify_ready,
     systemd_notify_watchdog,
 )
-from scripts.p2p.managers import NodeSelector, StateManager, SyncPlanner, SyncPlannerConfig
+from scripts.p2p.managers import (
+    JobManager,
+    NodeSelector,
+    SelfplayScheduler,
+    StateManager,
+    SyncPlanner,
+    SyncPlannerConfig,
+    TrainingCoordinator,
+)
 from scripts.p2p.managers.state_manager import PersistedLeaderState
 from scripts.p2p.metrics_manager import MetricsManager
 
