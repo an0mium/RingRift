@@ -307,13 +307,30 @@ def get_board_priority_overrides() -> dict[str, int]:
 # - Cluster-wide coordination on membership changes
 
 _p2p_event_emitters_available: bool | None = None
+_p2p_event_emitters_last_check: float = 0.0
+_P2P_EMITTER_CACHE_TTL: float = 30.0  # Retry every 30 seconds if failed
 
 
 def _check_event_emitters() -> bool:
-    """Check if event emitters are available (cached check)."""
-    global _p2p_event_emitters_available
-    if _p2p_event_emitters_available is not None:
-        return _p2p_event_emitters_available
+    """Check if event emitters are available (cached with TTL for retries).
+
+    December 27, 2025: Fixed bug where negative result was cached permanently.
+    Now retries every 30 seconds if event system becomes available later.
+    """
+    global _p2p_event_emitters_available, _p2p_event_emitters_last_check
+    import time
+
+    now = time.time()
+
+    # Use cached positive result indefinitely
+    if _p2p_event_emitters_available is True:
+        return True
+
+    # For negative results, retry after TTL expires
+    if _p2p_event_emitters_available is False:
+        if now - _p2p_event_emitters_last_check < _P2P_EMITTER_CACHE_TTL:
+            return False
+        # TTL expired, retry below
 
     try:
         from app.coordination.event_router import (
@@ -322,9 +339,11 @@ def _check_event_emitters() -> bool:
             emit_leader_elected,
         )
         _p2p_event_emitters_available = True
+        _p2p_event_emitters_last_check = now
         return True
     except ImportError:
         _p2p_event_emitters_available = False
+        _p2p_event_emitters_last_check = now
         return False
 
 

@@ -33,6 +33,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+# December 2025: Import WorkStatus from canonical source
+from app.coordination.types import WorkStatus  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 # Default path for work queue database
@@ -134,15 +137,8 @@ class WorkType(str, Enum):
     HYPERPARAM_SWEEP = "hyperparam_sweep"  # Hyperparameter tuning trials
 
 
-class WorkStatus(str, Enum):
-    """Status of a work item."""
-    PENDING = "pending"
-    CLAIMED = "claimed"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    TIMEOUT = "timeout"
+# WorkStatus is now imported from app.coordination.types
+# Canonical values: PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT
 
 
 @dataclass
