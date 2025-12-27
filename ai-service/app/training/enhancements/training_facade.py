@@ -482,8 +482,244 @@ class TrainingEnhancementsFacade:
         return self._total_samples_seen >= self.config.hard_min_samples_before_mining
 
 
+# =============================================================================
+# Enhanced Components Container (December 2025)
+# =============================================================================
+
+@dataclass
+class EnhancementConfig:
+    """Configuration for all enhancement components.
+
+    Extends FacadeConfig with additional enhancement settings.
+    """
+
+    # Base facade config
+    facade_config: FacadeConfig = field(default_factory=FacadeConfig)
+
+    # Hot buffer for real-time sample updates
+    enable_hot_buffer: bool = True
+    hot_buffer_max_size: int = 100000
+    hot_buffer_update_interval: float = 60.0
+
+    # Quality bridge for data quality integration
+    enable_quality_bridge: bool = True
+    quality_threshold: float = 0.5
+
+    # Integrated enhancements manager
+    enable_enhancements_manager: bool = True
+
+    # Background services
+    start_background_services: bool = True
+
+
+@dataclass
+class EnhancementComponents:
+    """Container for all initialized enhancement components.
+
+    Provides unified access to:
+    - TrainingEnhancementsFacade: Core training enhancements
+    - HotBuffer: Real-time sample updates from selfplay
+    - QualityBridge: Data quality integration
+    - EnhancementsManager: Integrated enhancements coordination
+
+    Example:
+        >>> config = EnhancementConfig()
+        >>> components = initialize_all_enhancements(config, model)
+        >>> if components.facade:
+        ...     lr_scale = components.facade.get_curriculum_lr_scale()
+    """
+
+    facade: TrainingEnhancementsFacade | None = None
+    hot_buffer: Any | None = None
+    quality_bridge: Any | None = None
+    enhancements_manager: Any | None = None
+    started: bool = False
+
+    def start_background_services(self) -> None:
+        """Start background services for all components."""
+        if self.enhancements_manager is not None:
+            try:
+                self.enhancements_manager.start_background_services()
+                self.started = True
+                logger.info("Enhancement background services started")
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"Failed to start background services: {e}")
+
+    def stop_background_services(self) -> None:
+        """Stop background services for all components."""
+        if self.enhancements_manager is not None:
+            try:
+                self.enhancements_manager.stop_background_services()
+                self.started = False
+                logger.info("Enhancement background services stopped")
+            except (AttributeError, TypeError) as e:
+                logger.warning(f"Failed to stop background services: {e}")
+
+
+def _try_import_hot_buffer():
+    """Lazy import HotBuffer."""
+    try:
+        from app.training.enhancements.hot_buffer import HotBuffer
+        return HotBuffer
+    except ImportError:
+        return None
+
+
+def _try_import_quality_bridge():
+    """Lazy import QualityBridge."""
+    try:
+        from app.training.enhancements.quality_bridge import QualityBridge
+        return QualityBridge
+    except ImportError:
+        return None
+
+
+def _try_import_enhancements_manager():
+    """Lazy import IntegratedEnhancementsManager."""
+    try:
+        from app.training.training_enhancements import IntegratedEnhancementsManager
+        return IntegratedEnhancementsManager
+    except ImportError:
+        return None
+
+
+def initialize_all_enhancements(
+    config: EnhancementConfig | None = None,
+    model: Any | None = None,
+    board_type: str | None = None,
+    num_players: int = 2,
+    distributed: bool = False,
+    is_main_process: bool = True,
+) -> EnhancementComponents:
+    """Initialize all training enhancement components.
+
+    This is the unified entry point for setting up enhancements in train.py.
+    It handles lazy imports and graceful degradation when optional
+    components are unavailable.
+
+    Args:
+        config: Enhancement configuration. Uses defaults if not provided.
+        model: Neural network model (optional, for some integrations).
+        board_type: Board type for config-specific enhancements.
+        num_players: Number of players for multiplayer enhancements.
+        distributed: Whether running in distributed mode.
+        is_main_process: Whether this is the main process.
+
+    Returns:
+        EnhancementComponents with initialized components.
+
+    Example:
+        >>> from app.training.enhancements.training_facade import (
+        ...     initialize_all_enhancements,
+        ...     EnhancementConfig,
+        ... )
+        >>> config = EnhancementConfig(
+        ...     enable_hot_buffer=True,
+        ...     enable_quality_bridge=True,
+        ... )
+        >>> components = initialize_all_enhancements(config, model)
+        >>> if components.facade:
+        ...     # Use facade in training loop
+        ...     pass
+    """
+    if config is None:
+        config = EnhancementConfig()
+
+    components = EnhancementComponents()
+
+    # Initialize facade (always available)
+    components.facade = TrainingEnhancementsFacade(config=config.facade_config)
+
+    # Initialize hot buffer
+    if config.enable_hot_buffer:
+        HotBuffer = _try_import_hot_buffer()
+        if HotBuffer:
+            try:
+                components.hot_buffer = HotBuffer(
+                    max_size=config.hot_buffer_max_size,
+                    update_interval=config.hot_buffer_update_interval,
+                )
+                if is_main_process:
+                    logger.info(
+                        f"HotBuffer initialized (max_size={config.hot_buffer_max_size})"
+                    )
+            except (TypeError, AttributeError) as e:
+                logger.warning(f"Failed to initialize HotBuffer: {e}")
+
+    # Initialize quality bridge
+    if config.enable_quality_bridge:
+        QualityBridge = _try_import_quality_bridge()
+        if QualityBridge:
+            try:
+                components.quality_bridge = QualityBridge(
+                    quality_threshold=config.quality_threshold,
+                )
+                if is_main_process:
+                    logger.info(
+                        f"QualityBridge initialized (threshold={config.quality_threshold})"
+                    )
+            except (TypeError, AttributeError) as e:
+                logger.warning(f"Failed to initialize QualityBridge: {e}")
+
+    # Initialize integrated enhancements manager
+    if config.enable_enhancements_manager:
+        IntegratedEnhancementsManager = _try_import_enhancements_manager()
+        if IntegratedEnhancementsManager:
+            try:
+                components.enhancements_manager = IntegratedEnhancementsManager(
+                    model=model,
+                    board_type=board_type,
+                    num_players=num_players,
+                )
+                if is_main_process:
+                    logger.info("IntegratedEnhancementsManager initialized")
+            except (TypeError, AttributeError) as e:
+                logger.warning(f"Failed to initialize IntegratedEnhancementsManager: {e}")
+
+    # Start background services if requested
+    if config.start_background_services and is_main_process:
+        components.start_background_services()
+
+    return components
+
+
+# Singleton accessor for facade
+_global_facade: TrainingEnhancementsFacade | None = None
+
+
+def get_facade(config: FacadeConfig | None = None) -> TrainingEnhancementsFacade:
+    """Get or create the global facade singleton.
+
+    Args:
+        config: Configuration for new facade. Ignored if facade exists.
+
+    Returns:
+        The global TrainingEnhancementsFacade instance.
+    """
+    global _global_facade
+    if _global_facade is None:
+        _global_facade = TrainingEnhancementsFacade(config=config)
+    return _global_facade
+
+
+def reset_facade() -> None:
+    """Reset the global facade singleton."""
+    global _global_facade
+    if _global_facade is not None:
+        _global_facade.reset()
+    _global_facade = None
+
+
 __all__ = [
+    # Core facade
     "FacadeConfig",
     "EpochStatistics",
     "TrainingEnhancementsFacade",
+    # Enhanced components (December 2025)
+    "EnhancementConfig",
+    "EnhancementComponents",
+    "initialize_all_enhancements",
+    # Singleton
+    "get_facade",
+    "reset_facade",
 ]

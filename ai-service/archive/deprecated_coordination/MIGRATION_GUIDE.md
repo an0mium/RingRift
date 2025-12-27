@@ -256,13 +256,15 @@ warnings.filterwarnings('error', category=DeprecationWarning)
 
 ### Train.py Decomposition (Phase 3)
 
-Extracted utility functions from train.py (~5,479 lines) to dedicated modules:
+Extracted utility functions from train.py (~6,636 lines) to dedicated modules:
 
 | Extraction                         | New Location          | Lines Added | Purpose                          |
 | ---------------------------------- | --------------------- | ----------- | -------------------------------- |
 | `setup_heartbeat_monitor()`        | `train_setup.py`      | ~65         | Heartbeat monitor initialization |
 | `validate_training_data()`         | `train_validation.py` | ~230        | Unified data validation          |
 | `setup_optimizer_and_schedulers()` | `train_setup.py`      | ~100        | Optimizer + LR scheduler setup   |
+| Data loading utilities             | `train_data.py` (NEW) | ~600        | Streaming/memory data loading    |
+| Enhancement initialization         | `training_facade.py`  | ~150        | Unified enhancement setup        |
 
 **New APIs in `train_setup.py`:**
 
@@ -301,6 +303,117 @@ from app.training.train_validation import (
 )
 ```
 
+**New APIs in `train_data.py` (Wave 4):**
+
+```python
+from app.training.train_data import (
+    # Configuration
+    DataLoaderConfig,
+    DataLoaderResult,
+    DatasetMetadata,
+    # Path collection
+    collect_data_paths,
+    get_total_data_size,
+    should_use_streaming,
+    # Metadata
+    extract_dataset_metadata,
+    validate_dataset_metadata,
+    # Weights
+    get_sample_count,
+    load_elo_weights,
+    load_quality_weights,
+    # Loaders
+    create_streaming_loaders,
+    create_memory_loaders,
+    get_num_loader_workers,
+)
+```
+
+**Example: Data loader setup**
+
+```python
+from app.training.train_data import (
+    DataLoaderConfig,
+    collect_data_paths,
+    should_use_streaming,
+    create_streaming_loaders,
+    create_memory_loaders,
+)
+
+# Collect all data paths
+paths = collect_data_paths(
+    data_path=["data/training/hex8_2p.npz"],
+    data_dir=None,
+    discover_synced_data=True,
+    board_type="hex8",
+    num_players=2,
+)
+
+# Check if streaming should be used
+config = DataLoaderConfig(batch_size=512)
+use_streaming = should_use_streaming(paths, force_streaming=False)
+
+if use_streaming:
+    train_loader, val_loader, train_size, val_size = create_streaming_loaders(
+        data_paths=paths,
+        config=config,
+        policy_size=61,
+    )
+else:
+    train_loader, val_loader, sampler, train_size, val_size, dataset = (
+        create_memory_loaders(
+            data_path=paths[0],
+            config=config,
+            board_type=board_type,
+        )
+    )
+```
+
+**New APIs in `training_facade.py` (Wave 5):**
+
+```python
+from app.training.enhancements.training_facade import (
+    # Core facade
+    FacadeConfig,
+    EpochStatistics,
+    TrainingEnhancementsFacade,
+    # Enhanced components (December 2025)
+    EnhancementConfig,
+    EnhancementComponents,
+    initialize_all_enhancements,
+    # Singleton
+    get_facade,
+    reset_facade,
+)
+```
+
+**Example: Unified enhancement initialization**
+
+```python
+from app.training.enhancements.training_facade import (
+    initialize_all_enhancements,
+    EnhancementConfig,
+)
+
+# Initialize all enhancements with one call
+config = EnhancementConfig(
+    enable_hot_buffer=True,
+    enable_quality_bridge=True,
+    start_background_services=True,
+)
+components = initialize_all_enhancements(config, model)
+
+# Use facade in training loop
+if components.facade:
+    lr_scale = components.facade.get_curriculum_lr_scale(epoch / total_epochs)
+    per_sample_losses = components.facade.compute_per_sample_loss(
+        policy_logits, policy_targets, value_pred, value_targets
+    )
+
+# Cleanup
+components.stop_background_services()
+```
+
 **Example: Unified data validation**
 
 ```python
@@ -320,11 +433,6 @@ else:
     for error in result.errors:
         print(f"Error: {error}")
 ```
-
-**Remaining Wave 4-5 (Q1 2026):**
-
-- Wave 4: Create `train_data.py` for data loading (~600 lines)
-- Wave 5: Extend `training_facade.py` with enhancements (~100 lines)
 
 ### Health Check Coverage (95%+)
 
