@@ -814,6 +814,17 @@ class DataPipelineOrchestrator:
                 self._on_game_synced,
             )
 
+            # December 2025: Subscribe to exploration and sync feedback events
+            # These events trigger curriculum adjustments and adaptive exploration
+            router.subscribe(
+                DataEventType.EXPLORATION_BOOST.value,
+                self._on_exploration_boost,
+            )
+            router.subscribe(
+                DataEventType.SYNC_TRIGGERED.value,
+                self._on_sync_triggered,
+            )
+
             logger.info("[DataPipelineOrchestrator] Subscribed to data events")
             return True
 

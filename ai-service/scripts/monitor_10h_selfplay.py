@@ -26,6 +26,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Add project root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Dec 2025: Bandwidth limiting for rsync transfers
+try:
+    from app.config.cluster_config import get_node_bandwidth_kbs
+    HAS_BANDWIDTH_CONFIG = True
+except ImportError:
+    HAS_BANDWIDTH_CONFIG = False
+    def get_node_bandwidth_kbs(node_name: str, config_path=None) -> int:
+        return 50 * 1024  # Default 50 MB/s in KB/s
+
 # Import from spawn script
 from scripts.spawn_10h_selfplay import NODES, get_config_for_node, run_ssh, spawn_selfplay
 
@@ -114,16 +123,19 @@ ls data/games/*.db 2>/dev/null | xargs -I{} basename {}"""
 
         local_path = SYNC_DIR / f"{node.name}_{db}"
 
-        # Use scp (more reliable than rsync on some nodes)
-        scp_cmd = [
-            "scp", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
-            "-i", key, "-P", str(node.port),
+        # Dec 2025: Use rsync with bandwidth limiting (replaced SCP)
+        bwlimit_kbs = get_node_bandwidth_kbs(node.name)
+        ssh_opts = f"ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i {key} -p {node.port}"
+        rsync_cmd = [
+            "rsync", "-avz", "--progress",
+            f"--bwlimit={bwlimit_kbs}",  # Enforce bandwidth limit
+            "-e", ssh_opts,
             f"{node.target}:{remote_path}",
             str(local_path)
         ]
 
         try:
-            result = subprocess.run(scp_cmd, capture_output=True, timeout=120)
+            result = subprocess.run(rsync_cmd, capture_output=True, timeout=120)
             if result.returncode == 0:
                 synced += 1
         except (subprocess.TimeoutExpired, OSError):

@@ -7115,6 +7115,8 @@ class P2POrchestrator(
             # Use AsyncLockWrapper to avoid blocking event loop under high load
             async with AsyncLockWrapper(self.peers_lock):
                 existing = self.peers.get(peer_info.node_id)
+                # Dec 2025: Track first-contact for HOST_ONLINE emission
+                is_first_contact = existing is None
                 if existing:
                     peer_info.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0)
                     peer_info.last_failure_time = float(getattr(existing, "last_failure_time", 0.0) or 0.0)
@@ -7169,6 +7171,19 @@ class P2POrchestrator(
                         logger.info(f"Adopted leader {peer_leader} from heartbeat via {peer_info.node_id}")
 
                 self.peers[peer_info.node_id] = peer_info
+
+            # Dec 2025: Emit HOST_ONLINE for first-contact peers
+            # This enables SelfplayScheduler, SyncRouter, and DataPipelineOrchestrator
+            # to detect newly available nodes for work distribution
+            if is_first_contact:
+                capabilities = []
+                if getattr(peer_info, "has_gpu", False):
+                    gpu_type = getattr(peer_info, "gpu_type", "") or "gpu"
+                    capabilities.append(gpu_type)
+                else:
+                    capabilities.append("cpu")
+                await _emit_p2p_host_online(peer_info.node_id, capabilities)
+                logger.info(f"First-contact peer registered: {peer_info.node_id} (caps: {capabilities})")
 
             # Return our info
             self._update_self_info()
