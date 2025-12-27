@@ -65,6 +65,10 @@ from app.coordination.daemon_types import (
 # Lifecycle management extracted to dedicated module (Dec 2025)
 from app.coordination.daemon_lifecycle import DaemonLifecycleManager
 
+# Daemon runner functions extracted to dedicated module (Dec 2025)
+# This reduces daemon_manager.py by ~1,700 LOC
+from app.coordination import daemon_runners
+
 logger = logging.getLogger(__name__)
 
 
