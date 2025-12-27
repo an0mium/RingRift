@@ -39,6 +39,8 @@ class NodeInfo:
     scheme: str = "http"  # How to reach this node (http/https)
     role: NodeRole = NodeRole.FOLLOWER
     last_heartbeat: float = 0.0
+    # Leader tracking: who this node believes is the current cluster leader
+    leader_id: str = ""  # Dec 2025: Added for leader propagation in heartbeats
     cpu_count: int = 0
     cpu_percent: float = 0.0
     memory_percent: float = 0.0
@@ -315,6 +317,7 @@ class NodeInfo:
         d['role'] = NodeRole(d.get('role', 'follower'))
         # Handle missing new fields gracefully
         d.setdefault('scheme', 'http')
+        d.setdefault('leader_id', '')  # Dec 2025: Leader propagation field
         d.setdefault('cpu_count', 0)
         d.setdefault('reported_host', '')
         d.setdefault('reported_port', 0)

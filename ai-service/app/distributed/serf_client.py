@@ -114,11 +114,15 @@ class SerfClient:
     - Join/leave the cluster
     - Query/respond for request-response patterns
 
-    Example:
+    IMPORTANT: Always use this client as an async context manager to ensure
+    proper socket cleanup:
+
         async with SerfClient() as client:
             members = await client.members()
             for m in members:
                 print(f"{m.name}: {m.status.name}")
+
+    If not using context manager, ensure close() is called in a finally block.
     """
 
     def __init__(
@@ -149,6 +153,7 @@ class SerfClient:
         self._seq = 0
         self._lock = asyncio.Lock()
         self._connected = False
+        self._closed = False  # Track if close() was called to prevent double-close
 
         # Event handlers for streaming responses
         self._event_handlers: dict[str, list[Callable]] = {}
@@ -158,14 +163,22 @@ class SerfClient:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        # Always close on exit, even on exceptions
+        # close() is idempotent so safe to call multiple times
         await self.close()
 
     async def connect(self) -> None:
-        """Connect to Serf agent."""
+        """Connect to Serf agent.
+
+        Can be called to reconnect after close() was called.
+        """
         if self._connected:
             return
 
         try:
+            # Reset closed flag to allow reconnection
+            self._closed = False
+
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
                 timeout=self.timeout,
@@ -179,21 +192,42 @@ class SerfClient:
                 await self._auth()
 
         except asyncio.TimeoutError as e:
+            self._closed = True  # Mark as closed on failure
             raise SerfConnectionError(f"Timeout connecting to Serf at {self.host}:{self.port}") from e
         except OSError as e:
+            self._closed = True  # Mark as closed on failure
             raise SerfConnectionError(f"Failed to connect to Serf at {self.host}:{self.port}: {e}") from e
 
     async def close(self) -> None:
-        """Close connection to Serf agent."""
-        if self._writer:
-            self._writer.close()
-            try:
-                await self._writer.wait_closed()
-            except (OSError, asyncio.CancelledError):
-                pass
+        """Close connection to Serf agent.
+
+        This method is idempotent and safe to call multiple times.
+        Ensures all socket resources are properly released.
+        """
+        # Guard against double-close
+        if self._closed:
+            return
+        self._closed = True
         self._connected = False
-        self._reader = None
+
+        # Close writer (which also closes the underlying socket)
+        writer = self._writer
         self._writer = None
+        self._reader = None
+
+        if writer is not None:
+            try:
+                # Check if transport is still open before closing
+                if not writer.is_closing():
+                    writer.close()
+                # Wait for clean shutdown with timeout
+                try:
+                    await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout closing Serf connection to {self.host}:{self.port}")
+            except (OSError, asyncio.CancelledError, BrokenPipeError, ConnectionResetError) as e:
+                # Socket may already be closed - this is fine
+                logger.debug(f"Exception during Serf client close (may be expected): {e}")
 
     async def _handshake(self) -> dict:
         """Perform RPC handshake."""
@@ -501,11 +535,22 @@ class SerfMembershipMonitor:
     This class polls Serf for membership changes and calls registered
     handlers when members join, leave, or fail.
 
-    Example:
+    Supports async context manager for guaranteed cleanup:
+
+        async with SerfMembershipMonitor(client) as monitor:
+            monitor.on_join(lambda m: print(f"Joined: {m.name}"))
+            monitor.on_leave(lambda m: print(f"Left: {m.name}"))
+            await asyncio.sleep(60)  # Monitor for 60 seconds
+        # Monitor is automatically stopped
+
+    Or traditional usage:
         monitor = SerfMembershipMonitor(client)
         monitor.on_join(lambda m: print(f"Joined: {m.name}"))
-        monitor.on_leave(lambda m: print(f"Left: {m.name}"))
         await monitor.start()
+        try:
+            # ... do work ...
+        finally:
+            await monitor.stop()
     """
 
     def __init__(
@@ -530,6 +575,13 @@ class SerfMembershipMonitor:
         self._on_leave: list[Callable[[SerfMember], None]] = []
         self._on_fail: list[Callable[[SerfMember], None]] = []
         self._on_update: list[Callable[[SerfMember], None]] = []
+
+    async def __aenter__(self) -> "SerfMembershipMonitor":
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.stop()
 
     def on_join(self, handler: Callable[[SerfMember], None]) -> None:
         """Register handler for member join events."""
@@ -563,15 +615,24 @@ class SerfMembershipMonitor:
         logger.info(f"Started Serf membership monitor with {len(self._members)} members")
 
     async def stop(self) -> None:
-        """Stop monitoring."""
+        """Stop monitoring.
+
+        Idempotent - safe to call multiple times.
+        Uses timeout to prevent blocking indefinitely on stuck poll tasks.
+        """
         self._running = False
-        if self._task:
-            self._task.cancel()
+        task = self._task
+        self._task = None
+
+        if task is not None and not task.done():
+            task.cancel()
             try:
-                await self._task
+                # Wait with timeout - poll task should cancel quickly
+                await asyncio.wait_for(task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Timeout stopping SerfMembershipMonitor poll task")
             except asyncio.CancelledError:
                 pass
-            self._task = None
 
     async def _poll_loop(self) -> None:
         """Poll for membership changes."""

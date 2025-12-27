@@ -282,6 +282,7 @@ class DaemonManagerConfig:
     auto_start: bool = False  # Auto-start all daemons on init
     health_check_interval: float = 30.0  # Global health check interval
     shutdown_timeout: float = 10.0  # Max time to wait for graceful shutdown
+    force_kill_timeout: float = 5.0  # Additional time after shutdown_timeout before giving up
     auto_restart_failed: bool = True  # Auto-restart failed daemons
     max_restart_attempts: int = 5  # Max restart attempts per daemon
     recovery_cooldown: float = 10.0  # Time before attempting to recover FAILED daemons (reduced from 300s for faster recovery)

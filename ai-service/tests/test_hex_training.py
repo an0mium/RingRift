@@ -38,6 +38,7 @@ from app.models import (
 from app.rules.core import get_rings_per_player
 from app.training.encoding import (
     HexStateEncoder,
+    SquareStateEncoder,
     detect_board_type_from_features,
     get_encoder_for_board_type,
 )
@@ -804,13 +805,15 @@ class TestEncoderFactory:
         encoder = get_encoder_for_board_type(BoardType.HEXAGONAL)
         assert isinstance(encoder, HexStateEncoder)
 
-    def test_returns_none_for_square(self):
-        """Test factory returns None for square boards."""
+    def test_returns_square_encoder_for_square(self):
+        """Square boards should use SquareStateEncoder."""
         encoder = get_encoder_for_board_type(BoardType.SQUARE8)
-        assert encoder is None
+        assert isinstance(encoder, SquareStateEncoder)
+        assert encoder.board_type == BoardType.SQUARE8
 
         encoder = get_encoder_for_board_type(BoardType.SQUARE19)
-        assert encoder is None
+        assert isinstance(encoder, SquareStateEncoder)
+        assert encoder.board_type == BoardType.SQUARE19
 
 
 class TestHexTrainingIntegration:

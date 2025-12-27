@@ -7,6 +7,7 @@ This module provides health monitoring for all pipeline components:
 - Evaluation/tournament service
 - Model promotion service
 - Cluster coordinator
+- File descriptor and socket resource monitoring (December 2025)
 
 Usage:
     from app.distributed.health_checks import HealthChecker, get_health_summary
@@ -16,6 +17,23 @@ Usage:
     if not summary.healthy:
         for issue in summary.issues:
             print(f"UNHEALTHY: {issue}")
+
+Resource Monitoring (for P2P stability):
+    from app.distributed.health_checks import (
+        check_file_descriptors,
+        check_socket_connections,
+    )
+
+    # Check for file descriptor exhaustion
+    fd_status = check_file_descriptors()
+    if fd_status["status"] == "critical":
+        print(f"WARNING: {fd_status['message']}")
+
+    # Check for socket connection leaks
+    socket_status = check_socket_connections()
+    if socket_status["issues"]:
+        for issue in socket_status["issues"]:
+            print(f"Socket issue: {issue}")
 """
 
 from __future__ import annotations
@@ -137,6 +155,176 @@ class HealthSummary:
     @property
     def component_status(self) -> dict[str, str]:
         return {c.name: c.status for c in self.components}
+
+
+# =============================================================================
+# File Descriptor & Socket Monitoring (December 2025)
+# =============================================================================
+
+
+def check_file_descriptors() -> dict[str, Any]:
+    """Check file descriptor usage for the current process.
+
+    Monitors open file handles to prevent "too many open files" crashes.
+    Uses psutil for cross-platform compatibility, with /proc fallback on Linux.
+
+    Returns:
+        Dict with keys:
+            - count: Current open file descriptor count
+            - limit: System/process limit (soft limit)
+            - hard_limit: Hard limit (cannot exceed)
+            - percent_used: Percentage of soft limit used
+            - status: "ok", "warning", or "critical"
+            - message: Human-readable status message
+    """
+    try:
+        proc = psutil.Process()
+
+        # Get file descriptor count
+        # On Unix, use num_fds(); on Windows, use open_files() length
+        try:
+            fd_count = proc.num_fds()
+        except AttributeError:
+            # Windows fallback
+            fd_count = len(proc.open_files())
+
+        # Get limits - Unix only via resource module
+        try:
+            import resource
+            soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        except (ImportError, AttributeError):
+            # Windows or resource not available - use reasonable defaults
+            soft_limit = 1024
+            hard_limit = 4096
+
+        # Calculate percentage
+        percent_used = (fd_count / soft_limit * 100) if soft_limit > 0 else 0
+
+        # Determine status
+        if percent_used >= FD_CRITICAL_THRESHOLD:
+            status = "critical"
+            message = f"File descriptors critical: {fd_count}/{soft_limit} ({percent_used:.1f}%)"
+        elif percent_used >= FD_WARNING_THRESHOLD:
+            status = "warning"
+            message = f"File descriptors high: {fd_count}/{soft_limit} ({percent_used:.1f}%)"
+        else:
+            status = "ok"
+            message = f"File descriptors: {fd_count}/{soft_limit} ({percent_used:.1f}%)"
+
+        return {
+            "count": fd_count,
+            "limit": soft_limit,
+            "hard_limit": hard_limit,
+            "percent_used": percent_used,
+            "status": status,
+            "message": message,
+        }
+
+    except Exception as e:
+        logger.warning(f"Failed to check file descriptors: {e}")
+        return {
+            "count": -1,
+            "limit": -1,
+            "hard_limit": -1,
+            "percent_used": 0,
+            "status": "unknown",
+            "message": f"Failed to check file descriptors: {e}",
+        }
+
+
+def check_socket_connections() -> dict[str, Any]:
+    """Check socket connection status for the current process.
+
+    Monitors for connection leaks (TIME_WAIT, CLOSE_WAIT buildup) and
+    excessive socket usage that could lead to resource exhaustion.
+
+    Returns:
+        Dict with keys:
+            - total: Total socket connections
+            - by_type: Dict of counts by socket type (TCP, UDP)
+            - by_status: Dict of counts by connection status
+            - issues: List of detected issues
+            - status: "ok", "warning", or "critical"
+            - message: Human-readable status message
+    """
+    try:
+        proc = psutil.Process()
+        connections = proc.connections(kind="all")
+
+        # Count by type
+        by_type: dict[str, int] = {"tcp": 0, "udp": 0, "unix": 0, "other": 0}
+        for conn in connections:
+            conn_type = conn.type.name.lower() if hasattr(conn.type, 'name') else str(conn.type)
+            if "tcp" in conn_type or conn.type == 1:  # SOCK_STREAM
+                by_type["tcp"] += 1
+            elif "udp" in conn_type or conn.type == 2:  # SOCK_DGRAM
+                by_type["udp"] += 1
+            elif "unix" in conn_type:
+                by_type["unix"] += 1
+            else:
+                by_type["other"] += 1
+
+        # Count by status (TCP states)
+        by_status: dict[str, int] = {}
+        for conn in connections:
+            status_name = conn.status if conn.status else "NONE"
+            by_status[status_name] = by_status.get(status_name, 0) + 1
+
+        total = len(connections)
+        issues: list[str] = []
+
+        # Check for connection leaks
+        time_wait = by_status.get("TIME_WAIT", 0)
+        close_wait = by_status.get("CLOSE_WAIT", 0)
+
+        # Detect TIME_WAIT buildup (connection churn)
+        if time_wait >= SOCKET_TIME_WAIT_CRITICAL:
+            issues.append(f"TIME_WAIT critical: {time_wait} connections (likely connection leak)")
+        elif time_wait >= SOCKET_TIME_WAIT_WARNING:
+            issues.append(f"TIME_WAIT high: {time_wait} connections")
+
+        # Detect CLOSE_WAIT buildup (not closing connections properly)
+        if close_wait >= SOCKET_CLOSE_WAIT_CRITICAL:
+            issues.append(f"CLOSE_WAIT critical: {close_wait} connections (resource leak)")
+        elif close_wait >= SOCKET_CLOSE_WAIT_WARNING:
+            issues.append(f"CLOSE_WAIT high: {close_wait} connections")
+
+        # Check total socket count
+        if total >= SOCKET_TOTAL_CRITICAL:
+            issues.append(f"Total sockets critical: {total}")
+        elif total >= SOCKET_TOTAL_WARNING:
+            issues.append(f"Total sockets high: {total}")
+
+        # Determine overall status
+        critical_issues = [i for i in issues if "critical" in i.lower()]
+        if critical_issues:
+            status = "critical"
+        elif issues:
+            status = "warning"
+        else:
+            status = "ok"
+
+        message = "; ".join(issues) if issues else f"Sockets: {total} (TCP: {by_type['tcp']}, UDP: {by_type['udp']})"
+
+        return {
+            "total": total,
+            "by_type": by_type,
+            "by_status": by_status,
+            "issues": issues,
+            "status": status,
+            "message": message,
+        }
+
+    except Exception as e:
+        logger.warning(f"Failed to check socket connections: {e}")
+        return {
+            "total": -1,
+            "by_type": {},
+            "by_status": {},
+            "issues": [f"Check failed: {e}"],
+            "status": "unknown",
+            "message": f"Failed to check socket connections: {e}",
+        }
 
 
 class HealthChecker:
@@ -502,6 +690,7 @@ class HealthChecker:
         """Check system resource health.
 
         Uses thresholds aligned with 80% max utilization policy (70% for disk).
+        Now includes file descriptor and socket monitoring for P2P stability.
         """
         name = "resources"
 
@@ -530,19 +719,37 @@ class HealthChecker:
             elif cpu_percent > CPU_WARNING_THRESHOLD:
                 issues.append(f"CPU high: {cpu_percent:.1f}%")
 
+            # File descriptor check - prevents "too many open files" crash
+            fd_check = check_file_descriptors()
+            if fd_check["status"] == "critical":
+                issues.append(fd_check["message"])
+            elif fd_check["status"] == "warning":
+                issues.append(fd_check["message"])
+
+            # Socket connection check - detects connection leaks
+            socket_check = check_socket_connections()
+            if socket_check["status"] == "critical":
+                issues.extend([i for i in socket_check["issues"] if "critical" in i.lower()])
+            elif socket_check["status"] == "warning":
+                issues.extend(socket_check["issues"])
+
             details = {
                 "memory_percent": mem.percent,
                 "memory_available_gb": mem.available / (1024**3),
                 "disk_percent": disk.percent,
                 "disk_free_gb": disk.free / (1024**3),
                 "cpu_percent": cpu_percent,
+                "file_descriptors": fd_check,
+                "sockets": socket_check,
             }
 
             if issues:
+                # Determine severity: critical issues = error, warnings only = warning
+                has_critical = any("critical" in i.lower() for i in issues)
                 return ComponentHealth(
                     name=name,
                     healthy=False,
-                    status="warning" if len(issues) == 1 else "error",
+                    status="error" if has_critical else "warning",
                     message="; ".join(issues),
                     details=details,
                 )
@@ -551,7 +758,7 @@ class HealthChecker:
                 name=name,
                 healthy=True,
                 status="ok",
-                message=f"Memory: {mem.percent:.0f}%, Disk: {disk.percent:.0f}%, CPU: {cpu_percent:.0f}%",
+                message=f"Memory: {mem.percent:.0f}%, Disk: {disk.percent:.0f}%, CPU: {cpu_percent:.0f}%, FDs: {fd_check['count']}/{fd_check['limit']}",
                 details=details,
             )
 
@@ -561,6 +768,73 @@ class HealthChecker:
                 healthy=False,
                 status="error",
                 message=f"Failed to check resources: {e}",
+            )
+
+    def check_file_resources(self) -> ComponentHealth:
+        """Check file descriptor and socket resources specifically.
+
+        Dedicated check for resource exhaustion monitoring, useful for
+        P2P processes that maintain many connections.
+
+        Returns:
+            ComponentHealth with file descriptor and socket status
+        """
+        name = "file_resources"
+
+        try:
+            fd_check = check_file_descriptors()
+            socket_check = check_socket_connections()
+
+            issues = []
+
+            # Aggregate issues from both checks
+            if fd_check["status"] in ("warning", "critical"):
+                issues.append(fd_check["message"])
+
+            if socket_check["issues"]:
+                issues.extend(socket_check["issues"])
+
+            # Determine overall status
+            if fd_check["status"] == "critical" or socket_check["status"] == "critical":
+                status = "error"
+                healthy = False
+            elif fd_check["status"] == "warning" or socket_check["status"] == "warning":
+                status = "warning"
+                healthy = False
+            else:
+                status = "ok"
+                healthy = True
+
+            details = {
+                "file_descriptors": fd_check,
+                "sockets": socket_check,
+            }
+
+            if issues:
+                return ComponentHealth(
+                    name=name,
+                    healthy=healthy,
+                    status=status,
+                    message="; ".join(issues),
+                    details=details,
+                )
+
+            fd_msg = f"FDs: {fd_check['count']}/{fd_check['limit']} ({fd_check['percent_used']:.1f}%)"
+            socket_msg = f"Sockets: {socket_check['total']} (TCP: {socket_check['by_type'].get('tcp', 0)})"
+            return ComponentHealth(
+                name=name,
+                healthy=True,
+                status="ok",
+                message=f"{fd_msg}, {socket_msg}",
+                details=details,
+            )
+
+        except Exception as e:
+            return ComponentHealth(
+                name=name,
+                healthy=False,
+                status="error",
+                message=f"Failed to check file resources: {e}",
             )
 
 

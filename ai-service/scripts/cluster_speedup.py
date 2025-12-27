@@ -303,7 +303,11 @@ def start_selfplay(name: str, config: dict, board_type: str = "hex8", num_player
 
     start_cmd = f"""
 cd {ringrift_path} && {venv_activate} && \
-screen -dmS selfplay bash -c 'PYTHONPATH=. python scripts/selfplay.py --board {board_type} --num-players {num_players} --engine gumbel --num-games 10000 2>&1 | tee logs/selfplay.log'
+if command -v screen >/dev/null 2>&1; then
+  screen -dmS selfplay bash -c 'PYTHONPATH=. python scripts/selfplay.py --board {board_type} --num-players {num_players} --engine gumbel --num-games 10000 2>&1 | tee logs/selfplay.log'
+else
+  nohup env PYTHONPATH=. python scripts/selfplay.py --board {board_type} --num-players {num_players} --engine gumbel --num-games 10000 > logs/selfplay.log 2>&1 &
+fi
 """
     ok, output = run_ssh_command(name, config, start_cmd)
 

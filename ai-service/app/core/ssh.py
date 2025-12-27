@@ -555,7 +555,14 @@ class SSHClient:
         else:
             target = target_host
 
-        cmd = ["scp", "-o", f"ConnectTimeout={self._config.connect_timeout}"]
+        cmd = [
+            "scp",
+            "-o", f"ConnectTimeout={self._config.connect_timeout}",
+            "-o", "TCPKeepAlive=yes",
+            "-o", f"ServerAliveInterval={self._config.server_alive_interval}",
+            "-o", f"ServerAliveCountMax={self._config.server_alive_count_max}",
+            "-o", "BatchMode=yes",
+        ]
         if self._config.port != 22:
             cmd.extend(["-P", str(self._config.port)])
         if self._config.key_path:
@@ -597,7 +604,14 @@ class SSHClient:
         else:
             target = target_host
 
-        cmd = ["scp", "-o", f"ConnectTimeout={self._config.connect_timeout}"]
+        cmd = [
+            "scp",
+            "-o", f"ConnectTimeout={self._config.connect_timeout}",
+            "-o", "TCPKeepAlive=yes",
+            "-o", f"ServerAliveInterval={self._config.server_alive_interval}",
+            "-o", f"ServerAliveCountMax={self._config.server_alive_count_max}",
+            "-o", "BatchMode=yes",
+        ]
         if self._config.port != 22:
             cmd.extend(["-P", str(self._config.port)])
         if self._config.key_path:

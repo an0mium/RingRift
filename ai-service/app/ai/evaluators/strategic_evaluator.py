@@ -471,14 +471,11 @@ class StrategicEvaluator:
             if prox > max_opp_prox:
                 max_opp_prox = prox
 
-        # Symmetric evaluation: positive when ahead, negative when behind
-        # OLD (asymmetric): max(0.0, raw_gap) only penalized when behind
-        # NEW (symmetric): raw difference gives bonus when ahead, penalty when behind
-        raw_gap = max_opp_prox - self_prox
-
-        # Return symmetric score: when ahead (raw_gap < 0) get bonus,
-        # when behind (raw_gap > 0) get penalty
-        return -raw_gap * self.weights.opponent_victory_threat
+        # Threat is only present when an opponent is closer to victory than we are.
+        # If we're ahead, this term should be neutral (0.0) rather than a bonus
+        # to avoid double-counting (victory_proximity already captures advantage).
+        threat_gap = max(0.0, max_opp_prox - self_prox)
+        return -threat_gap * self.weights.opponent_victory_threat
     
     def _approx_real_actions_for_player(
         self,

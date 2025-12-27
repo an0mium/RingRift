@@ -72,9 +72,16 @@ class P2PDeploymentConfig:
     # Coverage thresholds
     min_coverage_percent: float = 90.0  # Alert if < 90% have P2P
 
-    # Excluded nodes (coordinator, local dev machines)
+    # Excluded nodes (coordinator, local dev machines, proxy-only)
     excluded_nodes: list[str] = field(
-        default_factory=lambda: ["mac-studio", "mbp-new", "mbp-64gb", "mbp-16gb"]
+        default_factory=lambda: [
+            "mac-studio",
+            "local-mac",
+            "mbp-new",
+            "mbp-64gb",
+            "mbp-16gb",
+            "aws-proxy",  # Proxy-only node, no P2P needed
+        ]
     )
 
 
@@ -184,8 +191,41 @@ class P2PAutoDeployer:
 
         return deployable
 
+    def _build_ssh_args(
+        self,
+        host_info: dict[str, Any],
+        timeout: float = 10.0,
+    ) -> list[str]:
+        """Build SSH command arguments for a node.
+
+        Args:
+            host_info: Node configuration from hosts.yaml
+            timeout: Connection timeout in seconds
+
+        Returns:
+            List of SSH command arguments
+        """
+        ssh_host = host_info.get("ssh_host")
+        ssh_user = host_info.get("ssh_user", "ubuntu")
+        ssh_key = host_info.get("ssh_key", "~/.ssh/id_cluster")
+        ssh_port = host_info.get("ssh_port", 22)
+
+        ssh_key_expanded = os.path.expanduser(ssh_key)
+
+        return [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", f"ConnectTimeout={int(timeout)}",
+            "-o", "BatchMode=yes",
+            "-p", str(ssh_port),
+            "-i", ssh_key_expanded,
+            f"{ssh_user}@{ssh_host}",
+        ]
+
     async def check_p2p_health(self, host_id: str, host_info: dict[str, Any]) -> bool:
         """Check if P2P is running on a node.
+
+        Uses SSH to check P2P health, bypassing firewall/NAT issues.
 
         Args:
             host_id: Node identifier
@@ -200,35 +240,69 @@ class P2PAutoDeployer:
             if health and health.p2p_healthy:
                 return True
 
-        # Otherwise check directly via HTTP
-        tailscale_ip = host_info.get("tailscale_ip")
         ssh_host = host_info.get("ssh_host")
+        if not ssh_host:
+            return False
 
-        for host in [tailscale_ip, ssh_host]:
-            if not host:
-                continue
+        # Use SSH to check P2P health (works through firewalls/NAT)
+        ssh_args = self._build_ssh_args(host_info, timeout=self.config.health_check_timeout_seconds)
+        remote_cmd = f"curl -s --connect-timeout 5 localhost:{self.config.p2p_port}/health 2>/dev/null"
 
-            url = f"http://{host}:{self.config.p2p_port}/health"
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                    "--connect-timeout", str(int(self.config.health_check_timeout_seconds)),
-                    url,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=self.config.health_check_timeout_seconds + 5,
-                )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *ssh_args, remote_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self.config.health_check_timeout_seconds + 5,
+            )
 
-                if stdout.decode().strip() == "200":
-                    return True
+            output = stdout.decode().strip()
+            if '"healthy"' in output:
+                return True
 
-            except Exception as e:
-                logger.debug(f"P2P health check failed for {host_id} via {host}: {e}")
+        except Exception as e:
+            logger.debug(f"P2P SSH health check failed for {host_id}: {e}")
 
         return False
+
+    def _get_seed_peers(self) -> str:
+        """Get seed peer URLs from voter configuration.
+
+        Returns:
+            Comma-separated peer URLs
+        """
+        peers = []
+        voter_nodes = []
+
+        # Try to get voters from config
+        config_path = ROOT / self.config.hosts_config_path
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    data = yaml.safe_load(f) or {}
+                voter_nodes = data.get("p2p_voters", [])
+            except Exception:
+                pass
+
+        # Build peer URLs from voter hosts
+        for voter in voter_nodes[:5]:  # Max 5 peers
+            if voter in self._hosts:
+                host_info = self._hosts[voter]
+                host = host_info.get("ssh_host")
+                if host:
+                    peers.append(f"http://{host}:{self.config.p2p_port}")
+
+        # Fallback to some known stable nodes
+        if not peers:
+            peers = [
+                "http://89.169.112.47:8770",  # nebius-backbone-1
+                "http://46.62.147.150:8770",  # hetzner-cpu1
+            ]
+
+        return ",".join(peers)
 
     async def deploy_p2p_to_node(
         self,
@@ -237,7 +311,7 @@ class P2PAutoDeployer:
     ) -> P2PDeploymentResult:
         """Deploy P2P to a single node.
 
-        Uses SSH to run the setup script on the remote node.
+        Uses SSH to run the orchestrator with proper venv activation.
 
         Args:
             host_id: Node identifier
@@ -248,11 +322,7 @@ class P2PAutoDeployer:
         """
         start_time = time.time()
 
-        ssh_host = host_info.get("tailscale_ip") or host_info.get("ssh_host")
-        ssh_user = host_info.get("ssh_user", "ubuntu")
-        ssh_key = host_info.get("ssh_key", "~/.ssh/id_cluster")
-        ringrift_path = host_info.get("ringrift_path", "~/ringrift/ai-service")
-
+        ssh_host = host_info.get("ssh_host")
         if not ssh_host:
             return P2PDeploymentResult(
                 node_id=host_id,
@@ -262,33 +332,39 @@ class P2PAutoDeployer:
                 duration_seconds=time.time() - start_time,
             )
 
-        # Build SSH command
-        ssh_key_expanded = os.path.expanduser(ssh_key)
-        ssh_args = [
-            "ssh", "-o", "StrictHostKeyChecking=no",
-            "-o", f"ConnectTimeout={int(self.config.deployment_timeout_seconds)}",
-            "-i", ssh_key_expanded,
-            f"{ssh_user}@{ssh_host}",
-        ]
+        ringrift_path = host_info.get("ringrift_path", "~/ringrift/ai-service")
+        venv_activate = host_info.get("venv_activate", f"source {ringrift_path}/venv/bin/activate")
+        seed_peers = self._get_seed_peers()
 
-        # Remote command to start P2P
-        # We'll use the direct Python approach since it's more reliable
+        # Build SSH command
+        ssh_args = self._build_ssh_args(host_info, timeout=self.config.deployment_timeout_seconds)
+
+        # Remote command to start P2P with venv and proper peers
         remote_cmd = f"""
-cd {ringrift_path}
+cd {ringrift_path} || exit 1
 # Kill any existing P2P
 pkill -f p2p_orchestrator 2>/dev/null || true
 sleep 2
-# Start P2P orchestrator
-nohup python3 scripts/p2p_orchestrator.py \\
+# Ensure logs directory exists
+mkdir -p logs
+# Activate venv and start P2P orchestrator
+{venv_activate} 2>/dev/null || true
+export PYTHONPATH={ringrift_path}
+screen -dmS p2p python scripts/p2p_orchestrator.py \\
     --node-id {host_id} \\
     --port {self.config.p2p_port} \\
-    >> logs/p2p_orchestrator.log 2>&1 &
-sleep 3
-# Verify it started
-if pgrep -f p2p_orchestrator > /dev/null; then
+    --peers {seed_peers}
+sleep 8
+# Verify it started via health check
+if curl -s --connect-timeout 5 localhost:{self.config.p2p_port}/health 2>/dev/null | grep -q '"healthy"'; then
     echo "P2P_STARTED"
 else
-    echo "P2P_FAILED"
+    # Fallback: check if process is at least running
+    if pgrep -f p2p_orchestrator > /dev/null; then
+        echo "P2P_STARTED"
+    else
+        echo "P2P_FAILED"
+    fi
 fi
 """
 

@@ -2886,7 +2886,7 @@ class P2POrchestrator(
         """Get summary of all metrics over the specified time period."""
         conn = None
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = sqlite3.connect(str(self.db_path), timeout=10.0)
             cursor = conn.cursor()
 
             since = time.time() - (hours * 3600)
@@ -6358,6 +6358,17 @@ class P2POrchestrator(
                     if actual_leader and actual_leader != peer_info.node_id:
                         # Peer claims leader but we have a different elected leader
                         peer_info.role = NodeRole.FOLLOWER
+
+                # Dec 2025: Leader discovery from peer heartbeats
+                # If we don't have a leader but peer reports one, consider adopting it
+                peer_leader = getattr(peer_info, "leader_id", "") or ""
+                if peer_leader and not self.leader_id:
+                    # Peer reports a leader and we don't have one - check if valid
+                    potential_leader = self.peers.get(peer_leader)
+                    if potential_leader and potential_leader.is_alive() and potential_leader.role == NodeRole.LEADER:
+                        self.leader_id = peer_leader
+                        self.role = NodeRole.FOLLOWER
+                        logger.info(f"Adopted leader {peer_leader} from heartbeat via {peer_info.node_id}")
 
                 self.peers[peer_info.node_id] = peer_info
 
@@ -19078,6 +19089,8 @@ print(json.dumps({{
         self.self_info.training_jobs = training
         self.self_info.role = self.role
         self.self_info.last_heartbeat = time.time()
+        # Dec 2025: Propagate leader_id in heartbeats for cluster-wide leader discovery
+        self.self_info.leader_id = self.leader_id or ""
 
         # Detect external work (running outside P2P orchestrator tracking)
         external = self._detect_local_external_work()

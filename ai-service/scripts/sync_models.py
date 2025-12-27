@@ -607,8 +607,15 @@ def sync_model_to_host(
         # --partial: Keep partial transfers for resume
         # --partial-dir: Store partials separately to avoid corrupt files
         # --delay-updates: Atomic update - put files in place only after full transfer
-        # --checksum: Verify file integrity after transfer
-        ssh_opts = ["-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no"]
+        # --checksum: Verify integrity after transfer
+        ssh_opts = [
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "TCPKeepAlive=yes",           # Keep TCP connection alive
+            "-o", "ServerAliveInterval=30",      # Send keepalive every 30s
+            "-o", "ServerAliveCountMax=3",       # Allow 3 missed keepalives
+        ]
         if host.ssh_key:
             ssh_opts.extend(["-i", host.ssh_key_path if hasattr(host, 'ssh_key_path') else os.path.expanduser(host.ssh_key)])
         if host.ssh_port and int(host.ssh_port) != 22:
@@ -620,18 +627,37 @@ def sync_model_to_host(
             "--partial-dir=.rsync-partial", # Store partials in hidden dir
             "--delay-updates",              # Atomic: put files in place at end
             "--checksum",                   # Verify integrity after transfer
+            "--timeout=60",                 # Per-file I/O timeout (60s stall)
             "-e", f"ssh {' '.join(ssh_opts)}",
             str(local_path),
             f"{host.ssh_target}:{remote_dir}",
         ]
 
+        # Dynamic timeout: 2 seconds per MB, minimum 120s, maximum 1800s
+        file_size_mb = local_path.stat().st_size / (1024 * 1024) if local_path.exists() else 100
+        dynamic_timeout = max(120, min(1800, int(60 + file_size_mb * 2)))
+
         try:
-            result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=RSYNC_TIMEOUT)
+            result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=dynamic_timeout)
             if result.returncode == 0:
+                # Post-transfer integrity verification
+                try:
+                    from app.coordination.sync_integrity import verify_sync_integrity
+                    report = verify_sync_integrity(
+                        source=local_path,
+                        target=None,  # Remote verification requires SSH
+                        check_db=False,  # Skip PRAGMA check for .pth files
+                    )
+                    if not report.is_valid:
+                        logger.warning(f"Post-transfer verification issue: {report.summary()}")
+                except ImportError:
+                    pass  # sync_integrity module not available
+                except Exception as verify_err:
+                    logger.debug(f"Verification skipped: {verify_err}")
                 return True, f"Synced {model_name} to {host.name}"
             return False, result.stderr[:200]
         except subprocess.TimeoutExpired:
-            return False, "rsync timeout"
+            return False, f"rsync timeout after {dynamic_timeout}s"
         except Exception as e:
             return False, str(e)[:200]
     finally:

@@ -719,13 +719,18 @@ class DaemonManager:
             info.state = DaemonState.STOPPED
 
     async def stop(self, daemon_type: DaemonType) -> bool:
-        """Stop a specific daemon.
+        """Stop a specific daemon with timeout escalation.
+
+        Uses a three-phase shutdown approach:
+        1. Cancel task and wait for graceful shutdown (shutdown_timeout)
+        2. If still running, wait additional grace period (force_kill_timeout)
+        3. If still stuck, log error but continue (task may be leaked)
 
         Args:
             daemon_type: Type of daemon to stop
 
         Returns:
-            True if stopped successfully
+            True if stopped successfully (or was already stopped)
         """
         async with self._lock:
             info = self._daemons.get(daemon_type)
@@ -738,11 +743,30 @@ class DaemonManager:
             info.state = DaemonState.STOPPING
 
             if info.task is not None:
+                # Phase 1: Cancel and wait for graceful shutdown
                 info.task.cancel()
                 try:
                     await asyncio.wait_for(info.task, timeout=self.config.shutdown_timeout)
                 except asyncio.TimeoutError:
-                    logger.warning(f"Timeout stopping {daemon_type.value}")
+                    logger.warning(
+                        f"Timeout stopping {daemon_type.value} after {self.config.shutdown_timeout}s, "
+                        f"waiting additional {self.config.force_kill_timeout}s"
+                    )
+                    # Phase 2: Additional grace period for stubborn tasks
+                    try:
+                        await asyncio.wait_for(info.task, timeout=self.config.force_kill_timeout)
+                    except asyncio.TimeoutError:
+                        # Phase 3: Task is truly stuck - log but don't block
+                        logger.error(
+                            f"Daemon {daemon_type.value} failed to stop after "
+                            f"{self.config.shutdown_timeout + self.config.force_kill_timeout}s total. "
+                            f"Task may be leaked. Consider investigating the daemon's shutdown handler."
+                        )
+                        # Clear the task reference to prevent memory leaks
+                        # The task is likely stuck in a blocking operation
+                        info.task = None
+                    except asyncio.CancelledError:
+                        pass
                 except asyncio.CancelledError:
                     pass
 

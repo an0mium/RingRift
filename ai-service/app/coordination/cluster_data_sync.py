@@ -233,18 +233,34 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
             duration_seconds=0,
         )
 
-    # Build rsync command
+    # Build rsync command with keepalive and integrity options
     target_path = f"ubuntu@{target.host}:~/ringrift/ai-service/data/games/synced/"
+    ssh_opts = (
+        "ssh -i ~/.ssh/id_cluster "
+        "-o StrictHostKeyChecking=no "
+        "-o ConnectTimeout=10 "
+        "-o TCPKeepAlive=yes "
+        "-o ServerAliveInterval=30 "
+        "-o ServerAliveCountMax=3"
+    )
     cmd = [
         "rsync",
         "-avz",
         "--progress",
         f"--bwlimit={SYNC_BANDWIDTH_LIMIT_KBPS}",
-        "--timeout=300",
-        "-e", "ssh -i ~/.ssh/id_cluster -o StrictHostKeyChecking=no -o ConnectTimeout=10",
+        "--timeout=60",           # Per-file I/O timeout (shorter, more granular)
+        "--partial",              # Keep partial transfers for resume
+        "--partial-dir=.rsync-partial",
+        "--delay-updates",        # Atomic: put files in place at end
+        "--checksum",             # Verify integrity after transfer
+        "-e", ssh_opts,
         str(source),
         target_path,
     ]
+
+    # Dynamic timeout: 2 seconds per MB, minimum 120s, maximum 1800s
+    file_size_mb = source.stat().st_size / (1024 * 1024) if source.exists() else 100
+    dynamic_timeout = max(120, min(1800, int(60 + file_size_mb * 2)))
 
     try:
         logger.info(f"Syncing {source.name} to {target.node_id}")
@@ -257,7 +273,7 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
 
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(),
-            timeout=600,  # 10 minute timeout
+            timeout=dynamic_timeout,
         )
 
         duration = time.time() - start_time
@@ -265,6 +281,19 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
         if proc.returncode == 0:
             # Parse rsync output for bytes transferred
             bytes_transferred = source.stat().st_size  # Approximate
+
+            # Post-transfer integrity verification for database files
+            if str(source).endswith('.db'):
+                try:
+                    from app.coordination.sync_integrity import check_sqlite_integrity
+                    is_valid, errors = check_sqlite_integrity(source)
+                    if not is_valid:
+                        logger.warning(f"Source DB integrity issues: {errors}")
+                except ImportError:
+                    pass  # sync_integrity module not available
+                except Exception as verify_err:
+                    logger.debug(f"DB verification skipped: {verify_err}")
+
             logger.info(
                 f"Synced {source.name} to {target.node_id} in {duration:.1f}s"
             )
@@ -304,6 +333,37 @@ async def sync_to_target(source: Path, target: EligibleSyncNode) -> SyncResult:
             duration_seconds=time.time() - start_time,
             error=str(e),
         )
+
+
+async def cleanup_stale_partials(data_dir: Path = Path("data/games"), max_age_hours: int = 24) -> int:
+    """Remove stale .rsync-partial directories to prevent disk bloat.
+
+    Args:
+        data_dir: Directory containing game databases
+        max_age_hours: Delete partial dirs older than this
+
+    Returns:
+        Number of files cleaned up
+    """
+    cleaned = 0
+    partial_dir = data_dir / ".rsync-partial"
+
+    if partial_dir.exists():
+        import datetime
+        cutoff = datetime.datetime.now() - datetime.timedelta(hours=max_age_hours)
+
+        for item in partial_dir.iterdir():
+            try:
+                mtime = datetime.datetime.fromtimestamp(item.stat().st_mtime)
+                if mtime < cutoff:
+                    if item.is_file():
+                        item.unlink()
+                        cleaned += 1
+                        logger.debug(f"Cleaned stale partial: {item}")
+            except Exception as e:
+                logger.debug(f"Error cleaning {item}: {e}")
+
+    return cleaned
 
 
 # =============================================================================
@@ -415,6 +475,15 @@ class ClusterDataSyncDaemon:
         logger.info("Starting sync cycle")
         self._sync_count += 1
         self._last_sync_time = time.time()
+
+        # Clean up stale partial transfers first (every 10 cycles)
+        if self._sync_count % 10 == 0:
+            try:
+                cleaned = await cleanup_stale_partials()
+                if cleaned > 0:
+                    logger.info(f"Cleaned {cleaned} stale partial files")
+            except Exception as e:
+                logger.debug(f"Partial cleanup error: {e}")
 
         # Get eligible targets
         targets = get_sync_targets()
