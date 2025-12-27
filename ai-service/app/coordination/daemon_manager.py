@@ -2876,6 +2876,9 @@ class DaemonManager:
         - Error burst detected (>10 in 5 minutes)
         """
         try:
+            # DEPRECATED (Dec 2025): system_health_monitor daemon - Q2 2026 removal
+            # The daemon functionality remains here, but scoring functions should use:
+            # from app.coordination.health_facade import get_system_health_score
             from app.coordination.system_health_monitor import get_system_health
 
             monitor = get_system_health()

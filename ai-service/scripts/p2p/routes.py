@@ -365,6 +365,55 @@ DASHBOARD_ROUTES = [
     Route("POST", "/rollback/auto", "handle_rollback_auto"),
     Route("GET", "/autoscale/metrics", "handle_autoscale_metrics"),
     Route("GET", "/autoscale/recommendations", "handle_autoscale_recommendations"),
+    Route("GET", "/resource/optimizer", "handle_resource_optimizer"),
+    Route("GET", "/resource/history", "handle_resource_utilization_history"),
+    Route("POST", "/webhook/test", "handle_webhook_test"),
+    Route("GET", "/trends/summary", "handle_trends_summary"),
+    Route("GET", "/trends/history", "handle_trends_history"),
+    Route("GET", "/trends/table", "handle_trends_table"),
+    Route("GET", "/dashboard", "handle_dashboard"),
+    Route("GET", "/work_queue", "handle_work_queue_dashboard"),
+]
+
+# ===========================================================================
+# A/B Testing Routes
+# ===========================================================================
+
+ABTEST_ROUTES = [
+    Route("POST", "/abtest/create", "handle_abtest_create"),
+    Route("POST", "/abtest/result", "handle_abtest_result"),
+    Route("GET", "/abtest/status", "handle_abtest_status"),
+    Route("GET", "/abtest/list", "handle_abtest_list"),
+    Route("POST", "/abtest/cancel", "handle_abtest_cancel"),
+    Route("GET", "/abtest/table", "handle_abtest_table"),
+    Route("POST", "/abtest/run", "handle_abtest_run"),
+]
+
+# ===========================================================================
+# Canonical Pipeline API Routes
+# ===========================================================================
+
+CANONICAL_API_ROUTES = [
+    Route("GET", "/api/training/status", "handle_api_training_status"),
+    Route("GET", "/api/canonical/health", "handle_api_canonical_health"),
+    Route("GET", "/api/canonical/jobs", "handle_api_canonical_jobs_list"),
+    Route("GET", "/api/canonical/jobs/{job_id}", "handle_api_canonical_job_get"),
+    Route("GET", "/api/canonical/jobs/{job_id}/log", "handle_api_canonical_job_log"),
+    Route("GET", "/api/canonical/logs", "handle_api_canonical_logs_list"),
+    Route("GET", "/api/canonical/logs/{log_name}/tail", "handle_api_canonical_log_tail"),
+    Route("POST", "/api/canonical/generate", "handle_api_canonical_generate"),
+    Route("POST", "/api/canonical/jobs/{job_id}/cancel", "handle_api_canonical_job_cancel"),
+]
+
+# ===========================================================================
+# Jobs API Routes
+# ===========================================================================
+
+JOBS_API_ROUTES = [
+    Route("GET", "/api/jobs", "handle_api_jobs_list"),
+    Route("POST", "/api/jobs/submit", "handle_api_jobs_submit"),
+    Route("GET", "/api/jobs/{job_id}", "handle_api_job_get"),
+    Route("POST", "/api/jobs/{job_id}/cancel", "handle_api_job_cancel"),
 ]
 
 # ===========================================================================
@@ -398,6 +447,9 @@ ALL_ROUTE_GROUPS = {
     "api": API_ROUTES,
     "elo": ELO_ROUTES,
     "dashboard": DASHBOARD_ROUTES,
+    "abtest": ABTEST_ROUTES,
+    "canonical_api": CANONICAL_API_ROUTES,
+    "jobs_api": JOBS_API_ROUTES,
 }
 
 

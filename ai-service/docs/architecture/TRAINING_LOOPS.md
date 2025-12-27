@@ -219,11 +219,11 @@ print(f"Unified loop running: {is_unified_loop_running()}")
 
 ## When to Use Which
 
-| Scenario                      | Recommended Loop                          |
-| ----------------------------- | ----------------------------------------- |
-| Production cluster deployment | `master_loop.py`                          |
-| Development/testing           | `continuous_loop.py`                      |
-| Single training run           | `run_training_loop.py`                    |
-| Quick iteration check         | `run_training_loop.py --max-iterations 1` |
-| Resource-constrained node     | `continuous_loop.py` (lighter)            |
-| Full adaptive curriculum      | `master_loop.py`                          |
+| Scenario                      | Recommended Loop                 |
+| ----------------------------- | -------------------------------- |
+| Production cluster deployment | `master_loop.py`                 |
+| Development/testing           | `continuous_loop.py`             |
+| Single training run           | `run_training_loop.py`           |
+| Quick iteration check         | `run_training_loop.py --dry-run` |
+| Resource-constrained node     | `continuous_loop.py` (lighter)   |
+| Full adaptive curriculum      | `master_loop.py`                 |

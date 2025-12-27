@@ -343,6 +343,38 @@ def _build_registry() -> dict[str, DaemonSpec]:
             class_name="UnifiedFeedbackOrchestrator",
             factory_fn="get_unified_feedback",
         ),
+
+        # =================================================================
+        # Orchestration Daemons (December 2025)
+        # =================================================================
+        DaemonType.RECOVERY_ORCHESTRATOR.name: DaemonSpec(
+            import_path="app.coordination.recovery_orchestrator",
+            class_name="RecoveryOrchestrator",
+        ),
+        DaemonType.CACHE_COORDINATION.name: DaemonSpec(
+            import_path="app.coordination.cache_coordination_orchestrator",
+            class_name="CacheCoordinationOrchestrator",
+        ),
+        DaemonType.METRICS_ANALYSIS.name: DaemonSpec(
+            import_path="app.coordination.metrics_analysis_orchestrator",
+            class_name="MetricsAnalysisOrchestrator",
+        ),
+        DaemonType.ADAPTIVE_RESOURCES.name: DaemonSpec(
+            import_path="app.coordination.adaptive_resource_manager",
+            class_name="AdaptiveResourceManager",
+        ),
+        DaemonType.MULTI_PROVIDER.name: DaemonSpec(
+            import_path="app.coordination.multi_provider_orchestrator",
+            class_name="MultiProviderOrchestrator",
+        ),
+        DaemonType.CURRICULUM_INTEGRATION.name: DaemonSpec(
+            import_path="app.coordination.curriculum_integration",
+            class_name="MomentumToCurriculumBridge",  # Main integration class
+        ),
+        DaemonType.HEALTH_SERVER.name: DaemonSpec(
+            import_path="app.coordination.unified_health_manager",
+            class_name="UnifiedHealthManager",  # Provides health endpoints
+        ),
     }
 
 

@@ -195,18 +195,47 @@ class FeedbackLoopController:
         return self._running
 
     def _subscribe_to_events(self) -> None:
-        """Subscribe to all relevant training events."""
+        """Subscribe to all relevant training events.
+
+        December 2025: Added coexistence guard with UnifiedFeedbackOrchestrator.
+        If the unified orchestrator is already running, we skip subscribing to
+        overlapping events to prevent duplicate processing. FeedbackLoopController
+        still handles events that the unified orchestrator doesn't cover.
+        """
         if self._subscribed:
             return
+
+        # Check if UnifiedFeedbackOrchestrator is already running (December 2025)
+        # If so, skip overlapping subscriptions to prevent duplicate event processing
+        unified_running = False
+        try:
+            from app.coordination.unified_feedback import get_unified_feedback
+
+            unified = get_unified_feedback()
+            if unified._running and unified._subscribed:
+                unified_running = True
+                logger.info(
+                    "[FeedbackLoopController] UnifiedFeedbackOrchestrator is active, "
+                    "deferring core feedback events to it"
+                )
+        except ImportError:
+            pass  # Unified module not available, proceed normally
+        except (AttributeError, TypeError):
+            pass  # Unified orchestrator not initialized yet
 
         try:
             from app.coordination.event_router import DataEventType, get_event_bus
 
             bus = get_event_bus()
-            bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-            bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
-            bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
-            bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
+
+            # Core feedback events - skip if unified orchestrator is handling them
+            if not unified_running:
+                bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
+                bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
+                bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
+                bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
+
+            # Work queue events - FeedbackLoopController only (not in unified)
             bus.subscribe(DataEventType.WORK_COMPLETED, self._on_work_completed)
 
             # Phase 27: Subscribe to work failure events (December 2025)
@@ -227,29 +256,31 @@ class FeedbackLoopController:
 
             # Phase 8: Subscribe to training loss anomaly events (December 2025)
             # Closes critical feedback loop: training loss anomaly → quality check/exploration boost
-            event_count = 6
-            if hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
+            # Note: event_count starts at 4 if not unified_running (core events), 0 otherwise
+            event_count = 4 if not unified_running else 0
+            event_count += 1  # WORK_COMPLETED is always subscribed
+
+            # TRAINING_LOSS_ANOMALY overlaps with unified orchestrator
+            if not unified_running and hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
                 bus.subscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_training_loss_anomaly)
                 event_count += 1
+            # TRAINING_LOSS_TREND is FeedbackLoopController-only (unified doesn't handle it)
             if hasattr(DataEventType, 'TRAINING_LOSS_TREND'):
                 bus.subscribe(DataEventType.TRAINING_LOSS_TREND, self._on_training_loss_trend)
                 event_count += 1
 
-            # P1.1 (Dec 2025): Subscribe to QUALITY_DEGRADED to reduce training thresholds
-            # When quality degrades, trigger more frequent training to improve quality
-            if hasattr(DataEventType, 'QUALITY_DEGRADED'):
+            # QUALITY_DEGRADED overlaps with unified orchestrator (P1.1 Dec 2025)
+            if not unified_running and hasattr(DataEventType, 'QUALITY_DEGRADED'):
                 bus.subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
                 event_count += 1
 
-            # P10-LOOP-2 (Dec 2025): Subscribe to EVALUATION_FAILED for automatic retry
-            # When evaluation fails after built-in retries, attempt secondary recovery
+            # P10-LOOP-2 (Dec 2025): EVALUATION_FAILED is FeedbackLoopController-only
             if hasattr(DataEventType, 'EVALUATION_FAILED'):
                 bus.subscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
                 event_count += 1
 
-            # Dec 2025: Subscribe to REGRESSION_DETECTED for rollback + exploration boost
-            # When regression detected, trigger rollback and increase exploration
-            if hasattr(DataEventType, 'REGRESSION_DETECTED'):
+            # REGRESSION_DETECTED overlaps with unified orchestrator (Dec 2025)
+            if not unified_running and hasattr(DataEventType, 'REGRESSION_DETECTED'):
                 bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
                 event_count += 1
 

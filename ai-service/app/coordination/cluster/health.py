@@ -51,9 +51,32 @@ from app.coordination.host_health_policy import (
     check_cluster_health,
 )
 
-# Re-export from node_health_monitor (deprecated but kept for backward compatibility)
+# Re-export from health_facade (PREFERRED - unified interface, December 2025)
+from app.coordination.health_facade import (
+    # Node-level health (replaces node_health_monitor)
+    get_health_orchestrator,
+    HealthCheckOrchestrator,
+    NodeHealthState,
+    NodeHealthDetails,
+    get_node_health,
+    get_healthy_nodes,
+    get_unhealthy_nodes,
+    get_degraded_nodes,
+    get_offline_nodes,
+    mark_node_retired,
+    get_cluster_health_summary,
+    # System-level health
+    get_system_health_score,
+    get_system_health_level,
+    should_pause_pipeline,
+    SystemHealthLevel,
+    SystemHealthScore,
+)
+
+# Re-export from node_health_monitor (DEPRECATED - use health_facade instead)
 # December 2025: node_health_monitor is deprecated in favor of health_check_orchestrator,
 # but these re-exports are kept for callers that depend on the NodeHealthMonitor API.
+# Removal scheduled: Q2 2026
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     from app.coordination.node_health_monitor import (
@@ -79,7 +102,24 @@ __all__ = [
     "get_health_summary",
     "is_cluster_healthy",
     "check_cluster_health",
-    # From node_health_monitor
+    # From health_facade (PREFERRED - December 2025)
+    "get_health_orchestrator",
+    "HealthCheckOrchestrator",
+    "NodeHealthState",
+    "NodeHealthDetails",
+    "get_node_health",
+    "get_healthy_nodes",
+    "get_unhealthy_nodes",
+    "get_degraded_nodes",
+    "get_offline_nodes",
+    "mark_node_retired",
+    "get_cluster_health_summary",
+    "get_system_health_score",
+    "get_system_health_level",
+    "should_pause_pipeline",
+    "SystemHealthLevel",
+    "SystemHealthScore",
+    # From node_health_monitor (DEPRECATED - Q2 2026 removal)
     "NodeHealthMonitor",
     "get_node_health_monitor",
     "NodeStatus",

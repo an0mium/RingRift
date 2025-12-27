@@ -53,7 +53,12 @@ DEFAULT_INTERVAL = 7200  # 2 hours
 FRESHNESS_WINDOW = 3600  # 1 hour - skip if exported within this window
 LOG_FILE = Path("/tmp/scheduled_npz_export.log")
 # Explicit Python path for subprocess (needed on mac-studio)
-PYTHON_EXECUTABLE = os.getenv("PYTHON_EXECUTABLE", sys.executable)
+# Default to venv Python if it exists, otherwise use PYTHON_EXECUTABLE env var or sys.executable
+_venv_python = Path(__file__).parent.parent / "venv" / "bin" / "python3"
+PYTHON_EXECUTABLE = os.getenv(
+    "PYTHON_EXECUTABLE",
+    str(_venv_python) if _venv_python.exists() else sys.executable
+)
 
 # Board configurations to export
 EXPORT_CONFIGS = [
@@ -190,6 +195,7 @@ class ScheduledExportDaemon:
             "--output", str(output_path),
             "--require-completed",
             "--min-moves", "5",
+            "--allow-noncanonical",  # Allow non-registry databases
         ]
 
         # Add database paths
