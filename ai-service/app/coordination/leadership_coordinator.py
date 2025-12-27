@@ -61,13 +61,21 @@ class LeadershipDomain(Enum):
     CLUSTER = "cluster"  # Overall cluster coordination
 
 
-class NodeRole(Enum):
-    """Role of a node in the cluster."""
+class LeadershipRole(Enum):
+    """Role of a node in leader election (Raft-like).
+
+    NOTE (Dec 2025): Renamed from NodeRole to avoid collision with
+    ClusterNodeRole in multi_provider_orchestrator.py which has different semantics.
+    """
 
     LEADER = "leader"
     FOLLOWER = "follower"
     CANDIDATE = "candidate"
     OFFLINE = "offline"
+
+
+# Backward-compat alias (deprecated)
+NodeRole = LeadershipRole
 
 
 @dataclass

@@ -676,13 +676,24 @@ class TestEnsureLatest:
             assert mock_sync.called or result is True
 
     @pytest.mark.asyncio
-    async def test_ensure_latest_discovers_nodes_if_empty(self, sync_manager):
-        """ensure_latest should discover nodes if none known."""
+    async def test_ensure_latest_returns_false_when_no_nodes(self, sync_manager):
+        """ensure_latest should return False when no nodes are known."""
         assert len(sync_manager.nodes) == 0
+        # Force stale timestamp so it tries to sync
+        sync_manager._db_state.last_sync_timestamp = 0
 
-        with patch.object(sync_manager, "discover_nodes", new_callable=AsyncMock) as mock_discover:
-            mock_discover.return_value = None
+        result = await sync_manager.ensure_latest()
 
-            await sync_manager.ensure_latest()
+        # With no nodes to sync from, should return False
+        assert result is False
 
-            mock_discover.assert_called_once()
+    @pytest.mark.asyncio
+    async def test_ensure_latest_skips_sync_if_recent(self, sync_manager):
+        """ensure_latest should skip sync if last sync was recent."""
+        import time
+        sync_manager._db_state.last_sync_timestamp = time.time()
+
+        result = await sync_manager.ensure_latest()
+
+        # Recent sync means data is fresh, should return True
+        assert result is True

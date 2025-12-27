@@ -58,13 +58,21 @@ class Provider(str, Enum):
     UNKNOWN = "unknown"
 
 
-class NodeRole(str, Enum):
-    """Node roles in the cluster."""
+class ClusterNodeRole(str, Enum):
+    """Node job roles in the cluster (what the node is doing).
+
+    NOTE (Dec 2025): Renamed from NodeRole to avoid collision with
+    LeadershipRole in leadership_coordinator.py which has different semantics.
+    """
     TRAINING = "training"       # GPU training
     SELFPLAY = "selfplay"       # Self-play game generation
     COORDINATOR = "coordinator" # Cluster coordination
     IDLE = "idle"               # Available but unused
     OFFLINE = "offline"         # Not reachable
+
+
+# Backward-compat alias (deprecated)
+NodeRole = ClusterNodeRole
 
 
 @dataclass

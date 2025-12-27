@@ -48,6 +48,8 @@ _DEPRECATED_DAEMON_TYPES: dict[str, tuple[str, str]] = {
     "ephemeral_sync": ("AUTO_SYNC", "Q2 2026"),
     "cluster_data_sync": ("AUTO_SYNC", "Q2 2026"),
     "system_health_monitor": ("HEALTH_SERVER", "Q2 2026"),  # Use unified_health_manager
+    # December 2025: Lambda Labs account terminated - use VAST_IDLE or UNIFIED_IDLE
+    "lambda_idle": ("VAST_IDLE", "Q2 2026"),
 }
 
 
@@ -322,6 +324,8 @@ class DaemonManagerConfig:
 # critical since they're not started by default.
 CRITICAL_DAEMONS: set[DaemonType] = {
     DaemonType.EVENT_ROUTER,  # Core event bus - all coordination depends on this
+    DaemonType.DAEMON_WATCHDOG,  # Self-healing for daemon crashes (Dec 2025 fix)
+    DaemonType.DATA_PIPELINE,  # Pipeline processor - must start before AUTO_SYNC (Dec 2025 fix)
     DaemonType.AUTO_SYNC,  # Primary data sync mechanism
     DaemonType.QUEUE_POPULATOR,  # Keeps work queue populated
     DaemonType.IDLE_RESOURCE,  # Ensures GPUs stay utilized
