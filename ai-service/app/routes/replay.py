@@ -540,6 +540,15 @@ async def store_game(request: StoreGameRequest):
         metadata = request.metadata or {}
         metadata.setdefault("source", "sandbox")
 
+        # Validate game quality before storing
+        from app.db.unified_recording import RecordingQualityGate
+
+        gate = RecordingQualityGate()
+        valid, error = gate.validate(initial_state, final_state, moves, metadata)
+        if not valid:
+            logger.warning(f"Game {game_id} rejected by quality gate: {error}")
+            raise HTTPException(status_code=400, detail=f"Invalid game data: {error}")
+
         # Store the game
         db.store_game(
             game_id=game_id,
