@@ -285,15 +285,19 @@ async def on_sync_complete(event):
 ### 1. Distribute Model After Promotion
 
 ```python
-from app.coordination.model_distribution_daemon import ModelDistributionDaemon
+# December 2025: Use unified_distribution_daemon (consolidates model + NPZ)
+from app.coordination.unified_distribution_daemon import (
+    create_model_distribution_daemon,
+    create_npz_distribution_daemon,
+)
 
 # Daemon automatically subscribes to MODEL_PROMOTED events
-daemon = ModelDistributionDaemon()
+daemon = create_model_distribution_daemon()
 await daemon.start()
 
 # Or trigger manually
-await daemon.distribute_model(
-    model_path=Path("models/canonical_hex8_2p.pth"),
+await daemon.distribute(
+    path=Path("models/canonical_hex8_2p.pth"),
     target_nodes=["runpod-h100", "nebius-h100", "vast-rtx4090"],
 )
 ```
@@ -301,10 +305,10 @@ await daemon.distribute_model(
 ### 2. Distribute NPZ Training Data
 
 ```python
-from app.coordination.npz_distribution_daemon import NPZDistributionDaemon
+from app.coordination.unified_distribution_daemon import create_npz_distribution_daemon
 
 # Daemon automatically subscribes to NPZ_EXPORT_COMPLETE events
-daemon = NPZDistributionDaemon()
+daemon = create_npz_distribution_daemon()
 await daemon.start()
 ```
 
@@ -372,16 +376,15 @@ If BitTorrent fails, transfers automatically fall back to aria2/rsync:
 
 ## Key Files Reference
 
-| File                                            | Purpose                        |
-| ----------------------------------------------- | ------------------------------ |
-| `app/distributed/resilient_transfer.py`         | Unified transfer abstraction   |
-| `app/coordination/npz_validation.py`            | NPZ structure validation       |
-| `app/coordination/sync_integrity.py`            | Checksum & SQLite verification |
-| `app/coordination/transfer_verification.py`     | Quarantine mechanism           |
-| `app/coordination/sync_bandwidth.py`            | Bandwidth coordination         |
-| `app/distributed/torrent_manager.py`            | BitTorrent integration         |
-| `app/coordination/model_distribution_daemon.py` | Model distribution             |
-| `app/coordination/npz_distribution_daemon.py`   | NPZ distribution               |
+| File                                              | Purpose                             |
+| ------------------------------------------------- | ----------------------------------- |
+| `app/distributed/resilient_transfer.py`           | Unified transfer abstraction        |
+| `app/coordination/npz_validation.py`              | NPZ structure validation            |
+| `app/coordination/sync_integrity.py`              | Checksum & SQLite verification      |
+| `app/coordination/transfer_verification.py`       | Quarantine mechanism                |
+| `app/coordination/sync_bandwidth.py`              | Bandwidth coordination              |
+| `app/distributed/torrent_manager.py`              | BitTorrent integration              |
+| `app/coordination/unified_distribution_daemon.py` | Model + NPZ distribution (Dec 2025) |
 
 ## December 2025 Enhancements
 

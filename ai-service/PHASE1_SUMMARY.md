@@ -76,7 +76,7 @@ Added `SSHConfig.from_host_config()` classmethod:
 
 ### Modified
 
-- `/Users/armand/Development/RingRift/ai-service/app/core/ssh.py`
+- `ai-service/app/core/ssh.py`
   - Added 3 Cloudflare fields to SSHConfig
   - Added SSHHealth dataclass
   - Added 5 new methods to SSHClient
@@ -86,12 +86,12 @@ Added `SSHConfig.from_host_config()` classmethod:
 
 ### Created
 
-- `/Users/armand/Development/RingRift/ai-service/docs/SSH_CONSOLIDATION_PHASE1.md`
+- `ai-service/docs/SSH_CONSOLIDATION_PHASE1.md`
   - Comprehensive feature documentation
   - Usage examples
   - Migration guide
 
-- `/Users/armand/Development/RingRift/ai-service/docs/SSH_TRANSPORT_CHAIN.md`
+- `ai-service/docs/SSH_TRANSPORT_CHAIN.md`
   - Transport fallback chain documentation
   - Configuration examples
   - Troubleshooting guide
@@ -288,10 +288,10 @@ Once all consumers migrated:
 
 ## References
 
-- **Implementation**: `/Users/armand/Development/RingRift/ai-service/app/core/ssh.py`
+- **Implementation**: `ai-service/app/core/ssh.py`
 - **Documentation**:
-  - `/Users/armand/Development/RingRift/ai-service/docs/SSH_CONSOLIDATION_PHASE1.md`
-  - `/Users/armand/Development/RingRift/ai-service/docs/SSH_TRANSPORT_CHAIN.md`
+  - `ai-service/docs/SSH_CONSOLIDATION_PHASE1.md`
+  - `ai-service/docs/SSH_TRANSPORT_CHAIN.md`
 - **Original Plan**: SSH consolidation design document
 
 ---

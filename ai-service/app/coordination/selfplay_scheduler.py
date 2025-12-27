@@ -62,6 +62,8 @@ __all__ = [
     # Functions
     "get_selfplay_scheduler",
     "reset_selfplay_scheduler",
+    # New Dec 2025
+    "get_priority_configs_sync",
 ]
 
 import contextlib
@@ -365,6 +367,36 @@ class SelfplayScheduler:
         priorities.sort(key=lambda x: -x[1])
 
         return priorities[:top_n]
+
+    def get_priority_configs_sync(
+        self, top_n: int | None = None, filter_configs: list[str] | None = None
+    ) -> list[tuple[str, float]]:
+        """Get configs ranked by priority (sync version using cached data).
+
+        This method returns cached priority data without triggering an async update.
+        Use this from synchronous contexts where you need priority-ordered configs.
+
+        Args:
+            top_n: Optional limit on number of configs to return (default: all)
+            filter_configs: Optional list of config keys to filter by
+
+        Returns:
+            List of (config_key, priority_score) tuples, sorted by priority descending
+
+        December 2025: Added for IdleResourceDaemon and other sync callers.
+        """
+        priorities = [
+            (cfg, p.priority_score)
+            for cfg, p in self._config_priorities.items()
+            if filter_configs is None or cfg in filter_configs
+        ]
+
+        # Sort by priority (descending)
+        priorities.sort(key=lambda x: -x[1])
+
+        if top_n is not None:
+            return priorities[:top_n]
+        return priorities
 
     async def _update_priorities(self) -> None:
         """Update priority scores for all configurations."""

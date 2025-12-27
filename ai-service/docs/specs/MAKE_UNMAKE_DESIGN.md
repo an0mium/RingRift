@@ -87,7 +87,7 @@ class BoardState(BaseModel):
 
 ### 1.3 Current apply_move Bottleneck
 
-From [`ai-service/app/game_engine/__init__.py:117-268`](../../app/game_engine/__init__.py:117):
+From [`ai-service/app/game_engine/__init__.py:117-268`](../../app/game_engine/__init__.py):
 
 ```python
 def apply_move(game_state: GameState, move: Move) -> GameState:

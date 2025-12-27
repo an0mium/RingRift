@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.config.thresholds import PROMOTION_WIN_RATE_THRESHOLD
 from app.coordination.pipeline_actions import (
     StageCompletionResult,
     trigger_data_sync,
@@ -67,8 +68,8 @@ class TriggerConfig:
     # Minimum win rate vs random for promotion
     min_win_rate_vs_random: float = 0.85
 
-    # Minimum win rate vs heuristic for promotion
-    min_win_rate_vs_heuristic: float = 0.60
+    # Minimum win rate vs heuristic for promotion (from app.config.thresholds)
+    min_win_rate_vs_heuristic: float = PROMOTION_WIN_RATE_THRESHOLD
 
     # Root directory for ai-service
     ai_service_root: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent)

@@ -13,36 +13,36 @@ Produce an end-to-end architectural review of how AI is structured and integrate
 **Primary Code Areas / Files**
 
 - Server AI orchestration and game loop integration:
-  - [`AIEngine`](src/server/game/ai/AIEngine.ts:1)
-  - [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:1)
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:1)
-  - [`GameSession`](src/server/game/GameSession.ts:1)
-  - [`GameSessionManager`](src/server/game/GameSessionManager.ts:1)
-  - [`GameEngine`](src/server/game/GameEngine.ts:1) (server variant, if present)
-  - [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:1)
+  - [`AIEngine`](../src/server/game/ai/AIEngine.ts)
+  - [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts)
+  - [`AIPlayer`](../src/server/game/ai/AIPlayer.ts)
+  - [`GameSession`](../src/server/game/GameSession.ts)
+  - [`GameSessionManager`](../src/server/game/GameSessionManager.ts)
+  - [`GameEngine`](../src/server/game/GameEngine.ts) (server variant, if present)
+  - [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts)
 - Shared engine used by AI:
-  - [`GameEngine`](src/shared/engine/GameEngine.ts:1) (shared rules engine)
-  - [`core`](src/shared/engine/core.ts:1)
+  - [`GameEngine`](../src/shared/engine/GameEngine.ts) (shared rules engine)
+  - [`core`](../src/shared/engine/core.ts)
   - Mutators and validators:
-    - [`PlacementMutator`](src/shared/engine/mutators/PlacementMutator.ts:1)
-    - [`MovementMutator`](src/shared/engine/mutators/MovementMutator.ts:1)
-    - [`CaptureMutator`](src/shared/engine/mutators/CaptureMutator.ts:1)
-    - [`LineMutator`](src/shared/engine/mutators/LineMutator.ts:1)
-    - [`TerritoryMutator`](src/shared/engine/mutators/TerritoryMutator.ts:1)
-    - [`TurnMutator`](src/shared/engine/mutators/TurnMutator.ts:1)
-    - Validators in [`validators`](src/shared/engine/validators/index.ts:1)
+    - [`PlacementMutator`](../src/shared/engine/mutators/PlacementMutator.ts)
+    - [`MovementMutator`](../src/shared/engine/mutators/MovementMutator.ts)
+    - [`CaptureMutator`](../src/shared/engine/mutators/CaptureMutator.ts)
+    - [`LineMutator`](../src/shared/engine/mutators/LineMutator.ts)
+    - [`TerritoryMutator`](../src/shared/engine/mutators/TerritoryMutator.ts)
+    - [`TurnMutator`](../src/shared/engine/mutators/TurnMutator.ts)
+    - Validators in [`validators`](../src/shared/engine/validators/index.ts)
 - Client sandbox & debug surface:
-  - [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1)
-  - [`sandboxAI`](src/client/sandbox/sandboxAI.ts:1)
-  - [`sandboxTurnEngine`](src/client/sandbox/sandboxTurnEngine.ts:1)
-  - [`AIDebugView`](src/client/components/AIDebugView.tsx:1)
+  - [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts)
+  - [`sandboxAI`](../src/client/sandbox/sandboxAI.ts)
+  - `sandboxTurnEngine`
+  - [`AIDebugView`](../src/client/components/AIDebugView.tsx)
 - Python AI service & rules:
-  - [`main.py`](ai-service/app/main.py:1)
-  - Rules interfaces: [`interfaces.py`](ai-service/app/rules/interfaces.py:1)
-  - Rules core/engine: [`core.py`](ai-service/app/rules/core.py:1), [`default_engine.py`](ai-service/app/rules/default_engine.py:1)
+  - [`main.py`](../ai-service/app/main.py)
+  - Rules interfaces: [`interfaces.py`](../ai-service/app/rules/interfaces.py)
+  - Rules core/engine: [`core.py`](../ai-service/app/rules/core.py), [`default_engine.py`](../ai-service/app/rules/default_engine.py)
 - Design documents:
-  - [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)
-  - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)
+  - [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md)
+  - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)
 
 **Agent Profile**  
 Senior game AI architect with strong backend TypeScript and Python experience, familiarity with service-oriented architectures, and experience shipping AI for commercial titles.
@@ -71,23 +71,23 @@ Review all server-side orchestration of AI-controlled players: how moves and non
 **Primary Code Areas / Files**
 
 - AI orchestration:
-  - [`AIEngine`](src/server/game/ai/AIEngine.ts:1)
-  - [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:1)
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:1)
-  - [`AIServiceClient`](src/server/services/AIServiceClient.ts:1)
+  - [`AIEngine`](../src/server/game/ai/AIEngine.ts)
+  - [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts)
+  - [`AIPlayer`](../src/server/game/ai/AIPlayer.ts)
+  - [`AIServiceClient`](../src/server/services/AIServiceClient.ts)
 - Game flow integration:
-  - [`GameEngine`](src/server/game/GameEngine.ts:1) (server)
-  - [`GameSession`](src/server/game/GameSession.ts:1)
-  - [`GameSessionManager`](src/server/game/GameSessionManager.ts:1)
-  - [`PlayerInteractionManager`](src/server/game/PlayerInteractionManager.ts:1)
-  - [`TurnEngine`](src/server/game/turn/TurnEngine.ts:1)
+  - [`GameEngine`](../src/server/game/GameEngine.ts) (server)
+  - [`GameSession`](../src/server/game/GameSession.ts)
+  - [`GameSessionManager`](../src/server/game/GameSessionManager.ts)
+  - [`PlayerInteractionManager`](../src/server/game/PlayerInteractionManager.ts)
+  - [`TurnEngine`](../src/server/game/turn/TurnEngine.ts)
 - Networking integration:
-  - [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:1)
-  - WebSocket server: [`server.ts`](src/server/websocket/server.ts:1)
+  - [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts)
+  - WebSocket server: [`server.ts`](../src/server/websocket/server.ts)
 - Related tests:
-  - [`AIEngine.serviceClient.test.ts`](tests/unit/AIEngine.serviceClient.test.ts:1)
-  - [`AIInteractionHandler.test.ts`](tests/unit/AIInteractionHandler.test.ts:1)
-  - [`GameEngine.lineRewardChoiceAIService.integration.test.ts`](tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts:1)
+  - `AIEngine.serviceClient.test.ts`
+  - `AIInteractionHandler.test.ts`
+  - `GameEngine.lineRewardChoiceAIService.integration.test.ts`
 
 **Agent Profile**  
 Senior backend TypeScript engineer with game server and AI orchestration experience; comfortable reasoning about async flows, networking, and rule validation.
@@ -95,7 +95,7 @@ Senior backend TypeScript engineer with game server and AI orchestration experie
 **Expected Deliverable**  
 Written review that:
 
-- Characterizes how [`AIEngine`](src/server/game/ai/AIEngine.ts:1) and [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:1) cooperate with game sessions and players.
+- Characterizes how [`AIEngine`](../src/server/game/ai/AIEngine.ts) and [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts) cooperate with game sessions and players.
 - Evaluates correctness of decision routing, error handling, and edge-case handling (no moves, forced elimination, timeouts).
 - Assesses maintainability and separation of concerns.
 - Identifies concrete refactoring and robustness improvements.
@@ -117,30 +117,30 @@ Review the client-side sandbox AI and ensure strong semantic parity with the ser
 **Primary Code Areas / Files**
 
 - Sandbox engine & AI:
-  - [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1)
-  - [`sandboxAI`](src/client/sandbox/sandboxAI.ts:1)
-  - [`sandboxTurnEngine`](src/client/sandbox/sandboxTurnEngine.ts:1)
+  - [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts)
+  - [`sandboxAI`](../src/client/sandbox/sandboxAI.ts)
+  - `sandboxTurnEngine`
   - Sandbox movement & captures:
-    - [`sandboxMovementEngine`](src/client/sandbox/sandboxMovementEngine.ts:1)
-    - [`sandboxCaptures`](src/client/sandbox/sandboxCaptures.ts:1)
-    - [`sandboxCaptureSearch`](src/client/sandbox/sandboxCaptureSearch.ts:1)
+    - `sandboxMovementEngine`
+    - [`sandboxCaptures`](../src/client/sandbox/sandboxCaptures.ts)
+    - [`sandboxCaptureSearch`](../src/client/sandbox/sandboxCaptureSearch.ts)
   - Legacy sandbox:
-    - [`localSandboxController`](src/client/sandbox/localSandboxController.ts:1)
+    - [`localSandboxController`](../src/client/sandbox/localSandboxController.ts)
 - Shared rules used by sandbox:
-  - [`core`](src/shared/engine/core.ts:1)
-  - [`captureLogic`](src/shared/engine/captureLogic.ts:1)
-  - [`lineDetection`](src/shared/engine/lineDetection.ts:1)
-  - [`territoryDetection`](src/shared/engine/territoryDetection.ts:1)
+  - [`core`](../src/shared/engine/core.ts)
+  - [`captureLogic`](../src/shared/engine/captureLogic.ts)
+  - [`lineDetection`](../src/shared/engine/lineDetection.ts)
+  - [`territoryDetection`](../src/shared/engine/territoryDetection.ts)
   - Mutators and validators as relevant.
 - Parity tests & scenarios:
-  - [`reachabilityParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/reachabilityParity.RuleEngine_vs_Sandbox.test.ts:1)
-  - [`movementReachabilityParity.test.ts`](tests/unit/movementReachabilityParity.test.ts:1)
+  - [`reachabilityParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/reachabilityParity.RuleEngine_vs_Sandbox.test.ts)
+  - [`movementReachabilityParity.test.ts`](../tests/unit/movementReachabilityParity.test.ts)
   - AI sandbox tests:
-    - [`ClientSandboxEngine.aiSimulation.test.ts`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts:1)
-    - [`ClientSandboxEngine.aiStall.seed1.test.ts`](tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts:1)
-    - [`ClientSandboxEngine.aiStallDiagnostics.test.ts`](tests/unit/ClientSandboxEngine.aiStallDiagnostics.test.ts:1)
-    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:1)
-    - [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts:1)
+    - [`ClientSandboxEngine.aiSimulation.test.ts`](../tests/unit/ClientSandboxEngine.aiSimulation.test.ts)
+    - [`ClientSandboxEngine.aiStall.seed1.test.ts`](tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts)
+    - [`ClientSandboxEngine.aiStallDiagnostics.test.ts`](../tests/unit/ClientSandboxEngine.aiStallDiagnostics.test.ts)
+    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts)
+    - [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](../tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)
 
 **Agent Profile**  
 Senior TypeScript game systems engineer with experience in client-side simulation, deterministic sandboxes, and parity testing.
@@ -149,7 +149,7 @@ Senior TypeScript game systems engineer with experience in client-side simulatio
 Written review that:
 
 - Describes how sandbox AI orchestrates turns and phases (placement, movement, line, territory, forced elimination).
-- Evaluates decision logic in [`sandboxAI`](src/client/sandbox/sandboxAI.ts:1) and its use of [`chooseLocalMoveFromCandidates()`](src/shared/engine/localAIMoveSelection.ts:1).
+- Evaluates decision logic in [`sandboxAI`](../src/client/sandbox/sandboxAI.ts) and its use of [`chooseLocalMoveFromCandidates()`](../src/shared/engine/localAIMoveSelection.ts).
 - Analyzes parity between sandbox and server/shared engine, including hashing and move application.
 - Identifies maintainability issues (e.g., monolithic functions), and proposes concrete refactors and convergence on shared engine APIs.
 
@@ -171,17 +171,17 @@ Review the core AI engines and search algorithms implemented in the Python servi
 **Primary Code Areas / Files**
 
 - AI implementations:
-  - [`base.py`](ai-service/app/ai/base.py:1)
-  - [`random_ai.py`](ai-service/app/ai/random_ai.py:1)
-  - [`heuristic_ai.py`](ai-service/app/ai/heuristic_ai.py:1)
-  - [`minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1)
-  - [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1)
-  - [`zobrist.py`](ai-service/app/ai/zobrist.py:1)
+  - [`base.py`](../ai-service/app/ai/base.py)
+  - [`random_ai.py`](../ai-service/app/ai/random_ai.py)
+  - [`heuristic_ai.py`](../ai-service/app/ai/heuristic_ai.py)
+  - [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py)
+  - [`mcts_ai.py`](../ai-service/app/ai/mcts_ai.py)
+  - [`zobrist.py`](../ai-service/app/ai/zobrist.py)
 - Rules engine integration:
-  - [`default_engine.py`](ai-service/app/rules/default_engine.py:1)
-  - [`core.py`](ai-service/app/rules/core.py:1)
+  - [`default_engine.py`](../ai-service/app/rules/default_engine.py)
+  - [`core.py`](../ai-service/app/rules/core.py)
 - AI selection & routing:
-  - [`main.py`](ai-service/app/main.py:1)
+  - [`main.py`](../ai-service/app/main.py)
 
 **Agent Profile**  
 Senior AI/search engineer experienced with alpha-beta, MCTS, game-tree search, and evaluation heuristics for complex board games.
@@ -212,14 +212,14 @@ Review the neural network-based AI infrastructure, including model architecture,
 **Primary Code Areas / Files**
 
 - NN and policy/value head:
-  - [`neural_net.py`](ai-service/app/ai/neural_net.py:1)
+  - `neural_net.py`
 - MCTS integration:
-  - [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1) (NN-assisted MCTS)
+  - [`mcts_ai.py`](../ai-service/app/ai/mcts_ai.py) (NN-assisted MCTS)
 - Tests and any training-related artefacts:
-  - [`test_model_architecture.py`](ai-service/tests/test_model_architecture.py:1)
+  - [`test_model_architecture.py`](../ai-service/tests/test_model_architecture.py)
   - Other NN-related tests in `ai-service/tests`.
 - Design docs (if present):
-  - [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1) or NN-specific docs.
+  - [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md) or NN-specific docs.
 
 **Agent Profile**  
 Machine learning engineer with strong experience in board-game NN design (e.g., AlphaZero-style CNNs), feature engineering, and production inference integration.
@@ -251,15 +251,15 @@ Review AI behaviour from a gameplay perspective: how different difficulty levels
 **Primary Code Areas / Files**
 
 - TS AI type and difficulty selection:
-  - [`AIEngine`](src/server/game/ai/AIEngine.ts:1) (difficulty presets, `aiType` mapping)
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:1) (player AI configuration)
+  - [`AIEngine`](../src/server/game/ai/AIEngine.ts) (difficulty presets, `aiType` mapping)
+  - [`AIPlayer`](../src/server/game/ai/AIPlayer.ts) (player AI configuration)
 - Python difficulty and config:
-  - Difficulty handling in [`main.py`](ai-service/app/main.py:1)
-  - Config usage in [`heuristic_ai.py`](ai-service/app/ai/heuristic_ai.py:1), [`minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1), [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1), [`neural_net.py`](ai-service/app/ai/neural_net.py:1)
+  - Difficulty handling in [`main.py`](../ai-service/app/main.py)
+  - Config usage in [`heuristic_ai.py`](../ai-service/app/ai/heuristic_ai.py), [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py), [`mcts_ai.py`](../ai-service/app/ai/mcts_ai.py), `neural_net.py`
 - Heuristic evaluation components:
-  - Evaluation functions in [`heuristic_ai.py`](ai-service/app/ai/heuristic_ai.py:1)
+  - Evaluation functions in [`heuristic_ai.py`](../ai-service/app/ai/heuristic_ai.py)
 - Tests and scenarios:
-  - AI-vs-rules scenarios under `tests/scenarios`, especially those exercising AI choices (e.g., [`HexLineAndTerritory.test.ts`](tests/scenarios/HexLineAndTerritory.test.ts:1)).
+  - AI-vs-rules scenarios under `tests/scenarios`, especially those exercising AI choices (e.g., `HexLineAndTerritory.test.ts`).
 
 **Agent Profile**  
 Gameplay behaviour and tuning specialist with AI background; understands both algorithmic and player-experience aspects.
@@ -290,16 +290,16 @@ Audit AI-related robustness, focusing on error handling, unexpected states, inva
 **Primary Code Areas / Files**
 
 - TS server AI & interactions:
-  - [`AIEngine`](src/server/game/ai/AIEngine.ts:1)
-  - [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:1)
-  - [`AIServiceClient`](src/server/services/AIServiceClient.ts:1)
-  - [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1)
-  - [`RuleEngine`](src/server/game/RuleEngine.ts:1)
+  - [`AIEngine`](../src/server/game/ai/AIEngine.ts)
+  - [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts)
+  - [`AIServiceClient`](../src/server/services/AIServiceClient.ts)
+  - [`RulesBackendFacade`](../src/server/game/RulesBackendFacade.ts)
+  - [`RuleEngine`](../src/server/game/RuleEngine.ts)
 - Python service-side:
-  - FastAPI handlers in [`main.py`](ai-service/app/main.py:1) (error handling & response codes)
-  - Rule evaluation endpoints and guards: [`default_engine.py`](ai-service/app/rules/default_engine.py:1), [`core.py`](ai-service/app/rules/core.py:1)
+  - FastAPI handlers in [`main.py`](../ai-service/app/main.py) (error handling & response codes)
+  - Rule evaluation endpoints and guards: [`default_engine.py`](../ai-service/app/rules/default_engine.py), [`core.py`](../ai-service/app/rules/core.py)
 - Edge-case heavy tests:
-  - [`ForcedEliminationAndStalemate.test.ts`](tests/scenarios/ForcedEliminationAndStalemate.test.ts:1)
+  - [`ForcedEliminationAndStalemate.test.ts`](../tests/scenarios/ForcedEliminationAndStalemate.test.ts)
   - Cyclic captures and parity tests under `tests/unit` and `tests/scenarios`.
 
 **Agent Profile**  
@@ -331,15 +331,15 @@ Examine all sources of nondeterminism in AI (TS and Python), and verify or propo
 **Primary Code Areas / Files**
 
 - TS determinism & parity:
-  - [`localAIMoveSelection`](src/shared/engine/localAIMoveSelection.ts:1) and [`chooseLocalMoveFromCandidates()`](src/shared/engine/localAIMoveSelection.ts:1)
-  - RNG use in [`AIEngine`](src/server/game/ai/AIEngine.ts:1) (including `normalizeServiceMove`), [`sandboxAI`](src/client/sandbox/sandboxAI.ts:1)
-  - State hashing: [`hashGameState`](src/shared/engine/core.ts:1)
+  - [`localAIMoveSelection`](../src/shared/engine/localAIMoveSelection.ts) and [`chooseLocalMoveFromCandidates()`](../src/shared/engine/localAIMoveSelection.ts)
+  - RNG use in [`AIEngine`](../src/server/game/ai/AIEngine.ts) (including `normalizeServiceMove`), [`sandboxAI`](../src/client/sandbox/sandboxAI.ts)
+  - State hashing: [`hashGameState`](../src/shared/engine/core.ts)
   - Parity tests:
-    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:1)
-    - [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts:1)
+    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts)
+    - [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](../tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)
     - Parity debug tests (e.g., `ParityDebug.*.test.ts`).
 - Python randomness and determinism:
-  - RNG usage in [`random_ai.py`](ai-service/app/ai/random_ai.py:1), [`heuristic_ai.py`](ai-service/app/ai/heuristic_ai.py:1), [`minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1), [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1), [`neural_net.py`](ai-service/app/ai/neural_net.py:1).
+  - RNG usage in [`random_ai.py`](../ai-service/app/ai/random_ai.py), [`heuristic_ai.py`](../ai-service/app/ai/heuristic_ai.py), [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py), [`mcts_ai.py`](../ai-service/app/ai/mcts_ai.py), `neural_net.py`.
 
 **Agent Profile**  
 Deterministic simulation and tools engineer with strong experience in cross-platform determinism and replay systems.
@@ -369,17 +369,17 @@ Evaluate AI performance characteristics and scalability under load, both on the 
 **Primary Code Areas / Files**
 
 - TS server performance:
-  - [`AIEngine`](src/server/game/ai/AIEngine.ts:1)
-  - [`AIServiceClient`](src/server/services/AIServiceClient.ts:1)
-  - Game loop: [`GameSession`](src/server/game/GameSession.ts:1), [`GameSessionManager`](src/server/game/GameSessionManager.ts:1), [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:1)
+  - [`AIEngine`](../src/server/game/ai/AIEngine.ts)
+  - [`AIServiceClient`](../src/server/services/AIServiceClient.ts)
+  - Game loop: [`GameSession`](../src/server/game/GameSession.ts), [`GameSessionManager`](../src/server/game/GameSessionManager.ts), [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts)
 - Python performance:
-  - [`minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1)
-  - [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1)
-  - [`neural_net.py`](ai-service/app/ai/neural_net.py:1)
+  - [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py)
+  - [`mcts_ai.py`](../ai-service/app/ai/mcts_ai.py)
+  - `neural_net.py`
   - Any benchmarking scripts:
-    - [`benchmark_engine.py`](ai-service/scripts/benchmark_engine.py:1)
+    - [`benchmark_engine.py`](../ai-service/scripts/benchmark_engine.py)
 - Infrastructure & concurrency:
-  - Service entry in [`main.py`](ai-service/app/main.py:1) (threading/process model, async settings).
+  - Service entry in [`main.py`](../ai-service/app/main.py) (threading/process model, async settings).
 
 **Agent Profile**  
 Performance and scalability engineer with experience in Node.js backends, Python services, and profiling/tracing for AI workloads.
@@ -411,17 +411,17 @@ Review existing AI-related tests, debugging tools, and telemetry; propose improv
 
 - TS tests and utilities:
   - AI-related tests under `tests/unit` and `tests/scenarios`, especially:
-    - [`AIInteractionHandler.test.ts`](tests/unit/AIInteractionHandler.test.ts:1)
-    - [`AIEngine.serviceClient.test.ts`](tests/unit/AIEngine.serviceClient.test.ts:1)
+    - `AIInteractionHandler.test.ts`
+    - `AIEngine.serviceClient.test.ts`
     - Sandbox AI tests (see Subtask 3).
   - Test utilities:
-    - [`aiTestLogger`](tests/utils/aiTestLogger.ts:1)
-    - [`moveMatching`](tests/utils/moveMatching.ts:1)
+    - [`aiTestLogger`](../tests/utils/aiTestLogger.ts)
+    - [`moveMatching`](../tests/utils/moveMatching.ts)
   - Test parity plan:
-    - [`TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md:1)
+    - [`TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md)
 - Client tools:
-  - [`AIDebugView`](src/client/components/AIDebugView.tsx:1)
-  - Any debug hooks in [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1) and [`sandboxAI`](src/client/sandbox/sandboxAI.ts:1)
+  - [`AIDebugView`](../src/client/components/AIDebugView.tsx)
+  - Any debug hooks in [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts) and [`sandboxAI`](../src/client/sandbox/sandboxAI.ts)
 - Python tests:
   - `ai-service/tests` (Minimax, MCTS, NN, rules parity, etc.).
 
@@ -454,12 +454,12 @@ Audit how AI is configured (per-player, per-game, per-difficulty) across TS and 
 **Primary Code Areas / Files**
 
 - TS config surfaces:
-  - [`AIEngine`](src/server/game/ai/AIEngine.ts:1) (AI profiles, `createAIFromProfile`)
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:1) (config stored per player)
-  - Shared types: [`game.ts`](src/shared/types/game.ts:1)
+  - [`AIEngine`](../src/server/game/ai/AIEngine.ts) (AI profiles, `createAIFromProfile`)
+  - [`AIPlayer`](../src/server/game/ai/AIPlayer.ts) (config stored per player)
+  - Shared types: [`game.ts`](../src/shared/types/game.ts)
 - Python config:
-  - Request/response models in [`main.py`](ai-service/app/main.py:1) and [`interfaces.py`](ai-service/app/rules/interfaces.py:1)
-  - AI-specific config fields in [`heuristic_ai.py`](ai-service/app/ai/heuristic_ai.py:1), [`minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1), [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1), [`neural_net.py`](ai-service/app/ai/neural_net.py:1)
+  - Request/response models in [`main.py`](../ai-service/app/main.py) and [`interfaces.py`](../ai-service/app/rules/interfaces.py)
+  - AI-specific config fields in [`heuristic_ai.py`](../ai-service/app/ai/heuristic_ai.py), [`minimax_ai.py`](../ai-service/app/ai/minimax_ai.py), [`mcts_ai.py`](../ai-service/app/ai/mcts_ai.py), `neural_net.py`
 - Any AI-related user-facing config (e.g., lobby or match configs in TS).
 
 **Agent Profile**  
@@ -491,16 +491,16 @@ Review how AI-controlled actions and choices are integrated into networking and 
 **Primary Code Areas / Files**
 
 - Server networking:
-  - [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:1)
-  - WebSocket server entry: [`server.ts`](src/server/websocket/server.ts:1)
-  - REST routes relevant to AI (if any) in [`game.ts`](src/server/routes/game.ts:1) and [`index.ts`](src/server/routes/index.ts:1)
+  - [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts)
+  - WebSocket server entry: [`server.ts`](../src/server/websocket/server.ts)
+  - REST routes relevant to AI (if any) in [`game.ts`](../src/server/routes/game.ts) and [`index.ts`](../src/server/routes/index.ts)
 - Client integration:
   - Game page & lobby:
-    - [`GamePage`](src/client/pages/GamePage.tsx:1)
-    - [`LobbyPage`](src/client/pages/LobbyPage.tsx:1)
+    - [`GamePage`](../src/client/pages/GamePage.tsx)
+    - [`LobbyPage`](../src/client/pages/LobbyPage.tsx)
   - Game HUD and AI-facing UI:
-    - [`GameHUD`](src/client/components/GameHUD.tsx:1)
-    - [`AIDebugView`](src/client/components/AIDebugView.tsx:1)
+    - [`GameHUD`](../src/client/components/GameHUD.tsx)
+    - [`AIDebugView`](../src/client/components/AIDebugView.tsx)
 - AI decision timing and feedback:
   - Where client waits for AI decisions or displays AI “thinking” state.
 
@@ -542,102 +542,102 @@ Collectively, these subtasks and their assigned specialist roles cover server-si
 
 ### Core AI components
 
-- [`AIEngine`](src/server/game/ai/AIEngine.ts:57)
+- [`AIEngine`](../src/server/game/ai/AIEngine.ts)
   - Central server-side AI orchestrator.
   - Owns per-player AI configs (`aiConfigs` map keyed by `playerNumber`).
   - Provides:
-    - Service-backed move selection via [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131).
-    - Local fallback move generation via [`AIEngine.getLocalAIMove()`](src/server/game/ai/AIEngine.ts:178) and shared policy [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275).
+    - Service-backed move selection via [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts).
+    - Local fallback move generation via [`AIEngine.getLocalAIMove()`](../src/server/game/ai/AIEngine.ts) and shared policy [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts).
     - Service-backed non-move choices:
-      - [`AIEngine.getLineRewardChoice()`](src/server/game/ai/AIEngine.ts:418).
-      - [`AIEngine.getRingEliminationChoice()`](src/server/game/ai/AIEngine.ts:465).
-      - [`AIEngine.getRegionOrderChoice()`](src/server/game/ai/AIEngine.ts:512).
+      - [`AIEngine.getLineRewardChoice()`](../src/server/game/ai/AIEngine.ts).
+      - [`AIEngine.getRingEliminationChoice()`](../src/server/game/ai/AIEngine.ts).
+      - [`AIEngine.getRegionOrderChoice()`](../src/server/game/ai/AIEngine.ts).
     - Service health/cache utilities.
-  - Maps high-level [`AIProfile`](src/shared/types/game.ts:1) (difficulty, tactic, mode) to internal `AIConfig` (difficulty, `aiType`, thinkTime/randomness).
+  - Maps high-level [`AIProfile`](../src/shared/types/game.ts) (difficulty, tactic, mode) to internal `AIConfig` (difficulty, `aiType`, thinkTime/randomness).
 
-- [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26)
-  - Implements [`PlayerInteractionHandler`](src/server/game/PlayerInteractionManager.ts:14) specifically for AI-controlled players.
+- [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts)
+  - Implements [`PlayerInteractionHandler`](../src/server/game/PlayerInteractionManager.ts) specifically for AI-controlled players.
   - Handles _non-move_ `PlayerChoice` decisions via deterministic heuristics:
     - Line order, line reward option, ring elimination, region order, capture direction.
   - For `line_reward_option`, `ring_elimination`, and `region_order`:
-    - First attempts to delegate to the Python AI via [`globalAIEngine`](src/server/game/ai/AIEngine.ts:725) (service-backed).
+    - First attempts to delegate to the Python AI via [`globalAIEngine`](../src/server/game/ai/AIEngine.ts) (service-backed).
     - On any failure or invalid response, falls back to local heuristics.
 
-- [`AIPlayer`](src/server/game/ai/AIPlayer.ts:24)
+- [`AIPlayer`](../src/server/game/ai/AIPlayer.ts)
   - Abstract base class for pluggable AI implementations (difficulty, thinkTime, randomness).
-  - Not currently wired into the active AI path; modern flow uses [`AIEngine`](src/server/game/ai/AIEngine.ts:57) + Python microservice + shared local heuristics instead.
+  - Not currently wired into the active AI path; modern flow uses [`AIEngine`](../src/server/game/ai/AIEngine.ts) + Python microservice + shared local heuristics instead.
   - Represents legacy/alternate design; important from a debt/clarity perspective.
 
-- [`AIServiceClient`](src/server/services/AIServiceClient.ts:100)
+- [`AIServiceClient`](../src/server/services/AIServiceClient.ts)
   - HTTP client (Axios) for the Python AI microservice.
   - Endpoints:
-    - `/ai/move` via [`AIServiceClient.getAIMove()`](src/server/services/AIServiceClient.ts:132).
-    - `/ai/evaluate` via [`AIServiceClient.evaluatePosition()`](src/server/services/AIServiceClient.ts:184).
-    - `/ai/choice/line_reward_option` via [`AIServiceClient.getLineRewardChoice()`](src/server/services/AIServiceClient.ts:230).
-    - `/ai/choice/ring_elimination` via [`AIServiceClient.getRingEliminationChoice()`](src/server/services/AIServiceClient.ts:282).
-    - `/ai/choice/region_order` via [`AIServiceClient.getRegionOrderChoice()`](src/server/services/AIServiceClient.ts:334).
+    - `/ai/move` via [`AIServiceClient.getAIMove()`](../src/server/services/AIServiceClient.ts).
+    - `/ai/evaluate` via [`AIServiceClient.evaluatePosition()`](../src/server/services/AIServiceClient.ts).
+    - `/ai/choice/line_reward_option` via [`AIServiceClient.getLineRewardChoice()`](../src/server/services/AIServiceClient.ts).
+    - `/ai/choice/ring_elimination` via [`AIServiceClient.getRingEliminationChoice()`](../src/server/services/AIServiceClient.ts).
+    - `/ai/choice/region_order` via [`AIServiceClient.getRegionOrderChoice()`](../src/server/services/AIServiceClient.ts).
   - Config:
     - Base URL from `AI_SERVICE_URL` with sensible default.
     - 30s request timeout.
     - Logs errors (including latency) and rethrows descriptive `Error`s.
-  - Exposed as singleton via [`getAIServiceClient()`](src/server/services/AIServiceClient.ts:433).
+  - Exposed as singleton via [`getAIServiceClient()`](../src/server/services/AIServiceClient.ts).
 
 ### Integration with game engine and sessions
 
-- [`GameEngine`](src/server/game/GameEngine.ts:74)
+- [`GameEngine`](../src/server/game/GameEngine.ts)
   - Authoritative server-side rules engine and game loop driver.
   - Keeps canonical `GameState`, enforces phases, validates and applies moves.
   - Integrates with AI through:
-    - Move validation and application after AI-suggested moves (`RuleEngine.validateMove` + [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336)).
-    - Exposing phase-correct legal moves via [`GameEngine.getValidMoves()`](src/server/game/GameEngine.ts:2366).
-    - Player choices via [`PlayerInteractionManager`](src/server/game/PlayerInteractionManager.ts:24) (which may be AI-backed or WebSocket-backed).
+    - Move validation and application after AI-suggested moves (`RuleEngine.validateMove` + [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts)).
+    - Exposing phase-correct legal moves via [`GameEngine.getValidMoves()`](../src/server/game/GameEngine.ts).
+    - Player choices via [`PlayerInteractionManager`](../src/server/game/PlayerInteractionManager.ts) (which may be AI-backed or WebSocket-backed).
     - Internal bookkeeping for chain capture, line processing, territory processing, forced elimination.
 
-- [`TurnEngine`](src/server/game/turn/TurnEngine.ts:88)
-  - Functional extraction of turn/phase logic used by [`GameEngine.advanceGame()`](src/server/game/GameEngine.ts:1966).
+- [`TurnEngine`](../src/server/game/turn/TurnEngine.ts)
+  - Functional extraction of turn/phase logic used by [`GameEngine.advanceGame()`](../src/server/game/GameEngine.ts).
   - Governs phase transitions (ring_placement → movement → capture/chain_capture → line_processing → territory_processing → next player).
   - Checks for forced elimination and blocked states using board and `RuleEngine`.
-  - Keeps `PerTurnState` (hasPlacedThisTurn, mustMoveFromStackKey) in sync with moves via [`updatePerTurnStateAfterMove()`](src/server/game/turn/TurnEngine.ts:44).
+  - Keeps `PerTurnState` (hasPlacedThisTurn, mustMoveFromStackKey) in sync with moves via [`updatePerTurnStateAfterMove()`](../src/server/game/turn/TurnEngine.ts).
 
-- [`PlayerInteractionManager`](src/server/game/PlayerInteractionManager.ts:24)
-  - Typed facade over a [`PlayerInteractionHandler`](src/server/game/PlayerInteractionManager.ts:14).
+- [`PlayerInteractionManager`](../src/server/game/PlayerInteractionManager.ts)
+  - Typed facade over a [`PlayerInteractionHandler`](../src/server/game/PlayerInteractionManager.ts).
   - Game-engine-facing API is always `requestChoice<TChoice>()`, independent of transport or AI.
-  - In this deployment, it is backed by [`DelegatingInteractionHandler`](src/server/game/DelegatingInteractionHandler.ts:1), which routes:
-    - Human players → [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:26).
-    - AI players → [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26).
+  - In this deployment, it is backed by [`DelegatingInteractionHandler`](../src/server/game/DelegatingInteractionHandler.ts), which routes:
+    - Human players → [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts).
+    - AI players → [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts).
 
-- [`GameSession`](src/server/game/GameSession.ts:23)
+- [`GameSession`](../src/server/game/GameSession.ts)
   - Per-game orchestration layer:
     - Loads persistent game/players from DB.
-    - Constructs players (humans + AI) and configures [`globalAIEngine`](src/server/game/ai/AIEngine.ts:725) from stored [`AiOpponentsConfig`](src/shared/types/game.ts:1) / `AIProfile`s.
-    - Creates [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:26), [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26), [`DelegatingInteractionHandler`](src/server/game/DelegatingInteractionHandler.ts:1), and [`PlayerInteractionManager`](src/server/game/PlayerInteractionManager.ts:24).
-    - Instantiates [`GameEngine`](src/server/game/GameEngine.ts:74) with this `PlayerInteractionManager` and enables **Move-driven decision phases** via [`GameEngine.enableMoveDrivenDecisionPhases()`](src/server/game/GameEngine.ts:160).
+    - Constructs players (humans + AI) and configures [`globalAIEngine`](../src/server/game/ai/AIEngine.ts) from stored [`AiOpponentsConfig`](../src/shared/types/game.ts) / `AIProfile`s.
+    - Creates [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts), [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts), [`DelegatingInteractionHandler`](../src/server/game/DelegatingInteractionHandler.ts), and [`PlayerInteractionManager`](../src/server/game/PlayerInteractionManager.ts).
+    - Instantiates [`GameEngine`](../src/server/game/GameEngine.ts) with this `PlayerInteractionManager` and enables **Move-driven decision phases** via [`GameEngine.enableMoveDrivenDecisionPhases()`](../src/server/game/GameEngine.ts).
     - Persists moves and broadcasts state updates.
-    - Drives AI turns via [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479).
+    - Drives AI turns via [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts).
 
-- [`GameSessionManager`](src/server/game/GameSessionManager.ts:7)
-  - Manages active [`GameSession`](src/server/game/GameSession.ts:23) instances.
-  - Provides a distributed lock facility via [`GameSessionManager.withGameLock()`](src/server/game/GameSessionManager.ts:48) using Redis (with graceful fallback when Redis unavailable).
+- [`GameSessionManager`](../src/server/game/GameSessionManager.ts)
+  - Manages active [`GameSession`](../src/server/game/GameSession.ts) instances.
+  - Provides a distributed lock facility via [`GameSessionManager.withGameLock()`](../src/server/game/GameSessionManager.ts) using Redis (with graceful fallback when Redis unavailable).
   - Ensures concurrent move requests for the same game are serialized.
 
-- [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:26)
+- [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts)
   - Bridges `PlayerChoice` flows to Socket.IO:
     - Emits `player_choice_required` to correct client.
     - Tracks pending choices with timeouts.
     - Validates `player_choice_response` and resolves/rejects the pending Promise.
 
-- [`WebSocketServer`](src/server/websocket/server.ts:16)
+- [`WebSocketServer`](../src/server/websocket/server.ts)
   - Socket.IO server:
     - Authenticates connections.
     - For each game:
-      - Uses [`GameSessionManager`](src/server/game/GameSessionManager.ts:7) to get/create a session.
+      - Uses [`GameSessionManager`](../src/server/game/GameSessionManager.ts) to get/create a session.
       - Wraps all move operations in `withGameLock`.
     - For choices:
-      - Forwards `player_choice_response` to the correct session’s [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:26).
+      - Forwards `player_choice_response` to the correct session’s [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts).
 
-- HTTP routes in [`game`](src/server/routes/game.ts:1) / [`index`](src/server/routes/index.ts:7)
+- HTTP routes in [`game`](../src/server/routes/game.ts) / [`index`](../src/server/routes/index.ts)
   - Mainly game lifecycle and metadata; they do not directly orchestrate AI.
-  - AI is invoked only in live sessions via WebSocket-driven [`GameSession`](src/server/game/GameSession.ts:23) and in test harnesses.
+  - AI is invoked only in live sessions via WebSocket-driven [`GameSession`](../src/server/game/GameSession.ts) and in test harnesses.
 
 ### High-level flow (Mermaid)
 
@@ -701,31 +701,31 @@ sequenceDiagram
 #### Entry points
 
 - **Multiplayer sessions (production path)**
-  - After a human move is processed via [`GameSession.handlePlayerMove()`](src/server/game/GameSession.ts:290) or [`GameSession.handlePlayerMoveById()`](src/server/game/GameSession.ts:355), `GameSession` calls [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479).
+  - After a human move is processed via [`GameSession.handlePlayerMove()`](../src/server/game/GameSession.ts) or [`GameSession.handlePlayerMoveById()`](../src/server/game/GameSession.ts), `GameSession` calls [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts).
   - That method:
-    - Pulls the current authoritative `GameState` from [`GameEngine.getGameState()`](src/server/game/GameEngine.ts:164).
+    - Pulls the current authoritative `GameState` from [`GameEngine.getGameState()`](../src/server/game/GameEngine.ts).
     - Determines if `currentPlayer` is an AI (`player.type === 'ai'`).
-    - Ensures an AI config exists in [`globalAIEngine`](src/server/game/ai/AIEngine.ts:725) (creating one via [`AIEngine.createAI()`](src/server/game/ai/AIEngine.ts:66) if necessary).
+    - Ensures an AI config exists in [`globalAIEngine`](../src/server/game/ai/AIEngine.ts) (creating one via [`AIEngine.createAI()`](../src/server/game/ai/AIEngine.ts) if necessary).
     - Branches by phase:
       - For `line_processing` / `territory_processing` → decision-move path (see 2.2).
       - For all other phases → move-selection path below.
 
 - **Standalone AI harnesses / tests**
-  - [`FullGameFlow`](tests/integration/FullGameFlow.test.ts:25) runs AI-vs-AI games using:
+  - [`FullGameFlow`](../tests/integration/FullGameFlow.test.ts) runs AI-vs-AI games using:
     - `engine.getValidMoves(state.currentPlayer)` and
-    - [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275) directly,
-    - Not [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131).
+    - [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts) directly,
+    - Not [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts).
 
 #### Service-backed move selection
 
-- In normal phases from [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479):
-  - Calls [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131):
+- In normal phases from [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts):
+  - Calls [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts):
     - Looks up per-player `AIConfig` (difficulty, aiType, mode).
     - Computes `aiType` via either:
-      - [`AIEngine.mapAITacticToAIType()`](src/server/game/ai/AIEngine.ts:615) from shared [`AITacticType`](src/shared/types/game.ts:1), or
-      - [`AIEngine.selectAITypeForDifficulty()`](src/server/game/ai/AIEngine.ts:602).
-    - Maps to service enum via [`AIEngine.mapInternalTypeToServiceType()`](src/server/game/ai/AIEngine.ts:664).
-    - Calls [`AIServiceClient.getAIMove()`](src/server/services/AIServiceClient.ts:132) with:
+      - [`AIEngine.mapAITacticToAIType()`](../src/server/game/ai/AIEngine.ts) from shared [`AITacticType`](../src/shared/types/game.ts), or
+      - [`AIEngine.selectAITypeForDifficulty()`](../src/server/game/ai/AIEngine.ts).
+    - Maps to service enum via [`AIEngine.mapInternalTypeToServiceType()`](../src/server/game/ai/AIEngine.ts).
+    - Calls [`AIServiceClient.getAIMove()`](../src/server/services/AIServiceClient.ts) with:
       - Full `GameState` snapshot,
       - `player_number`,
       - `difficulty`,
@@ -738,51 +738,51 @@ sequenceDiagram
       - Logs "AI move received" with evaluation, thinking time, and measured latency.
       - Returns the `MoveResponse`.
 
-  - Back in [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131):
-    - Normalizes the returned move via [`AIEngine.normalizeServiceMove()`](src/server/game/ai/AIEngine.ts:312).
+  - Back in [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts):
+    - Normalizes the returned move via [`AIEngine.normalizeServiceMove()`](../src/server/game/ai/AIEngine.ts).
     - Logs "AI move generated" with move type and evaluation details.
     - Returns the normalized `Move`.
 
-  - [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479):
-    - Strips `id`, `timestamp`, `moveNumber` from the AI-suggested move and passes the payload to [`RulesBackendFacade.applyMove()`](src/server/game/RulesBackendFacade.ts:1) (via `this.rulesFacade.applyMove(engineMove)`).
-    - `RulesBackendFacade` ultimately routes to [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336), which:
+  - [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts):
+    - Strips `id`, `timestamp`, `moveNumber` from the AI-suggested move and passes the payload to [`RulesBackendFacade.applyMove()`](../src/server/game/RulesBackendFacade.ts) (via `this.rulesFacade.applyMove(engineMove)`).
+    - `RulesBackendFacade` ultimately routes to [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts), which:
       - Validates the move via `RuleEngine.validateMove`.
       - Enforces chain-capture, must-move, and invariants.
       - Applies the move, processes consequences, and advances the phase/turn.
 
 #### Local fallback move selection
 
-- If any error occurs in [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131):
-  - The catch block logs an error ("Failed to get AI move from service, falling back to local heuristic") and calls [`AIEngine.getLocalAIMove()`](src/server/game/ai/AIEngine.ts:178).
+- If any error occurs in [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts):
+  - The catch block logs an error ("Failed to get AI move from service, falling back to local heuristic") and calls [`AIEngine.getLocalAIMove()`](../src/server/game/ai/AIEngine.ts).
 
-- [`AIEngine.getLocalAIMove()`](src/server/game/ai/AIEngine.ts:178):
-  - Builds a transient [`BoardManager`](src/server/game/BoardManager.ts:1) and [`RuleEngine`](src/server/game/RuleEngine.ts:1).
+- [`AIEngine.getLocalAIMove()`](../src/server/game/ai/AIEngine.ts):
+  - Builds a transient [`BoardManager`](../src/server/game/BoardManager.ts) and [`RuleEngine`](../src/server/game/RuleEngine.ts).
   - Calls `ruleEngine.getValidMoves(gameState)` to enumerate legal moves for the current `GameState`.
   - Enforces "must move the placed stack" semantics _locally_:
     - Checks `gameState.currentPhase` and:
       - If `mustMoveFromStackKey` is present on the `GameState` (for newer fixtures), filters candidate moves by that origin.
       - Else, infers the must-move origin from the last `place_ring` move in `moveHistory` for backward compatibility.
   - If no valid moves remain → returns `null`.
-  - Otherwise delegates to [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275), passing:
+  - Otherwise delegates to [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts), passing:
     - Player number,
     - Current `GameState`,
     - Candidate moves,
     - Optional RNG `LocalAIRng` (for deterministic parity tests).
 
-- [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275):
-  - Forwards to shared [`chooseLocalMoveFromCandidates`](src/shared/engine/localAIMoveSelection.ts:1) in the shared engine.
+- [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts):
+  - Forwards to shared [`chooseLocalMoveFromCandidates`](../src/shared/engine/localAIMoveSelection.ts) in the shared engine.
   - Logs "Local AI fallback move generated" with the chosen move type.
   - Returns the chosen move.
 
 - Tests:
-  - [`Sandbox_vs_Backend.aiRngParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:28) asserts that:
-    - When an RNG is provided, both sandbox AI and backend [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275) use it instead of `Math.random`.
+  - [`Sandbox_vs_Backend.aiRngParity.test.ts`](../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts) asserts that:
+    - When an RNG is provided, both sandbox AI and backend [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts) use it instead of `Math.random`.
     - `Math.random` is guarded to throw if accidentally used, ensuring RNG plumbed correctly.
 
 #### Chain capture (multi-segment captures)
 
 - Runtime semantics within the engine:
-  - [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336) uses `chainCaptureState` (private) plus capture helpers [`updateChainCaptureStateAfterCapture()`](src/server/game/GameEngine.ts:898) and [`getCaptureOptionsFromPosition()`](src/server/game/GameEngine.ts:918).
+  - [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts) uses `chainCaptureState` (private) plus capture helpers [`updateChainCaptureStateAfterCapture()`](../src/server/game/GameEngine.ts) and [`getCaptureOptionsFromPosition()`](../src/server/game/GameEngine.ts).
   - After an `overtaking_capture` or `continue_capture_segment`:
     - It computes follow-up capture options from the landing position.
     - If there are follow-ups:
@@ -794,11 +794,11 @@ sequenceDiagram
 
 - **Current AI orchestration**:
   - In `FullGameFlow` (test harness), chain-capture decisions are made via:
-    - `engine.getValidMoves()` and [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275).
+    - `engine.getValidMoves()` and [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts).
   - In production `GameSession.maybePerformAITurn()`:
     - `state.currentPhase === 'chain_capture'` falls into the generic `else` branch:
-      - It calls [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131) instead of consuming `GameEngine.getValidMoves()` for `continue_capture_segment` options.
-      - The Python service is thus expected to understand chain-capture legality purely from `GameState`, even though `chainCaptureState` is held internally by [`GameEngine`](src/server/game/GameEngine.ts:74) and not embedded in wire-level `GameState`.
+      - It calls [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts) instead of consuming `GameEngine.getValidMoves()` for `continue_capture_segment` options.
+      - The Python service is thus expected to understand chain-capture legality purely from `GameState`, even though `chainCaptureState` is held internally by [`GameEngine`](../src/server/game/GameEngine.ts) and not embedded in wire-level `GameState`.
     - This mismatch is a key risk (see §6).
 
 ### 2.2 Line / territory decisions (line rewards, region order)
@@ -806,8 +806,8 @@ sequenceDiagram
 #### Line-related decisions
 
 - **Canonical line decisions as Moves**
-  - When `useMoveDrivenDecisionPhases` is enabled (which it is in [`GameSession.initialize()`](src/server/game/GameSession.ts:176)):
-    - After a normal move, [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336) calls [`GameEngine.getValidLineProcessingMoves()`](src/server/game/GameEngine.ts:1064).
+  - When `useMoveDrivenDecisionPhases` is enabled (which it is in [`GameSession.initialize()`](../src/server/game/GameSession.ts)):
+    - After a normal move, [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts) calls [`GameEngine.getValidLineProcessingMoves()`](../src/server/game/GameEngine.ts).
     - That method enumerates per-line decision moves:
       - `process_line` moves — one per player-owned line.
       - `choose_line_reward` moves — _two_ per overlength line (collapse-all vs minimum-collapse), annotated with `formedLines` and (for min) `collapsedMarkers`.
@@ -816,10 +816,10 @@ sequenceDiagram
   - For humans:
     - The front-end can:
       - Read `validMoves` (including `process_line` / `choose_line_reward`) from `game_state` messages.
-      - Call `player_move_by_id` (handled by [`WebSocketServer.handlePlayerMoveById()`](src/server/websocket/server.ts:336)), which uses [`GameSession.handlePlayerMoveById()`](src/server/game/GameSession.ts:355) → [`GameEngine.makeMoveById()`](src/server/game/GameEngine.ts:2539).
+      - Call `player_move_by_id` (handled by [`WebSocketServer.handlePlayerMoveById()`](../src/server/websocket/server.ts)), which uses [`GameSession.handlePlayerMoveById()`](../src/server/game/GameSession.ts) → [`GameEngine.makeMoveById()`](../src/server/game/GameEngine.ts).
 
 - **AI decision path (line_processing and territory_processing)**
-  - In [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479):
+  - In [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts):
 
     ```ts
     if (
@@ -838,23 +838,23 @@ sequenceDiagram
     - Selection uses **local shared heuristic** (`localAIMoveSelection`), _not_ the Python service.
 
   - Yet, when the chosen decision move is applied:
-    - [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336) detect its type and forwards it to [`GameEngine.applyDecisionMove()`](src/server/game/GameEngine.ts:1217).
+    - [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts) detect its type and forwards it to [`GameEngine.applyDecisionMove()`](../src/server/game/GameEngine.ts).
 
 - **LineRewardChoice + Python AI integration**
-  - Inside [`GameEngine.applyDecisionMove()`](src/server/game/GameEngine.ts:1217) for `process_line` / `choose_line_reward`:
-    - It identifies the target [`LineInfo`](src/shared/types/game.ts:1) and calls [`GameEngine.processOneLine()`](src/server/game/GameEngine.ts:1532).
-  - [`GameEngine.processOneLine()`](src/server/game/GameEngine.ts:1532):
+  - Inside [`GameEngine.applyDecisionMove()`](../src/server/game/GameEngine.ts) for `process_line` / `choose_line_reward`:
+    - It identifies the target [`LineInfo`](../src/shared/types/game.ts) and calls [`GameEngine.processOneLine()`](../src/server/game/GameEngine.ts).
+  - [`GameEngine.processOneLine()`](../src/server/game/GameEngine.ts):
     - For exact-length lines:
-      - Collapses markers and performs elimination via [`GameEngine.eliminatePlayerRingOrCapWithChoice()`](src/server/game/GameEngine.ts:1722).
+      - Collapses markers and performs elimination via [`GameEngine.eliminatePlayerRingOrCapWithChoice()`](../src/server/game/GameEngine.ts).
     - For overlength lines:
       - Constructs a `LineRewardChoice` (type `'line_reward_option'`).
-      - Uses [`PlayerInteractionManager`](src/server/game/PlayerInteractionManager.ts:24) to obtain a `PlayerChoiceResponseFor<LineRewardChoice>`.
+      - Uses [`PlayerInteractionManager`](../src/server/game/PlayerInteractionManager.ts) to obtain a `PlayerChoiceResponseFor<LineRewardChoice>`.
 
-  - For AI players, `PlayerInteractionManager` routes to [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26):
-    - [`AIInteractionHandler.selectLineRewardOption()`](src/server/game/ai/AIInteractionHandler.ts:101):
+  - For AI players, `PlayerInteractionManager` routes to [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts):
+    - [`AIInteractionHandler.selectLineRewardOption()`](../src/server/game/ai/AIInteractionHandler.ts):
       - Validates options are non-empty.
       - `try`:
-        - Calls [`globalAIEngine.getLineRewardChoice()`](src/server/game/ai/AIEngine.ts:418) (Python `/ai/choice/line_reward_option`) with:
+        - Calls [`globalAIEngine.getLineRewardChoice()`](../src/server/game/ai/AIEngine.ts) (Python `/ai/choice/line_reward_option`) with:
           - `game_state` currently passed as `null`.
           - `player_number`, `difficulty`, `ai_type`.
           - The `options` array of string tags.
@@ -863,7 +863,7 @@ sequenceDiagram
         - Logs a `console.warn` and falls back to heuristic: prefer `'option_2_min_collapse_no_elimination'` if available, else first option.
 
   - Integration tests:
-    - [`GameEngine.lineRewardChoiceAIService.integration.test.ts`](tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts:19):
+    - `GameEngine.lineRewardChoiceAIService.integration.test.ts`:
       - First test: verifies that a successful service call with selected `'option_1_collapse_all_and_eliminate'` results in:
         - All markers collapsed.
         - Player’s eliminatedRings increasing.
@@ -874,23 +874,23 @@ sequenceDiagram
 #### Territory / region decisions
 
 - **Region-order decisions**
-  - Region-order choices are produced by territory processing helpers (e.g., `processDisconnectedRegionsForCurrentPlayer` in [`territoryProcessing`](src/server/game/rules/territoryProcessing.ts:1)), not directly shown here but wired via [`GameEngine.processAutomaticConsequences()`](src/server/game/GameEngine.ts:1028).
+  - Region-order choices are produced by territory processing helpers (e.g., `processDisconnectedRegionsForCurrentPlayer` in `territoryProcessing`), not directly shown here but wired via [`GameEngine.processAutomaticConsequences()`](../src/server/game/GameEngine.ts).
   - For AI:
-    - [`AIInteractionHandler.selectRegionOrderOption()`](src/server/game/ai/AIInteractionHandler.ts:206):
+    - [`AIInteractionHandler.selectRegionOrderOption()`](../src/server/game/ai/AIInteractionHandler.ts):
       - Similar structure to line reward:
-        - Attempts [`globalAIEngine.getRegionOrderChoice()`](src/server/game/ai/AIEngine.ts:512) (Python `/ai/choice/region_order`), then validates result with `choice.options.includes(selected)`.
+        - Attempts [`globalAIEngine.getRegionOrderChoice()`](../src/server/game/ai/AIEngine.ts) (Python `/ai/choice/region_order`), then validates result with `choice.options.includes(selected)`.
         - On error or invalid, falls back to heuristic: choose region with largest `size`.
 
 - **Ring elimination (territory self-elimination / line rewards)**
   - For lines:
-    - [`GameEngine.eliminatePlayerRingOrCapWithChoice()`](src/server/game/GameEngine.ts:1722) constructs `RingEliminationChoice` when multiple stacks exist.
+    - [`GameEngine.eliminatePlayerRingOrCapWithChoice()`](../src/server/game/GameEngine.ts) constructs `RingEliminationChoice` when multiple stacks exist.
   - For territory:
-    - [`GameEngine.processOneDisconnectedRegion()`](src/server/game/GameEngine.ts:1913) calls `processDisconnectedRegionCore` and then `eliminatePlayerRingOrCapWithChoice` in non-move-driven mode.
+    - [`GameEngine.processOneDisconnectedRegion()`](../src/server/game/GameEngine.ts) calls `processDisconnectedRegionCore` and then `eliminatePlayerRingOrCapWithChoice` in non-move-driven mode.
     - In move-driven mode, region processing is separated from explicit self-elimination moves (`eliminate_rings_from_stack`), but when still using choice flows, the same `RingEliminationChoice` is used.
 
   - AI path:
-    - [`AIInteractionHandler.selectRingEliminationOption()`](src/server/game/ai/AIInteractionHandler.ts:150):
-      - Attempts [`globalAIEngine.getRingEliminationChoice()`](src/server/game/ai/AIEngine.ts:465) (Python `/ai/choice/ring_elimination`) first.
+    - [`AIInteractionHandler.selectRingEliminationOption()`](../src/server/game/ai/AIInteractionHandler.ts):
+      - Attempts [`globalAIEngine.getRingEliminationChoice()`](../src/server/game/ai/AIEngine.ts) (Python `/ai/choice/ring_elimination`) first.
       - Then checks `if (choice.options.includes(selected)) return selected;`.
       - On error or invalid, applies heuristic:
         - Choose smallest `capHeight`, tie-breaking by smallest `totalHeight`.
@@ -904,21 +904,21 @@ sequenceDiagram
 
 - **Forced elimination (no legal moves)**
   - Handled at rules/turn level, not via PlayerChoice:
-    - [`TurnEngine.processForcedElimination()`](src/server/game/turn/TurnEngine.ts:417) (called from `advanceGameForCurrentPlayer`) eliminates from the first stack with `capHeight > 0`, or any stack if `capHeight` data is missing (test fixtures).
-    - [`GameEngine.processForcedElimination()`](src/server/game/GameEngine.ts:2131) is legacy; modern flow uses `TurnEngine`.
+    - [`TurnEngine.processForcedElimination()`](../src/server/game/turn/TurnEngine.ts) (called from `advanceGameForCurrentPlayer`) eliminates from the first stack with `capHeight > 0`, or any stack if `capHeight` data is missing (test fixtures).
+    - [`GameEngine.processForcedElimination()`](../src/server/game/GameEngine.ts) is legacy; modern flow uses `TurnEngine`.
 
   - Test-only helper:
-    - [`GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](src/server/game/GameEngine.ts:2618) provides a robust resolution path in AI simulation harnesses:
+    - [`GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](../src/server/game/GameEngine.ts) provides a robust resolution path in AI simulation harnesses:
       - Tries to find any player with legal actions.
       - Applies forced eliminations iteratively, bounded by remaining rings, until a player has legal moves or the game ends.
-    - Used in [`FullGameFlow`](tests/integration/FullGameFlow.test.ts:161) to prevent infinite stalls during AI-vs-AI fallback tests.
+    - Used in [`FullGameFlow`](../tests/integration/FullGameFlow.test.ts) to prevent infinite stalls during AI-vs-AI fallback tests.
 
 - **Capture-direction choice**
-  - [`AIInteractionHandler.selectCaptureDirectionOption()`](src/server/game/ai/AIInteractionHandler.ts:259):
+  - [`AIInteractionHandler.selectCaptureDirectionOption()`](../src/server/game/ai/AIInteractionHandler.ts):
     - Heuristic only:
       - Prefer largest `capturedCapHeight`.
       - Tie-break by Manhattan distance of `landingPosition` to an estimated board "centre".
-    - There is **no current Python AI endpoint** for `capture_direction`, and no visible wiring from `GameEngine` into this choice type yet (the comments in [`GameEngine`](src/server/game/GameEngine.ts:926) indicate a planned PlayerChoice-based interface).
+    - There is **no current Python AI endpoint** for `capture_direction`, and no visible wiring from `GameEngine` into this choice type yet (the comments in [`GameEngine`](../src/server/game/GameEngine.ts) indicate a planned PlayerChoice-based interface).
     - Thus, capture-direction decisions are currently **purely local** and deterministic for AI when/if they are surfaced.
 
 ---
@@ -927,26 +927,26 @@ sequenceDiagram
 
 ### 3.1 AIServiceClient robustness
 
-- [`AIServiceClient`](src/server/services/AIServiceClient.ts:100):
+- [`AIServiceClient`](../src/server/services/AIServiceClient.ts):
   - Uses an Axios instance with:
     - 30s timeout (per-request time budget).
     - Common JSON headers.
     - A response interceptor that logs any error including `status` & `response.data` before rethrowing.
 
 - Per-method patterns:
-  - [`AIServiceClient.getAIMove()`](src/server/services/AIServiceClient.ts:132):
+  - [`AIServiceClient.getAIMove()`](../src/server/services/AIServiceClient.ts):
     - Logs at info level before and after request, including latency and evaluation.
     - On error:
       - Logs error and latency.
       - Throws `Error("AI Service failed to generate move: ...")`.
-  - [`AIServiceClient.getLineRewardChoice()`](src/server/services/AIServiceClient.ts:230), [`getRingEliminationChoice()`](src/server/services/AIServiceClient.ts:282), [`getRegionOrderChoice()`](src/server/services/AIServiceClient.ts:334):
+  - [`AIServiceClient.getLineRewardChoice()`](../src/server/services/AIServiceClient.ts), [`getRingEliminationChoice()`](../src/server/services/AIServiceClient.ts), [`getRegionOrderChoice()`](../src/server/services/AIServiceClient.ts):
     - Log request parameters and response.
     - On error:
       - Log with `playerNumber` and `error`.
       - Throw a typed `Error("AI Service failed to choose ...")`.
-  - [`healthCheck()`](src/server/services/AIServiceClient.ts:386):
+  - [`healthCheck()`](../src/server/services/AIServiceClient.ts):
     - Logs on failure and returns `false` instead of throwing.
-  - [`clearCache()`](src/server/services/AIServiceClient.ts:399):
+  - [`clearCache()`](../src/server/services/AIServiceClient.ts):
     - Logs failure and throws typed error.
 
 - Overall:
@@ -956,16 +956,16 @@ sequenceDiagram
 
 ### 3.2 AIEngine response to service failures
 
-- [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131):
-  - **Resilient**: wraps service call in try/catch, logs a clear error, and deterministically falls back to local heuristics via [`getLocalAIMove()`](src/server/game/ai/AIEngine.ts:178).
-  - This fallback path is thoroughly exercised in [`FullGameFlow`](tests/integration/FullGameFlow.test.ts:25) by mocking the service to always reject.
+- [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts):
+  - **Resilient**: wraps service call in try/catch, logs a clear error, and deterministically falls back to local heuristics via [`getLocalAIMove()`](../src/server/game/ai/AIEngine.ts).
+  - This fallback path is thoroughly exercised in [`FullGameFlow`](../tests/integration/FullGameFlow.test.ts) by mocking the service to always reject.
 
 - Non-move decisions:
-  - [`AIEngine.getLineRewardChoice()`](src/server/game/ai/AIEngine.ts:418),
-    [`getRingEliminationChoice()`](src/server/game/ai/AIEngine.ts:465),
-    [`getRegionOrderChoice()`](src/server/game/ai/AIEngine.ts:512):
+  - [`AIEngine.getLineRewardChoice()`](../src/server/game/ai/AIEngine.ts),
+    [`getRingEliminationChoice()`](../src/server/game/ai/AIEngine.ts),
+    [`getRegionOrderChoice()`](../src/server/game/ai/AIEngine.ts):
     - On any error, they **log and rethrow**.
-  - But at the call sites in [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:101,151,207):
+  - But at the call sites in `AIInteractionHandler`:
     - The calls are wrapped in `try/catch`.
     - Any error (service down, malformed response, missing config) results in a logged warning (via `console.warn`) and local heuristic fallback.
   - Effectively:
@@ -977,7 +977,7 @@ sequenceDiagram
 
 - **Rule-level rejection of illegal AI moves**:
   - All moves, including AI-generated ones, are passed through:
-    - `RuleEngine.validateMove` in [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336).
+    - `RuleEngine.validateMove` in [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts).
     - Additional invariants:
       - Chain-capture state (must continue from same stack).
       - Must-move enforcement via `mustMoveFromStackKey`.
@@ -987,7 +987,7 @@ sequenceDiagram
   - `GameEngine.makeMove()` returns `{ success: false, error: 'Invalid move' }`.
 
 - AI-specific response:
-  - [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479):
+  - [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts):
     - If `result.success` is false:
       - Logs `'Engine rejected AI move'` with reason.
       - Returns without applying any fallback or further move selection.
@@ -995,17 +995,17 @@ sequenceDiagram
 
 - **No-move / blocked states**:
   - In normal gameplay, `TurnEngine`’s `advanceGameForCurrentPlayer` prevents entering an interactive phase when no legal actions exist, applying forced elimination if needed.
-  - In test harnesses, [`GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](src/server/game/GameEngine.ts:2618) provides an explicit resolution strategy, but this is **not wired into production orchestration**.
+  - In test harnesses, [`GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](../src/server/game/GameEngine.ts) provides an explicit resolution strategy, but this is **not wired into production orchestration**.
 
 ### 3.4 Line/territory/choice failures
 
 - **Empty options**:
-  - [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:74,101,151,207,259) explicitly treats a `PlayerChoice` with no options as a protocol violation:
+  - `AIInteractionHandler` explicitly treats a `PlayerChoice` with no options as a protocol violation:
     - Logs an error via `logger.error`.
     - Throws.
 
 - **Invalid `selectedOption` from clients**:
-  - [`WebSocketInteractionHandler.handleChoiceResponse()`](src/server/game/WebSocketInteractionHandler.ts:103):
+  - [`WebSocketInteractionHandler.handleChoiceResponse()`](../src/server/game/WebSocketInteractionHandler.ts):
     - Verifies:
       - `playerNumber` matches.
       - `selectedOption` is in `choice.options` via structural equality (JSON stringification).
@@ -1014,13 +1014,13 @@ sequenceDiagram
       - Logs a warning.
 
 - **Timeouts**:
-  - For human players, [`WebSocketInteractionHandler.requestChoice()`](src/server/game/WebSocketInteractionHandler.ts:45):
+  - For human players, [`WebSocketInteractionHandler.requestChoice()`](../src/server/game/WebSocketInteractionHandler.ts):
     - Sets a timeout (default 30s).
     - On timeout:
       - Rejects the Promise with an error.
       - Logs warning.
-  - `GameEngine`’s methods like [`processOneLine()`](src/server/game/GameEngine.ts:1532) and [`eliminatePlayerRingOrCapWithChoice()`](src/server/game/GameEngine.ts:1722) do **not** catch these rejections; errors propagate out.
-    - In the WebSocket path, [`WebSocketServer`](src/server/websocket/server.ts:140) catches errors at the top level and emits a generic `'error'` event, but no fallback choice is applied in-engine.
+  - `GameEngine`’s methods like [`processOneLine()`](../src/server/game/GameEngine.ts) and [`eliminatePlayerRingOrCapWithChoice()`](../src/server/game/GameEngine.ts) do **not** catch these rejections; errors propagate out.
+    - In the WebSocket path, [`WebSocketServer`](../src/server/websocket/server.ts) catches errors at the top level and emits a generic `'error'` event, but no fallback choice is applied in-engine.
     - Game phases may remain in a state expecting a choice that has now been rejected.
 
 - **Service returning out-of-range options (AI)**:
@@ -1047,9 +1047,9 @@ sequenceDiagram
     - a timeout.
 
 - **Game-level mutual exclusion**:
-  - [`GameSessionManager.withGameLock()`](src/server/game/GameSessionManager.ts:48) wraps **every `player_move` and `player_move_by_id`** handler in a distributed lock (Redis), preventing concurrent mutation of a game’s state.
+  - [`GameSessionManager.withGameLock()`](../src/server/game/GameSessionManager.ts) wraps **every `player_move` and `player_move_by_id`** handler in a distributed lock (Redis), preventing concurrent mutation of a game’s state.
 
-  - That lock scope _also includes_ the subsequent AI turn via `maybePerformAITurn()` because it is invoked synchronously within the same `withGameLock` operation in [`WebSocketServer.handlePlayerMove()`](src/server/websocket/server.ts:319) and [`handlePlayerMoveById()`](src/server/websocket/server.ts:336).
+  - That lock scope _also includes_ the subsequent AI turn via `maybePerformAITurn()` because it is invoked synchronously within the same `withGameLock` operation in [`WebSocketServer.handlePlayerMove()`](../src/server/websocket/server.ts) and [`handlePlayerMoveById()`](../src/server/websocket/server.ts).
 
   - If Redis is down, the system logs a warning and executes operations **without a lock**, reintroducing race-condition risk under high concurrency.
 
@@ -1065,7 +1065,7 @@ sequenceDiagram
 
 - Race risk arises primarily in _test harnesses_ or any code path that:
   - Calls `globalAIEngine.getAIMove()` without re-validating against `GameEngine.getValidMoves()` first.
-  - However, [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336) always performs its own `RuleEngine.validateMove`, so stale moves are rejected rather than applied incorrectly.
+  - However, [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts) always performs its own `RuleEngine.validateMove`, so stale moves are rejected rather than applied incorrectly.
 
 - Potential mismatch in **chain_capture** orchestration:
   - In production `GameSession.maybePerformAITurn()`, `chain_capture` phases still call `getAIMove()` rather than consuming the engine’s canonical `continue_capture_segment` options.
@@ -1074,9 +1074,9 @@ sequenceDiagram
 ### 4.3 Time budgets / thinking time
 
 - AI time budgets appear in multiple places but are not coherently enforced:
-  - [`AIConfig.thinkTime`](src/server/game/ai/AIEngine.ts:34) and `AI_DIFFICULTY_PRESETS` in [`AIEngine`](src/server/game/ai/AIEngine.ts:44) set rough per-difficulty `thinkTime` values.
+  - [`AIConfig.thinkTime`](../src/server/game/ai/AIEngine.ts) and `AI_DIFFICULTY_PRESETS` in [`AIEngine`](../src/server/game/ai/AIEngine.ts) set rough per-difficulty `thinkTime` values.
 
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:25) historically had:
+  - [`AIPlayer`](../src/server/game/ai/AIPlayer.ts) historically had:
     - `thinkTime` and a dedicated UX-oriented "thinking time" hook.
       As of 2025-12 that hook has been removed and `thinkTime` is treated as
       legacy metadata only; AI responses must be returned as soon as they are
@@ -1089,11 +1089,11 @@ sequenceDiagram
     - `AIServiceClient` enforces only a hard 30s HTTP timeout; no per-difficulty/per-move budget.
 
 - Human interaction time budgets:
-  - [`WebSocketInteractionHandler`](src/server/game/WebSocketInteractionHandler.ts:26) enforces a per-choice timeout (`defaultTimeoutMs`).
+  - [`WebSocketInteractionHandler`](../src/server/game/WebSocketInteractionHandler.ts) enforces a per-choice timeout (`defaultTimeoutMs`).
   - On timeout, choices are rejected with errors, but there is no game-level fallback policy (e.g., auto-picking a safe default).
 
 - Interaction with `TimeControl`:
-  - [`GameEngine.startPlayerTimer()`](src/server/game/GameEngine.ts:2214) sets timers for human players only (`player.type !== 'ai'`).
+  - [`GameEngine.startPlayerTimer()`](../src/server/game/GameEngine.ts) sets timers for human players only (`player.type !== 'ai'`).
   - AI players’ clocks are not decremented based on service latency.
   - Game clocks are effectively decoupled from AI thinking time, which is acceptable for early deployments but may limit competitive fairness.
 
@@ -1101,7 +1101,7 @@ sequenceDiagram
 
 - Core move operations:
   - For a given game and user, Socket.IO events `player_move` and `player_move_by_id` are processed in connection order.
-  - The Redis lock in [`WebSocketServer.handlePlayerMove()`](src/server/websocket/server.ts:319) ensures that even if multiple sockets send moves quickly, they are serialized at `GameSession` level.
+  - The Redis lock in [`WebSocketServer.handlePlayerMove()`](../src/server/websocket/server.ts) ensures that even if multiple sockets send moves quickly, they are serialized at `GameSession` level.
 
 - PlayerChoice responses:
   - `player_choice_required` / `player_choice_response` are point-to-point via `WebSocketInteractionHandler`.
@@ -1118,7 +1118,7 @@ sequenceDiagram
 
 ### 5.1 Cohesion and responsibilities
 
-- [`AIEngine`](src/server/game/ai/AIEngine.ts:57):
+- [`AIEngine`](../src/server/game/ai/AIEngine.ts):
   - Responsibilities are mostly coherent:
     - Per-player configuration,
     - Service delegation,
@@ -1126,46 +1126,46 @@ sequenceDiagram
     - Normalization/compat-layer concerns.
   - It does not directly depend on transport or persistence layers.
 
-- [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26):
+- [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts):
   - Clearly scoped to `PlayerChoice`-level decisions.
   - Heuristics are simple and documented in comments.
-  - Delegation to Python is neatly encapsulated via [`globalAIEngine`](src/server/game/ai/AIEngine.ts:725), keeping callers unaware of service details.
+  - Delegation to Python is neatly encapsulated via [`globalAIEngine`](../src/server/game/ai/AIEngine.ts), keeping callers unaware of service details.
 
-- [`AIServiceClient`](src/server/services/AIServiceClient.ts:100):
+- [`AIServiceClient`](../src/server/services/AIServiceClient.ts):
   - Properly focused on HTTP concerns.
   - No rules logic, no game-phase handling.
 
-- [`GameEngine`](src/server/game/GameEngine.ts:74):
+- [`GameEngine`](../src/server/game/GameEngine.ts):
   - Very large and complex, but AI-specific concerns are mostly:
     - Decision-phase orchestration (`line_processing`, `territory_processing`, `chain_capture`).
-    - Exposing canonical `Move` sets via [`getValidMoves()`](src/server/game/GameEngine.ts:2366).
+    - Exposing canonical `Move` sets via [`getValidMoves()`](../src/server/game/GameEngine.ts).
     - Integrating with `PlayerInteractionManager` for human/AI decisions.
-  - Extraction into [`TurnEngine`](src/server/game/turn/TurnEngine.ts:88) for pure turn-logic is a good move.
+  - Extraction into [`TurnEngine`](../src/server/game/turn/TurnEngine.ts) for pure turn-logic is a good move.
 
-- [`GameSession`](src/server/game/GameSession.ts:23):
+- [`GameSession`](../src/server/game/GameSession.ts):
   - Does a lot: DB IO, WebSocket bridging, AI orchestration.
-  - Its AI responsibilities are reasonably localized to [`maybePerformAITurn()`](src/server/game/GameSession.ts:479).
+  - Its AI responsibilities are reasonably localized to [`maybePerformAITurn()`](../src/server/game/GameSession.ts).
 
 ### 5.2 Coupling and duplication
 
 - **AI configuration types**:
   - There are at least three parallel `AIConfig`/`AIType` representations:
-    - In [`AIEngine`](src/server/game/ai/AIEngine.ts:34,26).
-    - In [`AIServiceClient`](src/server/services/AIServiceClient.ts:10,16).
-    - In [`AIPlayer`](src/server/game/ai/AIPlayer.ts:8,107).
+    - In `AIEngine`.
+    - In `AIServiceClient`.
+    - In `AIPlayer`.
 
-  - Plus high-level shared [`AIProfile`](src/shared/types/game.ts:1).
+  - Plus high-level shared [`AIProfile`](../src/shared/types/game.ts).
 
   - This leads to type-duplication and potential drift in semantics (e.g., difficulty/aiType mapping, supported modes).
 
 - **Legacy `AIPlayer` path**:
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:24) and its `AI_DIFFICULTY_PRESETS` are unused by the active orchestration.
-  - Modern flow uses [`AIEngine`](src/server/game/ai/AIEngine.ts:57) + shared client/server heuristics in `localAIMoveSelection`.
+  - [`AIPlayer`](../src/server/game/ai/AIPlayer.ts) and its `AI_DIFFICULTY_PRESETS` are unused by the active orchestration.
+  - Modern flow uses [`AIEngine`](../src/server/game/ai/AIEngine.ts) + shared client/server heuristics in `localAIMoveSelection`.
 
 - **Choice handling**:
   - There are two representations for line decisions:
-    - Canonical Moves (`process_line`, `choose_line_reward`) from [`GameEngine.getValidLineProcessingMoves()`](src/server/game/GameEngine.ts:1064).
-    - PlayerChoice objects (`LineOrderChoice`, `LineRewardChoice`) from [`GameEngine.processLineFormations()`](src/server/game/GameEngine.ts:1474) and [`processOneLine()`](src/server/game/GameEngine.ts:1532).
+    - Canonical Moves (`process_line`, `choose_line_reward`) from [`GameEngine.getValidLineProcessingMoves()`](../src/server/game/GameEngine.ts).
+    - PlayerChoice objects (`LineOrderChoice`, `LineRewardChoice`) from [`GameEngine.processLineFormations()`](../src/server/game/GameEngine.ts) and [`processOneLine()`](../src/server/game/GameEngine.ts).
   - Right now, option selection (Option 1 vs Option 2) is still decided via `LineRewardChoice` + `PlayerInteractionManager`, even when a `choose_line_reward` Move exists, making the Move partly redundant.
 
 ### 5.3 Readability and clarity
@@ -1175,21 +1175,21 @@ sequenceDiagram
   - Comments in key areas (chain captures, line/territory processing) are extensive and helpful.
 
 - Magic values / stringly-typed APIs:
-  - Move types, phases, and choice types are defined in shared type unions (e.g., [`GameState.currentPhase`](src/shared/types/game.ts:1)), not as untyped strings, which is good.
+  - Move types, phases, and choice types are defined in shared type unions (e.g., [`GameState.currentPhase`](../src/shared/types/game.ts)), not as untyped strings, which is good.
   - For AI service endpoints, `ai_type` and `difficulty` are strongly typed on both sides.
 
 - Logging:
-  - Use of [`logger`](src/server/utils/logger.ts:1) in core paths is consistent and structured.
-  - A few places use `console.warn` instead of the logger (notably in [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:130,181,237)), which fragments observability.
+  - Use of [`logger`](../src/server/utils/logger.ts) in core paths is consistent and structured.
+  - A few places use `console.warn` instead of the logger (notably in `AIInteractionHandler`), which fragments observability.
 
 - Test coverage:
   - Good breadth:
-    - [`AIEngine.serviceClient.test.ts`](tests/unit/AIEngine.serviceClient.test.ts:13) – verifies AIEngine→AIServiceClient wiring.
-    - [`AIInteractionHandler.test.ts`](tests/unit/AIInteractionHandler.test.ts:22) – asserts deterministic heuristics for all choice types.
-    - [`GameEngine.lineRewardChoiceAIService.integration.test.ts`](tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts:19) – end-to-end service + fallback semantics for line rewards.
-    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:28) – RNG plumbing parity.
-    - [`FullGameFlow.test.ts`](tests/integration/FullGameFlow.test.ts:25) – full game using local AI fallback only, verifying termination.
-    - [`WebSocketInteractionHandler.test.ts`](tests/unit/WebSocketInteractionHandler.test.ts:23) – transport-level choice handling.
+    - `AIEngine.serviceClient.test.ts` – verifies AIEngine→AIServiceClient wiring.
+    - `AIInteractionHandler.test.ts` – asserts deterministic heuristics for all choice types.
+    - `GameEngine.lineRewardChoiceAIService.integration.test.ts` – end-to-end service + fallback semantics for line rewards.
+    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts) – RNG plumbing parity.
+    - [`FullGameFlow.test.ts`](../tests/integration/FullGameFlow.test.ts) – full game using local AI fallback only, verifying termination.
+    - [`WebSocketInteractionHandler.test.ts`](../tests/unit/WebSocketInteractionHandler.test.ts) – transport-level choice handling.
 
 ---
 
@@ -1203,12 +1203,12 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`AIInteractionHandler.selectRingEliminationOption()`](src/server/game/ai/AIInteractionHandler.ts:150)
-- [`AIInteractionHandler.selectRegionOrderOption()`](src/server/game/ai/AIInteractionHandler.ts:207)
-- [`AIEngine.getRingEliminationChoice()`](src/server/game/ai/AIEngine.ts:465)
-- [`AIEngine.getRegionOrderChoice()`](src/server/game/ai/AIEngine.ts:512)
-- [`AIServiceClient.getRingEliminationChoice()`](src/server/services/AIServiceClient.ts:282)
-- [`AIServiceClient.getRegionOrderChoice()`](src/server/services/AIServiceClient.ts:334)
+- [`AIInteractionHandler.selectRingEliminationOption()`](../src/server/game/ai/AIInteractionHandler.ts)
+- [`AIInteractionHandler.selectRegionOrderOption()`](../src/server/game/ai/AIInteractionHandler.ts)
+- [`AIEngine.getRingEliminationChoice()`](../src/server/game/ai/AIEngine.ts)
+- [`AIEngine.getRegionOrderChoice()`](../src/server/game/ai/AIEngine.ts)
+- [`AIServiceClient.getRingEliminationChoice()`](../src/server/services/AIServiceClient.ts)
+- [`AIServiceClient.getRegionOrderChoice()`](../src/server/services/AIServiceClient.ts)
 
 **Problem**
 
@@ -1252,18 +1252,18 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- `AIProfile.mode` in [`shared/types/game`](src/shared/types/game.ts:1)
-- [`AIEngine.createAIFromProfile()`](src/server/game/ai/AIEngine.ts:81)
-- [`GameSession.initialize()`](src/server/game/GameSession.ts:95)
-- [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479)
+- `AIProfile.mode` in [`shared/types/game`](../src/shared/types/game.ts)
+- [`AIEngine.createAIFromProfile()`](../src/server/game/ai/AIEngine.ts)
+- [`GameSession.initialize()`](../src/server/game/GameSession.ts)
+- [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts)
 
 **Problem**
 
 - `AIProfile.mode` is intended to express _how_ an AI makes decisions (`service` vs `local_heuristic`).
-- [`AIEngine.createAIFromProfile()`](src/server/game/ai/AIEngine.ts:81) stores `mode` in `AIConfig`, but:
-  - [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131) always attempts the service first, regardless of `mode`, and only falls back on error.
-  - [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26) always attempts service-backed choice methods first.
-  - [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479) ignores `mode` entirely.
+- [`AIEngine.createAIFromProfile()`](../src/server/game/ai/AIEngine.ts) stores `mode` in `AIConfig`, but:
+  - [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts) always attempts the service first, regardless of `mode`, and only falls back on error.
+  - [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts) always attempts service-backed choice methods first.
+  - [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts) ignores `mode` entirely.
 
 - This makes it impossible to:
   - Run a "purely local heuristic" AI that never touches the service (e.g., offline mode, low-latency tier).
@@ -1271,7 +1271,7 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Recommendation**
 
-- Introduce a **single policy method** in [`AIEngine`](src/server/game/ai/AIEngine.ts:57) that decides for each player:
+- Introduce a **single policy method** in [`AIEngine`](../src/server/game/ai/AIEngine.ts) that decides for each player:
   - For moves: whether to call service first, fallback, or local-only.
   - For choices: whether to use service-backed `get*Choice` or purely local heuristics.
 
@@ -1296,22 +1296,22 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479)
-- [`GameEngine.getValidMoves()`](src/server/game/GameEngine.ts:2366) (chain_capture branch)
-- [`GameEngine.chainCaptureState`](src/server/game/GameEngine.ts:99)
+- [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts)
+- [`GameEngine.getValidMoves()`](../src/server/game/GameEngine.ts) (chain_capture branch)
+- [`GameEngine.chainCaptureState`](../src/server/game/GameEngine.ts)
 
 **Problem**
 
 - In **test harnesses** (`FullGameFlow` and related), chain-capture segments are chosen using:
   - `engine.getValidMoves(state.currentPlayer)` which, in `chain_capture` phase, enumerates valid `continue_capture_segment` moves from `chainCaptureState`.
-  - Local heuristics via [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275).
+  - Local heuristics via [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts).
 
 - In **production `GameSession.maybePerformAITurn()`**, for `state.currentPhase === 'chain_capture'`:
-  - It falls into the generic branch and calls [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:131), which:
+  - It falls into the generic branch and calls [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts), which:
     - Delegates to the Python service via `/ai/move`, which **does not receive `chainCaptureState`**.
     - Returns a generic `Move` which may or may not respect chain-capture continuation constraints.
 
-- The backend engine will reject illegal moves (e.g., wrong `from` or wrong move type) via chain-capture checks in [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:345).
+- The backend engine will reject illegal moves (e.g., wrong `from` or wrong move type) via chain-capture checks in [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts).
 
 - Impact:
   - AI may repeatedly propose illegal moves in `chain_capture`, all of which are rejected.
@@ -1323,10 +1323,10 @@ Below are key issues, each with location, impact, and actionable recommendation.
 - Align `GameSession.maybePerformAITurn()` with the test harness strategy in `chain_capture`:
   - For `state.currentPhase === 'chain_capture'`:
     - Call `this.gameEngine.getValidMoves(currentPlayerNumber)` to get `continue_capture_segment` options.
-    - Use [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275) (with optional RNG) to pick among them.
+    - Use [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts) (with optional RNG) to pick among them.
     - Apply via `rulesFacade.applyMove(engineMove)`.
 
-- Optionally, extend [`AIEngine`](src/server/game/ai/AIEngine.ts:57) with an explicit method for **capture continuation** decisions that can be later enhanced with Python support, but start with local heuristics using the canonical candidate set.
+- Optionally, extend [`AIEngine`](../src/server/game/ai/AIEngine.ts) with an explicit method for **capture continuation** decisions that can be later enhanced with Python support, but start with local heuristics using the canonical candidate set.
 
 - Add regression tests:
   - Configure an AI vs AI game where chain captures are likely.
@@ -1339,11 +1339,11 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`WebSocketInteractionHandler.requestChoice()`](src/server/game/WebSocketInteractionHandler.ts:45)
-- [`WebSocketInteractionHandler.handleChoiceResponse()`](src/server/game/WebSocketInteractionHandler.ts:103)
-- [`GameEngine.processOneLine()`](src/server/game/GameEngine.ts:1532)
-- [`GameEngine.eliminatePlayerRingOrCapWithChoice()`](src/server/game/GameEngine.ts:1722)
-- [`WebSocketServer.setupEventHandlers()`](src/server/websocket/server.ts:107)
+- [`WebSocketInteractionHandler.requestChoice()`](../src/server/game/WebSocketInteractionHandler.ts)
+- [`WebSocketInteractionHandler.handleChoiceResponse()`](../src/server/game/WebSocketInteractionHandler.ts)
+- [`GameEngine.processOneLine()`](../src/server/game/GameEngine.ts)
+- [`GameEngine.eliminatePlayerRingOrCapWithChoice()`](../src/server/game/GameEngine.ts)
+- [`WebSocketServer.setupEventHandlers()`](../src/server/websocket/server.ts)
 
 **Problem**
 
@@ -1367,7 +1367,7 @@ Below are key issues, each with location, impact, and actionable recommendation.
   - Wrap `interactionManager.requestChoice(...)` calls in engine-level try/catch.
   - On `Error` due to timeout or invalid client response:
     - Log via `logger.warn` with structured context.
-    - Apply the same deterministic heuristics currently used in [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:26), thereby ensuring the game always progresses.
+    - Apply the same deterministic heuristics currently used in [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts), thereby ensuring the game always progresses.
 
 - Alternatively, centralize this behavior in a **decorator over `PlayerInteractionHandler`** that:
   - Delegates to WebSocket for humans, AIInteractionHandler for AI.
@@ -1382,17 +1382,17 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`AIEngine.getLocalAIMove()`](src/server/game/ai/AIEngine.ts:178)
-- [`GameEngine.updatePerTurnStateAfterMove()`](src/server/game/GameEngine.ts:2006)
-- [`TurnEngine.updatePerTurnStateAfterMove()`](src/server/game/turn/TurnEngine.ts:44)
+- [`AIEngine.getLocalAIMove()`](../src/server/game/ai/AIEngine.ts)
+- [`GameEngine.updatePerTurnStateAfterMove()`](../src/server/game/GameEngine.ts)
+- [`TurnEngine.updatePerTurnStateAfterMove()`](../src/server/game/turn/TurnEngine.ts)
 
 **Problem**
 
 - The authoritative must-move logic is held internally in `GameEngine` via `hasPlacedThisTurn` and `mustMoveFromStackKey`, updated by:
-  - [`GameEngine.updatePerTurnStateAfterMove()`](src/server/game/GameEngine.ts:2006), which delegates to
-  - [`TurnEngine.updatePerTurnStateAfterMove()`](src/server/game/turn/TurnEngine.ts:44).
+  - [`GameEngine.updatePerTurnStateAfterMove()`](../src/server/game/GameEngine.ts), which delegates to
+  - [`TurnEngine.updatePerTurnStateAfterMove()`](../src/server/game/turn/TurnEngine.ts).
 
-- `GameState` objects exposed by [`GameEngine.getGameState()`](src/server/game/GameEngine.ts:164) do **not** include `mustMoveFromStackKey`.
+- `GameState` objects exposed by [`GameEngine.getGameState()`](../src/server/game/GameEngine.ts) do **not** include `mustMoveFromStackKey`.
 
 - In `AIEngine.getLocalAIMove()`:
   - The code infers a must-move origin from:
@@ -1407,8 +1407,8 @@ Below are key issues, each with location, impact, and actionable recommendation.
 **Recommendation**
 
 - Prefer calling **engine-provided canonical move sets** in fallback scenarios:
-  - Instead of reconstructing `RuleEngine` and re-computing `getValidMoves(gameState)` inside [`AIEngine.getLocalAIMove()`](src/server/game/ai/AIEngine.ts:178), consider:
-    - Passing `GameEngine.getValidMoves(currentPlayer)` into [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275).
+  - Instead of reconstructing `RuleEngine` and re-computing `getValidMoves(gameState)` inside [`AIEngine.getLocalAIMove()`](../src/server/game/ai/AIEngine.ts), consider:
+    - Passing `GameEngine.getValidMoves(currentPlayer)` into [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts).
     - This ensures must-move and chain-capture semantics are already enforced.
 
   - For `FullGameFlow` and other harnesses, this pattern is already used and works well.
@@ -1423,10 +1423,10 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`AIEngine.AIConfig`](src/server/game/ai/AIEngine.ts:34) / [`AIEngine.AIType`](src/server/game/ai/AIEngine.ts:26)
-- [`AIServiceClient.AIConfig`](src/server/services/AIServiceClient.ts:10) / [`AIServiceClient.AIType`](src/server/services/AIServiceClient.ts:16)
-- [`AIPlayer.AIConfig`](src/server/game/ai/AIPlayer.ts:8) / [`AIPlayer.AIType`](src/server/game/ai/AIPlayer.ts:107)
-- [`AIPlayer`](src/server/game/ai/AIPlayer.ts:24)
+- [`AIEngine.AIConfig`](../src/server/game/ai/AIEngine.ts) / [`AIEngine.AIType`](../src/server/game/ai/AIEngine.ts)
+- [`AIServiceClient.AIConfig`](../src/server/services/AIServiceClient.ts) / [`AIServiceClient.AIType`](../src/server/services/AIServiceClient.ts)
+- [`AIPlayer.AIConfig`](../src/server/game/ai/AIPlayer.ts) / [`AIPlayer.AIType`](../src/server/game/ai/AIPlayer.ts)
+- [`AIPlayer`](../src/server/game/ai/AIPlayer.ts)
 
 **Problem**
 
@@ -1435,13 +1435,13 @@ Below are key issues, each with location, impact, and actionable recommendation.
 - This duplication:
   - Increases cognitive load for contributors.
   - Risks drift when adding new AI tactics or modes.
-  - Obscures the actual source of truth for AI behavior (now clearly [`AIEngine`](src/server/game/ai/AIEngine.ts:57) + Python AI).
+  - Obscures the actual source of truth for AI behavior (now clearly [`AIEngine`](../src/server/game/ai/AIEngine.ts) + Python AI).
 
 **Recommendation**
 
 - Consolidate AI configuration:
   - Choose a single canonical definition, likely:
-    - High-level: `AIProfile` in [`shared/types/game`](src/shared/types/game.ts:1).
+    - High-level: `AIProfile` in [`shared/types/game`](../src/shared/types/game.ts).
     - Server-level: `AIEngine.AIConfig` extending `AIProfile` with runtime-only details if needed.
 
   - Remove or deprecate:
@@ -1456,7 +1456,7 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`AIEngine.normalizeServiceMove()`](src/server/game/ai/AIEngine.ts:312)
+- [`AIEngine.normalizeServiceMove()`](../src/server/game/ai/AIEngine.ts)
 
 **Problem**
 
@@ -1471,7 +1471,7 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 - This introduces backend-side randomness:
   - Using **global `Math.random`**, not the RNG injected for AI parity tests.
-  - Not captured in the shared RNG hooks validated in [`Sandbox_vs_Backend.aiRngParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:28).
+  - Not captured in the shared RNG hooks validated in [`Sandbox_vs_Backend.aiRngParity.test.ts`](../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts).
 
 - Impact:
   - Non-deterministic behavior for AI placement counts even when both sandbox and backend share a seeded RNG.
@@ -1493,19 +1493,19 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`AIInteractionHandler.selectLineRewardOption()`](src/server/game/ai/AIInteractionHandler.ts:101)
-- [`AIInteractionHandler.selectRingEliminationOption()`](src/server/game/ai/AIInteractionHandler.ts:150)
-- [`AIInteractionHandler.selectRegionOrderOption()`](src/server/game/ai/AIInteractionHandler.ts:207)
+- [`AIInteractionHandler.selectLineRewardOption()`](../src/server/game/ai/AIInteractionHandler.ts)
+- [`AIInteractionHandler.selectRingEliminationOption()`](../src/server/game/ai/AIInteractionHandler.ts)
+- [`AIInteractionHandler.selectRegionOrderOption()`](../src/server/game/ai/AIInteractionHandler.ts)
 
 **Problem**
 
-- On service failure, `AIInteractionHandler` uses `console.warn` instead of the shared [`logger`](src/server/utils/logger.ts:1):
+- On service failure, `AIInteractionHandler` uses `console.warn` instead of the shared [`logger`](../src/server/utils/logger.ts):
 
   ```ts
   console.warn('AI Service unavailable for ...', { error });
   ```
 
-- Other AI-related components (e.g., [`AIEngine`](src/server/game/ai/AIEngine.ts:161), [`AIServiceClient`](src/server/services/AIServiceClient.ts:167)) use `logger.error/info/debug`.
+- Other AI-related components (e.g., [`AIEngine`](../src/server/game/ai/AIEngine.ts), [`AIServiceClient`](../src/server/services/AIServiceClient.ts)) use `logger.error/info/debug`.
 
 - Impact:
   - Warnings about service unavailability for choice endpoints may not be captured by centralized logging infrastructure.
@@ -1513,7 +1513,7 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Recommendation**
 
-- Replace `console.warn` with `logger.warn` in [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:101,150,207):
+- Replace `console.warn` with `logger.warn` in `AIInteractionHandler`:
   - Include context:
     - `gameId` (if available on `PlayerChoice`),
     - `playerNumber`,
@@ -1533,15 +1533,15 @@ Below are key issues, each with location, impact, and actionable recommendation.
 
 **Location**
 
-- [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:336)
-- [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479)
+- [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts)
+- [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts)
 
 **Problem**
 
 - If an AI-generated move is invalid (e.g., due to a mismatch between service rules and server rules, or due to chain-capture semantics):
   - `GameEngine.makeMove()` returns `{ success: false, error: '...' }`.
   - `RulesBackendFacade.applyMove()` passes this up.
-  - [`GameSession.maybePerformAITurn()`](src/server/game/GameSession.ts:479):
+  - [`GameSession.maybePerformAITurn()`](../src/server/game/GameSession.ts):
     - Logs `'Engine rejected AI move'`.
     - Returns without trying:
       - Another move suggestion from the service.
@@ -1556,11 +1556,11 @@ Below are key issues, each with location, impact, and actionable recommendation.
 - Implement a **tiered fallback within `maybePerformAITurn()`** when an AI move is rejected:
   1. If the rejected move came from service (`config.mode === 'service'` and no previous fallback attempt for this turn):
      - Recompute canonical candidates via `this.gameEngine.getValidMoves(currentPlayerNumber)`.
-     - Use [`AIEngine.chooseLocalMoveFromCandidates()`](src/server/game/ai/AIEngine.ts:275) to select a local move.
+     - Use [`AIEngine.chooseLocalMoveFromCandidates()`](../src/server/game/ai/AIEngine.ts) to select a local move.
      - Attempt to apply that move via `rulesFacade.applyMove`. If that also fails, log and bail.
 
   2. If no valid moves exist:
-     - Call [`GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](src/server/game/GameEngine.ts:2618) (or a production-safe variant) to apply forced elimination / stalemate resolution.
+     - Call [`GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](../src/server/game/GameEngine.ts) (or a production-safe variant) to apply forced elimination / stalemate resolution.
 
 - Add a guard to prevent infinite retries (e.g., only attempt service→local fallback once per phase).
 
@@ -5155,7 +5155,7 @@ Uses PyTorch RingRiftCNN in .eval() mode with deterministic layers (no dropout a
 evaluate_batch() runs the CNN and returns value and softmaxed policy.
 Determinism depends on:
 
-Proper seeding of torch, numpy, random via [seed_all](ai-service/app/training/train.py:1, referenced in tests).
+Proper seeding of torch, numpy, random via `seed_all`.
 Hardware determinism (e.g., deterministic CuDNN).
 Determinism test coverage
 test_determinism:

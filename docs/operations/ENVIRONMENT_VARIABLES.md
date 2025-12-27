@@ -144,6 +144,62 @@ Minimum database connection pool size.
 
 Maximum database connection pool size.
 
+### `DB_HOST`
+
+| Property | Value       |
+| -------- | ----------- |
+| Type     | `string`    |
+| Default  | `localhost` |
+| Required | No          |
+
+Database host component used by docker-compose and deployment tooling. The
+server runtime reads `DATABASE_URL` only; `DB_HOST` is ignored by Prisma/server.
+
+### `DB_PORT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `5432`   |
+| Required | No       |
+
+Database port component used by docker-compose and deployment tooling. The
+server runtime reads `DATABASE_URL` only; `DB_PORT` is ignored by Prisma/server.
+
+### `DB_NAME`
+
+| Property | Value      |
+| -------- | ---------- |
+| Type     | `string`   |
+| Default  | `ringrift` |
+| Required | No         |
+
+Database name component used by docker-compose and deployment tooling. The
+server runtime reads `DATABASE_URL` only; `DB_NAME` is ignored by Prisma/server.
+
+### `DB_USER`
+
+| Property | Value      |
+| -------- | ---------- |
+| Type     | `string`   |
+| Default  | `ringrift` |
+| Required | No         |
+
+Database user component used by docker-compose and deployment tooling. The
+server runtime reads `DATABASE_URL` only; `DB_USER` is ignored by Prisma/server.
+
+### `DB_PASSWORD`
+
+| Property | Value                        |
+| -------- | ---------------------------- |
+| Type     | `string`                     |
+| Default  | `password` (dev placeholder) |
+| Required | No                           |
+
+Database password component used by docker-compose and deployment tooling.
+The server runtime reads `DATABASE_URL` only; `DB_PASSWORD` is ignored by
+Prisma/server. Use strong secrets in production and prefer `DATABASE_URL`.
+
 ---
 
 ## Redis
@@ -187,18 +243,40 @@ Redis authentication password.
 
 Enable TLS for Redis connections.
 
+### `REDIS_HOST`
+
+| Property | Value       |
+| -------- | ----------- |
+| Type     | `string`    |
+| Default  | `localhost` |
+| Required | No          |
+
+Redis host component used by deployment tooling. The server runtime reads
+`REDIS_URL` only; `REDIS_HOST` is ignored by the server.
+
+### `REDIS_PORT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `6379`   |
+| Required | No       |
+
+Redis port component used by deployment tooling. The server runtime reads
+`REDIS_URL` only; `REDIS_PORT` is ignored by the server.
+
 ---
 
 ## Authentication
 
 ### `JWT_SECRET`
 
-| Property   | Value                                |
-| ---------- | ------------------------------------ |
-| Type       | `string`                             |
-| Default    | `dev-access-token-secret` (dev only) |
-| Required   | **Yes in production**                |
-| Min Length | 32                                   |
+| Property   | Value                                     |
+| ---------- | ----------------------------------------- |
+| Type       | `string`                                  |
+| Default    | None (set explicitly; see `.env.example`) |
+| Required   | **Yes in production**                     |
+| Min Length | 32                                        |
 
 Secret key for signing JWT access tokens.
 
@@ -210,12 +288,12 @@ Secret key for signing JWT access tokens.
 
 ### `JWT_REFRESH_SECRET`
 
-| Property   | Value                                 |
-| ---------- | ------------------------------------- |
-| Type       | `string`                              |
-| Default    | `dev-refresh-token-secret` (dev only) |
-| Required   | **Yes in production**                 |
-| Min Length | 32                                    |
+| Property   | Value                                     |
+| ---------- | ----------------------------------------- |
+| Type       | `string`                                  |
+| Default    | None (set explicitly; see `.env.example`) |
+| Required   | **Yes in production**                     |
+| Min Length | 32                                        |
 
 Secret key for signing JWT refresh tokens. Should be different from `JWT_SECRET`.
 
@@ -1813,6 +1891,18 @@ Percentage of eligible sessions to route through the orchestrator. This variable
 
 - [`ORCHESTRATOR_ADAPTER_ENABLED`](#orchestrator_adapter_enabled) - Now hardcoded to `true`
 - See [`PASS20_COMPLETION_SUMMARY.md`](../archive/assessments/PASS20_COMPLETION_SUMMARY.md) for migration details
+
+### `SOCKET_PORT`
+
+| Property | Value                             |
+| -------- | --------------------------------- |
+| Type     | `number`                          |
+| Removed  | Legacy WebSocket split (pre-2025) |
+| Reason   | WebSocket now shares `PORT`       |
+
+**Status:** REMOVED
+
+Legacy WebSocket port configuration. The server now binds WebSocket traffic to the main `PORT`, and `SOCKET_PORT` is ignored.
 
 ---
 

@@ -341,7 +341,7 @@ k6 run tests/load/scenarios/concurrent-games.js
 
 ### How Bypass Works
 
-The bypass mechanism is implemented in [`shouldBypassRateLimit()`](../../src/server/middleware/rateLimiter.ts:164):
+The bypass mechanism is implemented in [`shouldBypassRateLimit()`](../../src/server/middleware/rateLimiter.ts):
 
 ```typescript
 function shouldBypassRateLimit(req: Request): boolean {

@@ -237,28 +237,28 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
 
 **Per-scenario status after PASS24.1**
 
-1. **Scenario 1 – game-creation** ([`game-creation.js`](../../../tests/load/scenarios/game-creation.js:1))
+1. **Scenario 1 – game-creation** ([`game-creation.js`](../../../tests/load/scenarios/game-creation.js))
    - Infra: Stable. No socket errors when routing through nginx; app remains reachable throughout the run.
    - Behaviour: `POST /api/games` retains the strong PASS22 baseline:
      - Latency: `game_creation_latency_ms` p95 ≈ 13 ms, p99 ≈ 16 ms (≪ staging SLOs of 800 ms / 1500 ms).
      - Errors: Creation-specific error rate ≈ 0%; the elevated `http_req_failed` rate is still dominated by `GET /api/games/:gameId` contract behaviour (see below).
    - Primary issues **now**: None for `POST /api/games` capacity/latency; the main gap is the `GET /api/games/:gameId` ID/validation contract that inflates aggregate k6 error metrics.
 
-2. **Scenario 2 – concurrent-games** ([`concurrent-games.js`](../../../tests/load/scenarios/concurrent-games.js:1))
+2. **Scenario 2 – concurrent-games** ([`concurrent-games.js`](../../../tests/load/scenarios/concurrent-games.js))
    - Infra: Setup and game APIs (`/health`, `/api/auth/login`, `POST /api/games`, `GET /api/games/:gameId`) are reachable with no `ECONNREFUSED`/status=0 errors at 100+ concurrent games.
    - Behaviour: High error rate is driven by **functional responses**, not transport:
      - Many `GET /api/games/:gameId` calls return `400 GAME_INVALID_ID` due to mismatched ID assumptions between the scenario and the current API contract.
      - Some `429 Too Many Requests` responses appear under peak concurrency due to rate limiting.
    - Primary issues **now**: Contract/ID behaviour and rate-limit tuning, not HTTP availability or raw capacity.
 
-3. **Scenario 3 – player-moves** ([`player-moves.js`](../../../tests/load/scenarios/player-moves.js:1))
+3. **Scenario 3 – player-moves** ([`player-moves.js`](../../../tests/load/scenarios/player-moves.js))
    - Infra: With `MOVE_HTTP_ENDPOINT_ENABLED=false`, the scenario stresses `POST /api/games` and repeated `GET /api/games/:gameId` polling; these calls do not show socket-level failures under load.
    - Behaviour:
      - Many `GET /api/games/:gameId` calls return 4xx due to timing/ID/validation assumptions in the script vs. the current API.
      - Successful responses have low latency; p95/p99 for the GET path remain well within the staging SLOs.
    - Primary issues **now**: Functional/contract mismatches in how the scenario selects and polls game IDs; HTTP infra is healthy.
 
-4. **Scenario 4 – websocket-stress** ([`websocket-stress.js`](../../../tests/load/scenarios/websocket-stress.js:1))
+4. **Scenario 4 – websocket-stress** ([`websocket-stress.js`](../../../tests/load/scenarios/websocket-stress.js))
    - Infra: 100% of attempted WebSocket handshakes via nginx and `/socket.io/` succeed (HTTP 101 switching protocols), confirming that nginx + `WebSocketServer` can accept and proxy the connection load.
    - Behaviour:
      - Connections are short-lived and are closed by the server with “message parse error”–style semantics because k6 is sending plain JSON frames, not full Socket.IO protocol messages.
@@ -273,7 +273,7 @@ As of PASS22, **only the game-creation scenario has been executed**; additional 
   - The **open work items** are:
     - Fix `GET /api/games/:gameId` contract/ID handling so concurrent-games and player-moves can be used as reliable SLO gates.
     - Align the `websocket-stress` script’s message format with the production Socket.IO protocol so connection-duration and message-latency thresholds reflect real UX limits rather than parse errors.
-- Detailed per-scenario baselines and infra vs application distinctions are captured in [`GAME_PERFORMANCE.md`](../../runbooks/GAME_PERFORMANCE.md:316) §8 “PASS24.1 – k6 baselines after HTTP/WebSocket stabilization.
+- Detailed per-scenario baselines and infra vs application distinctions are captured in [`GAME_PERFORMANCE.md`](../../runbooks/GAME_PERFORMANCE.md) §8 “PASS24.1 – k6 baselines after HTTP/WebSocket stabilization.
 
 ### Test Coverage (Accessibility)
 

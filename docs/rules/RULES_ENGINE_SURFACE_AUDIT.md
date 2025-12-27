@@ -231,7 +231,7 @@ import { validatePlacementOnBoard } from '../../../shared/engine/validators/Plac
 
 #### Shadow Contract Pattern
 
-**From [`default_engine.py`](../../ai-service/app/rules/default_engine.py:141-160):**
+**From [`default_engine.py`](../../ai-service/app/rules/default_engine.py):**
 
 ```python
 def apply_move(self, state: GameState, move: Move) -> GameState:
@@ -300,7 +300,7 @@ class PlacementMutator(Mutator):
 
 #### Delegation Pattern to Shared Engine
 
-**Explicit documentation in [`sandboxTerritory.ts`](../../src/client/sandbox/sandboxTerritory.ts:1-23):**
+**Explicit documentation in [`sandboxTerritory.ts`](../../src/client/sandbox/sandboxTerritory.ts):**
 
 ```typescript
 /**

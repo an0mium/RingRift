@@ -8,10 +8,10 @@
 
 Authoritative rule sources:
 
-- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:1) – updated R170–R173.
-- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) – narrative LPS discussion and examples.
-- [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1) – implementation-oriented LPS definition.
-- [`RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md:1) – CLAR-002 marked resolved.
+- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) – updated R170–R173.
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) – narrative LPS discussion and examples.
+- [`ringrift_compact_rules.md`](../ringrift_compact_rules.md) – implementation-oriented LPS definition.
+- [`RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md) – CLAR-002 marked resolved.
 
 Semantics to implement:
 
@@ -32,10 +32,10 @@ Semantics to implement:
 
 Authoritative rule sources:
 
-- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:1) – updated R020, R081–R082.
-- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) – ring supply section.
-- [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1) – board configs and `ringsPerPlayer`.
-- [`RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md:1) – CLAR-003 marked resolved.
+- [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) – updated R020, R081–R082.
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) – ring supply section.
+- [`ringrift_compact_rules.md`](../ringrift_compact_rules.md) – board configs and `ringsPerPlayer`.
+- [`RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md) – CLAR-003 marked resolved.
 
 Semantics to implement:
 
@@ -49,10 +49,10 @@ Semantics to implement:
 ### 3.1.2 Goals of this implementation plan
 
 - **Maintain strict TS ↔ Python parity**:
-  - Back-end [`RuleEngine`](src/server/game/RuleEngine.ts:46) and client sandbox [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:107) must agree on LPS and placement legality.
-  - Python [`GameEngine`](ai-service/app/game_engine.py:32) and [`DefaultRulesEngine`](ai-service/app/rules/default_engine.py:23) must mirror TS outcomes for all plateau/parity fixtures.
+  - Back-end [`RuleEngine`](../src/server/game/RuleEngine.ts) and client sandbox [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts) must agree on LPS and placement legality.
+  - Python `GameEngine` and [`DefaultRulesEngine`](../ai-service/app/rules/default_engine.py) must mirror TS outcomes for all plateau/parity fixtures.
 - **Preserve termination and S-invariant properties**:
-  - LPS must never introduce non-terminating states (see [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md:1)).
+  - LPS must never introduce non-terminating states (see [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md)).
   - S-invariant (`S = markers + collapsed + eliminated`) monotonicity remains unchanged; early LPS simply stops some games earlier.
 - **Minimise behavioural surprises**:
   - Existing tests that implicitly assume “play until bare-board stalemate” must be audited and updated to expect earlier LPS wins where applicable.
@@ -64,57 +64,57 @@ Semantics to implement:
 
 Victory and termination:
 
-- [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45)
+- `evaluateVictory()`
   - Currently handles:
     - Ring-elimination (`reason: 'ring_elimination'`),
     - Territory-control (`reason: 'territory_control'`),
     - Bare-board stalemate ladder (territory → eliminated (with hand-conversion) → markers → last actor → `game_completed` / `last_player_standing`).
   - **Does not** implement early LPS as a separate victory path with stacks on the board.
-- [`getLastActor()`](src/shared/engine/victoryLogic.ts:200)
+- `getLastActor()`
   - Used only for stalemate tie-breaking; semantics remain but classification of last rung as “LPS” vs “game_completed” must be revisited.
 
 Turn/phase sequencing and per-turn state:
 
-- [`advanceTurnAndPhase()`](src/shared/engine/turnLogic.ts:135)
+- [`advanceTurnAndPhase()`](../src/shared/engine/turnLogic.ts)
   - Canonical shared sequencer; owns:
     - Turn transitions through `ring_placement` → `movement`/`capture` → `line_processing` → `territory_processing`.
-    - Forced-elimination triggering via [`TurnLogicDelegates.applyForcedElimination`](src/shared/engine/turnLogic.ts:87).
+    - Forced-elimination triggering via [`TurnLogicDelegates.applyForcedElimination`](../src/shared/engine/turnLogic.ts).
     - Skipping fully inactive players (no stacks, no rings in hand).
   - This is the **natural hook** for tracking per-turn real-action availability and round structure in a host-agnostic way.
 
 Shared state and board helpers:
 
-- [`GameState`](src/shared/types/game.ts:471)
+- [`GameState`](../src/shared/types/game.ts)
   - Holds global fields such as `currentPlayer`, `currentPhase`, `gameStatus`, `moveHistory`, `history`, and thresholds.
   - Currently no explicit LPS-tracking metadata.
-- [`BOARD_CONFIGS`](src/shared/types/game.ts:602)
+- [`BOARD_CONFIGS`](../src/shared/types/game.ts)
   - Source of `ringsPerPlayer` for each board: 18 (square8), 48 (square19), 72 (hexagonal).
-- [`MovementBoardView` and `hasAnyLegalMoveOrCaptureFromOnBoard()`](src/shared/engine/core.ts:173)
+- [`MovementBoardView` and `hasAnyLegalMoveOrCaptureFromOnBoard()`](../src/shared/engine/core.ts)
   - Core reachability helper for non-capture moves and overtaking captures; used both for no-dead-placement and forced elimination.
 - **New shared helper (to be added)**:
-  - A ring-colour-based counting helper in [`core.ts`](src/shared/engine/core.ts:1) or a small new module, e.g.:
-    - [`countRingsInPlayForPlayer()`](src/shared/engine/core.ts) – see §3.4.
+  - A ring-colour-based counting helper in [`core.ts`](../src/shared/engine/core.ts) or a small new module, e.g.:
+    - [`countRingsInPlayForPlayer()`](../src/shared/engine/core.ts) – see §3.4.
 
 Backend rules engine orchestration:
 
-- [`RuleEngine`](src/server/game/RuleEngine.ts:46)
+- [`RuleEngine`](../src/server/game/RuleEngine.ts)
   - Validation:
-    - [`validateRingPlacement()`](src/server/game/RuleEngine.ts:161)
-    - [`validateSkipPlacement()`](src/server/game/RuleEngine.ts:116)
+    - [`validateRingPlacement()`](../src/server/game/RuleEngine.ts)
+    - [`validateSkipPlacement()`](../src/server/game/RuleEngine.ts)
   - Move enumeration:
-    - [`getValidRingPlacements()`](src/server/game/RuleEngine.ts:839)
-    - [`getValidMoves()`](src/server/game/RuleEngine.ts:752)
+    - [`getValidRingPlacements()`](../src/server/game/RuleEngine.ts)
+    - [`getValidMoves()`](../src/server/game/RuleEngine.ts)
   - Victory:
-    - [`checkGameEnd()`](src/server/game/RuleEngine.ts:728) – wraps [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45).
+    - [`checkGameEnd()`](../src/server/game/RuleEngine.ts) – wraps `evaluateVictory()`.
   - Currently enforces ring caps using _controlled stack heights_ as a proxy for “rings on board”.
 
 Backend game engine:
 
-- [`GameEngine`](src/server/game/GameEngine.ts:92)
-  - Turn orchestration via [`advanceGame()`](src/server/game/GameEngine.ts:2029) and TS `TurnEngine`.
-  - Automatic consequences via [`processAutomaticConsequences()`](src/server/game/GameEngine.ts:1150).
+- [`GameEngine`](../src/server/game/GameEngine.ts)
+  - Turn orchestration via [`advanceGame()`](../src/server/game/GameEngine.ts) and TS `TurnEngine`.
+  - Automatic consequences via [`processAutomaticConsequences()`](../src/server/game/GameEngine.ts).
   - Victory detection:
-    - Uses [`RuleEngine.checkGameEnd()`](src/server/game/RuleEngine.ts:728) inside [`makeMove()`](src/server/game/GameEngine.ts:391) and decision flows.
+    - Uses [`RuleEngine.checkGameEnd()`](../src/server/game/RuleEngine.ts) inside [`makeMove()`](../src/server/game/GameEngine.ts) and decision flows.
   - Per-turn state:
     - `hasPlacedThisTurn`, `mustMoveFromStackKey`,
     - Chain capture state and pending self-elimination flags.
@@ -122,7 +122,7 @@ Backend game engine:
 
 Backend–sandbox parity harness:
 
-- [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1)
+- [`RulesBackendFacade`](../src/server/game/RulesBackendFacade.ts)
   - Bridges between TS GameEngine and Python rules service.
   - Must be used to cross-check new LPS outcomes and ring-cap placement legality.
 
@@ -130,88 +130,88 @@ Backend–sandbox parity harness:
 
 Sandbox engine and placement helpers:
 
-- [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:307)
+- [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts)
   - Applies canonical moves, maintains a sandbox `GameState`, and mirrors backend turn/phase logic.
   - Turn lifecycle:
-    - [`startTurnForCurrentPlayer()`](src/client/sandbox/ClientSandboxEngine.ts:828)
-    - [`advanceTurnAndPhaseForCurrentPlayer()`](src/client/sandbox/ClientSandboxEngine.ts:878)
+    - [`startTurnForCurrentPlayer()`](../src/client/sandbox/ClientSandboxEngine.ts)
+    - [`advanceTurnAndPhaseForCurrentPlayer()`](../src/client/sandbox/ClientSandboxEngine.ts)
   - Placement logic:
-    - [`tryPlaceRings()`](src/client/sandbox/ClientSandboxEngine.ts:1615)
-    - Uses shared placement helpers in [`sandboxPlacement.ts`](src/client/sandbox/sandboxPlacement.ts:1).
+    - [`tryPlaceRings()`](../src/client/sandbox/ClientSandboxEngine.ts)
+    - Uses shared placement helpers in [`sandboxPlacement.ts`](../src/client/sandbox/sandboxPlacement.ts).
   - Victory:
-    - [`checkAndApplyVictory()`](src/client/sandbox/ClientSandboxEngine.ts:1389) delegating to sandbox game-end helpers.
+    - [`checkAndApplyVictory()`](../src/client/sandbox/ClientSandboxEngine.ts) delegating to sandbox game-end helpers.
 
-- [`sandboxPlacement.ts`](src/client/sandbox/sandboxPlacement.ts:1)
-  - Hypothetical placement helper: [`createHypotheticalBoardWithPlacement()`](src/client/sandbox/sandboxPlacement.ts:29).
-  - No-dead-placement reachability: [`hasAnyLegalMoveOrCaptureFrom()`](src/client/sandbox/sandboxPlacement.ts:85).
+- [`sandboxPlacement.ts`](../src/client/sandbox/sandboxPlacement.ts)
+  - Hypothetical placement helper: [`createHypotheticalBoardWithPlacement()`](../src/client/sandbox/sandboxPlacement.ts).
+  - No-dead-placement reachability: [`hasAnyLegalMoveOrCaptureFrom()`](../src/client/sandbox/sandboxPlacement.ts).
   - Legal placement enumeration:
-    - [`enumerateLegalRingPlacements()`](src/client/sandbox/sandboxPlacement.ts:125)
-    - When passed a [`PlacementContext`](src/shared/engine/validators/PlacementValidator.ts:10), already delegates to shared [`validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76); otherwise uses a legacy geometry-only path.
+    - [`enumerateLegalRingPlacements()`](../src/client/sandbox/sandboxPlacement.ts)
+    - When passed a [`PlacementContext`](../src/shared/engine/validators/PlacementValidator.ts), already delegates to shared [`validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts); otherwise uses a legacy geometry-only path.
 
 Sandbox victory and structural stalemate:
 
-- [`sandboxVictory.ts`](src/client/sandbox/sandboxVictory.ts:1)
-  - [`checkSandboxVictory()`](src/client/sandbox/sandboxVictory.ts:70) – wraps shared [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45).
-- [`sandboxGameEnd.ts`](src/client/sandbox/sandboxGameEnd.ts:31)
-  - [`resolveGlobalStalemateIfNeededSandbox()`](src/client/sandbox/sandboxGameEnd.ts:31)
-  - [`checkAndApplyVictorySandbox()`](src/client/sandbox/sandboxGameEnd.ts:117)
+- [`sandboxVictory.ts`](../src/client/sandbox/sandboxVictory.ts)
+  - [`checkSandboxVictory()`](../src/client/sandbox/sandboxVictory.ts) – wraps shared `evaluateVictory()`.
+- [`sandboxGameEnd.ts`](../src/client/sandbox/sandboxGameEnd.ts)
+  - [`resolveGlobalStalemateIfNeededSandbox()`](../src/client/sandbox/sandboxGameEnd.ts)
+  - [`checkAndApplyVictorySandbox()`](../src/client/sandbox/sandboxGameEnd.ts)
   - These mirror structural terminality logic (bare-board stalemate) and must remain consistent once early LPS is added.
 
 ### 3.2.3 Python rules engine
 
 Core engine and victory:
 
-- [`GameEngine`](ai-service/app/game_engine.py:32)
+- `GameEngine`
   - Move enumeration:
-    - [`get_valid_moves()`](ai-service/app/game_engine.py:43)
+    - `get_valid_moves()`
   - State transitions:
-    - [`apply_move()`](ai-service/app/game_engine.py:116)
+    - `apply_move()`
   - Victory logic:
-    - [`_check_victory()`](ai-service/app/game_engine.py:268) – ring elimination, territory, and minimal global structural terminality.
+    - `_check_victory()` – ring elimination, territory, and minimal global structural terminality.
     - Currently has **no early LPS path**; only terminates early on:
       - Elimination threshold crossed,
       - Territory threshold crossed,
       - No stacks and no rings in hand (bare-board stalemate), using a TS-aligned ladder.
 
 - Turn/phase updates and forced elimination:
-  - [`_update_phase()`](ai-service/app/game_engine.py:405)
-  - [`_advance_to_line_processing()`](ai-service/app/game_engine.py:515)
-  - [`_advance_to_territory_processing()`](ai-service/app/game_engine.py:525)
-  - [`_end_turn()`](ai-service/app/game_engine.py:559)
+  - `_update_phase()`
+  - `_advance_to_line_processing()`
+  - `_advance_to_territory_processing()`
+  - `_end_turn()`
   - Forced-elimination helpers:
-    - [`_has_valid_actions()`](ai-service/app/game_engine.py:1814)
-    - [`_get_forced_elimination_moves()`](ai-service/app/game_engine.py:1832)
-    - [`_perform_forced_elimination_for_player()`](ai-service/app/game_engine.py:1873)
+    - `_has_valid_actions()`
+    - `_get_forced_elimination_moves()`
+    - `_perform_forced_elimination_for_player()`
 
 Ring-cap computation and placement:
 
-- [`_estimate_rings_per_player()`](ai-service/app/game_engine.py:783)
+- `_estimate_rings_per_player()`
   - TS-aligned `ringsPerPlayer` per board type.
 - Placement enumeration:
-  - [`_get_ring_placement_moves()`](ai-service/app/game_engine.py:1425)
+  - `_get_ring_placement_moves()`
     - Computes `rings_on_board` as sum of stack heights for stacks **controlled** by the player, then applies per-player cap using this approximation.
 - Placement validation:
-  - [`PlacementValidator`](ai-service/app/rules/validators/placement.py:6)
-    - [`validate()`](ai-service/app/rules/validators/placement.py:7)
+  - [`PlacementValidator`](../ai-service/app/rules/validators/placement.py)
+    - [`validate()`](../ai-service/app/rules/validators/placement.py)
     - Checks:
       - Phase/turn,
       - Rings in hand,
       - Board geometry and occupancy (collapsed spaces, markers),
       - Per-stack placement-count rules (1 on existing stack, 1–3 on empty),
       - No-dead-placement via:
-        - [`GameEngine._create_hypothetical_board_with_placement()`](ai-service/app/game_engine.py:873)
-        - [`GameEngine._has_any_movement_or_capture_after_hypothetical_placement()`](ai-service/app/game_engine.py:1295)
+        - `GameEngine._create_hypothetical_board_with_placement()`
+        - `GameEngine._has_any_movement_or_capture_after_hypothetical_placement()`
     - **Does not** currently enforce a per-player ring cap based on own-colour count; relies on the move generator to avoid emitting over-cap placements.
 
 Rules abstraction and mutators:
 
-- [`DefaultRulesEngine`](ai-service/app/rules/default_engine.py:23)
-  - Delegates `get_valid_moves()` to [`GameEngine.get_valid_moves()`](ai-service/app/game_engine.py:43).
+- [`DefaultRulesEngine`](../ai-service/app/rules/default_engine.py)
+  - Delegates `get_valid_moves()` to `GameEngine.get_valid_moves()`.
   - Uses placement validator/mutator:
-    - [`PlacementValidator`](ai-service/app/rules/validators/placement.py:6)
-    - [`PlacementMutator`](ai-service/app/rules/mutators/placement.py:6)
+    - [`PlacementValidator`](../ai-service/app/rules/validators/placement.py)
+    - [`PlacementMutator`](../ai-service/app/rules/mutators/placement.py)
   - Mutator-first path must remain consistent with new ring-cap semantics.
-- [`rules/core.py`](ai-service/app/rules/core.py:1)
+- [`rules/core.py`](../ai-service/app/rules/core.py)
   - Currently holds geometry and S-invariant helpers; a natural home for a new Python-side own-colour ring-count helper.
 
 ### 3.2.4 Tests and invariants (TS & Python)
@@ -219,36 +219,36 @@ Rules abstraction and mutators:
 TypeScript tests:
 
 - Victory and termination:
-  - [`victory.shared.test.ts`](tests/unit/victory.shared.test.ts:1)
-  - [`GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts:1)
-  - [`RulesMatrix.Victory.GameEngine.test.ts`](tests/scenarios/RulesMatrix.Victory.GameEngine.test.ts:1)
-  - [`RulesMatrix.Victory.ClientSandboxEngine.test.ts`](tests/scenarios/RulesMatrix.Victory.ClientSandboxEngine.test.ts:1)
-  - [`ForcedEliminationAndStalemate.test.ts`](tests/scenarios/ForcedEliminationAndStalemate.test.ts:1)
+  - [`victory.shared.test.ts`](../tests/unit/victory.shared.test.ts)
+  - [`GameEngine.victory.scenarios.test.ts`](../tests/unit/GameEngine.victory.scenarios.test.ts)
+  - [`RulesMatrix.Victory.GameEngine.test.ts`](../tests/scenarios/RulesMatrix.Victory.GameEngine.test.ts)
+  - [`RulesMatrix.Victory.ClientSandboxEngine.test.ts`](../tests/scenarios/RulesMatrix.Victory.ClientSandboxEngine.test.ts)
+  - [`ForcedEliminationAndStalemate.test.ts`](../tests/scenarios/ForcedEliminationAndStalemate.test.ts)
 - Placement and ring caps:
-  - [`placement.shared.test.ts`](tests/unit/placement.shared.test.ts:1)
-  - [`PlacementParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/PlacementParity.RuleEngine_vs_Sandbox.test.ts:1)
+  - [`placement.shared.test.ts`](../tests/unit/placement.shared.test.ts)
+  - [`PlacementParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/PlacementParity.RuleEngine_vs_Sandbox.test.ts)
   - Any tests inspecting placement error codes like `NO_RINGS_AVAILABLE` and capacity boundaries.
 - Cross-engine parity:
-  - [`VictoryParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/VictoryParity.RuleEngine_vs_Sandbox.test.ts:1)
-  - [`RulesBackendFacade.fixtureParity.test.ts`](tests/unit/RulesBackendFacade.fixtureParity.test.ts:1)
-  - [`Python_vs_TS.traceParity.test.ts`](tests/unit/Python_vs_TS.traceParity.test.ts:1)
+  - [`VictoryParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/VictoryParity.RuleEngine_vs_Sandbox.test.ts)
+  - `RulesBackendFacade.fixtureParity.test.ts`
+  - [`Python_vs_TS.traceParity.test.ts`](../tests/unit/Python_vs_TS.traceParity.test.ts)
   - Trace and plateau tests under `tests/unit/TraceParity.*.test.ts` and `tests/scenarios/AI_TerminationFromSeed1Plateau.test.ts`.
 
 Python tests:
 
 - Rules engine correctness and evaluation:
-  - [`test_rules_evaluate_move.py`](ai-service/tests/test_rules_evaluate_move.py:1)
-  - [`test_rules_global_state_guard.py`](ai-service/tests/test_rules_global_state_guard.py:1)
+  - [`test_rules_evaluate_move.py`](../ai-service/tests/test_rules_evaluate_move.py)
+  - [`test_rules_global_state_guard.py`](../ai-service/tests/test_rules_global_state_guard.py)
 - Invariants around “active but no moves”:
-  - [`test_active_no_moves_movement_forced_elimination_regression.py`](ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py:1)
-  - [`test_active_no_moves_movement_fully_eliminated_regression.py`](ai-service/tests/invariants/test_active_no_moves_movement_fully_eliminated_regression.py:1)
-  - [`test_active_no_moves_movement_placements_only_regression.py`](ai-service/tests/invariants/test_active_no_moves_movement_placements_only_regression.py:1)
-  - [`test_active_no_moves_territory_processing_regression.py`](ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py:1)
+  - [`test_active_no_moves_movement_forced_elimination_regression.py`](../ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py)
+  - [`test_active_no_moves_movement_fully_eliminated_regression.py`](../ai-service/tests/invariants/test_active_no_moves_movement_fully_eliminated_regression.py)
+  - [`test_active_no_moves_movement_placements_only_regression.py`](../ai-service/tests/invariants/test_active_no_moves_movement_placements_only_regression.py)
+  - [`test_active_no_moves_territory_processing_regression.py`](../ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py)
 - Parity harnesses:
-  - [`test_rules_parity.py`](ai-service/tests/parity/test_rules_parity.py:1)
-  - [`test_rules_parity_fixtures.py`](ai-service/tests/parity/test_rules_parity_fixtures.py:1)
-  - [`test_ts_seed_plateau_snapshot_parity.py`](ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py:1)
-  - Plateau progress tests such as [`test_ai_plateau_progress.py`](ai-service/tests/parity/test_ai_plateau_progress.py:1).
+  - `test_rules_parity.py`
+  - [`test_rules_parity_fixtures.py`](../ai-service/tests/parity/test_rules_parity_fixtures.py)
+  - [`test_ts_seed_plateau_snapshot_parity.py`](../ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py)
+  - Plateau progress tests such as [`test_ai_plateau_progress.py`](../ai-service/tests/parity/test_ai_plateau_progress.py).
 
 These suites need targeted updates and new cases to cover:
 
@@ -266,14 +266,14 @@ This section describes **state representation**, **real-action classification**,
 **Objectives**
 
 - Track sufficient metadata to evaluate R172 at the **start of a player’s turn** without re-simulating the entire move history.
-- Keep the shared victory helper [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45) as the single canonical place where LPS is actually declared.
+- Keep the shared victory helper `evaluateVictory()` as the single canonical place where LPS is actually declared.
 - Avoid storing bulky per-turn logs; instead, maintain compact summary state that is updated at well-defined points in the turn pipeline.
 
 **Proposed additional state**
 
-Rather than adding LPS fields to the wire-level [`GameState`](src/shared/types/game.ts:471), we keep LPS tracking **host-internal** on the backend engine and sandbox, mirroring the existing pattern for `hasPlacedThisTurn` and chain capture state:
+Rather than adding LPS fields to the wire-level [`GameState`](../src/shared/types/game.ts), we keep LPS tracking **host-internal** on the backend engine and sandbox, mirroring the existing pattern for `hasPlacedThisTurn` and chain capture state:
 
-- Backend [`GameEngine`](src/server/game/GameEngine.ts:92):
+- Backend [`GameEngine`](../src/server/game/GameEngine.ts):
   - New private fields:
     - `private lpsRoundIndex: number = 0;`
     - `private lpsCurrentRoundActorMask: Map<number, boolean>` (or `{ [playerNumber: number]: boolean }`) – records, for the **current** round, whether each player has had **any real action available** at the start of their most recent turn in this round.
@@ -281,7 +281,7 @@ Rather than adding LPS fields to the wire-level [`GameState`](src/shared/types/g
       - If, at the end of a completed round, exactly one player had real actions on every turn in that round, this is set to that player; otherwise `null`.
     - `private lpsLastEvaluatedTurnPlayer: number | null = null;` – optional, for diagnostics and consistency checks.
 
-- Client [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:307):
+- Client [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts):
   - Mirror the same internal fields with sandbox-specific naming:
     - `private _lpsRoundIndex: number = 0;`
     - `private _lpsCurrentRoundActorMask: Map<number, boolean>;`
@@ -295,24 +295,24 @@ These fields are **not** part of `GameState` and therefore do not affect snapsho
 **Turn-pipeline integration points**
 
 - **Backend TS**:
-  - Hook into [`advanceGame()`](src/server/game/GameEngine.ts:2029) to detect **start-of-turn events** for interactive players:
-    - After `advanceGameForCurrentPlayer` returns and any automatic phases are stepped via [`stepAutomaticPhasesForTesting()`](src/server/game/GameEngine.ts:2789), identify the moment where:
+  - Hook into [`advanceGame()`](../src/server/game/GameEngine.ts) to detect **start-of-turn events** for interactive players:
+    - After `advanceGameForCurrentPlayer` returns and any automatic phases are stepped via [`stepAutomaticPhasesForTesting()`](../src/server/game/GameEngine.ts), identify the moment where:
       - `gameStatus === 'active'`, and
       - `currentPhase` is one of the interactive phases (`ring_placement`, `movement`, `capture`, `chain_capture`).
     - At that point, call a new private helper, e.g.:
-      - [`updateLpsRoundTrackingForCurrentPlayer()`](src/server/game/GameEngine.ts) which:
+      - [`updateLpsRoundTrackingForCurrentPlayer()`](../src/server/game/GameEngine.ts) which:
         - Computes whether the **current player** has any real actions (see §3.3.2).
         - Updates `lpsCurrentRoundActorMask` and handles round boundaries (increment `lpsRoundIndex`, roll mask, and compute `lpsExclusivePlayerForCompletedRound` when a round completes).
 - **Sandbox TS**:
-  - Use the same conceptual hook in [`startTurnForCurrentPlayer()`](src/client/sandbox/ClientSandboxEngine.ts:828):
+  - Use the same conceptual hook in [`startTurnForCurrentPlayer()`](../src/client/sandbox/ClientSandboxEngine.ts):
     - At the point where sandbox turn state is initialised for the new active player, call a mirror helper:
-      - [`updateLpsRoundTrackingForCurrentPlayerSandbox()`](src/client/sandbox/ClientSandboxEngine.ts)
+      - [`updateLpsRoundTrackingForCurrentPlayerSandbox()`](../src/client/sandbox/ClientSandboxEngine.ts)
     - Keep the round-index and mask semantics parallel to the backend.
 
 **Round boundary definition**
 
 - A “round” for R172 is defined over **players who can ever act again** under current material, mirroring TS turn skipping:
-  - In backend: players who would not be skipped by [`TurnLogicDelegates.getPlayerStacks()`](src/shared/engine/turnLogic.ts:58) and `ringsInHand > 0` logic in [`advanceTurnAndPhase()`](src/shared/engine/turnLogic.ts:221–255).
+  - In backend: players who would not be skipped by [`TurnLogicDelegates.getPlayerStacks()`](../src/shared/engine/turnLogic.ts) and `ringsInHand > 0` logic in `advanceTurnAndPhase()`.
   - Rather than re-encoding seat order in LPS logic, treat a round as:
 
     > The sequence of interactive turns produced by successive calls to `advanceGameForCurrentPlayer/advanceTurnAndPhaseForCurrentPlayerSandbox` that visit each **non-eliminated** player at least once before returning to a given player.
@@ -327,23 +327,23 @@ This algorithm can be implemented host-side without any shared `GameState` chang
 
 #### Python
 
-Python’s [`GameEngine`](ai-service/app/game_engine.py:32) currently uses **static methods** and treats `GameState` as the full state carrier. For LPS we have two options:
+Python’s `GameEngine` currently uses **static methods** and treats `GameState` as the full state carrier. For LPS we have two options:
 
 1. Make `_check_victory()` and related functions instance methods and store LPS-tracking fields on `GameEngine` itself; or
 2. Keep `_check_victory()` static and add small, optional LPS metadata fields to the `GameState` Pydantic model.
 
 To keep the architecture closer to TS (where LPS metadata is engine-internal) but without rewriting the Python model layer in this task, prefer option 2:
 
-- Extend Python [`GameState`](ai-service/app/models.py:1) with optional LPS fields:
+- Extend Python `GameState` with optional LPS fields:
   - `lps_round_index: int = 0`
   - `lps_current_round_actor_mask: dict[int, bool] = {}` (or `Dict[int, bool]`)
   - `lps_exclusive_player_for_completed_round: int | None = None`
 - Maintain these fields inside `GameEngine` turn helpers:
-  - In [`_end_turn()`](ai-service/app/game_engine.py:559):
-    - After selecting the next `current_player` and deciding their starting phase, call a new helper, e.g. [`_update_lps_round_tracking_for_current_player()`](ai-service/app/game_engine.py:1xx0).
+  - In `_end_turn()`:
+    - After selecting the next `current_player` and deciding their starting phase, call a new helper, e.g. `_update_lps_round_tracking_for_current_player()`.
   - On game start, initialise these fields once based on the first active player.
 
-These fields are only used inside [`_check_victory()`](ai-service/app/game_engine.py:268) to determine whether the LPS preconditions (one full prior round of exclusive real actions) have been met.
+These fields are only used inside `_check_victory()` to determine whether the LPS preconditions (one full prior round of exclusive real actions) have been met.
 
 ### 3.3.2 Definition and detection of “real actions”
 
@@ -365,7 +365,7 @@ For implementors (TS and Python):
 - **Not real actions** (must **not** satisfy R172 real-action predicate):
   - `skip_placement` / `MoveType.SKIP_PLACEMENT` – phase control only; relies on underlying movement/capture availability.
   - Any forced elimination or internal elimination moves, including:
-    - TS host-only forced elimination in [`TurnEngine`](src/server/game/turn/TurnEngine.ts:1).
+    - TS host-only forced elimination in [`TurnEngine`](../src/server/game/turn/TurnEngine.ts).
     - Python `MoveType.FORCED_ELIMINATION` and `MoveType.ELIMINATE_RINGS_FROM_STACK` when used purely as self/forced elimination decisions.
   - Line-processing and territory-processing moves:
     - TS: `'process_line'`, `'choose_line_reward'`, `'process_territory_region'`, `'eliminate_rings_from_stack'`, legacy `'line_formation'`, `'territory_claim'`.
@@ -380,17 +380,17 @@ In practice, for both languages we should **not** classify moves by type directl
       - Does `getValidMoves(state).filter(...)` contain any `place_ring`, `move_stack`/`move_ring`/`build_stack`, or `overtaking_capture` moves for that player?
     - Or, more efficiently, expose a small shared helper modelled on Python `_has_valid_actions()`:
       - Evaluate:
-        - “Has any placement?” via a light wrapper around [`getValidRingPlacements()`](src/server/game/RuleEngine.ts:839) or a dedicated `hasAnyPlacement` call.
-        - “Has any movement?” via enumeration over [`getValidStackMovements()`](src/server/game/RuleEngine.ts:925).
-        - “Has any capture?” via [`getValidCaptures()`](src/server/game/RuleEngine.ts:985).
-- Python: reuse [`_has_valid_actions()`](ai-service/app/game_engine.py:1814) as the canonical “real action available?” predicate for LPS (forced elimination is not considered here).
+        - “Has any placement?” via a light wrapper around [`getValidRingPlacements()`](../src/server/game/RuleEngine.ts) or a dedicated `hasAnyPlacement` call.
+        - “Has any movement?” via enumeration over [`getValidStackMovements()`](../src/server/game/RuleEngine.ts).
+        - “Has any capture?” via [`getValidCaptures()`](../src/server/game/RuleEngine.ts).
+- Python: reuse `_has_valid_actions()` as the canonical “real action available?” predicate for LPS (forced elimination is not considered here).
 
 **Sandbox TS mapping**
 
 - For the sandbox, `hasAnyRealActionForPlayer` should be implemented using the same logic as backend, but via sandbox-specific enumerators:
-  - Placement: [`enumerateLegalRingPlacements()`](src/client/sandbox/sandboxPlacement.ts:125) with an appropriate [`PlacementContext`](src/shared/engine/validators/PlacementValidator.ts:10), ignoring `SKIP_PLACEMENT`.
-  - Movement: [`enumerateSimpleMovementLandings()`](src/client/sandbox/ClientSandboxEngine.ts:618).
-  - Capture: [`enumerateCaptureSegmentsFrom()`](src/client/sandbox/ClientSandboxEngine.ts:681) or capture enumerators in [`sandboxMovementEngine.ts`](src/client/sandbox/sandboxMovementEngine.ts:59).
+  - Placement: [`enumerateLegalRingPlacements()`](../src/client/sandbox/sandboxPlacement.ts) with an appropriate [`PlacementContext`](../src/shared/engine/validators/PlacementValidator.ts), ignoring `SKIP_PLACEMENT`.
+  - Movement: [`enumerateSimpleMovementLandings()`](../src/client/sandbox/ClientSandboxEngine.ts).
+  - Capture: [`enumerateCaptureSegmentsFrom()`](../src/client/sandbox/ClientSandboxEngine.ts) or capture enumerators in `sandboxMovementEngine.ts`.
 
 ### 3.3.3 LPS check integration in victory logic
 
@@ -398,9 +398,9 @@ In practice, for both languages we should **not** classify moves by type directl
 
 **1. Host-side LPS round tracking**
 
-Implement a backend helper on [`GameEngine`](src/server/game/GameEngine.ts:92), e.g.:
+Implement a backend helper on [`GameEngine`](../src/server/game/GameEngine.ts), e.g.:
 
-- [`updateLpsRoundTrackingForCurrentPlayer()`](src/server/game/GameEngine.ts):
+- [`updateLpsRoundTrackingForCurrentPlayer()`](../src/server/game/GameEngine.ts):
   - Inputs:
     - Current `GameState` snapshot,
     - Current player number `P = gameState.currentPlayer`,
@@ -419,11 +419,11 @@ Implement a backend helper on [`GameEngine`](src/server/game/GameEngine.ts:92), 
     - Called:
       - At the start of a player’s interactive turn after `advanceGame` or `startTurnForCurrentPlayerSandbox`.
 
-Mirror this helper in [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:307) with sandbox-specific enumerations.
+Mirror this helper in [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts) with sandbox-specific enumerations.
 
 **2. LPS declaration in shared victory logic**
 
-Extend [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45) to declare early last-player-standing wins as follows:
+Extend `evaluateVictory()` to declare early last-player-standing wins as follows:
 
 1. Preserve existing ordering for primary victories:
 
@@ -449,7 +449,7 @@ Extend [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45) to declare ea
    // 4) Bare-board structural terminality & global stalemate ...
    ```
 
-3. Implement [`evaluateLastPlayerStandingCandidate()`](src/shared/engine/victoryLogic.ts) as a pure helper that uses only the **current** `GameState` plus **engine-maintained metadata** exposed via conventions:
+3. Implement `evaluateLastPlayerStandingCandidate()` as a pure helper that uses only the **current** `GameState` plus **engine-maintained metadata** exposed via conventions:
    - `state.gameStatus` must be `'active'`.
    - LPS should **only** be considered at the **start of an interactive turn**:
      - Engines must ensure they call `RuleEngine.checkGameEnd()` or sandbox `checkAndApplyVictory()` at the start of each player’s turn, immediately after updating internal LPS round tracking.
@@ -467,20 +467,20 @@ Extend [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45) to declare ea
              - All _other_ players have no real actions (`hasAnyRealActionForPlayer(state, q) === false` for each q still with material).
 
        - Sandbox:
-         - In [`advanceAfterMovement()`](src/client/sandbox/ClientSandboxEngine.ts:1715) and in the placement path, after phases have been advanced and before scheduling AI/human turns, call [`checkAndApplyVictory()`](src/client/sandbox/ClientSandboxEngine.ts:1389), which in turn calls [`checkSandboxVictory()`](src/client/sandbox/sandboxVictory.ts:70). That function should be extended to dispatch an LPS check similar to TS backend, using sandbox’s own LPS tracking state.
+         - In [`advanceAfterMovement()`](../src/client/sandbox/ClientSandboxEngine.ts) and in the placement path, after phases have been advanced and before scheduling AI/human turns, call [`checkAndApplyVictory()`](../src/client/sandbox/ClientSandboxEngine.ts), which in turn calls [`checkSandboxVictory()`](../src/client/sandbox/sandboxVictory.ts). That function should be extended to dispatch an LPS check similar to TS backend, using sandbox’s own LPS tracking state.
 
-     - To keep [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45) free of engine-internal metadata, **LPS detection is conceptually split**:
+     - To keep `evaluateVictory()` free of engine-internal metadata, **LPS detection is conceptually split**:
        - Engine-level code is responsible for:
          - Determining whether an LPS candidate exists per R172,
          - Calling shared `evaluateVictory()` only for elimination/territory/structural conditions,
          - When R172 triggers, directly setting `gameStatus`, `winner`, and using `reason: 'last_player_standing'` in host-specific `GameResult` builders.
        - This approach avoids injecting per-engine LPS state into the shared types, and keeps the shared evaluator focused on ring/territory/stalemate.
 
-Given the strong existing pattern that [`evaluateVictory()`](src/shared/engine/victoryLogic.ts:45) is used only for elimination/territory/stalemate, this plan keeps LPS **engine-local** while still using the shared victory reason `'last_player_standing'` for final reporting.
+Given the strong existing pattern that `evaluateVictory()` is used only for elimination/territory/stalemate, this plan keeps LPS **engine-local** while still using the shared victory reason `'last_player_standing'` for final reporting.
 
 **3. Backend call sites**
 
-- Modify [`GameEngine.makeMove()`](src/server/game/GameEngine.ts:391) to perform an **additional LPS-aware victory check** at the start of each new interactive turn:
+- Modify [`GameEngine.makeMove()`](../src/server/game/GameEngine.ts) to perform an **additional LPS-aware victory check** at the start of each new interactive turn:
   - After:
 
     ```ts
@@ -489,34 +489,34 @@ Given the strong existing pattern that [`evaluateVictory()`](src/shared/engine/v
     ```
 
   - If `this.gameState.gameStatus === 'active'` and currentPhase is interactive:
-    - Call a new private helper, e.g. [`maybeEndGameByLastPlayerStanding()`](src/server/game/GameEngine.ts), which:
+    - Call a new private helper, e.g. [`maybeEndGameByLastPlayerStanding()`](../src/server/game/GameEngine.ts), which:
       - Reads internal LPS tracking state,
       - Uses backend implementations of `hasAnyRealActionForPlayer`,
-      - If R172 is satisfied, calls [`endGame(winner, 'last_player_standing')`](src/server/game/GameEngine.ts:2136).
+      - If R172 is satisfied, calls [`endGame(winner, 'last_player_standing')`](../src/server/game/GameEngine.ts).
 
 - Ensure that `RuleEngine.checkGameEnd()` remains the single entry for ring-elimination, territory, and structural stalemate; LPS is an **additional** host-level termination path.
 
 **4. Sandbox integration**
 
-- In [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:369):
+- In [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts):
   - After advancing to the next player/phase in `advanceAfterMovement()` and `tryPlaceRings()`, call a new helper:
-    - [`maybeEndSandboxGameByLastPlayerStanding()`](src/client/sandbox/ClientSandboxEngine.ts), which:
+    - [`maybeEndSandboxGameByLastPlayerStanding()`](../src/client/sandbox/ClientSandboxEngine.ts), which:
       - Uses sandbox’s LPS tracking fields and sandbox-appropriate `hasAnyRealActionForPlayer` implementation.
-      - When R172 triggers, sets sandbox `gameStatus` to `'completed'`, populates [`victoryResult`](src/client/sandbox/ClientSandboxEngine.ts:419) with `reason: 'last_player_standing'`, and normalises `currentPhase` to `'ring_placement'` for terminal snapshots (mirroring backend).
+      - When R172 triggers, sets sandbox `gameStatus` to `'completed'`, populates [`victoryResult`](../src/client/sandbox/ClientSandboxEngine.ts) with `reason: 'last_player_standing'`, and normalises `currentPhase` to `'ring_placement'` for terminal snapshots (mirroring backend).
 
-- Extend [`checkSandboxVictory()`](src/client/sandbox/sandboxVictory.ts:70) only if desired; the primary LPS detection path can live in `ClientSandboxEngine` similarly to the backend.
+- Extend [`checkSandboxVictory()`](../src/client/sandbox/sandboxVictory.ts) only if desired; the primary LPS detection path can live in `ClientSandboxEngine` similarly to the backend.
 
 #### Python
 
 **1. Real-action availability**
 
-- Reuse [`_has_valid_actions()`](ai-service/app/game_engine.py:1814) as the R172 “real action available?” predicate.
+- Reuse `_has_valid_actions()` as the R172 “real action available?” predicate.
 - Define a small, explicit helper:
-  - [`_has_real_action_for_player(game_state, player_number)`](ai-service/app/game_engine.py:1xxx) which simply wraps `_has_valid_actions()` but documents that it excludes forced elimination.
+  - `_has_real_action_for_player(game_state, player_number)` which simply wraps `_has_valid_actions()` but documents that it excludes forced elimination.
 
 **2. Round tracking**
 
-- Implement `_update_lps_round_tracking_for_current_player()` in [`GameEngine`](ai-service/app/game_engine.py:1xxx):
+- Implement `_update_lps_round_tracking_for_current_player()` in `GameEngine`:
   - Use the same conceptual fields as in TS but stored on `GameState`:
     - `game_state.lps_round_index`,
     - `game_state.lps_current_round_actor_mask`,
@@ -539,7 +539,7 @@ Given the strong existing pattern that [`evaluateVictory()`](src/shared/engine/v
 
 **3. LPS check in `_check_victory()`**
 
-- Extend [`_check_victory()`](ai-service/app/game_engine.py:268) to include R172 before structural terminality:
+- Extend `_check_victory()` to include R172 before structural terminality:
   1. Keep existing ring-elimination and territory victory checks unchanged.
   2. Insert new R172 logic:
 
@@ -579,7 +579,7 @@ Given the strong existing pattern that [`evaluateVictory()`](src/shared/engine/v
 Add new focused LPS tests and update existing scenario suites.
 
 1. **Minimal 3-player LPS success (TS backend)**
-   - File: [`tests/unit/GameEngine.victory.LPS.scenarios.test.ts`](tests/unit/GameEngine.victory.LPS.scenarios.test.ts:1) (new).
+   - File: `tests/unit/GameEngine.victory.LPS.scenarios.test.ts` (new).
    - Scenario:
      - 3-player square8 game.
      - Construct a sequence of moves where:
@@ -620,7 +620,7 @@ Add new focused LPS tests and update existing scenario suites.
        - LPS win is declared as in test (1), even though `P2`/`P3` have had forced eliminations.
 
 4. **Sandbox parity**
-   - File: [`tests/unit/ClientSandboxEngine.victory.test.ts`](tests/unit/ClientSandboxEngine.victory.test.ts:1) – extend or add new case.
+   - File: [`tests/unit/ClientSandboxEngine.victory.test.ts`](../tests/unit/ClientSandboxEngine.victory.test.ts) – extend or add new case.
    - Mirror scenarios (1)–(3) using the sandbox engine:
      - Use `ClientSandboxEngine.applyCanonicalMove()` to apply the same move sequence as the backend.
      - Assert identical terminal `GameResult` (winner and `reason: 'last_player_standing'`) and matching `GameState` snapshots up to expected differences (e.g., history details).
@@ -628,9 +628,9 @@ Add new focused LPS tests and update existing scenario suites.
 #### Python tests
 
 1. **Core R172 behaviour**
-   - Extend [`test_rules_evaluate_move.py`](ai-service/tests/test_rules_evaluate_move.py:1):
+   - Extend [`test_rules_evaluate_move.py`](../ai-service/tests/test_rules_evaluate_move.py):
      - Build a 3-player `GameState` mirroring the TS scenario.
-     - Apply the same sequence of moves via [`DefaultRulesEngine.apply_move()`](ai-service/app/rules/default_engine.py:285) or [`GameEngine.apply_move()`](ai-service/app/game_engine.py:116).
+     - Apply the same sequence of moves via [`DefaultRulesEngine.apply_move()`](../ai-service/app/rules/default_engine.py) or `GameEngine.apply_move()`.
      - After the sequence, assert:
        - `game_state.game_status == GameStatus.FINISHED`,
        - `game_state.winner == 1`.
@@ -647,15 +647,15 @@ Add new focused LPS tests and update existing scenario suites.
 
 3. **Parity tests**
    - Extend or add plateau parity tests:
-     - [`test_rules_parity.py`](ai-service/tests/parity/test_rules_parity.py:1)
-     - [`test_ts_seed_plateau_snapshot_parity.py`](ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py:1)
+     - `test_rules_parity.py`
+     - [`test_ts_seed_plateau_snapshot_parity.py`](../ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py)
    - Design new parity fixture(s) where:
      - The TS engine and Python engine reach an identical game state at the point where an LPS win should be declared.
      - Both report the same winner and treat that step as the terminal snapshot.
 
 ### 3.3.5 Backwards-compatibility & invariants
 
-- **Existing TS stalemate tests** (e.g. [`ForcedEliminationAndStalemate.test.ts`](tests/scenarios/ForcedEliminationAndStalemate.test.ts:1)):
+- **Existing TS stalemate tests** (e.g. [`ForcedEliminationAndStalemate.test.ts`](../tests/scenarios/ForcedEliminationAndStalemate.test.ts)):
   - Some scenarios that previously ran until bare-board stalemate may now end earlier via LPS when:
     - One player retains real actions and others are fully blocked or out of material for at least a full round.
   - These tests should be:
@@ -665,12 +665,12 @@ Add new focused LPS tests and update existing scenario suites.
 
 - **S-invariant and termination**:
   - LPS termination does **not** change S-monotonicity; the engines simply stop earlier in some plateaus.
-  - The existing termination analysis in [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md:1) remains valid; we gain an _earlier_ termination route that prevents uninteresting repeated forced-elimination cycles.
+  - The existing termination analysis in [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md) remains valid; we gain an _earlier_ termination route that prevents uninteresting repeated forced-elimination cycles.
 
 - **AI and training invariants**:
   - `STRICT_NO_MOVE_INVARIANT` in Python remains focused on **active states**:
     - It should treat LPS-terminated states as **non-active**, avoiding false invariant failures.
-  - Training code that samples terminal outcomes from the Python engine (e.g. [`generate_data.py`](ai-service/app/training/generate_data.py:1), [`env.py`](ai-service/app/training/env.py:1)) must handle LPS winners identically to ring-elimination and territory wins, differing only in the `reason` code.
+  - Training code that samples terminal outcomes from the Python engine (e.g. [`generate_data.py`](../ai-service/app/training/generate_data.py), [`env.py`](../ai-service/app/training/env.py)) must handle LPS winners identically to ring-elimination and territory wins, differing only in the `reason` code.
 
 ## 3.4 Detailed Plan – `ringsPerPlayer` Own-Colour Cap (R020, R081–R082)
 
@@ -679,11 +679,11 @@ Add new focused LPS tests and update existing scenario suites.
 #### TypeScript
 
 - Shared placement validator:
-  - [`PlacementContext`](src/shared/engine/validators/PlacementValidator.ts:10) carries:
+  - [`PlacementContext`](../src/shared/engine/validators/PlacementValidator.ts) carries:
     - `ringsPerPlayerCap`,
     - `ringsInHand`,
     - Optional `ringsOnBoard` and `maxAvailableGlobal`.
-  - [`computeRingsOnBoardForPlayer()`](src/shared/engine/validators/PlacementValidator.ts:51) currently computes `ringsOnBoard` as:
+  - [`computeRingsOnBoardForPlayer()`](../src/shared/engine/validators/PlacementValidator.ts) currently computes `ringsOnBoard` as:
 
     ```ts
     for (const stack of board.stacks.values()) {
@@ -695,7 +695,7 @@ Add new focused LPS tests and update existing scenario suites.
 
     This is the “controlled-stack height” approximation flagged in the rules audit.
 
-  - [`validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76):
+  - [`validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts):
     - Uses:
       - `ringsPerPlayerCap - ringsOnBoard`,
       - `ringsInHand`,
@@ -703,18 +703,18 @@ Add new focused LPS tests and update existing scenario suites.
     - Enforces `NO_RINGS_AVAILABLE` when `maxAvailableGlobal <= 0`.
 
 - Backend enumeration:
-  - [`getValidRingPlacements()`](src/server/game/RuleEngine.ts:839):
+  - [`getValidRingPlacements()`](../src/server/game/RuleEngine.ts):
     - Recomputes `ringsOnBoard` using `getPlayerStacks()` and summing stack heights.
     - Sets `PlacementContext.ringsOnBoard` and `maxAvailableGlobal` for the shared validator.
 
 - Sandbox enumeration:
-  - [`enumerateLegalRingPlacements()`](src/client/sandbox/sandboxPlacement.ts:125):
+  - [`enumerateLegalRingPlacements()`](../src/client/sandbox/sandboxPlacement.ts):
     - When passed a `PlacementContext`, defers to `validatePlacementOnBoard()` and thus inherits the current approximation.
     - Legacy path (without `ctx`) has **no cap logic** and relies purely on `ringsInHand` as an implicit cap (using the initial supply number).
 
 #### Python
 
-- [`GameEngine._get_ring_placement_moves()`](ai-service/app/game_engine.py:1425):
+- `GameEngine._get_ring_placement_moves()`:
   - Uses `_estimate_rings_per_player()` to derive `per_player_cap`.
   - Approximates `rings_on_board` as:
 
@@ -730,7 +730,7 @@ Add new focused LPS tests and update existing scenario suites.
     max_available_global = min(remaining_by_cap, rings_in_hand)
     ```
 
-- [`PlacementValidator.validate()`](ai-service/app/rules/validators/placement.py:7):
+- [`PlacementValidator.validate()`](../ai-service/app/rules/validators/placement.py):
   - Checks rings in hand, per-cell limits, and no-dead-placement,
   - Does **not** explicitly enforce caps; instead, it assumes that `GameEngine._get_ring_placement_moves()` will not generate over-cap placements.
 
@@ -738,10 +738,10 @@ Add new focused LPS tests and update existing scenario suites.
 
 #### TypeScript helper
 
-Add a new shared helper in [`core.ts`](src/shared/engine/core.ts:1) or a small dedicated module (e.g. `supplyHelpers.ts`). The recommended minimal, centralised place is `core.ts`:
+Add a new shared helper in [`core.ts`](../src/shared/engine/core.ts) or a small dedicated module (e.g. `supplyHelpers.ts`). The recommended minimal, centralised place is `core.ts`:
 
 - Signature:
-  - [`countRingsInPlayForPlayer()`](src/shared/engine/core.ts):
+  - [`countRingsInPlayForPlayer()`](../src/shared/engine/core.ts):
 
     ```ts
     export function countRingsInPlayForPlayer(state: GameState, playerNumber: number): number {
@@ -764,14 +764,14 @@ Add a new shared helper in [`core.ts`](src/shared/engine/core.ts:1) or a small d
     ```
 
   - A board-only variant is optional if needed:
-    - [`countRingsOnBoardForPlayer()`](src/shared/engine/core.ts) that omits the `ringsInHand` component.
+    - [`countRingsOnBoardForPlayer()`](../src/shared/engine/core.ts) that omits the `ringsInHand` component.
 
 #### Python helper
 
-Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) or a new `supply.py` module:
+Add the analogous helper in [`rules/core.py`](../ai-service/app/rules/core.py) or a new `supply.py` module:
 
 - Signature:
-  - [`count_rings_in_play_for_player(state: GameState, player_number: int) -> int`](ai-service/app/rules/core.py):
+  - [`count_rings_in_play_for_player(state: GameState, player_number: int) -> int`](../ai-service/app/rules/core.py):
 
     ```py
     def count_rings_in_play_for_player(state: GameState, player_number: int) -> int:
@@ -798,15 +798,15 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
 #### TypeScript – validators and enumeration
 
 1. **Shared validator**
-   - Replace [`computeRingsOnBoardForPlayer()`](src/shared/engine/validators/PlacementValidator.ts:51) with a wrapper around the new helper:
+   - Replace [`computeRingsOnBoardForPlayer()`](../src/shared/engine/validators/PlacementValidator.ts) with a wrapper around the new helper:
      - Option A (minimal):
-       - Delete `computeRingsOnBoardForPlayer()` and, inside [`validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76), require callers to provide `ringsOnBoard` / `maxAvailableGlobal` in `PlacementContext`, derived from `countRingsInPlayForPlayer()`.
+       - Delete `computeRingsOnBoardForPlayer()` and, inside [`validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts), require callers to provide `ringsOnBoard` / `maxAvailableGlobal` in `PlacementContext`, derived from `countRingsInPlayForPlayer()`.
 
      - Option B (less invasive):
        - Rename and repurpose `computeRingsOnBoardForPlayer()` to:
          - Iterate stacks and count only rings with `owner === ctx.player`, ignoring controllingPlayer.
 
-         - Update comments on [`PlacementContext.ringsOnBoard`](src/shared/engine/validators/PlacementValidator.ts:24) to describe “number of this player’s rings currently on the board, regardless of control”.
+         - Update comments on [`PlacementContext.ringsOnBoard`](../src/shared/engine/validators/PlacementValidator.ts) to describe “number of this player’s rings currently on the board, regardless of control”.
 
    - Update `remainingByCap` and `maxAvailableGlobal` computation to use the exact own-colour count:
 
@@ -832,7 +832,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
      - This is already enforced indirectly by the current `maxAvailableGlobal` logic; we just need to ensure `ringsOnBoard` represents own-colour rings, not controlled stacks.
 
 2. **RuleEngine enumeration**
-   - In [`getValidRingPlacements()`](src/server/game/RuleEngine.ts:839):
+   - In [`getValidRingPlacements()`](../src/server/game/RuleEngine.ts):
      - Replace the current controlled-stack-based `ringsOnBoard` computation with a call to the shared helper:
 
        ```ts
@@ -868,7 +868,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
 #### Python – validators and enumeration
 
 1. **Move generator**
-   - In [`_get_ring_placement_moves()`](ai-service/app/game_engine.py:1425):
+   - In `_get_ring_placement_moves()`:
      - Replace the controlled-stack-based `rings_on_board` with the own-colour count:
 
        ```py
@@ -885,7 +885,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
    - This ensures the Python cap semantics now match TS exactly: captured opponent rings in your stacks are ignored when computing your cap usage.
 
 2. **PlacementValidator**
-   - Optionally harden [`PlacementValidator.validate()`](ai-service/app/rules/validators/placement.py:6) to enforce caps even if a caller constructs an ad hoc `Move` (rare but safer):
+   - Optionally harden [`PlacementValidator.validate()`](../ai-service/app/rules/validators/placement.py) to enforce caps even if a caller constructs an ad hoc `Move` (rare but safer):
      - At the start of `validate()` (after fetching `player` and `count`), insert:
 
        ```py
@@ -907,7 +907,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
 #### TypeScript tests
 
 1. **Own-colour-only cap with tall mixed stacks**
-   - File: [`tests/unit/placement.shared.test.ts`](tests/unit/placement.shared.test.ts:1):
+   - File: [`tests/unit/placement.shared.test.ts`](../tests/unit/placement.shared.test.ts):
      - Add a test like `it('allows placements up to ringsPerPlayer even with many captured opponent rings under cap')`.
    - Scenario:
      - On square8 (18 rings per player), construct a board where:
@@ -934,7 +934,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
 
 3. **Per-board-type smoke coverage**
    - File: either:
-     - Extend [`tests/scenarios/RulesMatrix.GameEngine.test.ts`](tests/scenarios/RulesMatrix.GameEngine.test.ts:1), or
+     - Extend [`tests/scenarios/RulesMatrix.GameEngine.test.ts`](../tests/scenarios/RulesMatrix.GameEngine.test.ts), or
      - Add dedicated `RulesMatrix.RingCap.*.test.ts` files.
    - For each board type (square8, square19, hexagonal), design a small scenario:
      - Fill the board up to near cap with own-colour rings.
@@ -944,7 +944,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
        - Over-cap placements are rejected.
 
 4. **Parity**
-   - Update / extend [`PlacementParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/PlacementParity.RuleEngine_vs_Sandbox.test.ts:1):
+   - Update / extend [`PlacementParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/PlacementParity.RuleEngine_vs_Sandbox.test.ts):
      - Build board states with:
        - Mixed stacks of many colours.
        - Known own-colour counts near the cap.
@@ -955,7 +955,7 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
 #### Python tests
 
 1. **Own-colour counting helper**
-   - Add tests in [`tests/rules/test_utils.py`](ai-service/tests/rules/test_utils.py:1) or a new file:
+   - Add tests in `tests/rules/test_utils.py` or a new file:
      - `test_count_rings_in_play_for_player_simple`.
      - `test_count_rings_in_play_for_player_with_captures`.
    - Scenarios:
@@ -963,14 +963,14 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
      - Mixed stacks (captured opponent rings in bottom or middle) – ensure only own-colour rings are counted.
 
 2. **Placement generator respects own-colour cap**
-   - Extend [`test_rules_evaluate_move.py`](ai-service/tests/test_rules_evaluate_move.py:1):
+   - Extend [`test_rules_evaluate_move.py`](../ai-service/tests/test_rules_evaluate_move.py):
      - Construct states similar to TS `placement.shared` tests.
-     - Use [`DefaultRulesEngine.get_valid_moves()`](ai-service/app/rules/default_engine.py:97) or direct `GameEngine.get_valid_moves()` to assert:
+     - Use [`DefaultRulesEngine.get_valid_moves()`](../ai-service/app/rules/default_engine.py) or direct `GameEngine.get_valid_moves()` to assert:
        - Placements remain legal up to cap when additional rings are captured but owned by other players.
        - No placements are generated when adding one more own-colour ring would exceed cap.
 
 3. **Parity tests**
-   - In [`test_rules_parity.py`](ai-service/tests/parity/test_rules_parity.py:1) or dedicated fixtures under `tests/parity/vectors/`:
+   - In `test_rules_parity.py` or dedicated fixtures under `tests/parity/vectors/`:
      - Add plateau states with tall mixed stacks where previous approximated caps differ from own-colour semantics.
      - Use existing parity harness to ensure TS and Python both:
        - Allow placement in scenarios that were previously (incorrectly) blocked.
@@ -987,11 +987,11 @@ Add the analogous helper in [`rules/core.py`](ai-service/app/rules/core.py:88) o
 
 Use the existing TS↔Python parity harness built around:
 
-- TS: [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1) and the suite of JS parity tests under `tests/unit/Python_vs_TS.*.test.ts`.
+- TS: [`RulesBackendFacade`](../src/server/game/RulesBackendFacade.ts) and the suite of JS parity tests under `tests/unit/Python_vs_TS.*.test.ts`.
 - Python: parity tests in `ai-service/tests/parity/`, in particular:
-  - [`test_rules_parity.py`](ai-service/tests/parity/test_rules_parity.py:1),
-  - [`test_rules_parity_fixtures.py`](ai-service/tests/parity/test_rules_parity_fixtures.py:1),
-  - [`test_ts_seed_plateau_snapshot_parity.py`](ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py:1).
+  - `test_rules_parity.py`,
+  - [`test_rules_parity_fixtures.py`](../ai-service/tests/parity/test_rules_parity_fixtures.py),
+  - [`test_ts_seed_plateau_snapshot_parity.py`](../ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py).
 
 **Planned parity work:**
 
@@ -1020,18 +1020,18 @@ Use the existing TS↔Python parity harness built around:
 
 ### 3.5.2 AI environment updates
 
-- [`env.py`](ai-service/app/training/env.py:1):
+- [`env.py`](../ai-service/app/training/env.py):
   - Ensure that:
     - Early LPS wins are treated as normal terminal outcomes for RL episodes.
     - The environment returns terminal rewards analogous to other win conditions (no special-case difference beyond the reason code).
 
-- [`generate_data.py`](ai-service/app/training/generate_data.py:1) and other dataset generators:
+- [`generate_data.py`](../ai-service/app/training/generate_data.py) and other dataset generators:
   - When sampling games:
     - Allow games to terminate via `last_player_standing`.
     - Include the new victory reason in any diagnostic or dataset metadata if used (for analysis; model inputs likely remain unchanged).
 
 - Invariant soak tests:
-  - [`test_self_play_stability.py`](ai-service/tests/test_self_play_stability.py:1) and plateau tests such as [`test_ai_plateau_progress.py`](ai-service/tests/parity/test_ai_plateau_progress.py:1):
+  - [`test_self_play_stability.py`](../ai-service/tests/test_self_play_stability.py) and plateau tests such as [`test_ai_plateau_progress.py`](../ai-service/tests/parity/test_ai_plateau_progress.py):
     - Expect some games to end earlier via LPS in multi-player configurations.
     - Adjust thresholds (e.g. max move counts) if needed to account for earlier termination.
 
@@ -1076,24 +1076,24 @@ flowchart TD
 ## 3.6 Execution checklist (for Code/Debug agents)
 
 1. **TypeScript – LPS**
-   - Implement host-internal LPS tracking in [`GameEngine`](src/server/game/GameEngine.ts:92) and [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:307).
+   - Implement host-internal LPS tracking in [`GameEngine`](../src/server/game/GameEngine.ts) and [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts).
    - Add `hasAnyRealActionForPlayer` helpers on backend and sandbox.
    - Add LPS-aware victory checks at start-of-turn in backend and sandbox, returning `reason: 'last_player_standing'`.
 
 2. **Python – LPS**
-   - Extend [`GameState`](ai-service/app/models.py:1) with optional LPS fields.
-   - Implement `_update_lps_round_tracking_for_current_player()` and `_has_real_action_for_player()` in [`GameEngine`](ai-service/app/game_engine.py:32).
-   - Integrate new R172 logic in [`_check_victory()`](ai-service/app/game_engine.py:268).
+   - Extend `GameState` with optional LPS fields.
+   - Implement `_update_lps_round_tracking_for_current_player()` and `_has_real_action_for_player()` in `GameEngine`.
+   - Integrate new R172 logic in `_check_victory()`.
 
 3. **TypeScript – ring caps**
-   - Add `countRingsInPlayForPlayer` helper in [`core.ts`](src/shared/engine/core.ts:1).
-   - Update [`validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76) and [`getValidRingPlacements()`](src/server/game/RuleEngine.ts:839) to use own-colour counts.
-   - Ensure sandbox [`enumerateLegalRingPlacements()`](src/client/sandbox/sandboxPlacement.ts:125) is aligned via `PlacementContext`.
+   - Add `countRingsInPlayForPlayer` helper in [`core.ts`](../src/shared/engine/core.ts).
+   - Update [`validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts) and [`getValidRingPlacements()`](../src/server/game/RuleEngine.ts) to use own-colour counts.
+   - Ensure sandbox [`enumerateLegalRingPlacements()`](../src/client/sandbox/sandboxPlacement.ts) is aligned via `PlacementContext`.
 
 4. **Python – ring caps**
-   - Add `count_rings_in_play_for_player` helper in [`rules/core.py`](ai-service/app/rules/core.py:1).
-   - Update [`_get_ring_placement_moves()`](ai-service/app/game_engine.py:1425) to use own-colour counts.
-   - Optionally strengthen [`PlacementValidator`](ai-service/app/rules/validators/placement.py:6) to enforce caps defensively.
+   - Add `count_rings_in_play_for_player` helper in [`rules/core.py`](../ai-service/app/rules/core.py).
+   - Update `_get_ring_placement_moves()` to use own-colour counts.
+   - Optionally strengthen [`PlacementValidator`](../ai-service/app/rules/validators/placement.py) to enforce caps defensively.
 
 5. **Tests and parity**
    - Add and update TS unit/scenario tests as described in §3.3.4 and §3.4.4.

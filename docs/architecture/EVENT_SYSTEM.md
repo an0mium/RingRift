@@ -30,59 +30,65 @@ RingRift uses a unified event system to coordinate training pipeline components,
 | **StageEventBus** | `stage_events.py` | Pipeline stage completion | In-memory |
 | **CrossProcessEventQueue** | `cross_process_events.py` | Multi-process coordination | SQLite |
 =======
-| Component                  | Location                  | Purpose                          | Persistence |
+| Component | Location | Purpose | Persistence |
 | -------------------------- | ------------------------- | -------------------------------- | ----------- |
-| **EventRouter**            | `event_router.py`         | Unified API, routes to all buses | In-memory   |
-| **EventBus**               | `data_events.py`          | Training/data events             | In-memory   |
-| **StageEventBus**          | `stage_events.py`         | Pipeline stage completion        | In-memory   |
-| **CrossProcessEventQueue** | `cross_process_events.py` | Multi-process coordination       | SQLite      |
->>>>>>> Stashed changes
+| **EventRouter** | `event_router.py` | Unified API, routes to all buses | In-memory |
+| **EventBus** | `data_events.py` | Training/data events | In-memory |
+| **StageEventBus** | `stage_events.py` | Pipeline stage completion | In-memory |
+| **CrossProcessEventQueue** | `cross_process_events.py` | Multi-process coordination | SQLite |
+
+> > > > > > > Stashed changes
 
 ## Event Types
 
 Events are defined in `DataEventType` enum (252 total, ~100 actively used):
 
 ### Training Events
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
+# <<<<<<< Updated upstream
+
+> > > > > > > Stashed changes
+
 - `TRAINING_STARTED`, `TRAINING_COMPLETED`, `TRAINING_FAILED`
 - `TRAINING_LOSS_TREND`, `TRAINING_LOSS_ANOMALY`
 - `TRAINING_EARLY_STOPPED`, `TRAINING_STALLED`
 
 ### Model Events
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
+# <<<<<<< Updated upstream
+
+> > > > > > > Stashed changes
+
 - `MODEL_PROMOTED`, `MODEL_REGISTERED`, `MODEL_DISTRIBUTED`
 - `PROMOTION_CANDIDATE`, `PROMOTION_FAILED`
 - `EVALUATION_COMPLETED`, `GAUNTLET_COMPLETED`
 
 ### Data Events
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
+# <<<<<<< Updated upstream
+
+> > > > > > > Stashed changes
+
 - `DATA_SYNC_COMPLETED`, `DATA_SYNC_FAILED`
 - `GAMES_GENERATED`, `NPZ_EXPORTED`
 - `QUALITY_SCORE_UPDATED`, `QUALITY_DEGRADED`
 
 ### Cluster Events
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
+# <<<<<<< Updated upstream
+
+> > > > > > > Stashed changes
+
 - `HOST_ONLINE`, `HOST_OFFLINE`
 - `LEADER_ELECTED`, `NODE_OVERLOADED`
 - `CLUSTER_CAPACITY_CHANGED`
 
 ### Daemon Events
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
+# <<<<<<< Updated upstream
+
+> > > > > > > Stashed changes
+
 - `DAEMON_STARTED`, `DAEMON_STOPPED`, `DAEMON_STATUS_CHANGED`
 
 ## Usage
@@ -189,16 +195,17 @@ DATA_SYNC_COMPLETED    TRAINING_STARTED
 | 6 | `REGRESSION_DETECTED` | RollbackManager | Auto-rollback to checkpoint |
 | ... | ... | ... | ... |
 =======
-| Loop | Trigger                | Handler                | Action                      |
+| Loop | Trigger | Handler | Action |
 | ---- | ---------------------- | ---------------------- | --------------------------- |
-| 1    | `MODEL_PROMOTED`       | SelfplayScheduler      | Adjust curriculum weights   |
-| 2    | `TRAINING_LOSS_TREND`  | FeedbackLoopController | Adjust exploration boost    |
-| 3    | `QUALITY_DEGRADED`     | QualityMonitorDaemon   | Throttle data generation    |
-| 4    | `ELO_VELOCITY_CHANGED` | CurriculumFeedback     | Rebalance config priorities |
-| 5    | `EVALUATION_COMPLETED` | TrainingCoordinator    | Adjust hyperparameters      |
-| 6    | `REGRESSION_DETECTED`  | RollbackManager        | Auto-rollback to checkpoint |
-| ...  | ...                    | ...                    | ...                         |
->>>>>>> Stashed changes
+| 1 | `MODEL_PROMOTED` | SelfplayScheduler | Adjust curriculum weights |
+| 2 | `TRAINING_LOSS_TREND` | FeedbackLoopController | Adjust exploration boost |
+| 3 | `QUALITY_DEGRADED` | QualityMonitorDaemon | Throttle data generation |
+| 4 | `ELO_VELOCITY_CHANGED` | CurriculumFeedback | Rebalance config priorities |
+| 5 | `EVALUATION_COMPLETED` | TrainingCoordinator | Adjust hyperparameters |
+| 6 | `REGRESSION_DETECTED` | RollbackManager | Auto-rollback to checkpoint |
+| ... | ... | ... | ... |
+
+> > > > > > > Stashed changes
 
 ## Cross-Process Events
 
@@ -267,19 +274,20 @@ class MyDaemon:
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RINGRIFT_EVENT_LOG_LEVEL` | `INFO` | Event logging verbosity |
-| `RINGRIFT_EVENT_DEDUP_WINDOW_SECS` | `60` | Deduplication time window |
-| `COORDINATOR_CROSS_PROCESS_POLL_INTERVAL` | `5` | Cross-process poll frequency |
+| Variable                                  | Default | Description                  |
+| ----------------------------------------- | ------- | ---------------------------- |
+| `RINGRIFT_EVENT_LOG_LEVEL`                | `INFO`  | Event logging verbosity      |
+| `RINGRIFT_EVENT_DEDUP_WINDOW_SECS`        | `60`    | Deduplication time window    |
+| `COORDINATOR_CROSS_PROCESS_POLL_INTERVAL` | `5`     | Cross-process poll frequency |
+
 =======
-| Daemon                    | Events Subscribed                                                  |
+| Daemon | Events Subscribed |
 | ------------------------- | ------------------------------------------------------------------ |
-| `FeedbackLoopController`  | `TRAINING_LOSS_TREND`, `TRAINING_LOSS_ANOMALY`, `QUALITY_DEGRADED` |
-| `SelfplayScheduler`       | `MODEL_PROMOTED`, `ELO_VELOCITY_CHANGED`, `CURRICULUM_ADVANCED`    |
-| `AutoSyncDaemon`          | `GAMES_GENERATED`, `NPZ_EXPORTED`, `DATA_SYNC_FAILED`              |
-| `ModelDistributionDaemon` | `MODEL_PROMOTED`, `MODEL_REGISTERED`                               |
-| `OrphanDetectionDaemon`   | `DATABASE_CREATED`, `SYNC_COMPLETED`                               |
+| `FeedbackLoopController` | `TRAINING_LOSS_TREND`, `TRAINING_LOSS_ANOMALY`, `QUALITY_DEGRADED` |
+| `SelfplayScheduler` | `MODEL_PROMOTED`, `ELO_VELOCITY_CHANGED`, `CURRICULUM_ADVANCED` |
+| `AutoSyncDaemon` | `GAMES_GENERATED`, `NPZ_EXPORTED`, `DATA_SYNC_FAILED` |
+| `ModelDistributionDaemon` | `MODEL_PROMOTED`, `MODEL_REGISTERED` |
+| `OrphanDetectionDaemon` | `DATABASE_CREATED`, `SYNC_COMPLETED` |
 
 ## Environment Variables
 
@@ -288,7 +296,8 @@ class MyDaemon:
 | `RINGRIFT_EVENT_LOG_LEVEL`                | `INFO`  | Event logging verbosity      |
 | `RINGRIFT_EVENT_DEDUP_WINDOW_SECS`        | `60`    | Deduplication time window    |
 | `COORDINATOR_CROSS_PROCESS_POLL_INTERVAL` | `5`     | Cross-process poll frequency |
->>>>>>> Stashed changes
+
+> > > > > > > Stashed changes
 
 ## Best Practices
 
@@ -325,18 +334,19 @@ await publish(DataEventType.TRAINING_COMPLETED, payload, source="my_module")
 | `app/coordination/event_normalization.py` | Event type normalization utilities |
 | `app/coordination/event_emitters.py` | Convenience emit functions |
 =======
-| File                                       | Purpose                                      |
+| File | Purpose |
 | ------------------------------------------ | -------------------------------------------- |
-| `app/coordination/event_router.py`         | Unified router (main entry point)            |
-| `app/distributed/data_events.py`           | DataEventType enum, EventBus, emit functions |
-| `app/coordination/stage_events.py`         | Pipeline stage events                        |
-| `app/coordination/cross_process_events.py` | SQLite-backed cross-process queue            |
-| `app/coordination/event_normalization.py`  | Event type normalization utilities           |
-| `app/coordination/event_emitters.py`       | Convenience emit functions                   |
->>>>>>> Stashed changes
+| `app/coordination/event_router.py` | Unified router (main entry point) |
+| `app/distributed/data_events.py` | DataEventType enum, EventBus, emit functions |
+| `app/coordination/stage_events.py` | Pipeline stage events |
+| `app/coordination/cross_process_events.py` | SQLite-backed cross-process queue |
+| `app/coordination/event_normalization.py` | Event type normalization utilities |
+| `app/coordination/event_emitters.py` | Convenience emit functions |
+
+> > > > > > > Stashed changes
 
 ## See Also
 
 - [COORDINATION_SYSTEM.md](../../ai-service/docs/architecture/COORDINATION_SYSTEM.md) - Full coordination architecture
 - [DAEMON_REGISTRY.md](../../ai-service/docs/DAEMON_REGISTRY.md) - Daemon event subscriptions
-- [FEEDBACK_LOOPS.md](./FEEDBACK_LOOPS.md) - Training feedback loop details
+- [AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md](../ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) - Training feedback loop details

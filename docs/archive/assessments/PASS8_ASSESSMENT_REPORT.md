@@ -45,7 +45,7 @@ Pass 8 is a **comprehensive reassessment** following Pass 7 remediation work. Th
 
 ### P0.1: ESLint Now CI-Blocking ✅
 
-**Evidence:** [`../../../.github/workflows/ci.yml:69-70`](../../../.github/workflows/ci.yml:69)
+**Evidence:** [`../../../.github/workflows/ci.yml-70`](../../../.github/workflows/ci.yml)
 
 ```yaml
 - name: Run ESLint
@@ -57,7 +57,7 @@ Pass 8 is a **comprehensive reassessment** following Pass 7 remediation work. Th
 
 ### P0.2: E2E Tests Now CI-Blocking ✅
 
-**Evidence:** [`../../../.github/workflows/ci.yml:320-410`](../../../.github/workflows/ci.yml:320)
+**Evidence:** [`../../../.github/workflows/ci.yml-410`](../../../.github/workflows/ci.yml)
 
 ```yaml
 e2e-tests:
@@ -75,7 +75,7 @@ e2e-tests:
 
 ### P0.3: Lint Fix Script Documented ✅
 
-**Evidence:** [`CONTRIBUTING.md:356-383`](../../../CONTRIBUTING.md:356)
+**Evidence:** [`CONTRIBUTING.md:356-383`](../../../CONTRIBUTING.md)
 
 ````markdown
 ## 🔍 Code Quality
@@ -97,7 +97,7 @@ npm run lint:fix
 
 ### P1.1: Orchestrator Adapter Enabled in Staging ✅
 
-**Evidence:** [`../../../src/server/index.ts:182-186`](../../../src/server/index.ts:182)
+**Evidence:** [`../../../src/server/index.ts-186`](../../../src/server/index.ts)
 
 ```typescript
 // Log orchestrator adapter mode for observability
@@ -108,7 +108,7 @@ logger.info(`Orchestrator adapter mode: ${orchestratorEnabled ? 'ENABLED' : 'DIS
 });
 ````
 
-**Evidence:** [`../../../.env.staging:117-118`](../../../.env.staging:117)
+**Evidence:** [`../../../.env.staging-118`](../../../.env.staging)
 
 ```env
 # Orchestrator adapter for unified turn processing (Phase 3 migration)
@@ -328,7 +328,7 @@ flowchart LR
 
 ### Implementation Path (Now Well-Defined)
 
-1. **Implement Feature Flags** - Add 8 environment variables per [`ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`](../ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md:186-250)
+1. **Implement Feature Flags** - Add 8 environment variables per [`ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`](../ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md)
 2. **Add Metrics** - Implement 12 Prometheus metrics per design
 3. **Configure Alerts** - Add 8 alert rules to [`alerts.yml`](../../../monitoring/prometheus/alerts.yml)
 4. **Execute Shadow Mode** - Validate with production traffic

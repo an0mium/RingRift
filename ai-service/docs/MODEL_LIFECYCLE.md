@@ -152,8 +152,7 @@ MODEL_PROMOTED event
 
 **Key files**:
 
-- `app/coordination/model_distribution_daemon.py` - Automated distribution
-- `app/coordination/npz_distribution_daemon.py` - Training data distribution
+- `app/coordination/unified_distribution_daemon.py` - Automated distribution (Dec 2025: consolidates model + NPZ)
 - `app/distributed/resilient_transfer.py` - Unified transfer abstraction
 
 **Manual sync** (legacy):
@@ -250,16 +249,15 @@ python scripts/model_registry_cli.py archive REGRESSED_MODEL_ID --reason "regres
 
 ## Key Files Reference
 
-| File                                            | Purpose                              |
-| ----------------------------------------------- | ------------------------------------ |
-| `app/training/model_versioning.py`              | Checkpoint integrity & metadata      |
-| `app/training/model_registry.py`                | SQLite lifecycle tracking            |
-| `app/training/promotion_controller.py`          | Promotion decision logic             |
-| `app/config/thresholds.py`                      | Centralized threshold values         |
-| `app/coordination/model_distribution_daemon.py` | Automated cluster model distribution |
-| `app/coordination/npz_distribution_daemon.py`   | Training data distribution           |
-| `app/distributed/resilient_transfer.py`         | Verified file transfers              |
-| `app/coordination/npz_validation.py`            | NPZ structure validation             |
-| `scripts/model_registry_cli.py`                 | CLI interface                        |
-| `scripts/auto_promote.py`                       | Automated promotion workflow         |
-| `scripts/baseline_gauntlet.py`                  | Baseline evaluation                  |
+| File                                              | Purpose                             |
+| ------------------------------------------------- | ----------------------------------- |
+| `app/training/model_versioning.py`                | Checkpoint integrity & metadata     |
+| `app/training/model_registry.py`                  | SQLite lifecycle tracking           |
+| `app/training/promotion_controller.py`            | Promotion decision logic            |
+| `app/config/thresholds.py`                        | Centralized threshold values        |
+| `app/coordination/unified_distribution_daemon.py` | Model + NPZ distribution (Dec 2025) |
+| `app/distributed/resilient_transfer.py`           | Verified file transfers             |
+| `app/coordination/npz_validation.py`              | NPZ structure validation            |
+| `scripts/model_registry_cli.py`                   | CLI interface                       |
+| `scripts/auto_promote.py`                         | Automated promotion workflow        |
+| `scripts/baseline_gauntlet.py`                    | Baseline evaluation                 |

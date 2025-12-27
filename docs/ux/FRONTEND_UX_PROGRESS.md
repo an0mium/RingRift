@@ -60,7 +60,7 @@ This document tracks shipped UX/GUI improvements so work is not duplicated or lo
 
 **Shipped**
 
-- Enhanced [`SpectatorHUD.tsx`](../../src/client/components/SpectatorHUD.tsx:1) with complete game state display and educational features for non-playing observers:
+- Enhanced [`SpectatorHUD.tsx`](../../src/client/components/SpectatorHUD.tsx) with complete game state display and educational features for non-playing observers:
   - Clear "Spectator Mode" banner with proper ARIA labels (`role="banner"`, `aria-label="Spectator Mode - You are watching this game"`)
   - Live indicator dot for connection status
   - Helpful message: "Moves are disabled while spectating. Use the teaching topics below to learn game mechanics."

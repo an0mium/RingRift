@@ -250,7 +250,7 @@ Focus on larger modules with migration plans:
 ### Test Suite
 
 ```bash
-cd /Users/armand/Development/RingRift/ai-service
+cd ai-service
 PYTHONPATH=. python -m pytest tests/ -v --tb=short 2>&1 | tail -20
 ```
 
@@ -345,11 +345,11 @@ from app.coordination.bandwidth_manager import BandwidthManager  # Should work, 
 
 **Files Changed**:
 
-1. `/Users/armand/Development/RingRift/ai-service/app/ai/zobrist.py`
-2. `/Users/armand/Development/RingRift/ai-service/app/coordination/resources/thresholds.py`
-3. `/Users/armand/Development/RingRift/ai-service/app/coordination/resources/bandwidth.py`
-4. `/Users/armand/Development/RingRift/ai-service/app/coordination/resources/__init__.py`
-5. `/Users/armand/Development/RingRift/ai-service/QUICK_WINS_CONSOLIDATION_REPORT.md` (this file)
+1. `ai-service/app/ai/zobrist.py`
+2. `ai-service/app/coordination/resources/thresholds.py`
+3. `ai-service/app/coordination/resources/bandwidth.py`
+4. `ai-service/app/coordination/resources/__init__.py`
+5. `ai-service/QUICK_WINS_CONSOLIDATION_REPORT.md` (this file)
 
 ---
 
@@ -390,15 +390,15 @@ __all__ = ["<ClassName>"]
 
 Based on analysis, modules fall into these categories:
 
-| Category        | Count | Examples                                          | Consolidation Strategy      |
-| --------------- | ----- | ------------------------------------------------- | --------------------------- |
-| **Core Logic**  | ~500  | `game_engine.py`, `training.py`                   | Keep, document well         |
-| **Wrappers**    | ~20   | `ai/zobrist.py`, `resources/thresholds.py`        | Deprecate with warnings     |
-| **Legacy**      | 2     | `_game_engine_legacy.py`, `_neural_net_legacy.py` | Extract, then remove        |
-| ****init**.py** | ~50   | Package markers                                   | Enhance with barrel exports |
-| **Tests**       | ~11   | In `app/` (should be in `tests/`)                 | Move to proper location     |
-| **Deprecated**  | ~10   | In `coordination/deprecated/`                     | Already archived            |
-| **Facades**     | ~5    | `sync_facade.py`, `coordination/facade.py`        | Keep (provide value)        |
+| Category            | Count | Examples                                          | Consolidation Strategy      |
+| ------------------- | ----- | ------------------------------------------------- | --------------------------- |
+| **Core Logic**      | ~500  | `game_engine.py`, `training.py`                   | Keep, document well         |
+| **Wrappers**        | ~20   | `ai/zobrist.py`, `resources/thresholds.py`        | Deprecate with warnings     |
+| **Legacy**          | 2     | `_game_engine_legacy.py`, `_neural_net_legacy.py` | Extract, then remove        |
+| \***\*init**.py\*\* | ~50   | Package markers                                   | Enhance with barrel exports |
+| **Tests**           | ~11   | In `app/` (should be in `tests/`)                 | Move to proper location     |
+| **Deprecated**      | ~10   | In `coordination/deprecated/`                     | Already archived            |
+| **Facades**         | ~5    | `sync_facade.py`, `coordination/facade.py`        | Keep (provide value)        |
 
 **Target for removal**: Wrappers (20) + Legacy split (2→10) + Test relocation (11) = **33 modules**
 

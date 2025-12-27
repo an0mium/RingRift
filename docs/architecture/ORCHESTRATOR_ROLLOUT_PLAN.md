@@ -67,9 +67,9 @@ diagnostic/telemetry controls:
 
 For host-driven turn processing and rules-surface queries, the canonical orchestrator APIs into the shared TS rules engine are:
 
-- `processTurnAsync(state, move, delegates)` in [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) – **canonical host-facing entrypoint** for applying moves.
-- `processTurn(state, move)` in [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) – synchronous helper used where decisions can be resolved inline.
-- `validateMove(state, move)`, `getValidMoves(state)`, and `hasValidMoves(state)` in [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1) – canonical validation and enumeration helpers for hosts and diagnostics harnesses.
+- `processTurnAsync(state, move, delegates)` in [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts) – **canonical host-facing entrypoint** for applying moves.
+- `processTurn(state, move)` in [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts) – synchronous helper used where decisions can be resolved inline.
+- `validateMove(state, move)`, `getValidMoves(state)`, and `hasValidMoves(state)` in [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts) – canonical validation and enumeration helpers for hosts and diagnostics harnesses.
 
 All host stacks (backend `GameEngine`, client sandbox `ClientSandboxEngine`, diagnostics harnesses) **must** treat `processTurnAsync` and these helpers as the lifecycle and rules-surface SSOT for turn processing. Legacy turn loops in `GameEngine` and `ClientSandboxEngine` are treated as migration scaffolding to be removed or demoted by this plan.
 
@@ -77,14 +77,14 @@ All host stacks (backend `GameEngine`, client sandbox `ClientSandboxEngine`, dia
 
 The following domain aggregates under `src/shared/engine/aggregates/**` are the **single source of truth for rules semantics** in their respective domains:
 
-- [`MovementAggregate`](../../src/shared/engine/aggregates/MovementAggregate.ts:1) – non-capturing movement validation, enumeration, and mutation.
-- [`CaptureAggregate`](../../src/shared/engine/aggregates/CaptureAggregate.ts:1) – capture and chain-capture validation, enumeration, mutation, and continuation logic.
-- [`PlacementAggregate`](../../src/shared/engine/aggregates/PlacementAggregate.ts:1) – placement and no-dead-placement validation, enumeration, and mutation.
-- [`RecoveryAggregate`](../../src/shared/engine/aggregates/RecoveryAggregate.ts:1) – recovery eligibility, enumeration, and mutation for temporarily eliminated players.
-- [`LineAggregate`](../../src/shared/engine/aggregates/LineAggregate.ts:1) – line detection and decision moves via `enumerateProcessLineMoves` and `applyProcessLineDecision`.
-- [`TerritoryAggregate`](../../src/shared/engine/aggregates/TerritoryAggregate.ts:1) – disconnected-region detection, Q23 gating, territory collapse, and elimination decisions.
-- [`EliminationAggregate`](../../src/shared/engine/aggregates/EliminationAggregate.ts:1) – ring elimination semantics for line, territory, and forced elimination contexts.
-- [`VictoryAggregate`](../../src/shared/engine/aggregates/VictoryAggregate.ts:1) – victory evaluation and tie-breaking, surfaced via `evaluateVictory`.
+- [`MovementAggregate`](../../src/shared/engine/aggregates/MovementAggregate.ts) – non-capturing movement validation, enumeration, and mutation.
+- [`CaptureAggregate`](../../src/shared/engine/aggregates/CaptureAggregate.ts) – capture and chain-capture validation, enumeration, mutation, and continuation logic.
+- [`PlacementAggregate`](../../src/shared/engine/aggregates/PlacementAggregate.ts) – placement and no-dead-placement validation, enumeration, and mutation.
+- [`RecoveryAggregate`](../../src/shared/engine/aggregates/RecoveryAggregate.ts) – recovery eligibility, enumeration, and mutation for temporarily eliminated players.
+- [`LineAggregate`](../../src/shared/engine/aggregates/LineAggregate.ts) – line detection and decision moves via `enumerateProcessLineMoves` and `applyProcessLineDecision`.
+- [`TerritoryAggregate`](../../src/shared/engine/aggregates/TerritoryAggregate.ts) – disconnected-region detection, Q23 gating, territory collapse, and elimination decisions.
+- [`EliminationAggregate`](../../src/shared/engine/aggregates/EliminationAggregate.ts) – ring elimination semantics for line, territory, and forced elimination contexts.
+- [`VictoryAggregate`](../../src/shared/engine/aggregates/VictoryAggregate.ts) – victory evaluation and tie-breaking, surfaced via `evaluateVictory`.
 
 All hosts and helpers (backend, sandbox, Python mirror, diagnostics scripts) **must** treat these aggregates and their helper modules (`movementLogic.ts`, `captureLogic.ts`, `lineDecisionHelpers.ts`, `territoryDecisionHelpers.ts`, `VictoryAggregate.ts`, etc.) as the **only authoritative implementation of placement, movement, recovery, capture, line, territory, elimination, and victory semantics**.
 
@@ -92,8 +92,8 @@ All hosts and helpers (backend, sandbox, Python mirror, diagnostics scripts) **m
 
 The orchestrator integration layers are:
 
-- Backend adapter: [`TurnEngineAdapter`](../../src/server/game/turn/TurnEngineAdapter.ts:1).
-- Sandbox adapter: [`SandboxOrchestratorAdapter`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts:1).
+- Backend adapter: [`TurnEngineAdapter`](../../src/server/game/turn/TurnEngineAdapter.ts).
+- Sandbox adapter: [`SandboxOrchestratorAdapter`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts).
 
 These adapters:
 
@@ -118,20 +118,20 @@ They are **not** allowed as alternative production turn-processing pipelines onc
 ### 2.4 Host stacks and Python mirror
 
 - Backend host stack:
-  - `GameEngine` in [`GameEngine.ts`](../../src/server/game/GameEngine.ts:1) – stateful backend host responsible for timers, WebSocket integration, rating updates, and structured history. It currently has:
+  - `GameEngine` in [`GameEngine.ts`](../../src/server/game/GameEngine.ts) – stateful backend host responsible for timers, WebSocket integration, rating updates, and structured history. It currently has:
     - An orchestrator path via `processMoveViaAdapter` + `TurnEngineAdapter`.
     - A legacy path via `makeMove` and internal phase loops that apply moves via shared aggregates and helpers.
-  - `RuleEngine` in [`RuleEngine.ts`](../../src/server/game/RuleEngine.ts:1) – rules-facing validation and enumeration surface used by `GameEngine` and `TurnEngine`. It delegates to shared helpers and aggregates but still exposes an older `processMove` pipeline.
-  - `TurnEngine` in [`turn/TurnEngine.ts`](../../src/server/game/turn/TurnEngine.ts:1) – shared backend turn/phase lifecycle for the backend path, already aligned with shared `turnLogic`.
+  - `RuleEngine` in [`RuleEngine.ts`](../../src/server/game/RuleEngine.ts) – rules-facing validation and enumeration surface used by `GameEngine` and `TurnEngine`. It delegates to shared helpers and aggregates but still exposes an older `processMove` pipeline.
+  - `TurnEngine` in [`turn/TurnEngine.ts`](../../src/server/game/turn/TurnEngine.ts) – shared backend turn/phase lifecycle for the backend path, already aligned with shared `turnLogic`.
 
 - Sandbox host stack:
-  - `ClientSandboxEngine` in [`ClientSandboxEngine.ts`](../../src/client/sandbox/ClientSandboxEngine.ts:1) – client-local host for `/sandbox`, with:
+  - `ClientSandboxEngine` in [`ClientSandboxEngine.ts`](../../src/client/sandbox/ClientSandboxEngine.ts) – client-local host for `/sandbox`, with:
     - An orchestrator path via `processMoveViaAdapter` + `SandboxOrchestratorAdapter`.
     - A legacy sandbox pipeline composed out of shared aggregates and sandbox helpers (movement, capture, lines, territory, forced elimination, LPS, and victory).
   - Sandbox helpers under `src/client/sandbox/**` (movement, captures, territory, lines, victory, AI, game-end) – now predominantly UX/diagnostics wrappers over shared aggregates.
 
 - Python rules/AI mirror:
-  - `GameEngine` in [`ai-service/app/game_engine/__init__.py`](../../ai-service/app/game_engine/__init__.py:1) and rule modules under `ai-service/app/rules/**` implement a parity-checked Python port of the TS rules engine.
+  - `GameEngine` in [`ai-service/app/game_engine/__init__.py`](../../ai-service/app/game_engine/__init__.py) and rule modules under `ai-service/app/rules/**` implement a parity-checked Python port of the TS rules engine.
   - Parity and contract tests under `ai-service/tests/**` and `tests/parity/**` validate that Python behaviour matches the TS SSOT.
   - Python code is **not** a semantics SSOT; any divergence must be fixed by updating Python to match the TS shared engine and contracts.
 
@@ -195,22 +195,24 @@ This section enumerates remaining TS backend and sandbox modules that either:
 
 **Table 1 – Backend rules-related modules and paths**
 
-| File                                                | Current role                                                                                                                                                                                                                                                       | Rules Semantics? (Y/N)                                                                                                  | Remove?                                                                                                                                                                   | Diagnostics-only?                                                              | Target phase                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `src/server/game/GameEngine.ts`                     | Stateful backend host; currently has dual path: legacy `makeMove` turn pipeline and orchestrator-based `processMoveViaAdapter` using `TurnEngineAdapter`. Contains chain-capture state, line and territory decision helpers, forced elimination, and LPS tracking. | Y – host-level orchestration semantics layered over aggregates and `TurnEngine`.                                        | Partial – keep GameEngine as backend host but **remove the legacy non-adapter pipeline** and require `TurnEngineAdapter` for all production moves.                        | No – remains primary backend host.                                             | Phase A (enforce adapter) and Phase C (delete dead helpers once adapter-only)           |
-| `src/server/game/RuleEngine.ts`                     | Stateless rules facade for validation and enumeration. Delegates to shared aggregates and helpers but still exposes legacy `processMove`, `processLineFormation`, and `processTerritoryDisconnection` flows.                                                       | Y – contains historical orchestration and some pre-aggregate helpers, though main semantics now delegate to aggregates. | Partial – retain validation/enumeration entrypoints, but **delete or quarantine legacy `processMove` and post-processing helpers** once orchestrator-only path is stable. | Yes for legacy helpers – legacy helpers become diagnostics-only until removal. | Phase A (no production calls to `processMove`), Phase C (delete or move to diagnostics) |
-| `src/server/game/turn/TurnEngine.ts`                | Shared backend turn lifecycle built on `turnLogic` and shared aggregates. Used by `GameEngine.advanceGame`.                                                                                                                                                        | N – lifecycle orchestration only (semantics live in shared engine).                                                     | No.                                                                                                                                                                       | No.                                                                            | N/A (already canonical host lifecycle)                                                  |
-| `src/server/game/BoardManager.ts`                   | Backend board container and geometry bridge. Used by `GameEngine`, `RuleEngine`, and `TurnEngine`.                                                                                                                                                                 | N – uses shared core geometry and does not define independent rules.                                                    | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
+| File                                 | Current role                                                                                                                                                                                                                                                       | Rules Semantics? (Y/N)                                                                                                  | Remove?                                                                                                                                                                   | Diagnostics-only?                                                              | Target phase                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `src/server/game/GameEngine.ts`      | Stateful backend host; currently has dual path: legacy `makeMove` turn pipeline and orchestrator-based `processMoveViaAdapter` using `TurnEngineAdapter`. Contains chain-capture state, line and territory decision helpers, forced elimination, and LPS tracking. | Y – host-level orchestration semantics layered over aggregates and `TurnEngine`.                                        | Partial – keep GameEngine as backend host but **remove the legacy non-adapter pipeline** and require `TurnEngineAdapter` for all production moves.                        | No – remains primary backend host.                                             | Phase A (enforce adapter) and Phase C (delete dead helpers once adapter-only)           |
+| `src/server/game/RuleEngine.ts`      | Stateless rules facade for validation and enumeration. Delegates to shared aggregates and helpers but still exposes legacy `processMove`, `processLineFormation`, and `processTerritoryDisconnection` flows.                                                       | Y – contains historical orchestration and some pre-aggregate helpers, though main semantics now delegate to aggregates. | Partial – retain validation/enumeration entrypoints, but **delete or quarantine legacy `processMove` and post-processing helpers** once orchestrator-only path is stable. | Yes for legacy helpers – legacy helpers become diagnostics-only until removal. | Phase A (no production calls to `processMove`), Phase C (delete or move to diagnostics) |
+| `src/server/game/turn/TurnEngine.ts` | Shared backend turn lifecycle built on `turnLogic` and shared aggregates. Used by `GameEngine.advanceGame`.                                                                                                                                                        | N – lifecycle orchestration only (semantics live in shared engine).                                                     | No.                                                                                                                                                                       | No.                                                                            | N/A (already canonical host lifecycle)                                                  |
+| `src/server/game/BoardManager.ts`    | Backend board container and geometry bridge. Used by `GameEngine`, `RuleEngine`, and `TurnEngine`.                                                                                                                                                                 | N – uses shared core geometry and does not define independent rules.                                                    | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
+
 <<<<<<< Updated upstream
-| `src/server/game/rules/lineProcessing.ts`           | Historical backend line-processing module referenced in earlier passes. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md:105).                                                                                   | Y (historical)                                                                                                          | Already removed (no current code path).                                                                                                                                   | N/A                                                                            | Historical only                                                                         |
-| `src/server/game/rules/territoryProcessing.ts`      | Historical backend territory-processing module. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md:106).                                                                                                           | Y (historical)                                                                                                          | Already removed.                                                                                                                                                          | N/A                                                                            | Historical only                                                                         |
+| `src/server/game/rules/lineProcessing.ts` | Historical backend line-processing module referenced in earlier passes. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md). | Y (historical) | Already removed (no current code path). | N/A | Historical only |
+| `src/server/game/rules/territoryProcessing.ts` | Historical backend territory-processing module. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md). | Y (historical) | Already removed. | N/A | Historical only |
 =======
-| `src/server/game/rules/lineProcessing.ts`           | Historical backend line-processing module referenced in earlier passes. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md:105).                                                                             | Y (historical)                                                                                                          | Already removed (no current code path).                                                                                                                                   | N/A                                                                            | Historical only                                                                         |
-| `src/server/game/rules/territoryProcessing.ts`      | Historical backend territory-processing module. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md:106).                                                                                                     | Y (historical)                                                                                                          | Already removed.                                                                                                                                                          | N/A                                                                            | Historical only                                                                         |
->>>>>>> Stashed changes
-| `src/server/game/rules/captureChainEngine.ts`       | Historical backend capture-chain state helper. Replaced by `CaptureAggregate` and `GameEngine` wiring.                                                                                                                                                             | Y (historical)                                                                                                          | Already removed.                                                                                                                                                          | N/A                                                                            | Historical only                                                                         |
-| `src/server/game/RulesBackendFacade.ts`             | Backend rules/AI boundary; selects TS vs Python authority and coordinates runtime parity checks via `rulesParityMetrics` when `RINGRIFT_RULES_MODE=python`.                                                                                                        | N – engine selection and parity only.                                                                                   | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
-| `src/server/services/OrchestratorRolloutService.ts` | Backend service tracking circuit-breaker state and selection reasons (allow/deny lists) for metrics and `/api/admin/orchestrator/status`. Routing is fixed; rollout/shadow flags are historical.                                                                   | N – diagnostics/metrics only.                                                                                           | No.                                                                                                                                                                       | No.                                                                            | N/A                                                                                     |
+| `src/server/game/rules/lineProcessing.ts` | Historical backend line-processing module referenced in earlier passes. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md). | Y (historical) | Already removed (no current code path). | N/A | Historical only |
+| `src/server/game/rules/territoryProcessing.ts` | Historical backend territory-processing module. Marked as removed in [`docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`](../rules/RULES_ENGINE_SURFACE_AUDIT.md). | Y (historical) | Already removed. | N/A | Historical only |
+
+> > > > > > > Stashed changes
+> > > > > > > | `src/server/game/rules/captureChainEngine.ts` | Historical backend capture-chain state helper. Replaced by `CaptureAggregate` and `GameEngine` wiring. | Y (historical) | Already removed. | N/A | Historical only |
+> > > > > > > | `src/server/game/RulesBackendFacade.ts` | Backend rules/AI boundary; selects TS vs Python authority and coordinates runtime parity checks via `rulesParityMetrics` when `RINGRIFT_RULES_MODE=python`. | N – engine selection and parity only. | No. | No. | N/A |
+> > > > > > > | `src/server/services/OrchestratorRolloutService.ts` | Backend service tracking circuit-breaker state and selection reasons (allow/deny lists) for metrics and `/api/admin/orchestrator/status`. Routing is fixed; rollout/shadow flags are historical. | N – diagnostics/metrics only. | No. | No. | N/A |
 
 **Backend summary**
 
@@ -248,7 +250,7 @@ This section enumerates remaining TS backend and sandbox modules that either:
 
 ### 4.3 Diagnostics scripts and tooling
 
-Some scripts under `scripts/` use shared engine helpers to explore or debug rules behaviour (for example, [`scripts/findCyclicCaptures.js`](../../scripts/findCyclicCaptures.js:1) and [`scripts/findCyclicCapturesHex.js`](../../scripts/findCyclicCapturesHex.js:1)). These scripts:
+Some scripts under `scripts/` use shared engine helpers to explore or debug rules behaviour (for example, [`scripts/findCyclicCaptures.js`](../../scripts/findCyclicCaptures.js) and [`scripts/findCyclicCapturesHex.js`](../../scripts/findCyclicCapturesHex.js)). These scripts:
 
 - Do **not** implement independent semantics.
 - Are explicitly documented as analysis tools.
@@ -273,11 +275,13 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
 | **Phase A – Backend orchestrator-only path**               | Make `TurnEngineAdapter` + `processTurnAsync` the only production backend turn path. Legacy `GameEngine` and `RuleEngine` pipelines remain only as test harnesses and diagnostics. | `GameEngine.ts` (non-adapter branch of `makeMove` and decision loops), `RuleEngine.ts` legacy `processMove` and post-processing helpers, `TurnEngineAdapter.ts`, `RulesBackendFacade.ts`, `OrchestratorRolloutService.ts`.                                                      | TS: full `test:core`, rules scenario suites (`tests/scenarios/**`), backend parity suites (`tests/unit/Backend_vs_Sandbox.*`), adapter tests. Python: all `ai-service/tests/**` including parity/contract tests. Metrics: orchestrator error rate < 2%, runtime python parity mismatches near zero when diagnostics run, `game_move_latency_ms` meeting v1.0 SLOs. | Rollback: deployment rollback only; production stays `RINGRIFT_RULES_MODE=ts` with `python` reserved for diagnostics.                                                                                                       |
 | **Phase B – Sandbox orchestrator-only path**               | Make `SandboxOrchestratorAdapter` + `processTurnAsync` the only sandbox rules path. Legacy sandbox pipeline remains only in trace/parity harnesses.                                | `ClientSandboxEngine.ts` legacy pipeline and post-movement helpers, `SandboxOrchestratorAdapter.ts`, sandbox helpers (`sandboxMovement.ts`, `sandboxCaptures.ts`, `sandboxLines.ts`, `sandboxTerritory.ts`, `sandboxGameEnd.ts`, `sandboxElimination.ts`, `sandboxVictory.ts`). | TS: sandbox unit tests (`tests/unit/ClientSandboxEngine.*.test.ts`), RulesMatrix sandbox scenarios, backend vs sandbox parity tests, orchestrator adapter tests. Metrics: local sandbox parity vs backend on trace seeds, no regressions in `tests/scenarios/RulesMatrix.*`, no change in CLI parity harness behaviour.                                            | Flag: `ClientSandboxEngine.useOrchestratorAdapter` default `true`, with explicit opt-out preserved only for diagnostics. Git: Phase B changes split from Phase A so sandbox-only regressions can be reverted independently. |
 | **Phase C – Legacy helper shutdown & diagnostics fencing** | Remove truly redundant modules and move any remaining tools into a diagnostics namespace with explicit SSOT banners.                                                               | Backend legacy helpers in `RuleEngine.ts` and `GameEngine.ts` that are no longer referenced; sandbox helpers that are pure analysis (`sandboxCaptureSearch.ts`, mutable-board simulators); diagnostics scripts under `scripts/`.                                                | TS: any tests that directly reference legacy helpers either updated to call shared aggregates or moved under an `archive/` diagnostics suite. Contract and parity tests remain green. No new references to deprecated helpers appear in `eslint-report.json` or `scripts/ssot/rules-ssot-check.ts`.                                                                | Git: removal commits grouped per host (backend vs sandbox) so reverts are straightforward. No feature flags required; by this point production paths are already orchestrator-only.                                         |
+
 <<<<<<< Updated upstream
-| **Phase D – Final clean-up and documentation alignment**   | Align documentation and runbooks with orchestrator-only architecture; ensure SSOT checks cover this plan.                                                                          | `docs/architecture/CANONICAL_ENGINE_API.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`, `docs/PASS16_ASSESSMENT_REPORT.md`, `docs/INDEX.md`, `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`.                                                         | Docs: updated SSOT banners and diagrams; cross-links from PASS16 and the docs index to this plan. Scripts: `scripts/ssot/rules-ssot-check.ts` extended to assert that backend and sandbox hosts reference the orchestrator and aggregates as SSOT. All tests and metrics remain green as in previous phases.                                                       | Git: doc-only commits, easily reversible but low risk. No feature flags.                                                                                                                                                    |
+| **Phase D – Final clean-up and documentation alignment** | Align documentation and runbooks with orchestrator-only architecture; ensure SSOT checks cover this plan. | `docs/architecture/CANONICAL_ENGINE_API.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`, `docs/PASS16_ASSESSMENT_REPORT.md`, `docs/INDEX.md`, `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`. | Docs: updated SSOT banners and diagrams; cross-links from PASS16 and the docs index to this plan. Scripts: `scripts/ssot/rules-ssot-check.ts` extended to assert that backend and sandbox hosts reference the orchestrator and aggregates as SSOT. All tests and metrics remain green as in previous phases. | Git: doc-only commits, easily reversible but low risk. No feature flags. |
 =======
-| **Phase D – Final clean-up and documentation alignment**   | Align documentation and runbooks with orchestrator-only architecture; ensure SSOT checks cover this plan.                                                                          | `docs/architecture/CANONICAL_ENGINE_API.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`, `docs/PASS16_ASSESSMENT_REPORT.md`, `docs/INDEX.md`, `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`.                                      | Docs: updated SSOT banners and diagrams; cross-links from PASS16 and the docs index to this plan. Scripts: `scripts/ssot/rules-ssot-check.ts` extended to assert that backend and sandbox hosts reference the orchestrator and aggregates as SSOT. All tests and metrics remain green as in previous phases.                                                       | Git: doc-only commits, easily reversible but low risk. No feature flags.                                                                                                                                                    |
->>>>>>> Stashed changes
+| **Phase D – Final clean-up and documentation alignment** | Align documentation and runbooks with orchestrator-only architecture; ensure SSOT checks cover this plan. | `docs/architecture/CANONICAL_ENGINE_API.md`, `docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`, `docs/PASS16_ASSESSMENT_REPORT.md`, `docs/INDEX.md`, `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/rules/RULES_ENGINE_SURFACE_AUDIT.md`. | Docs: updated SSOT banners and diagrams; cross-links from PASS16 and the docs index to this plan. Scripts: `scripts/ssot/rules-ssot-check.ts` extended to assert that backend and sandbox hosts reference the orchestrator and aggregates as SSOT. All tests and metrics remain green as in previous phases. | Git: doc-only commits, easily reversible but low risk. No feature flags. |
+
+> > > > > > > Stashed changes
 
 ### 5.2 Phase A – Backend orchestrator-only path
 
@@ -426,8 +430,8 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
 
 This section defines orchestrator‑specific SLOs and error budgets and then restates
 the supporting tests, metrics, and rollback levers that enforce them. Alert
-thresholds in [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1) and
-[`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml:1) are
+thresholds in [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md) and
+[`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml) are
 intentionally a little looser than these SLO targets so that on‑call receives
 early warning before the error budget is exhausted.
 
@@ -491,7 +495,7 @@ These conditions defined "Success" for Phase 2 in the context of P18.4-4; rollou
 **SLO-CI-ORCH-PARITY – Orchestrator parity CI gate**
 
 - **Metric:** Status of the `orchestrator-parity` GitHub Actions job defined in
-  [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1), which runs
+  [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), which runs
   `npm run test:orchestrator-parity:ts` and
   `./scripts/run-python-contract-tests.sh --verbose`.
 - **Target:** For any commit that will be:
@@ -510,13 +514,13 @@ These conditions defined "Success" for Phase 2 in the context of P18.4-4; rollou
   - Canonical CI command:
     `npm run soak:orchestrator:short`
     (as used by the `orchestrator-short-soak` job in
-    [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1)).
+    [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)).
   - Smoke variant (single-game fast check):
     `npm run soak:orchestrator:smoke` producing
-    [`results/orchestrator_soak_smoke.json`](../../results/orchestrator_soak_smoke.json:1).
+    [`results/orchestrator_soak_smoke.json`](../../results/orchestrator_soak_smoke.json).
   - For deeper offline or scheduled runs (not required for this SLO) see
     `npm run soak:orchestrator:nightly`, which produces
-    [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json:1).
+    [`results/orchestrator_soak_summary.json`](../../results/orchestrator_soak_summary.json).
 - **Target:**
   - `totalInvariantViolations == 0` and no S-invariant or host-consistency
     violations recorded in the summary.
@@ -537,10 +541,10 @@ Although not a hard gate for orchestrator promotion, Python strict‑invariant h
 
 - **Metric / alerts:**
   - `ringrift_python_invariant_violations_total{invariant_id, type}` exported by the AI self‑play soak harness (`run_self_play_soak.py` under `RINGRIFT_STRICT_NO_MOVE_INVARIANT=1`).
-  - `PythonInvariantViolations` alert in [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml:580) and described in [`docs/operations/ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:640).
+  - `PythonInvariantViolations` alert in [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml) and described in [`docs/operations/ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md).
 - **CI / workflows:**
-  - `python-ai-healthcheck` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1) – runs `python scripts/run_self_play_soak.py --profile ai-healthcheck --max-moves 200 --fail-on-anomaly` across `square8`, `square19`, and `hexagonal`, emitting invariant violations keyed by `INV-*` IDs (see [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1)).
-  - `AI Self-Play Healthcheck (Nightly)` workflow in [`.github/workflows/ai-healthcheck-nightly.yml`](../../.github/workflows/ai-healthcheck-nightly.yml:1) – deeper variant with increased `RINGRIFT_AI_HEALTHCHECK_GAMES` and a higher `--max-moves` cap.
+  - `python-ai-healthcheck` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) – runs `python scripts/run_self_play_soak.py --profile ai-healthcheck --max-moves 200 --fail-on-anomaly` across `square8`, `square19`, and `hexagonal`, emitting invariant violations keyed by `INV-*` IDs (see [`docs/rules/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)).
+  - `AI Self-Play Healthcheck (Nightly)` workflow in [`.github/workflows/ai-healthcheck-nightly.yml`](../../.github/workflows/ai-healthcheck-nightly.yml) – deeper variant with increased `RINGRIFT_AI_HEALTHCHECK_GAMES` and a higher `--max-moves` cap.
 - **Rollout posture:**
   - For any release candidate going to staging or production, Python AI healthchecks **should be green** and `PythonInvariantViolations` should be quiet over the recent window, or any violations must be understood and explicitly triaged as AI‑only or training‑only issues.
   - When Python invariant alerts indicate potential cross‑stack rules regressions (for example `INV-ACTIVE-NO-MOVES` or `INV-S-MONOTONIC` anomalies), treat them as inputs to the same investigation loop as orchestrator invariant and rules‑parity signals before advancing phases in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` §8.
@@ -559,7 +563,7 @@ production.
 
 - **Metric:** `ringrift_orchestrator_error_rate{environment="staging"}` – the
   fraction of orchestrator‑handled requests that failed in the most recent
-  error window, as exposed by [`MetricsService`](../../src/server/services/MetricsService.ts:1).
+  error window, as exposed by [`MetricsService`](../../src/server/services/MetricsService.ts).
 - **Target:**
   `ringrift_orchestrator_error_rate <= 0.001` (0.1%) over a trailing 24‑hour window.
 - **Window:** 24h trailing, evaluated via e.g.:
@@ -613,7 +617,7 @@ production.
 
 Production SLOs are phrased in terms of orchestrator‑specific metrics and sit
 under the broader availability and latency SLOs documented in
-[`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1).
+[`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md).
 
 **SLO-PROD-ORCH-ERROR – Production orchestrator error rate**
 
@@ -643,7 +647,7 @@ under the broader availability and latency SLOs documented in
   - `ringrift_orchestrator_invariant_violations_total{environment="production",type,invariant_id}`.
   - Logs and soak summaries derived from the orchestrator soak harness
     running periodically against production images
-    (see [`STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md:1)).
+    (see [`STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md)).
 - **Target:**
   - No invariant violations attributable to the orchestrator in production
     logs.
@@ -710,9 +714,9 @@ invalidate `SLO-CI-ORCH-PARITY` and halt promotion until fixed.
 
 Across implementation Phases A–C and environment Phases 0–4, the following
 metrics must be monitored, as described in
-[`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md:1),
-[`docs/runbooks/RULES_PARITY.md`](../runbooks/RULES_PARITY.md:1), and
-[`docs/runbooks/GAME_HEALTH.md`](../runbooks/GAME_HEALTH.md:1):
+[`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md),
+[`docs/runbooks/RULES_PARITY.md`](../runbooks/RULES_PARITY.md), and
+[`docs/runbooks/GAME_HEALTH.md`](../runbooks/GAME_HEALTH.md):
 
 - Orchestrator‑specific metrics:
   - `ringrift_orchestrator_error_rate`.
@@ -729,8 +733,8 @@ metrics must be monitored, as described in
     python‑authoritative diagnostics and by TS↔Python parity jobs.
 
 Target thresholds should align with v1.0 user‑visible SLOs in
-[`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:76) and the thresholds in
-[`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml:1),
+[`PROJECT_GOALS.md`](../../PROJECT_GOALS.md) and the thresholds in
+[`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml),
 while remaining consistent with the orchestrator SLOs in §§6.2–6.4.
 
 ### 6.7 Rollback levers
@@ -751,8 +755,8 @@ Rollbacks should rely on:
     orchestrator metrics.
   - Production deployments using the existing deployment runbooks and
     rollback procedures in
-    [`docs/runbooks/DEPLOYMENT_ROUTINE.md`](../runbooks/DEPLOYMENT_ROUTINE.md:1)
-    and [`docs/runbooks/DEPLOYMENT_ROLLBACK.md`](../runbooks/DEPLOYMENT_ROLLBACK.md:1).
+    [`docs/runbooks/DEPLOYMENT_ROUTINE.md`](../runbooks/DEPLOYMENT_ROUTINE.md)
+    and [`docs/runbooks/DEPLOYMENT_ROLLBACK.md`](../runbooks/DEPLOYMENT_ROLLBACK.md).
 
 These practices inform the historical environment phases (`docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md` §8); there is no
 runtime rollback lever in current production configurations.
@@ -882,7 +886,7 @@ python‑authoritative diagnostics lane.
 ### 6.9 Orchestrator Parity CI Job (`orchestrator-parity`)
 
 The orchestrator parity CI gate is implemented as the `orchestrator-parity` job
-in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1). It runs under the
+in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). It runs under the
 **orchestrator‑ON** profile described above and is required for
 orchestrator‑first promotion and TS↔Python parity guarantees.
 
@@ -890,18 +894,18 @@ orchestrator‑first promotion and TS↔Python parity guarantees.
   - Command: `npm run test:orchestrator-parity:ts`
   - Scope: backend and sandbox orchestrator multi‑phase scenarios plus core
     lines/territory unit suites:
-    - [`tests/scenarios/MultiPhaseTurn.contractVectors.test.ts`](../../tests/scenarios/MultiPhaseTurn.contractVectors.test.ts:1)
-    - [`tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts`](../../tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts:1)
-    - [`tests/unit/GameEngine.lines.scenarios.test.ts`](../../tests/unit/GameEngine.lines.scenarios.test.ts:1)
-    - [`tests/unit/sandboxLines.test.ts`](../../tests/unit/sandboxLines.test.ts:1)
-    - [`tests/unit/territoryDecisionHelpers.shared.test.ts`](../../tests/unit/territoryDecisionHelpers.shared.test.ts:1)
-    - [`tests/unit/BoardManager.territoryDisconnection.test.ts`](../../tests/unit/BoardManager.territoryDisconnection.test.ts:1)
-    - [`tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts`](../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts:1)
+    - [`tests/scenarios/MultiPhaseTurn.contractVectors.test.ts`](../../tests/scenarios/MultiPhaseTurn.contractVectors.test.ts)
+    - [`tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts`](../../tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts)
+    - [`tests/unit/GameEngine.lines.scenarios.test.ts`](../../tests/unit/GameEngine.lines.scenarios.test.ts)
+    - [`tests/unit/sandboxLines.test.ts`](../../tests/unit/sandboxLines.test.ts)
+    - [`tests/unit/territoryDecisionHelpers.shared.test.ts`](../../tests/unit/territoryDecisionHelpers.shared.test.ts)
+    - [`tests/unit/BoardManager.territoryDisconnection.test.ts`](../../tests/unit/BoardManager.territoryDisconnection.test.ts)
+    - [`tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts`](../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts)
 
 - **Python contract vectors:**
   - Command (from repo root): `./scripts/run-python-contract-tests.sh --verbose`
-  - Uses [`ai-service/requirements.txt`](../../ai-service/requirements.txt:1) and
-    [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py:1)
+  - Uses [`ai-service/requirements.txt`](../../ai-service/requirements.txt) and
+    [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py)
     to validate Python rules behaviour against shared TS contract vectors.
 
 Failures in this job indicate either an orchestrator/host regression in the TS
@@ -953,16 +957,16 @@ This section summarises the plan for use by Track A implementation tasks:
 
 ### 7.2 Phase B – Sandbox orchestrator-only status (2025-11-28)
 
-- `/sandbox` and the React host in [`GamePage`](../../src/client/pages/GamePage.tsx:1) now
+- `/sandbox` and the React host in [`GamePage`](../../src/client/pages/GamePage.tsx) now
   drive all canonical local sandbox moves through:
   - `ClientSandboxEngine.processMoveViaAdapter`
-  - [`SandboxOrchestratorAdapter`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts:1)
+  - [`SandboxOrchestratorAdapter`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts)
   - `processTurnAsync` in the shared orchestrator.
 - The legacy `LocalSandboxState` + `localSandboxController` harness is fully
   fenced off from production sandbox flows:
   - `GamePage.tsx` no longer imports `LocalSandboxState` or projects it into a
     faux `GameState` for the live `/sandbox` view.
-  - [`useSandboxInteractions`](../../src/client/hooks/useSandboxInteractions.ts:1) no longer
+  - [`useSandboxInteractions`](../../src/client/hooks/useSandboxInteractions.ts) no longer
     imports or calls `handleLocalSandboxCellClick`; it always uses
     `ClientSandboxEngine` when a sandbox is configured.
   - `SandboxContext` continues to construct `ClientSandboxEngine` via
@@ -1024,7 +1028,7 @@ Wave 4 is considered complete when:
 ### 7.3 Phase C – Legacy helper shutdown & diagnostics fencing status (2025-11-28)
 
 - **Backend helpers**
-  - Legacy helpers in [`RuleEngine`](../../src/server/game/RuleEngine.ts:1)
+  - Legacy helpers in [`RuleEngine`](../../src/server/game/RuleEngine.ts)
     (`processMove`, `processChainReactions`, `processLineFormation`,
     `processTerritoryDisconnection`) are explicitly documented as
     **DIAGNOSTICS-ONLY (legacy backend pipeline)** and are not called from:
@@ -1038,15 +1042,15 @@ Wave 4 is considered complete when:
     remain available for deep diagnostics and archived tests but are fully
     fenced from production hosts by call-site search and SSOT checks.
 - **Sandbox diagnostics surface**
-  - [`sandboxCaptures.applyCaptureSegmentOnBoard`](../../src/client/sandbox/sandboxCaptures.ts:103)
+  - [`sandboxCaptures.applyCaptureSegmentOnBoard`](../../src/client/sandbox/sandboxCaptures.ts)
     now carries a top-level **DIAGNOSTICS-ONLY (SANDBOX ANALYSIS TOOL)** banner.
     It is only used by:
     - Capture/chain diagnostics tests (e.g.
-      [`captureSequenceEnumeration.test.ts`](../../tests/unit/captureSequenceEnumeration.test.ts:1),
+      [`captureSequenceEnumeration.test.ts`](../../tests/unit/captureSequenceEnumeration.test.ts),
       cyclic-capture suites).
     - Diagnostic helpers built on cloned boards; live sandbox capture mutation
       in `ClientSandboxEngine` delegates exclusively to `CaptureAggregate`.
-  - [`sandboxCaptureSearch`](../../src/client/sandbox/sandboxCaptureSearch.ts:1) now has a
+  - [`sandboxCaptureSearch`](../../src/client/sandbox/sandboxCaptureSearch.ts) now has a
     module header declaring it **DIAGNOSTICS-ONLY (SANDBOX CAPTURE CHAIN SEARCH)**:
     - It performs DFS over cloned `BoardState`s using shared
       `enumerateCaptureSegmentsFromBoard` + `applyCaptureSegmentOnBoard`.

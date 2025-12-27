@@ -102,13 +102,13 @@ Moving from "design complete" to "production reality" for the orchestrator-first
 - **`CURRENT_RULES_STATE.md`:**
   - Marks the rules engine as "Fully implemented" with "No critical known issues".
   - Given active red suites around capture enumeration, territory disconnection, and RNG parity, this is misleading even if some failures are expectation drift.
-  - **Recommended action:** explicitly call out the current advanced-phase and parity issues and cross-link to [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) and this PASS18 report.
+  - **Recommended action:** explicitly call out the current advanced-phase and parity issues and cross-link to [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md) and this PASS18 report.
 
 - **`DOCUMENTATION_INDEX.md` and `docs/INDEX.md`:**
-  - Still describe [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:1) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1) as capturing the "current highest-risk" semantics area in terms of ANM and forced-elimination invariants.
-  - With [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:1) now updated to focus on host integration and deep multi-engine parity, these indices should be revised to either:
+  - Still describe [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) as capturing the "current highest-risk" semantics area in terms of ANM and forced-elimination invariants.
+  - With [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) now updated to focus on host integration and deep multi-engine parity, these indices should be revised to either:
     - Describe ANM and forced-elimination as the **historically riskiest semantics area**, or
-    - Point to this PASS18 report and [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) for the **current** weakest aspect and hardest problem.
+    - Point to this PASS18 report and [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md) for the **current** weakest aspect and hardest problem.
 
 - **`AI_ARCHITECTURE.md` and `RULES_ENGINE_ARCHITECTURE.md`:**
   - Both remain largely accurate regarding the canonical rules SSoT (rules spec + shared TS engine), orchestrator design, Python adapter role, and parity and testing strategy.
@@ -144,13 +144,13 @@ The detailed remediation tasks will be defined in the `PASS18-REMEDIATION-PLAN` 
 Second-pass review of the host stack and tests reinforces the first-pass conclusion: the weakest aspect remains the **TS rules and host stack for advanced phases & RNG parity**, but it is now more cleanly decomposed into three sub-streams:
 
 1. **Capture and territory host-integration parity.**
-   The shared TS orchestrator and helper aggregates are strong, but wiring into backend host [`GameEngine.ts`](../../../src/server/game/GameEngine.ts:1), host orchestration in [`GameSession.ts`](../../../src/server/game/GameSession.ts:1), client sandbox [`ClientSandboxEngine.ts`](../../../src/client/sandbox/ClientSandboxEngine.ts:1), and Python adapters [`RulesBackendFacade.ts`](../../../src/server/game/RulesBackendFacade.ts:1), [`PythonRulesClient.ts`](../../../src/server/services/PythonRulesClient.ts:1) remains brittle for long multi-phase turns (capture → line → territory → elimination). Failing suites around capture sequence enumeration, territory disconnection, and combined line-plus-territory scenarios confirm that this integration surface is still fragile.
+   The shared TS orchestrator and helper aggregates are strong, but wiring into backend host [`GameEngine.ts`](../../../src/server/game/GameEngine.ts), host orchestration in [`GameSession.ts`](../../../src/server/game/GameSession.ts), client sandbox [`ClientSandboxEngine.ts`](../../../src/client/sandbox/ClientSandboxEngine.ts), and Python adapters [`RulesBackendFacade.ts`](../../../src/server/game/RulesBackendFacade.ts), [`PythonRulesClient.ts`](../../../src/server/services/PythonRulesClient.ts) remains brittle for long multi-phase turns (capture → line → territory → elimination). Failing suites around capture sequence enumeration, territory disconnection, and combined line-plus-territory scenarios confirm that this integration surface is still fragile.
 
 2. **AI RNG parity across hosts and engines.**
-   [`AIEngine.ts`](../../../src/server/game/ai/AIEngine.ts:1) and [`AIServiceClient.ts`](../../../src/server/services/AIServiceClient.ts:1) are designed to thread deterministic seeds from `gameState.rngSeed` into both Python AI and TS local heuristics, with good unit coverage (e.g., `AIEngine.fallback` and `AIServiceClient.concurrency` tests). However, real games still rely on `Math.random()` in some host paths (for example, `GameSession.maybePerformAITurn` currently calls `getAIMove` without an explicit RNG), so sandbox vs backend AI parity and TS vs Python AI behaviour remain fragile under some conditions.
+   [`AIEngine.ts`](../../../src/server/game/ai/AIEngine.ts) and [`AIServiceClient.ts`](../../../src/server/services/AIServiceClient.ts) are designed to thread deterministic seeds from `gameState.rngSeed` into both Python AI and TS local heuristics, with good unit coverage (e.g., `AIEngine.fallback` and `AIServiceClient.concurrency` tests). However, real games still rely on `Math.random()` in some host paths (for example, `GameSession.maybePerformAITurn` currently calls `getAIMove` without an explicit RNG), so sandbox vs backend AI parity and TS vs Python AI behaviour remain fragile under some conditions.
 
 3. **Host edge semantics and decision lifecycles.**
-   Decision-phase timeouts, auto-resolutions, reconnection handling, and resignation flows route through [`WebSocketInteractionHandler.ts`](../../../src/server/game/WebSocketInteractionHandler.ts:1), [`server.ts`](../../../src/server/websocket/server.ts:1), and [`GameSession.ts`](../../../src/server/game/GameSession.ts:1). The design is robust and well-instrumented, but tests and docs do not yet cover all edge cases (for example, HTTP-level resignation semantics vs in-engine resignation moves), which interacts with perceived fairness and rules parity in late-game states.
+   Decision-phase timeouts, auto-resolutions, reconnection handling, and resignation flows route through [`WebSocketInteractionHandler.ts`](../../../src/server/game/WebSocketInteractionHandler.ts), [`server.ts`](../../../src/server/websocket/server.ts), and [`GameSession.ts`](../../../src/server/game/GameSession.ts). The design is robust and well-instrumented, but tests and docs do not yet cover all edge cases (for example, HTTP-level resignation semantics vs in-engine resignation moves), which interacts with perceived fairness and rules parity in late-game states.
 
 Overall, this area still scores lowest on the component scorecard and remains the single weakest aspect for Pass 18.
 
@@ -160,10 +160,10 @@ Second-pass analysis also confirms and refines the hardest outstanding problem a
 
 > **Orchestrator-first rollout execution & deep multi-engine parity under live load.**
 
-The architectural design for the shared turn orchestrator and its adapters is complete and implemented in production code via [`TurnEngineAdapter.ts`](../../../src/server/game/turn/TurnEngineAdapter.ts:1) and host wiring in [`GameEngine.ts`](../../../src/server/game/GameEngine.ts:1). The remaining difficulty is operational:
+The architectural design for the shared turn orchestrator and its adapters is complete and implemented in production code via [`TurnEngineAdapter.ts`](../../../src/server/game/turn/TurnEngineAdapter.ts) and host wiring in [`GameEngine.ts`](../../../src/server/game/GameEngine.ts). The remaining difficulty is operational:
 
-- **SLO-gated rollout:** Executing the staged rollout described in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md:1) in staging and production with clear entry/exit criteria, hyper-care windows, and rollback procedures.
-- **Deep multi-engine parity:** Maintaining parity not only between legacy and orchestrator paths, but also between TS hosts and the Python rules and AI service during and after rollout, using invariants from [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1) and parity suites (contract vectors, snapshot traces).
+- **SLO-gated rollout:** Executing the staged rollout described in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md) in staging and production with clear entry/exit criteria, hyper-care windows, and rollback procedures.
+- **Deep multi-engine parity:** Maintaining parity not only between legacy and orchestrator paths, but also between TS hosts and the Python rules and AI service during and after rollout, using invariants from [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) and parity suites (contract vectors, snapshot traces).
 - **Observability and confidence:** Interpreting parity and invariant signals (for example, `ringrift_rules_parity_mismatches_total`, S-invariant counters, ACTIVE_NO_MOVES regression suites) quickly enough to make safe go/no-go decisions at each rollout phase.
 
 ### 7.3 Other candidates and why they are not ranked #1
@@ -174,13 +174,13 @@ Several other areas were considered as potential weakest aspects or hardest prob
   Host architecture and components (`GameContext`, `GameHUD`, `VictoryModal`, lobby pages) are well-factored, with explicit support for decision deadlines, reconnect signalling, and error toasts. Remaining issues (chain-capture copy, victory text, decision-phase explanations, reconnect affordances) are important but largely **semantic and UX polish**, not core correctness, and can be addressed via targeted Code/Ask tasks.
 
 - **AI training robustness and scale-out.**
-  [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md:1), [`docs/ai/AI_TRAINING_AND_DATASETS.md`](../../ai/AI_TRAINING_AND_DATASETS.md:1), and tests under [`ai-service/tests`](../../../ai-service/tests/test_engine_determinism.py:1) show a mature training pipeline with strong determinism, model-versioning, and error-recovery guarantees. Remaining work (hex training scale-out, cost optimisation) is meaningful but does not dominate overall project risk compared to rules/host parity and orchestrator rollout.
+  [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md), [`docs/ai/AI_TRAINING_AND_DATASETS.md`](../../ai/AI_TRAINING_AND_DATASETS.md), and tests under [`ai-service/tests`](../../../ai-service/tests/test_engine_determinism.py) show a mature training pipeline with strong determinism, model-versioning, and error-recovery guarantees. Remaining work (hex training scale-out, cost optimisation) is meaningful but does not dominate overall project risk compared to rules/host parity and orchestrator rollout.
 
 - **Ops/SLOs and incident handling.**
-  Runbooks and SLOs in `docs/runbooks` and incident docs (for example, [`docs/incidents/INDEX.md`](../../incidents/INDEX.md:1), [`docs/operations/ALERTING_THRESHOLDS.md`](../../operations/ALERTING_THRESHOLDS.md:1)) are well structured. The main challenge is executing the orchestrator rollout within this framework rather than designing the framework itself, so Ops is tightly coupled to the hardest problem but not itself the weakest component.
+  Runbooks and SLOs in `docs/runbooks` and incident docs (for example, [`docs/incidents/INDEX.md`](../../incidents/INDEX.md), [`docs/operations/ALERTING_THRESHOLDS.md`](../../operations/ALERTING_THRESHOLDS.md)) are well structured. The main challenge is executing the orchestrator rollout within this framework rather than designing the framework itself, so Ops is tightly coupled to the hardest problem but not itself the weakest component.
 
 - **Documentation and SSOT drift.**
-  SSoT banners and SSOT checks (see [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md:1) and [`scripts/ssot/ssot-check.ts`](../../../scripts/ssot/ssot-check.ts:1)) give the documentation set a strong structural backbone. Second-pass alignment work is needed for indices and state snapshots, but these are targeted fixes, not systemic weaknesses comparable to host integration parity.
+  SSoT banners and SSOT checks (see [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md) and [`scripts/ssot/ssot-check.ts`](../../../scripts/ssot/ssot-check.ts)) give the documentation set a strong structural backbone. Second-pass alignment work is needed for indices and state snapshots, but these are targeted fixes, not systemic weaknesses comparable to host integration parity.
 
 ### 7.4 Test coverage & health scores (1–5)
 
@@ -200,13 +200,13 @@ These scores complement (and largely validate) the component health scores in §
 
 Second-pass work added explicit review of several areas:
 
-- **WebSocket and game-loop flows:** [`server.ts`](../../../src/server/websocket/server.ts:1), [`GameSession.ts`](../../../src/server/game/GameSession.ts:1), and [`WebSocketInteractionHandler.ts`](../../../src/server/game/WebSocketInteractionHandler.ts:1) provide robust auth, join/reconnect, decision-choice, and timeout handling with clear invariants and diagnostics. Residual risk is mostly in UX and end-to-end coverage for reconnect and timeout behaviours, not in protocol design.
+- **WebSocket and game-loop flows:** [`server.ts`](../../../src/server/websocket/server.ts), [`GameSession.ts`](../../../src/server/game/GameSession.ts), and [`WebSocketInteractionHandler.ts`](../../../src/server/game/WebSocketInteractionHandler.ts) provide robust auth, join/reconnect, decision-choice, and timeout handling with clear invariants and diagnostics. Residual risk is mostly in UX and end-to-end coverage for reconnect and timeout behaviours, not in protocol design.
 
-- **Auth, lobby, and user flows:** [`auth.ts`](../../../src/server/routes/auth.ts:1) and [`game.ts`](../../../src/server/routes/game.ts:1) implement modern password handling, rotating refresh-token families, per-user and per-IP quotas, and consistent spectator invariants. Resignation semantics at the HTTP layer remain simplified compared to in-engine rules and should be brought into alignment but do not displace host parity as the weakest aspect.
+- **Auth, lobby, and user flows:** [`auth.ts`](../../../src/server/routes/auth.ts) and [`game.ts`](../../../src/server/routes/game.ts) implement modern password handling, rotating refresh-token families, per-user and per-IP quotas, and consistent spectator invariants. Resignation semantics at the HTTP layer remain simplified compared to in-engine rules and should be brought into alignment but do not displace host parity as the weakest aspect.
 
-- **AI training and infra:** [`ai-service/tests/integration/test_training_pipeline_e2e.py`](../../../ai-service/tests/integration/test_training_pipeline_e2e.py:1) and [`ai-service/app/training/env.py`](../../../ai-service/app/training/env.py:1) confirm that training pipelines, evaluation presets, and RNG handling are robust and aligned with production rules configurations.
+- **AI training and infra:** [`ai-service/tests/integration/test_training_pipeline_e2e.py`](../../../ai-service/tests/integration/test_training_pipeline_e2e.py) and [`ai-service/app/training/env.py`](../../../ai-service/app/training/env.py) confirm that training pipelines, evaluation presets, and RNG handling are robust and aligned with production rules configurations.
 
-- **SSOT tooling:** The aggregated SSOT runner [`scripts/ssot/ssot-check.ts`](../../../scripts/ssot/ssot-check.ts:1) and specialised checks such as [`scripts/ssot/python-parity-ssot-check.ts`](../../../scripts/ssot/python-parity-ssot-check.ts:1) and [`scripts/ssot/docs-banner-ssot-check.ts`](../../../scripts/ssot/docs-banner-ssot-check.ts:1) centralise drift detection for rules, parity artefacts, docs banners, env and CI. Future PASS18 tasks should extend these checks to cover orchestrator rollout configuration and key parity suites so that they cannot silently fall out of CI.
+- **SSOT tooling:** The aggregated SSOT runner [`scripts/ssot/ssot-check.ts`](../../../scripts/ssot/ssot-check.ts) and specialised checks such as [`scripts/ssot/python-parity-ssot-check.ts`](../../../scripts/ssot/python-parity-ssot-check.ts) and [`scripts/ssot/docs-banner-ssot-check.ts`](../../../scripts/ssot/docs-banner-ssot-check.ts) centralise drift detection for rules, parity artefacts, docs banners, env and CI. Future PASS18 tasks should extend these checks to cover orchestrator rollout configuration and key parity suites so that they cannot silently fall out of CI.
 
 ### 7.6 Orchestrator, host, AI and RNG topology (illustrative)
 
@@ -226,4 +226,4 @@ flowchart LR
   PythonRulesClient --> PythonRules[Python rules engine]
 ```
 
-This diagram summarises how the weakest aspect (TS host integration for advanced phases and RNG parity) and the hardest problem (orchestrator-first rollout with deep multi-engine parity) sit within the overall topology. It provides a visual anchor for the P18 remediation tasks defined in [`docs/PASS18_REMEDIATION_PLAN.md`](PASS18_REMEDIATION_PLAN.md:1).
+This diagram summarises how the weakest aspect (TS host integration for advanced phases and RNG parity) and the hardest problem (orchestrator-first rollout with deep multi-engine parity) sit within the overall topology. It provides a visual anchor for the P18 remediation tasks defined in [`docs/PASS18_REMEDIATION_PLAN.md`](PASS18_REMEDIATION_PLAN.md).

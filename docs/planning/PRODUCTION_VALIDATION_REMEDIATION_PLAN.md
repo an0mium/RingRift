@@ -313,7 +313,7 @@ All VUs → 401 Unauthorized for remaining 15 minutes
 
 **Existing Mitigation (Improved):**
 
-The [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js:250) scenario now calls `getValidToken()` which uses the per-VU auth cache in [`helpers.js`](../../tests/load/auth/helpers.js:207). It refreshes within a safety window (with jitter) and derives TTL from `expiresIn` or JWT `exp` when present. However:
+The [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js) scenario now calls `getValidToken()` which uses the per-VU auth cache in [`helpers.js`](../../tests/load/auth/helpers.js). It refreshes within a safety window (with jitter) and derives TTL from `expiresIn` or JWT `exp` when present. However:
 
 1. Token refresh still requires a successful login, which may itself be rate-limited
 2. Multi-VU token refresh can cause login endpoint saturation if the pool is undersized
@@ -392,14 +392,14 @@ At 300 VUs with 2-5s polling intervals:
 
 ### PV-01: Auth Token Refresh Validation
 
-| Attribute               | Value                                                                                                                                                                                                                                                           |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Task ID**             | PV-01                                                                                                                                                                                                                                                           |
-| **Title**               | Validate auth token refresh under load                                                                                                                                                                                                                          |
-| **Description**         | Verify that `getValidToken()` in [`auth/helpers.js`](../../tests/load/auth/helpers.js:207) correctly refreshes tokens before expiry during long-running tests. Run a 20-minute test with explicit token TTL monitoring and confirm 401 rates drop to near zero. |
-| **Acceptance Criteria** | <ul><li>Run 20-minute test with 100 VUs</li><li>401 response rate < 0.5%</li><li>`auth_token_expired_total` increments only on actual expiry edge cases</li><li>Token refresh does not itself cause 429s</li></ul>                                              |
-| **Dependencies**        | None                                                                                                                                                                                                                                                            |
-| **Recommended Mode**    | debug                                                                                                                                                                                                                                                           |
+| Attribute               | Value                                                                                                                                                                                                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task ID**             | PV-01                                                                                                                                                                                                                                                       |
+| **Title**               | Validate auth token refresh under load                                                                                                                                                                                                                      |
+| **Description**         | Verify that `getValidToken()` in [`auth/helpers.js`](../../tests/load/auth/helpers.js) correctly refreshes tokens before expiry during long-running tests. Run a 20-minute test with explicit token TTL monitoring and confirm 401 rates drop to near zero. |
+| **Acceptance Criteria** | <ul><li>Run 20-minute test with 100 VUs</li><li>401 response rate < 0.5%</li><li>`auth_token_expired_total` increments only on actual expiry edge cases</li><li>Token refresh does not itself cause 429s</li></ul>                                          |
+| **Dependencies**        | None                                                                                                                                                                                                                                                        |
+| **Recommended Mode**    | debug                                                                                                                                                                                                                                                       |
 
 ### PV-02: User Pool Sizing for Rate Limit Distribution
 
@@ -2010,7 +2010,7 @@ WebSocket Results:
 
 #### Why Python AI Service Is Not Exercised
 
-The [`websocket-gameplay.js`](../../tests/load/scenarios/websocket-gameplay.js:569) scenario configures AI opponents with:
+The [`websocket-gameplay.js`](../../tests/load/scenarios/websocket-gameplay.js) scenario configures AI opponents with:
 
 ```javascript
 aiType: 'heuristic',

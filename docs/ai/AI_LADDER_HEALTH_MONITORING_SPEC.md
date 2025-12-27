@@ -23,14 +23,14 @@ This specification establishes the framework for **ongoing health monitoring** o
 - **Public ladder context:** D1–D10 (D11 internal); extend monitoring when new tiers are promoted
 - **Extension notes:** Hexagonal, Square-19, and 3/4-player configurations
 - **Integration:** Builds upon infrastructure from:
-  - [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1) – calibration procedure
-  - [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md:1) – analysis design
-  - [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md:1) – promotion pipeline
-  - [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1) – performance constraints
+  - [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md) – calibration procedure
+  - [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md) – analysis design
+  - [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) – promotion pipeline
+  - [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md) – performance constraints
 
 ### Relationship to Calibration Runbook
 
-The [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1) defines **point-in-time calibration cycles** where an operator gathers data, runs analysis, and produces recommendations. This specification defines **continuous monitoring** that:
+The [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md) defines **point-in-time calibration cycles** where an operator gathers data, runs analysis, and produces recommendations. This specification defines **continuous monitoring** that:
 
 - Tracks metrics between calibration cycles
 - Detects drift that warrants an unscheduled calibration run
@@ -94,7 +94,7 @@ For each monitored tier (default: D2, D4, D6, D8) on Square-8 2-player:
 **Metric:** `ladder_decision_time_ms{tier, board_type, num_players, quantile}`
 
 Decision-time thresholds are derived from `TIER_PERF_BUDGETS` (D3–D8) and
-the ladder `think_time_ms` values. Use [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1)
+the ladder `think_time_ms` values. Use [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md)
 as the canonical source of current numbers.
 
 ### Cross-Tier Metrics
@@ -135,7 +135,7 @@ The difficulty step between adjacent tiers should be perceptible.
 
 - Binary indicator: 1 if tier has a promoted, active model; 0 otherwise
 - Any tier without an active model is an **Informational** alert
-- Tracked via [`tier_candidate_registry.square8_2p.json`](../../ai-service/config/tier_candidate_registry.square8_2p.json:1)
+- Tracked via [`tier_candidate_registry.square8_2p.json`](../../ai-service/config/tier_candidate_registry.square8_2p.json)
 
 ### Human Calibration Metrics
 
@@ -283,13 +283,13 @@ Response time: **Next business day** review, **weekly** summary
 
 #### Sources
 
-| Source                | Metrics Collected                                              | Collection Method                                                                                                   |
-| --------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Calibration Telemetry | Human win rate, perceived difficulty, game length, abandonment | Client events via [`difficultyCalibrationTelemetry.ts`](../../src/client/utils/difficultyCalibrationTelemetry.ts:1) |
-| Tier Evaluation Runs  | Win rates vs opponents, Elo calculations                       | [`run_tier_evaluation.py`](../../ai-service/scripts/run_tier_evaluation.py:1) output                                |
-| Perf Benchmarks       | Decision latency (avg, p95)                                    | [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py:1) output                        |
-| Candidate Registry    | Model status, promotion history                                | [`tier_candidate_registry.square8_2p.json`](../../ai-service/config/tier_candidate_registry.square8_2p.json:1)      |
-| Calibration Analysis  | Aggregated calibration metrics per window                      | [`analyze_difficulty_calibration.py`](../../ai-service/scripts/analyze_difficulty_calibration.py:1) output          |
+| Source                | Metrics Collected                                              | Collection Method                                                                                                 |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Calibration Telemetry | Human win rate, perceived difficulty, game length, abandonment | Client events via [`difficultyCalibrationTelemetry.ts`](../../src/client/utils/difficultyCalibrationTelemetry.ts) |
+| Tier Evaluation Runs  | Win rates vs opponents, Elo calculations                       | [`run_tier_evaluation.py`](../../ai-service/scripts/run_tier_evaluation.py) output                                |
+| Perf Benchmarks       | Decision latency (avg, p95)                                    | [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py) output                        |
+| Candidate Registry    | Model status, promotion history                                | [`tier_candidate_registry.square8_2p.json`](../../ai-service/config/tier_candidate_registry.square8_2p.json)      |
+| Calibration Analysis  | Aggregated calibration metrics per window                      | [`analyze_difficulty_calibration.py`](../../ai-service/scripts/analyze_difficulty_calibration.py) output          |
 
 #### Collection Frequency
 
@@ -444,7 +444,7 @@ sum(ladder_tier_selection_count{board_type="square8", num_players="2"}) by (tier
 
 #### Alert Delivery Mechanism
 
-Following patterns from [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1):
+Following patterns from [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md):
 
 | Severity      | Channels                                      | Routing         |
 | ------------- | --------------------------------------------- | --------------- |
@@ -471,7 +471,7 @@ Following patterns from [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESH
 2. **Assess scope:** Which tier(s) affected? How many games/players impacted?
 3. **Check for obvious causes:**
    - Recent deployments or model promotions
-   - AI service health (see [`AIServiceDown`](../operations/ALERTING_THRESHOLDS.md:110))
+   - AI service health (see [`AIServiceDown`](../operations/ALERTING_THRESHOLDS.md))
    - Dependency failures (DB, Redis)
 4. **Initial mitigation if needed:**
    - For latency: Consider temporary difficulty reduction
@@ -645,7 +645,7 @@ Action: Schedule D6 evaluation for next week.
    - Writes daily JSON to `ai-service/logs/ladder_health/`
 
 2. **Prometheus metrics exporter:**
-   - Extend [`MetricsService`](../../src/server/services/MetricsService.ts:1) with ladder health gauges:
+   - Extend [`MetricsService`](../../src/server/services/MetricsService.ts) with ladder health gauges:
      - `ringrift_ladder_human_win_rate{tier, board_type, num_players, segment}`
      - `ringrift_ladder_tier_elo{tier, board_type, num_players}`
      - `ringrift_ladder_decision_time_ms{tier, board_type, num_players, quantile}`
@@ -823,15 +823,15 @@ _Note: Update these values after each successful calibration cycle._
 
 ### Related Documents
 
-| Document                                                                                     | Relationship                                                                      |
-| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1)                                   | Defines per-cycle calibration procedure; this spec adds continuous monitoring     |
-| [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md:1)           | Defines calibration metrics and targets; this spec operationalizes them           |
-| [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md:1) | Defines training/promotion loop; this spec monitors promotion outcomes            |
-| [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1)                                       | Defines latency budgets; this spec monitors adherence                             |
-| [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1)                           | Defines general alerting patterns; this spec follows those patterns for AI ladder |
-| [`ladder_config.py`](../../ai-service/app/config/ladder_config.py:1)                         | Defines ladder tier configurations; this spec monitors their health               |
-| [`tier_eval_runner.py`](../../ai-service/app/training/tier_eval_runner.py:1)                 | Implements tier evaluation; this spec consumes its outputs                        |
+| Document                                                                                   | Relationship                                                                      |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md)                                   | Defines per-cycle calibration procedure; this spec adds continuous monitoring     |
+| [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md)           | Defines calibration metrics and targets; this spec operationalizes them           |
+| [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) | Defines training/promotion loop; this spec monitors promotion outcomes            |
+| [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md)                                       | Defines latency budgets; this spec monitors adherence                             |
+| [`ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md)                           | Defines general alerting patterns; this spec follows those patterns for AI ladder |
+| [`ladder_config.py`](../../ai-service/app/config/ladder_config.py)                         | Defines ladder tier configurations; this spec monitors their health               |
+| [`tier_eval_runner.py`](../../ai-service/app/training/tier_eval_runner.py)                 | Implements tier evaluation; this spec consumes its outputs                        |
 
 ### Extension Notes for Other Board Types
 

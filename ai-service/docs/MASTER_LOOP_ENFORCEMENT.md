@@ -7,7 +7,7 @@
 
 ### 1. PID File Management (`scripts/master_loop.py`)
 
-**Location**: `/Users/armand/Development/RingRift/ai-service/scripts/master_loop.py`
+**Location**: `ai-service/scripts/master_loop.py`
 
 **Changes**:
 
@@ -22,7 +22,7 @@
 
 ### 2. Master Loop Guard Module (`app/coordination/master_loop_guard.py`)
 
-**Location**: `/Users/armand/Development/RingRift/ai-service/app/coordination/master_loop_guard.py`
+**Location**: `ai-service/app/coordination/master_loop_guard.py`
 
 **New utility module providing**:
 
@@ -40,7 +40,7 @@
 
 ### 3. Coordination Bootstrap Integration (`app/coordination/coordination_bootstrap.py`)
 
-**Location**: `/Users/armand/Development/RingRift/ai-service/app/coordination/coordination_bootstrap.py`
+**Location**: `ai-service/app/coordination/coordination_bootstrap.py`
 
 **Changes**:
 
@@ -61,7 +61,7 @@ bootstrap_coordination(
 
 ### 4. Daemon Manager Warning (`app/coordination/daemon_manager.py`)
 
-**Location**: `/Users/armand/Development/RingRift/ai-service/app/coordination/daemon_manager.py`
+**Location**: `ai-service/app/coordination/daemon_manager.py`
 
 **Changes**:
 
@@ -80,8 +80,8 @@ bootstrap_coordination(
 
 **Files Created**:
 
-- `/Users/armand/Development/RingRift/ai-service/docs/MASTER_LOOP_GUARD.md` - User guide
-- `/Users/armand/Development/RingRift/ai-service/docs/MASTER_LOOP_ENFORCEMENT.md` - This file
+- `ai-service/docs/MASTER_LOOP_GUARD.md` - User guide
+- `ai-service/docs/MASTER_LOOP_ENFORCEMENT.md` - This file
 
 **Files Updated**:
 
@@ -89,7 +89,7 @@ bootstrap_coordination(
 
 ### 6. Tests
 
-**File**: `/Users/armand/Development/RingRift/ai-service/tests/test_master_loop_guard.py`
+**File**: `ai-service/tests/test_master_loop_guard.py`
 
 **Test Coverage**:
 
@@ -167,7 +167,7 @@ python scripts/your_script.py
 ### PID File Location
 
 ```
-/Users/armand/Development/RingRift/ai-service/data/coordination/master_loop.pid
+ai-service/data/coordination/master_loop.pid
 ```
 
 ### Process Detection Algorithm

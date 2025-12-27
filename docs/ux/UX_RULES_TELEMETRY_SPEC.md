@@ -4,9 +4,9 @@
 >
 > **Role:** Defines a minimal but expressive telemetry schema for observing rules‑related confusion, help usage, and weird‑state UX outcomes across the RingRift client surfaces (HUD, VictoryModal, TeachingOverlay, Sandbox, FAQ / docs).
 >
-> **Inputs:** Canonical rules semantics and edge‑case analysis from [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:181), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:591), [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1), and [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:184) plus UX findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md:23).
+> **Inputs:** Canonical rules semantics and edge‑case analysis from [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md), [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md), and [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md) plus UX findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md).
 >
-> **Downstream:** Implementation tasks in Code mode should treat this file and [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1), [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1), and [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md:1) as the contract for wiring telemetry and metrics.
+> **Downstream:** Implementation tasks in Code mode should treat this file and [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md), [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md), and [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md) as the contract for wiring telemetry and metrics.
 
 ---
 
@@ -24,7 +24,7 @@ This spec defines:
 Non‑goals:
 
 - General gameplay telemetry (move timing, MMR, AI strength, etc.).
-- Server‑side engine / AI metrics (covered by [`ai-service/app/metrics.py`](../../ai-service/app/metrics.py:1) and allied docs).
+- Server‑side engine / AI metrics (covered by [`ai-service/app/metrics_base.py`](../../ai-service/app/metrics_base.py) and allied docs).
 - Detailed UX event sequencing beyond what is needed to infer rules confusion.
 
 All identifiers and shapes here are **language‑agnostic**. Concrete type definitions in TypeScript / Python / DB schemas must mirror this structure but may add internal fields if they do not affect metrics cardinality.
@@ -92,15 +92,15 @@ type RulesUxEvent = {
 
 `RulesContext` is a **low‑cardinality concept tag** tied to rules semantics, not UI. Examples (to be extended as W‑UX‑2/3 evolve):
 
-- `anm_forced_elimination` – Active‑No‑Moves + forced elimination semantics ([`RR-CANON-R072`](../../RULES_CANONICAL_SPEC.md:210), [`RR-CANON-R100`](../../RULES_CANONICAL_SPEC.md:443)).
-- `structural_stalemate` – global stalemate / tiebreak per [`RR-CANON-R173`](../../RULES_CANONICAL_SPEC.md:619).
+- `anm_forced_elimination` – Active‑No‑Moves + forced elimination semantics ([`RR-CANON-R072`](../../RULES_CANONICAL_SPEC.md), [`RR-CANON-R100`](../../RULES_CANONICAL_SPEC.md)).
+- `structural_stalemate` – global stalemate / tiebreak per [`RR-CANON-R173`](../../RULES_CANONICAL_SPEC.md).
 - `last_player_standing` – R172 semantics and compromises.
-- `territory_mini_region` – Q23 mini‑region archetype, 2×2 region processing ([`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19)).
+- `territory_mini_region` – Q23 mini‑region archetype, 2×2 region processing ([`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts)).
 - `territory_multi_region` – multiple disconnected regions & self‑elimination budget.
 - `line_reward_exact` – exact‑length line with mandatory elimination.
 - `line_reward_overlength` – graduated line reward Options 1 vs 2.
-- `capture_chain_mandatory` – chain capture continuation constraints ([`RR-CANON-R103`](../../RULES_CANONICAL_SPEC.md:480)).
-- `landing_on_own_marker` – move / capture landing on own marker and forced self‑elimination ([`RR-CANON-R092`](../../RULES_CANONICAL_SPEC.md:418)).
+- `capture_chain_mandatory` – chain capture continuation constraints ([`RR-CANON-R103`](../../RULES_CANONICAL_SPEC.md)).
+- `landing_on_own_marker` – move / capture landing on own marker and forced self‑elimination ([`RR-CANON-R092`](../../RULES_CANONICAL_SPEC.md)).
 - `pie_rule_swap` – 2‑player first‑move balancing.
 - `placement_cap` – per‑player ring cap and placement/no‑dead‑placement issues.
 
@@ -112,7 +112,7 @@ type RulesUxEvent = {
 - `sandbox` – curated sandbox / scenario browser.
 - `faq_panel` – in‑client FAQ / rules browser.
 - `system_toast` – transient notification / toast.
-- `external_docs` – browser navigations directly into [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1) or allied docs opened from the client.
+- `external_docs` – browser navigations directly into [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md) or allied docs opened from the client.
 
 Implementations MAY introduce additional `RulesContext` values over time, but SHOULD keep `RulesUxSource` and `RulesUxEventType` restricted to the sets above unless this document is updated.
 
@@ -145,7 +145,7 @@ Emitted whenever a user opens a rules help surface from within a game, sandbox, 
 **Optional:**
 
 - `rules_context` – SHOULD be set when help is opened from a **contextual** entrypoint:
-  - `anm_forced_elimination` if the current phase / banner corresponds to ANM + FE (see [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39)).
+  - `anm_forced_elimination` if the current phase / banner corresponds to ANM + FE (see [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md)).
   - `capture_chain_mandatory` if help is opened while `currentPhase == 'chain_capture'`.
   - `line_reward_exact` / `line_reward_overlength` when help is opened from a line‑processing banner.
   - `territory_mini_region` / `territory_multi_region` when opened from a territory decision banner.
@@ -192,7 +192,7 @@ Emitted whenever a weird/complex rules state banner is shown in the HUD (e.g. fo
 **Required:**
 
 - `source = 'hud'`.
-- `payload.reason_code` – **must** reference a stable reason code defined in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1) (e.g. `ANM_FE_FORCED_ELIMINATION`).
+- `payload.reason_code` – **must** reference a stable reason code defined in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md) (e.g. `ANM_FE_FORCED_ELIMINATION`).
 - `rules_context` – derived from reason code (e.g. `anm_forced_elimination`, `structural_stalemate`).
 - `overlay_session_id` – new UUID used for subsequent `weird_state_*` events related to the same occurrence.
 
@@ -248,7 +248,7 @@ Emitted by the sandbox when a curated scenario is loaded or completed.
 **Required:**
 
 - `source = 'sandbox'`.
-- `payload.scenario_id` – must match scenario ids defined in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1).
+- `payload.scenario_id` – must match scenario ids defined in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md).
 - `payload.flow_id` (if part of a teaching flow).
 - `rules_context` – derived from scenario metadata `rulesConcept`.
 
@@ -260,7 +260,7 @@ Emitted by the sandbox when a curated scenario is loaded or completed.
 
 ### 3.9 `teaching_step_started` / `teaching_step_completed`
 
-Emitted whenever the user enters or completes a step in a multi‑step teaching flow (see [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1)).
+Emitted whenever the user enters or completes a step in a multi‑step teaching flow (see [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md)).
 
 **Required:**
 
@@ -354,8 +354,8 @@ ringrift_rules_ux_events_total{
 
 Implementation reference:
 
-- Counter is defined in [`MetricsService.ts`](../../src/server/services/MetricsService.ts:518) as `rulesUxEventsTotal` with `name: 'ringrift_rules_ux_events_total'`.
-- Client payloads are defined in [`rulesUxEvents.ts`](../../src/shared/telemetry/rulesUxEvents.ts:101) and emitted via [`rulesUxTelemetry.ts`](../../src/client/utils/rulesUxTelemetry.ts:147).
+- Counter is defined in [`MetricsService.ts`](../../src/server/services/MetricsService.ts) as `rulesUxEventsTotal` with `name: 'ringrift_rules_ux_events_total'`.
+- Client payloads are defined in [`rulesUxEvents.ts`](../../src/shared/telemetry/rulesUxEvents.ts) and emitted via [`rulesUxTelemetry.ts`](../../src/client/utils/rulesUxTelemetry.ts).
 
 This is a **strict subset** of the envelope in §2–§4: we intentionally do **not** expose high‑cardinality identifiers such as `game_id`, `session_id`, `scenario_id`, or `teaching_flow_id` as metric labels to keep Prometheus cardinality bounded. Those fields (where present) remain in logs, warehouses, or higher‑volume telemetry streams.
 
@@ -498,9 +498,9 @@ Principles:
 
 ## 8. Relationship to W‑UX‑2/3/4
 
-- [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1) defines **reason codes** and copy for weird / confusing states. `reason_code` in this file MUST match those codes exactly.
-- [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1) defines **scenario ids** and teaching flows; `scenario_id`, `flow_id`, and `rules_context` values in events are derived from that metadata.
-- [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md:1) assumes the metrics and hotspot queries described here are available and stable; any schema changes that affect:
+- [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md) defines **reason codes** and copy for weird / confusing states. `reason_code` in this file MUST match those codes exactly.
+- [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md) defines **scenario ids** and teaching flows; `scenario_id`, `flow_id`, and `rules_context` values in events are derived from that metadata.
+- [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md) assumes the metrics and hotspot queries described here are available and stable; any schema changes that affect:
   - `ringrift_rules_ux_events_total`,
   - `ringrift_games_started_total`,
   - `ringrift_rules_ux_help_sessions_total`
@@ -521,7 +521,7 @@ This section describes a lightweight loop for turning recorded telemetry into co
 
 - Client and server are emitting `RulesUxEvent` telemetry per this spec.
 - Metrics and/or event logs are exported regularly to a warehouse or analytics job.
-- Pre‑aggregated snapshots are produced in the [`RulesUxAggregatesRoot`](../../src/shared/telemetry/rulesUxHotspotTypes.ts:1) shape.
+- Pre‑aggregated snapshots are produced in the [`RulesUxAggregatesRoot`](../../src/shared/telemetry/rulesUxHotspotTypes.ts) shape.
 
 ### 9.1 Generate a Rules‑UX Aggregates Snapshot
 
@@ -579,7 +579,7 @@ results/rules_ux_aggregates.square8_2p.2025-11.json
 
 ### 9.2 Run the Hotspot Analyzer
 
-Use the Node CLI in [`analyze_rules_ux_telemetry.ts`](../../scripts/analyze_rules_ux_telemetry.ts:1) to turn aggregates into a hotspot report:
+Use the Node CLI in [`analyze_rules_ux_telemetry.ts`](../../scripts/analyze_rules_ux_telemetry.ts) to turn aggregates into a hotspot report:
 
 ```bash
 node scripts/analyze_rules_ux_telemetry.js \
@@ -651,9 +651,9 @@ For each high‑severity `rules_context`:
 
 2. **Map to teaching content and scenarios**:
    - For weird states:
-     - Check the relevant topics and steps in [`TeachingOverlay.tsx`](../../src/client/components/TeachingOverlay.tsx:262) and [`TEACHING_SCENARIOS`](../../src/shared/teaching/teachingScenarios.ts:1).
+     - Check the relevant topics and steps in [`TeachingOverlay.tsx`](../../src/client/components/TeachingOverlay.tsx) and [`TEACHING_SCENARIOS`](../../src/shared/teaching/teachingScenarios.ts).
    - For sandbox presets:
-     - Review curated scenarios in [`curated.json`](../../src/client/public/scenarios/curated.json:1) and their `rulesConcept`.
+     - Review curated scenarios in [`curated.json`](../../src/client/public/scenarios/curated.json) and their `rulesConcept`.
 
 3. **Create concrete W‑UX tickets**, for example:
    - Strengthen or shorten copy in the relevant TeachingOverlay topic.
@@ -668,4 +668,4 @@ For each high‑severity `rules_context`:
    - across the same time window before/after the change.
    - Treat reductions in reopen and resign‑after‑weird rates as evidence that the UX change improved understanding.
 
-This runbook should be used alongside the broader improvement loop in [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md:1), which covers scheduling, ownership, and how rules‑UX telemetry feeds back into the canonical specs and teaching surfaces.
+This runbook should be used alongside the broader improvement loop in [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md), which covers scheduling, ownership, and how rules‑UX telemetry feeds back into the canonical specs and teaching surfaces.

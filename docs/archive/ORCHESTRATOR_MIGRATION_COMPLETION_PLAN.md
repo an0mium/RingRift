@@ -93,10 +93,10 @@ ORCHESTRATOR_ADAPTER_ENABLED: z
 
 **2 test files** call `disableOrchestratorAdapter()`:
 
-| File                                                                                              | Purpose                    | Migration Strategy                 |
-| ------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------- |
-| [`GameEngine.utilityMethods.test.ts`](../../tests/unit/GameEngine.utilityMethods.test.ts:286)     | Utility method testing     | **Keep** – Tests the toggle itself |
-| [`GameEngine.branchCoverage.test.ts`](../../tests/unit/GameEngine.branchCoverage.test.ts:775)     | Branch coverage validation | **Keep** – Toggle no-op coverage   |
+| File                                                                                      | Purpose                    | Migration Strategy                 |
+| ----------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------- |
+| [`GameEngine.utilityMethods.test.ts`](../../tests/unit/GameEngine.utilityMethods.test.ts) | Utility method testing     | **Keep** – Tests the toggle itself |
+| [`GameEngine.branchCoverage.test.ts`](../../tests/unit/GameEngine.branchCoverage.test.ts) | Branch coverage validation | **Keep** – Toggle no-op coverage   |
 
 ### 2.2 Tests Importing RuleEngine Directly
 

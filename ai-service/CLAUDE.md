@@ -100,7 +100,7 @@ python scripts/master_loop.py --skip-daemons
 - `ClusterMonitor` - Real-time cluster health
 - `FeedbackLoopController` - Training feedback signals
 - `DataPipelineOrchestrator` - Pipeline stage tracking
-- `QueuePopulator` - Work queue maintenance until Elo targets met
+- `UnifiedQueuePopulator` - Work queue maintenance until Elo targets met
 
 ### Transfer Learning (2p to 4p)
 
@@ -373,10 +373,11 @@ Unified training pipeline orchestration:
 **Core Orchestration:**
 
 - **`selfplay_scheduler.py`**: Priority-based selfplay allocation (curriculum, Elo velocity, feedback signals)
-- **`queue_populator.py`**: Maintains work queue until Elo targets met (60% selfplay, 30% training, 10% tournament)
+- **`unified_queue_populator.py`**: Maintains work queue until Elo targets met (60% selfplay, 30% training, 10% tournament)
 - **`idle_resource_daemon.py`**: Spawns selfplay on idle GPUs using SelfplayScheduler priorities
 - **`utilization_optimizer.py`**: Matches GPU capabilities to board sizes, optimizes cluster utilization
 - **`feedback_loop_controller.py`**: Manages training feedback signals and quality thresholds
+- **`sync_facade.py`**: Unified programmatic entry point for sync (routes to AutoSyncDaemon, SyncRouter, etc.)
 
 **Event System:**
 
@@ -390,6 +391,11 @@ Unified training pipeline orchestration:
 - **`daemon_adapters.py`**: Wrappers for existing daemons (sync, promotion, distillation)
 - **`sync_bandwidth.py`**: Bandwidth-coordinated rsync with host-level limits
 - **`auto_sync_daemon.py`**: Automated P2P data sync with push-from-generator + gossip replication
+
+**Sync CLI (supported):**
+
+- Use `scripts/unified_data_sync.py` for operational sync CLI usage.
+- Avoid importing `app/distributed/unified_data_sync.py` directly (deprecated); use `SyncFacade` or `AutoSyncDaemon` in code.
 
 ```bash
 # Recommended: Use master_loop.py for full automation
@@ -494,6 +500,35 @@ Three main options - use the recommended one:
 | `master_loop.py`       | Full cluster automation with 30+ daemons | ✅ Yes             |
 | `run_training_loop.py` | Simple 1-config pipeline                 | For single configs |
 | `unified_ai_loop.py`   | Legacy wrapper                           | ❌ Deprecated      |
+
+### December 2025 Consolidation Summary
+
+Major consolidation effort completed December 2025:
+
+| Original Modules                                              | Consolidated To                   | LOC Saved | Status   |
+| ------------------------------------------------------------- | --------------------------------- | --------- | -------- |
+| `model_distribution_daemon.py` + `npz_distribution_daemon.py` | `unified_distribution_daemon.py`  | ~1,100    | Complete |
+| `lambda_idle_daemon.py` + `vast_idle_daemon.py`               | `unified_idle_shutdown_daemon.py` | ~318      | Complete |
+| `replication_monitor.py` + `replication_repair_daemon.py`     | `unified_replication_daemon.py`   | ~600      | Complete |
+| `system_health_monitor.py` (scoring)                          | `unified_health_manager.py`       | ~200      | Complete |
+| 3× GumbelAction/GumbelNode copies                             | `gumbel_common.py`                | ~150      | Complete |
+
+**Event System Improvements (December 2025):**
+
+- `SelfplayScheduler` now wired into coordination bootstrap for feedback events
+- P2P orchestrator logs event subscription status for debugging
+- Critical exception handlers narrowed from `except Exception:` to specific types (12 handlers fixed)
+
+**Remaining Consolidation Opportunities (Q1 2026):**
+
+| Opportunity                    | Current LOC | Savings | Priority |
+| ------------------------------ | ----------- | ------- | -------- |
+| Merge 3 cluster monitors       | 2,485       | ~1,000  | HIGH     |
+| Unify sync managers            | 1,580       | ~500    | HIGH     |
+| Split daemon_manager.py        | 3,253       | ~1,000  | MEDIUM   |
+| Archive node_health_monitor.py | 386         | ~350    | LOW      |
+
+See ADR-007 for P2P orchestrator decomposition details.
 
 ### Migration Guides
 

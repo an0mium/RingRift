@@ -292,15 +292,16 @@ class AutoExportDaemon:
         export when games are synced from other nodes.
         """
         try:
-            from app.coordination.event_router import StageEvent, get_stage_event_bus
+            # P0.5 (December 2025): Use get_router() instead of deprecated get_stage_event_bus()
+            from app.coordination.event_router import StageEvent, get_router
 
-            bus = get_stage_event_bus()
-            unsub = bus.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
+            router = get_router()
+            unsub = router.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
             self._event_subscriptions.append(unsub)
             logger.info("[AutoExportDaemon] Subscribed to SELFPLAY_COMPLETE events")
 
             # Phase 3A.3: Also subscribe to SYNC_COMPLETE for cross-node data
-            unsub = bus.subscribe(StageEvent.SYNC_COMPLETE, self._on_sync_complete)
+            unsub = router.subscribe(StageEvent.SYNC_COMPLETE, self._on_sync_complete)
             self._event_subscriptions.append(unsub)
             logger.info("[AutoExportDaemon] Subscribed to SYNC_COMPLETE events")
         except ImportError:

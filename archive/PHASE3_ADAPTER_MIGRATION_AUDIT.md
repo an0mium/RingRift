@@ -30,12 +30,12 @@ This document presents the findings from the Phase 3 audit of backend `TurnEngin
 
 ### 1.1 Files Analyzed
 
-| File                                                        | Lines | Role                                 |
-| ----------------------------------------------------------- | ----- | ------------------------------------ |
-| [`TurnEngine.ts`](../../src/server/game/turn/TurnEngine.ts) | 375   | Turn advancement, forced elimination |
-| [`GameEngine.ts`](../../src/server/game/GameEngine.ts)      | 3320  | Main game orchestration              |
-| [`RuleEngine.ts`](../../src/server/game/RuleEngine.ts)      | 1556  | Move validation/enumeration          |
-| [`turnLogic.ts`](../../src/shared/engine/turnLogic.ts)      | 312   | Shared turn/phase progression        |
+| File            | Lines | Role                                 |
+| --------------- | ----- | ------------------------------------ |
+| `TurnEngine.ts` | 375   | Turn advancement, forced elimination |
+| `GameEngine.ts` | 3320  | Main game orchestration              |
+| `RuleEngine.ts` | 1556  | Move validation/enumeration          |
+| `turnLogic.ts`  | 312   | Shared turn/phase progression        |
 
 ### 1.2 Logic Already Using Shared Modules ✅
 
@@ -160,13 +160,13 @@ export class TurnEngineAdapter {
 
 ### 2.1 Files Analyzed
 
-| File                                                                              | Lines | Role                       |
-| --------------------------------------------------------------------------------- | ----- | -------------------------- |
-| [`ClientSandboxEngine.ts`](../../src/client/sandbox/ClientSandboxEngine.ts)       | 2707  | Main sandbox orchestration |
-| [`sandboxTurnEngine.ts`](../../src/client/sandbox/sandboxTurnEngine.ts)           | 377   | Turn processing            |
-| [`sandboxMovementEngine.ts`](../../src/client/sandbox/sandboxMovementEngine.ts)   | 678   | Movement/capture handling  |
-| [`sandboxLinesEngine.ts`](../../src/client/sandbox/sandboxLinesEngine.ts)         | 285   | Line processing            |
-| [`sandboxTerritoryEngine.ts`](../../src/client/sandbox/sandboxTerritoryEngine.ts) | 373   | Territory processing       |
+| File                        | Lines | Role                       |
+| --------------------------- | ----- | -------------------------- |
+| `ClientSandboxEngine.ts`    | 2707  | Main sandbox orchestration |
+| `sandboxTurnEngine.ts`      | 377   | Turn processing            |
+| `sandboxMovementEngine.ts`  | 678   | Movement/capture handling  |
+| `sandboxLinesEngine.ts`     | 285   | Line processing            |
+| `sandboxTerritoryEngine.ts` | 373   | Territory processing       |
 
 **Total sandbox LOC:** ~4420 lines
 
@@ -284,7 +284,7 @@ class ClientSandboxEngine {
 
 ### 3.1 Orchestrator Capabilities
 
-The orchestrator at [`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts) provides:
+The orchestrator at `turnOrchestrator.ts` provides:
 
 ```typescript
 // Entry points

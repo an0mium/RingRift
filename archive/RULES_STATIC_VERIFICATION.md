@@ -11,26 +11,26 @@ and the mapping in [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rul
 - Canonical rules: RR-CANON R001–R191 in [`../RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md).
 - Implementation mapping: [`../docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md).
 - Shared TypeScript engine (primary rules semantics), including helpers such as
-  [`TypeScript.core`](src/shared/engine/core.ts:1),
-  [`TypeScript.movementLogic`](src/shared/engine/movementLogic.ts:1),
-  [`TypeScript.captureLogic`](src/shared/engine/captureLogic.ts:1),
-  [`TypeScript.lineDetection`](src/shared/engine/lineDetection.ts:1),
-  [`TypeScript.lineDecisionHelpers`](src/shared/engine/lineDecisionHelpers.ts:1),
-  [`TypeScript.territoryDetection`](src/shared/engine/territoryDetection.ts:36),
-  [`TypeScript.territoryProcessing`](src/shared/engine/territoryProcessing.ts:1),
-  [`TypeScript.territoryDecisionHelpers`](src/shared/engine/territoryDecisionHelpers.ts:1),
-  [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:135),
-  [`TypeScript.victoryLogic`](src/shared/engine/victoryLogic.ts:45).
+  [`TypeScript.core`](../src/shared/engine/core.ts),
+  [`TypeScript.movementLogic`](../src/shared/engine/movementLogic.ts),
+  [`TypeScript.captureLogic`](../src/shared/engine/captureLogic.ts),
+  [`TypeScript.lineDetection`](../src/shared/engine/lineDetection.ts),
+  [`TypeScript.lineDecisionHelpers`](../src/shared/engine/lineDecisionHelpers.ts),
+  [`TypeScript.territoryDetection`](../src/shared/engine/territoryDetection.ts),
+  [`TypeScript.territoryProcessing`](../src/shared/engine/territoryProcessing.ts),
+  [`TypeScript.territoryDecisionHelpers`](../src/shared/engine/territoryDecisionHelpers.ts),
+  [`TypeScript.turnLogic`](../src/shared/engine/turnLogic.ts),
+  `TypeScript.victoryLogic`.
 - Server orchestration:
-  [`TypeScript.BoardManager`](src/server/game/BoardManager.ts:37),
-  [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92),
-  [`TypeScript.RuleEngine`](src/server/game/RuleEngine.ts:46),
-  [`TypeScript.advanceGameForCurrentPlayer`](src/server/game/turn/TurnEngine.ts:91),
-  line helpers in [`TypeScript.lineProcessing`](src/server/game/rules/lineProcessing.ts:30),
-  territory helpers in [`TypeScript.territoryProcessing`](src/server/game/rules/territoryProcessing.ts:41).
+  [`TypeScript.BoardManager`](../src/server/game/BoardManager.ts),
+  [`TypeScript.GameEngine`](../src/server/game/GameEngine.ts),
+  [`TypeScript.RuleEngine`](../src/server/game/RuleEngine.ts),
+  [`TypeScript.advanceGameForCurrentPlayer`](../src/server/game/turn/TurnEngine.ts),
+  line helpers in `TypeScript.lineProcessing`,
+  territory helpers in `TypeScript.territoryProcessing`.
 - Client sandbox:
-  [`TypeScript.ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:137),
-  sandbox turn engine in [`TypeScript.sandboxTurnEngine`](src/client/sandbox/sandboxTurnEngine.ts:164),
+  [`TypeScript.ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts),
+  sandbox turn engine in `TypeScript.sandboxTurnEngine`,
   and other sandbox helpers under `src/client/sandbox`.
 
 ### 1.2 Methodology
@@ -78,17 +78,17 @@ Each subsection documents:
 #### 2.1.1 Primary implementation references
 
 - Board and game types, including `BoardType`, `BoardState`, `GameState`, territory and line
-  structures: [`src/shared/types/game.ts`](src/shared/types/game.ts).
+  structures: [`../src/shared/types/game.ts`](../src/shared/types/game.ts).
 - Geometry and distance helpers (`calculateDistance`, `getPathPositions`, movement directions):
-  [`TypeScript.core`](src/shared/engine/core.ts:1).
+  [`TypeScript.core`](../src/shared/engine/core.ts).
 - Backend board manager and geometry:
-  [`TypeScript.BoardManager`](src/server/game/BoardManager.ts:37)
+  [`TypeScript.BoardManager`](../src/server/game/BoardManager.ts)
   (including `createBoard`, `generateValidPositions`, adjacency helpers, and board invariants).
 - Sandbox board creation and geometry:
-  [`TypeScript.ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:307)
+  [`TypeScript.ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts)
   (methods `createEmptyBoard`, `isValidPosition`, `isCollapsedSpace`, marker/stack helpers).
 - Territory adjacency / region detection:
-  [`TypeScript.territoryDetection`](src/shared/engine/territoryDetection.ts:36).
+  [`TypeScript.territoryDetection`](../src/shared/engine/territoryDetection.ts).
 
 #### 2.1.2 Verification summary
 
@@ -102,7 +102,7 @@ Each subsection documents:
 - **Ring conservation and per-player totals**: Ring placement, movement, captures, eliminations,
   and territory effects consistently update per-player and global ring counts in both backend
   and sandbox. The S-invariant is derived from these counts (see cluster 2.8).
-- **Board “repair” behaviour** in [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94)
+- **Board “repair” behaviour** in [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts)
   runs on each stack/marker/collapsed write and will silently remove overlapping markers in
   production as well as tests. This is intended as a guard against bugs, not part of core
   rules semantics, but it can hide the presence of illegal intermediate states.
@@ -115,19 +115,19 @@ divergence** around automatic repair of stack/marker overlaps.
 ##### R001–R003: Board types, size, and coordinate system
 
 - Shared types define three board types with explicit sizes and total spaces in
-  [`src/shared/types/game.ts`](src/shared/types/game.ts):
+  [`../src/shared/types/game.ts`](../src/shared/types/game.ts):
   - `square8`: 8×8 grid, Moore adjacency for movement, specific line-length and territory config.
   - `square19`: 19×19 grid, analogous configuration.
   - `hexagonal`: axial/cube coordinates with radius `size - 1` (e.g. size 11 → radius 10).
 - Backend coordinate validity:
-  - [`TypeScript.BoardManager.generateValidPositions()`](src/server/game/BoardManager.ts:179)
+  - [`TypeScript.BoardManager.generateValidPositions()`](../src/server/game/BoardManager.ts)
     constructs:
     - For `hexagonal`: standard hex disk using cube coordinates with distance ≤ radius.
     - For square: `0 ≤ x,y < size` grid.
-  - [`TypeScript.BoardManager.isValidPosition()`](src/server/game/BoardManager.ts:208) checks
+  - [`TypeScript.BoardManager.isValidPosition()`](../src/server/game/BoardManager.ts) checks
     membership in this set.
 - Sandbox coordinate validity:
-  - [`TypeScript.ClientSandboxEngine.isValidPosition()`](src/client/sandbox/ClientSandboxEngine.ts:936)
+  - [`TypeScript.ClientSandboxEngine.isValidPosition()`](../src/client/sandbox/ClientSandboxEngine.ts)
     replicates exactly the same geometry and distance conditions using `BOARD_CONFIGS`.
 
 **Assessment**: Exact / faithful implementation.
@@ -135,25 +135,25 @@ divergence** around automatic repair of stack/marker overlaps.
 ##### R020–R023: Adjacency definitions
 
 - Adjacency types live in `AdjacencyType` and `BOARD_CONFIGS` in
-  [`src/shared/types/game.ts`](src/shared/types/game.ts):
+  [`../src/shared/types/game.ts`](../src/shared/types/game.ts):
   - `movementAdjacency` vs `lineAdjacency` vs `territoryAdjacency` are configured per board.
 - Backend adjacency helpers:
-  - [`TypeScript.BoardManager.getNeighbors()`](src/server/game/BoardManager.ts:213) dispatches
+  - [`TypeScript.BoardManager.getNeighbors()`](../src/server/game/BoardManager.ts) dispatches
     to:
     - `getHexagonalNeighbors` (6-neighbour hex).
     - `getMooreNeighbors` (8-neighbour square).
     - `getVonNeumannNeighbors` (4-neighbour square).
-  - [`TypeScript.BoardManager.buildAdjacencyGraph()`](src/server/game/BoardManager.ts:156)
+  - [`TypeScript.BoardManager.buildAdjacencyGraph()`](../src/server/game/BoardManager.ts)
     precomputes adjacency graph using `territoryAdjacency`, in line with R141.
-  - [`TypeScript.BoardManager.getAdjacentPositions()`](src/server/game/BoardManager.ts:1193)
+  - [`TypeScript.BoardManager.getAdjacentPositions()`](../src/server/game/BoardManager.ts)
     provides another adjacency helper with explicit `AdjacencyType` parameter.
 - Shared engine movement directions:
-  - [`TypeScript.getMovementDirectionsForBoardType()`](src/shared/engine/core.ts:1)
+  - [`TypeScript.getMovementDirectionsForBoardType()`](../src/shared/engine/core.ts)
     returns:
     - 8 Moore directions for squares.
     - 6 cube directions for hex.
 - Territory detection:
-  - [`TypeScript.territoryDetection.findDisconnectedRegions()`](src/shared/engine/territoryDetection.ts:36)
+  - [`TypeScript.territoryDetection.findDisconnectedRegions()`](../src/shared/engine/territoryDetection.ts)
     uses `BOARD_CONFIGS[board.type].territoryAdjacency` via a shared helper, fully aligned
     with `BoardManager`’s adjacency graph.
 
@@ -161,13 +161,13 @@ divergence** around automatic repair of stack/marker overlaps.
 
 ##### R030–R031, R040–R041: Entities and exclusive occupancy
 
-- Shared `BoardState` in [`src/shared/types/game.ts`](src/shared/types/game.ts) has:
+- Shared `BoardState` in [`../src/shared/types/game.ts`](../src/shared/types/game.ts) has:
   - `stacks: Map<string, RingStack>`
   - `markers: Map<string, MarkerInfo>`
   - `collapsedSpaces: Map<string, number>`
   - `territories`, `formedLines`, `eliminatedRings`.
 - Backend invariants:
-  - [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94)
+  - [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts)
     enforces:
     1. No stacks on collapsed spaces.
     2. No stack+marker coexistence.
@@ -178,20 +178,20 @@ divergence** around automatic repair of stack/marker overlaps.
     - Logs a diagnostic.
     - Then runs stricter checks, throwing only in strict/test mode.
   - Stack/marker/collapsed writes go through:
-    - [`TypeScript.BoardManager.setMarker()`](src/server/game/BoardManager.ts:325) – refuses to
+    - [`TypeScript.BoardManager.setMarker()`](../src/server/game/BoardManager.ts) – refuses to
       place on collapsed territory and deletes any stack at that key before placing the marker.
-    - [`TypeScript.BoardManager.collapseMarker()`](src/server/game/BoardManager.ts:396) and
-      [`TypeScript.BoardManager.setCollapsedSpace()`](src/server/game/BoardManager.ts:421) –
+    - [`TypeScript.BoardManager.collapseMarker()`](../src/server/game/BoardManager.ts) and
+      [`TypeScript.BoardManager.setCollapsedSpace()`](../src/server/game/BoardManager.ts) –
       delete stacks and markers before marking collapsed.
-    - [`TypeScript.BoardManager.setStack()`](src/server/game/BoardManager.ts:446) – logs and
+    - [`TypeScript.BoardManager.setStack()`](../src/server/game/BoardManager.ts) – logs and
       deletes any marker at the key before writing the stack.
   - Sandbox equivalents:
-    - [`TypeScript.ClientSandboxEngine.setMarker()`](src/client/sandbox/ClientSandboxEngine.ts:964),
-      [`TypeScript.ClientSandboxEngine.collapseMarker()`](src/client/sandbox/ClientSandboxEngine.ts:1005),
+    - [`TypeScript.ClientSandboxEngine.setMarker()`](../src/client/sandbox/ClientSandboxEngine.ts),
+      [`TypeScript.ClientSandboxEngine.collapseMarker()`](../src/client/sandbox/ClientSandboxEngine.ts),
       and direct manipulation of `board.stacks`/`board.markers` mirror backend semantics and
       enforce the same exclusivity.
     - Test-only invariant helper
-      [`TypeScript.ClientSandboxEngine.assertBoardInvariants()`](src/client/sandbox/ClientSandboxEngine.ts:2337)
+      [`TypeScript.ClientSandboxEngine.assertBoardInvariants()`](../src/client/sandbox/ClientSandboxEngine.ts)
       checks for overlaps and throws under `NODE_ENV === 'test'`.
 
 **Assessment**: Exact occupancy exclusivity semantics for all normal rules paths.
@@ -199,7 +199,7 @@ divergence** around automatic repair of stack/marker overlaps.
 **Minor divergence**:
 
 - The **automatic repair step** in
-  [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94) runs in
+  [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts) runs in
   all environments (not gated on `BOARD_INVARIANTS_STRICT`) and can silently delete markers if an
   illegal overlap is created by a bug. This behaviour is _not_ described in RR-CANON (those
   states are supposed to be unreachable). It is a debugging safeguard, but if triggered in live
@@ -213,18 +213,18 @@ divergence** around automatic repair of stack/marker overlaps.
 - Global and per-player ring counts:
   - `GameState.totalRingsInPlay`, `totalRingsEliminated`, `players[*].ringsInHand`,
     `players[*].eliminatedRings`, and `board.eliminatedRings` live in
-    [`src/shared/types/game.ts`](src/shared/types/game.ts).
+    [`../src/shared/types/game.ts`](../src/shared/types/game.ts).
 - Placement:
-  - Backend placement in [`TypeScript.GameEngine.applyMove()`](src/server/game/GameEngine.ts:823)
+  - Backend placement in [`TypeScript.GameEngine.applyMove()`](../src/server/game/GameEngine.ts)
     for `place_ring`:
     - Adds `placementCount` rings for the moving player to top of a stack (or creates a new stack).
     - Decrements `player.ringsInHand` by `placementCount`, clamped at zero.
     - Does **not** change `totalRingsInPlay` (it is treated as the initial total).
 - Movement and capture:
   - Movement helpers (`move_stack`/`move_ring`) in
-    [`TypeScript.GameEngine.applyMove()`](src/server/game/GameEngine.ts:880) re-arrange rings
+    [`TypeScript.GameEngine.applyMove()`](../src/server/game/GameEngine.ts) re-arrange rings
     between stacks using `boardManager.setStack()`/`removeStack()` with no creation/destruction.
-  - Overtaking capture in [`TypeScript.GameEngine.performOvertakingCapture()`](src/server/game/GameEngine.ts:1059):
+  - Overtaking capture in [`TypeScript.GameEngine.performOvertakingCapture()`](../src/server/game/GameEngine.ts):
     - Moves a single captured ring from target stack to bottom of attacker stack.
     - Adjusts target stack or deletes it.
     - Does not alter elimination counts.
@@ -234,20 +234,20 @@ divergence** around automatic repair of stack/marker overlaps.
     - `board.eliminatedRings[player]`.
     - `player.eliminatedRings`.
   - Examples:
-    - [`TypeScript.GameEngine.eliminateFromStack()`](src/server/game/GameEngine.ts:1729),
-      [`TypeScript.GameEngine.eliminateTopRingAt()`](src/server/game/GameEngine.ts:1772),
+    - [`TypeScript.GameEngine.eliminateFromStack()`](../src/server/game/GameEngine.ts),
+      [`TypeScript.GameEngine.eliminateTopRingAt()`](../src/server/game/GameEngine.ts),
       line-processing elimination in
-      [`TypeScript.lineProcessing.eliminateFromStack()`](src/server/game/rules/lineProcessing.ts:271),
+      `TypeScript.lineProcessing.eliminateFromStack()`,
       territory processing in
-      [`TypeScript.GameEngine.processDisconnectedRegionCore()`](src/server/game/GameEngine.ts:1940)
-      and [`TypeScript.territoryProcessing.processOneDisconnectedRegion()`](src/server/game/rules/territoryProcessing.ts:235).
+      [`TypeScript.GameEngine.processDisconnectedRegionCore()`](../src/server/game/GameEngine.ts)
+      and `TypeScript.territoryProcessing.processOneDisconnectedRegion()`.
 - Sandbox:
   - Mirrors the same placement, capture, and elimination logic via:
-    - [`TypeScript.ClientSandboxEngine.tryPlaceRings()`](src/client/sandbox/ClientSandboxEngine.ts:1615),
+    - [`TypeScript.ClientSandboxEngine.tryPlaceRings()`](../src/client/sandbox/ClientSandboxEngine.ts),
     - capture application in
-      ~~[`TypeScript.sandboxMovementEngine.applyCaptureSegmentWithHooks()`](src/client/sandbox/sandboxMovementEngine.ts:574)~~ (legacy, removed; capture chains now orchestrated via [`TypeScript.ClientSandboxEngine.performCaptureChainInternal`](src/client/sandbox/ClientSandboxEngine.ts:2229)),
+      ~~`TypeScript.sandboxMovementEngine.applyCaptureSegmentWithHooks()`~~ (legacy, removed; capture chains now orchestrated via [`TypeScript.ClientSandboxEngine.performCaptureChainInternal`](../src/client/sandbox/ClientSandboxEngine.ts)),
     - elimination helpers such as
-      [`TypeScript.ClientSandboxEngine.forceEliminateCap()`](src/client/sandbox/ClientSandboxEngine.ts:888).
+      [`TypeScript.ClientSandboxEngine.forceEliminateCap()`](../src/client/sandbox/ClientSandboxEngine.ts).
 
 **Assessment**: Ring conservation and accounting are faithfully implemented along all live
 backend and sandbox rules paths.
@@ -263,7 +263,7 @@ backend and sandbox rules paths.
 - **Minor divergence / benign deviation**
   - **Board repair semantics**:
     - Location:
-      [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94).
+      [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts).
     - RR-CANON IDs: R030–R031, R040–R041 (exclusivity rules).
     - Description: Violations of exclusivity are “repaired” by deleting markers in the presence
       of stacks/collapsed spaces, even in non-test environments. The canonical rules treat such
@@ -285,48 +285,48 @@ diagnostic repair behaviour for illegal states.
 #### 2.2.1 Primary implementation references
 
 - Shared turn logic state machine:
-  [`TypeScript.advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135).
+  [`TypeScript.advanceTurnAndPhase`](../src/shared/engine/turnLogic.ts).
 - Backend turn engine wrapper and delegates:
-  [`TypeScript.advanceGameForCurrentPlayer`](src/server/game/turn/TurnEngine.ts:91),
-  [`TypeScript.TurnEngine.updatePerTurnStateAfterMove()`](src/server/game/turn/TurnEngine.ts:46),
+  [`TypeScript.advanceGameForCurrentPlayer`](../src/server/game/turn/TurnEngine.ts),
+  [`TypeScript.TurnEngine.updatePerTurnStateAfterMove()`](../src/server/game/turn/TurnEngine.ts),
   forced elimination helper
-  [`TypeScript.turn.processForcedElimination()`](src/server/game/turn/TurnEngine.ts:286).
+  [`TypeScript.turn.processForcedElimination()`](../src/server/game/turn/TurnEngine.ts).
 - Backend game engine integration:
   - Per-turn placement state:
-    [`TypeScript.GameEngine.updatePerTurnStateAfterMove()`](src/server/game/GameEngine.ts:2087).
+    [`TypeScript.GameEngine.updatePerTurnStateAfterMove()`](../src/server/game/GameEngine.ts).
   - High-level turn advance:
-    [`TypeScript.GameEngine.advanceGame()`](src/server/game/GameEngine.ts:2017).
+    [`TypeScript.GameEngine.advanceGame()`](../src/server/game/GameEngine.ts).
   - Test-only blocked-state resolver:
-    [`TypeScript.GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](src/server/game/GameEngine.ts:2583).
+    [`TypeScript.GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](../src/server/game/GameEngine.ts).
 - Backend rules move enumeration and validation:
-  [`TypeScript.RuleEngine.getValidMoves()`](src/server/game/RuleEngine.ts:752),
+  [`TypeScript.RuleEngine.getValidMoves()`](../src/server/game/RuleEngine.ts),
   including:
   - Placement enumeration
-    [`TypeScript.RuleEngine.getValidRingPlacements()`](src/server/game/RuleEngine.ts:839),
+    [`TypeScript.RuleEngine.getValidRingPlacements()`](../src/server/game/RuleEngine.ts),
   - Movement enumeration
-    [`TypeScript.RuleEngine.getValidStackMovements()`](src/server/game/RuleEngine.ts:925),
+    [`TypeScript.RuleEngine.getValidStackMovements()`](../src/server/game/RuleEngine.ts),
   - Capture enumeration
-    [`TypeScript.RuleEngine.getValidCaptures()`](src/server/game/RuleEngine.ts:985),
+    [`TypeScript.RuleEngine.getValidCaptures()`](../src/server/game/RuleEngine.ts),
   - Skip-placement validation
-    [`TypeScript.RuleEngine.validateSkipPlacement()`](src/server/game/RuleEngine.ts:116).
+    [`TypeScript.RuleEngine.validateSkipPlacement()`](../src/server/game/RuleEngine.ts).
 - Sandbox turn engine and forced elimination:
-  [`TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:164),
-  [`TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:228),
-  [`TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:81).
+  `TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox()`,
+  `TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`,
+  `TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`.
 
 #### 2.2.2 Verification summary
 
 - **Turn phase ordering (R070–R071)**:
-  - Shared [`TypeScript.advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135) defines a
+  - Shared [`TypeScript.advanceTurnAndPhase`](../src/shared/engine/turnLogic.ts) defines a
     canonical phase flow:
     - `ring_placement` → `movement` (when any placement/movement/capture is available)
       or directly to `line_processing` when movement/capture are impossible.
     - `movement`, `capture`, and `chain_capture` always advance to `line_processing`.
     - `line_processing` always advances to `territory_processing`.
     - `territory_processing` ends the turn and advances to the next player’s starting phase.
-  - Backend [`TypeScript.advanceGameForCurrentPlayer`](src/server/game/turn/TurnEngine.ts:91)
+  - Backend [`TypeScript.advanceGameForCurrentPlayer`](../src/server/game/turn/TurnEngine.ts)
     and sandbox
-    [`TypeScript.advanceTurnAndPhaseForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:81)
+    `TypeScript.advanceTurnAndPhaseForCurrentPlayerSandbox()`
     both delegate to this shared state machine, differing only in how they implement
     delegates and side-effect hooks.
   - This matches RR-CANON’s phase ladder: placement → movement/capture → line → territory →
@@ -337,7 +337,7 @@ diagnostic repair behaviour for illegal states.
     `hasAnyCapture` to determine whether a player is **completely blocked**.
   - Backend delegates:
     - `hasValidPlacements()` in
-      [`TypeScript.TurnEngine.hasValidPlacements`](src/server/game/turn/TurnEngine.ts:208)
+      [`TypeScript.TurnEngine.hasValidPlacements`](../src/server/game/turn/TurnEngine.ts)
       uses `RuleEngine.getValidMoves()` from a ring_placement view and checks for any
       `place_ring` **or** `skip_placement` move.
     - `hasValidMovements()` and `hasValidCaptures()` use `RuleEngine.getValidMoves()` from
@@ -345,7 +345,7 @@ diagnostic repair behaviour for illegal states.
       applicable.
   - Sandbox delegates:
     - `hasAnyMovement` / `hasAnyCapture` in
-      [`TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:81)
+      `TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`
       use reachability via `hasAnyLegalMoveOrCaptureFrom`.
     - `maybeProcessForcedEliminationForCurrentPlayerSandbox()` implements an additional
       guard that checks for both placements (respecting ring caps and no-dead-placement) and
@@ -358,22 +358,22 @@ diagnostic repair behaviour for illegal states.
 
 - **Forced elimination behaviour (R100)**:
   - Backend forced elimination is executed by
-    [`TypeScript.turn.processForcedElimination()`](src/server/game/turn/TurnEngine.ts:286).
+    [`TypeScript.turn.processForcedElimination()`](../src/server/game/turn/TurnEngine.ts).
     - Chooses a stack among the player’s stacks:
       - Prefers stacks with `capHeight > 0`.
       - Among these, selects the stack with the **smallest** capHeight.
       - If no cap exists (degenerate tests), uses the first stack.
     - Calls `hooks.eliminatePlayerRingOrCap(playerNumber, bestStack.position)`, which
       backend wires to
-      [`TypeScript.GameEngine.eliminatePlayerRingOrCap()`](src/server/game/GameEngine.ts:1689),
+      [`TypeScript.GameEngine.eliminatePlayerRingOrCap()`](../src/server/game/GameEngine.ts),
       eliminating the entire cap and updating elimination counters.
     - After elimination, victory is re-evaluated via `RuleEngine.checkGameEnd()` and
       `hooks.endGame()`.
   - Sandbox forced elimination:
     - Uses `forceEliminateCapOnBoard` in
-      [`TypeScript.ClientSandboxEngine.forceEliminateCap()`](src/client/sandbox/ClientSandboxEngine.ts:888)
+      [`TypeScript.ClientSandboxEngine.forceEliminateCap()`](../src/client/sandbox/ClientSandboxEngine.ts)
       and the same cap semantics in
-      [`TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:228).
+      `TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`.
 
 **Assessment**: The phase ladder and forced elimination logic match R070–R072 and R100 closely
 for both backend and sandbox. The main differences are in **surface-level representation** of
@@ -385,7 +385,7 @@ parity/UX standpoint but do not represent a direct violation of canonical legali
 
 ##### R070–R071: Phase ordering and interactions
 
-- Shared phase logic in [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:135):
+- Shared phase logic in [`TypeScript.turnLogic`](../src/shared/engine/turnLogic.ts):
   - From `ring_placement`:
     - Delegates decide whether movement/capture are available after placement:
       - If any `hasAnyMovement` or `hasAnyCapture` returns true, the next phase becomes
@@ -401,22 +401,22 @@ parity/UX standpoint but do not represent a direct violation of canonical legali
       - For that player, uses `hasAnyPlacement`/`hasAnyMovement`/`hasAnyCapture` and
         `getPlayerStacks` to determine whether forced elimination applies or normal
         turn start occurs.
-- Backend integration via [`TypeScript.GameEngine.advanceGame()`](src/server/game/GameEngine.ts:2017):
+- Backend integration via [`TypeScript.GameEngine.advanceGame()`](../src/server/game/GameEngine.ts):
   - Passes `eliminatePlayerRingOrCap` and `endGame` hooks into
-    [`TypeScript.advanceGameForCurrentPlayer`](src/server/game/turn/TurnEngine.ts:91).
+    [`TypeScript.advanceGameForCurrentPlayer`](../src/server/game/turn/TurnEngine.ts).
   - After `advanceTurnAndPhase`, GameEngine may run
     `stepAutomaticPhasesForTesting()` to skip automatic bookkeeping phases when no
     decisions exist (for parity harnesses).
 - Sandbox integration:
   - Rather than calling `advanceTurnAndPhase` directly at start-of-turn, the sandbox
     uses:
-    - [`TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:164)
+    - `TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox()`
       to:
       - Re-check victory.
       - Loop over players, applying `maybeProcessForcedEliminationForCurrentPlayerSandbox`.
       - Set `currentPhase` to `ring_placement` if the player has rings in hand, otherwise
         `movement`.
-    - [`TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:81)
+    - `TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`
       to run the shared state machine when the sandbox has explicitly set
       `currentPhase` to `'territory_processing'` at the end of automatic consequences.
 
@@ -430,18 +430,18 @@ start-of-turn; those heuristics appear aligned with the rules but are more britt
 - Backend eligibility check:
   - Defined by the shared `advanceTurnAndPhase` via delegates:
     - `hasAnyPlacement` from
-      [`TypeScript.TurnEngine.hasValidPlacements`](src/server/game/turn/TurnEngine.ts:208):
+      [`TypeScript.TurnEngine.hasValidPlacements`](../src/server/game/turn/TurnEngine.ts):
       - Constructs a ring_placement view of the state and calls
-        [`TypeScript.RuleEngine.getValidMoves()`](src/server/game/RuleEngine.ts:752).
+        [`TypeScript.RuleEngine.getValidMoves()`](../src/server/game/RuleEngine.ts).
       - Returns true if any move of type `place_ring` **or** `skip_placement` exists.
     - `hasAnyMovement` from
-      [`TypeScript.TurnEngine.hasValidMovements`](src/server/game/turn/TurnEngine.ts:238):
+      [`TypeScript.TurnEngine.hasValidMovements`](../src/server/game/turn/TurnEngine.ts):
       - Constructs a movement-phase view and uses `RuleEngine.getValidMoves`.
       - Filters for `move_stack`/`move_ring`/`build_stack`.
       - Respects `mustMoveFromStackKey` in the same way as GameEngine’s
         `getValidMoves`.
     - `hasAnyCapture` from
-      [`TypeScript.TurnEngine.hasValidCaptures`](src/server/game/turn/TurnEngine.ts:139):
+      [`TypeScript.TurnEngine.hasValidCaptures`](../src/server/game/turn/TurnEngine.ts):
       - Similar pattern, with phase forced to `capture` and filtering for
         `overtaking_capture`.
   - Forced elimination is applied in the shared engine only when:
@@ -449,11 +449,11 @@ start-of-turn; those heuristics appear aligned with the rules but are more britt
     - **No placement, movement, or capture moves** exist in the views above.
 - Sandbox eligibility:
   - In core turn advancement (phase transitions) the sandbox defers to
-    [`TypeScript.advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135) via
-    [`TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:81),
+    [`TypeScript.advanceTurnAndPhase`](../src/shared/engine/turnLogic.ts) via
+    `TypeScript.sandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox()`,
     with `applyForcedElimination` wired to sandbox elimination and victory checks.
   - At the _start_ of a player’s turn, sandbox explicitly calls
-    [`TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:228):
+    `TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`:
     - Computes stacks for the current player.
     - Approximates ring cap usage in the same way as the sandbox AI (counting all rings in
       controlled stacks).
@@ -473,15 +473,15 @@ enumeration and movement reachability.
 ##### R100: Forced elimination behaviour and crediting
 
 - Backend behaviour:
-  - [`TypeScript.turn.processForcedElimination()`](src/server/game/turn/TurnEngine.ts:286):
+  - [`TypeScript.turn.processForcedElimination()`](../src/server/game/turn/TurnEngine.ts):
     - Computes player stacks via `BoardManager.getPlayerStacks`.
     - Returns immediately if the player has no stacks (no place to eliminate from).
     - Otherwise:
       - Searches for a stack with `capHeight > 0` and minimal cap.
       - Falls back to the first stack if no caps are found.
       - Calls `hooks.eliminatePlayerRingOrCap(playerNumber, bestStack.position)`.
-  - [`TypeScript.GameEngine.eliminatePlayerRingOrCap()`](src/server/game/GameEngine.ts:1689) and
-    [`TypeScript.GameEngine.eliminateFromStack()`](src/server/game/GameEngine.ts:1729):
+  - [`TypeScript.GameEngine.eliminatePlayerRingOrCap()`](../src/server/game/GameEngine.ts) and
+    [`TypeScript.GameEngine.eliminateFromStack()`](../src/server/game/GameEngine.ts):
     - Eliminate the **entire cap** (all consecutive top rings of controlling color).
     - Update `totalRingsEliminated`, `board.eliminatedRings[player]`, and
       `player.eliminatedRings`.
@@ -490,14 +490,14 @@ enumeration and movement reachability.
 
 - Sandbox behaviour:
   - Forced elimination in
-    [`TypeScript.ClientSandboxEngine.forceEliminateCap()`](src/client/sandbox/ClientSandboxEngine.ts:888)
+    [`TypeScript.ClientSandboxEngine.forceEliminateCap()`](../src/client/sandbox/ClientSandboxEngine.ts)
     uses `forceEliminateCapOnBoard`, which:
     - Computes capHeight with `calculateCapHeight`.
     - Eliminates the entire cap from a chosen stack.
     - Updates elimination counters in `board.eliminatedRings`, `players[*].eliminatedRings`,
       and `totalRingsEliminated`.
   - Turn-level orchestration:
-    - [`TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:228)
+    - `TypeScript.sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayerSandbox()`
       chooses when to call `forceEliminateCap` and then advances to the next player (with
       reset per-turn state).
 
@@ -506,7 +506,7 @@ to the blocked player in both backend and sandbox, matching R100.
 
 ##### Additional backend helper: resolveBlockedStateForCurrentPlayerForTesting
 
-- [`TypeScript.GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](src/server/game/GameEngine.ts:2583)
+- [`TypeScript.GameEngine.resolveBlockedStateForCurrentPlayerForTesting()`](../src/server/game/GameEngine.ts)
   is a **test-only** safety helper used when tests detect an impossible state:
   - If in an interactive phase and `getValidMoves()` returns no moves, it:
     1. Attempts to hand the turn to a player with a legal action.
@@ -533,7 +533,7 @@ to the blocked player in both backend and sandbox, matching R100.
   - **Absence of explicit `skip_placement` in the sandbox**:
     - Location: Sandbox does not expose a `skip_placement` Move; instead, it treats
       placement as a direct board mutation via
-      [`TypeScript.ClientSandboxEngine.tryPlaceRings()`](src/client/sandbox/ClientSandboxEngine.ts:1615)
+      [`TypeScript.ClientSandboxEngine.tryPlaceRings()`](../src/client/sandbox/ClientSandboxEngine.ts)
       and uses `enumerateLegalRingPlacements` for AI.
     - RR-CANON IDs: R070–R072, R080 (placement optionality).
     - Description:
@@ -552,7 +552,7 @@ to the blocked player in both backend and sandbox, matching R100.
 
 - **Potential medium-risk divergence (sandbox start-of-turn phase selection)**
   - Location:
-    [`TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox()`](src/client/sandbox/sandboxTurnEngine.ts:164).
+    `TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox()`.
   - RR-CANON IDs: R070–R072.
   - Description:
     - After applying `maybeProcessForcedEliminationForCurrentPlayerSandbox`, the sandbox
@@ -588,49 +588,49 @@ less explicitly, which can affect parity tooling and rare UX edge cases.
 #### 2.3.1 Primary implementation references
 
 - Shared placement validator:
-  - [`TypeScript.validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76).
-  - [`TypeScript.validatePlacement()`](src/shared/engine/validators/PlacementValidator.ts:234).
-  - [`TypeScript.validateSkipPlacement()`](src/shared/engine/validators/PlacementValidator.ts:294).
+  - [`TypeScript.validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts).
+  - [`TypeScript.validatePlacement()`](../src/shared/engine/validators/PlacementValidator.ts).
+  - [`TypeScript.validateSkipPlacement()`](../src/shared/engine/validators/PlacementValidator.ts).
 - Backend RuleEngine and move enumeration:
-  - [`TypeScript.RuleEngine.validateRingPlacement()`](src/server/game/RuleEngine.ts:161).
-  - [`TypeScript.RuleEngine.getValidRingPlacements()`](src/server/game/RuleEngine.ts:839).
-  - [`TypeScript.RuleEngine.validateSkipPlacement()`](src/server/game/RuleEngine.ts:116).
+  - [`TypeScript.RuleEngine.validateRingPlacement()`](../src/server/game/RuleEngine.ts).
+  - [`TypeScript.RuleEngine.getValidRingPlacements()`](../src/server/game/RuleEngine.ts).
+  - [`TypeScript.RuleEngine.validateSkipPlacement()`](../src/server/game/RuleEngine.ts).
   - Ring_placement branch of
-    [`TypeScript.RuleEngine.getValidMoves()`](src/server/game/RuleEngine.ts:752).
+    [`TypeScript.RuleEngine.getValidMoves()`](../src/server/game/RuleEngine.ts).
 - Backend GameEngine placement application:
   - `place_ring` and `skip_placement` in
-    [`TypeScript.GameEngine.applyMove()`](src/server/game/GameEngine.ts:823).
+    [`TypeScript.GameEngine.applyMove()`](../src/server/game/GameEngine.ts).
   - Per-turn placement state in
-    [`TypeScript.GameEngine.updatePerTurnStateAfterMove()`](src/server/game/GameEngine.ts:2087).
+    [`TypeScript.GameEngine.updatePerTurnStateAfterMove()`](../src/server/game/GameEngine.ts).
 - Sandbox placement:
   - Hypothetical placement + no-dead-placement:
-    [`TypeScript.sandboxPlacement.createHypotheticalBoardWithPlacement()`](src/client/sandbox/sandboxPlacement.ts:29),
-    [`TypeScript.sandboxPlacement.hasAnyLegalMoveOrCaptureFrom()`](src/client/sandbox/sandboxPlacement.ts:85).
+    [`TypeScript.sandboxPlacement.createHypotheticalBoardWithPlacement()`](../src/client/sandbox/sandboxPlacement.ts),
+    [`TypeScript.sandboxPlacement.hasAnyLegalMoveOrCaptureFrom()`](../src/client/sandbox/sandboxPlacement.ts).
   - Placement enumeration:
-    [`TypeScript.sandboxPlacement.enumerateLegalRingPlacements()`](src/client/sandbox/sandboxPlacement.ts:125).
+    [`TypeScript.sandboxPlacement.enumerateLegalRingPlacements()`](../src/client/sandbox/sandboxPlacement.ts).
   - Human/AI application path:
-    [`TypeScript.ClientSandboxEngine.tryPlaceRings()`](src/client/sandbox/ClientSandboxEngine.ts:1615),
+    [`TypeScript.ClientSandboxEngine.tryPlaceRings()`](../src/client/sandbox/ClientSandboxEngine.ts),
     `handleHumanCellClick` in
-    [`TypeScript.ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:457),
+    [`TypeScript.ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts),
     AI hooks in `maybeRunAITurnSandbox`.
 
 #### 2.3.2 Verification summary
 
-- The shared validator [`TypeScript.validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76)
+- The shared validator [`TypeScript.validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts)
   encodes canonical placement semantics:
   - Board geometry > valid positions only.
   - No placement on collapsed spaces or markers.
   - Per-player ring cap and rings-in-hand constraints.
   - Single-ring-per-action onto existing stacks; 1–3 rings onto empty cells.
   - No-dead-placement: resulting stack must have at least one legal move or capture via
-    [`TypeScript.hasAnyLegalMoveOrCaptureFromOnBoard()`](src/shared/engine/core.ts:367).
+    [`TypeScript.hasAnyLegalMoveOrCaptureFromOnBoard()`](../src/shared/engine/core.ts).
 - Backend RuleEngine and GameEngine use this shared validator for:
   - Placement validation in `validateRingPlacement`.
   - Placement enumeration in `getValidRingPlacements`.
   - Legality of `place_ring` Moves in `getValidMoves`.
 - Skip-Placement semantics (R080):
   - Shared validator `validateSkipPlacement` and backend
-    [`TypeScript.RuleEngine.validateSkipPlacement()`](src/server/game/RuleEngine.ts:116) align:
+    [`TypeScript.RuleEngine.validateSkipPlacement()`](../src/server/game/RuleEngine.ts) align:
     - Only during `ring_placement`.
     - Player must have rings in hand.
     - Player must control at least one stack.
@@ -684,7 +684,7 @@ phase choice more implicitly (as already noted under 2.2).
         `hasAnyLegalMoveOrCaptureFromOnBoard`.
     - When both `place_ring` and `skip_placement` exist in `getValidMoves`, placement is
       optional. AI uses `chooseLocalMoveFromCandidates` in
-      [`TypeScript.localAIMoveSelection`](src/shared/engine/localAIMoveSelection.ts:24) to
+      [`TypeScript.localAIMoveSelection`](../src/shared/engine/localAIMoveSelection.ts) to
       randomly choose between placement and non-placement options, weighted by counts.
   - **Forbidden placement**:
     - `validatePlacementOnBoard` rejects placements that:
@@ -718,7 +718,7 @@ expose a first-class `skip_placement` Move.
       `INVALID_COUNT` with an explanatory `reason`.
     - On empty cells: `perCellCap = 3`, and `1 ≤ count ≤ 3` (subject to capacity).
   - Backend enumeration:
-    - In [`TypeScript.RuleEngine.getValidRingPlacements()`](src/server/game/RuleEngine.ts:839),
+    - In [`TypeScript.RuleEngine.getValidRingPlacements()`](../src/server/game/RuleEngine.ts),
       for each position:
       - Determines if the cell is occupied (`isOccupied`).
       - Computes `maxPerPlacement = 1` on stacks, or `≤ 3` on empty cells, but also capped by
@@ -738,7 +738,7 @@ expose a first-class `skip_placement` Move.
         `hasAnyLegalMoveOrCaptureFrom` (which wraps `hasAnyLegalMoveOrCaptureFromOnBoard`).
 - No-dead-placement guarantee:
   - Shared validator always constructs a hypothetical stack and calls
-    [`TypeScript.hasAnyLegalMoveOrCaptureFromOnBoard()`](src/shared/engine/core.ts:367) for the
+    [`TypeScript.hasAnyLegalMoveOrCaptureFromOnBoard()`](../src/shared/engine/core.ts) for the
     exact target position.
   - This helper:
     - Enumerates simple non-capture moves via movement directions and path constraints.
@@ -756,7 +756,7 @@ by initial ring supply in all supported board configs.
 ##### Per-player ring cap approximation
 
 - `validatePlacementOnBoard` and
-  [`TypeScript.RuleEngine.getValidRingPlacements()`](src/server/game/RuleEngine.ts:839) both
+  [`TypeScript.RuleEngine.getValidRingPlacements()`](../src/server/game/RuleEngine.ts) both
   approximate “rings on board for this player” as the **sum of stack heights** for stacks
   where `controllingPlayer === player`.
 - This may slightly over-approximate the number of rings of that colour in presence of
@@ -844,7 +844,7 @@ The TypeScript backend and client sandbox are intentionally kept in close lockst
 - Sharing core helpers under `src/shared/engine/**` for movement, capture, lines,
   territory, turn logic, and victory.
 - Wiring both hosts through the same `advanceTurnAndPhase` state machine in
-  [`TypeScript.turnLogic`](src/shared/engine/turnLogic.ts:135), with different delegate
+  [`TypeScript.turnLogic`](../src/shared/engine/turnLogic.ts), with different delegate
   implementations but the same abstract contract:
   - From `ring_placement` → `movement` when placements/movements/captures exist, else
     `line_processing`.
@@ -873,7 +873,7 @@ From a rules-correctness perspective, both hosts:
 
 ### 3.2 TS backend ↔ Python GameEngine (turns, forced elimination, strict invariant)
 
-The Python `GameEngine` in [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py)
+The Python `GameEngine` in `ai-service/app/game_engine.py`
 implements a semantically equivalent rules engine for AI/training purposes. Its turn and
 phase semantics are intentionally aligned with the TS backend:
 
@@ -998,7 +998,7 @@ after all clusters are populated. For now, see:_
 _Detailed recommendations will follow once all clusters are populated. Early candidates:_
 
 - Add explicit assertions or metrics to detect when
-  [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94)
+  [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts)
   performs repairs in production, and treat this as a serious diagnostic event.
 - Consider adding a sandbox-level `skip_placement` representation (even if handled
   internally) or adjusting `startTurnForCurrentPlayerSandbox` to start in `movement`
@@ -1036,7 +1036,7 @@ after all clusters are populated. For now, see:_
 _Detailed recommendations will follow once all clusters are populated. Early candidates:_
 
 - Add explicit assertions or metrics to detect when
-  [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94)
+  [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts)
   performs repairs in production, and treat this as a serious diagnostic event.
 - Consider adding a sandbox-level `skip_placement` representation (even if handled
   internally) or adjusting `startTurnForCurrentPlayerSandbox` to start in `movement`

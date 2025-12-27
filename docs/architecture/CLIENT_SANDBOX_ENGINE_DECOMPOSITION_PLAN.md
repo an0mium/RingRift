@@ -94,7 +94,7 @@ The following have already been extracted to separate files:
 
 ### 1.4 Dependency Analysis
 
-The [`ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts:215) class depends on:
+The [`ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts) class depends on:
 
 **Internal State (accessed via `this.`):**
 
@@ -160,11 +160,11 @@ export interface SandboxStateManager {
 
 **Methods to extract from [`ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts):**
 
-- [`getGameState()`](../../src/client/sandbox/ClientSandboxEngine.ts:800-822) - lines 800-822
-- [`getVictoryResult()`](../../src/client/sandbox/ClientSandboxEngine.ts:829-831)
-- [`getGameEndExplanation()`](../../src/client/sandbox/ClientSandboxEngine.ts:837-839)
-- [`getLpsTrackingState()`](../../src/client/sandbox/ClientSandboxEngine.ts:846-858)
-- [`cloneGameState()`](../../src/client/sandbox/ClientSandboxEngine.ts:934-955)
+- [`getGameState()`](../../src/client/sandbox/ClientSandboxEngine.ts) - lines 800-822
+- [`getVictoryResult()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`getGameEndExplanation()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`getLpsTrackingState()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`cloneGameState()`](../../src/client/sandbox/ClientSandboxEngine.ts)
 - Per-turn flag reset logic scattered through the file
 
 ---
@@ -195,10 +195,10 @@ export interface ReplayHooks {
 
 **Methods to extract:**
 
-- [`applyCanonicalMoveForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts:3746-4165) - lines 3746-4165 (~420 lines)
-- [`autoResolvePendingDecisionPhasesForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts:4175-4478) - lines 4175-4478 (~300 lines)
-- [`autoResolveOneTerritoryRegionForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts:4484-4530)
-- [`autoResolveOneLineForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts:4536-4568)
+- [`applyCanonicalMoveForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts) - lines 3746-4165 (~420 lines)
+- [`autoResolvePendingDecisionPhasesForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts) - lines 4175-4478 (~300 lines)
+- [`autoResolveOneTerritoryRegionForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`autoResolveOneLineForReplay()`](../../src/client/sandbox/ClientSandboxEngine.ts)
 
 ---
 
@@ -226,13 +226,13 @@ export interface TurnFlowHooks {
 
 **Methods to extract:**
 
-- [`advanceTurnAndPhaseForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts:2142-2157)
-- [`startTurnForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts:1978-2028)
-- [`maybeProcessForcedEliminationForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts:2030-2046)
-- [`maybeProcessForcedEliminationForCurrentPlayerInternal()`](../../src/client/sandbox/ClientSandboxEngine.ts:2048-2140)
-- [`handleStartOfInteractiveTurn()`](../../src/client/sandbox/ClientSandboxEngine.ts:1765-1807)
-- [`updateLpsRoundTrackingForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts:1668-1692)
-- [`maybeEndGameByLastPlayerStanding()`](../../src/client/sandbox/ClientSandboxEngine.ts:1710-1758)
+- [`advanceTurnAndPhaseForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`startTurnForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`maybeProcessForcedEliminationForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`maybeProcessForcedEliminationForCurrentPlayerInternal()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`handleStartOfInteractiveTurn()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`updateLpsRoundTrackingForCurrentPlayer()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`maybeEndGameByLastPlayerStanding()`](../../src/client/sandbox/ClientSandboxEngine.ts)
 
 ---
 
@@ -251,10 +251,10 @@ export interface SandboxHistoryManager {
 
 **Methods to extract:**
 
-- [`appendHistoryEntry()`](../../src/client/sandbox/ClientSandboxEngine.ts:404-438)
-- [`recordHistorySnapshotsOnly()`](../../src/client/sandbox/ClientSandboxEngine.ts:448-456)
-- [`getStateAtMoveIndex()`](../../src/client/sandbox/ClientSandboxEngine.ts:894-928)
-- [`rebuildSnapshotsFromMoveHistory()`](../../src/client/sandbox/ClientSandboxEngine.ts:966-1042)
+- [`appendHistoryEntry()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`recordHistorySnapshotsOnly()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`getStateAtMoveIndex()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`rebuildSnapshotsFromMoveHistory()`](../../src/client/sandbox/ClientSandboxEngine.ts)
 - Snapshot array management (`_stateSnapshots`, `_initialStateSnapshot`)
 
 ---
@@ -274,10 +274,10 @@ export interface SandboxHumanHandlers {
 
 **Methods to extract:**
 
-- [`handleHumanCellClick()`](../../src/client/sandbox/ClientSandboxEngine.ts:1239-1379)
-- [`handleMovementClick()`](../../src/client/sandbox/ClientSandboxEngine.ts:2534-2617)
-- [`handleChainCaptureClick()`](../../src/client/sandbox/ClientSandboxEngine.ts:2501-2532)
-- [`promptForCaptureDirection()`](../../src/client/sandbox/ClientSandboxEngine.ts:2463-2494)
+- [`handleHumanCellClick()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`handleMovementClick()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`handleChainCaptureClick()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`promptForCaptureDirection()`](../../src/client/sandbox/ClientSandboxEngine.ts)
 
 ---
 
@@ -303,10 +303,10 @@ export interface SandboxCaptureChain {
 
 **Methods to extract:**
 
-- [`performCaptureChainInternal()`](../../src/client/sandbox/ClientSandboxEngine.ts:2619-2752)
-- [`performCaptureChain()`](../../src/client/sandbox/ClientSandboxEngine.ts:1935-1941)
-- [`handleCaptureSegmentApplied()`](../../src/client/sandbox/ClientSandboxEngine.ts:330-364)
-- [`handleSimpleMoveApplied()`](../../src/client/sandbox/ClientSandboxEngine.ts:372-393)
+- [`performCaptureChainInternal()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`performCaptureChain()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`handleCaptureSegmentApplied()`](../../src/client/sandbox/ClientSandboxEngine.ts)
+- [`handleSimpleMoveApplied()`](../../src/client/sandbox/ClientSandboxEngine.ts)
 
 ---
 
@@ -605,7 +605,7 @@ The December 2025 proposal recommended deferring due to parity risk. However:
 
 ### 9.2 Full Class Decomposition
 
-Breaking [`ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts:215) into multiple classes was considered but rejected:
+Breaking [`ClientSandboxEngine`](../../src/client/sandbox/ClientSandboxEngine.ts) into multiple classes was considered but rejected:
 
 - Introduces constructor coordination complexity
 - Breaks existing test patterns that instantiate the engine

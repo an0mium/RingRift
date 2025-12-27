@@ -1383,7 +1383,7 @@ Persistence distinguishes these outcomes via result metadata stored with the gam
 Decision‑phase **timeouts** (failure to answer a `player_choice_required` within the configured deadline) are orthogonal:
 
 - They auto‑resolve the _current decision_ (e.g. choose a default `Move`), usually keeping the game in ACTIVE state.
-- They are covered by dedicated tests and scenario rows under `LF5.a` / `LF5.b` in [`RULES_SCENARIO_MATRIX.md`](../rules/RULES_SCENARIO_MATRIX.md:53) and by E2E suites such as [`tests/e2e/decision-phase-timeout.e2e.spec.ts`](../../tests/e2e/decision-phase-timeout.e2e.spec.ts:1).
+- They are covered by dedicated tests and scenario rows under `LF5.a` / `LF5.b` in [`RULES_SCENARIO_MATRIX.md`](../rules/RULES_SCENARIO_MATRIX.md) and by E2E suites such as [`tests/e2e/decision-phase-timeout.e2e.spec.ts`](../../tests/e2e/decision-phase-timeout.e2e.spec.ts).
 
 ##### Rematch and Back-to-Lobby Flows
 
@@ -1417,7 +1417,7 @@ The following tests validate lifecycle semantics:
 | Spectator join/leave and late join     | `tests/unit/GameSession.spectatorFlow.test.ts`, `tests/unit/GameSession.spectatorLateJoin.test.ts` |
 | Connection lifecycle helpers           | `tests/unit/GameConnection.reconnection.test.ts`                                                   |
 
-Additional coverage for lobby flows, abandonment vs timeout, late-join spectators, and rematch semantics is tracked in `TODO.md` §P1.1, in the lifecycle axis rows `LF1`–`LF6` (including `LF1.a`, `LF5.a`, `LF5.b`) of [`RULES_SCENARIO_MATRIX.md`](../rules/RULES_SCENARIO_MATRIX.md:53), and in the ANM/timeout catalogue [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
+Additional coverage for lobby flows, abandonment vs timeout, late-join spectators, and rematch semantics is tracked in `TODO.md` §P1.1, in the lifecycle axis rows `LF1`–`LF6` (including `LF1.a`, `LF5.a`, `LF5.b`) of [`RULES_SCENARIO_MATRIX.md`](../rules/RULES_SCENARIO_MATRIX.md), and in the ANM/timeout catalogue [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md).
 
 ### 3.10 Contract Testing Domain (NEW)
 

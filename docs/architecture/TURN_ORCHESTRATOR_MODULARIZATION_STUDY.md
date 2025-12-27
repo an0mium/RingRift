@@ -24,50 +24,50 @@ Prior successful decompositions in this codebase:
 
 ### 1.1 Exported Functions (Public API)
 
-| Function                                                                                      | Lines     | LOC  | Responsibility                                 |
-| --------------------------------------------------------------------------------------------- | --------- | ---- | ---------------------------------------------- |
-| [`processTurn`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1419)               | 1419-1980 | ~560 | Main synchronous entry point                   |
-| [`processTurnAsync`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3256)          | 3256-3333 | ~77  | Async turn processing with decision resolution |
-| [`validateMove`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3351)              | 3351-3426 | ~75  | Move validation                                |
-| [`getValidMoves`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3452)             | 3452-3784 | ~332 | Enumerate valid moves per phase                |
-| [`hasValidMoves`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3789)             | 3789-3791 | ~3   | Check if player has moves                      |
-| [`toVictoryState`](../../src/shared/engine/orchestration/turnOrchestrator.ts:412)             | 412-454   | ~42  | Convert victory to structured state            |
-| [`__test_only_toVictoryState`](../../src/shared/engine/orchestration/turnOrchestrator.ts:461) | 461-463   | ~3   | Test-only wrapper                              |
-| [`applyMoveForReplay`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3915)        | 3915-3927 | ~13  | Lower-level replay application                 |
+| Function                                                                                  | Lines     | LOC  | Responsibility                                 |
+| ----------------------------------------------------------------------------------------- | --------- | ---- | ---------------------------------------------- |
+| [`processTurn`](../../src/shared/engine/orchestration/turnOrchestrator.ts)                | 1419-1980 | ~560 | Main synchronous entry point                   |
+| [`processTurnAsync`](../../src/shared/engine/orchestration/turnOrchestrator.ts)           | 3256-3333 | ~77  | Async turn processing with decision resolution |
+| [`validateMove`](../../src/shared/engine/orchestration/turnOrchestrator.ts)               | 3351-3426 | ~75  | Move validation                                |
+| [`getValidMoves`](../../src/shared/engine/orchestration/turnOrchestrator.ts)              | 3452-3784 | ~332 | Enumerate valid moves per phase                |
+| [`hasValidMoves`](../../src/shared/engine/orchestration/turnOrchestrator.ts)              | 3789-3791 | ~3   | Check if player has moves                      |
+| [`toVictoryState`](../../src/shared/engine/orchestration/turnOrchestrator.ts)             | 412-454   | ~42  | Convert victory to structured state            |
+| [`__test_only_toVictoryState`](../../src/shared/engine/orchestration/turnOrchestrator.ts) | 461-463   | ~3   | Test-only wrapper                              |
+| [`applyMoveForReplay`](../../src/shared/engine/orchestration/turnOrchestrator.ts)         | 3915-3927 | ~13  | Lower-level replay application                 |
 
 ### 1.2 Internal Functions (Private)
 
-| Function                                                                                               | Lines     | LOC  | Responsibility Group  |
-| ------------------------------------------------------------------------------------------------------ | --------- | ---- | --------------------- |
-| **ProcessingStateContainer class**                                                                     | 172-239   | ~68  | State Container       |
-| [`createProcessingState`](../../src/shared/engine/orchestration/turnOrchestrator.ts:245)               | 245-264   | ~20  | State Container       |
-| [`computeNextNonEliminatedPlayer`](../../src/shared/engine/orchestration/turnOrchestrator.ts:286)      | 286-309   | ~24  | Turn Rotation         |
-| [`computeSInvariant`](../../src/shared/engine/orchestration/turnOrchestrator.ts:319)                   | 319-321   | ~3   | State Resolution      |
-| [`resolveANMForCurrentPlayer`](../../src/shared/engine/orchestration/turnOrchestrator.ts:334)          | 334-399   | ~65  | ANM Resolution        |
-| [`buildGameEndExplanationForVictory`](../../src/shared/engine/orchestration/turnOrchestrator.ts:471)   | 471-792   | ~321 | Victory/Explanation   |
-| [`toPlayerId`](../../src/shared/engine/orchestration/turnOrchestrator.ts:794)                          | 794-796   | ~3   | Victory/Explanation   |
-| [`createScoreBreakdown`](../../src/shared/engine/orchestration/turnOrchestrator.ts:798)                | 798-810   | ~13  | Victory/Explanation   |
-| [`deriveShortSummaryKey`](../../src/shared/engine/orchestration/turnOrchestrator.ts:812)               | 812-830   | ~19  | Victory/Explanation   |
-| [`deriveUxCopyKeys`](../../src/shared/engine/orchestration/turnOrchestrator.ts:840)                    | 840-890   | ~50  | Victory/Explanation   |
-| [`hasForcedEliminationMove`](../../src/shared/engine/orchestration/turnOrchestrator.ts:901)            | 901-909   | ~9   | Victory/Explanation   |
-| [`detectTerritoryMiniRegions`](../../src/shared/engine/orchestration/turnOrchestrator.ts:941)          | 941-976   | ~36  | Mini-region Detection |
-| [`parsePositionKey`](../../src/shared/engine/orchestration/turnOrchestrator.ts:981)                    | 981-988   | ~8   | Mini-region Detection |
-| [`groupIntoConnectedRegions`](../../src/shared/engine/orchestration/turnOrchestrator.ts:997)           | 997-1039  | ~43  | Mini-region Detection |
-| [`getTerritoryNeighborsForMiniRegion`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1046) | 1046-1089 | ~44  | Mini-region Detection |
-| [`createLineOrderDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1098)            | 1098-1110 | ~13  | Decision Creation     |
-| [`createRegionOrderDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1115)          | 1115-1149 | ~35  | Decision Creation     |
-| [`createForcedEliminationDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1161)    | 1161-1214 | ~54  | Decision Creation     |
-| [`createChainCaptureDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1219)         | 1219-1228 | ~10  | Decision Creation     |
-| [`derivePendingDecisionFromFSM`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1242)       | 1242-1337 | ~95  | FSM Integration       |
-| [`applyMoveWithChainInfo`](../../src/shared/engine/orchestration/turnOrchestrator.ts:2001)             | 2001-2465 | ~464 | Move Application      |
-| [`assertPhaseMoveInvariant`](../../src/shared/engine/orchestration/turnOrchestrator.ts:2493)           | 2493-2502 | ~10  | Validation            |
-| [`performFSMValidation`](../../src/shared/engine/orchestration/turnOrchestrator.ts:2561)               | 2561-2627 | ~67  | FSM Validation        |
-| [`emitFSMValidationEvent`](../../src/shared/engine/orchestration/turnOrchestrator.ts:2540)             | 2540-2549 | ~10  | FSM Validation        |
-| [`processPostMovePhases`](../../src/shared/engine/orchestration/turnOrchestrator.ts:2649)              | 2649-3231 | ~582 | Post-Move Processing  |
-| [`didCurrentTurnIncludeRecoverySlide`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3233) | 3233-3244 | ~12  | Helper                |
-| [`computeHadAnyActionThisTurn`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3799)        | 3799-3838 | ~40  | Helper                |
-| [`playerHasStacksOnBoard`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3844)             | 3844-3851 | ~8   | Helper                |
-| [`isNoActionBookkeepingMove`](../../src/shared/engine/orchestration/turnOrchestrator.ts:3875)          | 3875-3888 | ~14  | Helper                |
+| Function                                                                                          | Lines     | LOC  | Responsibility Group  |
+| ------------------------------------------------------------------------------------------------- | --------- | ---- | --------------------- |
+| **ProcessingStateContainer class**                                                                | 172-239   | ~68  | State Container       |
+| [`createProcessingState`](../../src/shared/engine/orchestration/turnOrchestrator.ts)              | 245-264   | ~20  | State Container       |
+| [`computeNextNonEliminatedPlayer`](../../src/shared/engine/orchestration/turnOrchestrator.ts)     | 286-309   | ~24  | Turn Rotation         |
+| [`computeSInvariant`](../../src/shared/engine/orchestration/turnOrchestrator.ts)                  | 319-321   | ~3   | State Resolution      |
+| [`resolveANMForCurrentPlayer`](../../src/shared/engine/orchestration/turnOrchestrator.ts)         | 334-399   | ~65  | ANM Resolution        |
+| [`buildGameEndExplanationForVictory`](../../src/shared/engine/orchestration/turnOrchestrator.ts)  | 471-792   | ~321 | Victory/Explanation   |
+| [`toPlayerId`](../../src/shared/engine/orchestration/turnOrchestrator.ts)                         | 794-796   | ~3   | Victory/Explanation   |
+| [`createScoreBreakdown`](../../src/shared/engine/orchestration/turnOrchestrator.ts)               | 798-810   | ~13  | Victory/Explanation   |
+| [`deriveShortSummaryKey`](../../src/shared/engine/orchestration/turnOrchestrator.ts)              | 812-830   | ~19  | Victory/Explanation   |
+| [`deriveUxCopyKeys`](../../src/shared/engine/orchestration/turnOrchestrator.ts)                   | 840-890   | ~50  | Victory/Explanation   |
+| [`hasForcedEliminationMove`](../../src/shared/engine/orchestration/turnOrchestrator.ts)           | 901-909   | ~9   | Victory/Explanation   |
+| [`detectTerritoryMiniRegions`](../../src/shared/engine/orchestration/turnOrchestrator.ts)         | 941-976   | ~36  | Mini-region Detection |
+| [`parsePositionKey`](../../src/shared/engine/orchestration/turnOrchestrator.ts)                   | 981-988   | ~8   | Mini-region Detection |
+| [`groupIntoConnectedRegions`](../../src/shared/engine/orchestration/turnOrchestrator.ts)          | 997-1039  | ~43  | Mini-region Detection |
+| [`getTerritoryNeighborsForMiniRegion`](../../src/shared/engine/orchestration/turnOrchestrator.ts) | 1046-1089 | ~44  | Mini-region Detection |
+| [`createLineOrderDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts)            | 1098-1110 | ~13  | Decision Creation     |
+| [`createRegionOrderDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts)          | 1115-1149 | ~35  | Decision Creation     |
+| [`createForcedEliminationDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts)    | 1161-1214 | ~54  | Decision Creation     |
+| [`createChainCaptureDecision`](../../src/shared/engine/orchestration/turnOrchestrator.ts)         | 1219-1228 | ~10  | Decision Creation     |
+| [`derivePendingDecisionFromFSM`](../../src/shared/engine/orchestration/turnOrchestrator.ts)       | 1242-1337 | ~95  | FSM Integration       |
+| [`applyMoveWithChainInfo`](../../src/shared/engine/orchestration/turnOrchestrator.ts)             | 2001-2465 | ~464 | Move Application      |
+| [`assertPhaseMoveInvariant`](../../src/shared/engine/orchestration/turnOrchestrator.ts)           | 2493-2502 | ~10  | Validation            |
+| [`performFSMValidation`](../../src/shared/engine/orchestration/turnOrchestrator.ts)               | 2561-2627 | ~67  | FSM Validation        |
+| [`emitFSMValidationEvent`](../../src/shared/engine/orchestration/turnOrchestrator.ts)             | 2540-2549 | ~10  | FSM Validation        |
+| [`processPostMovePhases`](../../src/shared/engine/orchestration/turnOrchestrator.ts)              | 2649-3231 | ~582 | Post-Move Processing  |
+| [`didCurrentTurnIncludeRecoverySlide`](../../src/shared/engine/orchestration/turnOrchestrator.ts) | 3233-3244 | ~12  | Helper                |
+| [`computeHadAnyActionThisTurn`](../../src/shared/engine/orchestration/turnOrchestrator.ts)        | 3799-3838 | ~40  | Helper                |
+| [`playerHasStacksOnBoard`](../../src/shared/engine/orchestration/turnOrchestrator.ts)             | 3844-3851 | ~8   | Helper                |
+| [`isNoActionBookkeepingMove`](../../src/shared/engine/orchestration/turnOrchestrator.ts)          | 3875-3888 | ~14  | Helper                |
 
 ---
 

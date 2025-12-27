@@ -1123,7 +1123,7 @@ AI heuristics have been optimized for multi-player:
 
 ## Success Metrics for v1.0
 
-These metrics are an execution-focused view of the project-level success criteria defined in [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:1); if they diverge, treat [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:1) as canonical and adjust this table.
+These metrics are an execution-focused view of the project-level success criteria defined in [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md); if they diverge, treat [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md) as canonical and adjust this table.
 
 | Metric          | Target              | Current           |
 | --------------- | ------------------- | ----------------- |
@@ -1138,19 +1138,21 @@ These metrics are an execution-focused view of the project-level success criteri
 
 ## Key Files & References
 
-| Document                                                                                                 | Purpose                                                                                             |
-| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `TODO.md`                                                                                                | Active task tracker                                                                                 |
-| `KNOWN_ISSUES.md`                                                                                        | Current bugs (P0-P2)                                                                                |
-| `STRATEGIC_ROADMAP.md`                                                                                   | Phased roadmap & SLOs                                                                               |
-| [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) | Implementation status                                                                               |
+| Document                                                                                                 | Purpose               |
+| -------------------------------------------------------------------------------------------------------- | --------------------- |
+| `TODO.md`                                                                                                | Active task tracker   |
+| `KNOWN_ISSUES.md`                                                                                        | Current bugs (P0-P2)  |
+| `STRATEGIC_ROADMAP.md`                                                                                   | Phased roadmap & SLOs |
+| [`../archive/historical/CURRENT_STATE_ASSESSMENT.md`](../archive/historical/CURRENT_STATE_ASSESSMENT.md) | Implementation status |
+
 <<<<<<< Updated upstream
-| `docs/testing/TEST_CATEGORIES.md`                                                                                | CI vs diagnostic tests                                                                              |
+| `docs/testing/TEST_CATEGORIES.md` | CI vs diagnostic tests |
 =======
-| `docs/testing/TEST_CATEGORIES.md`                                                                        | CI vs diagnostic tests                                                                              |
->>>>>>> Stashed changes
-| `docs/PASS21_ASSESSMENT_REPORT.md`                                                                       | Latest assessment                                                                                   |
-| `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`                                                         | Posture summary and SLOs (historical phase tables in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`) |
+| `docs/testing/TEST_CATEGORIES.md` | CI vs diagnostic tests |
+
+> > > > > > > Stashed changes
+> > > > > > > | `docs/PASS21_ASSESSMENT_REPORT.md` | Latest assessment |
+> > > > > > > | `docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` | Posture summary and SLOs (historical phase tables in `docs/archive/ORCHESTRATOR_ROLLOUT_PHASES.md`) |
 
 ---
 

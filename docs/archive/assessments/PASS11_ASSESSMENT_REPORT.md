@@ -33,10 +33,10 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **Files Examined:**
 
-- [`src/server/routes/auth.ts`](../../../src/server/routes/auth.ts:1) (1,478 lines)
-- [`src/server/routes/game.ts`](../../../src/server/routes/game.ts:1) (1,645 lines)
-- [`src/server/routes/user.ts`](../../../src/server/routes/user.ts:1) (1,349 lines)
-- [`src/server/routes/index.ts`](../../../src/server/routes/index.ts:1) (96 lines)
+- [`src/server/routes/auth.ts`](../../../src/server/routes/auth.ts) (1,478 lines)
+- [`src/server/routes/game.ts`](../../../src/server/routes/game.ts) (1,645 lines)
+- [`src/server/routes/user.ts`](../../../src/server/routes/user.ts) (1,349 lines)
+- [`src/server/routes/index.ts`](../../../src/server/routes/index.ts) (96 lines)
 
 | Criterion                   | Score (0-5) | Notes                                                       |
 | --------------------------- | ----------- | ----------------------------------------------------------- |
@@ -49,17 +49,17 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 **Notable Features:**
 
 - **Authentication**: JWT with refresh token rotation, token families for reuse detection, login lockout mechanism
-- **Authorization**: Participant-based game access control with [`assertUserCanViewGame()`](../../../src/server/routes/game.ts:54)
+- **Authorization**: Participant-based game access control with [`assertUserCanViewGame()`](../../../src/server/routes/game.ts)
 - **Rate Limiting**: Per-user and per-IP quotas for game creation
-- **GDPR Compliance**: Data export endpoint [`GET /api/users/export`](../../../src/server/routes/user.ts:420)
+- **GDPR Compliance**: Data export endpoint [`GET /api/users/export`](../../../src/server/routes/user.ts)
 
 ### Area 2: Middleware Layer
 
 **Files Examined:**
 
-- [`src/server/middleware/auth.ts`](../../../src/server/middleware/auth.ts:1) (308 lines)
-- [`src/server/middleware/rateLimiter.ts`](../../../src/server/middleware/rateLimiter.ts:1) (663 lines)
-- [`src/server/middleware/errorHandler.ts`](../../../src/server/middleware/errorHandler.ts:1) (250 lines)
+- [`src/server/middleware/auth.ts`](../../../src/server/middleware/auth.ts) (308 lines)
+- [`src/server/middleware/rateLimiter.ts`](../../../src/server/middleware/rateLimiter.ts) (663 lines)
+- [`src/server/middleware/errorHandler.ts`](../../../src/server/middleware/errorHandler.ts) (250 lines)
 
 | Criterion                   | Score (0-5) | Notes                                              |
 | --------------------------- | ----------- | -------------------------------------------------- |
@@ -71,11 +71,11 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **Test Files Identified:**
 
-- [`tests/unit/middleware/rateLimiter.test.ts`](../../../tests/unit/middleware/rateLimiter.test.ts:1) - Comprehensive rate limiting tests
-- [`tests/unit/errorHandler.standardized.test.ts`](../../../tests/unit/errorHandler.standardized.test.ts:1) - Error standardization tests
-- [`tests/unit/middleware/metricsMiddleware.test.ts`](../../../tests/unit/middleware/metricsMiddleware.test.ts:1) - Metrics tracking tests
-- [`tests/unit/securityHeaders.test.ts`](../../../tests/unit/securityHeaders.test.ts:1) - CSP/security header tests
-- [`tests/unit/middleware/degradationHeaders.test.ts`](../../../tests/unit/middleware/degradationHeaders.test.ts:1) - Graceful degradation tests
+- [`tests/unit/middleware/rateLimiter.test.ts`](../../../tests/unit/middleware/rateLimiter.test.ts) - Comprehensive rate limiting tests
+- [`tests/unit/errorHandler.standardized.test.ts`](../../../tests/unit/errorHandler.standardized.test.ts) - Error standardization tests
+- [`tests/unit/middleware/metricsMiddleware.test.ts`](../../../tests/unit/middleware/metricsMiddleware.test.ts) - Metrics tracking tests
+- [`tests/unit/securityHeaders.test.ts`](../../../tests/unit/securityHeaders.test.ts) - CSP/security header tests
+- [`tests/unit/middleware/degradationHeaders.test.ts`](../../../tests/unit/middleware/degradationHeaders.test.ts) - Graceful degradation tests
 
 **Middleware Features:**
 
@@ -87,10 +87,10 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **Files Examined:**
 
-- [`ai-service/app/rules/validators/capture.py`](../../../ai-service/app/rules/validators/capture.py:1) (60 lines)
-- [`ai-service/app/rules/validators/line.py`](../../../ai-service/app/rules/validators/line.py:1) (149 lines)
-- [`ai-service/app/rules/mutators/capture.py`](../../../ai-service/app/rules/mutators/capture.py:1) (11 lines)
-- [`ai-service/app/rules/mutators/line.py`](../../../ai-service/app/rules/mutators/line.py:1) (11 lines)
+- [`ai-service/app/rules/validators/capture.py`](../../../ai-service/app/rules/validators/capture.py) (60 lines)
+- [`ai-service/app/rules/validators/line.py`](../../../ai-service/app/rules/validators/line.py) (149 lines)
+- [`ai-service/app/rules/mutators/capture.py`](../../../ai-service/app/rules/mutators/capture.py) (11 lines)
+- [`ai-service/app/rules/mutators/line.py`](../../../ai-service/app/rules/mutators/line.py) (11 lines)
 
 | Criterion                   | Score (0-5) | Notes                                          |
 | --------------------------- | ----------- | ---------------------------------------------- |
@@ -102,8 +102,8 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **Test Files Identified:**
 
-- [`ai-service/tests/rules/test_validators.py`](../../../ai-service/tests/rules/test_validators.py:1) (210 lines)
-- [`ai-service/tests/rules/test_mutators.py`](../../../ai-service/tests/rules/test_mutators.py:1) (446 lines)
+- [`ai-service/tests/rules/test_validators.py`](../../../ai-service/tests/rules/test_validators.py) (210 lines)
+- [`ai-service/tests/rules/test_mutators.py`](../../../ai-service/tests/rules/test_mutators.py) (446 lines)
 
 **Architecture Pattern:**
 
@@ -115,7 +115,7 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **File Examined:**
 
-- [`src/client/services/api.ts`](../../../src/client/services/api.ts:1) (337 lines)
+- [`src/client/services/api.ts`](../../../src/client/services/api.ts) (337 lines)
 
 | Criterion                   | Score (0-5) | Notes                                           |
 | --------------------------- | ----------- | ----------------------------------------------- |
@@ -138,9 +138,9 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **Files Examined:**
 
-- [`src/shared/engine/aggregates/CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:1) (922 lines)
-- [`src/shared/engine/aggregates/LineAggregate.ts`](../../../src/shared/engine/aggregates/LineAggregate.ts:1) (1,161 lines)
-- [`src/shared/engine/aggregates/TerritoryAggregate.ts`](../../../src/shared/engine/aggregates/TerritoryAggregate.ts:1) (1,548 lines)
+- [`src/shared/engine/aggregates/CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) (922 lines)
+- [`src/shared/engine/aggregates/LineAggregate.ts`](../../../src/shared/engine/aggregates/LineAggregate.ts) (1,161 lines)
+- [`src/shared/engine/aggregates/TerritoryAggregate.ts`](../../../src/shared/engine/aggregates/TerritoryAggregate.ts) (1,548 lines)
 
 | Criterion                   | Score (0-5) | Notes                                                |
 | --------------------------- | ----------- | ---------------------------------------------------- |
@@ -167,7 +167,7 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **File Examined:**
 
-- [`src/server/openapi/config.ts`](../../../src/server/openapi/config.ts:1) (941 lines)
+- [`src/server/openapi/config.ts`](../../../src/server/openapi/config.ts) (941 lines)
 
 | Criterion                   | Score (0-5) | Notes                                           |
 | --------------------------- | ----------- | ----------------------------------------------- |
@@ -188,7 +188,7 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **File Examined:**
 
-- [`src/server/database/connection.ts`](../../../src/server/database/connection.ts:1) (125 lines)
+- [`src/server/database/connection.ts`](../../../src/server/database/connection.ts) (125 lines)
 
 | Criterion                   | Score (0-5) | Notes                                           |
 | --------------------------- | ----------- | ----------------------------------------------- |
@@ -211,7 +211,7 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 **File Examined:**
 
-- [`ai-service/results/statistical_analysis_report.json`](../../../ai-service/results/statistical_analysis_report.json:1) (312 lines)
+- [`ai-service/results/statistical_analysis_report.json`](../../../ai-service/results/statistical_analysis_report.json) (312 lines)
 
 | Criterion                   | Score (0-5) | Notes                                         |
 | --------------------------- | ----------- | --------------------------------------------- |
@@ -236,21 +236,21 @@ Pass 11 focused on examining **new areas not previously assessed** in Passes 1-1
 
 ### Pass 10 Verification: RatingService Tests
 
-**Claim**: 63 tests added to [`tests/unit/RatingService.test.ts`](../../../tests/unit/RatingService.test.ts:1)
+**Claim**: 63 tests added to [`tests/unit/RatingService.test.ts`](../../../tests/unit/RatingService.test.ts)
 
 **Verification Result**: ✅ **PASSED**
 
 The file contains 781 lines with comprehensive test coverage:
 
-- [`getKFactor`](../../../tests/unit/RatingService.test.ts:16): 4 tests
-- [`calculateExpectedScore`](../../../tests/unit/RatingService.test.ts:36): 10 tests
-- [`calculateNewRating`](../../../tests/unit/RatingService.test.ts:102): 12 tests
-- [`calculateRatingFromMatch`](../../../tests/unit/RatingService.test.ts:187): 6 tests
-- [`calculateMultiplayerRatings`](../../../tests/unit/RatingService.test.ts:225): 8 tests
-- [`processGameResult`](../../../tests/unit/RatingService.test.ts:328): 8 tests
-- [`getPlayerRating`](../../../tests/unit/RatingService.test.ts:475): 6 tests
-- [`getLeaderboard`](../../../tests/unit/RatingService.test.ts:561): 7 tests
-- [`getLeaderboardCount`](../../../tests/unit/RatingService.test.ts:649): 2 tests
+- [`getKFactor`](../../../tests/unit/RatingService.test.ts): 4 tests
+- [`calculateExpectedScore`](../../../tests/unit/RatingService.test.ts): 10 tests
+- [`calculateNewRating`](../../../tests/unit/RatingService.test.ts): 12 tests
+- [`calculateRatingFromMatch`](../../../tests/unit/RatingService.test.ts): 6 tests
+- [`calculateMultiplayerRatings`](../../../tests/unit/RatingService.test.ts): 8 tests
+- [`processGameResult`](../../../tests/unit/RatingService.test.ts): 8 tests
+- [`getPlayerRating`](../../../tests/unit/RatingService.test.ts): 6 tests
+- [`getLeaderboard`](../../../tests/unit/RatingService.test.ts): 7 tests
+- [`getLeaderboardCount`](../../../tests/unit/RatingService.test.ts): 2 tests
 - Edge cases and formula accuracy tests: 13 tests
 
 **Total**: 76+ test cases (exceeds claimed 63)
@@ -264,7 +264,7 @@ The file contains 781 lines with comprehensive test coverage:
 
 **Verification Results**:
 
-1. ✅ **PASSED** - [`vite.config.ts`](../../../vite.config.ts:50) contains:
+1. ✅ **PASSED** - [`vite.config.ts`](../../../vite.config.ts) contains:
 
 ```typescript
 manualChunks: {
@@ -275,7 +275,7 @@ manualChunks: {
 },
 ```
 
-2. ✅ **PASSED** - [`src/client/App.tsx`](../../../src/client/App.tsx:8) contains:
+2. ✅ **PASSED** - [`src/client/App.tsx`](../../../src/client/App.tsx) contains:
 
 ```typescript
 const GamePage = lazy(() => import('./pages/GamePage'));
@@ -293,7 +293,7 @@ const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 
 **Verification Results**:
 
-1. ✅ **PASSED** - [`src/server/services/OrchestratorRolloutService.ts`](../../../src/server/services/OrchestratorRolloutService.ts:1) (373 lines)
+1. ✅ **PASSED** - [`src/server/services/OrchestratorRolloutService.ts`](../../../src/server/services/OrchestratorRolloutService.ts) (373 lines)
    - Circuit breaker implementation
    - Kill switch support
    - Percentage rollout with consistent hashing
@@ -307,7 +307,7 @@ const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 
 **Verification Result**: ✅ **PASSED**
 
-The only `continue-on-error: true` is at [line 198-199](../../../.github/workflows/ci.yml:198) for Snyk scan:
+The only `continue-on-error: true` is at [line 198-199](../../../.github/workflows/ci.yml) for Snyk scan:
 
 ```yaml
 - name: Run Snyk security scan

@@ -75,6 +75,8 @@ def _safe_create_task(coro, context: str = "") -> asyncio.Task | None:
 
 # Event emission for selfplay feedback loops (Phase 21.2 - Dec 2025)
 # December 2025: Use canonical event_router imports
+from app.config.thresholds import PROMOTION_WIN_RATE_THRESHOLD
+
 try:
     from app.coordination.event_router import emit_selfplay_target_updated
     HAS_SELFPLAY_EVENTS = True
@@ -144,9 +146,9 @@ class FeedbackLoopController:
         # Gap 1 fix (Dec 2025): Initialize cluster health flag
         self._cluster_healthy = True
 
-        # Configuration
+        # Configuration (Dec 2025: thresholds from app.config.thresholds)
         self.policy_accuracy_threshold = 0.75  # Trigger evaluation above this
-        self.promotion_threshold = 0.60  # Win rate for promotion (Dec 2025: tightened from 0.55)
+        self.promotion_threshold = PROMOTION_WIN_RATE_THRESHOLD  # Win rate for promotion
         self.failure_exploration_boost = 1.3  # Boost exploration on failure
         self.success_intensity_reduction = 0.9  # Reduce intensity on success
 

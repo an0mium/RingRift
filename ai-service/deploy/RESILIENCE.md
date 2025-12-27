@@ -43,5 +43,6 @@ Notes:
 ## Training Loop Automation
 
 - `scripts/p2p_orchestrator.py` exposes endpoints for training triggers (e.g. `POST /training/nnue/start`, `POST /training/cmaes/start`) and includes an improvement-loop scaffold.
-- `scripts/unified_ai_loop.py` is the canonical end-to-end automation daemon (selfplay → sync → training → eval → promote). Run it from a coordinator/training node once the cluster is stable.
+- `scripts/master_loop.py` is the canonical end-to-end automation daemon (selfplay → sync → training → eval → promote). Run it from a coordinator/training node once the cluster is stable.
+  - _Legacy wrapper_: `scripts/unified_ai_loop.py` (requires `RINGRIFT_UNIFIED_LOOP_LEGACY=1`)
   - _Note: `pipeline_orchestrator.py` has been deprecated and moved to `scripts/archive/`_

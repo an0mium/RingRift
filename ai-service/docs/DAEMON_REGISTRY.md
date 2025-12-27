@@ -228,19 +228,19 @@ Data backup and external storage.
 
 GPU/CPU resource optimization.
 
-| Daemon Type             | Priority     | Description                                                                                   | Dependencies                  |
-| ----------------------- | ------------ | --------------------------------------------------------------------------------------------- | ----------------------------- |
-| `IDLE_RESOURCE`         | **CRITICAL** | Monitors idle GPUs and auto-spawns selfplay jobs. Uses SelfplayScheduler priorities.          | EVENT_ROUTER                  |
-| `QUEUE_POPULATOR`       | **CRITICAL** | Auto-populates work queue until Elo targets met (60% selfplay, 30% training, 10% tournament). | EVENT_ROUTER                  |
-| `NODE_RECOVERY`         | MEDIUM       | Auto-recovers terminated cluster nodes.                                                       | EVENT_ROUTER                  |
-| `UTILIZATION_OPTIMIZER` | HIGH         | Matches GPU capabilities to board sizes. Stops CPU selfplay on GPU nodes.                     | EVENT_ROUTER, IDLE_RESOURCE   |
-| `ADAPTIVE_RESOURCES`    | MEDIUM       | Dynamic resource scaling based on workload.                                                   | EVENT_ROUTER, CLUSTER_MONITOR |
-| `MULTI_PROVIDER`        | MEDIUM       | Coordinates workloads across Vast/Nebius/RunPod/Vultr providers (Lambda legacy).              | EVENT_ROUTER, CLUSTER_MONITOR |
+| Daemon Type             | Priority     | Description                                                                                                                     | Dependencies                  |
+| ----------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `IDLE_RESOURCE`         | **CRITICAL** | Monitors idle GPUs and auto-spawns selfplay jobs. Uses SelfplayScheduler priorities.                                            | EVENT_ROUTER                  |
+| `QUEUE_POPULATOR`       | **CRITICAL** | Auto-populates work queue until Elo targets met (60% selfplay, 30% training, 10% tournament). Uses UnifiedQueuePopulatorDaemon. | EVENT_ROUTER                  |
+| `NODE_RECOVERY`         | MEDIUM       | Auto-recovers terminated cluster nodes.                                                                                         | EVENT_ROUTER                  |
+| `UTILIZATION_OPTIMIZER` | HIGH         | Matches GPU capabilities to board sizes. Stops CPU selfplay on GPU nodes.                                                       | EVENT_ROUTER, IDLE_RESOURCE   |
+| `ADAPTIVE_RESOURCES`    | MEDIUM       | Dynamic resource scaling based on workload.                                                                                     | EVENT_ROUTER, CLUSTER_MONITOR |
+| `MULTI_PROVIDER`        | MEDIUM       | Coordinates workloads across Vast/Nebius/RunPod/Vultr providers (Lambda legacy).                                                | EVENT_ROUTER, CLUSTER_MONITOR |
 
 **Factory Methods:**
 
 - `_create_idle_resource()` → Creates `IdleResourceDaemon`
-- `_create_queue_populator()` → Creates `QueuePopulatorDaemon`
+- `_create_queue_populator()` → Creates `UnifiedQueuePopulatorDaemon`
 - `_create_node_recovery()` → Creates `NodeRecoveryDaemon`
 - `_create_utilization_optimizer()` → Creates `UtilizationOptimizer`
 - `_create_adaptive_resources()` → Creates `AdaptiveResourceManager` (not implemented yet)

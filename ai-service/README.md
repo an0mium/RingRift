@@ -6,50 +6,54 @@ This directory contains scripts for the RingRift AI training and improvement inf
 
 ### Primary Orchestrator
 
-**`unified_ai_loop.py`** - The canonical self-improvement orchestrator. This is the main entry point for the AI improvement loop.
+**`master_loop.py`** - The canonical automation entry point. This is the main control plane for selfplay → sync → training → evaluation → promotion.
 
 ```bash
-# Start the unified loop
-python scripts/unified_ai_loop.py --start
+# Start the master loop (foreground)
+python scripts/master_loop.py
 
-# Run in foreground with verbose output
-python scripts/unified_ai_loop.py --foreground --verbose
+# Watch status without starting the loop
+python scripts/master_loop.py --watch
 
 # Check status
-python scripts/unified_ai_loop.py --status
+python scripts/master_loop.py --status
+
+# Legacy unified loop (explicit opt-in)
+RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --start
 ```
 
 Features:
 
-- Streaming data collection from distributed nodes (60s sync)
-- Shadow tournament evaluation (15min lightweight)
-- Training scheduler with data quality gates
-- Model promotion with Elo thresholds
-- Adaptive curriculum weighting
-- Value calibration analysis
-- Temperature scheduling for exploration control
+- Selfplay allocation across the cluster
+- Training triggers with data quality gates
+- Evaluation + promotion orchestration
+- Unified data sync + model distribution hooks
+- Feedback loop integration via the event router
+- Profile-based daemon startup (minimal/standard/full)
 
 ## Key Categories
 
+For the full script inventory, see `scripts/INDEX.md`.
+
 ### Cluster Management
 
-- `cluster_orchestrator.py` - Distributed cluster coordination
-- `cluster_manager.py` - Cluster node management
+- `cluster_health_check.py` - Cluster health snapshot
+- `cluster_watchdog.py` - Host process watchdog
 - `cluster_worker.py` - Worker node implementation
-- `cluster_control.py` - Cluster control commands
-- `cluster_health_check.py` - Health monitoring
+- `cluster_master_deploy.py` - Deploy orchestration helpers
 
 ### Training
 
-- `curriculum_training.py` - Generation-based curriculum training
+- `run_training_loop.py` - Automated training loop
 - `run_self_play_soak.py` - Self-play data generation
-- `run_hybrid_selfplay.py` - Hybrid self-play modes
+- `generate_canonical_selfplay.py` - Canonical self-play generator + gates
+- `run_canonical_selfplay_parity_gate.py` - Canonical parity gate
 
 ### Evaluation
 
 - `run_model_elo_tournament.py` - Model Elo tournaments
-- `run_diverse_tournaments.py` - Multi-configuration tournaments
-- `elo_promotion_gate.py` - Elo-based model promotion
+- `run_gauntlet.py` - Evaluation gauntlet
+- `run_tournament.py` - Tournament runner
 
 ### Data Management
 
@@ -57,10 +61,7 @@ Features:
   - Run as daemon: `python scripts/unified_data_sync.py`
   - With watchdog: `python scripts/unified_data_sync.py --watchdog`
   - One-shot sync: `python scripts/unified_data_sync.py --once`
-- `streaming_data_collector.py` - _(DEPRECATED)_ Incremental game data sync - use `unified_data_sync.py`
-- `collector_watchdog.py` - _(DEPRECATED)_ Collector health monitoring - use `unified_data_sync.py --watchdog`
-- `sync_all_data.py` - _(DEPRECATED)_ Batch data sync - use `unified_data_sync.py --once`
-- `build_canonical_training_pool_db.py` - Training data pooling
+- `export_replay_dataset.py` - Export replay data to NPZ datasets
 - `aggregate_jsonl_to_db.py` - JSONL to SQLite conversion
 
 ### Model Management
@@ -97,15 +98,7 @@ Features:
 
 ## Archived Scripts
 
-The `archive/` subdirectory contains deprecated scripts that have been superseded:
-
-| Script                                   | Superseded By                              |
-| ---------------------------------------- | ------------------------------------------ |
-| `master_self_improvement.py`             | `unified_ai_loop.py`                       |
-| `unified_improvement_controller.py`      | `unified_ai_loop.py`                       |
-| `integrated_self_improvement.py`         | `unified_ai_loop.py`                       |
-| `export_replay_dataset.py`               | Direct DB queries                          |
-| `validate_canonical_training_sources.py` | Data quality gates in `unified_ai_loop.py` |
+See `scripts/ARCHIVE_INDEX.md` and `scripts/DEPRECATED.md` for the curated list of archived and superseded scripts.
 
 ## Environment Variables
 
@@ -114,6 +107,8 @@ The `archive/` subdirectory contains deprecated scripts that have been supersede
 | `RINGRIFT_DISABLE_LOCAL_TASKS`   | Skip local training/eval (coordinator mode) |
 | `RINGRIFT_TRACE_DEBUG`           | Enable detailed tracing                     |
 | `RINGRIFT_SKIP_SHADOW_CONTRACTS` | Skip shadow contract validation             |
+| `RINGRIFT_CONFIG_PATH`           | Override config path                        |
+| `RINGRIFT_UNIFIED_LOOP_LEGACY`   | Enable legacy `unified_ai_loop.py`          |
 
 ## Configuration
 

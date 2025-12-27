@@ -57,11 +57,11 @@ A central navigation guide for developers to quickly locate all rules-related do
 
 Additional rules‑UX and onboarding specs:
 
-- [`UX_RULES_COPY_SPEC.md`](../ux/UX_RULES_COPY_SPEC.md:1) – Canonical copy for HUD, VictoryModal, TeachingOverlay, and sandbox rules explanations.
-- [`UX_RULES_TELEMETRY_SPEC.md`](../ux/UX_RULES_TELEMETRY_SPEC.md:1) – Rules‑UX telemetry envelope, metrics, and hotspot queries (W‑UX‑1).
-- [`UX_RULES_WEIRD_STATES_SPEC.md`](../ux/UX_RULES_WEIRD_STATES_SPEC.md:1) – Weird‑state reason codes and UX mappings for ANM/FE, structural stalemate, and LPS (W‑UX‑2).
-- [`UX_RULES_TEACHING_SCENARIOS.md`](../ux/UX_RULES_TEACHING_SCENARIOS.md:1) – Scenario‑driven teaching flows for complex mechanics (W‑UX‑3).
-- [`UX_RULES_IMPROVEMENT_LOOP.md`](../ux/UX_RULES_IMPROVEMENT_LOOP.md:1) – Telemetry‑driven rules‑UX improvement process (W‑UX‑4).
+- [`UX_RULES_COPY_SPEC.md`](../ux/UX_RULES_COPY_SPEC.md) – Canonical copy for HUD, VictoryModal, TeachingOverlay, and sandbox rules explanations.
+- [`UX_RULES_TELEMETRY_SPEC.md`](../ux/UX_RULES_TELEMETRY_SPEC.md) – Rules‑UX telemetry envelope, metrics, and hotspot queries (W‑UX‑1).
+- [`UX_RULES_WEIRD_STATES_SPEC.md`](../ux/UX_RULES_WEIRD_STATES_SPEC.md) – Weird‑state reason codes and UX mappings for ANM/FE, structural stalemate, and LPS (W‑UX‑2).
+- [`UX_RULES_TEACHING_SCENARIOS.md`](../ux/UX_RULES_TEACHING_SCENARIOS.md) – Scenario‑driven teaching flows for complex mechanics (W‑UX‑3).
+- [`UX_RULES_IMPROVEMENT_LOOP.md`](../ux/UX_RULES_IMPROVEMENT_LOOP.md) – Telemetry‑driven rules‑UX improvement process (W‑UX‑4).
 
 ### Process & Tools
 
@@ -73,36 +73,37 @@ Additional rules‑UX and onboarding specs:
 ### AI & Training
 
 <<<<<<< Updated upstream
-| Document                                                              | Description                | When to Use                                     |
+| Document | Description | When to Use |
 | --------------------------------------------------------------------- | -------------------------- | ----------------------------------------------- |
 =======
-| Document                                                                 | Description                | When to Use                                     |
+| Document | Description | When to Use |
 | ------------------------------------------------------------------------ | -------------------------- | ----------------------------------------------- |
->>>>>>> Stashed changes
-| [docs/ai/AI_TRAINING_AND_DATASETS.md](../ai/AI_TRAINING_AND_DATASETS.md) | AI alignment documentation | Training AI or ensuring rules consistency in AI |
+
+> > > > > > > Stashed changes
+> > > > > > > | [docs/ai/AI_TRAINING_AND_DATASETS.md](../ai/AI_TRAINING_AND_DATASETS.md) | AI alignment documentation | Training AI or ensuring rules consistency in AI |
 
 #### Decision timers and countdowns
 
 - **Canonical units (host):** All host-side timeouts are expressed in milliseconds (`ms`), including:
-  - Decision-phase deadlines configured via `config.decisionPhaseTimeouts.defaultTimeoutMs` and warnings via `warningBeforeTimeoutMs`, plus the `remainingMs` field in `decision_phase_timeout_warning` events (see [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md:125)).
+  - Decision-phase deadlines configured via `config.decisionPhaseTimeouts.defaultTimeoutMs` and warnings via `warningBeforeTimeoutMs`, plus the `remainingMs` field in `decision_phase_timeout_warning` events (see [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)).
   - Transport-level `PlayerChoice` deadlines (`timeoutMs` / `deadlineAt`) and per-player move clocks (`timeRemaining`).
   - Reconnect windows (`RECONNECTION_TIMEOUT_MS`) and any move-clock-style inactivity timers on the host.
 - **Client countdown state (ms):** Client HUD timers are also stored in ms.
-  - Hooks such as [`useDecisionCountdown()`](../../src/client/hooks/useDecisionCountdown.ts:66) accept `baseTimeRemainingMs` (derived from host deadlines) and optional server overrides (`timeoutWarning.data.remainingMs`) and compute an `effectiveTimeRemainingMs` that is always `>= 0`.
-  - Internally, helper [`normalizeMs()`](../../src/client/hooks/useDecisionCountdown.ts:61) treats non-numeric inputs as `null` and clamps negative values to `0` for display/merging; these values are never interpreted as an authoritative expiry.
-- **Display semantics (seconds):** Visible countdown numbers in the HUD and dialogs are whole seconds computed from ms via [`msToDisplaySeconds()`](../../src/client/utils/countdown.ts:43):
+  - Hooks such as [`useDecisionCountdown()`](../../src/client/hooks/useDecisionCountdown.ts) accept `baseTimeRemainingMs` (derived from host deadlines) and optional server overrides (`timeoutWarning.data.remainingMs`) and compute an `effectiveTimeRemainingMs` that is always `>= 0`.
+  - Internally, helper [`normalizeMs()`](../../src/client/hooks/useDecisionCountdown.ts) treats non-numeric inputs as `null` and clamps negative values to `0` for display/merging; these values are never interpreted as an authoritative expiry.
+- **Display semantics (seconds):** Visible countdown numbers in the HUD and dialogs are whole seconds computed from ms via [`msToDisplaySeconds()`](../../src/client/utils/countdown.ts):
   - Nullish or non-finite inputs return `null` (no countdown rendered).
   - `timeRemainingMs <= 0` displays as `0` seconds.
   - For `timeRemainingMs > 0`, the UI shows `Math.ceil(timeRemainingMs / 1000)`, so `1..1000ms → 1s`, `1001..2000ms → 2s`, etc. This avoids showing `0s` while strictly positive time remains.
-- **Severity and styling:** The HUD uses [`getCountdownSeverity()`](../../src/client/utils/countdown.ts:12) directly on the ms value to choose styling buckets:
+- **Severity and styling:** The HUD uses [`getCountdownSeverity()`](../../src/client/utils/countdown.ts) directly on the ms value to choose styling buckets:
   - `normal` when `timeRemainingMs > 10_000`.
   - `warning` when `3_000 < timeRemainingMs <= 10_000`.
   - `critical` when `timeRemainingMs <= 3_000` (including `0` and negative values).
-  - The combination of `effectiveTimeRemainingMs` (ms), [`msToDisplaySeconds()`](../../src/client/utils/countdown.ts:43) for numeric display, and [`getCountdownSeverity()`](../../src/client/utils/countdown.ts:12) for styling is the canonical pattern for decision timers and related UI.
+  - The combination of `effectiveTimeRemainingMs` (ms), [`msToDisplaySeconds()`](../../src/client/utils/countdown.ts) for numeric display, and [`getCountdownSeverity()`](../../src/client/utils/countdown.ts) for styling is the canonical pattern for decision timers and related UI.
 - **Authority and expiry:** Countdown UI is advisory:
-  - Actual expiry of decisions and timeouts is governed by host logic and `GameState`, per [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md:125) (for example, decision-phase timeout handlers and reconnect windows).
+  - Actual expiry of decisions and timeouts is governed by host logic and `GameState`, per [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md) (for example, decision-phase timeout handlers and reconnect windows).
   - UI components MUST NOT treat a client-side `0s` display as proof that a decision has expired; they should instead react to changes such as the pending decision disappearing or a `decision_phase_timed_out` / `game_state` update.
-  - This aligns with ANM and timeout handling catalogued in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
+  - This aligns with ANM and timeout handling catalogued in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](ACTIVE_NO_MOVES_BEHAVIOUR.md).
 
 #### Pie rule / `swap_sides` status
 

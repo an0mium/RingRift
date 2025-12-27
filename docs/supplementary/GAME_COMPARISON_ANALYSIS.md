@@ -78,7 +78,7 @@ The [TZAAR game](https://www.meeplemountain.com/reviews/tzaar/) replaced TAMSK i
 
 **Similarity Score: ~25-30%**
 
-[Tak](<https://en.wikipedia.org/wiki/Tak_(game)>) is inspired by Patrick Rothfuss's novels.
+[Tak](https://en.wikipedia.org/wiki/Tak_%28game%29) is inspired by Patrick Rothfuss's novels.
 
 | Shared Mechanics                        | Key Differences                                             |
 | --------------------------------------- | ----------------------------------------------------------- |
@@ -221,7 +221,7 @@ However, the **specific combination** and **novel mechanics** create a game that
 - [DVONN - Wikipedia](https://en.wikipedia.org/wiki/DVONN)
 - [DVONN Official Rules](https://www.gipf.com/dvonn/rules/rules.html)
 - [TZAAR Game Review - Meeple Mountain](https://www.meeplemountain.com/reviews/tzaar/)
-- [Tak (game) - Wikipedia](<https://en.wikipedia.org/wiki/Tak_(game)>)
+- [Tak (game) - Wikipedia](https://en.wikipedia.org/wiki/Tak_%28game%29)
 - [Tak Official Rules](https://www.ultraboardgames.com/tak/game-rules.php)
 
 ### General Abstract Game Resources

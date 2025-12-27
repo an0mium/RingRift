@@ -104,7 +104,7 @@ Pass 10 systematically verified claims from the previous 9 assessment passes. **
 
 ### Issue 1: CONTRIBUTING.md vs CI Configuration (HIGH)
 
-**Location:** [`CONTRIBUTING.md`](../../../CONTRIBUTING.md:494-499) vs [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml:320-410)
+**Location:** [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) vs [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml)
 
 **Contradiction:**
 
@@ -225,7 +225,7 @@ The hardest remaining problem is completing the orchestrator adapter rollout:
 3. **Risk:** Dual code paths create maintenance burden and potential divergence
 4. **Complexity:** Requires careful migration testing across all game scenarios
 
-**Supporting evidence from [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md:176-178):**
+**Supporting evidence from [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md):**
 
 > "Remaining:
 >

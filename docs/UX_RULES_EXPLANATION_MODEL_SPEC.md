@@ -10,19 +10,19 @@
 >
 > **Inputs:**
 >
-> - Weakest-aspect assessment in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](archive/assessments/WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md:92) – players do not understand ANM/FE, structural stalemates, and mini-region territory endings.
-> - Remediation plan W‑UX‑7 in [`NEXT_WAVE_REMEDIATION_PLAN.md`](archive/plans/NEXT_WAVE_REMEDIATION_PLAN.md:1).
-> - Rules concepts in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md:1).
-> - Weird-state reasons in [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md:71) and [`src/shared/engine/weirdStateReasons.ts`](src/shared/engine/weirdStateReasons.ts:1).
-> - Teaching flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md:33) and [`src/shared/teaching/teachingScenarios.ts`](src/shared/teaching/teachingScenarios.ts:1).
-> - Rules canon in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:193) and [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:260).
-> - Telemetry taxonomy in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md:145) and [`rulesUxEvents.ts`](src/shared/telemetry/rulesUxEvents.ts:1).
+> - Weakest-aspect assessment in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](archive/assessments/WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md) – players do not understand ANM/FE, structural stalemates, and mini-region territory endings.
+> - Remediation plan W‑UX‑7 in [`NEXT_WAVE_REMEDIATION_PLAN.md`](archive/plans/NEXT_WAVE_REMEDIATION_PLAN.md).
+> - Rules concepts in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md).
+> - Weird-state reasons in [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md) and [`src/shared/engine/weirdStateReasons.ts`](../src/shared/engine/weirdStateReasons.ts).
+> - Teaching flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md) and [`src/shared/teaching/teachingScenarios.ts`](../src/shared/teaching/teachingScenarios.ts).
+> - Rules canon in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) and [`ringrift_complete_rules.md`](../ringrift_complete_rules.md).
+> - Telemetry taxonomy in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md) and [`rulesUxEvents.ts`](../src/shared/telemetry/rulesUxEvents.ts).
 
 ---
 
 ## 1. Introduction & goals
 
-This spec addresses the weakest-UX problem identified in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](archive/assessments/WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md:92): players often do not understand _why_ the game ended, especially in Active‑No‑Moves / Forced Elimination (ANM/FE), structural stalemate, Last Player Standing (LPS), and territory mini‑region scenarios.
+This spec addresses the weakest-UX problem identified in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](archive/assessments/WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md): players often do not understand _why_ the game ended, especially in Active‑No‑Moves / Forced Elimination (ANM/FE), structural stalemate, Last Player Standing (LPS), and territory mini‑region scenarios.
 Instead of each surface re-deriving a bespoke explanation, the engine or adapter layer produces a **single structured `GameEndExplanation` payload** that all end-of-game UX consumers share.
 
 Goals:
@@ -39,18 +39,18 @@ In scope:
 - **Square-8 2-player core** use case is primary, but the model must not preclude other boards (Square-19, hexagonal) or player counts.
 - Explanations for standard outcomes:
   - Ring-elimination and territory victories.
-  - Last Player Standing (LPS) once implemented per [`RR‑CANON‑R172`](../RULES_CANONICAL_SPEC.md:603).
+  - Last Player Standing (LPS) once implemented per [`RR‑CANON‑R172`](../RULES_CANONICAL_SPEC.md).
   - Resignation, timeout, and abandonment (for completeness, even if trivially explainable).
 - Explanations for advanced or confusing outcomes:
   - LPS outcomes where ANM/FE contributed heavily.
-  - Structural stalemates resolved by the **four-step tiebreak ladder** (territory → eliminated rings → markers → last real action) per [`RR‑CANON‑R173`](../RULES_CANONICAL_SPEC.md:619).
+  - Structural stalemates resolved by the **four-step tiebreak ladder** (territory → eliminated rings → markers → last real action) per [`RR‑CANON‑R173`](../RULES_CANONICAL_SPEC.md).
   - Territory mini-region **self-elimination** and Q23-style cases where interior eliminations and mandatory external self-elimination decide the result.
 
 Out of scope:
 
-- Exact UX copy strings; those live in [`docs/ux/UX_RULES_COPY_SPEC.md`](ux/UX_RULES_COPY_SPEC.md:331) and localisation resources.
+- Exact UX copy strings; those live in [`docs/ux/UX_RULES_COPY_SPEC.md`](ux/UX_RULES_COPY_SPEC.md) and localisation resources.
 - Detailed UI layout or component behaviour of HUD, VictoryModal, or overlays.
-- Any change to rules semantics, scoring, or tiebreak ordering defined in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:193).
+- Any change to rules semantics, scoring, or tiebreak ordering defined in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md).
 - Low-level engine flags or full game-record schema (already covered by existing engine specs).
 
 ## 3. Data model – `GameEndExplanation`
@@ -239,10 +239,10 @@ type GameEndExplanation = {
 
 - **Single source of truth:** All consumers read `GameEndExplanation`; none re-derive weird-state flags, LPS detection, or tiebreak details.
 - **Alignment to existing taxonomies:**
-  - `RulesContextTag` corresponds to `rules_context` in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md:145) and the `RulesContext` type in [`rulesUxEvents.ts`](src/shared/telemetry/rulesUxEvents.ts:1).
-  - `RulesWeirdStateReasonCode` is the same enum defined in [`src/shared/engine/weirdStateReasons.ts`](src/shared/engine/weirdStateReasons.ts:1) and documented in [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md:71).
-  - `RulesConceptId` values come from [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md:1).
-  - `TeachingTopicId` / `TeachingFlowId` align with topics and flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md:136) and [`src/shared/teaching/teachingScenarios.ts`](src/shared/teaching/teachingScenarios.ts:1).
+  - `RulesContextTag` corresponds to `rules_context` in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md) and the `RulesContext` type in [`rulesUxEvents.ts`](../src/shared/telemetry/rulesUxEvents.ts).
+  - `RulesWeirdStateReasonCode` is the same enum defined in [`src/shared/engine/weirdStateReasons.ts`](../src/shared/engine/weirdStateReasons.ts) and documented in [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md).
+  - `RulesConceptId` values come from [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md).
+  - `TeachingTopicId` / `TeachingFlowId` align with topics and flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md) and [`src/shared/teaching/teachingScenarios.ts`](../src/shared/teaching/teachingScenarios.ts).
 - **Versioned schema:** `schemaVersion` allows additive evolution (new optional fields, new enum members) without breaking existing consumers.
 - **Optional detail:** `scoreBreakdown`, `tiebreakSteps`, and `debug` can be omitted in trivial endings (simple resignation) but MUST be populated for structural stalemate and other parity-sensitive endings.
 
@@ -257,8 +257,8 @@ Top-level fields (`gameId`, `rulesetId`, `boardType`, `numPlayers`) allow:
 ### 3.3 Victory detail
 
 - `outcomeType` and `victoryReasonCode` summarise _how_ the game ended at a high level (ring majority, territory, LPS, stalemate, resignation, timeout).
-- `scoreBreakdown` provides per-player scores in a standardised shape that matches elimination + territory semantics in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:170) and [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1334).
-- `tiebreakSteps` encodes the **stalemate ladder** from [`RR‑CANON‑R173`](../RULES_CANONICAL_SPEC.md:619):
+- `scoreBreakdown` provides per-player scores in a standardised shape that matches elimination + territory semantics in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) and [`ringrift_complete_rules.md`](../ringrift_complete_rules.md).
+- `tiebreakSteps` encodes the **stalemate ladder** from [`RR‑CANON‑R173`](../RULES_CANONICAL_SPEC.md):
   - Step 1: compare territory spaces.
   - Step 2: compare eliminated rings (including rings in hand).
   - Step 3: compare markers.
@@ -275,9 +275,9 @@ For non-stalemate endings, `tiebreakSteps` MAY be omitted or MAY contain a singl
 
 Key design points:
 
-- `reasonCodes` is a list of `RulesWeirdStateReasonCode` values from [`src/shared/engine/weirdStateReasons.ts`](src/shared/engine/weirdStateReasons.ts:1).
+- `reasonCodes` is a list of `RulesWeirdStateReasonCode` values from [`src/shared/engine/weirdStateReasons.ts`](../src/shared/engine/weirdStateReasons.ts).
 - `primaryReasonCode` highlights the single most salient weird-state reason (if any) for HUD / VictoryModal emphasis.
-- `rulesContextTags` is a small set of tags for telemetry / filtering, drawn from the same taxonomy as `rules_context` in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md:145).
+- `rulesContextTags` is a small set of tags for telemetry / filtering, drawn from the same taxonomy as `rules_context` in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md).
 - `primaryConceptId` links directly into the concepts index, e.g. `'anm_forced_elimination'`, `'structural_stalemate'`, `'territory_mini_regions'`.
 
 ### 3.5 Rules references
@@ -293,9 +293,9 @@ Surfaces can choose how many links to display, but SHOULD preserve ids so that t
 
 `teachingLinks` connects a game-end explanation to **teaching topics** and **scenario flows**:
 
-- `primaryConceptId` points at a single high-level concept (e.g. `'structural_stalemate'` or `'territory_mini_regions'`) from [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md:1).
-- `teachingTopicIds` reference TeachingOverlay topics (e.g. `'teaching.active_no_moves'`, `'teaching.victory_stalemate'`) as defined in [`src/client/components/TeachingOverlay.tsx`](src/client/components/TeachingOverlay.tsx:72).
-- `recommendedFlowIds` reference scenario flows like `'fe_loop_intro'`, `'mini_region_intro'`, `'structural_stalemate_intro'`, `'last_player_standing_intro'` from [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md:136) and [`src/shared/teaching/teachingScenarios.ts`](src/shared/teaching/teachingScenarios.ts:1).
+- `primaryConceptId` points at a single high-level concept (e.g. `'structural_stalemate'` or `'territory_mini_regions'`) from [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md).
+- `teachingTopicIds` reference TeachingOverlay topics (e.g. `'teaching.active_no_moves'`, `'teaching.victory_stalemate'`) as defined in [`src/client/components/TeachingOverlay.tsx`](../src/client/components/TeachingOverlay.tsx).
+- `recommendedFlowIds` reference scenario flows like `'fe_loop_intro'`, `'mini_region_intro'`, `'structural_stalemate_intro'`, `'last_player_standing_intro'` from [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md) and [`src/shared/teaching/teachingScenarios.ts`](../src/shared/teaching/teachingScenarios.ts).
 
 This allows VictoryModal or TeachingOverlay to say "Replay a similar situation" or "Walk through a structural stalemate example" without hard-coding rules logic.
 
@@ -332,22 +332,22 @@ Populates:
 
 - `winningPlayerId`, `outcomeType`, `victoryReasonCode`, `isDraw`.
 - `scoreBreakdown` (per-player elimination counts, territory, markers, total score).
-- `tiebreakSteps` for structural stalemate or other tiebreak-driven endings, following [`RR‑CANON‑R173`](../RULES_CANONICAL_SPEC.md:619).
+- `tiebreakSteps` for structural stalemate or other tiebreak-driven endings, following [`RR‑CANON‑R173`](../RULES_CANONICAL_SPEC.md).
 - `gameId`, `rulesetId`, `boardType`, `numPlayers`.
 
 ### 4.2 Weird-state mapping
 
-Source: weird-state detection and mapping in [`src/shared/engine/weirdStateReasons.ts`](src/shared/engine/weirdStateReasons.ts:1) and the UX mapping defined in [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md:71).
+Source: weird-state detection and mapping in [`src/shared/engine/weirdStateReasons.ts`](../src/shared/engine/weirdStateReasons.ts) and the UX mapping defined in [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md).
 
 Populates:
 
 - `weirdStateContext.reasonCodes` and `weirdStateContext.primaryReasonCode`.
 - `weirdStateContext.rulesContextTags` by mapping reason codes to `rules_context`.
-- `weirdStateContext.primaryConceptId` by mapping reason codes to concept ids in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md:1).
+- `weirdStateContext.primaryConceptId` by mapping reason codes to concept ids in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md).
 
 ### 4.3 Rules docs and concepts index
 
-Source: canonical rules and concept indexing in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md:193), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:260), and [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md:1).
+Source: canonical rules and concept indexing in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), and [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md).
 
 Populates:
 
@@ -357,7 +357,7 @@ Populates:
 
 ### 4.4 Teaching metadata
 
-Source: teaching topics and flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md:136) and [`src/shared/teaching/teachingScenarios.ts`](src/shared/teaching/teachingScenarios.ts:1), plus TeachingOverlay topic ids in [`src/client/components/TeachingOverlay.tsx`](src/client/components/TeachingOverlay.tsx:72).
+Source: teaching topics and flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md) and [`src/shared/teaching/teachingScenarios.ts`](../src/shared/teaching/teachingScenarios.ts), plus TeachingOverlay topic ids in [`src/client/components/TeachingOverlay.tsx`](../src/client/components/TeachingOverlay.tsx).
 
 Populates:
 
@@ -366,7 +366,7 @@ Populates:
 
 ### 4.5 UX copy spec
 
-Source: copy and key naming in [`docs/ux/UX_RULES_COPY_SPEC.md`](ux/UX_RULES_COPY_SPEC.md:331).
+Source: copy and key naming in [`docs/ux/UX_RULES_COPY_SPEC.md`](ux/UX_RULES_COPY_SPEC.md).
 
 Populates:
 
@@ -375,7 +375,7 @@ Populates:
 
 ### 4.6 Telemetry hints
 
-Source: `rules_context` taxonomy and events in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md:218) and [`rulesUxEvents.ts`](src/shared/telemetry/rulesUxEvents.ts:1).
+Source: `rules_context` taxonomy and events in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md) and [`rulesUxEvents.ts`](../src/shared/telemetry/rulesUxEvents.ts).
 
 Populates:
 
@@ -753,17 +753,17 @@ This section identifies the likely producer and consumers of `GameEndExplanation
 - The helper should:
   - Take the final `GameResult` and any additional termination context (e.g. last move index, raw weird-state flags).
   - Call into existing victory / scoring logic to populate `outcomeType`, `victoryReasonCode`, `scoreBreakdown`, and `tiebreakSteps`.
-  - Call into the weird-state mapping from [`src/shared/engine/weirdStateReasons.ts`](src/shared/engine/weirdStateReasons.ts:1) and [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md:71) to populate `weirdStateContext`.
-  - Map outcomes and weird states to concept ids in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md:1) and to teaching flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md:136).
-  - Attach `rulesReferences`, `rulesContextTags`, and `uxCopy` keys using small mapping tables aligned with [`docs/ux/UX_RULES_COPY_SPEC.md`](ux/UX_RULES_COPY_SPEC.md:331).
+  - Call into the weird-state mapping from [`src/shared/engine/weirdStateReasons.ts`](../src/shared/engine/weirdStateReasons.ts) and [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](ux/UX_RULES_WEIRD_STATES_SPEC.md) to populate `weirdStateContext`.
+  - Map outcomes and weird states to concept ids in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](ux/UX_RULES_CONCEPTS_INDEX.md) and to teaching flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md).
+  - Attach `rulesReferences`, `rulesContextTags`, and `uxCopy` keys using small mapping tables aligned with [`docs/ux/UX_RULES_COPY_SPEC.md`](ux/UX_RULES_COPY_SPEC.md).
 
 ### 6.2 Consumers
 
 Primary consumers:
 
-- **HUD** (e.g. [`src/client/components/GameHUD.tsx`](src/client/components/GameHUD.tsx:1)) – can show compact "Why the game ended" banners using `uxCopy.shortSummaryKey`, `uxCopy.badgeKey`, and `rulesContextTags`.
-- **VictoryModal** (e.g. [`src/client/components/VictoryModal.tsx`](src/client/components/VictoryModal.tsx:1)) – can render full explanations using `uxCopy.detailedSummaryKey`, tiebreak visualisations from `tiebreakSteps`, and links from `rulesReferences` and `teachingLinks`.
-- **TeachingOverlay** (e.g. [`src/client/components/TeachingOverlay.tsx`](src/client/components/TeachingOverlay.tsx:72)) – can use `teachingLinks` and `nextActions` to recommend scenario flows.
+- **HUD** (e.g. [`src/client/components/GameHUD.tsx`](../src/client/components/GameHUD.tsx)) – can show compact "Why the game ended" banners using `uxCopy.shortSummaryKey`, `uxCopy.badgeKey`, and `rulesContextTags`.
+- **VictoryModal** (e.g. [`src/client/components/VictoryModal.tsx`](../src/client/components/VictoryModal.tsx)) – can render full explanations using `uxCopy.detailedSummaryKey`, tiebreak visualisations from `tiebreakSteps`, and links from `rulesReferences` and `teachingLinks`.
+- **TeachingOverlay** (e.g. [`src/client/components/TeachingOverlay.tsx`](../src/client/components/TeachingOverlay.tsx)) – can use `teachingLinks` and `nextActions` to recommend scenario flows.
 - **Sandbox / replay tools** – can surface `GameEndExplanation` alongside controls, and use `debug` to show technical details when needed.
 
 Secondary consumers:
@@ -784,11 +784,11 @@ The following tasks are out of scope for this document but should be created and
    - Ensure sandbox engine tests and parity fixtures can assert on explanation contents.
 
 3. **Update HUD and VictoryModal:**
-   - Refactor [`src/client/components/GameHUD.tsx`](src/client/components/GameHUD.tsx:1) and [`src/client/components/VictoryModal.tsx`](src/client/components/VictoryModal.tsx:1) to consume `GameEndExplanation` instead of re-deriving weird-state explanations.
+   - Refactor [`src/client/components/GameHUD.tsx`](../src/client/components/GameHUD.tsx) and [`src/client/components/VictoryModal.tsx`](../src/client/components/VictoryModal.tsx) to consume `GameEndExplanation` instead of re-deriving weird-state explanations.
    - Add specific UI affordances for LPS, structural stalemate, and mini-region endings (using `tiebreakSteps`, `weirdStateContext`, and `teachingLinks`).
 
 4. **Extend teaching flows:**
-   - Ensure flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md:136) and [`src/shared/teaching/teachingScenarios.ts`](src/shared/teaching/teachingScenarios.ts:1) cover ANM/FE, LPS, structural stalemate, and mini-region endings referenced by `teachingLinks`.
+   - Ensure flows in [`docs/ux/UX_RULES_TEACHING_SCENARIOS.md`](ux/UX_RULES_TEACHING_SCENARIOS.md) and [`src/shared/teaching/teachingScenarios.ts`](../src/shared/teaching/teachingScenarios.ts) cover ANM/FE, LPS, structural stalemate, and mini-region endings referenced by `teachingLinks`.
    - Wire TeachingOverlay entrypoints from game-end surfaces based on `nextActions`.
 
 5. **Add tests for hard endings:**
@@ -800,7 +800,7 @@ The following tasks are out of scope for this document but should be created and
    - Assert that `buildGameEndExplanation` produces outputs equivalent to the examples in §5 (up to ids and labels).
 
 6. **Telemetry validation:**
-   - Ensure `rulesContextTags`, `weirdStateContext.reasonCodes`, and teaching flows are logged consistently with [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md:218).
+   - Ensure `rulesContextTags`, `weirdStateContext.reasonCodes`, and teaching flows are logged consistently with [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](ux/UX_RULES_TELEMETRY_SPEC.md).
    - Add dashboards or queries that can answer "Which endings most often confuse players?" based on explanation model fields.
 
 When these tasks are implemented, W‑UX‑7 will provide a unified, extensible, and testable backbone for explaining **why** RingRift games end, especially in the structurally complex cases identified as the project's weakest UX area.

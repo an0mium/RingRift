@@ -147,7 +147,7 @@
 ### 2. Deploy P2P to High-Value Nodes (HIGH PRIORITY)
 
 ```bash
-cd /Users/armand/Development/RingRift/ai-service
+cd ai-service
 
 # Deploy to multi-GPU nodes first (highest impact)
 python scripts/deploy_p2p_cluster.py --nodes vast-29128352,vast-29129529
@@ -194,7 +194,7 @@ ssh -i ~/.ssh/id_ed25519 -p 1182 root@193.183.22.62
 ### Check current status again:
 
 ```bash
-cd /Users/armand/Development/RingRift/ai-service
+cd ai-service
 python scripts/p2p_cluster_status.py
 ```
 

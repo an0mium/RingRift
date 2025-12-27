@@ -5,26 +5,26 @@ This document defines **acceptance criteria**, **operational steps**, and the **
 It builds on the existing implementation and tests:
 
 - TypeScript rules engine (canonical spec) under:
-  - [`src/shared/engine`](src/shared/engine/core.ts)
-  - [`src/server/game/GameEngine.ts`](src/server/game/GameEngine.ts)
-  - [`src/server/game/RuleEngine.ts`](src/server/game/RuleEngine.ts)
+  - [`src/shared/engine`](../src/shared/engine/core.ts)
+  - [`../src/server/game/GameEngine.ts`](../src/server/game/GameEngine.ts)
+  - [`../src/server/game/RuleEngine.ts`](../src/server/game/RuleEngine.ts)
 - Python rules engine and FastAPI service:
-  - [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py)
-  - [`ai-service/app/board_manager.py`](ai-service/app/board_manager.py)
-  - [`ai-service/app/main.py`](ai-service/app/main.py) (`/rules/evaluate_move`)
+  - `ai-service/app/game_engine.py`
+  - [`../ai-service/app/board_manager.py`](../ai-service/app/board_manager.py)
+  - [`../ai-service/app/main.py`](../ai-service/app/main.py) (`/rules/evaluate_move`)
 - Cross-engine adapter and parity instrumentation:
-  - [`src/server/services/PythonRulesClient.ts`](src/server/services/PythonRulesClient.ts)
-  - [`src/server/game/RulesBackendFacade.ts`](src/server/game/RulesBackendFacade.ts)
-  - [`src/server/utils/rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts)
-  - [`src/server/index.ts`](src/server/index.ts) (`/metrics` endpoint)
+  - [`../src/server/services/PythonRulesClient.ts`](../src/server/services/PythonRulesClient.ts)
+  - [`../src/server/game/RulesBackendFacade.ts`](../src/server/game/RulesBackendFacade.ts)
+  - [`../src/server/utils/rulesParityMetrics.ts`](../src/server/utils/rulesParityMetrics.ts)
+  - [`../src/server/index.ts`](../src/server/index.ts) (`/metrics` endpoint)
 - Tests:
   - Python:
-    - [`ai-service/tests/test_rules_evaluate_move.py`](ai-service/tests/test_rules_evaluate_move.py)
+    - [`../ai-service/tests/test_rules_evaluate_move.py`](../ai-service/tests/test_rules_evaluate_move.py)
   - TypeScript:
-    - [`tests/unit/PythonRulesClient.test.ts`](tests/unit/PythonRulesClient.test.ts)
-    - [`tests/unit/RulesBackendFacade.test.ts`](tests/unit/RulesBackendFacade.test.ts)
-    - [`tests/unit/RulesBackendFacade.fixtureParity.test.ts`](tests/unit/RulesBackendFacade.fixtureParity.test.ts)
-    - [`tests/unit/WebSocketServer.rulesBackend.integration.test.ts`](tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
+    - [`../tests/unit/PythonRulesClient.test.ts`](../tests/unit/PythonRulesClient.test.ts)
+    - [`../tests/unit/RulesBackendFacade.test.ts`](../tests/unit/RulesBackendFacade.test.ts)
+    - `tests/unit/RulesBackendFacade.fixtureParity.test.ts`
+    - [`../tests/unit/WebSocketServer.rulesBackend.integration.test.ts`](../tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
 
 The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 
@@ -39,7 +39,7 @@ The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 ### 1.1 `RINGRIFT_RULES_MODE=ts`
 
 - All rules decisions use the TS backend:
-  - `GameEngine.makeMove` / `makeMoveById` in [`src/server/game/GameEngine.ts`](src/server/game/GameEngine.ts).
+  - `GameEngine.makeMove` / `makeMoveById` in [`../src/server/game/GameEngine.ts`](../src/server/game/GameEngine.ts).
 - Python rules are **not** invoked.
 - No parity metrics are emitted.
 
@@ -47,7 +47,7 @@ The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 
 - TS remains authoritative:
   - All live state transitions go through `GameEngine` as in `ts` mode.
-- For each applied move, [`RulesBackendFacade.runPythonShadow`](src/server/game/RulesBackendFacade.ts) is invoked:
+- For each applied move, [`RulesBackendFacade.runPythonShadow`](../src/server/game/RulesBackendFacade.ts) is invoked:
   - Calls `PythonRulesClient.evaluateMove(tsBefore, move)` to hit `/rules/evaluate_move`.
   - Compares:
     - `valid` verdict (`tsResult.success` vs Python `valid`).
@@ -70,7 +70,7 @@ The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 ### 1.3 `RINGRIFT_RULES_MODE=python` (validation-gated, not yet production-authoritative)
 
 - **Current code behaviour (backend implementation):**
-  - [`RulesBackendFacade.applyMove`](src/server/game/RulesBackendFacade.ts:45) and
+  - [`RulesBackendFacade.applyMove`](../src/server/game/RulesBackendFacade.ts) and
     `applyMoveById` consult Python **first**:
     - Call `PythonRulesClient.evaluateMove(tsBefore, canonicalMove)` against
       `/rules/evaluate_move`.
@@ -112,14 +112,14 @@ The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 
 ### 2.1 Metric registration
 
-- Metrics are defined in [`src/server/utils/rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts):
+- Metrics are defined in [`../src/server/utils/rulesParityMetrics.ts`](../src/server/utils/rulesParityMetrics.ts):
   - `rules_parity_valid_mismatch_total`
   - `rules_parity_hash_mismatch_total`
   - `rules_parity_S_mismatch_total`
   - `rules_parity_gameStatus_mismatch_total`
 
 - The Node server registers default Prometheus metrics and exposes `/metrics`:
-  - In [`src/server/index.ts`](src/server/index.ts):
+  - In [`../src/server/index.ts`](../src/server/index.ts):
 
     ```ts
     import client from 'prom-client';
@@ -145,7 +145,7 @@ The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 
 ### 2.2 Logs
 
-- All parity-related logs use `logRulesMismatch` in [`rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts):
+- All parity-related logs use `logRulesMismatch` in [`rulesParityMetrics.ts`](../src/server/utils/rulesParityMetrics.ts):
   - Kinds:
     - `'valid' | 'hash' | 'S' | 'gameStatus' | 'backend_fallback' | 'shadow_error'`.
   - Payload should include (where possible):
@@ -170,22 +170,22 @@ The rollout is structured around the environment variable `RINGRIFT_RULES_MODE`:
 Checklist:
 
 - Python:
-  - `/rules/evaluate_move` semantics tested in [`test_rules_evaluate_move.py`](ai-service/tests/test_rules_evaluate_move.py).
-  - TS→Python fixture parity validated in [`test_rules_parity_fixtures.py`](ai-service/tests/parity/test_rules_parity_fixtures.py), including:
-    - Engine-level parity via `DefaultRulesEngine` + [`GameEngine.apply_move`](ai-service/app/game_engine.py).
+  - `/rules/evaluate_move` semantics tested in [`test_rules_evaluate_move.py`](../ai-service/tests/test_rules_evaluate_move.py).
+  - TS→Python fixture parity validated in [`test_rules_parity_fixtures.py`](../ai-service/tests/parity/test_rules_parity_fixtures.py), including:
+    - Engine-level parity via `DefaultRulesEngine` + `GameEngine.apply_move`.
     - HTTP-level parity against `/rules/evaluate_move` using FastAPI `TestClient`.
 - TS:
   - `PythonRulesClient` and `RulesBackendFacade` are unit-tested:
-    - [`tests/unit/PythonRulesClient.test.ts`](tests/unit/PythonRulesClient.test.ts)
-    - [`tests/unit/RulesBackendFacade.test.ts`](tests/unit/RulesBackendFacade.test.ts)
-    - [`tests/unit/RulesBackendFacade.fixtureParity.test.ts`](tests/unit/RulesBackendFacade.fixtureParity.test.ts)
+    - [`../tests/unit/PythonRulesClient.test.ts`](../tests/unit/PythonRulesClient.test.ts)
+    - [`../tests/unit/RulesBackendFacade.test.ts`](../tests/unit/RulesBackendFacade.test.ts)
+    - `tests/unit/RulesBackendFacade.fixtureParity.test.ts`
   - WebSocket integration confirmed to use `RulesBackendFacade`:
-    - [`tests/unit/WebSocketServer.rulesBackend.integration.test.ts`](tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
+    - [`../tests/unit/WebSocketServer.rulesBackend.integration.test.ts`](../tests/unit/WebSocketServer.rulesBackend.integration.test.ts)
   - Cross-language trace parity harness:
-    - Python→TS vectors generated by [`ai-service/tests/parity/generate_test_vectors.py`](ai-service/tests/parity/generate_test_vectors.py)
-      and consumed by [`tests/unit/Python_vs_TS.traceParity.test.ts`](tests/unit/Python_vs_TS.traceParity.test.ts).
-    - TS→Python rules-parity fixtures generated by [`tests/scripts/generate_rules_parity_fixtures.ts`](tests/scripts/generate_rules_parity_fixtures.ts)
-      and loaded by [`test_rules_parity_fixtures.py`](ai-service/tests/parity/test_rules_parity_fixtures.py).
+    - Python→TS vectors generated by [`../ai-service/tests/parity/generate_test_vectors.py`](../ai-service/tests/parity/generate_test_vectors.py)
+      and consumed by [`../tests/unit/Python_vs_TS.traceParity.test.ts`](../tests/unit/Python_vs_TS.traceParity.test.ts).
+    - TS→Python rules-parity fixtures generated by [`../tests/scripts/generate_rules_parity_fixtures.ts`](../tests/scripts/generate_rules_parity_fixtures.ts)
+      and loaded by [`test_rules_parity_fixtures.py`](../ai-service/tests/parity/test_rules_parity_fixtures.py).
 
 Acceptance criteria:
 
@@ -280,7 +280,7 @@ Authoritative `python` mode is a follow-on rollout decision once those condition
 
 #### 3.1 Authoritative flow (desired)
 
-In [`RulesBackendFacade.applyMove`](src/server/game/RulesBackendFacade.ts) and `applyMoveById`:
+In [`RulesBackendFacade.applyMove`](../src/server/game/RulesBackendFacade.ts) and `applyMoveById`:
 
 - When `getRulesMode() === 'python'`:
   1. Compute Python result first:
@@ -346,7 +346,7 @@ Before enabling `python` mode beyond testing:
 From a code perspective, the following next steps will further solidify P0.5:
 
 1. **Fixture-level TS↔Python parity tests through HTTP:**
-   - Extend AI-service tests to replay TS-generated fixtures (e.g. from [`tests/scenarios`](tests/scenarios/LineAndTerritory.test.ts)) through `/rules/evaluate_move`, comparing hashes and S-invariants against TS expectations.
+   - Extend AI-service tests to replay TS-generated fixtures (e.g. from `tests/scenarios`) through `/rules/evaluate_move`, comparing hashes and S-invariants against TS expectations.
 
 2. **Optional TS integration tests against a live Python service:**
    - In the Node repo, add an integration test that:

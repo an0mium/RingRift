@@ -34,7 +34,7 @@ tests/contracts/test_contract_vectors.py::test_contract_vector[territory.initial
 
 ### 4.1 Python Contract Test Runner
 
-**File**: [`ai-service/tests/contracts/test_contract_vectors.py`](../../ai-service/tests/contracts/test_contract_vectors.py)
+**File**: `ai-service/tests/contracts/test_contract_vectors.py`
 
 Key features:
 
@@ -45,7 +45,7 @@ Key features:
 
 ### 4.2 Python GameState Serialization
 
-**File**: [`ai-service/app/rules/serialization.py`](../../ai-service/app/rules/serialization.py)
+**File**: `ai-service/app/rules/serialization.py`
 
 Provides serialization/deserialization matching TypeScript format:
 
@@ -62,7 +62,7 @@ Provides serialization/deserialization matching TypeScript format:
 
 The contract runner uses:
 
-- `GameEngine.apply_move()` from [`ai-service/app/game_engine.py`](../../ai-service/app/game_engine.py)
+- `GameEngine.apply_move()` from `ai-service/app/game_engine.py`
 - Maps vector moves to Python Move format via `deserialize_move()`
 - Extracts resulting state for assertion validation
 
@@ -82,7 +82,7 @@ All 12 contract test vectors pass:
 
 ### 4.5 CI Integration
 
-**File**: [`scripts/run-python-contract-tests.sh`](../../scripts/run-python-contract-tests.sh)
+**File**: `scripts/run-python-contract-tests.sh`
 
 Usage:
 

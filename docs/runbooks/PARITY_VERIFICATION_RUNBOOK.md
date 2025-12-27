@@ -351,9 +351,9 @@ parity_fixtures/failing__game123__k50.json
 
 **Problem:** When replaying recorded games, Python would remain stuck in `line_processing` or `territory_processing` phases waiting for explicit moves that don't exist in legacy databases.
 
-**Solution (RR-PARITY-FIX):** The Python [`GameReplayDB.get_state_at_move()`](../../ai-service/app/db/game_replay.py:1143) method auto-injects bookkeeping moves to match TypeScript's replay behavior.
+**Solution (RR-PARITY-FIX):** The Python [`GameReplayDB.get_state_at_move()`](../../ai-service/app/db/game_replay.py) method auto-injects bookkeeping moves to match TypeScript's replay behavior.
 
-**Key code in [`game_replay.py`](../../ai-service/app/db/game_replay.py:1238-1296):**
+**Key code in [`game_replay.py`](../../ai-service/app/db/game_replay.py):**
 
 ```python
 def _auto_inject_no_action_moves(self, state: GameState) -> GameState:
@@ -700,18 +700,19 @@ PYTHONPATH=. python scripts/diff_state_bundle.py --bundle <bundle.json>
 ### 9.3 Documentation
 
 <<<<<<< Updated upstream
-| File                                                                                                       | Purpose                                 |
+| File | Purpose |
 | ---------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md)                       | Canonical vs legacy data inventory      |
-| [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec                |
-| [`AGENTS.md`](../../AGENTS.md)                                                                             | Agent guidelines including parity rules |
+| [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) | Canonical vs legacy data inventory |
+| [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec |
+| [`AGENTS.md`](../../AGENTS.md) | Agent guidelines including parity rules |
 =======
-| File                                                                                                             | Purpose                                 |
+| File | Purpose |
 | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md)                             | Canonical vs legacy data inventory      |
-| [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec                |
-| [`AGENTS.md`](../../AGENTS.md)                                                                                   | Agent guidelines including parity rules |
->>>>>>> Stashed changes
+| [`ai-service/TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md) | Canonical vs legacy data inventory |
+| [`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md) | GameReplayDB schema spec |
+| [`AGENTS.md`](../../AGENTS.md) | Agent guidelines including parity rules |
+
+> > > > > > > Stashed changes
 
 ---
 

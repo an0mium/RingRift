@@ -109,9 +109,9 @@ config_quotas:
 - Spawns appropriate selfplay based on GPU tier
 - Emits IDLE_RESOURCE_DETECTED events
 
-### 3. QueuePopulator (`app/coordination/queue_populator.py`)
+### 3. UnifiedQueuePopulator (`app/coordination/unified_queue_populator.py`)
 
-- Maintains work queue until Elo targets met
+- Maintains work queue until Elo targets met (daemon-backed)
 - Target distribution: 60% selfplay, 30% training, 10% tournament
 - Priority boosting for starved configs
 

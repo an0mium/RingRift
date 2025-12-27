@@ -39,20 +39,20 @@ The Wave 1 remediation wave completed 16 subtasks that substantially improved th
 Key deliverables:
 
 - Teaching scenarios expanded from 6 to 19 steps
-- [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx:1) with contextual help
-- [`UX_RULES_TEACHING_GAP_ANALYSIS.md`](../../ux/UX_RULES_TEACHING_GAP_ANALYSIS.md:1) - all gaps marked addressed
+- [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx) with contextual help
+- [`UX_RULES_TEACHING_GAP_ANALYSIS.md`](../../ux/UX_RULES_TEACHING_GAP_ANALYSIS.md) - all gaps marked addressed
 - Weird-state reason codes with `rulesContext` tags
 
 ### 2.2 GameEndExplanation Model (FULLY WIRED)
 
-The [`gameEndExplanation.ts`](../../../src/shared/engine/gameEndExplanation.ts:1) implementation is now complete:
+The [`gameEndExplanation.ts`](../../../src/shared/engine/gameEndExplanation.ts) implementation is now complete:
 
 - 7 outcome types supported (ring elimination, territory, LPS, stalemate, etc.)
 - Builder pattern with source → explanation transformation
 - Weird-state context with reason codes for ANM/FE, stalemates
 - Telemetry integration for UX analytics
 - Mini-region detection helpers
-- Tests in [`GameEndExplanation.builder.test.ts`](../../../tests/unit/GameEndExplanation.builder.test.ts:1) (170+ lines)
+- Tests in [`GameEndExplanation.builder.test.ts`](../../../tests/unit/GameEndExplanation.builder.test.ts) (170+ lines)
 
 ### 2.3 AI Ladder Specifications (DOCUMENTED)
 
@@ -66,10 +66,10 @@ Four new specification documents created:
 | ----------------------------------------------------------------------------------------- | ----- | ----------------------------------------- |
 
 > > > > > > > Stashed changes
-> > > > > > > | [`AI_CALIBRATION_RUNBOOK.md`](../../ai/AI_CALIBRATION_RUNBOOK.md:1) | 475 | Operational procedures for AI calibration |
-> > > > > > > | [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](../../ai/AI_LADDER_HEALTH_MONITORING_SPEC.md:1) | 865 | Health metrics and alerting |
-> > > > > > > | [`AI_LADDER_CHANGE_GUARDRAILS.md`](../../ai/AI_LADDER_CHANGE_GUARDRAILS.md:1) | 617 | Change management controls |
-> > > > > > > | [`AI_HUMAN_CALIBRATION_STUDY_DESIGN.md`](../../ai/AI_HUMAN_CALIBRATION_STUDY_DESIGN.md:1) | 926 | Human study protocol |
+> > > > > > > | [`AI_CALIBRATION_RUNBOOK.md`](../../ai/AI_CALIBRATION_RUNBOOK.md) | 475 | Operational procedures for AI calibration |
+> > > > > > > | [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](../../ai/AI_LADDER_HEALTH_MONITORING_SPEC.md) | 865 | Health metrics and alerting |
+> > > > > > > | [`AI_LADDER_CHANGE_GUARDRAILS.md`](../../ai/AI_LADDER_CHANGE_GUARDRAILS.md) | 617 | Change management controls |
+> > > > > > > | [`AI_HUMAN_CALIBRATION_STUDY_DESIGN.md`](../../ai/AI_HUMAN_CALIBRATION_STUDY_DESIGN.md) | 926 | Human study protocol |
 
 ### 2.4 LPS Two-Round Requirement (PROPAGATED)
 
@@ -117,8 +117,8 @@ The Last-Player-Standing victory condition now correctly requires two full round
 
 **`.only()` calls (breaking CI coverage):**
 
-- [`tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts`](../../../tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts:1)
-- [`tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts`](../../../tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts:1)
+- [`tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts`](../../../tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts)
+- [`tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts`](../../../tests/unit/ClientSandboxEngine.victory.LPS.crossInteraction.test.ts)
 - Multiple parity test files
 
 **Monolithic test files (>2000 lines):**
@@ -171,8 +171,8 @@ RingRift maintains two game engines that must produce identical results:
 **Specific challenges:**
 
 1. **No Shared Source of Truth**: Each engine independently implemented
-   - [`src/shared/engine/`](../../../src/shared/engine/index.ts:1) (TypeScript)
-   - [`ai-service/app/game_engine/`](../../../ai-service/app/game_engine/__init__.py:1) (Python)
+   - [`src/shared/engine/`](../../../src/shared/engine/index.ts) (TypeScript)
+   - [`ai-service/app/game_engine/`](../../../ai-service/app/game_engine/__init__.py) (Python)
 
 2. **Complex Rule Interactions**: Rules with subtle edge cases that must match exactly:
    - Forced elimination cascades
@@ -186,7 +186,7 @@ RingRift maintains two game engines that must produce identical results:
 
 ### 5.3 Evidence from Training Data Registry
 
-From [`TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md:1):
+From [`TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md):
 
 | Database                | Status          | Issue                                                 |
 | ----------------------- | --------------- | ----------------------------------------------------- |
@@ -322,7 +322,7 @@ From [`TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md
 
 ## 7. Known Issues and Tech Debt
 
-Consolidated from [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md:1):
+Consolidated from [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md):
 
 ### P0 (Critical) - LARGELY RESOLVED
 
@@ -458,10 +458,10 @@ The hardest problem has evolved from "AI ladder documentation" to "AI ladder imp
 
 **Related Documents:**
 
-- [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:1) - Canonical goals and success criteria
-- [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md:1) - Prior assessment
-- [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md:1) - Issue tracker
-- [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md:1) - Phased roadmap
-- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md:1) - Training data status
+- [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) - Canonical goals and success criteria
+- [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md) - Prior assessment
+- [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) - Issue tracker
+- [`STRATEGIC_ROADMAP.md`](../../planning/STRATEGIC_ROADMAP.md) - Phased roadmap
+- [`ai-service/TRAINING_DATA_REGISTRY.md`](../../../ai-service/TRAINING_DATA_REGISTRY.md) - Training data status
 
 _Last updated: 2025-12-06_

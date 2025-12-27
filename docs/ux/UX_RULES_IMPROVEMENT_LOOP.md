@@ -6,11 +6,11 @@
 >
 > **Inputs:**
 >
-> - Telemetry schema in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1).
-> - Weird‑state mapping in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1).
-> - Teaching flows in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1).
-> - Rules copy baseline in [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:1).
-> - Prior audits: [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md:23), [`archive/FINAL_RULES_AUDIT_REPORT.md`](../../archive/FINAL_RULES_AUDIT_REPORT.md:90), [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:665).
+> - Telemetry schema in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md).
+> - Weird‑state mapping in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
+> - Teaching flows in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md).
+> - Rules copy baseline in [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md).
+> - Prior audits: [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md), [`archive/FINAL_RULES_AUDIT_REPORT.md`](../../archive/FINAL_RULES_AUDIT_REPORT.md), [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md).
 
 This document does **not** prescribe any runtime behaviour. It describes:
 
@@ -41,17 +41,17 @@ Each iteration uses four classes of inputs:
 
 1. **Quantitative telemetry** (W‑UX‑1)
 
-   From [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1) and the implemented metrics:
+   From [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md) and the implemented metrics:
    - `ringrift_rules_ux_events_total{type, board_type, num_players, ai_difficulty, topic, rules_concept, weird_state_type}`.
    - `ringrift_games_started_total{board_type, num_players, difficulty, is_ranked, is_calibration_game}`.
    - `ringrift_games_completed_total{board_type, num_players, difficulty, is_ranked, terminal_reason}`.
    - Derived aggregates such as:
      - Help and weird‑state help events per `rules_concept` / `weird_state_type`.
      - Help sessions and reopen rates per rules context (via downstream jobs keyed by `rules_context`).
-     - `rules_weird_state_resign` / `resign_after_weird_state` rates by `weird_state_type` and reason code (see §6.3 in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:262)).
+     - `rules_weird_state_resign` / `resign_after_weird_state` rates by `weird_state_type` and reason code (see §6.3 in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md)).
 
 2. **Qualitative reports and audits**
-   - Existing findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md:23) (DOCUX‑P1…P7 etc.).
+   - Existing findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md) (DOCUX‑P1…P7 etc.).
    - New bug reports, support tickets, and community feedback tagged as:
      - “Rules confusion”.
      - “Weird end of game”.
@@ -61,15 +61,15 @@ Each iteration uses four classes of inputs:
 
 3. **Engine / rules correctness signals**
    - Rules invariants and parity signals from:
-     - [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
-     - [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:361).
-     - [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:665).
+     - [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md).
+     - [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md).
+     - [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md).
    - These do **not** directly drive UX changes, but ensure that UX proposals do not contradict canonical behaviour.
 
 4. **Rules concepts index**
-   - Consolidated high‑risk concepts in [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1), aligning rules semantics, UX surfaces, teaching flows, and telemetry/tests.
+   - Consolidated high‑risk concepts in [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md), aligning rules semantics, UX surfaces, teaching flows, and telemetry/tests.
    - When selecting targets for each iteration, consult this index to focus work on the most fragile rules concepts and to reuse existing mappings instead of rediscovering them ad‑hoc.
-   - Use the rules‑UX concordance table in [`RULES_DOCS_UX_AUDIT.md` §4](../supplementary/RULES_DOCS_UX_AUDIT.md:124) as the primary map from concept ids to rules docs, in‑app copy, and player‑facing docs when deciding where to change or validate wording.
+   - Use the rules‑UX concordance table in [`RULES_DOCS_UX_AUDIT.md` §4](../supplementary/RULES_DOCS_UX_AUDIT.md) as the primary map from concept ids to rules docs, in‑app copy, and player‑facing docs when deciding where to change or validate wording.
 
 ---
 
@@ -106,7 +106,7 @@ Activities:
 
 **Goal:** Identify which rules contexts and surfaces are currently most confusing or fragile.
 
-Using PromQL/pipeline queries derived from [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:262), or by running the hotspot analyzer CLI [`scripts/analyze_rules_ux_telemetry.ts`](../../scripts/analyze_rules_ux_telemetry.ts:1) against a pre‑aggregated `RulesUxAggregatesRoot` JSON snapshot (see [`analyze_rules_ux_telemetry.test.ts`](../../tests/unit/analyze_rules_ux_telemetry.test.ts:27) for the expected heuristics and severity classification):
+Using PromQL/pipeline queries derived from [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md), or by running the hotspot analyzer CLI [`scripts/analyze_rules_ux_telemetry.ts`](../../scripts/analyze_rules_ux_telemetry.ts) against a pre‑aggregated `RulesUxAggregatesRoot` JSON snapshot (see [`analyze_rules_ux_telemetry.test.ts`](../../tests/unit/analyze_rules_ux_telemetry.test.ts) for the expected heuristics and severity classification):
 
 1. **Top help‑opens per 100 games by `rules_context`**
    - Focus on contexts that exceed a minimum volume threshold (e.g. > 100 `help_open` events in the period).
@@ -118,7 +118,7 @@ Using PromQL/pipeline queries derived from [`UX_RULES_TELEMETRY_SPEC.md`](UX_RUL
      - etc.
 
 2. **High “help reopen within 30 seconds” contexts**
-   - For each `rules_context`, compute the fraction of help sessions that triggered `help_reopen` within 30 seconds (see derived metric notes in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:229)).
+   - For each `rules_context`, compute the fraction of help sessions that triggered `help_reopen` within 30 seconds (see derived metric notes in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md)).
    - Treat high reopen ratios as a strong signal of **unsatisfying explanations**.
 
 3. **Resigns after weird states**
@@ -130,7 +130,7 @@ Using PromQL/pipeline queries derived from [`UX_RULES_TELEMETRY_SPEC.md`](UX_RUL
 
 4. **Correlate with qualitative feedback**
    - Cross‑check contexts identified above with:
-     - Open items in [`RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md:69).
+     - Open items in [`RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md).
      - Recent support tickets and user reports.
    - Highlight any **new** contexts not covered in prior audits.
 
@@ -142,29 +142,29 @@ Categories of adjustments:
 
 1. **Copy tweaks (text‑only)**
    - HUD / VictoryModal / TeachingOverlay copy, consistent with:
-     - [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:1).
-     - Weird‑state mapping in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1).
+     - [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md).
+     - Weird‑state mapping in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
    - Examples:
      - Clarify that chain captures are **mandatory** once started (DOCUX‑P1).
    - Replace "eliminate all opponent rings" with "reach the Ring Elimination victory threshold (RR-CANON-R061)" (DOCUX‑P2).
    - Add explicit self‑elimination explanation to territory HUD/tooltip (DOCUX‑P4).
 
 2. **Weird‑state UX refinement**
-   - Map emergent patterns to reason codes defined in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:121).
+   - Map emergent patterns to reason codes defined in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
    - Example proposals:
      - Add or refine the `RWS‑001 ANM_MOVEMENT_FE_BLOCKED` banner when FE is triggered.
      - Improve copy for structural stalemate explanation (`RWS‑005`).
      - Introduce an explicit LPS explanation (`RWS‑006`) once engines support early LPS.
 
 3. **Teaching scenarios & flows**
-   - Add or refine flows in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1).
+   - Add or refine flows in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md).
    - Example:
      - If `anm_forced_elimination` consistently tops help‑opens and resigns, prioritise implementing `fe_loop_intro` and ensure it is rotated prominently in TeachingOverlay and sandbox presets.
      - If `territory_mini_region` is a hotspot, polish and surface `mini_region_intro` more aggressively.
 
 4. **Surface routing & discoverability**
    - Ensure that:
-     - Weird‑state banners link to the correct TeachingOverlay topics (per [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:438)).
+     - Weird‑state banners link to the correct TeachingOverlay topics (per [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md)).
      - Teaching flows are discoverable from the relevant surfaces (e.g. offering `fe_loop_intro` after an FE‑related resignation).
 
 Each iteration should select a **small batch** (e.g. 2–5 changes) with clear linkage to the metrics and specs above. Implementation details are deferred to Code‑mode tasks.
@@ -215,7 +215,7 @@ For example:
 
 - `docs/ux/rules_iterations/ITERATION_20251205_fe_and_stalemate.md`
 - `docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md` (first full telemetry-driven iteration focusing on ANM/FE, structural stalemate, and mini-regions)
-- Iteration 0002 (hotspot-driven, GameEndExplanation-based) is specified in [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md:1).
+- Iteration 0002 (hotspot-driven, GameEndExplanation-based) is specified in [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md).
 
 ### 3.1 Suggested File Structure
 
@@ -274,7 +274,7 @@ Each iteration summary SHOULD follow this template:
 ### 3.2 Teaching scenarios
 
 - Change 2: Implemented flow `fe_loop_intro` steps 1–3.
-  - Specs: [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:97)
+  - Specs: [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md)
   - Linked weird-state reasons: `ANM_MOVEMENT_FE_BLOCKED`, `FE_SEQUENCE_CURRENT_PLAYER`.
 
 ### 3.3 Instrumentation
@@ -316,16 +316,16 @@ This section describes roles by **responsibility**, not by person.
   - Own this improvement loop doc and the iteration schedule.
   - Decide iteration scope (which `rules_context` to prioritise).
   - Draft UX proposals referencing:
-    - [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:1),
-    - [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1),
-    - [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1).
+    - [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md),
+    - [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md),
+    - [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md).
   - Co‑author iteration summaries under `docs/ux/rules_iterations/`.
 
 ### 4.2 Telemetry & Data Owner
 
 - Typically an engineer / analyst with access to metrics infrastructure.
 - Responsibilities:
-  - Ensure [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1) is implemented and up to date.
+  - Ensure [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md) is implemented and up to date.
   - Produce the quantitative snapshots (Steps 1–2) each iteration.
   - Maintain the Prometheus / warehouse queries used as standard hotspots.
   - Flag metric schema changes that would break historical comparisons.
@@ -363,7 +363,7 @@ This section describes roles by **responsibility**, not by person.
 
 - Iteration file names MAY follow either:
   - `ITERATION_YYYYMMDD_short_name.md` for organic, date-keyed notes (see §3.1 example), or
-  - `UX_RULES_IMPROVEMENT_ITERATION_####.md` for numbered, explicitly tracked iterations (e.g. [`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md:1)) introduced by W-UX-7.
+  - `UX_RULES_IMPROVEMENT_ITERATION_####.md` for numbered, explicitly tracked iterations (e.g. [`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md)) introduced by W-UX-7.
 
 - `DOCUMENTATION_INDEX.md` SHOULD include an index entry pointing to this directory and the latest iteration file (see W‑UX‑2/3/4 cross‑reference tasks).
 
@@ -374,15 +374,15 @@ This section describes roles by **responsibility**, not by person.
 ## 6. Relationship to W‑UX‑1‒4
 
 - **W‑UX‑1 (Telemetry instrumentation & hotspot identification)**
-  - Implemented via the events and metrics defined in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1).
+  - Implemented via the events and metrics defined in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md).
   - Step 1–2 of this loop rely directly on those metrics.
 
 - **W‑UX‑2 (Context‑aware weird‑state UX for ANM/FE and structural stalemates)**
-  - Implemented via reason codes and copy in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1).
+  - Implemented via reason codes and copy in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
   - Iteration proposals in Step 3 often target which reason codes to surface or refine next.
 
 - **W‑UX‑3 (Scenario‑driven teaching flows)**
-  - Implemented via `rulesConcept` flows defined in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:1).
+  - Implemented via `rulesConcept` flows defined in [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md).
   - Step 3 may propose new flows or changes to existing ones; Step 5 checks their impact.
 
 - **W‑UX‑4 (This process)**

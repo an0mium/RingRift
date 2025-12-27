@@ -16,7 +16,7 @@
 
 After a comprehensive analysis of the codebase, documentation, and test failures, I've identified **7 major problem candidates** ranked by difficulty, impact, and fixability. The problems span three domains: **Rules Engine**, **AI System**, and **Cross-Language Parity**.
 
-> **Post‑W6 note (rules‑UX weakest aspect):** Subsequent remediation work has treated rules‑UX and onboarding as the primary weakest aspect. Concrete ANM/FE, structural stalemate, and territory mini‑region improvements for that axis are now tracked through iteration records [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](../docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md:1) and [`UX_RULES_IMPROVEMENT_ITERATION_0003.md`](../docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0003.md:1), so future assessments can reference specific iterations rather than only this high‑level problem list.
+> **Post‑W6 note (rules‑UX weakest aspect):** Subsequent remediation work has treated rules‑UX and onboarding as the primary weakest aspect. Concrete ANM/FE, structural stalemate, and territory mini‑region improvements for that axis are now tracked through iteration records [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](../docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md) and [`UX_RULES_IMPROVEMENT_ITERATION_0003.md`](../docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0003.md), so future assessments can reference specific iterations rather than only this high‑level problem list.
 
 ---
 

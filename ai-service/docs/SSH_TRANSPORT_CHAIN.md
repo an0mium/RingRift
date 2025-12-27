@@ -132,15 +132,16 @@ result = await client.run_async("uptime")
 
 ## Performance Characteristics
 
-| Transport   | Latency     | Reliability | Security        | Notes                     |
-|-------------|-------------|-------------|-----------------|---------------------------|
-| Tailscale   | Low (2-10ms)| High        | End-to-end enc. | Best for cluster nodes    |
-| Direct SSH  | Varies      | Medium      | SSH only        | Standard fallback         |
-| Cloudflare  | Medium      | High        | Zero Trust      | Good for restricted nets  |
+| Transport  | Latency      | Reliability | Security        | Notes                    |
+| ---------- | ------------ | ----------- | --------------- | ------------------------ |
+| Tailscale  | Low (2-10ms) | High        | End-to-end enc. | Best for cluster nodes   |
+| Direct SSH | Varies       | Medium      | SSH only        | Standard fallback        |
+| Cloudflare | Medium       | High        | Zero Trust      | Good for restricted nets |
 
 ## Timeout Behavior
 
 Default timeouts:
+
 - **Connect timeout**: 10 seconds per transport
 - **Command timeout**: 60 seconds (configurable)
 
@@ -159,6 +160,7 @@ config = SSHConfig(
 ### Tailscale Not Working
 
 Check if Tailscale is running and IP is correct:
+
 ```bash
 tailscale status | grep <node-name>
 ```
@@ -166,11 +168,13 @@ tailscale status | grep <node-name>
 ### Cloudflare Tunnel Fails
 
 Verify `cloudflared` is installed:
+
 ```bash
 cloudflared --version
 ```
 
 Test tunnel manually:
+
 ```bash
 cloudflared access ssh --hostname ssh.example.com \
   --service-token-id token --service-token-secret secret
@@ -179,6 +183,7 @@ cloudflared access ssh --hostname ssh.example.com \
 ### All Transports Fail
 
 Check health tracking:
+
 ```python
 if not client.health.is_healthy:
     print(f"Consecutive failures: {client.health.consecutive_failures}")
@@ -186,6 +191,7 @@ if not client.health.is_healthy:
 ```
 
 Consider increasing retry count:
+
 ```python
 result = await client.run_async_with_retry(
     "hostname",
@@ -196,6 +202,6 @@ result = await client.run_async_with_retry(
 
 ## See Also
 
-- `/Users/armand/Development/RingRift/ai-service/docs/SSH_CONSOLIDATION_PHASE1.md` - Phase 1 features
-- `/Users/armand/Development/RingRift/ai-service/app/core/ssh.py` - Implementation
+- `ai-service/docs/SSH_CONSOLIDATION_PHASE1.md` - Phase 1 features
+- `ai-service/app/core/ssh.py` - Implementation
 - `config/distributed_hosts.template.yaml` - Configuration reference

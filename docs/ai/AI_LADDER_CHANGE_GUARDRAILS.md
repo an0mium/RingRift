@@ -16,19 +16,19 @@ The AI difficulty ladder is a **mission-critical component** for player experien
 All changes to:
 
 - Tier models (heuristic profiles, neural network checkpoints, search personas)
-- Ladder configurations in [`ladder_config.py`](../../ai-service/app/config/ladder_config.py:1)
+- Ladder configurations in [`ladder_config.py`](../../ai-service/app/config/ladder_config.py)
 - Tier evaluation and promotion criteria
 - Performance budgets and constraints
 - Cross-tier matchup expectations
 
 ### Relationship to Other Documents
 
-| Document                                                                                     | Relationship                                                            |
-| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1)                                   | Source of calibration cycle procedures referenced in Category C changes |
-| [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:1)               | Defines post-change monitoring metrics and alert thresholds             |
-| [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md:1) | Defines the training and promotion loop that produces candidates        |
-| [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1)                                       | Defines latency budgets that must be respected                          |
+| Document                                                                                   | Relationship                                                            |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md)                                   | Source of calibration cycle procedures referenced in Category C changes |
+| [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md)               | Defines post-change monitoring metrics and alert thresholds             |
+| [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) | Defines the training and promotion loop that produces candidates        |
+| [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md)                                       | Defines latency budgets that must be respected                          |
 
 ---
 
@@ -61,7 +61,7 @@ Changes that require tier gate validation to ensure the ladder remains properly 
 
 **Examples:**
 
-- Promoting a new model to a tier (via [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py:1))
+- Promoting a new model to a tier (via [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py))
 - Adjusting tier performance budgets (latency, memory)
 - Modifying tier evaluation parameters:
   - `min_win_rate_vs_baseline`
@@ -79,23 +79,23 @@ Changes that require tier gate validation to ensure the ladder remains properly 
 
 ### Category C: High Risk (Requires Full Cycle)
 
-Changes that require a full calibration cycle as defined in [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1).
+Changes that require a full calibration cycle as defined in [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md).
 
 **Examples:**
 
 - Adding or removing tiers from the ladder
 - Changing win-rate targets for multiple tiers
 - Modifying cross-tier matchup expectations (e.g., D4 vs D2 minimum win rate)
-- Changing the model selection algorithm in [`get_ladder_tier_config()`](../../ai-service/app/config/ladder_config.py:279)
+- Changing the model selection algorithm in [`get_ladder_tier_config()`](../../ai-service/app/config/ladder_config.py)
 - Restructuring ladder tier definitions (e.g., changing from 4 tiers to 5)
 - Changing the AI type for a tier (e.g., MINIMAX to MCTS)
-- Modifying evaluation opponent configurations in [`TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py:53)
+- Modifying evaluation opponent configurations in [`TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py)
 
 **Validation Required:**
 
 - Full calibration cycle per runbook
 - All tier gates pass
-- Cross-tier monotonicity validated via [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py:1)
+- Cross-tier monotonicity validated via [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py)
 - Human calibration consideration (when available)
 - Peer review required
 - Rollback plan documented
@@ -145,7 +145,7 @@ Before proceeding with a Category B change:
     --candidate-id <candidate_id> \
     --run-dir logs/tier_gate/D4_candidate
   ```
-- [ ] **Win rate within acceptable band** vs target (±10% as per [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:49))
+- [ ] **Win rate within acceptable band** vs target (±10% as per [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md))
 - [ ] **Latency within budget** (for D3–D8 tiers):
   ```bash
   cd ai-service
@@ -155,7 +155,7 @@ Before proceeding with a Category B change:
   ```
 - [ ] **Monotonicity preserved**: Higher tier beats lower tier at ≥55% in head-to-head
 - [ ] **Previous tier snapshot saved** to enable rollback:
-  - Copy of current [`ladder_config.py`](../../ai-service/app/config/ladder_config.py:1)
+  - Copy of current [`ladder_config.py`](../../ai-service/app/config/ladder_config.py)
   - Current model artifacts/checkpoints backed up
 - [ ] **Change documented** in change log (see §Change Governance)
 
@@ -163,7 +163,7 @@ Before proceeding with a Category B change:
 
 Before proceeding with a Category C change:
 
-- [ ] **Full calibration cycle completed** per [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:153)
+- [ ] **Full calibration cycle completed** per [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md)
   - Calibration aggregates JSON collected
   - Registry snapshot taken
   - Analysis CLI run with outputs archived
@@ -235,7 +235,7 @@ These gates are enforced by tooling and must pass before promotion.
 | **Model Load**   | Health check endpoint                   | Model loads without error                                        | All tiers          |
 | **Monotonicity** | Cross-tier tournament                   | Higher tier wins ≥55% of games vs lower tier                     | All adjacent pairs |
 
-**Tier-specific thresholds** (from [`TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py:53)):
+**Tier-specific thresholds** (from [`TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py)):
 
 | Tier | min_win_rate_vs_baseline | max_regression_vs_previous_tier | Perf Budget                        |
 | ---- | ------------------------ | ------------------------------- | ---------------------------------- |
@@ -453,7 +453,7 @@ For Category B+ changes, the PR should include:
 
 ### Post-Change Monitoring Period
 
-Based on [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:1):
+Based on [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md):
 
 | Category | Monitoring Period | Escalation Criteria                                 |
 | -------- | ----------------- | --------------------------------------------------- |
@@ -476,7 +476,7 @@ During the monitoring period, actively track:
 
 ### Health Check Integration
 
-Reference [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:285) for:
+Reference [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md) for:
 
 - Specific metric collection procedures
 - Alert routing and escalation paths
@@ -534,7 +534,7 @@ Compare against pre-change snapshot during monitoring period.
    - Check `within_avg: true` and `within_p95: true`
 
 7. **Create PR with**
-   - Updated [`ladder_config.py`](../../ai-service/app/config/ladder_config.py:1)
+   - Updated [`ladder_config.py`](../../ai-service/app/config/ladder_config.py)
    - Gate output logs attached or linked
    - Rollback plan: "Revert to model_id='nnue_square8_2p'"
    - Checklist completed
@@ -633,11 +633,11 @@ Compare against pre-change snapshot during monitoring period.
 
 ### Related Documents
 
-- [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1) – Step-by-step calibration cycle procedure
-- [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:1) – Ongoing health monitoring and drift detection
-- [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md:1) – Training and promotion loop for tier candidates
-- [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1) – Latency budgets for D3–D8 tiers
-- [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1) – Human calibration experiment templates
+- [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md) – Step-by-step calibration cycle procedure
+- [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md) – Ongoing health monitoring and drift detection
+- [`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md) – Training and promotion loop for tier candidates
+- [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md) – Latency budgets for D3–D8 tiers
+- [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md) – Human calibration experiment templates
 
 ---
 

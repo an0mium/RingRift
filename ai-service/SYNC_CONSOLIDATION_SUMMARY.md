@@ -15,7 +15,7 @@
 
 ### 2. Created SyncFacade
 
-**File**: `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_facade.py`
+**File**: `ai-service/app/coordination/sync_facade.py`
 
 **Features**:
 
@@ -51,6 +51,7 @@ await sync("games", prefer_ephemeral=True)
 2. `app/distributed/unified_data_sync.py` (UnifiedDataSync)
    - ✅ Added DeprecationWarning at import time
    - Provides migration path to AutoSyncDaemon or SyncFacade
+   - `scripts/unified_data_sync.py` remains the supported external CLI while AutoSyncDaemon/SyncFacade CLI parity is completed
 
 3. `app/distributed/sync_orchestrator.py` (SyncOrchestrator)
    - ✅ Added PendingDeprecationWarning
@@ -114,13 +115,13 @@ await sync("games", prefer_ephemeral=True)
 
 ## Files Created
 
-1. ✅ `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_facade.py`
+1. ✅ `ai-service/app/coordination/sync_facade.py`
    - 500+ lines of clean facade implementation
 
-2. ✅ `/Users/armand/Development/RingRift/ai-service/SYNC_CONSOLIDATION_PLAN.md`
+2. ✅ `ai-service/SYNC_CONSOLIDATION_PLAN.md`
    - Comprehensive 400+ line consolidation strategy
 
-3. ✅ `/Users/armand/Development/RingRift/ai-service/SYNC_CONSOLIDATION_SUMMARY.md`
+3. ✅ `ai-service/SYNC_CONSOLIDATION_SUMMARY.md`
    - This summary document
 
 ## Files Modified
@@ -138,7 +139,7 @@ await sync("games", prefer_ephemeral=True)
 
 ### Phase 2: Update Imports & Exports
 
-- [ ] Add SyncFacade to `app/coordination/__init__.py`
+- [x] Add SyncFacade to `app/coordination/__init__.py`
 - [ ] Update CLAUDE.md with SyncFacade documentation
 - [ ] Update CLAUDE.local.md with usage examples
 
@@ -152,7 +153,7 @@ await sync("games", prefer_ephemeral=True)
 
 - [ ] Update `scripts/run_training_loop.py` to use SyncFacade
 - [ ] Update `scripts/sync_models.py` to use SyncFacade
-- [ ] Mark `scripts/unified_data_sync.py` as deprecated wrapper
+- [ ] Keep `scripts/unified_data_sync.py` as the supported external sync CLI; rebase onto AutoSyncDaemon/SyncFacade before deprecating the internal module
 
 ### Phase 5: Deploy & Monitor
 

@@ -108,8 +108,8 @@ The RingRift documentation is **generally well-maintained and comprehensive** fo
 **Issue:** Several links use line-number anchors (e.g., `:1`) that may break:
 
 ```markdown
-[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md:1)
-[docs/ai/AI_TRAINING_AND_DATASETS.md](../docs/ai/AI_TRAINING_AND_DATASETS.md:1)
+[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md)
+[docs/ai/AI_TRAINING_AND_DATASETS.md](../docs/ai/AI_TRAINING_AND_DATASETS.md)
 ```
 
 **Risk:** Low – only affects IDE navigation, not GitHub links.
@@ -223,7 +223,7 @@ Remove `:1` suffixes from links:
 ```markdown
 # Change:
 
-[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md:1)
+[AI_ARCHITECTURE.md](../docs/architecture/AI_ARCHITECTURE.md)
 
 # To:
 

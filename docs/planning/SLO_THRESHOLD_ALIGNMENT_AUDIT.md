@@ -10,16 +10,16 @@ This audit examines SLO threshold definitions across all project configuration s
 
 ### Documents Reviewed
 
-| Document                                                                                                 | Role                            | Status      |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------- | ----------- |
-| [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:155)                                                         | **SSoT for SLOs** (§4.1)        | ✅ Reviewed |
-| [`tests/load/k6.config.js`](../../tests/load/k6.config.js:1)                                             | k6 load test configuration      | ✅ Reviewed |
-| [`tests/load/config/thresholds.json`](../../tests/load/config/thresholds.json:1)                         | Environment-specific thresholds | ✅ Reviewed |
-| [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md:1)                             | SLO verification procedures     | ✅ Reviewed |
-| [`docs/operations/ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md:1)                       | Alerting configuration          | ✅ Reviewed |
-| [`docs/ai/AI_SLO_BUDGETS.md`](../ai/AI_SLO_BUDGETS.md:1)                                                 | AI-specific SLO budgets         | ✅ Reviewed |
-| [`docs/production/PRODUCTION_READINESS_CHECKLIST.md`](../production/PRODUCTION_READINESS_CHECKLIST.md:1) | Launch requirements             | ✅ Reviewed |
-| [`docs/testing/LOAD_TEST_BASELINE.md`](../testing/LOAD_TEST_BASELINE.md:1)                               | Baseline test results           | ✅ Reviewed |
+| Document                                                                                               | Role                            | Status      |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------- | ----------- |
+| [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md)                                                           | **SSoT for SLOs** (§4.1)        | ✅ Reviewed |
+| [`tests/load/k6.config.js`](../../tests/load/k6.config.js)                                             | k6 load test configuration      | ✅ Reviewed |
+| [`tests/load/config/thresholds.json`](../../tests/load/config/thresholds.json)                         | Environment-specific thresholds | ✅ Reviewed |
+| [`docs/operations/SLO_VERIFICATION.md`](../operations/SLO_VERIFICATION.md)                             | SLO verification procedures     | ✅ Reviewed |
+| [`docs/operations/ALERTING_THRESHOLDS.md`](../operations/ALERTING_THRESHOLDS.md)                       | Alerting configuration          | ✅ Reviewed |
+| [`docs/ai/AI_SLO_BUDGETS.md`](../ai/AI_SLO_BUDGETS.md)                                                 | AI-specific SLO budgets         | ✅ Reviewed |
+| [`docs/production/PRODUCTION_READINESS_CHECKLIST.md`](../production/PRODUCTION_READINESS_CHECKLIST.md) | Launch requirements             | ✅ Reviewed |
+| [`docs/testing/LOAD_TEST_BASELINE.md`](../testing/LOAD_TEST_BASELINE.md)                               | Baseline test results           | ✅ Reviewed |
 
 ---
 

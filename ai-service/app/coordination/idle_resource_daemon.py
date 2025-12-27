@@ -1701,21 +1701,20 @@ class IdleResourceDaemon:
             from app.coordination.selfplay_scheduler import get_selfplay_scheduler
 
             scheduler = get_selfplay_scheduler()
-            # Get priority configs synchronously (we're in sync context)
-            # Use the cached priorities if available
-            sorted_priorities = sorted(
-                scheduler._config_priorities.items(),
-                key=lambda x: -x[1].priority_score
+            # Get priority configs using public API (Dec 2025: replaced private access)
+            # Uses cached priorities, safe for sync context
+            sorted_priorities = scheduler.get_priority_configs_sync(
+                filter_configs=valid_configs
             )
 
             # Return highest priority config that fits this GPU
-            for config_key, priority in sorted_priorities:
-                if config_key in valid_configs:
-                    logger.debug(
-                        f"[IdleResourceDaemon] Selected {config_key} "
-                        f"(priority={priority.priority_score:.2f}) for {gpu_memory_gb:.0f}GB GPU"
-                    )
-                    return config_key
+            if sorted_priorities:
+                config_key, priority_score = sorted_priorities[0]
+                logger.debug(
+                    f"[IdleResourceDaemon] Selected {config_key} "
+                    f"(priority={priority_score:.2f}) for {gpu_memory_gb:.0f}GB GPU"
+                )
+                return config_key
 
         except ImportError:
             logger.debug("[IdleResourceDaemon] SelfplayScheduler not available, using memory-based selection")

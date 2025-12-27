@@ -162,7 +162,7 @@ All reachable nodes have successfully pulled the latest code. Minor commit hash 
 
 ```bash
 # Update script location
-/Users/armand/Development/RingRift/ai-service/scripts/update_cluster_nodes.sh
+ai-service/scripts/update_cluster_nodes.sh
 
 # Manual fix for vultr-a100-20gb-2
 ssh -i ~/.ssh/id_ed25519 root@140.82.15.69 "cd /root && rm -rf ringrift && git clone https://github.com/an0mium/RingRift.git ringrift"

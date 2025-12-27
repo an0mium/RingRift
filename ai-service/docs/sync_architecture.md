@@ -6,60 +6,91 @@ This document clarifies the sync-related modules and their responsibilities.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    SyncOrchestrator                         │
-│   app/distributed/sync_orchestrator.py                      │
-│   - Unified facade for ALL sync operations                  │
-│   - Single entry point: data, models, Elo, registry         │
-│   - Coordinates initialization, shutdown, health monitoring │
+│                      SyncFacade                             │
+│   app/coordination/sync_facade.py                            │
+│   - Recommended entry point for programmatic sync            │
+│   - Routes to AutoSyncDaemon / SyncRouter / DistributedSync  │
 └──────────────────────────┬──────────────────────────────────┘
-                           │ wraps
+                           │ routes
            ┌───────────────┴───────────────┐
            ▼                               ▼
 ┌───────────────────────┐       ┌───────────────────────┐
-│    SyncScheduler      │       │ DistributedSyncCoord. │
+│    AutoSyncDaemon     │       │ DistributedSyncCoord. │
 │ app/coordination/     │       │ app/distributed/      │
-│ sync_coordinator.py   │       │ sync_coordinator.py   │
+│ auto_sync_daemon.py   │       │ sync_coordinator.py   │
 │ ───────────────────── │       │ ────────────────────  │
-│ SCHEDULING layer      │       │ EXECUTION layer       │
-│ - When/what to sync   │       │ - Performs syncs      │
-│ - Data freshness      │       │ - aria2/SSH/P2P       │
-│ - Priority scheduling │       │ - Transport selection │
-│ - Recommendations     │       │ - Circuit breakers    │
+│ CONTINUOUS sync       │       │ EXECUTION layer       │
+│ - P2P + routing       │       │ - Performs syncs      │
+│ - Strategy aware      │       │ - aria2/SSH/P2P       │
 └───────────────────────┘       └───────────────────────┘
+
+Legacy (avoid for new code):
+  - SyncOrchestrator (app/distributed/sync_orchestrator.py)
+  - SyncScheduler (app/coordination/sync_coordinator.py)
 ```
 
 ## Which module should I use?
 
-| Use Case                                | Module                       | Import                                                                |
-| --------------------------------------- | ---------------------------- | --------------------------------------------------------------------- |
-| **Most cases**: Unified sync operations | `SyncOrchestrator`           | `from app.distributed.sync_orchestrator import get_sync_orchestrator` |
-| Check when/what to sync                 | `SyncScheduler`              | `from app.coordination.sync_coordinator import get_sync_scheduler`    |
-| Low-level sync execution                | `DistributedSyncCoordinator` | `from app.coordination import DistributedSyncCoordinator`             |
+| Use Case                          | Module                       | Import                                                             |
+| --------------------------------- | ---------------------------- | ------------------------------------------------------------------ |
+| **Most cases**: Programmatic sync | `SyncFacade`                 | `from app.coordination.sync_facade import sync`                    |
+| Continuous/daemon sync            | `AutoSyncDaemon`             | `from app.coordination.auto_sync_daemon import AutoSyncDaemon`     |
+| Low-level sync execution          | `DistributedSyncCoordinator` | `from app.coordination import DistributedSyncCoordinator`          |
+| Legacy scheduling (deprecated)    | `SyncScheduler`              | `from app.coordination.sync_coordinator import get_sync_scheduler` |
 
 ## Detailed Responsibilities
 
-### SyncOrchestrator (Recommended Entry Point)
+### SyncFacade (Recommended Entry Point)
 
-The unified facade wrapping all sync components:
+Unified programmatic entry point for sync operations:
+
+```python
+from app.coordination.sync_facade import sync
+
+# Sync all data types
+await sync("all")
+
+# Sync specific data with routing hints
+await sync("games", board_type="hex8", priority="high")
+```
+
+Features:
+
+- Routes to AutoSyncDaemon / SyncRouter / DistributedSyncCoordinator
+- Centralized logging + metrics for sync operations
+- Backward-compatible with legacy backends (deprecated)
+
+### AutoSyncDaemon (Recommended for Continuous Sync)
+
+Daemonized sync loop for cluster-wide continuous sync:
+
+```python
+from app.coordination.auto_sync_daemon import AutoSyncDaemon
+
+daemon = AutoSyncDaemon()
+await daemon.start()
+```
+
+Features:
+
+- Strategy-aware sync (HYBRID/EPHEMERAL/BROADCAST/AUTO)
+- Prioritizes ephemeral nodes and avoids shared storage
+- Integrates with sync routing + bandwidth controls
+
+### SyncOrchestrator (Legacy, Pending Deprecation)
+
+The older unified facade remains for backward compatibility:
 
 ```python
 from app.distributed.sync_orchestrator import get_sync_orchestrator
 
 orchestrator = get_sync_orchestrator()
-await orchestrator.initialize()
-result = await orchestrator.sync_all()
-status = orchestrator.get_status()
-await orchestrator.shutdown()
+await orchestrator.sync_all()
 ```
 
-Features:
+Prefer `SyncFacade` for new code.
 
-- Unified initialization and shutdown
-- Coordinated sync scheduling
-- Cross-component health monitoring
-- Event-driven sync triggers
-
-### SyncScheduler (Scheduling Layer)
+### SyncScheduler (Deprecated Scheduling Layer)
 
 Decides **when** and **what** to sync:
 
@@ -76,7 +107,7 @@ recommendations = get_sync_recommendations()
 await schedule_priority_sync()
 ```
 
-Features:
+Features (legacy):
 
 - Data freshness tracking across all hosts
 - Priority-based sync scheduling
@@ -107,12 +138,18 @@ Features:
 
 ## Exports from app.coordination
 
-Both layers are exported for convenience:
+Recommended:
+
+```python
+from app.coordination.sync_facade import sync
+```
+
+Legacy exports (still available, but deprecated for new code):
 
 ```python
 from app.coordination import (
-    SyncScheduler,              # Scheduling layer (app/coordination/sync_coordinator.py)
-    DistributedSyncCoordinator, # Execution layer (app/distributed/sync_coordinator.py)
+    SyncScheduler,              # Scheduling layer (deprecated)
+    DistributedSyncCoordinator, # Execution layer
 )
 ```
 
@@ -121,5 +158,5 @@ from app.coordination import (
 The naming evolved over time:
 
 - `SyncCoordinator` in `app/distributed/` is the original execution layer
-- `SyncCoordinator` in `app/coordination/` was renamed to `SyncScheduler` in Dec 2025
-- `SyncOrchestrator` is the recommended unified entry point (Dec 2025)
+- `SyncCoordinator` in `app/coordination/` was renamed to `SyncScheduler` in Dec 2025 (deprecated)
+- `SyncOrchestrator` is pending deprecation; prefer `SyncFacade` + `AutoSyncDaemon`

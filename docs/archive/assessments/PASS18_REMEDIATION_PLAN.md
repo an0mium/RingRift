@@ -14,8 +14,8 @@
 
 > This plan is the task-level companion to:
 >
-> - [`docs/PASS18_ASSESSMENT_REPORT.md`](PASS18_ASSESSMENT_REPORT.md:1)
-> - [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1)
+> - [`docs/PASS18_ASSESSMENT_REPORT.md`](PASS18_ASSESSMENT_REPORT.md)
+> - [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md)
 
 ---
 
@@ -45,11 +45,11 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 - **Scope:**
   - Investigate and fix divergence in capture-related suites, including:
-    - [`captureSequenceEnumeration.test.ts`](../../../tests/unit/captureSequenceEnumeration.test.ts:1)
-    - [`GameEngine.chainCapture.test.ts`](../../../tests/unit/GameEngine.chainCapture.test.ts:1) and [`GameEngine.chainCaptureChoiceIntegration.test.ts`](../../../tests/unit/GameEngine.chainCaptureChoiceIntegration.test.ts:1)
+    - [`captureSequenceEnumeration.test.ts`](../../../tests/unit/captureSequenceEnumeration.test.ts)
+    - [`GameEngine.chainCapture.test.ts`](../../../tests/unit/GameEngine.chainCapture.test.ts) and [`GameEngine.chainCaptureChoiceIntegration.test.ts`](../../../tests/unit/GameEngine.chainCaptureChoiceIntegration.test.ts)
     - Any related sandbox parity tests under `tests/unit` and `tests/scenarios`.
-  - Ensure backend host [`GameEngine.ts`](../../../src/server/game/GameEngine.ts:1) and client sandbox [`ClientSandboxEngine.ts`](../../../src/client/sandbox/ClientSandboxEngine.ts:1) both delegate capture enumeration to the same shared helpers defined by the RR‑CANON capture rules in [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md:1).
-  - Verify that Python parity suites for capture (for example, [`test_chain_capture_parity.py`](../../../ai-service/tests/parity/test_chain_capture_parity.py:1)) remain green after changes.
+  - Ensure backend host [`GameEngine.ts`](../../../src/server/game/GameEngine.ts) and client sandbox [`ClientSandboxEngine.ts`](../../../src/client/sandbox/ClientSandboxEngine.ts) both delegate capture enumeration to the same shared helpers defined by the RR‑CANON capture rules in [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md).
+  - Verify that Python parity suites for capture (for example, [`test_chain_capture_parity.py`](../../../ai-service/tests/parity/test_chain_capture_parity.py)) remain green after changes.
 
 - **Acceptance criteria:**
   - All capture enumeration and chain-capture Jest suites are passing and stable (no flakes across multiple CI runs).
@@ -57,9 +57,9 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
   - At least one additional invariant-style or property-based test is added to guard capture sequence enumeration from regression (for example, “no missing valid capture chains, no spurious extra chains” on small boards).
 
 - **Dependencies:**
-  - RR‑CANON capture rules and invariants in [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md:1) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1).
+  - RR‑CANON capture rules and invariants in [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
   - Can run in parallel with P18.2-CODE and P18.3-CODE, but should complete before orchestrator rollout tasks (P18.4-DEVOPS, P18.5-ARCH, P18.9-DEBUG).
-  - **Diagnostic Map:** See [`docs/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md:1) for detailed host-path analysis and test cluster mapping.
+  - **Diagnostic Map:** See [`docs/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md) for detailed host-path analysis and test cluster mapping.
 
 ---
 
@@ -71,16 +71,16 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 - **Scope:**
   - Debug and correct complex long-turn scenarios where line formation, territory disconnection, and Q23 self-elimination interact, focusing on:
-    - [`BoardManager.territoryDisconnection.test.ts`](../../../tests/unit/BoardManager.territoryDisconnection.test.ts:1)
-    - [`ClientSandboxEngine.territoryDisconnection.hex.test.ts`](../../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts:1)
-    - Territory mini-region scenarios such as [`RulesMatrix.Territory.MiniRegion.test.ts`](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:1).
-  - Ensure host integration in [`GameEngine.ts`](../../../src/server/game/GameEngine.ts:1) correctly orders:
+    - [`BoardManager.territoryDisconnection.test.ts`](../../../tests/unit/BoardManager.territoryDisconnection.test.ts)
+    - [`ClientSandboxEngine.territoryDisconnection.hex.test.ts`](../../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts)
+    - Territory mini-region scenarios such as [`RulesMatrix.Territory.MiniRegion.test.ts`](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts).
+  - Ensure host integration in [`GameEngine.ts`](../../../src/server/game/GameEngine.ts) correctly orders:
     1. Line reward processing.
     2. Territory collapse and region claim.
     3. Forced self-elimination and Q23 elimination checks.
   - Cross-check behaviour against Python invariants for territory processing and ANM/termination in:
-    - [`test_active_no_moves_territory_processing_regression.py`](../../../ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py:1)
-    - [`test_territory_forced_elimination_divergence.py`](../../../ai-service/tests/test_territory_forced_elimination_divergence.py:1).
+    - [`test_active_no_moves_territory_processing_regression.py`](../../../ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py)
+    - [`test_territory_forced_elimination_divergence.py`](../../../ai-service/tests/test_territory_forced_elimination_divergence.py).
 
 - **Acceptance criteria:**
   - All targeted TS suites above are green, with no regressions in broader territory or ANM regression tests.
@@ -101,26 +101,26 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 - **Scope:**
   - Restore deterministic, seed-controlled AI behaviour across:
-    - Backend host (`GameSession` + [`AIEngine.ts`](../../../src/server/game/ai/AIEngine.ts:1) + [`AIServiceClient.ts`](../../../src/server/services/AIServiceClient.ts:1)).
+    - Backend host (`GameSession` + [`AIEngine.ts`](../../../src/server/game/ai/AIEngine.ts) + [`AIServiceClient.ts`](../../../src/server/services/AIServiceClient.ts)).
     - Client sandbox AI simulations (for example, via `ClientSandboxEngine` and any AI helpers).
-    - Python AI service RNG paths used in [`ai-service/tests/test_eval_randomness_integration.py`](../../../ai-service/tests/test_eval_randomness_integration.py:1).
+    - Python AI service RNG paths used in [`ai-service/tests/test_eval_randomness_integration.py`](../../../ai-service/tests/test_eval_randomness_integration.py).
   - Fix and stabilise RNG parity suites:
-    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](../../../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:1)
-    - [`Sandbox_vs_Backend.aiRngFullParity.test.ts`](../../../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1).
+    - [`Sandbox_vs_Backend.aiRngParity.test.ts`](../../../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts)
+    - [`Sandbox_vs_Backend.aiRngFullParity.test.ts`](../../../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts).
   - Ensure `GameSession.maybePerformAITurn` threads an explicit RNG or seed into `getAIMove` for local fallback, avoiding `Math.random()` where deterministic parity is required.
-  - Confirm that `game.rngSeed` from HTTP game creation (`POST /games` in [`game.ts`](../../../src/server/routes/game.ts:1)) remains the single source of truth for seeded behaviour across hosts.
+  - Confirm that `game.rngSeed` from HTTP game creation (`POST /games` in [`game.ts`](../../../src/server/routes/game.ts)) remains the single source of truth for seeded behaviour across hosts.
 
 - **Acceptance criteria:**
   - All AI RNG parity Jest suites pass reliably across multiple CI runs.
   - Repeated AI moves with the same seed produce identical results across backend, sandbox, and Python AI for representative board types (square and hex).
-  - No regression in AI service health and concurrency tests (for example, [`AIEngine.fallback.test.ts`](../../../tests/unit/AIEngine.fallback.test.ts:1), [`AIServiceClient.concurrency.test.ts`](../../../tests/unit/ai/AIServiceClient.concurrency.test.ts:1)).
+  - No regression in AI service health and concurrency tests (for example, [`AIEngine.fallback.test.ts`](../../../tests/unit/AIEngine.fallback.test.ts), [`AIServiceClient.concurrency.test.ts`](../../../tests/unit/ai/AIServiceClient.concurrency.test.ts)).
 
 - **Dependencies:**
-  - Relies on existing RNG design described in [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md:1).
+  - Relies on existing RNG design described in [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md).
   - Complements P18.1-CODE and P18.2-CODE; all three should be complete before long-running orchestrator soaks (P18.9-DEBUG).
 
 - **Upstream spec:**
-  - **P18.3-1 – Decision Lifecycle Spec.** See [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](P18.3-1_DECISION_LIFECYCLE_SPEC.md:1) for the canonical description of host decision, timeout, reconnect, and resign semantics used by P18.8-DEBUG and follow-on implementation/debug tasks.
+  - **P18.3-1 – Decision Lifecycle Spec.** See [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](P18.3-1_DECISION_LIFECYCLE_SPEC.md) for the canonical description of host decision, timeout, reconnect, and resign semantics used by P18.8-DEBUG and follow-on implementation/debug tasks.
 
 ---
 
@@ -131,9 +131,9 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 - **Scope:**
   - Systematically exercise edge cases in decision lifecycles at the host/WebSocket layer, focusing on:
-    - Decision-phase timeout warnings and auto-resolutions in [`GameSession.ts`](../../../src/server/game/GameSession.ts:1) and [`WebSocketInteractionHandler.ts`](../../../src/server/game/WebSocketInteractionHandler.ts:1).
-    - Reconnect windows and pending choice cancellation in [`server.ts`](../../../src/server/websocket/server.ts:1).
-    - HTTP-level leave/resign flows in [`game.ts`](../../../src/server/routes/game.ts:1) and their interaction with in-engine resignation semantics.
+    - Decision-phase timeout warnings and auto-resolutions in [`GameSession.ts`](../../../src/server/game/GameSession.ts) and [`WebSocketInteractionHandler.ts`](../../../src/server/game/WebSocketInteractionHandler.ts).
+    - Reconnect windows and pending choice cancellation in [`server.ts`](../../../src/server/websocket/server.ts).
+    - HTTP-level leave/resign flows in [`game.ts`](../../../src/server/routes/game.ts) and their interaction with in-engine resignation semantics.
   - Add or extend Jest/Playwright tests to cover:
     - Disconnection during an active decision phase and subsequent auto-resolution.
     - Reconnection within and after the grace window.
@@ -145,7 +145,7 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
   - WebSocket and HTTP flows for resign/leave are consistent with RR‑CANON rules and any documented rating policies.
 
 - **Dependencies:**
-  - Builds on existing semantics and UX notes in [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md:1) and [`docs/runbooks/WEBSOCKET_ISSUES.md`](../../runbooks/WEBSOCKET_ISSUES.md:1).
+  - Builds on existing semantics and UX notes in [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md) and [`docs/runbooks/WEBSOCKET_ISSUES.md`](../../runbooks/WEBSOCKET_ISSUES.md).
   - Should be informed by P18.1-CODE and P18.2-CODE but can begin in parallel.
 
 ---
@@ -165,8 +165,8 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
     - `ORCHESTRATOR_ADAPTER_ENABLED=true`
     - `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
     - `RINGRIFT_RULES_MODE=ts` (TS authoritative with Python in shadow mode).
-  - Follow the staged rollout steps in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md:1) for at least 48h of staging traffic (synthetic or real).
-  - **Gating:** Ensure all mandatory suites listed in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §6.5](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:636) (Capture/Territory Host Parity, AI RNG Parity) are green before entry.
+  - Follow the staged rollout steps in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](../../runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md) for at least 48h of staging traffic (synthetic or real).
+  - **Gating:** Ensure all mandatory suites listed in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §6.5](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) (Capture/Territory Host Parity, AI RNG Parity) are green before entry.
   - Ensure parity and invariant metrics are collected and visible in dashboards (for example, `ringrift_rules_parity_mismatches_total`, S-invariant counters, ACTIVE_NO_MOVES regressions).
 
 - **Acceptance criteria:**
@@ -191,11 +191,11 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
     - **Actual delivery: 49 vectors across the core families** (placement, movement, capture/chain_capture including extended chains, forced_elimination, territory/territory_line endgames including near_victory_territory, hex_edge_cases, and meta moves such as swap_sides)
     - Hex board territory disconnection with simultaneous line formation.
     - Three- and four-player capture chains with mixed line/territory consequences.
-    - Combined ANM and territory-processing edge cases already documented in [`docs/STRICT_INVARIANT_SOAKS.md`](../../testing/STRICT_INVARIANT_SOAKS.md:1) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1).
+    - Combined ANM and territory-processing edge cases already documented in [`docs/STRICT_INVARIANT_SOAKS.md`](../../testing/STRICT_INVARIANT_SOAKS.md) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
   - Update TS and Python contract runners:
-    - TS: [`tests/contracts/contractVectorRunner.test.ts`](../../../tests/contracts/contractVectorRunner.test.ts:1)
-    - Python: [`ai-service/tests/contracts/test_contract_vectors.py`](../../../ai-service/tests/contracts/test_contract_vectors.py:1)
-  - Ensure new artefacts are referenced in [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../../rules/PYTHON_PARITY_REQUIREMENTS.md:1) and surfaced via SSOT checks.
+    - TS: [`tests/contracts/contractVectorRunner.test.ts`](../../../tests/contracts/contractVectorRunner.test.ts)
+    - Python: [`ai-service/tests/contracts/test_contract_vectors.py`](../../../ai-service/tests/contracts/test_contract_vectors.py)
+  - Ensure new artefacts are referenced in [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../../rules/PYTHON_PARITY_REQUIREMENTS.md) and surfaced via SSOT checks.
 
 - **Acceptance criteria:**
   - New vectors or snapshots present under `tests/fixtures/contract-vectors/v2/` and any equivalent Python locations.
@@ -214,8 +214,8 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
 - **Priority:** P1
 
 - **Scope:**
-  - Use existing tooling such as [`scripts/run-orchestrator-soak.ts`](../../../scripts/run-orchestrator-soak.ts:1) and [`scripts/generate-orchestrator-contract-vectors.ts`](../../../scripts/generate-orchestrator-contract-vectors.ts:1) to run orchestrator-first soaks under representative board types and player counts.
-  - Capture outputs in results artefacts like [`results/orchestrator_soak_smoke.json`](../../../results/orchestrator_soak_smoke.json:1) and [`results/orchestrator_soak_summary.json`](../../../results/orchestrator_soak_summary.json:1), and extend them as needed.
+  - Use existing tooling such as [`scripts/run-orchestrator-soak.ts`](../../../scripts/run-orchestrator-soak.ts) and [`scripts/generate-orchestrator-contract-vectors.ts`](../../../scripts/generate-orchestrator-contract-vectors.ts) to run orchestrator-first soaks under representative board types and player counts.
+  - Capture outputs in results artefacts like [`results/orchestrator_soak_smoke.json`](../../../results/orchestrator_soak_smoke.json) and [`results/orchestrator_soak_summary.json`](../../../results/orchestrator_soak_summary.json), and extend them as needed.
   - Build lightweight debugging harnesses to quickly repro and triage any discovered mismatches (for example, scripts under `scripts/` that replay failing seeds via both legacy and orchestrator paths and dump traces).
 
 - **Acceptance criteria:**
@@ -263,12 +263,12 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 
 - **Scope:**
   - Update advanced-phase copy in HUD and victory components so that player-facing text matches RR‑CANON:
-    - [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx:1) – remove “or end your turn” from chain capture prompts when continuation is mandatory; clarify line and territory decision prompts.
-    - [`VictoryModal.tsx`](../../../src/client/components/VictoryModal.tsx:1) – replace “eliminate all rings” language with the correct “more than 50 percent of rings eliminated” threshold.
+    - [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx) – remove “or end your turn” from chain capture prompts when continuation is mandatory; clarify line and territory decision prompts.
+    - [`VictoryModal.tsx`](../../../src/client/components/VictoryModal.tsx) – replace “eliminate all rings” language with the correct “more than 50 percent of rings eliminated” threshold.
   - Ensure copy is consistent with rules docs:
-    - [`HUMAN_RULES.md`](../../rules/HUMAN_RULES.md:1)
-    - [`ringrift_compact_rules.md`](../../../ringrift_compact_rules.md:1)
-    - [`ringrift_complete_rules.md`](../../../ringrift_complete_rules.md:1).
+    - [`HUMAN_RULES.md`](../../rules/HUMAN_RULES.md)
+    - [`ringrift_compact_rules.md`](../../../ringrift_compact_rules.md)
+    - [`ringrift_complete_rules.md`](../../../ringrift_complete_rules.md).
 
 - **Acceptance criteria:**
   - All user-facing advanced-phase copy matches RR‑CANON and no longer misstates optional vs mandatory behaviour.
@@ -308,10 +308,10 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 
 - **Scope:**
   - Bring core SSOT and index docs into alignment with the updated weakest aspect and hardest problem:
-    - [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:1) – already updated; confirm references are stable.
+    - [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) – already updated; confirm references are stable.
     - [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md:1) – clarify that test counts and pass status are time-stamped snapshots; avoid implying current “all green” status.
-    - [`CURRENT_RULES_STATE.md`](../../rules/CURRENT_RULES_STATE.md:1) – update “No critical known issues” to reference current advanced-phase/parity work and link to PASS18 docs.
-    - [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md:1) and [`docs/INDEX.md`](../../INDEX.md:1) – revise “highest-risk semantics” language to distinguish historical ANM/forced-elimination focus from the current host-integration & parity focus, and add pointers to PASS18 and weakness docs.
+    - [`CURRENT_RULES_STATE.md`](../../rules/CURRENT_RULES_STATE.md) – update “No critical known issues” to reference current advanced-phase/parity work and link to PASS18 docs.
+    - [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) and [`docs/INDEX.md`](../../INDEX.md) – revise “highest-risk semantics” language to distinguish historical ANM/forced-elimination focus from the current host-integration & parity focus, and add pointers to PASS18 and weakness docs.
   - Archive or clearly mark historical design docs that have been superseded by RR‑CANON and shared-engine architecture (e.g., older adapter migration plans under `archive/`).
 
 - **Acceptance criteria:**
@@ -320,7 +320,7 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
   - SSOT banner checks continue to pass.
 
 - **Dependencies:**
-  - Uses findings captured in [`docs/PASS18_WORKING_NOTES.md`](PASS18_WORKING_NOTES.md:1) and `docs/PASS18_ASSESSMENT_REPORT.md`.
+  - Uses findings captured in [`docs/PASS18_WORKING_NOTES.md`](PASS18_WORKING_NOTES.md) and `docs/PASS18_ASSESSMENT_REPORT.md`.
 
 ---
 
@@ -331,13 +331,13 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 
 - **Scope:**
   - Extend SSoT tooling to better protect parity artefacts and orchestrator rollout configuration:
-    - Update [`scripts/ssot/python-parity-ssot-check.ts`](../../../scripts/ssot/python-parity-ssot-check.ts:1) to also assert the presence of key parity test suites in Jest and pytest configs.
+    - Update [`scripts/ssot/python-parity-ssot-check.ts`](../../../scripts/ssot/python-parity-ssot-check.ts) to also assert the presence of key parity test suites in Jest and pytest configs.
     - Optionally add a new `orchestrator-rollout-ssot-check` that validates critical environment variables and CI jobs for orchestrator rollout (e.g., ensuring that staging and production pipelines include orchestrator and parity checks).
-  - Ensure these checks are wired into CI via [`scripts/ssot/ssot-check.ts`](../../../scripts/ssot/ssot-check.ts:1).
+  - Ensure these checks are wired into CI via [`scripts/ssot/ssot-check.ts`](../../../scripts/ssot/ssot-check.ts).
 
 - **Acceptance criteria:**
   - SSOT checks fail if critical parity tests or orchestrator-related CI jobs are removed or disabled.
-  - Documentation for these checks is added or updated in [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md:1) or a nearby SSOT overview.
+  - Documentation for these checks is added or updated in [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md) or a nearby SSOT overview.
 
 - **Dependencies:**
   - Builds on existing SSOT tooling described in PASS18 working notes and previous passes.
@@ -353,7 +353,7 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 - **Scope:**
   - Add or extend tests in areas identified as under-tested in PASS18 test health scoring:
     - Frontend reconnect and spectator UX (e.g., Playwright tests over `GameContext` and lobby/game pages).
-    - WebSocket reconnection and error flows (including `player_choice_required`, `decision_phase_timeout_warning`, and `decision_phase_timed_out` events) bridging [`server.ts`](../../../src/server/websocket/server.ts:1) and [`GameContext.tsx`](../../../src/client/contexts/GameContext.tsx:1).
+    - WebSocket reconnection and error flows (including `player_choice_required`, `decision_phase_timeout_warning`, and `decision_phase_timed_out` events) bridging [`server.ts`](../../../src/server/websocket/server.ts) and [`GameContext.tsx`](../../../src/client/contexts/GameContext.tsx).
     - AI service outage and fallback UX (tying together `AIEngine` behaviour and client error banners).
 
 - **Acceptance criteria:**
@@ -361,9 +361,9 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
   - At least one E2E scenario exercises a full game with reconnect and decision timeouts without manual intervention.
     - As of 2025‑12‑01, this is concretely covered by the Playwright test
       **“reconnects after decision timeout and shows auto-resolved outcome in HUD”** in
-      [`tests/e2e/error-recovery.e2e.spec.ts`](../../../tests/e2e/error-recovery.e2e.spec.ts:140), backed by the guarded
+      [`tests/e2e/error-recovery.e2e.spec.ts`](../../../tests/e2e/error-recovery.e2e.spec.ts), backed by the guarded
       decision-phase fixture route (`POST /api/games/fixtures/decision-phase`) and the decision-timeout overrides wired
-      through [`config.decisionPhaseTimeouts`](../../../src/server/config/unified.ts:260).
+      through [`config.decisionPhaseTimeouts`](../../../src/server/config/unified.ts).
 
 - **Dependencies:**
   - Builds on debugging insights from P18.8-DEBUG.
@@ -378,11 +378,11 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 
 - **Scope:**
   - Produce a concise UX-oriented rules narrative for advanced phases that keeps:
-    - [`HUMAN_RULES.md`](../../rules/HUMAN_RULES.md:1)
-    - [`ringrift_compact_rules.md`](../../../ringrift_compact_rules.md:1)
-    - [`ringrift_complete_rules.md`](../../../ringrift_complete_rules.md:1)
+    - [`HUMAN_RULES.md`](../../rules/HUMAN_RULES.md)
+    - [`ringrift_compact_rules.md`](../../../ringrift_compact_rules.md)
+    - [`ringrift_complete_rules.md`](../../../ringrift_complete_rules.md)
       aligned with HUD/game UI copy for chain capture, line and territory decisions, and victory thresholds.
-  - Use findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:1) to prioritise the most confusing areas.
+  - Use findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md) to prioritise the most confusing areas.
 
 - **Acceptance criteria:**
   - Updated rule docs provide a clear, layered explanation of advanced phases that matches in-game prompts.
@@ -441,7 +441,7 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 
 - **Agent Mode:** Debug
 - **Priority:** P1
-- **Status:** ✅ Complete (2025-12-01) – See [`docs/P18.18_SKIPPED_TEST_TRIAGE.md`](P18.18_SKIPPED_TEST_TRIAGE.md:1)
+- **Status:** ✅ Complete (2025-12-01) – See [`docs/P18.18_SKIPPED_TEST_TRIAGE.md`](P18.18_SKIPPED_TEST_TRIAGE.md)
 - **Scope:**
   - Analyze the 176 skipped tests.
   - Categorize them: Fix, Delete, or Defer.
@@ -480,43 +480,43 @@ This section summarises the PASS18 documentation audit for core SSOT and high-vi
 | :-- | :----: | :---- |
 
 <<<<<<< Updated upstream
-| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:1) | **Current** | Updated to focus on host integration & deep multi-engine parity as the highest-risk area and orchestrator rollout as the hardest problem. Serves as SSoT for risk framing. |
-| [`README.md`](../../../README.md:1) | **Current (minor refresh optional)** | Setup and quickstart instructions are accurate; does not embed strong claims about current weakest aspect or test health. Could optionally add a short pointer to PASS18/weakness docs for readers seeking risk context. |
-| [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md:1) | **Current** | Canonical RR‑CANON rules for capture, lines, territory, and Q23 are consistent with current engine implementations and parity tests. |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md:1) | **Current** | Accurately describes shared TS engine, orchestrator, adapters, and Python parity role. No major drift found. |
-| [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md:1) | **Current (watchlist)** | Architecture and RNG strategy are correct; some language about historical Python simplifications may need softening once PASS18 parity work completes. |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) | **Current** | Updated to focus on host integration & deep multi-engine parity as the highest-risk area and orchestrator rollout as the hardest problem. Serves as SSoT for risk framing. |
+| [`README.md`](../../../README.md) | **Current (minor refresh optional)** | Setup and quickstart instructions are accurate; does not embed strong claims about current weakest aspect or test health. Could optionally add a short pointer to PASS18/weakness docs for readers seeking risk context. |
+| [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md) | **Current** | Canonical RR‑CANON rules for capture, lines, territory, and Q23 are consistent with current engine implementations and parity tests. |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md) | **Current** | Accurately describes shared TS engine, orchestrator, adapters, and Python parity role. No major drift found. |
+| [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md) | **Current (watchlist)** | Architecture and RNG strategy are correct; some language about historical Python simplifications may need softening once PASS18 parity work completes. |
 | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md:1) | **✅ Updated (P18.6-1)** | Updated with post-P18.5 parity status (43 vectors, 0 mismatches), orchestrator Phase 4 complete, risk register added, test health section aligned with P18.18. |
-| [`CURRENT_RULES_STATE.md`](../../rules/CURRENT_RULES_STATE.md:1) | **Needs update** | "No critical known issues" is no longer accurate given open advanced-phase/parity work; should explicitly reference PASS18 weakest-aspect findings. |
-| [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) | **✅ Updated (P18.6-1)** | Added Section 3 "Completed Remediations" documenting P18.1-5 work, updated historical assessments with resolution notes, downgraded hardest problem severity. |
-| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md:1) | **✅ Updated (P18.6-1)** | Downgraded P0.2 parity severity to LOW, added P18.5-\* resolution details, added Design Clarifications section (DC.1 for mid-phase vectors), updated historical issues. |
-| [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md:1) | **Needs update** | Still describes ANM/forced-elimination as the "current highest-risk semantics" area; should either mark that as historical or point to PASS18/weakness docs for current risk. |
-| [`docs/INDEX.md`](../../INDEX.md:1) | **Needs update** | Over-emphasises ANM invariants as "highest-risk semantics"; should add notes that current weakest aspect & hardest problem are tracked in PASS18 and weakness reports. |
-| [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md:1) | **Current** | Correctly defines SSOT banner expectations and categories; no changes required beyond optional references to new PASS18 docs. |
-| [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md:1) | **Current (historical focus)** | Accurately describes dynamic verification approach with a focus on ANM and earlier risk areas; remains useful as a historical and methodological reference. |
-| [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1) | **Current** | Documents tricky rules edge cases consistent with RR‑CANON; can be expanded with new cases found during PASS18 but not fundamentally stale. |
-| [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../../supplementary/RULES_RULESET_CLARIFICATIONS.md:1) | **Current** | Provides clarifications for earlier ambiguities; still aligned with current rules. |
-| [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:1) | **Current (to be extended)** | Correctly identifies UX/documentation mismatches; PASS18 UX work will likely add new findings rather than invalidate existing ones. |
-| [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1) | **Current** | Already reflects Phase 4 completion status. |
-| [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1) | **Current** | Already aligned with extended contract vectors and parity status. |
+| [`CURRENT_RULES_STATE.md`](../../rules/CURRENT_RULES_STATE.md) | **Needs update** | "No critical known issues" is no longer accurate given open advanced-phase/parity work; should explicitly reference PASS18 weakest-aspect findings. |
+| [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md) | **✅ Updated (P18.6-1)** | Added Section 3 "Completed Remediations" documenting P18.1-5 work, updated historical assessments with resolution notes, downgraded hardest problem severity. |
+| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) | **✅ Updated (P18.6-1)** | Downgraded P0.2 parity severity to LOW, added P18.5-\* resolution details, added Design Clarifications section (DC.1 for mid-phase vectors), updated historical issues. |
+| [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) | **Needs update** | Still describes ANM/forced-elimination as the "current highest-risk semantics" area; should either mark that as historical or point to PASS18/weakness docs for current risk. |
+| [`docs/INDEX.md`](../../INDEX.md) | **Needs update** | Over-emphasises ANM invariants as "highest-risk semantics"; should add notes that current weakest aspect & hardest problem are tracked in PASS18 and weakness reports. |
+| [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md) | **Current** | Correctly defines SSOT banner expectations and categories; no changes required beyond optional references to new PASS18 docs. |
+| [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md) | **Current (historical focus)** | Accurately describes dynamic verification approach with a focus on ANM and earlier risk areas; remains useful as a historical and methodological reference. |
+| [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md) | **Current** | Documents tricky rules edge cases consistent with RR‑CANON; can be expanded with new cases found during PASS18 but not fundamentally stale. |
+| [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../../supplementary/RULES_RULESET_CLARIFICATIONS.md) | **Current** | Provides clarifications for earlier ambiguities; still aligned with current rules. |
+| [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md) | **Current (to be extended)** | Correctly identifies UX/documentation mismatches; PASS18 UX work will likely add new findings rather than invalidate existing ones. |
+| [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) | **Current** | Already reflects Phase 4 completion status. |
+| [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) | **Current** | Already aligned with extended contract vectors and parity status. |
 =======
-| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md:1) | **Current** | Updated to focus on host integration & deep multi-engine parity as the highest-risk area and orchestrator rollout as the hardest problem. Serves as SSoT for risk framing. |
-| [`README.md`](../../../README.md:1) | **Current (minor refresh optional)** | Setup and quickstart instructions are accurate; does not embed strong claims about current weakest aspect or test health. Could optionally add a short pointer to PASS18/weakness docs for readers seeking risk context. |
-| [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md:1) | **Current** | Canonical RR‑CANON rules for capture, lines, territory, and Q23 are consistent with current engine implementations and parity tests. |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md:1) | **Current** | Accurately describes shared TS engine, orchestrator, adapters, and Python parity role. No major drift found. |
-| [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md:1) | **Current (watchlist)** | Architecture and RNG strategy are correct; some language about historical Python simplifications may need softening once PASS18 parity work completes. |
+| [`PROJECT_GOALS.md`](../../../PROJECT_GOALS.md) | **Current** | Updated to focus on host integration & deep multi-engine parity as the highest-risk area and orchestrator rollout as the hardest problem. Serves as SSoT for risk framing. |
+| [`README.md`](../../../README.md) | **Current (minor refresh optional)** | Setup and quickstart instructions are accurate; does not embed strong claims about current weakest aspect or test health. Could optionally add a short pointer to PASS18/weakness docs for readers seeking risk context. |
+| [`RULES_CANONICAL_SPEC.md`](../../../RULES_CANONICAL_SPEC.md) | **Current** | Canonical RR‑CANON rules for capture, lines, territory, and Q23 are consistent with current engine implementations and parity tests. |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md) | **Current** | Accurately describes shared TS engine, orchestrator, adapters, and Python parity role. No major drift found. |
+| [`AI_ARCHITECTURE.md`](../../architecture/AI_ARCHITECTURE.md) | **Current (watchlist)** | Architecture and RNG strategy are correct; some language about historical Python simplifications may need softening once PASS18 parity work completes. |
 | [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md:1) | **✅ Updated (P18.6-1)** | Updated with post-P18.5 parity status (43 vectors, 0 mismatches), orchestrator Phase 4 complete, risk register added, test health section aligned with P18.18. |
-| [`CURRENT_RULES_STATE.md`](../../rules/CURRENT_RULES_STATE.md:1) | **Needs update** | "No critical known issues" is no longer accurate given open advanced-phase/parity work; should explicitly reference PASS18 weakest-aspect findings. |
-| [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) | **✅ Updated (P18.6-1)** | Added Section 3 "Completed Remediations" documenting P18.1-5 work, updated historical assessments with resolution notes, downgraded hardest problem severity. |
-| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md:1) | **✅ Updated (P18.6-1)** | Downgraded P0.2 parity severity to LOW, added P18.5-\* resolution details, added Design Clarifications section (DC.1 for mid-phase vectors), updated historical issues. |
-| [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md:1) | **Needs update** | Still describes ANM/forced-elimination as the "current highest-risk semantics" area; should either mark that as historical or point to PASS18/weakness docs for current risk. |
-| [`docs/INDEX.md`](../../INDEX.md:1) | **Needs update** | Over-emphasises ANM invariants as "highest-risk semantics"; should add notes that current weakest aspect & hardest problem are tracked in PASS18 and weakness reports. |
-| [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md:1) | **Current** | Correctly defines SSOT banner expectations and categories; no changes required beyond optional references to new PASS18 docs. |
-| [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md:1) | **Current (historical focus)** | Accurately describes dynamic verification approach with a focus on ANM and earlier risk areas; remains useful as a historical and methodological reference. |
-| [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1) | **Current** | Documents tricky rules edge cases consistent with RR‑CANON; can be expanded with new cases found during PASS18 but not fundamentally stale. |
-| [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../../supplementary/RULES_RULESET_CLARIFICATIONS.md:1) | **Current** | Provides clarifications for earlier ambiguities; still aligned with current rules. |
-| [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:1) | **Current (to be extended)** | Correctly identifies UX/documentation mismatches; PASS18 UX work will likely add new findings rather than invalidate existing ones. |
-| [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1) | **Current** | Already reflects Phase 4 completion status. |
-| [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1) | **Current** | Already aligned with extended contract vectors and parity status. |
+| [`CURRENT_RULES_STATE.md`](../../rules/CURRENT_RULES_STATE.md) | **Needs update** | "No critical known issues" is no longer accurate given open advanced-phase/parity work; should explicitly reference PASS18 weakest-aspect findings. |
+| [`WEAKNESS_ASSESSMENT_REPORT.md`](../plans/WEAKNESS_ASSESSMENT_REPORT.md) | **✅ Updated (P18.6-1)** | Added Section 3 "Completed Remediations" documenting P18.1-5 work, updated historical assessments with resolution notes, downgraded hardest problem severity. |
+| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) | **✅ Updated (P18.6-1)** | Downgraded P0.2 parity severity to LOW, added P18.5-\* resolution details, added Design Clarifications section (DC.1 for mid-phase vectors), updated historical issues. |
+| [`DOCUMENTATION_INDEX.md`](../../../DOCUMENTATION_INDEX.md) | **Needs update** | Still describes ANM/forced-elimination as the "current highest-risk semantics" area; should either mark that as historical or point to PASS18/weakness docs for current risk. |
+| [`docs/INDEX.md`](../../INDEX.md) | **Needs update** | Over-emphasises ANM invariants as "highest-risk semantics"; should add notes that current weakest aspect & hardest problem are tracked in PASS18 and weakness reports. |
+| [`docs/SSOT_BANNER_GUIDE.md`](../../rules/SSOT_BANNER_GUIDE.md) | **Current** | Correctly defines SSOT banner expectations and categories; no changes required beyond optional references to new PASS18 docs. |
+| [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md) | **Current (historical focus)** | Accurately describes dynamic verification approach with a focus on ANM and earlier risk areas; remains useful as a historical and methodological reference. |
+| [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md) | **Current** | Documents tricky rules edge cases consistent with RR‑CANON; can be expanded with new cases found during PASS18 but not fundamentally stale. |
+| [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../../supplementary/RULES_RULESET_CLARIFICATIONS.md) | **Current** | Provides clarifications for earlier ambiguities; still aligned with current rules. |
+| [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md) | **Current (to be extended)** | Correctly identifies UX/documentation mismatches; PASS18 UX work will likely add new findings rather than invalidate existing ones. |
+| [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) | **Current** | Already reflects Phase 4 completion status. |
+| [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) | **Current** | Already aligned with extended contract vectors and parity status. |
 
 > > > > > > > Stashed changes
 

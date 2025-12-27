@@ -37,9 +37,9 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - Legal position with:
     - Player 1 markers forming a near-complete line on an 8×8 board.
     - A single Player 1 stack elsewhere.
-  - A bug (in tests or future code) writes a stack to a cell already containing a marker via [`TypeScript.BoardManager.setStack()`](src/server/game/BoardManager.ts:446).
+  - A bug (in tests or future code) writes a stack to a cell already containing a marker via [`TypeScript.BoardManager.setStack()`](../src/server/game/BoardManager.ts).
 - **Actions**
-  - Call any movement or capture helper that eventually triggers [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94) or relies on the mutated board.
+  - Call any movement or capture helper that eventually triggers [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts) or relies on the mutated board.
 - **Expected result (RR-CANON)**
   - Such a state is **unreachable**; RR-CANON-R030–R031 require exclusive occupancy.
   - If it somehow occurred, canonical semantics are undefined; no silent repair should change gameplay.
@@ -47,13 +47,13 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - `setStack` and `assertBoardInvariants` will **delete the marker** and keep the stack, potentially destroying an otherwise valid line or border.
   - This can **decrease** the S-invariant (RR-CANON-R191) by reducing marker count without a compensating collapse or elimination.
 - **Existing coverage**
-  - Invariant checks in [`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94) are exercised indirectly by many tests, but **no test asserts that repairs never occur** on legal trajectories.
+  - Invariant checks in [`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts) are exercised indirectly by many tests, but **no test asserts that repairs never occur** on legal trajectories.
 - **Gaps / proposed tests**
   - **Test name**: `BoardManager_does_not_perform_repairs_on_legal_game_traces`
-  - **Location**: new backend invariant suite, e.g. [`tests/unit/BoardManager.invariants.repairCounter.test.ts`](tests/unit/BoardManager.invariants.repairCounter.test.ts:1)
+  - **Location**: new backend invariant suite, e.g. `tests/unit/BoardManager.invariants.repairCounter.test.ts`
   - **Structure**
     - Instrument `BoardManager` (in test build only) with a `repairCount` counter incremented whenever a marker/stack/collapsed overlap is repaired.
-    - Replay several long seeded backend vs sandbox parity traces (e.g. existing `seed5` and `seed17` traces referenced in [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md)) through [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92).
+    - Replay several long seeded backend vs sandbox parity traces (e.g. existing `seed5` and `seed17` traces referenced in [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md)) through [`TypeScript.GameEngine`](../src/server/game/GameEngine.ts).
     - **Assert**: `repairCount === 0` for all steps.
   - **Dynamic intent**
     - Turn any occurrence of SCEN-BOARD-001 into a **hard test failure** instead of a silent correction.
@@ -63,7 +63,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Initial state**
   - 19×19 board with:
     - Player 1 markers forming a line that will collapse this turn.
-    - A physically and color-disconnected region of Player 2 stacks surrounded by Player 1 markers (as in the examples in [`tests/unit/GameEngine.territoryDisconnection.test.ts`](tests/unit/GameEngine.territoryDisconnection.test.ts:1)).
+    - A physically and color-disconnected region of Player 2 stacks surrounded by Player 1 markers (as in the examples in `tests/unit/GameEngine.territoryDisconnection.test.ts`).
   - Player 1 controls at least one stack outside the region.
 - **Actions**
   - Player 1 performs a capturing or moving action that simultaneously:
@@ -77,7 +77,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - Territory counters `territorySpaces[P1]` equal the number of P1-owned collapsed spaces.
     - Eliminated ring counters and S-invariant increase accordingly.
 - **Existing coverage**
-  - Well covered by combined scenarios such as `Q15_Q7_combined_line_and_region_backend` in [`tests/unit/GameEngine.territoryDisconnection.test.ts`](tests/unit/GameEngine.territoryDisconnection.test.ts:514), and RulesMatrix line+territory tests in [`tests/scenarios/LineAndTerritory.test.ts`](tests/scenarios/LineAndTerritory.test.ts:1).
+  - Well covered by combined scenarios such as `Q15_Q7_combined_line_and_region_backend` in `tests/unit/GameEngine.territoryDisconnection.test.ts`, and RulesMatrix line+territory tests in `tests/scenarios/LineAndTerritory.test.ts`.
 - **Gaps / proposed tests**
   - No major gaps; see territory cluster for multi-region extensions.
 
@@ -100,14 +100,14 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - Eliminated rings are credited to A (RR-CANON-R060, R100).
   - If A still has stacks with moves, play continues; otherwise the turn passes.
 - **Existing coverage**
-  - Backend turn-sequence and stalemate ladders in [`tests/scenarios/ForcedEliminationAndStalemate.test.ts`](tests/scenarios/ForcedEliminationAndStalemate.test.ts:1).
-  - Turn/forced-elimination flows in [`tests/unit/GameEngine.turnSequence.scenarios.test.ts`](tests/unit/GameEngine.turnSequence.scenarios.test.ts:1).
-  - Python invariant regression [`test_active_no_moves_movement_forced_elimination_regression.py`](ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py:1) ensures any ACTIVE/MOVEMENT state with no regular moves but available forced eliminations is treated as having legal actions.
+  - Backend turn-sequence and stalemate ladders in [`tests/scenarios/ForcedEliminationAndStalemate.test.ts`](../tests/scenarios/ForcedEliminationAndStalemate.test.ts).
+  - Turn/forced-elimination flows in [`tests/unit/GameEngine.turnSequence.scenarios.test.ts`](../tests/unit/GameEngine.turnSequence.scenarios.test.ts).
+  - Python invariant regression [`test_active_no_moves_movement_forced_elimination_regression.py`](../ai-service/tests/invariants/test_active_no_moves_movement_forced_elimination_regression.py) ensures any ACTIVE/MOVEMENT state with no regular moves but available forced eliminations is treated as having legal actions.
 - **Gaps / proposed tests**
   - Backend tests already assert forced elimination occurs; **sandbox parity** is mostly indirect.
   - **Proposed sandbox test**
     - **Name**: `sandbox_forced_elimination_when_blocked_matches_backend`
-    - **Location**: [`tests/unit/ClientSandboxEngine.placementForcedElimination.test.ts`](tests/unit/ClientSandboxEngine.placementForcedElimination.test.ts:1) or a new sandbox turn-sequence file.
+    - **Location**: [`tests/unit/ClientSandboxEngine.placementForcedElimination.test.ts`](../tests/unit/ClientSandboxEngine.placementForcedElimination.test.ts) or a new sandbox turn-sequence file.
     - **Structure**: construct a blocked-state position matching an existing backend scenario and assert that `startTurnForCurrentPlayerSandbox` calls `forceEliminateCap` exactly once and leaves `currentPhase` and `currentPlayer` aligned with backend traces.
 
 #### SCEN-TURN-002 – Player with material but no actions after territory processing
@@ -122,15 +122,15 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - P1 should **not** remain the current player in an ACTIVE state with no legal actions.
   - Turn should rotate to the next player with material (RR-CANON-R070–R072, R173).
 - **Existing coverage**
-  - Python regression [`test_active_no_moves_territory_processing_regression.py`](ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py:1) replays an historical failure and asserts the strict invariant: any ACTIVE state must offer at least one move or forced elimination to the current player.
-  - Backend behaviour is validated indirectly via territory scenarios in [`tests/unit/GameEngine.territory.scenarios.test.ts`](tests/unit/GameEngine.territory.scenarios.test.ts:1).
+  - Python regression [`test_active_no_moves_territory_processing_regression.py`](../ai-service/tests/invariants/test_active_no_moves_territory_processing_regression.py) replays an historical failure and asserts the strict invariant: any ACTIVE state must offer at least one move or forced elimination to the current player.
+  - Backend behaviour is validated indirectly via territory scenarios in `tests/unit/GameEngine.territory.scenarios.test.ts`.
 - **Gaps / proposed tests**
   - Add an explicit backend scenario where `currentPhase` is `territory_processing`, P1 processes a region that exhausts their material, and then:
     - **Name**: `territory_processing_rotates_turn_when_moving_player_loses_all_material`
-    - **Location**: [`tests/unit/GameEngine.territory.scenarios.test.ts`](tests/unit/GameEngine.territory.scenarios.test.ts:1).
+    - **Location**: `tests/unit/GameEngine.territory.scenarios.test.ts`.
     - **Assertions**:
       - After `process_territory_region` and automatic consequences, `currentPlayer` is advanced to the next player with stacks/rings.
-      - There is no intermediate ACTIVE state where [`TypeScript.RuleEngine.getValidMoves()`](src/server/game/RuleEngine.ts:752) and forced-elimination enumerations are both empty for the active player.
+      - There is no intermediate ACTIVE state where [`TypeScript.RuleEngine.getValidMoves()`](../src/server/game/RuleEngine.ts) and forced-elimination enumerations are both empty for the active player.
 
 **Cluster assessment**: dynamic coverage is **good**, especially thanks to Python strict invariants, but sandbox-specific forced-elimination flows are only indirectly tested and should gain a direct parity scenario.
 
@@ -146,7 +146,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - Placement is **mandatory** (RR-CANON-R080); legal placements are those that satisfy no-dead-placement (RR-CANON-R081–R082).
   - `skip_placement` must be illegal.
 - **Existing coverage**
-  - Covered indirectly by initial-move scenarios and RuleEngine placement enumeration in movement/FAQ suites; specifically by FAQ Q17 in [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1) and RulesMatrix movement scenarios that start from empty boards.
+  - Covered indirectly by initial-move scenarios and RuleEngine placement enumeration in movement/FAQ suites; specifically by FAQ Q17 in [`tests/scenarios/FAQ_Q16_Q18.test.ts`](../tests/scenarios/FAQ_Q16_Q18.test.ts) and RulesMatrix movement scenarios that start from empty boards.
 - **Gaps / proposed tests**
   - Add a precise RuleEngine test that enumerates `getValidMoves` in `ring_placement` with no stacks and asserts:
     - All moves have type `place_ring`.
@@ -162,12 +162,12 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - Placement is **optional**; both `place_ring` and an explicit `skip_placement` action are legal (RR-CANON-R080).
 - **Existing coverage**
-  - RuleEngine placement/skip validation (unit tests) and RulesMatrix placement scenarios referenced in [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:146).
+  - RuleEngine placement/skip validation (unit tests) and RulesMatrix placement scenarios referenced in [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md).
 - **Gaps / proposed tests**
   - **Sandbox representation asymmetry**: sandbox does not surface `skip_placement` as a first-class move.
   - **Proposed sandbox test**
     - **Name**: `sandbox_start_turn_with_optional_placement_exposes_movement_path`
-    - **Location**: new file [`tests/unit/ClientSandboxEngine.placementPhaseParity.test.ts`](tests/unit/ClientSandboxEngine.placementPhaseParity.test.ts:1).
+    - **Location**: new file `tests/unit/ClientSandboxEngine.placementPhaseParity.test.ts`.
     - **Structure**:
       - Mirror a backend scenario where `getValidMoves` in `ring_placement` exposes both `place_ring` and `skip_placement`.
       - In sandbox, call `startTurnForCurrentPlayerSandbox` and then enumerate movement choices for the current player.
@@ -186,11 +186,11 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - Placement is **illegal** by RR-CANON-R081–R082 (no-dead-placement).
   - Legal placements must either use fewer rings or a different cell so that at least one move or capture exists.
 - **Existing coverage**
-  - Shared validator tests (not included in the snippet) referenced in [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md:236) and movement/FAQ suites.
+  - Shared validator tests (not included in the snippet) referenced in [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md) and movement/FAQ suites.
 - **Gaps / proposed tests**
   - Add a dedicated shared-validator test:
     - **Name**: `validatePlacementOnBoard_rejects_dead_high_stack_even_when_capacity_allows`
-    - **Location**: [`tests/unit/PlacementValidator.rules.test.ts`](tests/unit/PlacementValidator.rules.test.ts:1).
+    - **Location**: `tests/unit/PlacementValidator.rules.test.ts`.
     - **Assertions**:
       - For the dead cell, `validatePlacementOnBoard` returns `NO_LEGAL_MOVES`.
       - For an adjacent non-dead cell, placement is accepted.
@@ -208,13 +208,13 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - If the cap is interpreted as **“own-colour rings only”**, further placements might still be legal.
   - The current TS implementation approximates the cap as **“total rings in P1-controlled stacks”**, potentially forbidding additional placements.
 - **Existing coverage**
-  - No direct dynamic tests target this approximation; it is treated as benign in [`archive/RULES_STATIC_VERIFICATION.md`](../archive/RULES_STATIC_VERIFICATION.md:755).
+  - No direct dynamic tests target this approximation; it is treated as benign in [`archive/RULES_STATIC_VERIFICATION.md`](../archive/RULES_STATIC_VERIFICATION.md).
 - **Gaps / proposed tests**
   - **Test name**: `placement_cap_approximation_with_mixed_colour_stacks`
-  - **Location**: new shared rules test [`tests/unit/PlacementCap.mixedColourStack.test.ts`](tests/unit/PlacementCap.mixedColourStack.test.ts:1).
+  - **Location**: new shared rules test `tests/unit/PlacementCap.mixedColourStack.test.ts`.
   - **Structure**
     - Construct the mixed-colour scenario described above both in TS and Python engines.
-    - In TS, assert that [`TypeScript.RuleEngine.getValidRingPlacements()`](src/server/game/RuleEngine.ts:839) yields **no** placements (cap reached).
+    - In TS, assert that [`TypeScript.RuleEngine.getValidRingPlacements()`](../src/server/game/RuleEngine.ts) yields **no** placements (cap reached).
     - In Python, implement two variants:
       - One using the same approximation (for parity).
       - One counting only own-colour rings.
@@ -235,8 +235,8 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - Legal landings are exactly those at distance `d ≥ H` along movement directions with empty intermediate cells and legal landing cells (no stacks, no opponent markers, no collapsed spaces) per RR-CANON-R091.
 - **Existing coverage**
-  - Shared helper parity test `square8: shared vs sandbox vs RuleEngine on open board` in [`tests/unit/movement.shared.test.ts`](tests/unit/movement.shared.test.ts:56).
-  - RulesMatrix movement scenarios M1 in [`tests/scenarios/RulesMatrix.Movement.RuleEngine.test.ts`](tests/scenarios/RulesMatrix.Movement.RuleEngine.test.ts:1).
+  - Shared helper parity test `square8: shared vs sandbox vs RuleEngine on open board` in [`tests/unit/movement.shared.test.ts`](../tests/unit/movement.shared.test.ts).
+  - RulesMatrix movement scenarios M1 in [`tests/scenarios/RulesMatrix.Movement.RuleEngine.test.ts`](../tests/scenarios/RulesMatrix.Movement.RuleEngine.test.ts).
 - **Gaps / proposed tests**
   - Well covered; no additional tests required beyond parity extensions.
 
@@ -255,14 +255,14 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - P1 markers along the path are collapsed to territory for P1.
     - Landing cell marker (if P1-owned) is removed without collapse; then the top ring of the landing stack is eliminated and credited to P1.
 - **Existing coverage**
-  - Movement + marker behaviour in RuleEngine movement tests and the shared helper tests in [`tests/unit/movement.shared.test.ts`](tests/unit/movement.shared.test.ts:223).
-  - Landing-on-own-marker elimination tests in [`tests/unit/ClientSandboxEngine.landingOnOwnMarker.test.ts`](tests/unit/ClientSandboxEngine.landingOnOwnMarker.test.ts:1).
+  - Movement + marker behaviour in RuleEngine movement tests and the shared helper tests in [`tests/unit/movement.shared.test.ts`](../tests/unit/movement.shared.test.ts).
+  - Landing-on-own-marker elimination tests in [`tests/unit/ClientSandboxEngine.landingOnOwnMarker.test.ts`](../tests/unit/ClientSandboxEngine.landingOnOwnMarker.test.ts).
 - **Gaps / proposed tests**
   - Add a **full-path S-invariant** check where a movement collapses multiple own markers:
     - **Name**: `movement_path_marker_flip_and_collapse_preserves_S_invariant_shape`
-    - **Location**: [`tests/unit/ProgressSnapshot.core.test.ts`](tests/unit/ProgressSnapshot.core.test.ts:1).
+    - **Location**: [`tests/unit/ProgressSnapshot.core.test.ts`](../tests/unit/ProgressSnapshot.core.test.ts).
     - **Assertions**:
-      - Compare the S values from [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531) before and after the move.
+      - Compare the S values from [`TypeScript.computeProgressSnapshot()`](../src/shared/engine/core.ts) before and after the move.
       - Verify it increases by the net effect (collapsed markers + eliminated ring) as per RR-CANON-R191.
 
 #### SCEN-MOVEMENT-003 – Hex movement adjacency and minimum distance
@@ -274,7 +274,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - Legal moves correspond exactly to hex adjacency directions with distance ≥ 1 and valid landing cells.
 - **Existing coverage**
-  - `hexagonal: shared vs sandbox vs RuleEngine on open board` in [`tests/unit/movement.shared.test.ts`](tests/unit/movement.shared.test.ts:173).
+  - `hexagonal: shared vs sandbox vs RuleEngine on open board` in [`tests/unit/movement.shared.test.ts`](../tests/unit/movement.shared.test.ts).
 - **Gaps / proposed tests**
   - No gaps; parity coverage is already strong.
 
@@ -294,8 +294,8 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - Legal segments for each target stack with `capHeight_P1 ≥ capHeight_target`.
     - Landing cells satisfy distance and blocking rules.
 - **Existing coverage**
-  - Shared capture helper tests in [`tests/unit/captureLogic.shared.test.ts`](tests/unit/captureLogic.shared.test.ts:68), especially `enumerates capture segments along multiple rays from a single attacker`.
-  - Additional RuleEngine capture tests and FAQ Q5–Q6 in [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1).
+  - Shared capture helper tests in [`tests/unit/captureLogic.shared.test.ts`](../tests/unit/captureLogic.shared.test.ts), especially `enumerates capture segments along multiple rays from a single attacker`.
+  - Additional RuleEngine capture tests and FAQ Q5–Q6 in [`tests/scenarios/FAQ_Q01_Q06.test.ts`](../tests/scenarios/FAQ_Q01_Q06.test.ts).
 - **Gaps / proposed tests**
   - None for single-segment legality.
 
@@ -303,7 +303,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 
 - **Initial state**
   - Square19 board; Blue (P1) stack of height 4 at A, Red (P2) stack of height 3 at B on a straight line.
-  - Geometry as in FAQ Q15.3.1 and [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:30).
+  - Geometry as in FAQ Q15.3.1 and [`tests/scenarios/FAQ_Q15.test.ts`](../tests/scenarios/FAQ_Q15.test.ts).
 - **Actions**
   - P1 performs `overtaking_capture` A→B→C, then chain captures back C→B→D (180° reversal).
 - **Expected result (RR-CANON)**
@@ -312,33 +312,33 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - Target stack at B can be re-captured if cap legality holds.
     - Stack heights and caps after the chain match the FAQ diagram (Blue ends with height 6; Red at B shrinks to 1).
 - **Existing coverage**
-  - Backend dynamic chain in `Q15.3.1: 180-Degree Reversal Pattern` in [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:30).
-  - Additional scenario coverage in `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites referenced by [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:92).
+  - Backend dynamic chain in `Q15.3.1: 180-Degree Reversal Pattern` in [`tests/scenarios/FAQ_Q15.test.ts`](../tests/scenarios/FAQ_Q15.test.ts).
+  - Additional scenario coverage in `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites referenced by [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md).
 - **Gaps / proposed tests**
-  - **Shared-helper parity**: capture-chain enumeration is still partly wired through legacy [`TypeScript.captureChainEngine`](src/server/game/rules/captureChainEngine.ts:45) and sandbox-specific logic.
+  - **Shared-helper parity**: capture-chain enumeration is still partly wired through legacy `TypeScript.captureChainEngine` and sandbox-specific logic.
   - **Proposed test**
     - **Name**: `captureChainHelpers_180_degree_reversal_matches_GameEngine`
-    - **Location**: new shared-engine test [`tests/unit/captureChainHelpers.shared.test.ts`](tests/unit/captureChainHelpers.shared.test.ts:1).
+    - **Location**: new shared-engine test `tests/unit/captureChainHelpers.shared.test.ts`.
     - **Structure**:
       - Construct the Q15.3.1 position using shared board fixtures.
-      - Use [`TypeScript.captureChainHelpers`](src/shared/engine/captureChainHelpers.ts:134) (once fully implemented) to enumerate all legal next segments after the first capture.
-      - Use [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92) to enumerate `continue_capture_segment` moves.
+      - Use `TypeScript.captureChainHelpers` (once fully implemented) to enumerate all legal next segments after the first capture.
+      - Use [`TypeScript.GameEngine`](../src/server/game/GameEngine.ts) to enumerate `continue_capture_segment` moves.
       - **Assert**: the sets of legal continuation segments match, including the 180° reversal.
 
 #### SCEN-CAPTURE-003 – Cyclic capture loop (FAQ Q15.3.2)
 
 - **Initial state**
-  - 8×8 or hex board with a triangle of opponent stacks around an initial P1 stack, as in FAQ Q15.3.2 and [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:166).
+  - 8×8 or hex board with a triangle of opponent stacks around an initial P1 stack, as in FAQ Q15.3.2 and [`tests/scenarios/FAQ_Q15.test.ts`](../tests/scenarios/FAQ_Q15.test.ts).
 - **Actions**
   - P1 executes a capture chain A→B→…→C→A, visiting each target exactly once.
 - **Expected result (RR-CANON)**
   - Chain continues while legal segments exist; revisiting cells and stacks is allowed if legality holds.
   - Final stack height and elimination counts match FAQ expectations.
 - **Existing coverage**
-  - Backend chain in `Q15.3.2: Cyclic Pattern` in [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:166).
-  - Hex-specific cyclic capture tests in [`tests/unit/GameEngine.cyclicCapture.hex.scenarios.test.ts`](tests/unit/GameEngine.cyclicCapture.hex.scenarios.test.ts:1).
+  - Backend chain in `Q15.3.2: Cyclic Pattern` in [`tests/scenarios/FAQ_Q15.test.ts`](../tests/scenarios/FAQ_Q15.test.ts).
+  - Hex-specific cyclic capture tests in [`tests/unit/GameEngine.cyclicCapture.hex.scenarios.test.ts`](../tests/unit/GameEngine.cyclicCapture.hex.scenarios.test.ts).
 - **Gaps / proposed tests**
-  - Same as SCEN-CAPTURE-002: new shared-helper tests should ensure [`TypeScript.captureChainHelpers`](src/shared/engine/captureChainHelpers.ts:134) can reproduce the cyclic capture graph and that any future refactor does not regress these edge cases.
+  - Same as SCEN-CAPTURE-002: new shared-helper tests should ensure `TypeScript.captureChainHelpers` can reproduce the cyclic capture graph and that any future refactor does not regress these edge cases.
 
 #### SCEN-CAPTURE-004 – Mandatory continuation despite disadvantage (FAQ Q15.3.3)
 
@@ -352,7 +352,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - P1 **must** choose some continuation as long as any legal capture exists; chain cannot be voluntarily stopped early (RR-CANON-R103).
 - **Existing coverage**
-  - Test `Q15.3.3: Mandatory Continuation` in [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:254) verifies the chain continues until no `continue_capture_segment` moves remain.
+  - Test `Q15.3.3: Mandatory Continuation` in [`tests/scenarios/FAQ_Q15.test.ts`](../tests/scenarios/FAQ_Q15.test.ts) verifies the chain continues until no `continue_capture_segment` moves remain.
 - **Gaps / proposed tests**
   - None; behaviour is explicitly encoded.
 
@@ -372,8 +372,8 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - All markers in the line collapse to P1 territory.
     - P1 must eliminate one standalone ring or a whole cap they control.
 - **Existing coverage**
-  - Backend scenario `Q7_exact_length_line_collapse_backend` in [`tests/unit/GameEngine.lines.scenarios.test.ts`](tests/unit/GameEngine.lines.scenarios.test.ts:81).
-  - Sandbox mirror `Q7_exact_length_line_collapse_sandbox` in [`tests/unit/ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:73).
+  - Backend scenario `Q7_exact_length_line_collapse_backend` in [`tests/unit/GameEngine.lines.scenarios.test.ts`](../tests/unit/GameEngine.lines.scenarios.test.ts).
+  - Sandbox mirror `Q7_exact_length_line_collapse_sandbox` in `tests/unit/ClientSandboxEngine.lines.test.ts`.
 - **Gaps / proposed tests**
   - Already well covered in both hosts.
 
@@ -389,11 +389,11 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - For overlength lines, P1 may choose Option 1 (collapse all + elimination) or Option 2 (collapse exactly `requiredLen` markers, no elimination).
   - The engine’s default choice without interaction is an implementation detail but should be consistent across hosts.
 - **Existing coverage**
-  - Backend default Option 2 verified by `Q22_graduated_rewards_option2_min_collapse_backend_default` in [`tests/unit/GameEngine.lines.scenarios.test.ts`](tests/unit/GameEngine.lines.scenarios.test.ts:150).
-  - Sandbox default Option 2 verified in `longer-than-required line collapses minimum markers without elimination` in [`tests/unit/ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:131).
+  - Backend default Option 2 verified by `Q22_graduated_rewards_option2_min_collapse_backend_default` in [`tests/unit/GameEngine.lines.scenarios.test.ts`](../tests/unit/GameEngine.lines.scenarios.test.ts).
+  - Sandbox default Option 2 verified in `longer-than-required line collapses minimum markers without elimination` in `tests/unit/ClientSandboxEngine.lines.test.ts`.
 - **Gaps / proposed tests**
   - One missing aspect is an **explicit regression test** ensuring that, when a PlayerChoice is wired (human or AI), Option 1 and Option 2 both remain available and produce the expected S-invariant changes.
-  - Existing AI/WebSocket tests (e.g. [`tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts`](tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts:1)) cover choice wiring; no additional scenario is strictly required, but a consolidated S-invariant assertion would be valuable.
+  - Existing AI/WebSocket tests (e.g. `tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts`) cover choice wiring; no additional scenario is strictly required, but a consolidated S-invariant assertion would be valuable.
 
 #### SCEN-LINES-003 – Canonical `choose_line_reward` move without immediate elimination
 
@@ -404,9 +404,9 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - Line collapse can be separated from the subsequent elimination decision; S-invariant progresses monotonically across both steps.
 - **Existing coverage**
-  - Sandbox canonical path tested in `canonical choose_line_reward Move collapses entire overlength line and defers elimination reward` in [`tests/unit/ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:291).
+  - Sandbox canonical path tested in `canonical choose_line_reward Move collapses entire overlength line and defers elimination reward` in `tests/unit/ClientSandboxEngine.lines.test.ts`.
 - **Gaps / proposed tests**
-  - Add a backend counterpart explicitly using [`TypeScript.GameEngine.applyCanonicalMove()`](src/server/game/GameEngine.ts:1258) with a `choose_line_reward` move and verifying that:
+  - Add a backend counterpart explicitly using [`TypeScript.GameEngine.applyCanonicalMove()`](../src/server/game/GameEngine.ts) with a `choose_line_reward` move and verifying that:
     - No elimination occurs until an `eliminate_rings_from_stack` decision is applied.
     - S-invariant increases only due to collapsed markers at the first step.
 
@@ -417,7 +417,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 #### SCEN-TERRITORY-001 – Single-region collapse with self-elimination (Q23 archetype)
 
 - **Initial state**
-  - 8×8 mini-region as in `Rules_12_2_Q23_mini_region_square8_numeric_invariant` from [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
+  - 8×8 mini-region as in `Rules_12_2_Q23_mini_region_square8_numeric_invariant` from [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts).
   - P2 victim stacks fully inside the region; P1 has a stack outside that can pay the self-elimination cost.
 - **Actions**
   - P1 processes the region via `process_territory_region` and then eliminates rings from the outside stack.
@@ -427,8 +427,8 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - Region spaces and border markers collapse to P1 territory.
     - One P1 ring or cap outside is eliminated as self-elimination.
 - **Existing coverage**
-  - Numeric invariants at the rules layer in `territoryProcessing.rules` and sandbox equivalents referenced from [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:252).
-  - Data-only scenario validation in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
+  - Numeric invariants at the rules layer in `territoryProcessing.rules` and sandbox equivalents referenced from [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md).
+  - Data-only scenario validation in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts).
 - **Gaps / proposed tests**
   - No significant gaps; behaviour is already exercised in both backend and sandbox.
 
@@ -445,10 +445,10 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - After processing R1, self-elimination prerequisite fails for R2 (no remaining outside caps), so R2 is **not** processed.
     - P1 retains the option to process R2 on a later turn if new outside material appears.
 - **Existing coverage**
-  - Multi-region backend integration `processes multiple disconnected regions in sequence` in [`tests/unit/GameEngine.territoryDisconnection.test.ts`](tests/unit/GameEngine.territoryDisconnection.test.ts:398), but that scenario gives P1 enough material to process **both** regions.
+  - Multi-region backend integration `processes multiple disconnected regions in sequence` in `tests/unit/GameEngine.territoryDisconnection.test.ts`, but that scenario gives P1 enough material to process **both** regions.
 - **Gaps / proposed tests**
   - **Test name**: `territory_multi_region_single_self_elimination_budget`
-  - **Location**: [`tests/unit/GameEngine.territory.scenarios.test.ts`](tests/unit/GameEngine.territory.scenarios.test.ts:1).
+  - **Location**: `tests/unit/GameEngine.territory.scenarios.test.ts`.
   - **Structure**:
     - Construct R1 and R2 as in SCEN-TERRITORY-002, but with only one eligible outside P1 stack.
     - Drive region processing via canonical decision moves (or automatic defaults).
@@ -470,7 +470,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - Line and territory phases execute in order (RR-CANON-R070–R071).
   - All collapse and elimination accounting matches the combination of SCEN-LINES-001 and SCEN-TERRITORY-001.
 - **Existing coverage**
-  - Fully exercised by `Q15_Q7_combined_line_and_region_backend` in [`tests/unit/GameEngine.territoryDisconnection.test.ts`](tests/unit/GameEngine.territoryDisconnection.test.ts:514) and the `LineAndTerritory` scenarios in [`tests/scenarios/LineAndTerritory.test.ts`](tests/scenarios/LineAndTerritory.test.ts:1).
+  - Fully exercised by `Q15_Q7_combined_line_and_region_backend` in `tests/unit/GameEngine.territoryDisconnection.test.ts` and the `LineAndTerritory` scenarios in `tests/scenarios/LineAndTerritory.test.ts`.
 - **Gaps / proposed tests**
   - None; combination behaviour appears robust.
 
@@ -492,11 +492,11 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - P1 wins by **last-player-standing** (RR-CANON-R172); buried rings for inactive players do not prevent this.
 - **Existing coverage**
-  - Partially covered in victory scenario suites in [`tests/unit/GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts:1) and FAQ victory examples in [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1).
+  - Partially covered in victory scenario suites in [`tests/unit/GameEngine.victory.scenarios.test.ts`](../tests/unit/GameEngine.victory.scenarios.test.ts) and FAQ victory examples in [`tests/scenarios/FAQ_Q16_Q18.test.ts`](../tests/scenarios/FAQ_Q16_Q18.test.ts).
 - **Gaps / proposed tests**
   - Add an explicit last-player-standing scenario with buried rings:
     - **Name**: `last_player_standing_with_buried_inactive_rings`
-    - **Location**: [`tests/unit/GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts:1).
+    - **Location**: [`tests/unit/GameEngine.victory.scenarios.test.ts`](../tests/unit/GameEngine.victory.scenarios.test.ts).
     - **Assertions**:
       - At the terminal state, winner is P1 with reason `last_player_standing`.
       - P2 has no legal actions on their would-be next turn, even though they own buried rings.
@@ -517,12 +517,12 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
       3. If still tied, most markers.
       4. If still tied, last player to have completed a valid turn action.
 - **Existing coverage**
-  - Stalemate ladder tests and FAQ Q11 scenarios in [`tests/scenarios/ForcedEliminationAndStalemate.test.ts`](tests/scenarios/ForcedEliminationAndStalemate.test.ts:1) and [`tests/unit/GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts:1).
+  - Stalemate ladder tests and FAQ Q11 scenarios in [`tests/scenarios/ForcedEliminationAndStalemate.test.ts`](../tests/scenarios/ForcedEliminationAndStalemate.test.ts) and [`tests/unit/GameEngine.victory.scenarios.test.ts`](../tests/unit/GameEngine.victory.scenarios.test.ts).
 - **Gaps / proposed tests**
   - Existing tests cover typical 2-player ladders; fewer explicit tests cover **3+ player** stalemates with deep ties on the first two rungs.
   - **Proposed test**:
     - **Name**: `stalemate_ladder_three_player_full_tie_break_sequence`
-    - **Location**: [`tests/unit/GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts:1).
+    - **Location**: [`tests/unit/GameEngine.victory.scenarios.test.ts`](../tests/unit/GameEngine.victory.scenarios.test.ts).
     - **Structure**:
       - Construct a 3-player stalemate where:
         - P1 and P2 tie on territory and eliminated rings.
@@ -544,7 +544,7 @@ This section focuses on behaviours that are either outside RR-CANON (board repai
 RR-CANON-R030–R031 and R050–R052 treat stack/marker/collapsed overlaps as **unreachable** in legal play. No rule allows such states to arise; if they did, canonical semantics are undefined.
 
 **Current implementation behaviour**  
-[`TypeScript.BoardManager.assertBoardInvariants()`](src/server/game/BoardManager.ts:94) and its helpers:
+[`TypeScript.BoardManager.assertBoardInvariants()`](../src/server/game/BoardManager.ts) and its helpers:
 
 - On each write to `stacks`, `markers`, or `collapsedSpaces`, perform a **repair pass** that:
   - Deletes markers that overlap stacks or collapsed spaces.
@@ -572,7 +572,7 @@ RR-CANON-R030–R031 and R050–R052 treat stack/marker/collapsed overlaps as **
   - Assert `repairEvents === 0` on all seeded backend vs sandbox traces and rules-matrix scenarios.
   - Optionally, add a negative test that constructs an overlapping state and asserts that:
     - `repairEvents` increments.
-    - The S metric from [`TypeScript.computeProgressSnapshot()`](src/shared/engine/core.ts:531) decreases, demonstrating why such states must be treated as fatal bugs, not gameplay.
+    - The S metric from [`TypeScript.computeProgressSnapshot()`](../src/shared/engine/core.ts) decreases, demonstrating why such states must be treated as fatal bugs, not gameplay.
 
 ### 3.2 Placement Capacity Approximation
 
@@ -580,7 +580,7 @@ RR-CANON-R030–R031 and R050–R052 treat stack/marker/collapsed overlaps as **
 RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ring caps conceptually apply to **rings of that player’s colour**.
 
 **Implementation approximation**  
-[`TypeScript.validatePlacementOnBoard()`](src/shared/engine/validators/PlacementValidator.ts:76) and [`TypeScript.RuleEngine.getValidRingPlacements`](src/server/game/RuleEngine.ts:839) approximate “rings on board for this player” as the **sum of stack heights for stacks where `controllingPlayer === player`**, which may include many captured rings of other colours.
+[`TypeScript.validatePlacementOnBoard()`](../src/shared/engine/validators/PlacementValidator.ts) and [`TypeScript.RuleEngine.getValidRingPlacements`](../src/server/game/RuleEngine.ts) approximate “rings on board for this player” as the **sum of stack heights for stacks where `controllingPlayer === player`**, which may include many captured rings of other colours.
 
 **Dynamic scenario**
 
@@ -602,14 +602,14 @@ RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ri
 
 **3.3.1 `skip_placement` representation**
 
-- Backend surfaces `skip_placement` moves explicitly via [`TypeScript.RuleEngine.validateSkipPlacement`](src/server/game/RuleEngine.ts:116).
+- Backend surfaces `skip_placement` moves explicitly via [`TypeScript.RuleEngine.validateSkipPlacement`](../src/server/game/RuleEngine.ts).
 - Sandbox does **not** model `skip_placement` as a move; it simply omits placement when no legal placements exist and transitions to movement.
 - Dynamic risk: parity tooling that expects a `skip_placement` record may not see one, complicating trace comparisons.
 - Recommended test: SCEN-PLACEMENT-002 sandbox parity test ensures reachable board states (after placement + movement) are the same for backend and sandbox even if move logs differ.
 
 **3.3.2 Start-of-turn `currentPhase` heuristic**
 
-- [`TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox`](src/client/sandbox/sandboxTurnEngine.ts:164) chooses:
+- `TypeScript.sandboxTurnEngine.startTurnForCurrentPlayerSandbox` chooses:
   - `currentPhase = 'ring_placement'` if `ringsInHand > 0`.
   - Else `currentPhase = 'movement'`.
 - Edge case: `ringsInHand > 0` but no **legal** placements (due to no-dead-placement or cap), while moves or captures exist.
@@ -628,7 +628,7 @@ RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ri
   - Option 2 for overlength lines when no explicit PlayerChoice is supplied (SCEN-LINES-002).
   - A default region order and self-elimination stack for territory.
 - Canonical model treats these as **explicit decisions** (line/region order, reward choice, elimination choice).
-- Existing tests (e.g. [`tests/unit/ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:1), [`tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts`](tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts:1)) already lock in the current UX defaults.
+- Existing tests (e.g. `tests/unit/ClientSandboxEngine.lines.test.ts`, [`tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts`](../tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts)) already lock in the current UX defaults.
 - Recommended future tests:
   - When sandbox is refactored toward full canonical parity, keep these tests but change their assertions to expect **decision moves** rather than implicit behaviour, thereby guarding against regressions.
 
@@ -637,9 +637,9 @@ RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ri
 **Context**
 
 - Real capture chains are implemented in:
-  - Backend: [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92) plus [`TypeScript.captureChainEngine`](src/server/game/rules/captureChainEngine.ts:45).
-  - Sandbox: [`TypeScript.sandboxMovementEngine.performCaptureChainSandbox`](src/client/sandbox/sandboxMovementEngine.ts:400).
-- Shared helper [`TypeScript.captureChainHelpers`](src/shared/engine/captureChainHelpers.ts:134) is currently a stub intended to centralise capture-chain logic in the future.
+  - Backend: [`TypeScript.GameEngine`](../src/server/game/GameEngine.ts) plus `TypeScript.captureChainEngine`.
+  - Sandbox: `TypeScript.sandboxMovementEngine.performCaptureChainSandbox`.
+- Shared helper `TypeScript.captureChainHelpers` is currently a stub intended to centralise capture-chain logic in the future.
 
 **Deep-dive scenarios**
 
@@ -655,7 +655,7 @@ RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ri
 
 **Recommended tests**
 
-- New shared test file [`tests/unit/captureChainHelpers.shared.test.ts`](tests/unit/captureChainHelpers.shared.test.ts:1) implementing the scenarios above and comparing:
+- New shared test file `tests/unit/captureChainHelpers.shared.test.ts` implementing the scenarios above and comparing:
   - Segment graphs from `captureChainHelpers`.
   - Actual chain moves from GameEngine and sandbox.
 - Once these tests pass, future refactors can route all chain logic through shared helpers with high confidence.
@@ -713,7 +713,7 @@ RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ri
    - Action: Implement a dynamic parity test that forces this divergence and use it to either update RR-CANON or adjust the implementation.
 
 4. **Shared capture-chain helpers (SCEN-CAPTURE-002/003/004)**
-   - Risk: Future refactors that move chain logic into [`TypeScript.captureChainHelpers`](src/shared/engine/captureChainHelpers.ts:134) could regress complex patterns currently only tested at GameEngine level.
+   - Risk: Future refactors that move chain logic into `TypeScript.captureChainHelpers` could regress complex patterns currently only tested at GameEngine level.
    - Action: Add shared-helper tests that directly encode FAQ Q15 patterns and compare against backend/sandbox chains.
 
 5. **Territory multi-region with limited self-elimination (SCEN-TERRITORY-002)**

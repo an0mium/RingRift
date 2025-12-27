@@ -263,7 +263,7 @@ Classes exist in scripts version only: `PBTConfig`, `NASConfig`, `PERConfig`, `F
 
 ```bash
 # Step 1.1: Generate complete class comparison
-cd /Users/armand/Development/RingRift
+cd /path/to/RingRift
 python3 << 'EOF'
 import ast
 import sys

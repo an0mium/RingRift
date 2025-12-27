@@ -24,7 +24,7 @@ Phase 3 established the infrastructure for migrating both backend and client mod
 
 ### 3.1 Backend TurnEngine Audit
 
-**File**: [`src/server/game/turn/TurnEngine.ts`](../../src/server/game/turn/TurnEngine.ts) (168 lines)
+**File**: `src/server/game/turn/TurnEngine.ts` (168 lines)
 
 **Findings**:
 
@@ -35,7 +35,7 @@ Phase 3 established the infrastructure for migrating both backend and client mod
 
 ### 3.2 Backend Adapter
 
-**File**: [`src/server/game/turn/TurnEngineAdapter.ts`](../../src/server/game/turn/TurnEngineAdapter.ts) (326 lines)
+**File**: `src/server/game/turn/TurnEngineAdapter.ts` (326 lines)
 
 The TurnEngineAdapter wraps the shared orchestrator with three pluggable interfaces:
 
@@ -75,7 +75,7 @@ if (result.success) {
 
 ### 3.2b Integration Tests
 
-**File**: [`tests/unit/TurnEngineAdapter.integration.test.ts`](../../tests/unit/TurnEngineAdapter.integration.test.ts)
+**File**: `tests/unit/TurnEngineAdapter.integration.test.ts`
 
 **11 Tests Passing**:
 
@@ -93,7 +93,7 @@ if (result.success) {
 
 ### 3.2c GameEngine Wiring
 
-**File**: [`src/server/game/GameEngine.ts`](../../src/server/game/GameEngine.ts)
+**File**: `src/server/game/GameEngine.ts`
 
 The GameEngine has been updated to optionally delegate to TurnEngineAdapter:
 
@@ -190,7 +190,7 @@ private createAdapterForCurrentGame(): TurnEngineAdapter {
 
 ### 3.4a Sandbox Adapter
 
-**File**: [`src/client/sandbox/SandboxOrchestratorAdapter.ts`](../../src/client/sandbox/SandboxOrchestratorAdapter.ts) (476 lines)
+**File**: `src/client/sandbox/SandboxOrchestratorAdapter.ts` (476 lines)
 
 The SandboxOrchestratorAdapter wraps the shared orchestrator's `processTurn()` for client use:
 
@@ -244,7 +244,7 @@ if (result.success) {
 
 ### 3.4b Sandbox Integration Tests
 
-**File**: [`tests/unit/SandboxOrchestratorAdapter.integration.test.ts`](../../tests/unit/SandboxOrchestratorAdapter.integration.test.ts)
+**File**: `tests/unit/SandboxOrchestratorAdapter.integration.test.ts`
 
 **21 Tests Passing**:
 
@@ -272,7 +272,7 @@ if (result.success) {
 
 ### 3.4c ClientSandboxEngine Wiring (Complete)
 
-**File**: [`src/client/sandbox/ClientSandboxEngine.ts`](../../src/client/sandbox/ClientSandboxEngine.ts)
+**File**: `src/client/sandbox/ClientSandboxEngine.ts`
 
 **Changes Made**:
 

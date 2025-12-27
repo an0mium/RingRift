@@ -42,11 +42,11 @@ High‑level rating (current snapshot):
 - **Runtime:** Node.js 18+ with TypeScript (strict).
 - **Framework:** Express + Socket.IO.
 - **Core engine:**
-  - [`GameEngine`](src/server/game/GameEngine.ts:1) – phase/turn orchestration, PlayerChoices,
+  - [`GameEngine`](../src/server/game/GameEngine.ts) – phase/turn orchestration, PlayerChoices,
     chain capture, lines, territory, victory.
-  - [`RuleEngine`](src/server/game/RuleEngine.ts:1) – move validation and helpers for movement,
+  - [`RuleEngine`](../src/server/game/RuleEngine.ts) – move validation and helpers for movement,
     captures, and rule‑driven legality checks.
-  - [`BoardManager`](src/server/game/BoardManager.ts:1) – topology, stacks, markers, lines,
+  - [`BoardManager`](../src/server/game/BoardManager.ts) – topology, stacks, markers, lines,
     territories for square8, square19, and hex boards.
 - **API & transport:** `src/server/routes/{auth,game,user}.ts`,
   `src/server/websocket/server.ts`, and `WebSocketInteractionHandler`.
@@ -56,9 +56,9 @@ High‑level rating (current snapshot):
 
 - **Framework:** React 18 + TypeScript + Vite.
 - **Key pieces:**
-  - [`LobbyPage`](src/client/pages/LobbyPage.tsx:1) – create/join games.
-  - [`GamePage`](src/client/pages/GamePage.tsx:1) – backend games and local sandbox.
-  - [`BoardView`](src/client/components/BoardView.tsx:1), `ChoiceDialog`, `GameHUD`, `VictoryModal`.
+  - [`LobbyPage`](../src/client/pages/LobbyPage.tsx) – create/join games.
+  - [`GamePage`](../src/client/pages/GamePage.tsx) – backend games and local sandbox.
+  - [`BoardView`](../src/client/components/BoardView.tsx), `ChoiceDialog`, `GameHUD`, `VictoryModal`.
   - `GameContext` / `AuthContext` for WebSocket and auth state.
 - **Status:** Fully playable from the browser, but HUD, history, reconnection UX, and spectator
   flows still need polish.
@@ -66,7 +66,7 @@ High‑level rating (current snapshot):
 ### Python AI Service
 
 - **Location:** `ai-service/` (FastAPI).
-- **Core entrypoint:** [`app/main.py`](ai-service/app/main.py:42).
+- **Core entrypoint:** [`app/main.py`](../ai-service/app/main.py).
 - **AIs:** Random, heuristic, MCTS, descent; higher‑end agents are experimental.
 - **Endpoints:**
   - `/ai/move` – move selection.

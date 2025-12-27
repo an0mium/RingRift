@@ -308,9 +308,9 @@ The following metrics are tracked for monitoring:
 ### Health Checks
 
 ```python
-from app.coordination.model_distribution_daemon import ModelDistributionDaemon
+from app.coordination.unified_distribution_daemon import UnifiedDistributionDaemon
 
-daemon = ModelDistributionDaemon()
+daemon = UnifiedDistributionDaemon()
 health = daemon.health_check()
 
 if not health.healthy:

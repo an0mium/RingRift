@@ -307,8 +307,8 @@ INFO:app.ai.neural_net:Using MPS device with MPS-compatible architecture
 ## References
 
 - PyTorch MPS Backend: https://pytorch.org/docs/stable/notes/mps.html
-- Original Architecture: [`ai-service/app/ai/neural_net/__init__.py:202`](../../app/ai/neural_net/__init__.py:202)
-- MPS Architecture: [`ai-service/app/ai/neural_net/__init__.py:325`](../../app/ai/neural_net/__init__.py:325)
+- Original Architecture: [`ai-service/app/ai/neural_net/__init__.py:202`](../../app/ai/neural_net/__init__.py)
+- MPS Architecture: [`ai-service/app/ai/neural_net/__init__.py:325`](../../app/ai/neural_net/__init__.py)
 - Tests: [`ai-service/tests/test_mps_architecture.py`](../../tests/test_mps_architecture.py)
 
 ## V2 Memory-Tiered Architectures (Recommended)

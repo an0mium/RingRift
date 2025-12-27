@@ -124,17 +124,17 @@ await coordinator.cleanup();
 **Core Methods:**
 | Method | Description |
 |--------|-------------|
-| [`connect(clientId, config)`](../../tests/helpers/MultiClientCoordinator.ts:157) | Connect a client to the WebSocket server |
-| [`disconnect(clientId)`](../../tests/helpers/MultiClientCoordinator.ts:204) | Disconnect a specific client |
-| [`cleanup()`](../../tests/helpers/MultiClientCoordinator.ts:243) | Clean up all connections (use in `afterEach`) |
-| [`send(clientId, event, payload)`](../../tests/helpers/MultiClientCoordinator.ts:376) | Send a message from a client |
-| [`waitFor(clientId, condition)`](../../tests/helpers/MultiClientCoordinator.ts:429) | Wait for a condition on a client |
-| [`waitForAll(clientIds, condition)`](../../tests/helpers/MultiClientCoordinator.ts:467) | Wait for condition on multiple clients |
-| [`waitForGameState(clientId, predicate)`](../../tests/helpers/MultiClientCoordinator.ts:502) | Wait for specific game state |
-| [`waitForPhase(clientId, phase)`](../../tests/helpers/MultiClientCoordinator.ts:520) | Wait for game to reach a phase |
-| [`waitForGameOver(clientId)`](../../tests/helpers/MultiClientCoordinator.ts:546) | Wait for game to end |
-| [`getMessages(clientId)`](../../tests/helpers/MultiClientCoordinator.ts:609) | Get all captured messages |
-| [`getLastGameState(clientId)`](../../tests/helpers/MultiClientCoordinator.ts:650) | Get most recent game state |
+| [`connect(clientId, config)`](../../tests/helpers/MultiClientCoordinator.ts) | Connect a client to the WebSocket server |
+| [`disconnect(clientId)`](../../tests/helpers/MultiClientCoordinator.ts) | Disconnect a specific client |
+| [`cleanup()`](../../tests/helpers/MultiClientCoordinator.ts) | Clean up all connections (use in `afterEach`) |
+| [`send(clientId, event, payload)`](../../tests/helpers/MultiClientCoordinator.ts) | Send a message from a client |
+| [`waitFor(clientId, condition)`](../../tests/helpers/MultiClientCoordinator.ts) | Wait for a condition on a client |
+| [`waitForAll(clientIds, condition)`](../../tests/helpers/MultiClientCoordinator.ts) | Wait for condition on multiple clients |
+| [`waitForGameState(clientId, predicate)`](../../tests/helpers/MultiClientCoordinator.ts) | Wait for specific game state |
+| [`waitForPhase(clientId, phase)`](../../tests/helpers/MultiClientCoordinator.ts) | Wait for game to reach a phase |
+| [`waitForGameOver(clientId)`](../../tests/helpers/MultiClientCoordinator.ts) | Wait for game to end |
+| [`getMessages(clientId)`](../../tests/helpers/MultiClientCoordinator.ts) | Get all captured messages |
+| [`getLastGameState(clientId)`](../../tests/helpers/MultiClientCoordinator.ts) | Get most recent game state |
 
 ---
 
@@ -206,14 +206,14 @@ networkSimulator.delayNextMessage('player1', 500);
 **Core Methods:**
 | Method | Description |
 |--------|-------------|
-| [`setCondition(clientId, condition)`](../../tests/helpers/NetworkSimulator.ts:134) | Apply network conditions |
-| [`clearCondition(clientId)`](../../tests/helpers/NetworkSimulator.ts:160) | Clear network conditions |
-| [`forceDisconnect(clientId)`](../../tests/helpers/NetworkSimulator.ts:192) | Force disconnect a client |
-| [`simulateReconnect(clientId, delay)`](../../tests/helpers/NetworkSimulator.ts:232) | Reconnect after partition |
-| [`interceptMessages(clientId, interceptor)`](../../tests/helpers/NetworkSimulator.ts:296) | Set message interceptor |
-| [`dropNextMessage(clientId)`](../../tests/helpers/NetworkSimulator.ts:325) | Drop next outgoing message |
-| [`delayNextMessage(clientId, delayMs)`](../../tests/helpers/NetworkSimulator.ts:344) | Delay next outgoing message |
-| [`cleanup()`](../../tests/helpers/NetworkSimulator.ts:382) | Clean up all state |
+| [`setCondition(clientId, condition)`](../../tests/helpers/NetworkSimulator.ts) | Apply network conditions |
+| [`clearCondition(clientId)`](../../tests/helpers/NetworkSimulator.ts) | Clear network conditions |
+| [`forceDisconnect(clientId)`](../../tests/helpers/NetworkSimulator.ts) | Force disconnect a client |
+| [`simulateReconnect(clientId, delay)`](../../tests/helpers/NetworkSimulator.ts) | Reconnect after partition |
+| [`interceptMessages(clientId, interceptor)`](../../tests/helpers/NetworkSimulator.ts) | Set message interceptor |
+| [`dropNextMessage(clientId)`](../../tests/helpers/NetworkSimulator.ts) | Drop next outgoing message |
+| [`delayNextMessage(clientId, delayMs)`](../../tests/helpers/NetworkSimulator.ts) | Delay next outgoing message |
+| [`cleanup()`](../../tests/helpers/NetworkSimulator.ts) | Clean up all state |
 
 ---
 
@@ -294,11 +294,11 @@ timeController.resume();
 **Factory Functions:**
 | Function | Description |
 |----------|-------------|
-| [`createTimeController(options)`](../../tests/helpers/TimeController.ts:468) | Create with default options |
-| [`createFastTimeoutController()`](../../tests/helpers/TimeController.ts:481) | Optimized for 30s timeout tests |
-| [`createHybridTimeController()`](../../tests/helpers/TimeController.ts:498) | For mixed async/timer testing |
-| [`withTimeControl(testFn)`](../../tests/helpers/TimeController.ts:535) | Auto setup/teardown wrapper |
-| [`waitForConditionWithTimeAdvance()`](../../tests/helpers/TimeController.ts:569) | Wait for condition while advancing time |
+| [`createTimeController(options)`](../../tests/helpers/TimeController.ts) | Create with default options |
+| [`createFastTimeoutController()`](../../tests/helpers/TimeController.ts) | Optimized for 30s timeout tests |
+| [`createHybridTimeController()`](../../tests/helpers/TimeController.ts) | For mixed async/timer testing |
+| [`withTimeControl(testFn)`](../../tests/helpers/TimeController.ts) | Auto setup/teardown wrapper |
+| [`waitForConditionWithTimeAdvance()`](../../tests/helpers/TimeController.ts) | Wait for condition while advancing time |
 
 ---
 

@@ -46,7 +46,7 @@ orchestrator rollout postures. They are not an exhaustive matrix, but are
 intended as **canonical examples** that should be reflected in:
 
 - `.env` / deployment configuration for each environment
-- CI job `env:` blocks in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml:1)
+- CI job `env:` blocks in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
 - Operator expectations in the rollout runbook
 
 > On any conflict between these tables and live CI configs or env validation
@@ -139,7 +139,7 @@ Before moving beyond Phase 0, the following must exist:
   - Game move latency and key HTTP/availability/error SLOs.
   - Rules‑parity metrics for TS↔Python.
 - Alerts configured as in
-  [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml:1)
+  [`monitoring/prometheus/alerts.yml`](../../monitoring/prometheus/alerts.yml)
   for:
   - `OrchestratorCircuitBreakerOpen`
   - `OrchestratorErrorRateWarning`

@@ -6,6 +6,7 @@
 > This file is kept for historical reference only.
 
 > Snapshot note: This table reflects Dec 26, 2025 data. Current voter list and node health can differ; see `ai-service/P2P_DEPLOYMENT_REPORT.md` and `ai-service/config/distributed_hosts.yaml`.
+> Current tooling: `ai-service/scripts/p2p_cluster_status.py` (status) and `ai-service/scripts/deploy_p2p_systemd.py` (deploy/manage). See the consolidated report for current flows.
 > Current voters (Dec 27, 2025): nebius-backbone-1, nebius-h100-3, hetzner-cpu1, hetzner-cpu2, vultr-a100-20gb (runpod-h100 removed).
 
 **Investigation Date**: December 26, 2025 20:40 CST
@@ -125,7 +126,7 @@ Most likely causes:
 
 ```bash
 cd ~/ringrift/ai-service  # or /workspace/ringrift/ai-service
-nohup python scripts/p2p_orchestrator.py \
+PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py \
   --node-id $(hostname) \
   --host 0.0.0.0 \
   --port 8770 \
@@ -179,10 +180,10 @@ nohup python scripts/p2p_orchestrator.py \
 
 ## Files Generated
 
-1. **Investigation script**: `/Users/armand/Development/RingRift/ai-service/scripts/investigate_p2p_status.sh`
+1. **Investigation script**: `ai-service/scripts/investigate_p2p_status.sh`
 2. **Raw report**: `/tmp/p2p_status_report_20251226_203240.txt`
-3. **Analysis**: `/Users/armand/Development/RingRift/P2P_INVESTIGATION_SUMMARY.md`
-4. **This table**: `/Users/armand/Development/RingRift/P2P_STATUS_TABLE.md`
+3. **Analysis**: `P2P_INVESTIGATION_SUMMARY.md`
+4. **This table**: `P2P_STATUS_TABLE.md`
 
 ---
 

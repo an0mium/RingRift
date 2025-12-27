@@ -104,7 +104,7 @@ ai-service/app/ai/
 
 ### 1.1 Method Inventory by Category
 
-Based on analysis of [`heuristic_ai.py:228-2203`](../../ai-service/app/ai/heuristic_ai.py:228), the class contains:
+Based on analysis of [`heuristic_ai.py:228-2203`](../../ai-service/app/ai/heuristic_ai.py), the class contains:
 
 #### Move Selection Methods (Should remain in HeuristicAI)
 

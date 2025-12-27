@@ -653,24 +653,25 @@ class DataPipelineOrchestrator:
             return True
 
         try:
-            from app.coordination.event_router import StageEvent, get_stage_event_bus
+            # P0.5 (December 2025): Use get_router() instead of deprecated get_stage_event_bus()
+            from app.coordination.event_router import StageEvent, get_router
 
-            bus = get_stage_event_bus()
+            router = get_router()
 
             # Subscribe to all pipeline stage events
-            bus.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-            bus.subscribe(
+            router.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
+            router.subscribe(
                 StageEvent.CANONICAL_SELFPLAY_COMPLETE, self._on_selfplay_complete
             )
-            bus.subscribe(StageEvent.GPU_SELFPLAY_COMPLETE, self._on_selfplay_complete)
-            bus.subscribe(StageEvent.SYNC_COMPLETE, self._on_sync_complete)
-            bus.subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_export_complete)
-            bus.subscribe(StageEvent.TRAINING_STARTED, self._on_training_started)
-            bus.subscribe(StageEvent.TRAINING_COMPLETE, self._on_training_complete)
-            bus.subscribe(StageEvent.TRAINING_FAILED, self._on_training_failed)
-            bus.subscribe(StageEvent.EVALUATION_COMPLETE, self._on_evaluation_complete)
-            bus.subscribe(StageEvent.PROMOTION_COMPLETE, self._on_promotion_complete)
-            bus.subscribe(StageEvent.ITERATION_COMPLETE, self._on_iteration_complete)
+            router.subscribe(StageEvent.GPU_SELFPLAY_COMPLETE, self._on_selfplay_complete)
+            router.subscribe(StageEvent.SYNC_COMPLETE, self._on_sync_complete)
+            router.subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_export_complete)
+            router.subscribe(StageEvent.TRAINING_STARTED, self._on_training_started)
+            router.subscribe(StageEvent.TRAINING_COMPLETE, self._on_training_complete)
+            router.subscribe(StageEvent.TRAINING_FAILED, self._on_training_failed)
+            router.subscribe(StageEvent.EVALUATION_COMPLETE, self._on_evaluation_complete)
+            router.subscribe(StageEvent.PROMOTION_COMPLETE, self._on_promotion_complete)
+            router.subscribe(StageEvent.ITERATION_COMPLETE, self._on_iteration_complete)
 
             self._subscribed = True
             self._prefer_stage_events = True

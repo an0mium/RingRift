@@ -12,9 +12,9 @@ This document summarizes the shared helper modules added under `src/shared/engin
   - Line processing and line‑reward decisions.
   - Territory processing and self‑elimination decisions.
   - Placement application and skip‑placement decisions.
-  - Turn progression delegates for [`advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135).
-- Align types and semantics with [`types.ts`](src/shared/engine/types.ts:1) and [`game.ts`](src/shared/types/game.ts:1).
-- Make later refactors (P0 tasks #7–#9) mechanical by mapping each helper to concrete backend and sandbox hotspots from [`P0_TASK_20_SHARED_RULE_LOGIC_DUPLICATION_AUDIT.md`](P0_TASK_20_SHARED_RULE_LOGIC_DUPLICATION_AUDIT.md:1).
+  - Turn progression delegates for [`advanceTurnAndPhase`](../src/shared/engine/turnLogic.ts).
+- Align types and semantics with [`types.ts`](../src/shared/engine/types.ts) and [`game.ts`](../src/shared/types/game.ts).
+- Make later refactors (P0 tasks #7–#9) mechanical by mapping each helper to concrete backend and sandbox hotspots from [`P0_TASK_20_SHARED_RULE_LOGIC_DUPLICATION_AUDIT.md`](P0_TASK_20_SHARED_RULE_LOGIC_DUPLICATION_AUDIT.md).
 
 **Non‑goals**
 
@@ -23,36 +23,36 @@ This document summarizes the shared helper modules added under `src/shared/engin
 
 ## 2. New helper modules (high level)
 
-- [`movementApplication.ts`](src/shared/engine/movementApplication.ts:1)
+- [`movementApplication.ts`](../src/shared/engine/movementApplication.ts)
   - Canonical application of non‑capturing movement and single capture segments on `GameState`.
-- [`captureChainHelpers.ts`](src/shared/engine/captureChainHelpers.ts:1)
+- `captureChainHelpers.ts`
   - Shared enumeration of legal chain‑capture segments and a small continuation info helper.
-- [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1)
+- [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts)
   - Enumeration and application of `process_line` / `choose_line_reward` moves.
-- [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1)
+- [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts)
   - Enumeration and application of `process_territory_region` / `eliminate_rings_from_stack` moves.
-- [`placementHelpers.ts`](src/shared/engine/placementHelpers.ts:1)
+- [`placementHelpers.ts`](../src/shared/engine/placementHelpers.ts)
   - Canonical placement application and skip‑placement eligibility evaluation.
-- [`turnDelegateHelpers.ts`](src/shared/engine/turnDelegateHelpers.ts:1)
+- [`turnDelegateHelpers.ts`](../src/shared/engine/turnDelegateHelpers.ts)
   - Shared "has any placement/movement/capture" predicates and a factory for `TurnLogicDelegates`.
 
 Existing shared modules they build on:
 
-- Geometry, reachability & markers: [`core.ts`](src/shared/engine/core.ts:1), [`movementLogic.ts`](src/shared/engine/movementLogic.ts:1), [`captureLogic.ts`](src/shared/engine/captureLogic.ts:1).
-- Lines & territory geometry / core processing: [`lineDetection.ts`](src/shared/engine/lineDetection.ts:1), [`territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts:1).
+- Geometry, reachability & markers: [`core.ts`](../src/shared/engine/core.ts), [`movementLogic.ts`](../src/shared/engine/movementLogic.ts), [`captureLogic.ts`](../src/shared/engine/captureLogic.ts).
+- Lines & territory geometry / core processing: [`lineDetection.ts`](../src/shared/engine/lineDetection.ts), [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts).
 - Validators & mutators: `src/shared/engine/validators/*`, `src/shared/engine/mutators/*`.
 
 ## 3. Movement & capture application
 
-Module: [`movementApplication.ts`](src/shared/engine/movementApplication.ts:1)
+Module: [`movementApplication.ts`](../src/shared/engine/movementApplication.ts)
 
 **Functions**
 
-- [`applySimpleMovement(state, params)`](src/shared/engine/movementApplication.ts:55)
-  - Params: [`SimpleMovementParams`](src/shared/engine/movementApplication.ts:17) – `{ from, to, player, leaveDepartureMarker? }`.
-  - Returns: [`MovementApplicationOutcome`](src/shared/engine/movementApplication.ts:40) – `{ nextState, eliminatedRingsByPlayer? }`.
-- [`applyCaptureSegment(state, params)`](src/shared/engine/movementApplication.ts:86)
-  - Params: [`CaptureSegmentParams`](src/shared/engine/movementApplication.ts:31) – `{ from, target, landing, player }`.
+- [`applySimpleMovement(state, params)`](../src/shared/engine/movementApplication.ts)
+  - Params: [`SimpleMovementParams`](../src/shared/engine/movementApplication.ts) – `{ from, to, player, leaveDepartureMarker? }`.
+  - Returns: [`MovementApplicationOutcome`](../src/shared/engine/movementApplication.ts) – `{ nextState, eliminatedRingsByPlayer? }`.
+- [`applyCaptureSegment(state, params)`](../src/shared/engine/movementApplication.ts)
+  - Params: [`CaptureSegmentParams`](../src/shared/engine/movementApplication.ts) – `{ from, target, landing, player }`.
   - Returns: `MovementApplicationOutcome`.
 
 **Key semantics / invariants (docstring‑level, not yet implemented)**
@@ -61,7 +61,7 @@ Module: [`movementApplication.ts`](src/shared/engine/movementApplication.ts:1)
 - Both helpers treat `state` as immutable and return a shallow‑cloned `nextState` with cloned board maps and player array.
 - `applySimpleMovement`:
   - Leaves a departure marker at `from` by default.
-  - Uses [`applyMarkerEffectsAlongPathOnBoard`](src/shared/engine/core.ts:619) for intermediate markers.
+  - Uses [`applyMarkerEffectsAlongPathOnBoard`](../src/shared/engine/core.ts) for intermediate markers.
   - Moves or merges the stack to `to`.
   - If landing on an own marker, removes the marker, eliminates the bottom ring of the resulting stack, and updates elimination counts on board and players.
 - `applyCaptureSegment`:
@@ -72,55 +72,55 @@ Module: [`movementApplication.ts`](src/shared/engine/movementApplication.ts:1)
 **Duplication hotspots to be replaced later**
 
 - Backend:
-  - Movement and overtaking branches in [`GameEngine.applyMove`](src/server/game/GameEngine.ts:1) and `performOvertakingCapture`.
+  - Movement and overtaking branches in [`GameEngine.applyMove`](../src/server/game/GameEngine.ts) and `performOvertakingCapture`.
 - Sandbox:
-  - Non‑capture movement in [`sandboxMovementEngine.handleMovementClickSandbox`](src/client/sandbox/sandboxMovementEngine.ts:1).
-  - Capture application in [`sandboxCaptures.applyCaptureSegmentOnBoard`](src/client/sandbox/sandboxCaptures.ts:1) and `ClientSandboxEngine.applyCaptureSegment`.
+  - Non‑capture movement in `sandboxMovementEngine.handleMovementClickSandbox`.
+  - Capture application in [`sandboxCaptures.applyCaptureSegmentOnBoard`](../src/client/sandbox/sandboxCaptures.ts) and `ClientSandboxEngine.applyCaptureSegment`.
 
 ## 4. Capture chains orchestration primitives
 
-Module: [`captureChainHelpers.ts`](src/shared/engine/captureChainHelpers.ts:1)
+Module: `captureChainHelpers.ts`
 
 **Functions**
 
-- [`enumerateChainCaptureSegments(state, snapshot, options?)`](src/shared/engine/captureChainHelpers.ts:73)
-  - Snapshot: [`ChainCaptureStateSnapshot`](src/shared/engine/captureChainHelpers.ts:25) – `{ player, currentPosition, visitedTargets? }`.
-  - Options: [`ChainCaptureEnumerationOptions`](src/shared/engine/captureChainHelpers.ts:49) – `{ disallowRevisitedTargets?, moveNumber?, kind? }`.
+- `enumerateChainCaptureSegments(state, snapshot, options?)`
+  - Snapshot: `ChainCaptureStateSnapshot` – `{ player, currentPosition, visitedTargets? }`.
+  - Options: `ChainCaptureEnumerationOptions` – `{ disallowRevisitedTargets?, moveNumber?, kind? }`.
   - Returns: `Move[]` with type `'overtaking_capture'` (initial) or `'continue_capture_segment'` (continuations).
-- [`getChainCaptureContinuationInfo(state, snapshot, options?)`](src/shared/engine/captureChainHelpers.ts:109)
-  - Returns: [`ChainCaptureContinuationInfo`](src/shared/engine/captureChainHelpers.ts:93) – `{ hasFurtherCaptures, segments }`.
+- `getChainCaptureContinuationInfo(state, snapshot, options?)`
+  - Returns: `ChainCaptureContinuationInfo` – `{ hasFurtherCaptures, segments }`.
 
 **Key semantics / invariants**
 
-- Delegates geometry to shared [`enumerateCaptureMoves`](src/shared/engine/captureLogic.ts:26).
+- Delegates geometry to shared [`enumerateCaptureMoves`](../src/shared/engine/captureLogic.ts).
 - Optional `disallowRevisitedTargets` enforces no‑repeat‑target semantics based on `visitedTargets` (stringified positions).
 - Intended to be called after each applied capture segment to decide whether the chain must continue (`hasFurtherCaptures === true`) or can terminate.
 
 **Duplication hotspots to be replaced later**
 
 - Backend:
-  - [`rules/captureChainEngine.getCaptureOptionsFromPosition`](src/server/game/rules/captureChainEngine.ts:1).
+  - `rules/captureChainEngine.getCaptureOptionsFromPosition`.
   - `GameEngine` chain‑capture state updates after `performOvertakingCapture`.
 - Sandbox:
-  - [`sandboxMovementEngine.performCaptureChainSandbox`](src/client/sandbox/sandboxMovementEngine.ts:1).
+  - `sandboxMovementEngine.performCaptureChainSandbox`.
   - `ClientSandboxEngine.performCaptureChain` and associated capture‑choice logic.
 
 ## 5. Line processing & line reward decisions
 
-Module: [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1)
+Module: [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts)
 
 **Functions**
 
-- [`enumerateProcessLineMoves(state, player, options?)`](src/shared/engine/lineDecisionHelpers.ts:73)
-- [`enumerateChooseLineRewardMoves(state, player, lineIndex)`](src/shared/engine/lineDecisionHelpers.ts:100)
-- [`applyProcessLineDecision(state, move)`](src/shared/engine/lineDecisionHelpers.ts:141)
-- [`applyChooseLineRewardDecision(state, move)`](src/shared/engine/lineDecisionHelpers.ts:169)
+- [`enumerateProcessLineMoves(state, player, options?)`](../src/shared/engine/lineDecisionHelpers.ts)
+- [`enumerateChooseLineRewardMoves(state, player, lineIndex)`](../src/shared/engine/lineDecisionHelpers.ts)
+- [`applyProcessLineDecision(state, move)`](../src/shared/engine/lineDecisionHelpers.ts)
+- [`applyChooseLineRewardDecision(state, move)`](../src/shared/engine/lineDecisionHelpers.ts)
 
 **Key semantics / invariants**
 
 - Enumeration helpers operate over either:
   - `state.board.formedLines`, or
-  - freshly detected lines via [`findAllLines`](src/shared/engine/lineDetection.ts:21), depending on `LineEnumerationOptions.detectionMode`.
+  - freshly detected lines via [`findAllLines`](../src/shared/engine/lineDetection.ts), depending on `LineEnumerationOptions.detectionMode`.
 - `enumerateProcessLineMoves`:
   - One `process_line` move per formed line owned by `player`.
   - Each move’s `formedLines[0]` identifies the line; `to` is a representative cell.
@@ -136,33 +136,33 @@ Module: [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1)
 **Duplication hotspots to be replaced later**
 
 - Backend:
-  - Line enumeration in `GameEngine.getValidLineProcessingMoves` and [`RuleEngine.getValidLineProcessingDecisionMoves`](src/server/game/RuleEngine.ts:1).
-  - Line effects in [`rules/lineProcessing.processLinesForCurrentPlayer`](src/server/game/rules/lineProcessing.ts:1) and line‑related branches of `GameEngine.applyDecisionMove`.
+  - Line enumeration in `GameEngine.getValidLineProcessingMoves` and [`RuleEngine.getValidLineProcessingDecisionMoves`](../src/server/game/RuleEngine.ts).
+  - Line effects in `rules/lineProcessing.processLinesForCurrentPlayer` and line‑related branches of `GameEngine.applyDecisionMove`.
 - Sandbox:
-  - [`sandboxLinesEngine.getValidLineProcessingMoves`](src/client/sandbox/sandboxLinesEngine.ts:1) and `applyLineDecisionMove`.
+  - `sandboxLinesEngine.getValidLineProcessingMoves` and `applyLineDecisionMove`.
   - `ClientSandboxEngine.processLinesForCurrentPlayer` and line‑decision handling in `applyCanonicalMoveInternal`.
 
 ## 6. Territory processing & self‑elimination
 
-Module: [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1)
+Module: [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts)
 
 **Functions**
 
-- [`enumerateProcessTerritoryRegionMoves(state, player, options?)`](src/shared/engine/territoryDecisionHelpers.ts:76)
-- [`applyProcessTerritoryRegionDecision(state, move)`](src/shared/engine/territoryDecisionHelpers.ts:117)
-  - Returns [`TerritoryProcessApplicationOutcome`](src/shared/engine/territoryDecisionHelpers.ts:90) – `{ nextState, processedRegionId, processedRegion, pendingSelfElimination }`.
-- [`enumerateTerritoryEliminationMoves(state, player, scope?)`](src/shared/engine/territoryDecisionHelpers.ts:175)
-  - Scope: [`TerritoryEliminationScope`](src/shared/engine/territoryDecisionHelpers.ts:157) – `{ processedRegionId? }`.
-- [`applyEliminateRingsFromStackDecision(state, move)`](src/shared/engine/territoryDecisionHelpers.ts:206)
-  - Returns [`EliminateRingsFromStackOutcome`](src/shared/engine/territoryDecisionHelpers.ts:194) – `{ nextState }`.
+- [`enumerateProcessTerritoryRegionMoves(state, player, options?)`](../src/shared/engine/territoryDecisionHelpers.ts)
+- [`applyProcessTerritoryRegionDecision(state, move)`](../src/shared/engine/territoryDecisionHelpers.ts)
+  - Returns [`TerritoryProcessApplicationOutcome`](../src/shared/engine/territoryDecisionHelpers.ts) – `{ nextState, processedRegionId, processedRegion, pendingSelfElimination }`.
+- [`enumerateTerritoryEliminationMoves(state, player, scope?)`](../src/shared/engine/territoryDecisionHelpers.ts)
+  - Scope: [`TerritoryEliminationScope`](../src/shared/engine/territoryDecisionHelpers.ts) – `{ processedRegionId? }`.
+- [`applyEliminateRingsFromStackDecision(state, move)`](../src/shared/engine/territoryDecisionHelpers.ts)
+  - Returns [`EliminateRingsFromStackOutcome`](../src/shared/engine/territoryDecisionHelpers.ts) – `{ nextState }`.
 
 **Key semantics / invariants**
 
 - `enumerateProcessTerritoryRegionMoves`:
-  - Surfaces one `process_territory_region` move per region that passes the shared self‑elimination prerequisite [`canProcessTerritoryRegion`](src/shared/engine/territoryProcessing.ts:99).
-  - Regions can be taken either from `board.territories` (`use_board_cache`) or recomputed via [`getProcessableTerritoryRegions`](src/shared/engine/territoryProcessing.ts:146).
+  - Surfaces one `process_territory_region` move per region that passes the shared self‑elimination prerequisite [`canProcessTerritoryRegion`](../src/shared/engine/territoryProcessing.ts).
+  - Regions can be taken either from `board.territories` (`use_board_cache`) or recomputed via [`getProcessableTerritoryRegions`](../src/shared/engine/territoryProcessing.ts).
 - `applyProcessTerritoryRegionDecision`:
-  - Delegates geometry and internal eliminations to [`applyTerritoryRegion`](src/shared/engine/territoryProcessing.ts:172).
+  - Delegates geometry and internal eliminations to [`applyTerritoryRegion`](../src/shared/engine/territoryProcessing.ts).
   - Projects board‑level deltas back into players’ `territorySpaces` and `eliminatedRings`, and `totalRingsEliminated`.
   - Marks `pendingSelfElimination: true` so hosts can surface/require a follow‑up `eliminate_rings_from_stack` decision.
 - `enumerateTerritoryEliminationMoves`:
@@ -177,67 +177,67 @@ Module: [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpe
 **Duplication hotspots to be replaced later**
 
 - Backend:
-  - Territory pipeline in [`rules/territoryProcessing.processDisconnectedRegionsForCurrentPlayer`](src/server/game/rules/territoryProcessing.ts:1).
+  - Territory pipeline in `rules/territoryProcessing.processDisconnectedRegionsForCurrentPlayer`.
   - `GameEngine.applyDecisionMove` branches for `process_territory_region` and `eliminate_rings_from_stack`.
 - Sandbox:
-  - [`sandboxTerritoryEngine.processDisconnectedRegionsForCurrentPlayerEngine`](src/client/sandbox/sandboxTerritoryEngine.ts:1) and `applyTerritoryDecisionMove`.
+  - `sandboxTerritoryEngine.processDisconnectedRegionsForCurrentPlayerEngine` and `applyTerritoryDecisionMove`.
   - Territory‑decision handling in `ClientSandboxEngine.processDisconnectedRegionsForCurrentPlayer` and `applyCanonicalMoveInternal`.
 
 ## 7. Placement application & skip‑placement decisions
 
-Module: [`placementHelpers.ts`](src/shared/engine/placementHelpers.ts:1)
+Module: [`placementHelpers.ts`](../src/shared/engine/placementHelpers.ts)
 
 **Functions**
 
-- [`applyPlacementMove(state, move)`](src/shared/engine/placementHelpers.ts:70)
+- [`applyPlacementMove(state, move)`](../src/shared/engine/placementHelpers.ts)
   - For `move.type === 'place_ring'` only.
-  - Returns [`PlacementApplicationOutcome`](src/shared/engine/placementHelpers.ts:61) – `{ nextState, placementCount, placedOnStack }`.
-- [`evaluateSkipPlacementEligibility(state, player)`](src/shared/engine/placementHelpers.ts:132)
-  - Returns [`SkipPlacementEligibilityResult`](src/shared/engine/placementHelpers.ts:121) – `{ canSkip, reason?, code? }`.
+  - Returns [`PlacementApplicationOutcome`](../src/shared/engine/placementHelpers.ts) – `{ nextState, placementCount, placedOnStack }`.
+- [`evaluateSkipPlacementEligibility(state, player)`](../src/shared/engine/placementHelpers.ts)
+  - Returns [`SkipPlacementEligibilityResult`](../src/shared/engine/placementHelpers.ts) – `{ canSkip, reason?, code? }`.
 
 **Key semantics / invariants**
 
 - `applyPlacementMove`:
   - Interprets `move.to` and `move.placementCount ?? 1`.
-  - Reconstructs a `PlacementContext` from `state` and delegates legality/no‑dead‑placement checks to [`validatePlacementOnBoard`](src/shared/engine/validators/PlacementValidator.ts:76).
-  - Delegates board mutation to [`applyPlacementOnBoard`](src/shared/engine/mutators/PlacementMutator.ts:16).
+  - Reconstructs a `PlacementContext` from `state` and delegates legality/no‑dead‑placement checks to [`validatePlacementOnBoard`](../src/shared/engine/validators/PlacementValidator.ts).
+  - Delegates board mutation to [`applyPlacementOnBoard`](../src/shared/engine/mutators/PlacementMutator.ts).
   - Decrements `ringsInHand` for the acting player; leaves `totalRingsInPlay` semantics aligned with the existing shared mutator.
 - `evaluateSkipPlacementEligibility` (design assumption):
   - Legal only in `ring_placement` for the active player.
-  - Requires `ringsInHand > 0` and at least one controlled stack with a legal move or capture (via [`hasAnyLegalMoveOrCaptureFromOnBoard`](src/shared/engine/core.ts:367)).
+  - Requires `ringsInHand > 0` and at least one controlled stack with a legal move or capture (via [`hasAnyLegalMoveOrCaptureFromOnBoard`](../src/shared/engine/core.ts)).
   - Additionally assumes **no legal placements remain** that satisfy `validatePlacementOnBoard`; this ties skip‑eligibility to dead‑placement semantics and is called out as an open question.
 
 **Duplication hotspots to be replaced later**
 
 - Backend:
-  - Placement branch in [`GameEngine.applyMove`](src/server/game/GameEngine.ts:1).
+  - Placement branch in [`GameEngine.applyMove`](../src/server/game/GameEngine.ts).
   - `RuleEngine.validateSkipPlacement` and placement enumeration logic that duplicates shared `PlacementValidator`.
 - Sandbox:
-  - [`sandboxPlacement.enumerateLegalRingPlacements`](src/client/sandbox/sandboxPlacement.ts:1) legacy path and `ClientSandboxEngine.tryPlaceRings`.
+  - [`sandboxPlacement.enumerateLegalRingPlacements`](../src/client/sandbox/sandboxPlacement.ts) legacy path and `ClientSandboxEngine.tryPlaceRings`.
   - Skip‑placement gating in `sandboxTurnEngine` / `ClientSandboxEngine`.
 
 ## 8. Turn progression delegates
 
-Module: [`turnDelegateHelpers.ts`](src/shared/engine/turnDelegateHelpers.ts:1)
+Module: [`turnDelegateHelpers.ts`](../src/shared/engine/turnDelegateHelpers.ts)
 
 **Functions**
 
-- [`hasAnyPlacementForPlayer(state, player)`](src/shared/engine/turnDelegateHelpers.ts:54)
-- [`hasAnyMovementForPlayer(state, player, turn)`](src/shared/engine/turnDelegateHelpers.ts:84)
-- [`hasAnyCaptureForPlayer(state, player, turn)`](src/shared/engine/turnDelegateHelpers.ts:112)
-- [`createDefaultTurnLogicDelegates(config)`](src/shared/engine/turnDelegateHelpers.ts:172)
-  - Config: [`DefaultTurnDelegatesConfig`](src/shared/engine/turnDelegateHelpers.ts:134) – `{ getNextPlayerNumber, applyForcedElimination }`.
+- [`hasAnyPlacementForPlayer(state, player)`](../src/shared/engine/turnDelegateHelpers.ts)
+- [`hasAnyMovementForPlayer(state, player, turn)`](../src/shared/engine/turnDelegateHelpers.ts)
+- [`hasAnyCaptureForPlayer(state, player, turn)`](../src/shared/engine/turnDelegateHelpers.ts)
+- [`createDefaultTurnLogicDelegates(config)`](../src/shared/engine/turnDelegateHelpers.ts)
+  - Config: [`DefaultTurnDelegatesConfig`](../src/shared/engine/turnDelegateHelpers.ts) – `{ getNextPlayerNumber, applyForcedElimination }`.
 
 **Key semantics / invariants**
 
-- Predicates are intended to be the single source of truth for the questions used by [`advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135):
+- Predicates are intended to be the single source of truth for the questions used by [`advanceTurnAndPhase`](../src/shared/engine/turnLogic.ts):
   - any legal placement?
   - any legal non‑capturing movement?
   - any legal overtaking capture?
 - They are expected to:
-  - Use `MovementBoardView` + [`hasAnyLegalMoveOrCaptureFromOnBoard`](src/shared/engine/core.ts:367) and `enumerateSimpleMoveTargetsFromStack` / `enumerateCaptureMoves` internally.
-  - Respect per‑turn constraints from [`PerTurnState`](src/shared/engine/turnLogic.ts:30) (e.g. must‑move‑from‑stack).
-- [`createDefaultTurnLogicDelegates`](src/shared/engine/turnDelegateHelpers.ts:172):
+  - Use `MovementBoardView` + [`hasAnyLegalMoveOrCaptureFromOnBoard`](../src/shared/engine/core.ts) and `enumerateSimpleMoveTargetsFromStack` / `enumerateCaptureMoves` internally.
+  - Respect per‑turn constraints from [`PerTurnState`](../src/shared/engine/turnLogic.ts) (e.g. must‑move‑from‑stack).
+- [`createDefaultTurnLogicDelegates`](../src/shared/engine/turnDelegateHelpers.ts):
   - Wires these predicates into a `TurnLogicDelegates` instance while delegating:
     - `getNextPlayerNumber` and
     - `applyForcedElimination`
@@ -256,36 +256,36 @@ High‑level ordering to minimise risk and duplication while migrating hosts:
 
 1. **Movement & capture application + capture chains**
    - Backend:
-     - Refactor `GameEngine.applyMove` non‑capture branches to call [`applySimpleMovement`](src/shared/engine/movementApplication.ts:55).
-     - Refactor capture branches and `performOvertakingCapture` to call [`applyCaptureSegment`](src/shared/engine/movementApplication.ts:86).
-     - Update [`rules/captureChainEngine`](src/server/game/rules/captureChainEngine.ts:1) to call [`enumerateChainCaptureSegments`](src/shared/engine/captureChainHelpers.ts:73) and [`getChainCaptureContinuationInfo`](src/shared/engine/captureChainHelpers.ts:109).
+     - Refactor `GameEngine.applyMove` non‑capture branches to call [`applySimpleMovement`](../src/shared/engine/movementApplication.ts).
+     - Refactor capture branches and `performOvertakingCapture` to call [`applyCaptureSegment`](../src/shared/engine/movementApplication.ts).
+     - Update `rules/captureChainEngine` to call `enumerateChainCaptureSegments` and `getChainCaptureContinuationInfo`.
    - Sandbox:
      - Port `sandboxMovementEngine.handleMovementClickSandbox` and `performCaptureChainSandbox` to the same helpers.
 
 2. **Line decisions**
    - Backend:
-     - Replace `GameEngine.getValidLineProcessingMoves` and `RuleEngine.getValidLineProcessingDecisionMoves` with [`enumerateProcessLineMoves`](src/shared/engine/lineDecisionHelpers.ts:73) and [`enumerateChooseLineRewardMoves`](src/shared/engine/lineDecisionHelpers.ts:100).
-     - Replace [`rules/lineProcessing.processLinesForCurrentPlayer`](src/server/game/rules/lineProcessing.ts:1) and line branches of `GameEngine.applyDecisionMove` with [`applyProcessLineDecision`](src/shared/engine/lineDecisionHelpers.ts:141) and [`applyChooseLineRewardDecision`](src/shared/engine/lineDecisionHelpers.ts:169).
+     - Replace `GameEngine.getValidLineProcessingMoves` and `RuleEngine.getValidLineProcessingDecisionMoves` with [`enumerateProcessLineMoves`](../src/shared/engine/lineDecisionHelpers.ts) and [`enumerateChooseLineRewardMoves`](../src/shared/engine/lineDecisionHelpers.ts).
+     - Replace `rules/lineProcessing.processLinesForCurrentPlayer` and line branches of `GameEngine.applyDecisionMove` with [`applyProcessLineDecision`](../src/shared/engine/lineDecisionHelpers.ts) and [`applyChooseLineRewardDecision`](../src/shared/engine/lineDecisionHelpers.ts).
    - Sandbox:
      - Port `sandboxLinesEngine.getValidLineProcessingMoves` / `applyLineDecisionMove` and `ClientSandboxEngine.processLinesForCurrentPlayer` to the same helpers.
 
 3. **Territory pipeline & self‑elimination**
    - Backend:
-     - Replace [`rules/territoryProcessing.processDisconnectedRegionsForCurrentPlayer`](src/server/game/rules/territoryProcessing.ts:1) and related helpers with [`enumerateProcessTerritoryRegionMoves`](src/shared/engine/territoryDecisionHelpers.ts:76) and [`applyProcessTerritoryRegionDecision`](src/shared/engine/territoryDecisionHelpers.ts:117).
-     - Replace elimination decisions in `GameEngine.applyDecisionMove` with [`enumerateTerritoryEliminationMoves`](src/shared/engine/territoryDecisionHelpers.ts:175) and [`applyEliminateRingsFromStackDecision`](src/shared/engine/territoryDecisionHelpers.ts:206).
+     - Replace `rules/territoryProcessing.processDisconnectedRegionsForCurrentPlayer` and related helpers with [`enumerateProcessTerritoryRegionMoves`](../src/shared/engine/territoryDecisionHelpers.ts) and [`applyProcessTerritoryRegionDecision`](../src/shared/engine/territoryDecisionHelpers.ts).
+     - Replace elimination decisions in `GameEngine.applyDecisionMove` with [`enumerateTerritoryEliminationMoves`](../src/shared/engine/territoryDecisionHelpers.ts) and [`applyEliminateRingsFromStackDecision`](../src/shared/engine/territoryDecisionHelpers.ts).
    - Sandbox:
      - Port `sandboxTerritoryEngine.processDisconnectedRegionsForCurrentPlayerEngine` / `applyTerritoryDecisionMove` and related `ClientSandboxEngine` branches to the shared helpers.
 
 4. **Placement & skip‑placement**
    - Backend:
-     - Replace placement mutation in `GameEngine.applyMove` with [`applyPlacementMove`](src/shared/engine/placementHelpers.ts:192).
-     - Align `RuleEngine.validateSkipPlacement` with [`evaluateSkipPlacementEligibility`](src/shared/engine/placementHelpers.ts:132) semantics.
+     - Replace placement mutation in `GameEngine.applyMove` with [`applyPlacementMove`](../src/shared/engine/placementHelpers.ts).
+     - Align `RuleEngine.validateSkipPlacement` with [`evaluateSkipPlacementEligibility`](../src/shared/engine/placementHelpers.ts) semantics.
    - Sandbox:
-     - Replace legacy path in [`sandboxPlacement.enumerateLegalRingPlacements`](src/client/sandbox/sandboxPlacement.ts:1) and `ClientSandboxEngine.tryPlaceRings` with calls into shared placement validator + [`applyPlacementMove`](src/shared/engine/placementHelpers.ts:192).
+     - Replace legacy path in [`sandboxPlacement.enumerateLegalRingPlacements`](../src/client/sandbox/sandboxPlacement.ts) and `ClientSandboxEngine.tryPlaceRings` with calls into shared placement validator + [`applyPlacementMove`](../src/shared/engine/placementHelpers.ts).
 
 5. **Turn progression delegates**
    - Backend:
-     - Refactor `TurnEngine.advanceGameForCurrentPlayer` to use [`advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135) with delegates created by [`createDefaultTurnLogicDelegates`](src/shared/engine/turnDelegateHelpers.ts:172).
+     - Refactor `TurnEngine.advanceGameForCurrentPlayer` to use [`advanceTurnAndPhase`](../src/shared/engine/turnLogic.ts) with delegates created by [`createDefaultTurnLogicDelegates`](../src/shared/engine/turnDelegateHelpers.ts).
    - Sandbox:
      - Refactor `sandboxTurnEngine` similarly, sharing the same `hasAnyPlacement` / `hasAnyMovement` / `hasAnyCapture` semantics.
 
@@ -295,28 +295,28 @@ Each step should keep behaviour parity validated via existing `RulesMatrix.*` an
 
 **NOTE 1 – Skip‑placement semantics**
 
-- Assumption in [`evaluateSkipPlacementEligibility`](src/shared/engine/placementHelpers.ts:132): skip is only legal when **no** legal placements remain that satisfy `validatePlacementOnBoard`.
+- Assumption in [`evaluateSkipPlacementEligibility`](../src/shared/engine/placementHelpers.ts): skip is only legal when **no** legal placements remain that satisfy `validatePlacementOnBoard`.
 - Existing backend and sandbox logic occasionally allow skip even when placements exist, as long as movement/capture is available.
 - Maintainers should confirm desired semantics before wiring hosts to this helper; see:
-  - [`RuleEngine.validateSkipPlacement`](src/server/game/RuleEngine.ts:1)
+  - [`RuleEngine.validateSkipPlacement`](../src/server/game/RuleEngine.ts)
   - Sandbox skip logic in `sandboxTurnEngine` / `ClientSandboxEngine`.
 
 **NOTE 2 – Territory self‑elimination scope (inside vs outside processed region)**
 
-- [`TerritoryEliminationScope.processedRegionId`](src/shared/engine/territoryDecisionHelpers.ts:157) is designed to support "must eliminate from outside the processed region" semantics.
+- [`TerritoryEliminationScope.processedRegionId`](../src/shared/engine/territoryDecisionHelpers.ts) is designed to support "must eliminate from outside the processed region" semantics.
 - Current backend/sandbox code is not fully consistent on whether eliminating from within the processed region is allowed.
 - Maintainers should clarify intended rule (FAQ Q23 / §12.2) and update implementations of:
-  - [`enumerateTerritoryEliminationMoves`](src/shared/engine/territoryDecisionHelpers.ts:175), and
+  - [`enumerateTerritoryEliminationMoves`](../src/shared/engine/territoryDecisionHelpers.ts), and
   - host‑level callers in `GameEngine.applyDecisionMove` and `sandboxTerritoryEngine`.
 
 **NOTE 3 – Chain‑capture visited‑target rules**
 
-- [`ChainCaptureStateSnapshot.visitedTargets`](src/shared/engine/captureChainHelpers.ts:25) and `disallowRevisitedTargets` encode a conservative rule: do not capture the same target position twice in a chain.
+- `ChainCaptureStateSnapshot.visitedTargets` and `disallowRevisitedTargets` encode a conservative rule: do not capture the same target position twice in a chain.
 - Existing backend `captureChainEngine` and sandbox `performCaptureChainSandbox` appear to disallow immediate backtracking but details on longer cycles are implicit.
-- When wiring hosts to [`enumerateChainCaptureSegments`](src/shared/engine/captureChainHelpers.ts:73), confirm whether any historical fixtures rely on more permissive behaviour.
+- When wiring hosts to `enumerateChainCaptureSegments`, confirm whether any historical fixtures rely on more permissive behaviour.
 
 **NOTE 4 – Line‑reward elimination application surface**
 
 - This design assumes ring‑elimination rewards from long lines will be expressed as explicit `eliminate_rings_from_stack` moves using the territory‑elimination helpers.
 - Some existing code paths (especially older backend line‑processing flows) apply the elimination directly inside line logic without a separate move.
-- When migrating to [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1) + [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1), clarify whether all such eliminations should become explicit moves for parity and AI training, or remain implicit in some modes.
+- When migrating to [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts) + [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts), clarify whether all such eliminations should become explicit moves for parity and AI training, or remain implicit in some modes.

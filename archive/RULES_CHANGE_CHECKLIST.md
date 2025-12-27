@@ -14,15 +14,17 @@
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md)                                                       | Canonical rules with RR-CANON-RXXX identifiers |
 | [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](../docs/supplementary/RULES_RULESET_CLARIFICATIONS.md) | CLAR-XXX entries for ambiguous areas           |
+
 <<<<<<< Updated upstream
-| [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md)                                       | Maps rules to TS + Python code locations       |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)                                             | Architecture, parity, and rollout strategy     |
-| [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md)                                        | AI training implications                       |
+| [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md) | Maps rules to TS + Python code locations |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) | Architecture, parity, and rollout strategy |
+| [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md) | AI training implications |
 =======
-| [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md)                            | Maps rules to TS + Python code locations       |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)                           | Architecture, parity, and rollout strategy     |
-| [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md)                            | AI training implications                       |
->>>>>>> Stashed changes
+| [`RULES_IMPLEMENTATION_MAPPING.md`](../docs/rules/RULES_IMPLEMENTATION_MAPPING.md) | Maps rules to TS + Python code locations |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) | Architecture, parity, and rollout strategy |
+| [`../docs/ai/AI_TRAINING_AND_DATASETS.md`](../docs/ai/AI_TRAINING_AND_DATASETS.md) | AI training implications |
+
+> > > > > > > Stashed changes
 
 ---
 
@@ -72,51 +74,51 @@
 ### TypeScript Shared Engine
 
 - [ ] Update validators in `src/shared/engine/validators/**`:
-  - [`PlacementValidator.ts`](src/shared/engine/validators/PlacementValidator.ts)
-  - [`MovementValidator.ts`](src/shared/engine/validators/MovementValidator.ts)
-  - [`CaptureValidator.ts`](src/shared/engine/validators/CaptureValidator.ts)
-  - [`LineValidator.ts`](src/shared/engine/validators/LineValidator.ts)
-  - [`TerritoryValidator.ts`](src/shared/engine/validators/TerritoryValidator.ts)
+  - [`PlacementValidator.ts`](../src/shared/engine/validators/PlacementValidator.ts)
+  - [`MovementValidator.ts`](../src/shared/engine/validators/MovementValidator.ts)
+  - [`CaptureValidator.ts`](../src/shared/engine/validators/CaptureValidator.ts)
+  - [`LineValidator.ts`](../src/shared/engine/validators/LineValidator.ts)
+  - [`TerritoryValidator.ts`](../src/shared/engine/validators/TerritoryValidator.ts)
 
 - [ ] Update mutators in `src/shared/engine/mutators/**`:
-  - [`PlacementMutator.ts`](src/shared/engine/mutators/PlacementMutator.ts)
-  - [`MovementMutator.ts`](src/shared/engine/mutators/MovementMutator.ts)
-  - [`CaptureMutator.ts`](src/shared/engine/mutators/CaptureMutator.ts)
-  - [`LineMutator.ts`](src/shared/engine/mutators/LineMutator.ts)
-  - [`TerritoryMutator.ts`](src/shared/engine/mutators/TerritoryMutator.ts)
-  - [`TurnMutator.ts`](src/shared/engine/mutators/TurnMutator.ts)
+  - [`PlacementMutator.ts`](../src/shared/engine/mutators/PlacementMutator.ts)
+  - [`MovementMutator.ts`](../src/shared/engine/mutators/MovementMutator.ts)
+  - [`CaptureMutator.ts`](../src/shared/engine/mutators/CaptureMutator.ts)
+  - [`LineMutator.ts`](../src/shared/engine/mutators/LineMutator.ts)
+  - [`TerritoryMutator.ts`](../src/shared/engine/mutators/TerritoryMutator.ts)
+  - [`TurnMutator.ts`](../src/shared/engine/mutators/TurnMutator.ts)
 
 - [ ] Update shared helpers as needed:
-  - [`core.ts`](src/shared/engine/core.ts) – geometry, S-invariant, board utilities
-  - [`movementLogic.ts`](src/shared/engine/movementLogic.ts) – movement enumeration
-  - [`captureLogic.ts`](src/shared/engine/captureLogic.ts) – capture enumeration
-  - [`lineDetection.ts`](src/shared/engine/lineDetection.ts) – line discovery
-  - [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts) – line reward decisions
-  - [`territoryDetection.ts`](src/shared/engine/territoryDetection.ts) – region discovery
-  - [`territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts) – region collapse
-  - [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts) – territory decisions
-  - [`turnLogic.ts`](src/shared/engine/turnLogic.ts) – phase/turn state machine
-  - [`victoryLogic.ts`](src/shared/engine/victoryLogic.ts) – win conditions
+  - [`core.ts`](../src/shared/engine/core.ts) – geometry, S-invariant, board utilities
+  - [`movementLogic.ts`](../src/shared/engine/movementLogic.ts) – movement enumeration
+  - [`captureLogic.ts`](../src/shared/engine/captureLogic.ts) – capture enumeration
+  - [`lineDetection.ts`](../src/shared/engine/lineDetection.ts) – line discovery
+  - [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts) – line reward decisions
+  - [`territoryDetection.ts`](../src/shared/engine/territoryDetection.ts) – region discovery
+  - [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts) – region collapse
+  - [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts) – territory decisions
+  - [`turnLogic.ts`](../src/shared/engine/turnLogic.ts) – phase/turn state machine
+  - `victoryLogic.ts` – win conditions
 
 ### TypeScript Backend Host
 
 - [ ] Update backend orchestration if needed:
-  - [`src/server/game/GameEngine.ts`](src/server/game/GameEngine.ts) – main game loop
-  - [`src/server/game/RuleEngine.ts`](src/server/game/RuleEngine.ts) – move validation/generation
-  - [`src/server/game/BoardManager.ts`](src/server/game/BoardManager.ts) – board utilities
-  - [`src/server/game/turn/TurnEngine.ts`](src/server/game/turn/TurnEngine.ts) – turn progression
+  - [`../src/server/game/GameEngine.ts`](../src/server/game/GameEngine.ts) – main game loop
+  - [`../src/server/game/RuleEngine.ts`](../src/server/game/RuleEngine.ts) – move validation/generation
+  - [`../src/server/game/BoardManager.ts`](../src/server/game/BoardManager.ts) – board utilities
+  - [`../src/server/game/turn/TurnEngine.ts`](../src/server/game/turn/TurnEngine.ts) – turn progression
 
 ### TypeScript Client Sandbox
 
 - [ ] Update sandbox if not using shared engine directly:
-  - [`src/client/sandbox/ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts)
+  - [`../src/client/sandbox/ClientSandboxEngine.ts`](../src/client/sandbox/ClientSandboxEngine.ts)
   - Relevant `sandbox*.ts` modules in `src/client/sandbox/`
 
 ### Python Rules Engine
 
 - [ ] Update Python implementation:
-  - [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py) – main engine
-  - [`ai-service/app/board_manager.py`](ai-service/app/board_manager.py) – board utilities
+  - `ai-service/app/game_engine.py` – main engine
+  - [`../ai-service/app/board_manager.py`](../ai-service/app/board_manager.py) – board utilities
   - Validators in `ai-service/app/rules/validators/**`
   - Mutators in `ai-service/app/rules/mutators/**`
 
@@ -133,11 +135,11 @@
 ### Unit Tests
 
 - [ ] **TypeScript unit tests** – add/update tests for affected mechanics:
-  - Movement: [`tests/unit/movement.shared.test.ts`](tests/unit/movement.shared.test.ts)
-  - Captures: [`tests/unit/captureLogic.shared.test.ts`](tests/unit/captureLogic.shared.test.ts)
-  - Lines: [`tests/unit/lineDecisionHelpers.shared.test.ts`](tests/unit/lineDecisionHelpers.shared.test.ts)
-  - Territory: [`tests/unit/territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts)
-  - Placement: [`tests/unit/placement.shared.test.ts`](tests/unit/placement.shared.test.ts)
+  - Movement: [`../tests/unit/movement.shared.test.ts`](../tests/unit/movement.shared.test.ts)
+  - Captures: [`../tests/unit/captureLogic.shared.test.ts`](../tests/unit/captureLogic.shared.test.ts)
+  - Lines: [`../tests/unit/lineDecisionHelpers.shared.test.ts`](../tests/unit/lineDecisionHelpers.shared.test.ts)
+  - Territory: [`../tests/unit/territoryDecisionHelpers.shared.test.ts`](../tests/unit/territoryDecisionHelpers.shared.test.ts)
+  - Placement: [`../tests/unit/placement.shared.test.ts`](../tests/unit/placement.shared.test.ts)
 
 - [ ] **Python unit tests** – mirror test coverage:
   - `ai-service/tests/test_rules_*.py`
@@ -147,7 +149,7 @@
 ### Scenario Tests
 
 - [ ] **RulesMatrix scenarios** – add/update if this is a core mechanic:
-  - [`tests/scenarios/rulesMatrix.ts`](tests/scenarios/rulesMatrix.ts)
+  - [`../tests/scenarios/rulesMatrix.ts`](../tests/scenarios/rulesMatrix.ts)
   - Related scenario test files in `tests/scenarios/`
 
 ### Parity Tests
@@ -160,11 +162,11 @@
 ### Determinism & No-Randomness Tests
 
 - [ ] **Verify determinism tests pass:**
-  - TS: [`tests/unit/EngineDeterminism.shared.test.ts`](tests/unit/EngineDeterminism.shared.test.ts)
+  - TS: [`../tests/unit/EngineDeterminism.shared.test.ts`](../tests/unit/EngineDeterminism.shared.test.ts)
   - Python: `ai-service/tests/test_engine_determinism.py`
 
 - [ ] **Verify no-randomness guards pass:**
-  - TS: [`tests/unit/NoRandomInCoreRules.test.ts`](tests/unit/NoRandomInCoreRules.test.ts)
+  - TS: [`../tests/unit/NoRandomInCoreRules.test.ts`](../tests/unit/NoRandomInCoreRules.test.ts)
   - Python: `ai-service/tests/test_no_random_in_rules_core.py`
 
 ---
@@ -174,11 +176,11 @@
 _Only applicable if the change affects victory conditions, rewards, or state features._
 
 - [ ] **Review reward computation:**
-  - Check [`ai-service/app/training/env.py`](ai-service/app/training/env.py) for reward functions
+  - Check [`../ai-service/app/training/env.py`](../ai-service/app/training/env.py) for reward functions
   - Ensure victory/termination changes are reflected in episode termination
 
 - [ ] **Review state encoding:**
-  - Check [`ai-service/app/training/encoding.py`](ai-service/app/training/encoding.py) (if exists)
+  - Check [`../ai-service/app/training/encoding.py`](../ai-service/app/training/encoding.py) (if exists)
   - Check heuristic feature extraction if applicable
 
 - [ ] **Update AI documentation:**
@@ -197,8 +199,8 @@ _Only applicable if the change affects victory conditions, rewards, or state fea
 
 - [ ] **Update UX components (if player-facing):**
   - Tooltips, modals, event log in `src/client/components/`
-  - [`src/client/components/GameEventLog.tsx`](src/client/components/GameEventLog.tsx)
-  - [`src/client/components/GameHUD.tsx`](src/client/components/GameHUD.tsx)
+  - [`../src/client/components/GameEventLog.tsx`](../src/client/components/GameEventLog.tsx)
+  - [`../src/client/components/GameHUD.tsx`](../src/client/components/GameHUD.tsx)
 
 - [ ] **Consider audit report update (if significant):**
   - [`archive/FINAL_RULES_AUDIT_REPORT.md`](../archive/FINAL_RULES_AUDIT_REPORT.md)

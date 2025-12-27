@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-Analyzed sync-related modules in `/Users/armand/Development/RingRift/ai-service/app/coordination/` to identify candidates for archival.
+Analyzed sync-related modules in `ai-service/app/coordination/` to identify candidates for archival.
 
 **Result**: 1 unused module identified for archival.
 
@@ -14,7 +14,7 @@ Analyzed sync-related modules in `/Users/armand/Development/RingRift/ai-service/
 
 ### 1. cluster_data_sync.py
 
-**Location**: `/Users/armand/Development/RingRift/ai-service/app/coordination/cluster_data_sync.py`
+**Location**: `ai-service/app/coordination/cluster_data_sync.py`
 
 **Status**: ✅ **ACTIVELY USED - DO NOT ARCHIVE**
 
@@ -44,7 +44,7 @@ Analyzed sync-related modules in `/Users/armand/Development/RingRift/ai-service/
 
 ### 2. sync_coordination_core.py
 
-**Location**: `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_coordination_core.py`
+**Location**: `ai-service/app/coordination/sync_coordination_core.py`
 
 **Status**: ⚠️ **UNUSED - CANDIDATE FOR ARCHIVAL**
 
@@ -102,15 +102,15 @@ This is a convenience re-export module that consolidates:
 
 ### 4. app/distributed/unified_data_sync.py
 
-**Status**: ✅ **ACTIVE** (3 imports)
+**Status**: ⚠️ **DEPRECATED (still in use)** (3 imports)
 
 **Imported By**:
 
-- `scripts/unified_data_sync.py`
+- `scripts/unified_data_sync.py` (supported CLI wrapper)
 - `tests/test_unified_loop.py`
 - `tests/unit/distributed/test_checksum_validation.py`
 
-**Conclusion**: Active module with test coverage.
+**Conclusion**: Deprecated module that remains active via the CLI and tests. Keep until AutoSyncDaemon/SyncFacade parity replaces the CLI path.
 
 ---
 
@@ -177,8 +177,8 @@ Heavily used across:
    mv app/coordination/sync_coordination_core.py archive/deprecated_coordination/
    ```
 
-   - Source: `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_coordination_core.py`
-   - Destination: `/Users/armand/Development/RingRift/ai-service/archive/deprecated_coordination/sync_coordination_core.py`
+   - Source: `ai-service/app/coordination/sync_coordination_core.py`
+   - Destination: `ai-service/archive/deprecated_coordination/sync_coordination_core.py`
    - File size: 27KB
 
 2. ✅ Updated `archive/deprecated_coordination/README.md` with comprehensive documentation:

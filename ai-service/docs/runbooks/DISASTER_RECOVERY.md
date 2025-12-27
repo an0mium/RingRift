@@ -263,7 +263,7 @@ curl -s http://localhost:8770/status
 
 # Step 3: Bring up coordinator first
 # If running locally:
-cd /Users/armand/Development/RingRift/ai-service
+cd ai-service
 PYTHONPATH=. venv/bin/python scripts/p2p_orchestrator.py --node-id mac-studio --port 8770 --peers <url-list> &
 
 # Step 4: Reconnect cloud nodes as they come online

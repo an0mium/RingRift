@@ -38,24 +38,24 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 **Result**: Achieved **30 deprecations** (27% reduction, exceeding target)
 
-| Change | Description | Impact |
-|--------|-------------|--------|
+| Change  | Description                    | Impact                           |
+| ------- | ------------------------------ | -------------------------------- |
 | **-10** | `phaseStateMachine.ts` deleted | Entire deprecated module removed |
-| **-1** | Related import cleanup | No orphaned references |
-| **NET** | 41 → 30 annotations | **+11 deprecations removed** |
+| **-1**  | Related import cleanup         | No orphaned references           |
+| **NET** | 41 → 30 annotations            | **+11 deprecations removed**     |
 
 **Current Deprecation Distribution**:
 
-| Category | Count | Notes |
-|----------|-------|-------|
-| `GameEngine.ts` | 8 | Legacy path methods |
-| `turnOrchestrator.ts` | 3 | FSM replacement functions |
-| `legacyReplayHelper.ts` | 4 | Legacy replay adapters |
-| `logger.ts` | 3 | Logging utilities |
-| `ScreenReaderAnnouncer.tsx` | 2 | Accessibility helpers |
-| `game.ts` | 3 | Legacy move types |
-| Other scattered | 7 | Various utilities |
-| **Total** | **30** | Down from 41 |
+| Category                    | Count  | Notes                     |
+| --------------------------- | ------ | ------------------------- |
+| `GameEngine.ts`             | 8      | Legacy path methods       |
+| `turnOrchestrator.ts`       | 3      | FSM replacement functions |
+| `legacyReplayHelper.ts`     | 4      | Legacy replay adapters    |
+| `logger.ts`                 | 3      | Logging utilities         |
+| `ScreenReaderAnnouncer.tsx` | 2      | Accessibility helpers     |
+| `game.ts`                   | 3      | Legacy move types         |
+| Other scattered             | 7      | Various utilities         |
+| **Total**                   | **30** | Down from 41              |
 
 ### PASS30-R2: Square19 Parity Investigation ✅ COMPLETE
 
@@ -65,12 +65,13 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 **Key Finding**: Divergence in `hasPhaseLocalInteractiveMove` for `territory_processing` phase
 
-| Engine | Implementation | Semantics |
-|--------|----------------|-----------|
-| TypeScript | Enumerates region + elimination moves only | No pending self-elimination check |
-| Python | Checks pending territory self-elimination (RR-CANON-R145) | More comprehensive |
+| Engine     | Implementation                                            | Semantics                         |
+| ---------- | --------------------------------------------------------- | --------------------------------- |
+| TypeScript | Enumerates region + elimination moves only                | No pending self-elimination check |
+| Python     | Checks pending territory self-elimination (RR-CANON-R145) | More comprehensive                |
 
 **Fix Path Identified**:
+
 - Option A: Align TS `hasPhaseLocalInteractiveMove` to include Python's pending territory self-elimination check
 - Option B: Modify `resolveANMForCurrentPlayer` timing in turnOrchestrator.ts
 
@@ -80,17 +81,18 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 **Result**: [`TURN_ORCHESTRATOR_MODULARIZATION_STUDY.md`](../../architecture/TURN_ORCHESTRATOR_MODULARIZATION_STUDY.md) created with:
 
-| Deliverable | Content |
-|-------------|---------|
-| Function inventory | 35 functions with LOC and responsibility |
-| Responsibility groupings | 9 cohesive groups identified |
-| Coupling analysis | External consumers and internal dependencies mapped |
-| Extraction candidates | 6 prioritized with scoring (16-24/25) |
-| Phased plan | 4-week implementation timeline |
-| Risk assessment | Parity risks, testing requirements |
-| Success metrics | LOC targets, test coverage gates |
+| Deliverable              | Content                                             |
+| ------------------------ | --------------------------------------------------- |
+| Function inventory       | 35 functions with LOC and responsibility            |
+| Responsibility groupings | 9 cohesive groups identified                        |
+| Coupling analysis        | External consumers and internal dependencies mapped |
+| Extraction candidates    | 6 prioritized with scoring (16-24/25)               |
+| Phased plan              | 4-week implementation timeline                      |
+| Risk assessment          | Parity risks, testing requirements                  |
+| Success metrics          | LOC targets, test coverage gates                    |
 
 **Key Extractions Recommended**:
+
 1. `victoryExplanation.ts` (~500 LOC) - Score: 24/25 ⭐
 2. `decisionSurface.ts` (~220 LOC) - Score: 21/25
 3. `validMoves.ts` (~340 LOC) - Score: 21/25
@@ -106,19 +108,19 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 #### 2.1 Documentation Updates Verified
 
-| Document | Status | Notes |
-|----------|--------|-------|
-| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md) | ✅ Updated | INV-003 root cause fully documented |
-| [`TURN_ORCHESTRATOR_MODULARIZATION_STUDY.md`](../../architecture/TURN_ORCHESTRATOR_MODULARIZATION_STUDY.md) | ✅ Created | 671 LOC comprehensive study |
-| [`BACKEND_GAME_HOST_DECOMPOSITION_PLAN.md`](../../architecture/BACKEND_GAME_HOST_DECOMPOSITION_PLAN.md) | ✅ Current | All phases complete |
+| Document                                                                                                    | Status     | Notes                               |
+| ----------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------- |
+| [`KNOWN_ISSUES.md`](../../../KNOWN_ISSUES.md)                                                               | ✅ Updated | INV-003 root cause fully documented |
+| [`TURN_ORCHESTRATOR_MODULARIZATION_STUDY.md`](../../architecture/TURN_ORCHESTRATOR_MODULARIZATION_STUDY.md) | ✅ Created | 671 LOC comprehensive study         |
+| [`BACKEND_GAME_HOST_DECOMPOSITION_PLAN.md`](../../architecture/BACKEND_GAME_HOST_DECOMPOSITION_PLAN.md)     | ✅ Current | All phases complete                 |
 
 #### 2.2 Documentation Hygiene Issues Found
 
-| Document | Issue | Severity |
-|----------|-------|----------|
-| [`src/AGENTS.md`](../../../src/AGENTS.md:20) | References deleted `phaseStateMachine.ts` | Low |
-| [`src/shared/engine/fsm/index.ts`](../../../src/shared/engine/fsm/index.ts:55) | References `../orchestration/phaseStateMachine.ts` (deleted) | Info |
-| [`src/shared/engine/fsm/FSMAdapter.ts`](../../../src/shared/engine/fsm/FSMAdapter.ts:1582) | References `phaseStateMachine.ts` (deleted) | Info |
+| Document                                                                              | Issue                                                        | Severity |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------- |
+| [`src/AGENTS.md`](../../../src/AGENTS.md)                                             | References deleted `phaseStateMachine.ts`                    | Low      |
+| [`src/shared/engine/fsm/index.ts`](../../../src/shared/engine/fsm/index.ts)           | References `../orchestration/phaseStateMachine.ts` (deleted) | Info     |
+| [`src/shared/engine/fsm/FSMAdapter.ts`](../../../src/shared/engine/fsm/FSMAdapter.ts) | References `phaseStateMachine.ts` (deleted)                  | Info     |
 
 #### 2.3 Score Improvement Rationale
 
@@ -133,12 +135,12 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 #### 3.1 Test Status
 
-| Area | Status | Notes |
-|------|--------|-------|
-| phaseStateMachine.ts deletion | ✅ No broken imports | File removed cleanly |
-| Contract vectors | ✅ 90 vectors passing | 100% parity maintained |
-| Orchestrator tests | ✅ 286 tests | All passing |
-| Hook tests | ✅ 133+ tests | BackendGameHost hooks covered |
+| Area                          | Status                | Notes                         |
+| ----------------------------- | --------------------- | ----------------------------- |
+| phaseStateMachine.ts deletion | ✅ No broken imports  | File removed cleanly          |
+| Contract vectors              | ✅ 90 vectors passing | 100% parity maintained        |
+| Orchestrator tests            | ✅ 286 tests          | All passing                   |
+| Hook tests                    | ✅ 133+ tests         | BackendGameHost hooks covered |
 
 #### 3.2 Known Test Issues (Unchanged)
 
@@ -154,22 +156,22 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 #### 4.1 Deprecation Reduction
 
-| Metric | PASS30 | PASS31 | Improvement |
-|--------|--------|--------|-------------|
-| @deprecated annotations | 41 | **30** | **-27%** |
-| Deprecated modules | 1 (phaseStateMachine.ts) | **0** | **Module deleted** |
+| Metric                  | PASS30                   | PASS31 | Improvement        |
+| ----------------------- | ------------------------ | ------ | ------------------ |
+| @deprecated annotations | 41                       | **30** | **-27%**           |
+| Deprecated modules      | 1 (phaseStateMachine.ts) | **0**  | **Module deleted** |
 
 #### 4.2 Large File Status
 
-| File | LOC | Status | Notes |
-|------|-----|--------|-------|
-| `BackendGameHost.tsx` | 1,114 | ✅ Decomposed | 48% reduction |
-| `SandboxGameHost.tsx` | 1,922 | ✅ Decomposed | 49% reduction |
+| File                  | LOC   | Status          | Notes                            |
+| --------------------- | ----- | --------------- | -------------------------------- |
+| `BackendGameHost.tsx` | 1,114 | ✅ Decomposed   | 48% reduction                    |
+| `SandboxGameHost.tsx` | 1,922 | ✅ Decomposed   | 49% reduction                    |
 | `turnOrchestrator.ts` | 3,927 | ⚠️ Plan created | Study complete, extraction ready |
 
 #### 4.3 Score Improvement Rationale
 
-- **+6 points**: 
+- **+6 points**:
   - 11 deprecations removed (27% reduction)
   - Entire deprecated module deleted
   - Comprehensive modularization plan ready
@@ -182,18 +184,18 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 #### 5.1 Major Refactoring Milestones
 
-| Milestone | Status | Notes |
-|-----------|--------|-------|
-| SandboxGameHost decomposition | ✅ Complete | 49% reduction |
-| BackendGameHost decomposition | ✅ Complete | 48% reduction |
-| phaseStateMachine.ts removal | ✅ Complete | 10 deprecations removed |
+| Milestone                             | Status      | Notes                    |
+| ------------------------------------- | ----------- | ------------------------ |
+| SandboxGameHost decomposition         | ✅ Complete | 49% reduction            |
+| BackendGameHost decomposition         | ✅ Complete | 48% reduction            |
+| phaseStateMachine.ts removal          | ✅ Complete | 10 deprecations removed  |
 | turnOrchestrator modularization study | ✅ Complete | Plan ready for execution |
-| FSM orchestrator rollout | ✅ 100% | All hosts using FSM |
-| All 12 AI models trained | ✅ Complete | Including hex variants |
+| FSM orchestrator rollout              | ✅ 100%     | All hosts using FSM      |
+| All 12 AI models trained              | ✅ Complete | Including hex variants   |
 
 #### 5.2 Score Improvement Rationale
 
-- **+1 point**: 
+- **+1 point**:
   - Deprecated module deleted (not just planned)
   - Comprehensive modularization plan enables future work
 
@@ -246,17 +248,17 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 ### Journey from PASS8 to PASS31
 
-| Pass | Date | Score | Key Achievement |
-|------|------|-------|-----------------|
-| PASS8 | 2025-12 | 52/100 | Initial assessment baseline |
-| PASS11 | 2025-12 | 63/100 | Orchestrator Phase 1 complete |
-| PASS14 | 2025-12 | 70/100 | Contract vectors established |
-| PASS18 | 2025-12 | 76/100 | FSM validation working |
-| PASS22 | 2025-12 | 82/100 | Load testing complete |
-| PASS27 | 2025-12 | 85/100 | AI models trained |
-| PASS28 | 2025-12 | 86/100 | Backend hooks extracted |
-| PASS29 | 2025-12 | 89/100 | Hook tests added |
-| PASS30 | 2025-12 | 92/100 | Full decomposition complete |
+| Pass       | Date    | Score      | Key Achievement                              |
+| ---------- | ------- | ---------- | -------------------------------------------- |
+| PASS8      | 2025-12 | 52/100     | Initial assessment baseline                  |
+| PASS11     | 2025-12 | 63/100     | Orchestrator Phase 1 complete                |
+| PASS14     | 2025-12 | 70/100     | Contract vectors established                 |
+| PASS18     | 2025-12 | 76/100     | FSM validation working                       |
+| PASS22     | 2025-12 | 82/100     | Load testing complete                        |
+| PASS27     | 2025-12 | 85/100     | AI models trained                            |
+| PASS28     | 2025-12 | 86/100     | Backend hooks extracted                      |
+| PASS29     | 2025-12 | 89/100     | Hook tests added                             |
+| PASS30     | 2025-12 | 92/100     | Full decomposition complete                  |
 | **PASS31** | 2025-12 | **94/100** | **Deprecation cleanup, root cause analysis** |
 
 **Total improvement**: +42 points over assessment passes
@@ -267,18 +269,18 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 
 ### Resolved Since PASS30
 
-| Issue | Description | Resolution |
-|-------|-------------|------------|
-| phaseStateMachine.ts | 10 deprecations | ✅ Module deleted |
-| Documentation gap | No modularization plan | ✅ Study created |
+| Issue                | Description            | Resolution        |
+| -------------------- | ---------------------- | ----------------- |
+| phaseStateMachine.ts | 10 deprecations        | ✅ Module deleted |
+| Documentation gap    | No modularization plan | ✅ Study created  |
 
 ### Still Open
 
-| Issue | Severity | Description | Status |
-|-------|----------|-------------|--------|
-| INV-003 | P1 | Square19 parity at 70% | Root cause identified, fix path documented |
-| 30 deprecations | P2 | Legacy code annotations | Reduced from 41, ongoing cleanup |
-| turnOrchestrator size | P3 | 3,927 LOC | Plan complete, ready for extraction |
+| Issue                 | Severity | Description             | Status                                     |
+| --------------------- | -------- | ----------------------- | ------------------------------------------ |
+| INV-003               | P1       | Square19 parity at 70%  | Root cause identified, fix path documented |
+| 30 deprecations       | P2       | Legacy code annotations | Reduced from 41, ongoing cleanup           |
+| turnOrchestrator size | P3       | 3,927 LOC               | Plan complete, ready for extraction        |
 
 ---
 
@@ -296,7 +298,6 @@ PASS31 verifies the completion of PASS30 remediation work and identifies the cur
 2. **turnOrchestrator Phase 1 Extraction**
    - Extract `victoryExplanation.ts` (~500 LOC)
    - Zero parity risk, immediate maintainability win
-   
 3. **Stale Reference Cleanup**
    - Update `src/AGENTS.md` to remove phaseStateMachine.ts reference
    - Update FSM index.ts and FSMAdapter.ts comments
@@ -333,16 +334,16 @@ The project has achieved excellent code quality through systematic deprecation c
 
 ## Acceptance Criteria Verification
 
-| Criterion | Status |
-|-----------|--------|
-| ☑️ PASS30 remediation verified | Complete |
-| ☑️ Deprecation count confirmed | 30 (down from 41) |
-| ☑️ phaseStateMachine.ts deletion verified | Complete |
-| ☑️ INV-003 root cause documented | Complete |
-| ☑️ Modularization study verified | Complete |
-| ☑️ Health score calculated | 94/100 (A) |
-| ☑️ Next priorities identified | Complete |
-| ☑️ Assessment report created | Complete |
+| Criterion                                 | Status            |
+| ----------------------------------------- | ----------------- |
+| ☑️ PASS30 remediation verified            | Complete          |
+| ☑️ Deprecation count confirmed            | 30 (down from 41) |
+| ☑️ phaseStateMachine.ts deletion verified | Complete          |
+| ☑️ INV-003 root cause documented          | Complete          |
+| ☑️ Modularization study verified          | Complete          |
+| ☑️ Health score calculated                | 94/100 (A)        |
+| ☑️ Next priorities identified             | Complete          |
+| ☑️ Assessment report created              | Complete          |
 
 ---
 

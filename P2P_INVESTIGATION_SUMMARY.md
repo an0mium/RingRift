@@ -6,6 +6,7 @@
 > This file is kept for historical reference only.
 
 > Snapshot note: This report reflects Dec 26, 2025 data. Current voter list and deployment status may differ; see `ai-service/P2P_DEPLOYMENT_REPORT.md` and `ai-service/config/distributed_hosts.yaml`.
+> Current tooling: `ai-service/scripts/p2p_cluster_status.py` (status) and `ai-service/scripts/deploy_p2p_systemd.py` (deploy/manage). See the consolidated report for current flows.
 > Current voters (Dec 27, 2025): nebius-backbone-1, nebius-h100-3, hetzner-cpu1, hetzner-cpu2, vultr-a100-20gb (runpod-h100 removed).
 
 **Investigation Date**: December 26, 2025
@@ -163,10 +164,10 @@ With only 6/26 GPU nodes running P2P:
 
    ```bash
    cd ~/ringrift/ai-service  # or /workspace/ringrift/ai-service
-   nohup python scripts/p2p_orchestrator.py \
-     --node-id $(hostname) \
-     --host 0.0.0.0 \
-     --port 8770 \
+   PYTHONPATH=. nohup venv/bin/python scripts/p2p_orchestrator.py \
+   --node-id $(hostname) \
+   --host 0.0.0.0 \
+   --port 8770 \
      --peers http://89.169.110.128:8770 \
      >/tmp/p2p.log 2>&1 &
    ```
@@ -194,9 +195,9 @@ With only 6/26 GPU nodes running P2P:
 
 ## Files Generated
 
-- Investigation script: `/Users/armand/Development/RingRift/ai-service/scripts/investigate_p2p_status.sh`
+- Investigation script: `ai-service/scripts/investigate_p2p_status.sh`
 - Raw report: `/tmp/p2p_status_report_20251226_203240.txt`
-- This summary: `/Users/armand/Development/RingRift/P2P_INVESTIGATION_SUMMARY.md`
+- This summary: `P2P_INVESTIGATION_SUMMARY.md`
 
 ## Next Steps
 

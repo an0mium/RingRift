@@ -16,25 +16,25 @@ Successfully implemented a comprehensive three-tier fallback system that ensures
 
 ### 1. Enhanced AIServiceClient with Circuit Breaker
 
-**File:** [`src/server/services/AIServiceClient.ts`](src/server/services/AIServiceClient.ts:1)
+**File:** [`src/server/services/AIServiceClient.ts`](../src/server/services/AIServiceClient.ts)
 
 **Changes:**
 
-- Added [`CircuitBreaker`](src/server/services/AIServiceClient.ts:20) class implementing the circuit breaker pattern
+- Added [`CircuitBreaker`](../src/server/services/AIServiceClient.ts) class implementing the circuit breaker pattern
   - Opens after 5 consecutive failures
   - 60-second cooldown before retry
   - Automatic reset on successful request
   - Status tracking for monitoring
 
-- Enhanced error categorization in [`categorizeError()`](src/server/services/AIServiceClient.ts:225)
+- Enhanced error categorization in [`categorizeError()`](../src/server/services/AIServiceClient.ts)
   - Connection refused
   - Timeouts
   - Server errors (500, 503)
   - Client errors (4xx)
   - Unknown errors
 
-- Wrapped [`getAIMove()`](src/server/services/AIServiceClient.ts:234) with circuit breaker protection
-- Added [`getCircuitBreakerStatus()`](src/server/services/AIServiceClient.ts:289) for monitoring
+- Wrapped [`getAIMove()`](../src/server/services/AIServiceClient.ts) with circuit breaker protection
+- Added [`getCircuitBreakerStatus()`](../src/server/services/AIServiceClient.ts) for monitoring
 
 **Benefits:**
 
@@ -47,11 +47,11 @@ Successfully implemented a comprehensive three-tier fallback system that ensures
 
 ### 2. Robust Tiered Fallback in AIEngine
 
-**File:** [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1)
+**File:** [`src/server/game/ai/AIEngine.ts`](../src/server/game/ai/AIEngine.ts)
 
 **Changes:**
 
-#### Enhanced [`getAIMove()`](src/server/game/ai/AIEngine.ts:228) with Three-Tier Fallback:
+#### Enhanced [`getAIMove()`](../src/server/game/ai/AIEngine.ts) with Three-Tier Fallback:
 
 ```typescript
 Level 1: Python AI Service (if mode === 'service')
@@ -63,14 +63,14 @@ Level 3: Random Valid Move Selection
 
 #### New Methods:
 
-- [`validateMoveInList()`](src/server/game/ai/AIEngine.ts:340): Validates AI-suggested moves against legal moves
-- [`movesEqual()`](src/server/game/ai/AIEngine.ts:347): Deep equality check for Move objects
-- [`positionsEqual()`](src/server/game/ai/AIEngine.ts:387): Position comparison (including hexagonal z-coordinate)
-- [`selectLocalHeuristicMove()`](src/server/game/ai/AIEngine.ts:400): Local fallback move selection
+- [`validateMoveInList()`](../src/server/game/ai/AIEngine.ts): Validates AI-suggested moves against legal moves
+- [`movesEqual()`](../src/server/game/ai/AIEngine.ts): Deep equality check for Move objects
+- [`positionsEqual()`](../src/server/game/ai/AIEngine.ts): Position comparison (including hexagonal z-coordinate)
+- [`selectLocalHeuristicMove()`](../src/server/game/ai/AIEngine.ts): Local fallback move selection
 
 #### Enhanced Validation:
 
-- Get valid moves from [`RuleEngine`](src/server/game/RuleEngine.ts:1) before attempting AI call
+- Get valid moves from [`RuleEngine`](../src/server/game/RuleEngine.ts) before attempting AI call
 - Return immediately if only one valid move exists
 - Validate all AI-suggested moves are in the legal move list
 - Log invalid moves with details for debugging
@@ -93,11 +93,11 @@ Level 3: Random Valid Move Selection
 
 ### 3. GameSession Error Handling
 
-**File:** [`src/server/game/GameSession.ts`](src/server/game/GameSession.ts:1)
+**File:** [`src/server/game/GameSession.ts`](../src/server/game/GameSession.ts)
 
 **Changes:**
 
-#### Enhanced [`handleAIFatalFailure()`](src/server/game/GameSession.ts:756):
+#### Enhanced [`handleAIFatalFailure()`](../src/server/game/GameSession.ts):
 
 - Emits `game_error` event to clients before `game_over`
 - Provides user-friendly error message
@@ -128,7 +128,7 @@ Level 3: Random Valid Move Selection
 
 ### 4. Client-Side Error Handling
 
-**File:** [`src/client/pages/GamePage.tsx`](src/client/pages/GamePage.tsx:1)
+**File:** [`src/client/pages/GamePage.tsx`](../src/client/pages/GamePage.tsx)
 
 **Changes:**
 
@@ -151,17 +151,17 @@ Level 3: Random Valid Move Selection
 
 ### 5. Sandbox AI Resilience
 
-**File:** [`src/client/sandbox/sandboxAI.ts`](src/client/sandbox/sandboxAI.ts:1)
+**File:** [`src/client/sandbox/sandboxAI.ts`](../src/client/sandbox/sandboxAI.ts)
 
 **Changes:**
 
-#### Enhanced [`selectSandboxMovementMove()`](src/client/sandbox/sandboxAI.ts:392):
+#### Enhanced [`selectSandboxMovementMove()`](../src/client/sandbox/sandboxAI.ts):
 
 - Wrapped in try-catch with random fallback
 - Never throws exceptions
 - Logs errors for debugging
 
-#### Enhanced [`maybeRunAITurnSandbox()`](src/client/sandbox/sandboxAI.ts:437):
+#### Enhanced [`maybeRunAITurnSandbox()`](../src/client/sandbox/sandboxAI.ts):
 
 - Outer try-catch wrapper for entire function
 - Inner try-catch for game logic
@@ -181,7 +181,7 @@ Level 3: Random Valid Move Selection
 
 #### Unit Tests
 
-**File:** [`tests/unit/AIEngine.fallback.test.ts`](tests/unit/AIEngine.fallback.test.ts:1)
+**File:** [`tests/unit/AIEngine.fallback.test.ts`](../tests/unit/AIEngine.fallback.test.ts)
 
 **Test Suites:**
 
@@ -221,7 +221,7 @@ Level 3: Random Valid Move Selection
 
 #### Integration Tests
 
-**File:** [`tests/integration/AIResilience.test.ts`](tests/integration/AIResilience.test.ts:1)
+**File:** [`tests/integration/AIResilience.test.ts`](../tests/integration/AIResilience.test.ts)
 
 **Test Suites:**
 
@@ -288,7 +288,7 @@ Level 3: Random Valid Move Selection
 ### Tier 2: Local Heuristic AI
 
 **When:** Service fails or mode is `'local_heuristic'`  
-**Logic:** Use shared [`chooseLocalMoveFromCandidates()`](src/shared/engine/localAIMoveSelection.ts:1)  
+**Logic:** Use shared [`chooseLocalMoveFromCandidates()`](../src/shared/engine/localAIMoveSelection.ts)  
 **On Success:** Use locally-selected move  
 **On Failure:** Log error, proceed to Tier 3
 
@@ -386,7 +386,7 @@ type AIQualityMode = 'normal' | 'fallbackLocalAI' | 'rulesServiceDegraded';
 
 ### Unit Tests (15+ test cases)
 
-**File:** [`tests/unit/AIEngine.fallback.test.ts`](tests/unit/AIEngine.fallback.test.ts:1)
+**File:** [`tests/unit/AIEngine.fallback.test.ts`](../tests/unit/AIEngine.fallback.test.ts)
 
 ✅ Service failure fallback  
 ✅ Timeout handling  
@@ -401,7 +401,7 @@ type AIQualityMode = 'normal' | 'fallbackLocalAI' | 'rulesServiceDegraded';
 
 ### Integration Tests (6+ test cases)
 
-**File:** [`tests/integration/AIResilience.test.ts`](tests/integration/AIResilience.test.ts:1)
+**File:** [`tests/integration/AIResilience.test.ts`](../tests/integration/AIResilience.test.ts)
 
 ✅ Complete game with service down  
 ✅ Intermittent failures  
@@ -434,17 +434,17 @@ npm test -- --testPathPattern="AI"
 
 ## Files Created
 
-1. **[`tests/unit/AIEngine.fallback.test.ts`](tests/unit/AIEngine.fallback.test.ts:1)** (304 lines)
+1. **[`tests/unit/AIEngine.fallback.test.ts`](../tests/unit/AIEngine.fallback.test.ts)** (304 lines)
    - Comprehensive unit tests for fallback scenarios
    - Tests all error conditions and recovery paths
    - Validates diagnostics and logging
 
-2. **[`tests/integration/AIResilience.test.ts`](tests/integration/AIResilience.test.ts:1)** (217 lines)
+2. **[`tests/integration/AIResilience.test.ts`](../tests/integration/AIResilience.test.ts)** (217 lines)
    - Integration tests for complete fallback chain
    - Tests real-world failure scenarios
    - Performance and recovery validation
 
-3. **[`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md:1)** (this file)
+3. **[`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md)** (this file)
    - Complete documentation of implementation
    - Architecture decisions and rationale
    - Monitoring and operational guidance
@@ -455,14 +455,14 @@ npm test -- --testPathPattern="AI"
 
 ### Core AI Components
 
-1. **[`src/server/services/AIServiceClient.ts`](src/server/services/AIServiceClient.ts:1)**
+1. **[`src/server/services/AIServiceClient.ts`](../src/server/services/AIServiceClient.ts)**
    - Added `CircuitBreaker` class (77 lines)
    - Enhanced error categorization
    - Wrapped service calls with circuit breaker
    - Added status monitoring method
 
-2. **[`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1)**
-   - Completely rewrote [`getAIMove()`](src/server/game/ai/AIEngine.ts:228) with three-tier fallback
+2. **[`src/server/game/ai/AIEngine.ts`](../src/server/game/ai/AIEngine.ts)**
+   - Completely rewrote [`getAIMove()`](../src/server/game/ai/AIEngine.ts) with three-tier fallback
    - Added move validation methods
    - Added local heuristic selection
    - Enhanced error logging
@@ -470,28 +470,28 @@ npm test -- --testPathPattern="AI"
 
 ### Game Session & Error Handling
 
-3. **[`src/server/game/GameSession.ts`](src/server/game/GameSession.ts:1)**
-   - Enhanced [`handleAIFatalFailure()`](src/server/game/GameSession.ts:756)
+3. **[`src/server/game/GameSession.ts`](../src/server/game/GameSession.ts)**
+   - Enhanced [`handleAIFatalFailure()`](../src/server/game/GameSession.ts)
    - Added `game_error` event emission
    - Better error context for debugging
 
 ### Client-Side Components
 
-4. **[`src/client/pages/GamePage.tsx`](src/client/pages/GamePage.tsx:1)**
+4. **[`src/client/pages/GamePage.tsx`](../src/client/pages/GamePage.tsx)**
    - Added `fatalGameError` state tracking
    - Added effect to listen for `game_error` events
    - Added error banner UI with dismissible notification
    - Development mode technical details display
 
-5. **[`src/client/sandbox/sandboxAI.ts`](src/client/sandbox/sandboxAI.ts:1)**
-   - Added comprehensive error handling in [`selectSandboxMovementMove()`](src/client/sandbox/sandboxAI.ts:392)
-   - Added outer error wrapper in [`maybeRunAITurnSandbox()`](src/client/sandbox/sandboxAI.ts:437)
+5. **[`src/client/sandbox/sandboxAI.ts`](../src/client/sandbox/sandboxAI.ts)**
+   - Added comprehensive error handling in [`selectSandboxMovementMove()`](../src/client/sandbox/sandboxAI.ts)
+   - Added outer error wrapper in [`maybeRunAITurnSandbox()`](../src/client/sandbox/sandboxAI.ts)
    - Error recording in trace buffer
    - Fallback to random on errors
 
 ### Documentation
 
-6. **[`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)**
+6. **[`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md)**
    - Added complete "Error Handling & Resilience" section
    - Documented tiered fallback architecture
    - Added error scenarios and handling strategies

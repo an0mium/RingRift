@@ -16,7 +16,7 @@
 
 ## Executive Summary
 
-The make/unmake pattern implemented in [`mutable_state.py`](../app/rules/mutable_state.py) has achieved **12-25x improvement in nodes/second** for MinimaxAI. This document analyzes the applicability of this pattern to other AI components and training infrastructure to identify further optimization opportunities.
+The make/unmake pattern implemented in [`mutable_state.py`](../../../app/rules/mutable_state.py) has achieved **12-25x improvement in nodes/second** for MinimaxAI. This document analyzes the applicability of this pattern to other AI components and training infrastructure to identify further optimization opportunities.
 
 ### Key Findings
 
@@ -36,7 +36,7 @@ The make/unmake pattern implemented in [`mutable_state.py`](../app/rules/mutable
 
 ### 1. MCTS AI
 
-**File:** [`ai-service/app/ai/mcts_ai.py`](../app/ai/mcts_ai.py)
+**File:** [`ai-service/app/ai/mcts_ai.py`](../../../app/ai/mcts_ai.py)
 
 #### Current Pattern
 
@@ -116,7 +116,7 @@ for undo in reversed(undo_stack):
 
 ### 2. Descent AI
 
-**File:** [`ai-service/app/ai/descent_ai.py`](../app/ai/descent_ai.py)
+**File:** [`ai-service/app/ai/descent_ai.py`](../../../app/ai/descent_ai.py)
 
 #### Current Pattern
 
@@ -189,7 +189,7 @@ def _descent_iteration_mutable(
 
 ### 3. Heuristic AI
 
-**File:** [`ai-service/app/ai/heuristic_ai.py`](../app/ai/heuristic_ai.py)
+**File:** [`ai-service/app/ai/heuristic_ai.py`](../../../app/ai/heuristic_ai.py)
 
 #### Current Pattern
 
@@ -246,7 +246,7 @@ Modest improvement due to:
 
 #### 4.1 RL Environment
 
-**File:** [`ai-service/app/training/env.py`](../app/training/env.py)
+**File:** [`ai-service/app/training/env.py`](../../../app/training/env.py)
 
 ##### Current Pattern
 
@@ -285,7 +285,7 @@ Modest improvement since each step is independent.
 
 #### 4.2 Self-Play Data Generation
 
-**File:** [`ai-service/app/training/generate_data.py`](../app/training/generate_data.py)
+**File:** [`ai-service/app/training/generate_data.py`](../../../app/training/generate_data.py)
 
 ##### Current Pattern
 
@@ -326,7 +326,7 @@ Most of the speedup comes from faster AI search, not the game loop itself.
 
 #### 4.3 Tournament System
 
-**File:** [`ai-service/app/training/tournament.py`](../app/training/tournament.py)
+**File:** [`ai-service/app/training/tournament.py`](../../../app/training/tournament.py)
 
 ##### Current Pattern
 
@@ -358,7 +358,7 @@ Primarily benefits from AI layer integration.
 
 #### 4.4 Neural Network Training
 
-**File:** [`ai-service/app/training/train.py`](../app/training/train.py)
+**File:** [`ai-service/app/training/train.py`](../../../app/training/train.py)
 
 ##### Analysis
 
@@ -521,6 +521,6 @@ With make/unmake integration:
 ## References
 
 - [`ai-service/docs/MAKE_UNMAKE_DESIGN.md`](../../specs/MAKE_UNMAKE_DESIGN.md) - Original design document
-- [`ai-service/app/rules/mutable_state.py`](../app/rules/mutable_state.py) - Implementation
-- [`ai-service/app/ai/minimax_ai.py`](../app/ai/minimax_ai.py) - Reference integration
-- [`ai-service/scripts/benchmark_make_unmake.py`](../scripts/benchmark_make_unmake.py) - Benchmarking tools
+- [`ai-service/app/rules/mutable_state.py`](../../../app/rules/mutable_state.py) - Implementation
+- [`ai-service/app/ai/minimax_ai.py`](../../../app/ai/minimax_ai.py) - Reference integration
+- [`ai-service/scripts/benchmark_make_unmake.py`](../../../scripts/benchmark_make_unmake.py) - Benchmarking tools

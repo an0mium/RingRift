@@ -4,17 +4,17 @@
 >
 > **Role:** Define a single structured payload, `GameEndExplanation`, that explains **why** a RingRift game ended and can be consumed consistently by HUD, VictoryModal, sandbox, and TeachingOverlay.
 >
-> **Source of truth:** [`src/shared/engine/gameEndExplanation.ts`](../../src/shared/engine/gameEndExplanation.ts:1)
+> **Source of truth:** [`src/shared/engine/gameEndExplanation.ts`](../../src/shared/engine/gameEndExplanation.ts)
 >
 > **Inputs:**
 >
-> - Weakest‑aspect assessment: [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](../archive/assessments/WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md:92)
-> - Rules concept vocabulary: [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1)
-> - Weird‑state reasons: [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:71) and [`weirdStateReasons.ts`](../../src/shared/engine/weirdStateReasons.ts:1)
-> - Teaching flows: [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md:33) and [`teachingScenarios.ts`](../../src/shared/teaching/teachingScenarios.ts:1)
-> - Telemetry taxonomy: [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:145) and [`rulesUxEvents.ts`](../../src/shared/telemetry/rulesUxEvents.ts:1)
-> - Canonical rules: [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:193)
-> - Tests: [`GameEndExplanation.builder.test.ts`](../../tests/unit/GameEndExplanation.builder.test.ts:1), [`GameEndExplanation.fromEngineView.test.ts`](../../tests/unit/GameEndExplanation.fromEngineView.test.ts:1)
+> - Weakest‑aspect assessment: [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](../archive/assessments/WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md)
+> - Rules concept vocabulary: [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md)
+> - Weird‑state reasons: [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md) and [`weirdStateReasons.ts`](../../src/shared/engine/weirdStateReasons.ts)
+> - Teaching flows: [`UX_RULES_TEACHING_SCENARIOS.md`](UX_RULES_TEACHING_SCENARIOS.md) and [`teachingScenarios.ts`](../../src/shared/teaching/teachingScenarios.ts)
+> - Telemetry taxonomy: [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md) and [`rulesUxEvents.ts`](../../src/shared/telemetry/rulesUxEvents.ts)
+> - Canonical rules: [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md)
+> - Tests: [`GameEndExplanation.builder.test.ts`](../../tests/unit/GameEndExplanation.builder.test.ts), [`GameEndExplanation.fromEngineView.test.ts`](../../tests/unit/GameEndExplanation.fromEngineView.test.ts)
 
 ---
 
@@ -30,8 +30,8 @@ Goals:
 
 Non‑goals:
 
-- Defining UI layouts or localized copy strings (see [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:331)).
-- Changing rules semantics (see [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:1)).
+- Defining UI layouts or localized copy strings (see [`UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md)).
+- Changing rules semantics (see [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md)).
 
 ---
 
@@ -147,9 +147,9 @@ type GameEndExplanation = {
 
 Notes:
 
-- `primaryConceptId` should align with concept ids in [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1).
-- `rulesContextTags` should align with `RulesUxContext` in [`rulesUxEvents.ts`](../../src/shared/telemetry/rulesUxEvents.ts:1).
-- `reasonCodes` should align with [`RulesWeirdStateReasonCode`](../../src/shared/engine/weirdStateReasons.ts:1).
+- `primaryConceptId` should align with concept ids in [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md).
+- `rulesContextTags` should align with `RulesUxContext` in [`rulesUxEvents.ts`](../../src/shared/telemetry/rulesUxEvents.ts).
+- `reasonCodes` should align with [`RulesWeirdStateReasonCode`](../../src/shared/engine/weirdStateReasons.ts).
 
 ---
 
@@ -177,8 +177,8 @@ This model is **semantics‑first**: all rendering logic should derive from the 
 
 Use weird‑state reason codes and rules‑context tags to link confusing outcomes to teaching content:
 
-- Reason codes → [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:71)
-- Teaching topic ids → [`TeachingOverlay`](../../src/client/components/TeachingOverlay.tsx:1)
+- Reason codes → [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md)
+- Teaching topic ids → [`TeachingOverlay`](../../src/client/components/TeachingOverlay.tsx)
 
 If a game ends due to ANM/FE, LPS, or structural stalemate, ensure `weirdStateContext` is populated with the appropriate reason codes and tags.
 
@@ -193,7 +193,7 @@ This allows VictoryModal or TeachingOverlay to link to a canonical source withou
 
 ### 4.3 Primary concept
 
-Set `primaryConceptId` when a specific high‑risk concept is the primary driver for confusion (e.g., `anm_fe_core`, `structural_stalemate`, `territory_mini_regions`). Use the concept ids from [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1).
+Set `primaryConceptId` when a specific high‑risk concept is the primary driver for confusion (e.g., `anm_fe_core`, `structural_stalemate`, `territory_mini_regions`). Use the concept ids from [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md).
 
 ---
 
@@ -276,6 +276,6 @@ Set `primaryConceptId` when a specific high‑risk concept is the primary driver
 
 ## 6. Maintenance notes
 
-- When adding new weird‑state reason codes, update both [`weirdStateReasons.ts`](../../src/shared/engine/weirdStateReasons.ts:1) and this spec.
-- When new rules‑UX concepts are introduced, add them to [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1) and use them as `primaryConceptId` values here.
+- When adding new weird‑state reason codes, update both [`weirdStateReasons.ts`](../../src/shared/engine/weirdStateReasons.ts) and this spec.
+- When new rules‑UX concepts are introduced, add them to [`UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md) and use them as `primaryConceptId` values here.
 - Keep `GameEndExplanation` examples in sync with the builder tests under `tests/unit/`.

@@ -154,7 +154,7 @@ v1.0 is considered ready to ship when all of the following are true (this is the
 
 ### 4.1 Performance SLOs
 
-From [`STRATEGIC_ROADMAP.md`](docs/planning/STRATEGIC_ROADMAP.md:144-149):
+From [`STRATEGIC_ROADMAP.md`](docs/planning/STRATEGIC_ROADMAP.md:144):
 
 | Metric              | Target          | Measurement                               |
 | ------------------- | --------------- | ----------------------------------------- |
@@ -416,7 +416,7 @@ This section records goal-level questions that are not fully specified by the cu
 
 ## Appendix A: Game design principles
 
-_Derived from [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:153-177)_
+_Derived from [`docs/rules/COMPLETE_RULES.md`](docs/rules/COMPLETE_RULES.md:153)_
 
 RingRift's design is guided by these core principles:
 

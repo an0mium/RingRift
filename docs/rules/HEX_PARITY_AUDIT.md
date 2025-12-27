@@ -93,10 +93,10 @@ Continue scaling via canonical selfplay and re-run fixtures once volume grows.
 
 ### Python
 
-- [x] Board type support in [`core.py`](../../ai-service/app/rules/core.py:32) (BoardConfig for HEXAGONAL)
+- [x] Board type support in [`core.py`](../../ai-service/app/rules/core.py) (BoardConfig for HEXAGONAL)
 - [x] Geometry calculations in [`geometry.py`](../../ai-service/app/rules/geometry.py)
-- [x] Capture chain support in [`capture_chain.py`](../../ai-service/app/rules/capture_chain.py:136)
-- [x] Mutable state handling in [`mutable_state.py`](../../ai-service/app/rules/mutable_state.py:1736)
+- [x] Capture chain support in [`capture_chain.py`](../../ai-service/app/rules/capture_chain.py)
+- [x] Mutable state handling in [`mutable_state.py`](../../ai-service/app/rules/mutable_state.py)
 
 ### New Hex Geometry Parameters (radius-12)
 

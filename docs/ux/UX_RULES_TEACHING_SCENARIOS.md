@@ -6,14 +6,14 @@
 >
 > **Inputs:**
 >
-> - Rules canon and examples in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:193), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:260).
-> - Edge‑cases and consistency analysis in [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:361).
-> - ANM/FE behaviour catalogue in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
-> - Territory mini‑region scenarios in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
-> - Shared helpers tests in [`tests/unit/territoryDecisionHelpers.shared.test.ts`](../../tests/unit/territoryDecisionHelpers.shared.test.ts:76) and [`tests/unit/lineDecisionHelpers.shared.test.ts`](../../tests/unit/lineDecisionHelpers.shared.test.ts:23).
-> - Copy and weird‑state mappings in [`docs/ux/UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md:1) and [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1).
-> - Telemetry schema in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1).
-> - Navigation map for high‑risk concepts in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md:1) to keep teaching flows aligned with rules docs, UX surfaces, and telemetry labels.
+> - Rules canon and examples in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md), [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md).
+> - Edge‑cases and consistency analysis in [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md).
+> - ANM/FE behaviour catalogue in [`docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md).
+> - Territory mini‑region scenarios in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts).
+> - Shared helpers tests in [`tests/unit/territoryDecisionHelpers.shared.test.ts`](../../tests/unit/territoryDecisionHelpers.shared.test.ts) and [`tests/unit/lineDecisionHelpers.shared.test.ts`](../../tests/unit/lineDecisionHelpers.shared.test.ts).
+> - Copy and weird‑state mappings in [`docs/ux/UX_RULES_COPY_SPEC.md`](UX_RULES_COPY_SPEC.md) and [`docs/ux/UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
+> - Telemetry schema in [`docs/ux/UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md).
+> - Navigation map for high‑risk concepts in [`docs/ux/UX_RULES_CONCEPTS_INDEX.md`](UX_RULES_CONCEPTS_INDEX.md) to keep teaching flows aligned with rules docs, UX surfaces, and telemetry labels.
 
 This spec does **not** implement any code. It defines:
 
@@ -27,17 +27,17 @@ Code‑mode tasks will:
 
 - Create concrete board positions and scenario JSON / fixtures.
 - Hook them into the existing scenario loader and TeachingOverlay.
-- Wire telemetry using [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:172).
+- Wire telemetry using [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md).
 
-## Teaching topics referenced from the game-end explanation model are defined in this document; see [`UX_RULES_EXPLANATION_MODEL_SPEC.md`](UX_RULES_EXPLANATION_MODEL_SPEC.md:1) for how they are used.
+## Teaching topics referenced from the game-end explanation model are defined in this document; see [`UX_RULES_EXPLANATION_MODEL_SPEC.md`](UX_RULES_EXPLANATION_MODEL_SPEC.md) for how they are used.
 
 ## 0. Iteration Log & Improvement History
 
-This spec is part of the broader rules‑UX improvement loop described in [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md:24). Concrete changes to teaching flows and their surrounding UX are tracked in numbered iteration records under `docs/ux/rules_iterations/`:
+This spec is part of the broader rules‑UX improvement loop described in [`UX_RULES_IMPROVEMENT_LOOP.md`](UX_RULES_IMPROVEMENT_LOOP.md). Concrete changes to teaching flows and their surrounding UX are tracked in numbered iteration records under `docs/ux/rules_iterations/`:
 
-- [`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md:1) – Initial hotspot‑oriented plan for ANM/FE loops, structural stalemate, and mini‑regions (pre‑implementation design sketch).
-- [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md:1) – Backfilled record for W1–W5 work aligning game‑end explanations (HUD + VictoryModal + TeachingOverlay) with ANM/FE, structural stalemate, and territory mini‑regions, and wiring them into telemetry.
-- [`UX_RULES_IMPROVEMENT_ITERATION_0003.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0003.md:1) – Backfilled record for W1–W5 work on territory mini‑regions (Q23) and capture‑chain teaching flows, including curated scenarios and concordance updates.
+- [`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md) – Initial hotspot‑oriented plan for ANM/FE loops, structural stalemate, and mini‑regions (pre‑implementation design sketch).
+- [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md) – Backfilled record for W1–W5 work aligning game‑end explanations (HUD + VictoryModal + TeachingOverlay) with ANM/FE, structural stalemate, and territory mini‑regions, and wiring them into telemetry.
+- [`UX_RULES_IMPROVEMENT_ITERATION_0003.md`](rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0003.md) – Backfilled record for W1–W5 work on territory mini‑regions (Q23) and capture‑chain teaching flows, including curated scenarios and concordance updates.
 
 Future runs of the rules‑UX loop SHOULD:
 
@@ -47,28 +47,28 @@ Future runs of the rules‑UX loop SHOULD:
 
 ## 1. Prioritized Rules Concepts
 
-Based on audits in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md:23), edge‑case report [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:361), and the mini‑region / line / territory helpers tests, the following concepts are highest priority:
+Based on audits in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md), edge‑case report [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md), and the mini‑region / line / territory helpers tests, the following concepts are highest priority:
 
 1. **Forced Elimination loops & ANM shapes**
    - Where players “have no moves” and caps disappear unexpectedly.
-   - ANM‑SCEN‑01/02/03 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:39).
-   - Reason codes `ANM_MOVEMENT_FE_BLOCKED`, `FE_SEQUENCE_CURRENT_PLAYER` in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:121).
+   - ANM‑SCEN‑01/02/03 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md).
+   - Reason codes `ANM_MOVEMENT_FE_BLOCKED`, `FE_SEQUENCE_CURRENT_PLAYER` in [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
 
 2. **Territory mini‑regions and self‑elimination (Q23 archetype)**
-   - 2×2 region archetype `Rules_12_2_Q23_mini_region_square8_numeric_invariant` in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
+   - 2×2 region archetype `Rules_12_2_Q23_mini_region_square8_numeric_invariant` in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts).
    - Interaction between interior eliminations and mandatory self‑elimination.
 
 3. **Multi‑region territory with limited self‑elimination budget**
-   - Cases where multiple regions are disconnected but only one can be processed this turn (SCEN‑TERRITORY‑002 in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:435)).
+   - Cases where multiple regions are disconnected but only one can be processed this turn (SCEN‑TERRITORY‑002 in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md)).
 
 4. **Lines vs Territory ordering in multi‑phase turns**
-   - Movement / capture → chain capture → lines → territory → victory (`RR‑CANON‑R070–R071` in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:195)).
+   - Movement / capture → chain capture → lines → territory → victory (`RR‑CANON‑R070–R071` in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md)).
 
-- Territory disconnection scenarios in [`tests/unit/ClientSandboxEngine.territoryDisconnection.test.ts`](../../tests/unit/ClientSandboxEngine.territoryDisconnection.test.ts:20).
+- Territory disconnection scenarios in [`tests/unit/ClientSandboxEngine.territoryDisconnection.test.ts`](../../tests/unit/ClientSandboxEngine.territoryDisconnection.test.ts).
 
 5. **Capture chains and mandatory continuation**
    - Optional start, mandatory continuation, freedom of direction (FAQ Q15, RR‑CANON‑R103).
-   - 180° reversal and cyclic capture scenarios in FAQ tests (not listed here but referenced in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:302)).
+   - 180° reversal and cyclic capture scenarios in FAQ tests (not listed here but referenced in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md)).
 
 6. **Landing on own marker and self‑elimination**
    - Movement / capture that lands on a marker of your colour and immediately eliminates your top ring (`RR‑CANON‑R092`](RULES_CANONICAL_SPEC.md:418)).
@@ -77,10 +77,10 @@ Based on audits in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](../supplementar
    - Global stalemate, tie‑break by territory → eliminated rings (including rings in hand) → markers → last actor (`RR‑CANON‑R173`](RULES_CANONICAL_SPEC.md:619)).
 
 8. **Last‑Player‑Standing (LPS) vs “just keep playing”**
-   - Clarifying that LPS is a distinct rule; implementation currently treats it as a compromise (CCE‑006 in [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:443)).
-   - ANM‑SCEN‑07 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:160).
+   - Clarifying that LPS is a distinct rule; implementation currently treats it as a compromise (CCE‑006 in [`RULES_CONSISTENCY_EDGE_CASES.md`](../supplementary/RULES_CONSISTENCY_EDGE_CASES.md)).
+   - ANM‑SCEN‑07 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](../rules/ACTIVE_NO_MOVES_BEHAVIOUR.md).
 
-Each scenario flow defined below targets at least one of these concepts and, where appropriate, is linked to a **weird‑state reason code** from [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:121).
+Each scenario flow defined below targets at least one of these concepts and, where appropriate, is linked to a **weird‑state reason code** from [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md).
 
 ---
 
@@ -133,7 +133,7 @@ Notes:
 - `uxWeirdStateReasonCode` SHOULD be filled for scenarios that are directly about weird states:
   - e.g. FE/ANM flows reference `ANM_MOVEMENT_FE_BLOCKED`.
   - Structural stalemate flows reference `STRUCTURAL_STALEMATE_TIEBREAK`.
-- `telemetryRulesContext` SHOULD match the concept‑level `rules_context` names used in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:145).
+- `telemetryRulesContext` SHOULD match the concept‑level `rules_context` names used in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md).
 
 ### 2.2 Conventions
 
@@ -179,7 +179,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
      - Why no placements/moves exist.
      - That FE will remove the cap as per R100.
    - **Metadata:**
-     - `rulesDocAnchor` → [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:499) §4.4.
+     - `rulesDocAnchor` → [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md) §4.4.
      - `uxWeirdStateReasonCode` → `ANM_MOVEMENT_FE_BLOCKED`.
 
 2. **Step id:** `teaching.fe_loop.step_2`
@@ -223,7 +223,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
 - **Primary concept:** `territory_mini_region`
 - **Weird‑state reason code:** none directly (regular rules; confusion comes from interaction of eliminations and self‑elimination).
 - **Existing scenario anchor:**  
-  `Rules_12_2_Q23_mini_region_square8_numeric_invariant` via [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
+  `Rules_12_2_Q23_mini_region_square8_numeric_invariant` via [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts).
 - **Recommended board:** `square8`, `numPlayers = 2` or `3`.
 
 #### Steps
@@ -241,7 +241,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
      - Colour representation criterion.
      - Which player is allowed to process the region.
    - **Metadata:**
-     - `rulesDocAnchor` → [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1815) FAQ Q23; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:549) R141–R143.
+     - `rulesDocAnchor` → [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md) FAQ Q23; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R141–R143.
 
 2. **Step id:** `teaching.mini_region.q23.step_2`
    - **Index:** 2
@@ -255,7 +255,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
      - All interior rings are eliminated and credited to the acting player.
      - Region spaces and relevant border markers become collapsed territory.
    - **Metadata:**
-     - `rulesDocAnchor` → [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:575) R145.
+     - `rulesDocAnchor` → [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R145.
 
 3. **Step id:** `teaching.mini_region.q23.step_3`
    - **Index:** 3
@@ -302,7 +302,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
    - **Expected outcome:**  
      Only the chosen region is processed; the other remains for later turns.
    - **Rules anchor:**  
-     [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:574) R144; SCEN‑TERRITORY‑002 in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:435).
+     [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R144; SCEN‑TERRITORY‑002 in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md).
 
 ---
 
@@ -341,7 +341,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
      - Territory processing (disconnected regions, interior + self‑elimination).
      - Victory check (if thresholds are crossed).
    - **Rules anchor:**  
-     [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:327) R120–R122; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:574) R144; SCEN‑TERRITORY‑003 in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:459).
+     [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R120–R122; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R144; SCEN‑TERRITORY‑003 in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md).
 
 3. **Step id:** `teaching.multi_phase.step_3`
    - **Index:** 3
@@ -359,7 +359,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
 
 - **Flow id:** `capture_chain_mandatory`
 - **Primary concept:** `capture_chain_mandatory`
-- **Weird‑state reason code:** none (but strongly connected to DOCUX‑P1 in [`RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md:29) – HUD misleading chain capture text).
+- **Weird‑state reason code:** none (but strongly connected to DOCUX‑P1 in [`RULES_DOCS_UX_AUDIT.md`](../supplementary/RULES_DOCS_UX_AUDIT.md) – HUD misleading chain capture text).
 - **Recommended board:** `square8` and `square19` variants.
 
 #### Steps
@@ -407,7 +407,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
 - **Flow id:** `landing_on_own_marker_intro`
 - **Primary concept:** `landing_on_own_marker`
 - **Recommended board:** `square8`.
-- **Rules anchor:** [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:418) R092.
+- **Rules anchor:** [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R092.
 
 #### Steps
 
@@ -469,7 +469,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
    - **Board description:**  
      Same or simplified board; overlay points out each count and shows who wins.
    - **Rules anchor:**  
-     [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md:1381) §13.4; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:619) R173.
+     [`../rules/COMPLETE_RULES.md`](../rules/COMPLETE_RULES.md) §13.4; [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) R173.
 
 ---
 
@@ -503,7 +503,7 @@ Each subsection describes one scenario family (flow), its id, and its steps.
    - **Board description:**  
      Narrative / pseudo‑turn walkthrough; no actual moves from the user.
    - **Expected outcome:**  
-     Text traces the condition in [`RR‑CANON‑R172`](../../RULES_CANONICAL_SPEC.md:603).
+     Text traces the condition in [`RR‑CANON‑R172`](../../RULES_CANONICAL_SPEC.md).
 
 3. **Step id:** `teaching.lps.step_3`
    - **Index:** 3
@@ -547,7 +547,7 @@ Suggested runtime behaviour:
 
 ## 5. Telemetry Integration
 
-Flows SHOULD cooperate with the telemetry schema in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:218):
+Flows SHOULD cooperate with the telemetry schema in [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md):
 
 - Each `TeachingScenarioMetadata` entry MUST define:
   - `rulesConcept` → mapped to `rules_context`.
@@ -570,15 +570,15 @@ When a Code‑mode task implements these flows, it should:
 
 1. **Define scenario metadata** in a central place (e.g. `teachingScenarios.json` or an extended section of `curated.json`), matching the shape in §2.
 2. **Reuse or extend existing scenario infrastructure**:
-   - Scenario loader [`src/client/sandbox/scenarioLoader.ts`](../../src/client/sandbox/scenarioLoader.ts:112).
-   - Curated scenario config [`src/client/public/scenarios/curated.json`](../../src/client/public/scenarios/curated.json:175).
+   - Scenario loader [`src/client/sandbox/scenarioLoader.ts`](../../src/client/sandbox/scenarioLoader.ts).
+   - Curated scenario config [`src/client/public/scenarios/curated.json`](../../src/client/public/scenarios/curated.json).
 3. **Keep rules semantics authoritative**:
    - Any scenario must obey the shared TS engine semantics (no “special rules”).
-   - Where ambiguity exists, prefer canonical semantics from [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:1).
+   - Where ambiguity exists, prefer canonical semantics from [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md).
 4. **Add tests**:
    - For each new scenario family, add at least one test that:
      - Loads the scenario.
      - Verifies basic invariants (board type, number of players, concept tags).
      - Asserts that completing the scenario produces the expected rule outcome (correct territory / elimination / FE behaviour).
 
-This spec, together with [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md:1) and [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md:1), provides the blueprint Code‑mode can follow to implement scenario‑driven teaching for the most confusing parts of the RingRift ruleset.
+This spec, together with [`UX_RULES_WEIRD_STATES_SPEC.md`](UX_RULES_WEIRD_STATES_SPEC.md) and [`UX_RULES_TELEMETRY_SPEC.md`](UX_RULES_TELEMETRY_SPEC.md), provides the blueprint Code‑mode can follow to implement scenario‑driven teaching for the most confusing parts of the RingRift ruleset.

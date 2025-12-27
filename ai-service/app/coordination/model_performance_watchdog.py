@@ -25,6 +25,8 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from app.config.thresholds import PROMOTION_WIN_RATE_THRESHOLD
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,9 +59,9 @@ class ModelPerformance:
 @dataclass
 class WatchdogConfig:
     """Configuration for ModelPerformanceWatchdog."""
-    # Thresholds
+    # Thresholds (from app.config.thresholds)
     min_vs_random: float = 0.85  # Must beat RANDOM 85%+ of the time
-    min_vs_heuristic: float = 0.60  # Must beat HEURISTIC 60%+ of the time
+    min_vs_heuristic: float = PROMOTION_WIN_RATE_THRESHOLD  # Must beat HEURISTIC at promotion rate
     degradation_threshold: float = 0.55  # Below this vs heuristic is degraded
 
     # Rolling window

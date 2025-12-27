@@ -6,29 +6,29 @@ Last updated: 2025-11-30 (PASS18 in-progress).
 
 - Task: PASS18-ARCH-REASSESS – full-project reassessment of weakest aspect, hardest outstanding problem, and doc/test freshness after ANM/termination remediation.
 - Primary references so far:
-  - [PROJECT_GOALS.md](../../../PROJECT_GOALS.md:1)
-  - [CURRENT_STATE_ASSESSMENT.md](../historical/CURRENT_STATE_ASSESSMENT.md:1)
-  - [CURRENT_RULES_STATE.md](../../rules/CURRENT_RULES_STATE.md:1)
-  - [PASS16_ASSESSMENT_REPORT.md](PASS16_ASSESSMENT_REPORT.md:1)
-  - [PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md:1)
-  - [FINAL_ARCHITECT_REPORT.md](../../../archive/FINAL_ARCHITECT_REPORT.md:1)
-  - [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1)
-  - [RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md:1)
-  - [DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md:1) and [docs/INDEX.md](../../INDEX.md:1)
+  - [PROJECT_GOALS.md](../../../PROJECT_GOALS.md)
+  - [CURRENT_STATE_ASSESSMENT.md](../historical/CURRENT_STATE_ASSESSMENT.md)
+  - [CURRENT_RULES_STATE.md](../../rules/CURRENT_RULES_STATE.md)
+  - [PASS16_ASSESSMENT_REPORT.md](PASS16_ASSESSMENT_REPORT.md)
+  - [PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md)
+  - [FINAL_ARCHITECT_REPORT.md](../../../archive/FINAL_ARCHITECT_REPORT.md)
+  - [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md)
+  - [RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md)
+  - [DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md) and [docs/INDEX.md](../../INDEX.md)
   - Jest test results from `jest-results.json` (local artifact; not tracked in repo).
-  - Frontend code: [GameHUD.tsx](../../../src/client/components/GameHUD.tsx:1), [VictoryModal.tsx](../../../src/client/components/VictoryModal.tsx:1), [gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts:1), [ClientSandboxEngine.ts](../../../src/client/sandbox/ClientSandboxEngine.ts:1).
+  - Frontend code: [GameHUD.tsx](../../../src/client/components/GameHUD.tsx), [VictoryModal.tsx](../../../src/client/components/VictoryModal.tsx), [gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts), [ClientSandboxEngine.ts](../../../src/client/sandbox/ClientSandboxEngine.ts).
 
 ## 2. Snapshot of prior passes (for comparison)
 
-- **PASS16** ([docs/PASS16_ASSESSMENT_REPORT.md](PASS16_ASSESSMENT_REPORT.md:1)):
-  - Weakest area: **Frontend host architecture & UX ergonomics** – large, tightly coupled [GamePage.tsx](../../../src/client/pages/GamePage.tsx:1) and [ClientSandboxEngine.ts](../../../src/client/sandbox/ClientSandboxEngine.ts:1).
+- **PASS16** ([docs/PASS16_ASSESSMENT_REPORT.md](PASS16_ASSESSMENT_REPORT.md)):
+  - Weakest area: **Frontend host architecture & UX ergonomics** – large, tightly coupled [GamePage.tsx](../../../src/client/pages/GamePage.tsx) and [ClientSandboxEngine.ts](../../../src/client/sandbox/ClientSandboxEngine.ts).
   - Hardest outstanding problem: **Orchestrator-first production rollout & legacy decommissioning**, focused on completing migration to shared turn orchestrator and removing legacy paths.
 
-- **PASS17** ([docs/PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md:1)):
+- **PASS17** ([docs/PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md)):
   - Weakest area: **Deep rules parity & invariants for territory / chain-capture / endgames** across TS↔Python and hosts.
   - Hardest outstanding problem: **Operationalising orchestrator-first rollout with SLO gates and environment phases**, plus continued parity hardening for territory and combined-margin games.
 
-- **FINAL_ARCHITECT_REPORT** ([FINAL_ARCHITECT_REPORT.md](../../../archive/FINAL_ARCHITECT_REPORT.md:1)):
+- **FINAL_ARCHITECT_REPORT** ([FINAL_ARCHITECT_REPORT.md](../../../archive/FINAL_ARCHITECT_REPORT.md)):
   - Confirms completion of major P0/P1 rules consolidation work (shared TS engine, unified Move model, contract tests) and establishes current canonical doc set.
 
 ## 3. Candidate weakest aspects (PASS18 – in-progress view)
@@ -37,26 +37,26 @@ Last updated: 2025-11-30 (PASS18 in-progress).
 
 - **A. TS rules/host stack for advanced phases (capture/territory/chain-capture) + RNG parity**
   - Evidence: multiple failing Jest suites in current local run, including at least:
-    - [captureSequenceEnumeration.test.ts](../../../tests/unit/captureSequenceEnumeration.test.ts:1) – backend vs sandbox capture sequence parity.
-    - [RefactoredEngine.test.ts](../../../tests/unit/RefactoredEngine.test.ts:1) – capture, chain continuation, eliminate-stack behaviour.
-    - [GameEngine.chainCapture.test.ts](../../../tests/unit/GameEngine.chainCapture.test.ts:1) and [GameEngine.chainCaptureChoiceIntegration.test.ts](../../../tests/unit/GameEngine.chainCaptureChoiceIntegration.test.ts:1) – complex chain-capture enforcement and choice enumeration.
-    - [BoardManager.territoryDisconnection.test.ts](../../../tests/unit/BoardManager.territoryDisconnection.test.ts:1) and [ClientSandboxEngine.territoryDisconnection.hex.test.ts](../../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts:1) – territory disconnection and processing.
-    - [Sandbox_vs_Backend.aiRngParity.test.ts](../../../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:1) and [Sandbox_vs_Backend.aiRngFullParity.test.ts](../../../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1) – RNG-aligned sandbox vs backend AI move selection.
-    - [RulesBackendFacade.test.ts](../../../tests/unit/RulesBackendFacade.test.ts:1) – TS↔Python rules host behaviour in `python` and `shadow` modes.
+    - [captureSequenceEnumeration.test.ts](../../../tests/unit/captureSequenceEnumeration.test.ts) – backend vs sandbox capture sequence parity.
+    - [RefactoredEngine.test.ts](../../../tests/unit/RefactoredEngine.test.ts) – capture, chain continuation, eliminate-stack behaviour.
+    - [GameEngine.chainCapture.test.ts](../../../tests/unit/GameEngine.chainCapture.test.ts) and [GameEngine.chainCaptureChoiceIntegration.test.ts](../../../tests/unit/GameEngine.chainCaptureChoiceIntegration.test.ts) – complex chain-capture enforcement and choice enumeration.
+    - [BoardManager.territoryDisconnection.test.ts](../../../tests/unit/BoardManager.territoryDisconnection.test.ts) and [ClientSandboxEngine.territoryDisconnection.hex.test.ts](../../../tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts) – territory disconnection and processing.
+    - [Sandbox_vs_Backend.aiRngParity.test.ts](../../../tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts) and [Sandbox_vs_Backend.aiRngFullParity.test.ts](../../../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts) – RNG-aligned sandbox vs backend AI move selection.
+    - [RulesBackendFacade.test.ts](../../../tests/unit/RulesBackendFacade.test.ts) – TS↔Python rules host behaviour in `python` and `shadow` modes.
   - Many of these tests previously passed in PASS16/17; clusters of failures now indicate instability or expectation drift around complex rules parity and host orchestration.
 
 - **B. Orchestrator rollout & environment/SLO discipline**
-  - Still hard operationally (per [docs/PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md:1) and [docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1)), but architecture, metrics, and CI wiring are largely complete.
+  - Still hard operationally (per [docs/PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md) and [docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md](../../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md)), but architecture, metrics, and CI wiring are largely complete.
 
 - **C. Frontend host architecture & UX**
-  - PASS16 identified host code quality (especially [GamePage.tsx](../../../src/client/pages/GamePage.tsx:1)) as weakest; PASS17 states host UX and component tests have **materially improved** and are no longer primary bottleneck.
-  - Current audit of [GameHUD.tsx](../../../src/client/components/GameHUD.tsx:1) and [gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts:1) confirms strong component structure but reveals **semantic mismatches** in player-facing text (chain capture optionality, victory thresholds).
+  - PASS16 identified host code quality (especially [GamePage.tsx](../../../src/client/pages/GamePage.tsx)) as weakest; PASS17 states host UX and component tests have **materially improved** and are no longer primary bottleneck.
+  - Current audit of [GameHUD.tsx](../../../src/client/components/GameHUD.tsx) and [gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts) confirms strong component structure but reveals **semantic mismatches** in player-facing text (chain capture optionality, victory thresholds).
 
 - **D. AI training pipelines & dataset-level validation**
-  - AI docs ([AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1), [docs/ai/AI_TRAINING_AND_DATASETS.md](../../ai/AI_TRAINING_AND_DATASETS.md:1), [ai-service/AI_IMPROVEMENT_PLAN.md](../../../ai-service/AI_IMPROVEMENT_PLAN.md:1)) describe remaining work (make/unmake pattern, hex training, dataset QA), but current tests under [ai-service/tests](../../../ai-service/tests/test_engine_determinism.py:1) are broadly green.
+  - AI docs ([AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md), [docs/ai/AI_TRAINING_AND_DATASETS.md](../../ai/AI_TRAINING_AND_DATASETS.md), [ai-service/AI_IMPROVEMENT_PLAN.md](../../../ai-service/AI_IMPROVEMENT_PLAN.md)) describe remaining work (make/unmake pattern, hex training, dataset QA), but current tests under [ai-service/tests](../../../ai-service/tests/test_engine_determinism.py) are broadly green.
 
 - **E. ANM / forced-elimination semantics**
-  - Previously top-risk semantics area ([PROJECT_GOALS.md](../../../PROJECT_GOALS.md:1) §3.4, [docs/INVARIANTS_AND_PARITY_FRAMEWORK.md](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1)), but now heavily covered by invariants, parity tests, and ANM-focused docs/tests.
+  - Previously top-risk semantics area ([PROJECT_GOALS.md](../../../PROJECT_GOALS.md) §3.4, [docs/INVARIANTS_AND_PARITY_FRAMEWORK.md](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)), but now heavily covered by invariants, parity tests, and ANM-focused docs/tests.
 
 ### 3.2 Emerging weakest-aspect hypothesis
 
@@ -68,7 +68,7 @@ Last updated: 2025-11-30 (PASS18 in-progress).
 ## 4. Candidate hardest outstanding problems (PASS18 – in-progress view)
 
 - **H1. Orchestrator-first rollout with SLO gates & environment phase execution**
-  - From [docs/PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md:1): design/metrics are in place, but executing Phases 1–4 across staging/production with SLO enforcement and legacy shutdown remains logistically hard.
+  - From [docs/PASS17_ASSESSMENT_REPORT.md](PASS17_ASSESSMENT_REPORT.md): design/metrics are in place, but executing Phases 1–4 across staging/production with SLO enforcement and legacy shutdown remains logistically hard.
 
 - **H2. Deep multi-engine rules parity for territory / chain-capture / endgames (TS↔Python + hosts)**
   - Extends PASS17's weakest-area finding; still requires:
@@ -83,29 +83,29 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
 
 ## 5. Documentation alignment notes (core docs audited so far)
 
-- **[CURRENT_STATE_ASSESSMENT.md](../historical/CURRENT_STATE_ASSESSMENT.md:1)**
+- **[CURRENT_STATE_ASSESSMENT.md](../historical/CURRENT_STATE_ASSESSMENT.md)**
   - Status: **Snapshot accurate as of 2025-11-27, but now stale w.r.t. local test results.**
   - Claims: "1629+ TS tests, 245 Python tests" and "TypeScript tests: 1629+ tests passing" with all core suites green.
   - Current local Jest run shows multiple failing TS suites in advanced capture/territory/parity/AI RNG areas, so these "all passing" statements are no longer factually correct for the current workspace.
   - Recommendation (PASS18): treat this as a time-stamped snapshot; add language explicitly framing it as "status as of 2025-11-27" and avoid using it as a live indicator of test health. Cross-link to a lighter-weight "Current Test Health" note or CI dashboard if added.
 
-- **[CURRENT_RULES_STATE.md](../../rules/CURRENT_RULES_STATE.md:1)**
+- **[CURRENT_RULES_STATE.md](../../rules/CURRENT_RULES_STATE.md)**
   - Quick status table reports **"Rules Engine: ✅ Fully implemented"** and **"Known Issues: None critical"**.
   - Given the current clusters of red Jest suites in rules/host parity (see §3.1), **"None critical"** is misleading; even if failures are partly due to expectation drift, they indicate active, unresolved semantics/test issues.
-  - Recommendation (PASS18): update Known Issues summary to reference open advanced-phase/parity issues (e.g. capture sequence enumeration, some territory disconnection scenarios, RNG parity flakes), and cross-link to [KNOWN_ISSUES.md](../../../KNOWN_ISSUES.md:1) and PASS18 report once written.
+  - Recommendation (PASS18): update Known Issues summary to reference open advanced-phase/parity issues (e.g. capture sequence enumeration, some territory disconnection scenarios, RNG parity flakes), and cross-link to [KNOWN_ISSUES.md](../../../KNOWN_ISSUES.md) and PASS18 report once written.
 
-- **[AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1)**
+- **[AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md)**
   - Largely **current and internally consistent**: correctly positions the canonical rules SSoT (rules spec + shared TS implementation), AI difficulty ladder, RNG determinism, and training pipelines.
-  - Section "Rules Completeness in AI Service" still describes some Python simplifications (auto-collapsing lines, simplified territory claim). Newer parity/equivalence tests in [ai-service/tests](../../../ai-service/tests/test_engine_correctness.py:1) and [ai-service/AI_IMPROVEMENT_PLAN.md](../../../ai-service/AI_IMPROVEMENT_PLAN.md:1) suggest some of these gaps have been reduced.
+  - Section "Rules Completeness in AI Service" still describes some Python simplifications (auto-collapsing lines, simplified territory claim). Newer parity/equivalence tests in [ai-service/tests](../../../ai-service/tests/test_engine_correctness.py) and [ai-service/AI_IMPROVEMENT_PLAN.md](../../../ai-service/AI_IMPROVEMENT_PLAN.md) suggest some of these gaps have been reduced.
   - Recommendation: in PASS18 follow-up, re-audit Python rules completeness vs TS orchestrator using parity suites; if lines/territory are now fully parity-validated, soften or retire language that treats those simplifications as current behaviour.
 
-- **[DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md:1)** and **[docs/INDEX.md](../../INDEX.md:1)**
+- **[DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md)** and **[docs/INDEX.md](../../INDEX.md)**
   - Both accurately describe the documentation map and SSoT layering.
-  - They currently point to [PROJECT_GOALS.md](../../../PROJECT_GOALS.md:1) and [docs/INVARIANTS_AND_PARITY_FRAMEWORK.md](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md:1) as describing the **"current highest-risk rules semantics area"** (active-no-moves / forced elimination / territory & line disconnection).
+  - They currently point to [PROJECT_GOALS.md](../../../PROJECT_GOALS.md) and [docs/INVARIANTS_AND_PARITY_FRAMEWORK.md](../../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md) as describing the **"current highest-risk rules semantics area"** (active-no-moves / forced elimination / territory & line disconnection).
   - Given ANM/termination work since those docs were written (new invariants, ANM regression suites, ACTIVE_NO_MOVES behaviour doc), and the emerging PASS18 view that advanced capture/territory parity in TS hosts is now weaker, this "current highest-risk" pointer is likely stale.
   - Recommendation: after PASS18 finalises a new weakest-aspect statement, update these index docs to reference that area instead (or to distinguish between "historical highest-risk semantics" vs "current weakest aspect").
 
-- **[RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md:1)**
+- **[RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md)**
   - Appears **up-to-date** with shared TS engine, orchestrator, adapters, and Python parity mapping.
   - Explicitly frames Python as a host/adapter over the canonical rules SSoT (rules spec + shared TS implementation) and describes current contract/parity suites accurately.
   - No obvious contradictions with current code/tests; keep as-is, but reference PASS18 report for updated weakest-aspect and rollout-status commentary.
@@ -115,18 +115,18 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
 - **TypeScript / Jest (local run via `jest-results.json`)**
   - Many suites pass (core movement, basic placement, victory, components, contexts), but notable **failing clusters** include:
     - Advanced capture sequence enumeration and chain-capture enforcement (files listed in §3.1).
-    - Territory disconnection and combined line+territory scenarios (e.g. [RulesMatrix.Territory.MiniRegion.test.ts](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:1), [BoardManager.territoryDisconnection.test.ts](../../../tests/unit/BoardManager.territoryDisconnection.test.ts:1)).
+    - Territory disconnection and combined line+territory scenarios (e.g. [RulesMatrix.Territory.MiniRegion.test.ts](../../../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts), [BoardManager.territoryDisconnection.test.ts](../../../tests/unit/BoardManager.territoryDisconnection.test.ts)).
     - Sandbox vs backend RNG parity and AI move-alignment (AI RNG smoke and full parity tests).
     - RulesBackendFacade python-mode semantics (extra `makeMove` calls vs expectations).
   - Interpretation: the underlying architecture and shared engine remain strong, but **TS host integration and advanced parity surfaces are currently unstable**.
 
-- **Python / pytest (structure via [ai-service/tests](../../../ai-service/tests/test_engine_determinism.py:1))**
+- **Python / pytest (structure via [ai-service/tests](../../../ai-service/tests/test_engine_determinism.py))**
   - Broad coverage of rules, parity, training, invariants, AI evaluation.
-  - No large red clusters identified yet in this PASS18 view; prior AI docs ([ai-service/AI_ASSESSMENT_REPORT.md](../../../ai-service/AI_ASSESSMENT_REPORT.md:1), [ai-service/AI_IMPROVEMENT_PLAN.md](../../../ai-service/AI_IMPROVEMENT_PLAN.md:1)) mark state-copying, NN versioning, and hex training as main technical debts rather than correctness issues.
+  - No large red clusters identified yet in this PASS18 view; prior AI docs ([ai-service/AI_ASSESSMENT_REPORT.md](../../../ai-service/AI_ASSESSMENT_REPORT.md), [ai-service/AI_IMPROVEMENT_PLAN.md](../../../ai-service/AI_IMPROVEMENT_PLAN.md)) mark state-copying, NN versioning, and hex training as main technical debts rather than correctness issues.
 
 ## 7. Frontend UX notes (preliminary PASS18 view)
 
-- Source docs: [docs/supplementary/RULES_DOCS_UX_AUDIT.md](../../supplementary/RULES_DOCS_UX_AUDIT.md:1), [src/client/adapters/gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts:1), [src/client/components/GameHUD.tsx](../../../src/client/components/GameHUD.tsx:1), [src/client/components/VictoryModal.tsx](../../../src/client/components/VictoryModal.tsx:1).
+- Source docs: [docs/supplementary/RULES_DOCS_UX_AUDIT.md](../../supplementary/RULES_DOCS_UX_AUDIT.md), [src/client/adapters/gameViewModels.ts](../../../src/client/adapters/gameViewModels.ts), [src/client/components/GameHUD.tsx](../../../src/client/components/GameHUD.tsx), [src/client/components/VictoryModal.tsx](../../../src/client/components/VictoryModal.tsx).
 - Confirmed mismatches between RR-CANON and current HUD text include:
   - Chain capture text implying the player may "continue capturing or end your turn" when RR-CANON (and TS engine) require **mandatory continuation** if any capture exists.
   - Ring-elimination victory copy that still talks about "eliminating all opponent rings" while RR-CANON victory condition uses a **ringsPerPlayer eliminated rings** threshold.
@@ -137,35 +137,35 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
 
 - Finalise **single weakest aspect** and **single hardest outstanding problem** selections, with explicit de-ranking of other candidates.
 - Complete frontend UX reassessment (lobby/join/reconnect/spectator, in-game decision UX, error states) with updated 1–5 scores.
-- Finish core-doc audit by adding notes for [PROJECT_GOALS.md](../../../PROJECT_GOALS.md:1), [README.md](../../../README.md:1), [RULES_CANONICAL_SPEC.md](../../../RULES_CANONICAL_SPEC.md:1), and any SSOT-bannered rules docs not yet summarised here.
-- Draft [docs/PASS18_ASSESSMENT_REPORT.md](PASS18_ASSESSMENT_REPORT.md:1) with per-subsystem scores and updated weakest/hardest conclusions.
-- Update [WEAKNESS_ASSESSMENT_REPORT.md](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) with a PASS18 section reflecting the new weakest aspect and hardest problem.
+- Finish core-doc audit by adding notes for [PROJECT_GOALS.md](../../../PROJECT_GOALS.md), [README.md](../../../README.md), [RULES_CANONICAL_SPEC.md](../../../RULES_CANONICAL_SPEC.md), and any SSOT-bannered rules docs not yet summarised here.
+- Draft [docs/PASS18_ASSESSMENT_REPORT.md](PASS18_ASSESSMENT_REPORT.md) with per-subsystem scores and updated weakest/hardest conclusions.
+- Update [WEAKNESS_ASSESSMENT_REPORT.md](../plans/WEAKNESS_ASSESSMENT_REPORT.md) with a PASS18 section reflecting the new weakest aspect and hardest problem.
 - Define a PASS18 remediation backlog (PASS18.\* tasks) across rules/host parity, orchestrator rollout execution, doc cleanup, test health, and frontend UX improvements.
 - **P18.1-1 – Capture & Territory Host Path Diagnostic Map**
-  - Created [`docs/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md:1) as the local SSoT for host integration issues.
+  - Created [`docs/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md) as the local SSoT for host integration issues.
   - Identified key divergence in capture enumeration (sandbox vs backend) and legacy territory processing paths.
   - Mapped failing tests to specific host codepaths to guide P18.1 and P18.2 remediation.
 - **P18.2-1 – AI RNG and Seed Handling Map**
-  - Created [`docs/P18.2-1_AI_RNG_PATHS.md`](P18.2-1_AI_RNG_PATHS.md:1) as the SSoT for RNG and seed-handling paths across TS hosts, sandbox, and Python AI/training.
+  - Created [`docs/P18.2-1_AI_RNG_PATHS.md`](P18.2-1_AI_RNG_PATHS.md) as the SSoT for RNG and seed-handling paths across TS hosts, sandbox, and Python AI/training.
   - Use this doc as the planning baseline for RNG-parity remediation tasks P18.2-2 and P18.2-3.
 
 ## 9. PASS18 second-pass doc alignment (additional notes)
 
-- **[PROJECT_GOALS.md](../../../PROJECT_GOALS.md:1)**
+- **[PROJECT_GOALS.md](../../../PROJECT_GOALS.md)**
   - Confirms that the **current highest-risk semantics area** and **hardest outstanding problem** have already been updated to focus on **host integration & deep multi-engine parity** rather than ANM/forced-elimination alone (see §3.4).
   - This aligns cleanly with the PASS18 weakest-aspect/hardest-problem framing and effectively promotes the PASS18 view into the goals SSoT.
   - PASS18 implication: downstream index/overview docs that still describe `PROJECT_GOALS.md` as calling out ANM/forced elimination as the highest-risk semantics area are now **stale** relative to the goals SSoT and should be updated to match the new §3.4 framing.
 
-- **[DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md:1)**
+- **[DOCUMENTATION_INDEX.md](../../../DOCUMENTATION_INDEX.md)**
   - §2.1 still describes `PROJECT_GOALS.md` as including the “current highest-risk rules semantics area (active-no-moves / forced elimination / territory & line disconnection semantics)” (historical framing).
   - Given the updated §3.4 in `PROJECT_GOALS.md`, this pointer should be revised to either:
     - Refer to the **current** weakest aspect (“host integration & deep multi-engine parity”) in neutral language, or
-    - Explicitly distinguish between **historical** highest-risk semantics (ANM/forced-elimination) and the **current** weakest aspect as tracked in [WEAKNESS_ASSESSMENT_REPORT.md](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) and [docs/PASS18_ASSESSMENT_REPORT.md](PASS18_ASSESSMENT_REPORT.md:1).
+    - Explicitly distinguish between **historical** highest-risk semantics (ANM/forced-elimination) and the **current** weakest aspect as tracked in [WEAKNESS_ASSESSMENT_REPORT.md](../plans/WEAKNESS_ASSESSMENT_REPORT.md) and [docs/PASS18_ASSESSMENT_REPORT.md](PASS18_ASSESSMENT_REPORT.md).
   - PASS18 recommendation: treat this as a **doc alignment fix** rather than a re-framing of risk; `PROJECT_GOALS.md` remains the SSoT for direction, and index docs should simply describe what it now says.
 
-- **[docs/INDEX.md](../../INDEX.md:1)**
+- **[docs/INDEX.md](../../INDEX.md)**
   - Quick links still highlight `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` as the place where “ruleset invariants & highest-risk semantics” are catalogued, emphasising **P0 ANM/forced-elimination invariants**.
-  - This is still accurate for **invariants history**, but incomplete as a pointer to the **current weakest aspect**; readers now also need [WEAKNESS_ASSESSMENT_REPORT.md](../plans/WEAKNESS_ASSESSMENT_REPORT.md:1) and [docs/PASS18_ASSESSMENT_REPORT.md](PASS18_ASSESSMENT_REPORT.md:1) for the updated host-integration & parity focus.
+  - This is still accurate for **invariants history**, but incomplete as a pointer to the **current weakest aspect**; readers now also need [WEAKNESS_ASSESSMENT_REPORT.md](../plans/WEAKNESS_ASSESSMENT_REPORT.md) and [docs/PASS18_ASSESSMENT_REPORT.md](PASS18_ASSESSMENT_REPORT.md) for the updated host-integration & parity focus.
   - PASS18 recommendation: add a short note that ANM/forced-elimination invariants remain critical, but that the _current_ weakest aspect & hardest problem are tracked in the PASS18/weakness docs, to avoid confusion between “historically riskiest semantics” and “currently weakest aspect”.
 
 ## 10. Auth, lobby, and user flows (first-pass PASS18 notes)
@@ -173,17 +173,17 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
 Sources reviewed:
 
 - Backend HTTP routes:
-  - [src/server/routes/auth.ts](../../../src/server/routes/auth.ts:1)
-  - [src/server/routes/game.ts](../../../src/server/routes/game.ts:1)
+  - [src/server/routes/auth.ts](../../../src/server/routes/auth.ts)
+  - [src/server/routes/game.ts](../../../src/server/routes/game.ts)
 - Client connection/context:
-  - [src/client/contexts/GameContext.tsx](../../../src/client/contexts/GameContext.tsx:1)
+  - [src/client/contexts/GameContext.tsx](../../../src/client/contexts/GameContext.tsx)
 - Existing WebSocket auth/connection tests (for reference):
-  - [tests/unit/WebSocketServer.authRevocation.test.ts](../../../tests/unit/WebSocketServer.authRevocation.test.ts:1)
+  - [tests/unit/WebSocketServer.authRevocation.test.ts](../../../tests/unit/WebSocketServer.authRevocation.test.ts)
 
 ### 10.1 Auth stack
 
 - **Strengths:**
-  - Password handling is modern and defensive: bcrypt-hashed passwords (`passwordHash` field), careful handling of missing/legacy hashes, and consistent use of `bcrypt.compare` with guardrails in [auth.ts](../../../src/server/routes/auth.ts:1).
+  - Password handling is modern and defensive: bcrypt-hashed passwords (`passwordHash` field), careful handling of missing/legacy hashes, and consistent use of `bcrypt.compare` with guardrails in [auth.ts](../../../src/server/routes/auth.ts).
   - Refresh-token model is **rotating and family-scoped**:
     - All logins/registrations create a **token family** (`familyId`), with per-user single-active refresh token enforcement and hashed storage (`hashRefreshToken`) in Prisma’s `refreshToken` table.
     - `/auth/refresh` implements **reuse detection** and revokes the entire family on reuse, also incrementing per-user `tokenVersion` to invalidate access tokens.
@@ -199,7 +199,7 @@ Sources reviewed:
 
 ### 10.2 Game HTTP routes, lobby, and diagnostics
 
-- **Game listing and details:** [game.ts](../../../src/server/routes/game.ts:1)
+- **Game listing and details:** [game.ts](../../../src/server/routes/game.ts)
   - `GET /games` and `GET /games/{gameId}` use Prisma includes to fetch player metadata and move history, with a shared `GameParticipantSnapshot` + `assertUserCanViewGame` invariant:
     - Enforces “participant or allowed spectator only” at the HTTP boundary, mirroring WebSocket access rules.
   - `GET /games/{gameId}/moves` and `/history` reuse the same participant/spectator invariant and shape move history with a compact `autoResolved` badge extracted from persisted `decisionAutoResolved` metadata, keeping HTTP history in sync with WebSocket decision auto-resolution semantics.
@@ -233,7 +233,7 @@ Sources reviewed:
 
 ### 10.3 Client GameContext and network/error UX
 
-- [GameContext.tsx](../../../src/client/contexts/GameContext.tsx:1) acts as the **client-side host** for backend-driven games:
+- [GameContext.tsx](../../../src/client/contexts/GameContext.tsx) acts as the **client-side host** for backend-driven games:
   - Maintains canonical `gameState`, `validMoves`, `pendingChoice`, `choiceDeadline`, `victoryState`, `chatMessages`, and `connectionStatus`.
   - Handles WebSocket messages:
     - `game_state` → hydrates `BoardState`/`GameState` from plain JSON and updates `validMoves`, `lastHeartbeatAt`, and `decisionAutoResolved` from `diffSummary.meta`.
@@ -254,10 +254,10 @@ Sources reviewed:
 Sources reviewed:
 
 - Integration and component tests:
-  - [ai-service/tests/integration/test_training_pipeline_e2e.py](../../../ai-service/tests/integration/test_training_pipeline_e2e.py:1)
-  - [ai-service/tests/test_engine_determinism.py](../../../ai-service/tests/test_engine_determinism.py:1) and other `ai-service/tests/**` suites (previous passes).
+  - [ai-service/tests/integration/test_training_pipeline_e2e.py](../../../ai-service/tests/integration/test_training_pipeline_e2e.py)
+  - [ai-service/tests/test_engine_determinism.py](../../../ai-service/tests/test_engine_determinism.py) and other `ai-service/tests/**` suites (previous passes).
 - Training env and presets:
-  - [ai-service/app/training/env.py](../../../ai-service/app/training/env.py:1)
+  - [ai-service/app/training/env.py](../../../ai-service/app/training/env.py)
 
 ### 11.1 Training pipeline coverage and health
 
@@ -280,7 +280,7 @@ Sources reviewed:
 
 ### 11.2 Training env and heuristic presets
 
-- [env.py](../../../ai-service/app/training/env.py:1) defines:
+- [env.py](../../../ai-service/app/training/env.py) defines:
   - **DEFAULT_TRAINING_EVAL_CONFIG** and **TWO_PLAYER_TRAINING_PRESET**:
     - Multi-board, multi-start evaluation over `BoardType.SQUARE8`, `SQUARE19`, and `HEXAGONAL`.
     - `eval_mode="multi-start"`, `state_pool_id="v1"`, and controlled `eval_randomness` (0.0 baseline, 0.02 for the 2-player training preset) for symmetry breaking while preserving reproducibility.
@@ -289,7 +289,7 @@ Sources reviewed:
     - Codifies a mixed “full” vs “light” evaluator policy per board type, with `SQUARE8` using full structural evaluation and `SQUARE19`/`HEXAGONAL` using lighter evaluators for throughput.
   - `RingRiftEnv` wrapper:
     - Provides an RL-style `reset`/`step`/`legal_moves` interface over the Python `GameEngine`, with board-type & player-count parameters.
-    - `reset(seed=...)` threads the RNG seed through Python `random`, NumPy, and Torch, matching the broader RNG determinism strategy described in [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1).
+    - `reset(seed=...)` threads the RNG seed through Python `random`, NumPy, and Torch, matching the broader RNG determinism strategy described in [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md).
     - `step(...)` supports both terminal-only and shaped rewards via `calculate_outcome`, keeping **rules semantics deterministic** and confining randomness to sampling and training harnesses.
 
 - PASS18 view:
@@ -297,15 +297,15 @@ Sources reviewed:
   - Remaining risks are mostly:
     - **Scale/performance and operational cost**, and
     - Ensuring that training presets continue to match production rules/board configurations when rules evolve.
-  - This area is **not a contender** for the single weakest aspect or hardest problem in PASS18; it is an important but well-contained domain with clear SSoT docs ([AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1), [docs/ai/AI_TRAINING_AND_DATASETS.md](../../ai/AI_TRAINING_AND_DATASETS.md:1), [docs/ai/AI_TRAINING_PREPARATION_GUIDE.md](../../ai/AI_TRAINING_PREPARATION_GUIDE.md:1)) and strong test coverage.
+  - This area is **not a contender** for the single weakest aspect or hardest problem in PASS18; it is an important but well-contained domain with clear SSoT docs ([AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md), [docs/ai/AI_TRAINING_AND_DATASETS.md](../../ai/AI_TRAINING_AND_DATASETS.md), [docs/ai/AI_TRAINING_PREPARATION_GUIDE.md](../../ai/AI_TRAINING_PREPARATION_GUIDE.md)) and strong test coverage.
 
 ## 12. SSoT tooling – PASS18 second-pass notes
 
 Sources reviewed:
 
-- Aggregator: [scripts/ssot/ssot-check.ts](../../../scripts/ssot/ssot-check.ts:1)
-- Python parity SSoT check: [scripts/ssot/python-parity-ssot-check.ts](../../../scripts/ssot/python-parity-ssot-check.ts:1)
-- Docs banner SSoT check: [scripts/ssot/docs-banner-ssot-check.ts](../../../scripts/ssot/docs-banner-ssot-check.ts:1)
+- Aggregator: [scripts/ssot/ssot-check.ts](../../../scripts/ssot/ssot-check.ts)
+- Python parity SSoT check: [scripts/ssot/python-parity-ssot-check.ts](../../../scripts/ssot/python-parity-ssot-check.ts)
+- Docs banner SSoT check: [scripts/ssot/docs-banner-ssot-check.ts](../../../scripts/ssot/docs-banner-ssot-check.ts)
 
 ### 12.1 Aggregated SSoT checks
 
@@ -323,7 +323,7 @@ Sources reviewed:
 
 ### 12.2 Python parity SSoT check (current state)
 
-- [python-parity-ssot-check.ts](../../../scripts/ssot/python-parity-ssot-check.ts:1) is intentionally **lightweight**:
+- [python-parity-ssot-check.ts](../../../scripts/ssot/python-parity-ssot-check.ts) is intentionally **lightweight**:
   - Verifies the presence (via filesystem) of:
     - v2 contract vectors on the TS side (`tests/fixtures/contract-vectors/v2/*.vectors.json`),
     - TS contract runner (`tests/contracts/contractVectorRunner.test.ts`),
@@ -341,9 +341,9 @@ Sources reviewed:
 
 ### 12.3 Docs banner SSoT check
 
-- [docs-banner-ssot-check.ts](../../../scripts/ssot/docs-banner-ssot-check.ts:1) enforces:
-  - Presence of an **SSoT banner** (by checking for `SSoT alignment`) in a curated list of core docs (e.g. [RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md:1), [RULES_IMPLEMENTATION_MAPPING.md](../../rules/RULES_IMPLEMENTATION_MAPPING.md:1), [docs/rules/RULES_ENGINE_SURFACE_AUDIT.md](../../rules/RULES_ENGINE_SURFACE_AUDIT.md:1), [docs/architecture/CANONICAL_ENGINE_API.md](../../architecture/CANONICAL_ENGINE_API.md:1), [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md:1), [docs/rules/PYTHON_PARITY_REQUIREMENTS.md](../../rules/PYTHON_PARITY_REQUIREMENTS.md:1), [ARCHITECTURE_ASSESSMENT.md](../plans/ARCHITECTURE_ASSESSMENT.md:1), [ARCHITECTURE_REMEDIATION_PLAN.md](../plans/ARCHITECTURE_REMEDIATION_PLAN.md:1), [docs/MODULE_RESPONSIBILITIES.md](../../architecture/MODULE_RESPONSIBILITIES.md:1)).
-  - Presence of a **category-specific snippet** per doc (e.g. `Rules/invariants semantics SSoT`, `Lifecycle/API SSoT`, `Operational SSoT`, `rules semantics SSoT`, `Canonical TS rules surface`) as defined in [docs/SSOT_BANNER_GUIDE.md](../../rules/SSOT_BANNER_GUIDE.md:1).
+- [docs-banner-ssot-check.ts](../../../scripts/ssot/docs-banner-ssot-check.ts) enforces:
+  - Presence of an **SSoT banner** (by checking for `SSoT alignment`) in a curated list of core docs (e.g. [RULES_ENGINE_ARCHITECTURE.md](../../architecture/RULES_ENGINE_ARCHITECTURE.md), [RULES_IMPLEMENTATION_MAPPING.md](../../rules/RULES_IMPLEMENTATION_MAPPING.md), [docs/rules/RULES_ENGINE_SURFACE_AUDIT.md](../../rules/RULES_ENGINE_SURFACE_AUDIT.md), [docs/architecture/CANONICAL_ENGINE_API.md](../../architecture/CANONICAL_ENGINE_API.md), [AI_ARCHITECTURE.md](../../architecture/AI_ARCHITECTURE.md), [docs/rules/PYTHON_PARITY_REQUIREMENTS.md](../../rules/PYTHON_PARITY_REQUIREMENTS.md), [ARCHITECTURE_ASSESSMENT.md](../plans/ARCHITECTURE_ASSESSMENT.md), [ARCHITECTURE_REMEDIATION_PLAN.md](../plans/ARCHITECTURE_REMEDIATION_PLAN.md), [docs/MODULE_RESPONSIBILITIES.md](../../architecture/MODULE_RESPONSIBILITIES.md)).
+  - Presence of a **category-specific snippet** per doc (e.g. `Rules/invariants semantics SSoT`, `Lifecycle/API SSoT`, `Operational SSoT`, `rules semantics SSoT`, `Canonical TS rules surface`) as defined in [docs/SSOT_BANNER_GUIDE.md](../../rules/SSOT_BANNER_GUIDE.md).
 - Behaviour:
   - If a monitored doc is missing or lacks the required snippet, the check fails with a descriptive message.
   - The implementation currently allows minor deviations in wording/structure as long as the key substrings are present, which matches the guidance in `SSOT_BANNER_GUIDE.md`.

@@ -15,14 +15,14 @@ This document specifies a concrete, repeatable pipeline for training, evaluating
 
 The design is constrained to existing infrastructure:
 
-- Ladder definitions in [`python.LadderTierConfig`](../../ai-service/app/config/ladder_config.py:26) and [`python.get_effective_ladder_config`](../../ai-service/app/config/ladder_config.py:1249) (runtime overrides live in `ai-service/data/ladder_runtime_overrides.json`).
-- Candidate registry in [`python.tier_promotion_registry`](../../ai-service/app/training/tier_promotion_registry.py:1) with default file `ai-service/config/tier_candidate_registry.square8_2p.json`.
+- Ladder definitions in [`python.LadderTierConfig`](../../ai-service/app/config/ladder_config.py) and [`python.get_effective_ladder_config`](../../ai-service/app/config/ladder_config.py) (runtime overrides live in `ai-service/data/ladder_runtime_overrides.json`).
+- Candidate registry in [`python.tier_promotion_registry`](../../ai-service/app/training/tier_promotion_registry.py) with default file `ai-service/config/tier_candidate_registry.square8_2p.json`.
 - Tier training defaults in `ai-service/config/tier_training_pipeline.square8_2p.json` (used by `scripts/run_tier_training_pipeline.py`).
-- Canonical training environment [`python.RingRiftEnv`](../../ai-service/app/training/env.py:274) via [`python.make_env`](../../ai-service/app/training/env.py:221) and [`python.TrainingEnvConfig`](../../ai-service/app/training/env.py:171).
-- Tier evaluation configs in [`python.TierEvaluationConfig`](../../ai-service/app/training/tier_eval_config.py:37) and runner [`python.run_tier_evaluation`](../../ai-service/app/training/tier_eval_runner.py:319).
-- Difficulty-tier gating CLI [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py:1).
-- Perf budgets in [`python.TierPerfBudget`](../../ai-service/app/config/perf_budgets.py:20) and benchmark helper [`python.run_tier_perf_benchmark`](../../ai-service/app/training/tier_perf_benchmark.py:84).
-- Human calibration experiments in [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1) and calibration telemetry in [`difficultyCalibrationEvents.ts`](../../src/shared/telemetry/difficultyCalibrationEvents.ts:1) and [`typescript.MetricsService.recordDifficultyCalibrationEvent`](../../src/server/services/MetricsService.ts:1292).
+- Canonical training environment [`python.RingRiftEnv`](../../ai-service/app/training/env.py) via [`python.make_env`](../../ai-service/app/training/env.py) and [`python.TrainingEnvConfig`](../../ai-service/app/training/env.py).
+- Tier evaluation configs in [`python.TierEvaluationConfig`](../../ai-service/app/training/tier_eval_config.py) and runner [`python.run_tier_evaluation`](../../ai-service/app/training/tier_eval_runner.py).
+- Difficulty-tier gating CLI [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py).
+- Perf budgets in [`python.TierPerfBudget`](../../ai-service/app/config/perf_budgets.py) and benchmark helper [`python.run_tier_perf_benchmark`](../../ai-service/app/training/tier_perf_benchmark.py).
+- Human calibration experiments in [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md) and calibration telemetry in [`difficultyCalibrationEvents.ts`](../../src/shared/telemetry/difficultyCalibrationEvents.ts) and [`typescript.MetricsService.recordDifficultyCalibrationEvent`](../../src/server/services/MetricsService.ts).
 
 ---
 
@@ -36,7 +36,7 @@ This pipeline covers only:
 - Players: 2.
 - Ladder difficulties: D1–D10 (D11 reserved for internal benchmarks; not exposed via the public API).
 
-Future work can extend the same patterns to other boards and player counts using the multi-board tier configs already in [`python.tier_eval_config`](../../ai-service/app/training/tier_eval_config.py:196) and [`python.ladder_config`](../../ai-service/app/config/ladder_config.py:121).
+Future work can extend the same patterns to other boards and player counts using the multi-board tier configs already in [`python.tier_eval_config`](../../ai-service/app/training/tier_eval_config.py) and [`python.ladder_config`](../../ai-service/app/config/ladder_config.py).
 
 > **Note (2025-12-17):** Minimax is disabled for square19 and hexagonal boards. The search space on these larger boards causes minimax to take tens of minutes per move. D4/D5 tiers on square19 and hex currently use Descent + NN instead (see `ai-service/app/config/ladder_config.py`).
 
@@ -64,13 +64,13 @@ For Square-8 2-player, the canonical ladder currently defines (simplified):
 | D10  | 10         | GUMBEL_MCTS    | ringrift_best_sq8_2p | heuristic_v1_sq8_2p  | Grandmaster (Gumbel MCTS)    |
 | D11  | 11         | GUMBEL_MCTS    | ringrift_best_sq8_2p | heuristic_v1_sq8_2p  | Internal-only stress tier    |
 
-(from [`python._build_default_square8_two_player_configs`](../../ai-service/app/config/ladder_config.py:47))
+(from [`python._build_default_square8_two_player_configs`](../../ai-service/app/config/ladder_config.py))
 
 Pipeline invariants:
 
 - **Ordering:** D1 < D2 < … < D10 in strength on Square-8 2-player (D11 is internal-only).
 - **Non-regression vs previous production version of each tier:** new Dn must not be substantially weaker than the previous Dn against shared baselines.
-- **Perf budgets for D3–D8:** average and p95 move latencies must respect [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1) and [`python.TierPerfBudget`](../../ai-service/app/config/perf_budgets.py:20).
+- **Perf budgets for D3–D8:** average and p95 move latencies must respect [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md) and [`python.TierPerfBudget`](../../ai-service/app/config/perf_budgets.py).
 
 ---
 
@@ -78,58 +78,58 @@ Pipeline invariants:
 
 ### 2.1 Environment and rules
 
-- Training and evaluation always use [`python.RingRiftEnv`](../../ai-service/app/training/env.py:274) constructed via [`python.make_env`](../../ai-service/app/training/env.py:221) with:
+- Training and evaluation always use [`python.RingRiftEnv`](../../ai-service/app/training/env.py) constructed via [`python.make_env`](../../ai-service/app/training/env.py) with:
   - `board_type=BoardType.SQUARE8`.
   - `num_players=2`.
   - `reward_mode="terminal"` for gating and perf benchmarks.
-- `max_moves` defaults to 200 for Square-8 2-player, consistent with [`python.make_env`](../../ai-service/app/training/env.py:221) and [`python.get_theoretical_max_moves`](../../ai-service/app/training/env.py:55).
-- Rules semantics are provided by [`python.DefaultRulesEngine`](../../ai-service/app/rules/default_engine.py:1) and [`python.GameEngine`](../../ai-service/app/game_engine/__init__.py:1); both are already wired through the env.
+- `max_moves` defaults to 200 for Square-8 2-player, consistent with [`python.make_env`](../../ai-service/app/training/env.py) and [`python.get_theoretical_max_moves`](../../ai-service/app/training/env.py).
+- Rules semantics are provided by [`python.DefaultRulesEngine`](../../ai-service/app/rules/default_engine.py) and [`python.GameEngine`](../../ai-service/app/game_engine/__init__.py); both are already wired through the env.
 
 ### 2.2 Difficulty ladder and online integration
 
-The FastAPI service endpoint [`python.get_ai_move`](../../ai-service/app/main.py:236):
+The FastAPI service endpoint [`python.get_ai_move`](../../ai-service/app/main.py):
 
-- Uses [`python._get_difficulty_profile`](../../ai-service/app/main.py:1048) for the global 1–10 mapping.
-- When possible, refines settings via board-aware [`python.get_effective_ladder_config`](../../ai-service/app/config/ladder_config.py:1249) for `(difficulty, board_type, num_players)` (runtime overrides load from `ai-service/data/ladder_runtime_overrides.json`).
-- Constructs [`python.AIConfig`](../../ai-service/app/models/core.py:419) with:
+- Uses [`python._get_difficulty_profile`](../../ai-service/app/main.py) for the global 1–10 mapping.
+- When possible, refines settings via board-aware [`python.get_effective_ladder_config`](../../ai-service/app/config/ladder_config.py) for `(difficulty, board_type, num_players)` (runtime overrides load from `ai-service/data/ladder_runtime_overrides.json`).
+- Constructs [`python.AIConfig`](../../ai-service/app/models/core.py) with:
   - `difficulty`, `randomness`, `think_time` from the ladder or profile.
   - `heuristic_profile_id` from ladder or difficulty profile.
   - `nn_model_id` from ladder `model_id` when `ai_type` is MCTS or DESCENT.
 
-Neural-net-backed AIs (Minimax/MCTS/Descent) resolve `nn_model_id` to a checkpoint under `ai-service/models` via [`python.NeuralNetAI`](../../ai-service/app/ai/neural_net/__init__.py:1049).
+Neural-net-backed AIs (Minimax/MCTS/Descent) resolve `nn_model_id` to a checkpoint under `ai-service/models` via [`python.NeuralNetAI`](../../ai-service/app/ai/neural_net/__init__.py).
 
-Heuristic tiers use profiles in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py:1). If `RINGRIFT_TRAINED_HEURISTIC_PROFILES` points at a JSON bundle, trained profiles are loaded at startup and merged into the registry.
+Heuristic tiers use profiles in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py). If `RINGRIFT_TRAINED_HEURISTIC_PROFILES` points at a JSON bundle, trained profiles are loaded at startup and merged into the registry.
 
 ### 2.3 Training components
 
-We reuse existing training infrastructure described in [`AI_TRAINING_AND_DATASETS.md`](AI_TRAINING_AND_DATASETS.md:1):
+We reuse existing training infrastructure described in [`AI_TRAINING_AND_DATASETS.md`](AI_TRAINING_AND_DATASETS.md):
 
-- Self-play NPZ datasets via [`python.generate_dataset`](../../ai-service/app/training/generate_data.py:1).
-- Territory / combined-margin JSONL datasets via [`python.generate_territory_dataset`](../../ai-service/app/training/generate_territory_dataset.py:1).
-- Heuristic-weight training via [`python.train_heuristic_weights`](../../ai-service/app/training/train_heuristic_weights.py:1).
-- Neural net training via [`python.train_model`](../../ai-service/app/training/train.py:1171) and [`python.TrainConfig`](../../ai-service/app/config/training_config.py:176).
-- Model versioning via [`python.ModelVersionManager`](../../ai-service/app/training/model_versioning.py:311) and helpers like [`python.save_model_checkpoint`](../../ai-service/app/training/model_versioning.py:865).
-- Curriculum-based self-play and promotion via [`python.CurriculumConfig`](../../ai-service/app/training/curriculum.py:152) and [`python.CurriculumTrainer`](../../ai-service/app/training/curriculum.py:247).
-- Auto-tournaments and Elo-based comparison via [`python.AutoTournamentPipeline`](../../ai-service/app/training/auto_tournament.py:327).
+- Self-play NPZ datasets via [`python.generate_dataset`](../../ai-service/app/training/generate_data.py).
+- Territory / combined-margin JSONL datasets via [`python.generate_territory_dataset`](../../ai-service/app/training/generate_territory_dataset.py).
+- Heuristic-weight training via [`python.train_heuristic_weights`](../../ai-service/app/training/train_heuristic_weights.py).
+- Neural net training via [`python.train_model`](../../ai-service/app/training/train.py) and [`python.TrainConfig`](../../ai-service/app/config/training_config.py).
+- Model versioning via [`python.ModelVersionManager`](../../ai-service/app/training/model_versioning.py) and helpers like [`python.save_model_checkpoint`](../../ai-service/app/training/model_versioning.py).
+- Curriculum-based self-play and promotion via [`python.CurriculumConfig`](../../ai-service/app/training/curriculum.py) and [`python.CurriculumTrainer`](../../ai-service/app/training/curriculum.py).
+- Auto-tournaments and Elo-based comparison via [`python.AutoTournamentPipeline`](../../ai-service/app/training/auto_tournament.py).
 
 ### 2.4 Evaluation, gating, and perf
 
-- Tier evaluation configs: [`python.TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py:53) with [`python.TierEvaluationConfig`](../../ai-service/app/training/tier_eval_config.py:37), keyed by `"D1"`–`"D11"`.
-- Runner: [`python.run_tier_evaluation`](../../ai-service/app/training/tier_eval_runner.py:319) returning [`python.TierEvaluationResult`](../../ai-service/app/training/tier_eval_runner.py:74).
-- Difficulty-tier gate CLI: [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py:1), difficulty mode via [`python._run_difficulty_mode`](../../ai-service/scripts/run_tier_gate.py:252).
+- Tier evaluation configs: [`python.TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py) with [`python.TierEvaluationConfig`](../../ai-service/app/training/tier_eval_config.py), keyed by `"D1"`–`"D11"`.
+- Runner: [`python.run_tier_evaluation`](../../ai-service/app/training/tier_eval_runner.py) returning [`python.TierEvaluationResult`](../../ai-service/app/training/tier_eval_runner.py).
+- Difficulty-tier gate CLI: [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py), difficulty mode via [`python._run_difficulty_mode`](../../ai-service/scripts/run_tier_gate.py).
   - Emits evaluation JSON via `--output-json`.
   - Emits promotion descriptor via `--promotion-plan-out`.
 - Perf budgets:
-  - [`python.TIER_PERF_BUDGETS`](../../ai-service/app/config/perf_budgets.py:101) with entries `"D3_SQ8_2P"`–`"D8_SQ8_2P"`.
-  - Benchmarks via [`python.run_tier_perf_benchmark`](../../ai-service/app/training/tier_perf_benchmark.py:84) and CLI [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py:1).
+  - [`python.TIER_PERF_BUDGETS`](../../ai-service/app/config/perf_budgets.py) with entries `"D3_SQ8_2P"`–`"D8_SQ8_2P"`.
+  - Benchmarks via [`python.run_tier_perf_benchmark`](../../ai-service/app/training/tier_perf_benchmark.py) and CLI [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py).
 
 ### 2.5 Human calibration and telemetry
 
-- Human calibration experiments: [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1) (Templates A/B/C).
-- Telemetry schema: [`difficultyCalibrationEvents.ts`](../../src/shared/telemetry/difficultyCalibrationEvents.ts:1) defining `DifficultyCalibrationEventPayload`.
-- Client helper: [`difficultyCalibrationTelemetry.ts`](../../src/client/utils/difficultyCalibrationTelemetry.ts:1).
-- Server route: [`difficultyCalibrationTelemetry.ts`](../../src/server/routes/difficultyCalibrationTelemetry.ts:1).
-- Metrics sink: [`typescript.MetricsService.recordDifficultyCalibrationEvent`](../../src/server/services/MetricsService.ts:1292), exposing `ringrift_difficulty_calibration_events_total`.
+- Human calibration experiments: [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md) (Templates A/B/C).
+- Telemetry schema: [`difficultyCalibrationEvents.ts`](../../src/shared/telemetry/difficultyCalibrationEvents.ts) defining `DifficultyCalibrationEventPayload`.
+- Client helper: [`difficultyCalibrationTelemetry.ts`](../../src/client/utils/difficultyCalibrationTelemetry.ts).
+- Server route: [`difficultyCalibrationTelemetry.ts`](../../src/server/routes/difficultyCalibrationTelemetry.ts).
+- Metrics sink: [`typescript.MetricsService.recordDifficultyCalibrationEvent`](../../src/server/services/MetricsService.ts), exposing `ringrift_difficulty_calibration_events_total`.
 
 ---
 
@@ -139,24 +139,24 @@ We standardise what a _candidate_ is at each tier and how it will be wired into 
 
 ### 3.1 Summary table
 
-| Tier | Engine family (Square-8 2p) | Candidate kind                     | Primary artefact(s)                                                                               | Ladder fields touched on promotion                             |
-| ---- | --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| D1   | RANDOM                      | None (baseline)                    | —                                                                                                 | —                                                              |
-| D2   | HEURISTIC                   | Heuristic profile                  | New entry in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py:1) | `heuristic_profile_id` (and optionally `model_id`)             |
-| D3   | HEURISTIC (tuned)           | Heuristic profile                  | New entry in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py:1) | `heuristic_profile_id` (and optionally `model_id`)             |
-| D4   | MINIMAX (NNUE)              | NNUE checkpoint + search persona   | Versioned NNUE checkpoint (`models/nnue/<nn_model_id>.pt`) and/or minimax config                  | `model_id` (mapped to `nn_model_id`)                           |
-| D5   | MINIMAX (NNUE)              | NNUE checkpoint + search persona   | Versioned NNUE checkpoint (`models/nnue/<nn_model_id>.pt`) and/or minimax config                  | `model_id` (mapped to `nn_model_id`)                           |
-| D6   | DESCENT (neural)            | Neural checkpoint                  | Versioned NN checkpoint (`models/<nn_model_id>.pth`)                                              | `model_id` (mapped to `nn_model_id`)                           |
-| D7   | MCTS (heuristic-only)       | Search persona + heuristic profile | MCTS config snapshot (search persona) + heuristic profile                                         | `model_id` (persona tag) and optionally `heuristic_profile_id` |
-| D8   | MCTS (neural)               | Neural checkpoint + MCTS config    | Versioned NN checkpoint (`models/<nn_model_id>.pth`) and MCTS config                              | `model_id` (mapped to `nn_model_id`)                           |
-| D9   | GUMBEL_MCTS (neural)        | Neural checkpoint + Gumbel config  | Versioned NN checkpoint (`models/<nn_model_id>.pth`) and Gumbel MCTS config                       | `model_id` (mapped to `nn_model_id`)                           |
-| D10  | GUMBEL_MCTS (neural)        | Neural checkpoint + Gumbel config  | Versioned NN checkpoint (`models/<nn_model_id>.pth`) and Gumbel MCTS config                       | `model_id` (mapped to `nn_model_id`)                           |
-| D11  | GUMBEL_MCTS (internal)      | Neural checkpoint + Gumbel config  | Same as D9/D10; reserved for internal benchmarks                                                  | `model_id` (mapped to `nn_model_id`)                           |
+| Tier | Engine family (Square-8 2p) | Candidate kind                     | Primary artefact(s)                                                                             | Ladder fields touched on promotion                             |
+| ---- | --------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| D1   | RANDOM                      | None (baseline)                    | —                                                                                               | —                                                              |
+| D2   | HEURISTIC                   | Heuristic profile                  | New entry in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py) | `heuristic_profile_id` (and optionally `model_id`)             |
+| D3   | HEURISTIC (tuned)           | Heuristic profile                  | New entry in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py) | `heuristic_profile_id` (and optionally `model_id`)             |
+| D4   | MINIMAX (NNUE)              | NNUE checkpoint + search persona   | Versioned NNUE checkpoint (`models/nnue/<nn_model_id>.pt`) and/or minimax config                | `model_id` (mapped to `nn_model_id`)                           |
+| D5   | MINIMAX (NNUE)              | NNUE checkpoint + search persona   | Versioned NNUE checkpoint (`models/nnue/<nn_model_id>.pt`) and/or minimax config                | `model_id` (mapped to `nn_model_id`)                           |
+| D6   | DESCENT (neural)            | Neural checkpoint                  | Versioned NN checkpoint (`models/<nn_model_id>.pth`)                                            | `model_id` (mapped to `nn_model_id`)                           |
+| D7   | MCTS (heuristic-only)       | Search persona + heuristic profile | MCTS config snapshot (search persona) + heuristic profile                                       | `model_id` (persona tag) and optionally `heuristic_profile_id` |
+| D8   | MCTS (neural)               | Neural checkpoint + MCTS config    | Versioned NN checkpoint (`models/<nn_model_id>.pth`) and MCTS config                            | `model_id` (mapped to `nn_model_id`)                           |
+| D9   | GUMBEL_MCTS (neural)        | Neural checkpoint + Gumbel config  | Versioned NN checkpoint (`models/<nn_model_id>.pth`) and Gumbel MCTS config                     | `model_id` (mapped to `nn_model_id`)                           |
+| D10  | GUMBEL_MCTS (neural)        | Neural checkpoint + Gumbel config  | Versioned NN checkpoint (`models/<nn_model_id>.pth`) and Gumbel MCTS config                     | `model_id` (mapped to `nn_model_id`)                           |
+| D11  | GUMBEL_MCTS (internal)      | Neural checkpoint + Gumbel config  | Same as D9/D10; reserved for internal benchmarks                                                | `model_id` (mapped to `nn_model_id`)                           |
 
 Rules:
 
-- All **neural** candidates are identified by a logical `nn_model_id` string and a versioned checkpoint saved via [`python.save_model_checkpoint`](../../ai-service/app/training/model_versioning.py:865).
-- All **heuristic** candidates are identified by a `heuristic_profile_id` key in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py:1).
+- All **neural** candidates are identified by a logical `nn_model_id` string and a versioned checkpoint saved via [`python.save_model_checkpoint`](../../ai-service/app/training/model_versioning.py).
+- All **heuristic** candidates are identified by a `heuristic_profile_id` key in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py).
 - Search-persona changes must map to distinct ladder `model_id` values (for example `v2-minimax-4`).
 
 ---
@@ -165,11 +165,11 @@ Rules:
 
 ### 4.1 Shared training conventions
 
-- Board: `BoardType.SQUARE8`, `num_players=2` in [`python.TrainingEnvConfig`](../../ai-service/app/training/env.py:171).
+- Board: `BoardType.SQUARE8`, `num_players=2` in [`python.TrainingEnvConfig`](../../ai-service/app/training/env.py).
 - Reward: `"terminal"` for gating-oriented training (self-play for value/policy can still use shaping when appropriate).
-- Seeding: follow the RNG model from [`AI_TRAINING_AND_DATASETS.md`](AI_TRAINING_AND_DATASETS.md:284) and [`python.RingRiftEnv.reset`](../../ai-service/app/training/env.py:371).
-- Data provenance: all training / eval datasets generated through the Python rules host described in [`AI_TRAINING_AND_DATASETS.md`](AI_TRAINING_AND_DATASETS.md:19), and only from DBs marked canonical in `ai-service/TRAINING_DATA_REGISTRY.md` (Square-8 2-player uses `ai-service/data/games/canonical_square8_2p.db` by default).
-- Tier pipeline defaults: `ai-service/config/tier_training_pipeline.square8_2p.json` is the default config for [`run_tier_training_pipeline.py`](../../ai-service/scripts/run_tier_training_pipeline.py:1) (override with `--config`).
+- Seeding: follow the RNG model from [`AI_TRAINING_AND_DATASETS.md`](AI_TRAINING_AND_DATASETS.md) and [`python.RingRiftEnv.reset`](../../ai-service/app/training/env.py).
+- Data provenance: all training / eval datasets generated through the Python rules host described in [`AI_TRAINING_AND_DATASETS.md`](AI_TRAINING_AND_DATASETS.md), and only from DBs marked canonical in `ai-service/TRAINING_DATA_REGISTRY.md` (Square-8 2-player uses `ai-service/data/games/canonical_square8_2p.db` by default).
+- Tier pipeline defaults: `ai-service/config/tier_training_pipeline.square8_2p.json` is the default config for [`run_tier_training_pipeline.py`](../../ai-service/scripts/run_tier_training_pipeline.py) (override with `--config`).
 - CMA-ES workers: `cmaes_workers` in the tier config or `RINGRIFT_CMAES_WORKERS` env var.
 
 ### 4.2 Tier training modes (summary)
@@ -194,12 +194,12 @@ Rules:
 
 **Model type**
 
-- Pure heuristic AI using a Square-8 2-player profile in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py:1), currently `heuristic_v1_sq8_2p`.
+- Pure heuristic AI using a Square-8 2-player profile in [`python.HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py), currently `heuristic_v1_sq8_2p`.
 
 **Training data & method**
 
-- Primary dataset: territory / combined-margin JSONL as in [`python.generate_territory_dataset`](../../ai-service/app/training/generate_territory_dataset.py:1).
-- Optional NPZ self-play dataset via [`python.generate_dataset`](../../ai-service/app/training/generate_data.py:1).
+- Primary dataset: territory / combined-margin JSONL as in [`python.generate_territory_dataset`](../../ai-service/app/training/generate_territory_dataset.py).
+- Optional NPZ self-play dataset via [`python.generate_dataset`](../../ai-service/app/training/generate_data.py).
 - Run via `run_tier_training_pipeline.py --tier D2` (CMA-ES). Distributed CMA-ES modes are selected by the tier config and `RINGRIFT_CMAES_WORKERS`.
 
 **Outputs & versioning**
@@ -256,7 +256,7 @@ Rules:
 **Training data & method**
 
 - Neural training via `run_tier_training_pipeline.py --tier D6` (GPU required for full runs).
-- Optional curriculum loops using [`python.CurriculumTrainer`](../../ai-service/app/training/curriculum.py:247).
+- Optional curriculum loops using [`python.CurriculumTrainer`](../../ai-service/app/training/curriculum.py).
 
 **Outputs & versioning**
 
@@ -338,7 +338,7 @@ Rules:
 
 ### 5.1 Evaluation profiles per tier
 
-[`python.TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py:53) includes:
+[`python.TIER_EVAL_CONFIGS`](../../ai-service/app/training/tier_eval_config.py) includes:
 
 Square-8 2-player tiers D1–D11 plus cross-board configs. Opponent mixes and roles live in the config; summary of Square-8 2-player thresholds:
 
@@ -360,8 +360,8 @@ Square-8 2-player tiers D1–D11 plus cross-board configs. Opponent mixes and ro
 
 These are consumed by:
 
-- [`run_tier_evaluation.py`](../../ai-service/scripts/run_tier_evaluation.py:1) for ad-hoc tier eval.
-- [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py:1) for gating.
+- [`run_tier_evaluation.py`](../../ai-service/scripts/run_tier_evaluation.py) for ad-hoc tier eval.
+- [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py) for gating.
 
 ### 5.2 Gating & promotion rules
 
@@ -379,10 +379,10 @@ For each tier T ∈ {D2–D10} (D1 is a baseline, D11 is internal), the automate
 
    The wrapper reads `training_report.json`, enforces candidate artefacts, runs the tier evaluation, and executes perf checks when a budget exists.
 
-2. The wrapper invokes [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py:1), whose [`python._run_difficulty_mode`](../../ai-service/scripts/run_tier_gate.py:252) will:
-   - Look up the TierEvaluationConfig via [`python.get_tier_config`](../../ai-service/app/training/tier_eval_config.py:436).
-   - Resolve current production ladder entry via [`python.get_ladder_tier_config`](../../ai-service/app/config/ladder_config.py:279) to find `current_model_id` (runtime overrides are not applied here).
-   - Call [`python.run_tier_evaluation`](../../ai-service/app/training/tier_eval_runner.py:319).
+2. The wrapper invokes [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py), whose [`python._run_difficulty_mode`](../../ai-service/scripts/run_tier_gate.py) will:
+   - Look up the TierEvaluationConfig via [`python.get_tier_config`](../../ai-service/app/training/tier_eval_config.py).
+   - Resolve current production ladder entry via [`python.get_ladder_tier_config`](../../ai-service/app/config/ladder_config.py) to find `current_model_id` (runtime overrides are not applied here).
+   - Call [`python.run_tier_evaluation`](../../ai-service/app/training/tier_eval_runner.py).
    - Print a human summary and emit:
      - Full TierEvaluationResult JSON (`tier_eval_result.json` in the wrapper run dir).
      - A promotion plan JSON (`promotion_plan.json`) with keys:
@@ -420,7 +420,7 @@ When a candidate passes automated gating (and perf, see below) and is approved:
 
 - Apply the ladder update:
   - **Runtime override:** write/update `ai-service/data/ladder_runtime_overrides.json` via `update_tier_model` / `update_tier_heuristic_profile` (no code change, immediate effect).
-  - **Permanent change:** update [`python._build_default_square8_two_player_configs`](../../ai-service/app/config/ladder_config.py:47) and commit the change.
+  - **Permanent change:** update [`python._build_default_square8_two_player_configs`](../../ai-service/app/config/ladder_config.py) and commit the change.
   - For heuristic tiers, ensure the promoted profile exists in `data/trained_heuristic_profiles.json` and is wired via `RINGRIFT_TRAINED_HEURISTIC_PROFILES`.
 
 Promotion plans written by `run_tier_gate.py` should be archived under something like `ai-service/data/promotions/square8_2p/` for traceability.
@@ -431,7 +431,7 @@ Promotion plans written by `run_tier_gate.py` should be archived under something
 
 ### 6.1 Running perf benchmarks
 
-For D3–D8, perf budgets are defined in [`python._build_square8_two_player_budgets`](../../ai-service/app/config/perf_budgets.py:51) and described in [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md:1).
+For D3–D8, perf budgets are defined in [`python._build_square8_two_player_budgets`](../../ai-service/app/config/perf_budgets.py) and described in [`AI_TIER_PERF_BUDGETS.md`](AI_TIER_PERF_BUDGETS.md).
 
 For each candidate that _passes_ the tier gate, the pipeline must also run:
 
@@ -445,12 +445,12 @@ python scripts/run_tier_perf_benchmark.py \
   --output-json logs/tier_perf/D6_candidate.json
 ```
 
-[`python.run_tier_perf_benchmark`](../../ai-service/app/training/tier_perf_benchmark.py:84) returns:
+[`python.run_tier_perf_benchmark`](../../ai-service/app/training/tier_perf_benchmark.py) returns:
 
 - `average_ms`, `p95_ms`.
 - Associated `TierPerfBudget` with `max_avg_move_ms`, `max_p95_move_ms`.
 
-The CLI evaluates budgets via [`python._eval_budget`](../../ai-service/scripts/run_tier_perf_benchmark.py:95):
+The CLI evaluates budgets via [`python._eval_budget`](../../ai-service/scripts/run_tier_perf_benchmark.py):
 
 - `within_avg = average_ms <= max_avg_move_ms`.
 - `within_p95 = p95_ms <= max_p95_move_ms`.
@@ -459,7 +459,7 @@ The CLI evaluates budgets via [`python._eval_budget`](../../ai-service/scripts/r
 H-AI-9 treats `overall_pass` for perf as **required** for D3–D8 promotions unless there is an explicit, documented adjustment of budgets.
 
 In practice, instead of invoking the perf benchmark separately, the
-combined wrapper [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py:1) can be used to run both the difficulty-tier gate and perf check in one step:
+combined wrapper [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py) can be used to run both the difficulty-tier gate and perf check in one step:
 
 ```bash
 cd ai-service
@@ -481,7 +481,7 @@ If a candidate is stronger but exceeds perf budgets:
 
 1. **Preferred path:** adjust search parameters (depth, iteration caps, or reroll heuristics) to bring perf under budget, then re-run tier evaluation and gating.
 2. **If regression is minor and strength gain is large:**
-   - Optionally propose a new `think_time_ms` ladder value and recompute perf budgets in [`perf_budgets.py`](../../ai-service/app/config/perf_budgets.py:51) via a coordinated change.
+   - Optionally propose a new `think_time_ms` ladder value and recompute perf budgets in [`perf_budgets.py`](../../ai-service/app/config/perf_budgets.py) via a coordinated change.
    - This must be justified by product/UX decisions (for example “we accept D8 being slower for significantly more depth”).
 3. **Otherwise:** reject the candidate and keep current production tier.
 
@@ -491,7 +491,7 @@ If a candidate is stronger but exceeds perf budgets:
 
 ### 7.1 Mapping calibration experiments to tiers
 
-[`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1) defines three experiment templates for Square-8 2-player:
+[`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md) defines three experiment templates for Square-8 2-player:
 
 - Template A – New-player quick check (D2/D4, 3-game sets).
 - Template B – Intermediate validation (D4/D6, 5-game blocks).
@@ -508,8 +508,8 @@ H-AI-9 integrates these as follows:
 
 Calibration-mode games in the client should:
 
-- Use Square-8, 2 players, **anchor tiers** D2/D4/D6/D8 by default (the public ladder is D1–D10); expand only when a specific tier is under study, as recommended in [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:26).
-- Attach `isCalibrationOptIn=true` in the payload to [`difficultyCalibrationEvents.ts`](../../src/shared/telemetry/difficultyCalibrationEvents.ts:1).
+- Use Square-8, 2 players, **anchor tiers** D2/D4/D6/D8 by default (the public ladder is D1–D10); expand only when a specific tier is under study, as recommended in [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md).
+- Attach `isCalibrationOptIn=true` in the payload to [`difficultyCalibrationEvents.ts`](../../src/shared/telemetry/difficultyCalibrationEvents.ts).
 
 During such games, the client sends:
 
@@ -519,7 +519,7 @@ During such games, the client sends:
   - `movesPlayed`.
   - `perceivedDifficulty` (1–5).
 
-On the server, [`typescript.MetricsService.recordDifficultyCalibrationEvent`](../../src/server/services/MetricsService.ts:1292) increments a counter labelled by `type`, `board_type`, `num_players`, `difficulty`, and `result`, but **only when `isCalibrationOptIn=true`**.
+On the server, [`typescript.MetricsService.recordDifficultyCalibrationEvent`](../../src/server/services/MetricsService.ts) increments a counter labelled by `type`, `board_type`, `num_players`, `difficulty`, and `result`, but **only when `isCalibrationOptIn=true`**.
 
 For H-AI-9, a lightweight aggregation (outside this doc) should periodically compute, per `(board_type, num_players, difficulty)`:
 
@@ -555,7 +555,7 @@ Human calibration is **advisory but important**:
 For each tier T ∈ {D2–D10}, the pipeline is:
 
 1. **Train candidate for tier T:**
-   - Run the appropriate training jobs (heuristic or NN) for Square-8 2-player using [`python.train_heuristic_weights`](../../ai-service/app/training/train_heuristic_weights.py:1), [`python.train_model`](../../ai-service/app/training/train.py:1171), or [`python.CurriculumTrainer`](../../ai-service/app/training/curriculum.py:247).
+   - Run the appropriate training jobs (heuristic or NN) for Square-8 2-player using [`python.train_heuristic_weights`](../../ai-service/app/training/train_heuristic_weights.py), [`python.train_model`](../../ai-service/app/training/train.py), or [`python.CurriculumTrainer`](../../ai-service/app/training/curriculum.py).
    - Produce candidate artefacts and assign a candidate id `CANDIDATE_T_ID`.
 
 2. **Run automated evaluation and gating:**
@@ -567,7 +567,7 @@ For each tier T ∈ {D2–D10}, the pipeline is:
    - Ensure `overall_pass=true`.
 
 4. **Optional cross-tier sanity evaluation:**
-   - Use [`run_tournament.py`](../../ai-service/scripts/run_tournament.py:1) in `basic` mode or [`evaluate_ai_models.py`](../../ai-service/scripts/evaluate_ai_models.py:1) to play:
+   - Use [`run_tournament.py`](../../ai-service/scripts/run_tournament.py) in `basic` mode or [`evaluate_ai_models.py`](../../ai-service/scripts/evaluate_ai_models.py) to play:
      - New D2 vs old D2 vs random.
      - New D4 vs D2 / D6.
      - New D6 vs D4 / D8.
@@ -579,7 +579,7 @@ For each tier T ∈ {D2–D10}, the pipeline is:
 
 6. **Approve and apply ladder update:**
    - If all required stages succeed, apply `promotion_plan.json` via `apply_tier_promotion_plan.py`.
-   - Promote via runtime override or by updating [`ladder_config.py`](../../ai-service/app/config/ladder_config.py:47).
+   - Promote via runtime override or by updating [`ladder_config.py`](../../ai-service/app/config/ladder_config.py).
 
 ### 8.2 Orchestration scripts / configs
 
@@ -594,7 +594,7 @@ To make the above reproducible, H-AI-9 defines the following orchestration entry
    - Behaviour (conceptual):
      - Generate training data for the tier (self-play, territory, etc.).
      - Run heuristic or NN training as appropriate.
-     - Optionally register NN models into [`python.AutoTournamentPipeline`](../../ai-service/app/training/auto_tournament.py:327).
+     - Optionally register NN models into [`python.AutoTournamentPipeline`](../../ai-service/app/training/auto_tournament.py).
      - Emit `training_report.json` with:
        - `candidate_id`.
        - Data sources.
@@ -609,8 +609,8 @@ To make the above reproducible, H-AI-9 defines the following orchestration entry
      - `--seed`, `--num-games` for the tier evaluation step.
      - `--no-perf` to skip perf even when a budget exists, `--demo` for CI-scale runs.
    - Behaviour:
-     - Runs [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py:1) in difficulty-tier mode and writes `tier_eval_result.json` + `promotion_plan.json` under `--run-dir`.
-     - Runs the tier perf benchmark via [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py:1) (when a `TierPerfBudget` exists) and writes `tier_perf_report.json`.
+     - Runs [`run_tier_gate.py`](../../ai-service/scripts/run_tier_gate.py) in difficulty-tier mode and writes `tier_eval_result.json` + `promotion_plan.json` under `--run-dir`.
+     - Runs the tier perf benchmark via [`run_tier_perf_benchmark.py`](../../ai-service/scripts/run_tier_perf_benchmark.py) (when a `TierPerfBudget` exists) and writes `tier_perf_report.json`.
      - Aggregates into `gate_report.json`:
        - Embedded TierEvaluationResult metrics (`overall_pass`, `win_rate_vs_baseline`, `win_rate_vs_previous_tier`, etc.).
        - Perf metrics (`average_ms`, `p95_ms`) and budget evaluation (`within_avg`, `within_p95`, `overall_pass`) when a perf budget is defined for the tier.
@@ -632,7 +632,7 @@ To make the above reproducible, H-AI-9 defines the following orchestration entry
      - `--min-ci-lower-bound`: minimum acceptable lower bound of the 95% CI for the candidate win rate on each matrix (default `0.5`).
      - `--output-json PATH`: optional JSON report output.
    - Behaviour:
-     - For each requested board, call [`python.run_evaluation`](../../ai-service/scripts/evaluate_ai_models.py:260) and [`python.format_results_json`](../../ai-service/scripts/evaluate_ai_models.py:777) to obtain win-rate and positional stats.
+     - For each requested board, call [`python.run_evaluation`](../../ai-service/scripts/evaluate_ai_models.py) and [`python.format_results_json`](../../ai-service/scripts/evaluate_ai_models.py) to obtain win-rate and positional stats.
      - Evaluate a simple non-inferiority rule per board: candidate passes that matrix when the _lower_ bound of its 95% Wilson CI is ≥ `min-ci-lower-bound`.
      - Emit a JSON report with:
        - `gate.overall_pass`: true only if **all** matrices pass.
@@ -726,25 +726,25 @@ This pair of commands exercises the full tier training + gating pipeline for a m
 
 #### 8.4.2 Full pipeline run (when canonical data is available)
 
-When canonical Square-8 2-player replay DBs exist and have passed the unified gate in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md:18):
+When canonical Square-8 2-player replay DBs exist and have passed the unified gate in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md):
 
-1. Run [`run_tier_training_pipeline.py`](../../ai-service/scripts/run_tier_training_pipeline.py:1) **without** `--demo` so that it can:
+1. Run [`run_tier_training_pipeline.py`](../../ai-service/scripts/run_tier_training_pipeline.py) **without** `--demo` so that it can:
    - Generate or select training datasets derived **only** from DBs marked `canonical` in the registry.
-   - Invoke the appropriate heuristic / neural training loops for the tier (for example via [`python.train_model`](../../ai-service/app/training/train.py:1171) for neural tiers D6–D10, plus D5 when refreshing NNUE checkpoints).
+   - Invoke the appropriate heuristic / neural training loops for the tier (for example via [`python.train_model`](../../ai-service/app/training/train.py) for neural tiers D6–D10, plus D5 when refreshing NNUE checkpoints).
    - Emit a richer `training_report.json` with explicit data-source and hyperparameter fields alongside training metrics.
 
-2. Run [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py:1) **without** `--demo` (and without `--no-perf`) so that it:
-   - Plays the full number of games from the tier’s [`TierEvaluationConfig`](../../ai-service/app/training/tier_eval_config.py:37).
-   - Enforces the relevant [`TierPerfBudget`](../../ai-service/app/config/perf_budgets.py:20) for D3–D8.
+2. Run [`run_full_tier_gating.py`](../../ai-service/scripts/run_full_tier_gating.py) **without** `--demo` (and without `--no-perf`) so that it:
+   - Plays the full number of games from the tier’s [`TierEvaluationConfig`](../../ai-service/app/training/tier_eval_config.py).
+   - Enforces the relevant [`TierPerfBudget`](../../ai-service/app/config/perf_budgets.py) for D3–D8.
    - Produces a `gate_report.json` whose `final_decision` drives promotion proposals and ladder updates as described in §5.3.
 
 In both cases you should keep each candidate’s artefacts under a dedicated `--run-dir` such as `logs/tier_gate/D4_candidate_YYYYMMDD` so that `training_report.json`, `gate_report.json`, and `status.json` can be archived together.
 
 #### 8.4.3 Canonical data and compute constraints
 
-- **Canonical-only training data:** Real training runs for D2–D10 must be wired so that all self-play or replay-derived datasets are generated from DBs whose status is `canonical` in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md:18). DBs marked `legacy_noncanonical`, `pending_gate`, or `DEPRECATED_R10` must not be used for new ladder training.
+- **Canonical-only training data:** Real training runs for D2–D10 must be wired so that all self-play or replay-derived datasets are generated from DBs whose status is `canonical` in [`TRAINING_DATA_REGISTRY.md`](../../ai-service/TRAINING_DATA_REGISTRY.md). DBs marked `legacy_noncanonical`, `pending_gate`, or `DEPRECATED_R10` must not be used for new ladder training.
 - **Default to demo in CI:** CI and quick local checks should use the `--demo` pipeline described above; heavy training runs are reserved for dedicated training environments with explicit operator sign-off.
-- **Alignment with tier config JSON:** The small JSON descriptor [`tier_training_pipeline.square8_2p.json`](../../ai-service/config/tier_training_pipeline.square8_2p.json:1) mirrors the demo defaults (seeds, gating overrides) and is used by tests as a shape contract. Future Code-mode work can thread this config through the orchestrators to centralise per-tier settings.
+- **Alignment with tier config JSON:** The small JSON descriptor [`tier_training_pipeline.square8_2p.json`](../../ai-service/config/tier_training_pipeline.square8_2p.json) mirrors the demo defaults (seeds, gating overrides) and is used by tests as a shape contract. Future Code-mode work can thread this config through the orchestrators to centralise per-tier settings.
 
 ---
 
@@ -772,10 +772,10 @@ The internal D11 tier follows the same Gumbel MCTS configuration but is not expo
 Follow-up doc work (in Code/Docs-mode) should:
 
 - Add a short “Training & promotion pipeline” subsection to the future `AI_DIFFICULTY_SPEC.md` that points at this document as the process SSoT for D1–D10 (public ladder) on Square-8 2-player, noting that calibration anchors focus on D2/D4/D6/D8.
-- Cross-link the calibration analysis process in [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md:1) as the **human-facing difficulty tuning SSoT**, sitting on top of the automated training and gating loop defined here.
-- Add a note to [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1) clarifying that:
+- Cross-link the calibration analysis process in [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md) as the **human-facing difficulty tuning SSoT**, sitting on top of the automated training and gating loop defined here.
+- Add a note to [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md) clarifying that:
   - calibration templates A/B/C feed into the H-AI-9 promotion loop; and
-  - calibration telemetry and experiment results are interpreted using the workflow and decision rules in [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md:1); and
+  - calibration telemetry and experiment results are interpreted using the workflow and decision rules in [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md); and
   - calibration is run on candidates that have already passed automated gates and perf budgets.
 
 This completes the architectural design for H-AI-9 – Tiered Model Training & Promotion Loop (Square-8 2-Player). Implementation work is limited to adding orchestration scripts, wiring model ids / heuristic profiles into the existing training code, and updating ladder configs in controlled, well-documented promotions.

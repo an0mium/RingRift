@@ -121,7 +121,7 @@ Pass 12 examined 10 infrastructure and support areas not previously scrutinized 
 **Evidence:**
 Found only 3 React component test files:
 
-- [`tests/unit/GameContext.test.tsx`](../../../tests/unit/GameContext.test.tsx:501): WebSocket reconnection testing
+- [`tests/unit/GameContext.test.tsx`](../../../tests/unit/GameContext.test.tsx): WebSocket reconnection testing
 - [`tests/unit/GameEventLog.snapshot.test.tsx`](../../../tests/unit/GameEventLog.snapshot.test.tsx): Snapshot testing
 - [`tests/unit/LobbyPage.test.tsx`](../../../tests/unit/LobbyPage.test.tsx): Lobby page testing
 
@@ -130,7 +130,7 @@ Found only 3 React component test files:
 - No tests for: `BoardView.tsx`, `GameHUD.tsx`, `VictoryModal.tsx`, `ChoiceDialog.tsx`, `AIDebugView.tsx`
 - No hook tests (`useGameActions.ts`, `useGameConnection.ts`, `useGameState.ts`)
 - No context tests (`AuthContext.tsx`, `GameContext.tsx`)
-- Missing Socket.IO mocks as noted in [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:51`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md:51)
+- Missing Socket.IO mocks as noted in [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:51`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md)
 
 ---
 
@@ -231,7 +231,7 @@ Found only 3 React component test files:
 | 63 RatingService tests in `tests/unit/RatingService.test.ts` | ✅ VERIFIED | File exists (781 lines) with 63+ test blocks |
 
 > > > > > > > Stashed changes
-> > > > > > > | E2E blocking in CI | ✅ VERIFIED | [`../../../.github/workflows/ci.yml:280-433`](../../../.github/workflows/ci.yml:280) shows `e2e-tests` job with proper dependencies |
+> > > > > > > | E2E blocking in CI | ✅ VERIFIED | [`../../../.github/workflows/ci.yml-433`](../../../.github/workflows/ci.yml) shows `e2e-tests` job with proper dependencies |
 
 ### Pass 8 Claims
 
@@ -247,7 +247,7 @@ Found only 3 React component test files:
 | ShadowModeComparator (44 tests) | ✅ VERIFIED | Tests removed; see `tests/TEST_LAYERS.md` for the canonical note on ShadowMode removal |
 
 > > > > > > > Stashed changes
-> > > > > > > | 9 feature flags | ✅ VERIFIED | [`src/server/config/unified.ts:224-237`](../../../src/server/config/unified.ts:224): `adapterEnabled`, `rolloutPercentage`, `shadowModeEnabled`, `allowlistUsers`, `denylistUsers`, `circuitBreaker.enabled`, `circuitBreaker.errorThresholdPercent`, `circuitBreaker.errorWindowSeconds`, `latencyThresholdMs` |
+> > > > > > > | 9 feature flags | ✅ VERIFIED | [`src/server/config/unified.ts:224-237`](../../../src/server/config/unified.ts): `adapterEnabled`, `rolloutPercentage`, `shadowModeEnabled`, `allowlistUsers`, `denylistUsers`, `circuitBreaker.enabled`, `circuitBreaker.errorThresholdPercent`, `circuitBreaker.errorWindowSeconds`, `latencyThresholdMs` |
 
 ### Pass 9 Claims
 
@@ -285,7 +285,7 @@ Found only 3 React component test files:
 
 ### Stale Code Patterns
 
-1. **Shared helper stubs** - Per [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:100-111`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md:100):
+1. **Shared helper stubs** - Per [`archive/ARCHIVE_VERIFICATION_SUMMARY.md:100-111`](../../../archive/ARCHIVE_VERIFICATION_SUMMARY.md):
    - `captureChainHelpers.ts` still throws `TODO(P0-HELPERS)` error
    - `movementApplication.ts` still throws `TODO(P0-HELPERS)` error
    - `placementHelpers.ts` still throws `TODO(P0-HELPERS)` error

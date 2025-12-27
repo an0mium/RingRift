@@ -22,12 +22,12 @@ This first iteration focuses on three `rulesContext` values that combine high co
 ### 1.2 Targeted surfaces
 
 - In-game HUD:
-  - Weird-state banners and phase hints related to ANM/FE and structural stalemate (see [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:1)).
+  - Weird-state banners and phase hints related to ANM/FE and structural stalemate (see [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md)).
   - Territory phase banners and hints for mini-regions (Q23).
 - VictoryModal:
   - Explanations for structural stalemate and games where FE heavily influenced the outcome.
 - TeachingOverlay:
-  - Flows `fe_loop_intro`, `mini_region_intro`, and `structural_stalemate_intro` as defined in [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:1).
+  - Flows `fe_loop_intro`, `mini_region_intro`, and `structural_stalemate_intro` as defined in [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md).
 - Sandbox:
   - Rules clinic scenarios for FE loops and mini-regions.
 
@@ -39,7 +39,7 @@ This first iteration focuses on three `rulesContext` values that combine high co
 
 ## 2. Telemetry focus and hotspots (planned)
 
-Telemetry is defined in [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:1) via the `RulesUxEvent` envelope and the core counter:
+Telemetry is defined in [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md) via the `RulesUxEvent` envelope and the core counter:
 
 ```text
 ringrift_rules_ux_events_total{
@@ -64,9 +64,9 @@ Planned cuts:
     - `ringrift_rules_ux_events_total{type="rules_help_open", rules_concept="anm_forced_elimination"}`.
   - Denominator:
     - `ringrift_games_completed_total{board_type="square8", num_players=2}`.
-- **Rapid help reopen rate** for ANM/FE help sessions (derived metric as in §6.2 of [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:400)):
+- **Rapid help reopen rate** for ANM/FE help sessions (derived metric as in §6.2 of [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md)):
   - Fraction of help sessions tagged with `rules_context="anm_forced_elimination"` that see a `help_reopen` within 30 seconds.
-- **Resign-after-weird-state ratio** for FE-related weird states (see §6.3 of [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md:456)):
+- **Resign-after-weird-state ratio** for FE-related weird states (see §6.3 of [`UX_RULES_TELEMETRY_SPEC.md`](../UX_RULES_TELEMETRY_SPEC.md)):
   - Numerator: `ringrift_rules_ux_events_total{type="rules_weird_state_resign", weird_state_type="forced-elimination"}`.
   - Denominator: `ringrift_rules_ux_events_total{type="rules_weird_state_help", weird_state_type="forced-elimination"}` or, if available, `weird_state_banner_impression` counts keyed to `anm_forced_elimination`.
 
@@ -102,7 +102,7 @@ Planned cuts:
 - **Help opens by territory mini-region concept**:
   - `ringrift_rules_ux_events_total{type="rules_help_open", rules_concept="territory_mini_region"}`.
 - **Teaching flows usage** for `mini_region_intro`:
-  - `sandbox_scenario_loaded` / `sandbox_scenario_completed` and `teaching_step_started` / `teaching_step_completed` for flows with `rulesConcept="territory_mini_region"` (per [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:205)).
+  - `sandbox_scenario_loaded` / `sandbox_scenario_completed` and `teaching_step_started` / `teaching_step_completed` for flows with `rulesConcept="territory_mini_region"` (per [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md)).
 
 Hotspot definition:
 
@@ -114,11 +114,11 @@ Hotspot definition:
 
 Use the following as qualitative baselines:
 
-- [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md:1):
+- [`RULES_DOCS_UX_AUDIT.md`](../../supplementary/RULES_DOCS_UX_AUDIT.md):
   - DOCUX-P1–P4 already addressed initial copy mismatches but highlight enduring confusion around chain captures, elimination thresholds, and territory self-elimination.
-- [`RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1):
+- [`RULES_CONSISTENCY_EDGE_CASES.md`](../../supplementary/RULES_CONSISTENCY_EDGE_CASES.md):
   - Structural stalemate compromises (CCE-006) and FE selection (CCE-007) emphasise the need to explain implementation compromises clearly.
-- [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md:1):
+- [`RULES_DYNAMIC_VERIFICATION.md`](../../../archive/RULES_DYNAMIC_VERIFICATION.md):
   - Territory and FE scenarios (SCEN-TERRITORY-00x, ANM-SCEN-0x) provide canonical board shapes for structural stalemate and mini-region behaviour.
 
 ### 3.2 Pain points for this iteration
@@ -127,15 +127,15 @@ Planned focus areas:
 
 1. **ANM/FE loops:**
    - Players report “I had no moves and my pieces just disappeared” with limited explanation of forced elimination semantics.
-   - ANM/FE weird-state banners exist (see [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:82)) but need clearer emphasis on “no real moves” versus “no moves at all”.
+   - ANM/FE weird-state banners exist (see [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md)) but need clearer emphasis on “no real moves” versus “no moves at all”.
 
 2. **Structural stalemate endings:**
    - Plateau endings with tiebreak ladders (territory → eliminated rings → markers → last actor) are non-obvious; players often perceive draws or bugs instead of legitimate wins/losses.
-   - VictoryModal copy exists but can under-specify the tiebreak order and how rings in hand are treated (see [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:185)).
+   - VictoryModal copy exists but can under-specify the tiebreak order and how rings in hand are treated (see [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md)).
 
 3. **Territory mini-regions (Q23):**
    - Q23-style examples are subtle: players struggle to understand why an apparently “enclosed” region collapses and why a self-elimination cost must be paid from an outside stack.
-   - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:205) defines `mini_region_intro` but the flow is not yet strongly integrated with live weird-state or phase hints.
+   - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md) defines `mini_region_intro` but the flow is not yet strongly integrated with live weird-state or phase hints.
 
 ## 4. Proposed UX adjustments (plan only)
 
@@ -144,28 +144,28 @@ Planned focus areas:
 **Change 4.1A – Clarify ANM/FE HUD banner language**
 
 - **Target spec:**
-  - [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:141) (RWS-001 and RWS-004 HUD copy).
-  - [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md:1) ANM/FE HUD section.
+  - [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md) (RWS-001 and RWS-004 HUD copy).
+  - [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md) ANM/FE HUD section.
 - **Intent:**
   - Emphasise that the player has **no real moves** (placements, moves, captures) rather than “no moves” overall; explicitly connect FE cap removals to Ring Elimination totals.
 - **Target code surfaces (implementation later):**
-  - [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx:1) weird-state banner rendering.
-  - A central mapping module (for example, extend [`weirdStateReasons.ts`](../../../src/shared/engine/weirdStateReasons.ts:1)) or equivalent mapping module.
+  - [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx) weird-state banner rendering.
+  - A central mapping module (for example, extend [`weirdStateReasons.ts`](../../../src/shared/engine/weirdStateReasons.ts)) or equivalent mapping module.
 - **Tests to touch (planned):**
   - Add / update HUD copy regression tests in a `GameHudWeirdStateUxRegression.test.tsx` file under `tests/unit/`.
 
 **Change 4.1B – Strengthen FE loop teaching flow**
 
 - **Target spec:**
-  - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:141) `fe_loop_intro` flow.
+  - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md) `fe_loop_intro` flow.
 - **Intent:**
   - Emphasise multi-turn FE loops where a player repeatedly hits ANM and loses caps across several turns; connect to structural stalemate and Last Player Standing concepts.
 - **Planned adjustments:**
   - Add one additional interactive step (`teaching.fe_loop.step_4`) showing a short multi-turn FE loop that ends in either a structural stalemate or a near-LPS state.
   - Ensure this step carries `uxWeirdStateReasonCode="FE_SEQUENCE_CURRENT_PLAYER"` for telemetry linkage.
 - **Target code surfaces:**
-  - Scenario metadata in [`teachingScenarios.ts`](../../../src/shared/teaching/teachingScenarios.ts:1).
-  - TeachingOverlay surfaces in [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx:1).
+  - Scenario metadata in [`teachingScenarios.ts`](../../../src/shared/teaching/teachingScenarios.ts).
+  - TeachingOverlay surfaces in [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx).
 - **Tests to touch (planned):**
   - Extend a `TeachingOverlayUxRegression.test.tsx` suite to assert that `fe_loop_intro` includes the new step and emits `teaching_step_*` events with the correct `rules_context`.
 
@@ -174,7 +174,7 @@ Planned focus areas:
 **Change 4.2A – Expand VictoryModal explanation**
 
 - **Target spec:**
-  - [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:185) RWS-005 VictoryModal explanation.
+  - [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md) RWS-005 VictoryModal explanation.
 - **Intent:**
   - Make the tiebreak ladder fully explicit in player-facing copy:
     - Territory spaces
@@ -182,14 +182,14 @@ Planned focus areas:
     - Markers
     - Last real action
 - **Target code surfaces:**
-  - [`VictoryModal.tsx`](../../../src/client/components/VictoryModal.tsx:1) copy for structural stalemate outcomes.
+  - [`VictoryModal.tsx`](../../../src/client/components/VictoryModal.tsx) copy for structural stalemate outcomes.
 - **Tests to touch (planned):**
   - `GameEndUxRegression.test.tsx` to snapshot the updated structural stalemate explanation and ensure it is selected when termination reason == structural stalemate.
 
 **Change 4.2B – Dedicated structural stalemate teaching flow entry point**
 
 - **Target spec:**
-  - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:424) `structural_stalemate_intro` flow.
+  - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md) `structural_stalemate_intro` flow.
 - **Intent:**
   - Ensure that when a game ends via structural stalemate, VictoryModal and HUD weird-state banners offer a clear “What happened?” link directly into the `structural_stalemate_intro` TeachingOverlay content.
 - **Target code surfaces:**
@@ -203,7 +203,7 @@ Planned focus areas:
 **Change 4.3A – Clarify self-elimination cost in mini-region teaching**
 
 - **Target spec:**
-  - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:214) mini-region steps, especially `teaching.mini_region.q23.step_3`.
+  - [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md) mini-region steps, especially `teaching.mini_region.q23.step_3`.
 - **Intent:**
   - Make the outside-stack self-elimination cost explicit and visually emphasised in both text and diagram; clarify that at least one outside ring must exist to process the region.
 - **Target code surfaces:**
@@ -214,7 +214,7 @@ Planned focus areas:
 **Change 4.3B – Improve discoverability of mini-region scenarios from territory hints**
 
 - **Target spec:**
-  - [`UX_RULES_IMPROVEMENT_LOOP.md`](../UX_RULES_IMPROVEMENT_LOOP.md:1) §2.3 (Surface routing & discoverability).
+  - [`UX_RULES_IMPROVEMENT_LOOP.md`](../UX_RULES_IMPROVEMENT_LOOP.md) §2.3 (Surface routing & discoverability).
 - **Intent:**
   - When help is opened from a territory decision banner tied to `territory_mini_region`, the TeachingOverlay should prioritise `mini_region_intro` flows in its recommended list.
 - **Target code surfaces:**
@@ -262,22 +262,22 @@ This iteration intentionally stops at the **design and planning** layer. The fol
 
 - **UX-CODE-7A – Refine ANM/FE HUD and overlay copy**
   - **Scope:** Implement Change 4.1A.
-  - **Targets:** [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:141), [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md:1), [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx:1), weird-state mapping utilities.
+  - **Targets:** [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md), [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md), [`GameHUD.tsx`](../../../src/client/components/GameHUD.tsx), weird-state mapping utilities.
   - **Tests:** HUD weird-state regression tests (copy snapshots and telemetry labels).
 
 - **UX-CODE-7B – Extend FE loop teaching flow**
   - **Scope:** Implement Change 4.1B.
-  - **Targets:** [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:141), [`teachingScenarios.ts`](../../../src/shared/teaching/teachingScenarios.ts:1), [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx:1).
+  - **Targets:** [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md), [`teachingScenarios.ts`](../../../src/shared/teaching/teachingScenarios.ts), [`TeachingOverlay.tsx`](../../../src/client/components/TeachingOverlay.tsx).
   - **Tests:** TeachingOverlay regression tests ensuring telemetry and routing for `fe_loop_intro`.
 
 - **UX-CODE-7C – Improve structural stalemate explanations and routing**
   - **Scope:** Implement Changes 4.2A and 4.2B.
-  - **Targets:** [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md:185), [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md:1), [`VictoryModal.tsx`](../../../src/client/components/VictoryModal.tsx:1), TeachingOverlay routing.
+  - **Targets:** [`UX_RULES_WEIRD_STATES_SPEC.md`](../UX_RULES_WEIRD_STATES_SPEC.md), [`UX_RULES_COPY_SPEC.md`](../UX_RULES_COPY_SPEC.md), [`VictoryModal.tsx`](../../../src/client/components/VictoryModal.tsx), TeachingOverlay routing.
   - **Tests:** Game-end UX regression tests for stalemate copy and TeachingOverlay entrypoints.
 
 - **UX-CODE-7D – Strengthen mini-region teaching and discoverability**
   - **Scope:** Implement Changes 4.3A and 4.3B.
-  - **Targets:** [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md:205), TeachingOverlay territory topics, sandbox scenario metadata.
+  - **Targets:** [`UX_RULES_TEACHING_SCENARIOS.md`](../UX_RULES_TEACHING_SCENARIOS.md), TeachingOverlay territory topics, sandbox scenario metadata.
   - **Tests:** Scenario metadata and telemetry tests confirming correct `rulesConcept` and routing from territory help to `mini_region_intro`.
 
 The outcomes of these subtasks should be fed back into the next iteration document (e.g. `UX_RULES_IMPROVEMENT_ITERATION_0002.md`) along with updated telemetry comparisons from §5.

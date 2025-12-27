@@ -249,7 +249,7 @@ The TS orchestrator soak harness is a **gating tool**, not just a diagnostic:
     - `npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --failOnViolation=true`
   - acts as a concrete implementation of the
     `SLO-CI-ORCH-SHORT-SOAK` SLO defined in
-    [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1):
+    [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md):
     - Exit code must be `0`.
     - `results/orchestrator_soak_summary.json` must report
       `totalInvariantViolations == 0`.
@@ -263,16 +263,16 @@ The TS orchestrator soak harness is a **gating tool**, not just a diagnostic:
     for regressions tied to specific seeds or board configurations.
   - These runs back the `SLO-STAGE-ORCH-INVARIANTS` and
     `SLO-PROD-ORCH-INVARIANTS` SLOs in
-    [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1):
+    [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md):
     - Any **new** invariant violation pattern discovered in these soaks should
       be turned into a regression test (TS or Python) and investigated before
       further rollout.
     - Multiple soak failures in a short period are a signal to pause rollout
       or roll back to a safer phase (see the environment phases in
-      [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1)).
+      [`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md)).
 
 You do **not** need to re-state the full orchestrator rollout design here; treat
-[`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md:1) as the SLO and
+[`ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) as the SLO and
 gating SSoT, and this document as the operational recipe for running strict
 invariant and soak jobs.
 

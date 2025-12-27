@@ -638,7 +638,7 @@ _(Open text)_
 **Method:**
 
 - Calculate actual human win rate per tier
-- Compare against target bands from [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:49)
+- Compare against target bands from [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md)
 
 **Target bands (reference):**
 | Tier | Target Human Win Rate |
@@ -740,17 +740,17 @@ _(Open text)_
 
 #### 3. Integration with Existing Processes
 
-**Handoff to [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1):**
+**Handoff to [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md):**
 
 - Study report becomes input to calibration cycle Step 5 (Decide next actions)
 - Recommendations incorporated into `notes.md` for the calibration run
 
-**Update to [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1):**
+**Update to [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md):**
 
 - If study reveals new difficulty anchors or target bands, update guide accordingly
 - If player segment definitions need refinement, update criteria
 
-**Feed into [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:1):**
+**Feed into [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md):**
 
 - Study establishes or validates perceived difficulty targets
 - Informs alert thresholds for perceived difficulty metrics
@@ -955,13 +955,13 @@ _(For moderated sessions)_
 
 ### D. Related Documents
 
-| Document                                                                           | Relationship                                          |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md:1)                         | Study results feed into calibration cycle decisions   |
-| [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md:1)                 | Existing qualitative anchors and templates            |
-| [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md:1)     | Metrics and thresholds informed by study findings     |
-| [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md:1) | Quantitative analysis design this study complements   |
-| [`AI_LADDER_CHANGE_GUARDRAILS.md`](AI_LADDER_CHANGE_GUARDRAILS.md:1)               | Change governance for acting on study recommendations |
+| Document                                                                         | Relationship                                          |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| [`AI_CALIBRATION_RUNBOOK.md`](AI_CALIBRATION_RUNBOOK.md)                         | Study results feed into calibration cycle decisions   |
+| [`AI_HUMAN_CALIBRATION_GUIDE.md`](AI_HUMAN_CALIBRATION_GUIDE.md)                 | Existing qualitative anchors and templates            |
+| [`AI_LADDER_HEALTH_MONITORING_SPEC.md`](AI_LADDER_HEALTH_MONITORING_SPEC.md)     | Metrics and thresholds informed by study findings     |
+| [`AI_DIFFICULTY_CALIBRATION_ANALYSIS.md`](AI_DIFFICULTY_CALIBRATION_ANALYSIS.md) | Quantitative analysis design this study complements   |
+| [`AI_LADDER_CHANGE_GUARDRAILS.md`](AI_LADDER_CHANGE_GUARDRAILS.md)               | Change governance for acting on study recommendations |
 
 ---
 

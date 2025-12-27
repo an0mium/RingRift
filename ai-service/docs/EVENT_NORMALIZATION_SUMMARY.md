@@ -9,6 +9,7 @@
 The codebase had inconsistent event naming conventions across three event bus systems:
 
 ### Examples of Inconsistency
+
 - `SYNC_COMPLETE` vs `DATA_SYNC_COMPLETED`
 - `SELFPLAY_COMPLETE` vs `SELFPLAY_BATCH_COMPLETE`
 - `MODEL_SYNC_COMPLETE` vs `P2P_MODEL_SYNCED`
@@ -16,6 +17,7 @@ The codebase had inconsistent event naming conventions across three event bus sy
 - `TRAINING_COMPLETE` vs `TRAINING_COMPLETED`
 
 This inconsistency caused:
+
 1. **Confusion**: Unclear which event name to use when subscribing
 2. **Fragmentation**: Same logical event published under multiple names
 3. **Maintenance burden**: Hard to track all event variants
@@ -25,7 +27,7 @@ This inconsistency caused:
 
 ### 1. Canonical Event Name Mapping
 
-Created `/Users/armand/Development/RingRift/ai-service/app/coordination/event_normalization.py` with:
+Created `ai-service/app/coordination/event_normalization.py` with:
 
 - **`CANONICAL_EVENT_NAMES`**: Complete mapping of all known variants to canonical forms
 - **`normalize_event_type()`**: Function to normalize any variant to canonical form
@@ -35,7 +37,7 @@ Created `/Users/armand/Development/RingRift/ai-service/app/coordination/event_no
 
 ### 2. Event Router Integration
 
-Updated `/Users/armand/Development/RingRift/ai-service/app/coordination/event_router.py`:
+Updated `ai-service/app/coordination/event_router.py`:
 
 ```python
 async def publish(self, event_type, payload, source):
@@ -55,7 +57,7 @@ async def publish(self, event_type, payload, source):
 
 ### 3. Comprehensive Documentation
 
-Created `/Users/armand/Development/RingRift/ai-service/docs/EVENT_NAMING_CONVENTION.md`:
+Created `ai-service/docs/EVENT_NAMING_CONVENTION.md`:
 
 - Canonical format rules: `{SUBJECT}_{ACTION}_{MODIFIER}`
 - Tense rules for different event types
@@ -66,7 +68,7 @@ Created `/Users/armand/Development/RingRift/ai-service/docs/EVENT_NAMING_CONVENT
 
 ### 4. Test Coverage
 
-Created `/Users/armand/Development/RingRift/ai-service/tests/unit/coordination/test_event_normalization.py`:
+Created `ai-service/tests/unit/coordination/test_event_normalization.py`:
 
 - 24 comprehensive tests (all passing)
 - Tests for all major event variants
@@ -77,11 +79,13 @@ Created `/Users/armand/Development/RingRift/ai-service/tests/unit/coordination/t
 ## Canonical Naming Convention
 
 ### Format
+
 ```
 {SUBJECT}_{ACTION}_{MODIFIER}
 ```
 
 ### Tense Rules
+
 - **Completion**: `_COMPLETED` (e.g., `TRAINING_COMPLETED`)
 - **Start**: `_STARTED` (e.g., `EVALUATION_STARTED`)
 - **State Change**: Past participle (e.g., `MODEL_PROMOTED`, `P2P_MODEL_SYNCED`)
@@ -89,20 +93,21 @@ Created `/Users/armand/Development/RingRift/ai-service/tests/unit/coordination/t
 
 ### Examples
 
-| Category | Canonical Name | Replaces |
-|----------|----------------|----------|
-| **Data Sync** | `DATA_SYNC_COMPLETED` | `SYNC_COMPLETE`, `sync_complete`, `CLUSTER_SYNC_COMPLETE` |
-| **Model Sync** | `P2P_MODEL_SYNCED` | `MODEL_SYNC_COMPLETE`, `model_sync_complete` |
-| **Selfplay** | `SELFPLAY_COMPLETE` | `SELFPLAY_BATCH_COMPLETE`, `selfplay_completed` |
-| **Training** | `TRAINING_COMPLETED` | `TRAINING_COMPLETE`, `training_complete` |
-| | `TRAINING_STARTED` | `TRAINING_START`, `training_start` |
-| | `TRAINING_FAILED` | `TRAINING_FAIL`, `training_fail` |
-| **Evaluation** | `EVALUATION_COMPLETED` | `EVALUATION_COMPLETE`, `SHADOW_TOURNAMENT_COMPLETE` |
-| **Promotion** | `MODEL_PROMOTED` | `PROMOTION_COMPLETE`, `TIER_GATING_COMPLETE` |
+| Category       | Canonical Name         | Replaces                                                  |
+| -------------- | ---------------------- | --------------------------------------------------------- |
+| **Data Sync**  | `DATA_SYNC_COMPLETED`  | `SYNC_COMPLETE`, `sync_complete`, `CLUSTER_SYNC_COMPLETE` |
+| **Model Sync** | `P2P_MODEL_SYNCED`     | `MODEL_SYNC_COMPLETE`, `model_sync_complete`              |
+| **Selfplay**   | `SELFPLAY_COMPLETE`    | `SELFPLAY_BATCH_COMPLETE`, `selfplay_completed`           |
+| **Training**   | `TRAINING_COMPLETED`   | `TRAINING_COMPLETE`, `training_complete`                  |
+|                | `TRAINING_STARTED`     | `TRAINING_START`, `training_start`                        |
+|                | `TRAINING_FAILED`      | `TRAINING_FAIL`, `training_fail`                          |
+| **Evaluation** | `EVALUATION_COMPLETED` | `EVALUATION_COMPLETE`, `SHADOW_TOURNAMENT_COMPLETE`       |
+| **Promotion**  | `MODEL_PROMOTED`       | `PROMOTION_COMPLETE`, `TIER_GATING_COMPLETE`              |
 
 ## Key Features
 
 ### 1. Backward Compatibility
+
 All existing code continues to work:
 
 ```python
@@ -118,6 +123,7 @@ router.subscribe("DATA_SYNC_COMPLETED", handler)
 ```
 
 ### 2. Case Insensitivity
+
 Normalization works regardless of case:
 
 ```python
@@ -128,6 +134,7 @@ normalize_event_type("DATA_SYNC_COMPLETED") # → "DATA_SYNC_COMPLETED"
 ```
 
 ### 3. Enum Support
+
 Works with enum types:
 
 ```python
@@ -138,6 +145,7 @@ normalize_event_type(StageEvent.SYNC_COMPLETE)  # → "DATA_SYNC_COMPLETED"
 ```
 
 ### 4. Unknown Events
+
 Unknown events pass through unchanged:
 
 ```python
@@ -147,17 +155,20 @@ normalize_event_type("CUSTOM_EVENT")  # → "CUSTOM_EVENT"
 ## Migration Impact
 
 ### Zero Breaking Changes
+
 - All existing code continues to function
 - Event router automatically normalizes
 - No immediate code updates required
 
 ### Gradual Migration Path
+
 1. **Phase 1** (Complete): Router normalization active
 2. **Phase 2** (Ongoing): Update code opportunistically during refactoring
 3. **Phase 3** (Future): Deprecation warnings for non-canonical names
 4. **Phase 4** (Future): Remove support for non-canonical names
 
 ### Audit Capabilities
+
 Use the audit function to identify migration opportunities:
 
 ```python
@@ -181,24 +192,26 @@ for rec in audit['recommendations']:
 ## Files Changed/Created
 
 ### Created
-1. `/Users/armand/Development/RingRift/ai-service/app/coordination/event_normalization.py`
+
+1. `ai-service/app/coordination/event_normalization.py`
    - 450 lines of canonical mapping and normalization logic
    - Comprehensive docstrings and type hints
 
-2. `/Users/armand/Development/RingRift/ai-service/docs/EVENT_NAMING_CONVENTION.md`
+2. `ai-service/docs/EVENT_NAMING_CONVENTION.md`
    - Complete naming convention documentation
    - Migration guide and best practices
    - Reference table of all canonical event types
 
-3. `/Users/armand/Development/RingRift/ai-service/docs/EVENT_NORMALIZATION_SUMMARY.md`
+3. `ai-service/docs/EVENT_NORMALIZATION_SUMMARY.md`
    - This file: implementation summary
 
-4. `/Users/armand/Development/RingRift/ai-service/tests/unit/coordination/test_event_normalization.py`
+4. `ai-service/tests/unit/coordination/test_event_normalization.py`
    - 24 comprehensive tests (all passing)
    - 100% coverage of normalization logic
 
 ### Modified
-1. `/Users/armand/Development/RingRift/ai-service/app/coordination/event_router.py`
+
+1. `ai-service/app/coordination/event_router.py`
    - Added import for `normalize_event_type`
    - Updated `publish()` method to normalize event types
    - Added debug logging for normalization
@@ -290,6 +303,7 @@ tests/unit/coordination/test_event_normalization.py::TestEventNamingGuidelines::
 ### For Developers
 
 #### Publishing Events
+
 ```python
 from app.coordination.event_router import publish
 
@@ -303,6 +317,7 @@ await publish("DATA_SYNC_COMPLETED", {"host": "node1"})
 ```
 
 #### Subscribing to Events
+
 ```python
 from app.coordination.event_router import get_router
 
@@ -320,6 +335,7 @@ router.subscribe("DATA_SYNC_COMPLETED", on_sync_complete)
 ```
 
 #### Checking if Event Name is Canonical
+
 ```python
 from app.coordination.event_normalization import is_canonical
 
@@ -328,6 +344,7 @@ is_canonical("sync_complete")        # False
 ```
 
 #### Getting All Variants of an Event
+
 ```python
 from app.coordination.event_normalization import get_variants
 
@@ -338,6 +355,7 @@ variants = get_variants("DATA_SYNC_COMPLETED")
 ### For System Administrators
 
 #### Audit Current Usage
+
 ```python
 from app.coordination.event_normalization import audit_event_usage
 from app.coordination.event_router import get_router
@@ -365,26 +383,31 @@ for rec in audit['recommendations']:
 ## Benefits
 
 ### 1. Consistency
+
 - Single canonical name for each event type
 - Predictable naming pattern across all events
 - Clear rules for naming new events
 
 ### 2. Maintainability
+
 - Centralized mapping in one module
 - Easy to add new events or variants
 - Comprehensive test coverage
 
 ### 3. Developer Experience
+
 - No need to remember multiple variants
 - Auto-completion works with canonical names
 - Clear documentation and examples
 
 ### 4. Type Safety (Future)
+
 - Foundation for compile-time event type validation
 - Can enforce canonical names in strict mode
 - IDE support for event name validation
 
 ### 5. Debuggability
+
 - All events logged with canonical names
 - Easy to trace event flow
 - Audit tools for migration planning
@@ -392,7 +415,9 @@ for rec in audit['recommendations']:
 ## Future Enhancements
 
 ### Phase 2: Deprecation Warnings
+
 Add warnings for non-canonical names:
+
 ```python
 # In normalize_event_type()
 if not is_canonical(event_type):
@@ -404,7 +429,9 @@ if not is_canonical(event_type):
 ```
 
 ### Phase 3: Strict Mode
+
 Optional strict mode that rejects non-canonical names:
+
 ```python
 # In event_router.py
 if strict_mode and not is_canonical(event_type):
@@ -412,7 +439,9 @@ if strict_mode and not is_canonical(event_type):
 ```
 
 ### Phase 4: Static Analysis
+
 Linter rules to detect non-canonical event names:
+
 ```python
 # .pylintrc
 [CUSTOM-RULES]
@@ -421,14 +450,15 @@ check-event-names = true
 
 ## References
 
-- **Implementation**: `/Users/armand/Development/RingRift/ai-service/app/coordination/event_normalization.py`
-- **Documentation**: `/Users/armand/Development/RingRift/ai-service/docs/EVENT_NAMING_CONVENTION.md`
-- **Tests**: `/Users/armand/Development/RingRift/ai-service/tests/unit/coordination/test_event_normalization.py`
-- **Router Integration**: `/Users/armand/Development/RingRift/ai-service/app/coordination/event_router.py`
+- **Implementation**: `ai-service/app/coordination/event_normalization.py`
+- **Documentation**: `ai-service/docs/EVENT_NAMING_CONVENTION.md`
+- **Tests**: `ai-service/tests/unit/coordination/test_event_normalization.py`
+- **Router Integration**: `ai-service/app/coordination/event_router.py`
 
 ## Conclusion
 
 The event naming standardization provides:
+
 - **Immediate benefit**: Consistent event names across all systems
 - **Zero breaking changes**: Full backward compatibility
 - **Clear migration path**: Gradual adoption at developer's pace

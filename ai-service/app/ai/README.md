@@ -858,6 +858,6 @@ export RINGRIFT_GPU_SHADOW_RATE=0.05          # Validate 5% of games
 
 ## See Also
 
-- **Main project docs:** `/Users/armand/Development/RingRift/CLAUDE.md`
-- **AI service docs:** `/Users/armand/Development/RingRift/ai-service/CLAUDE.md`
-- **Architecture notes:** `/Users/armand/Development/RingRift/ai-service/app/ai/neural_net_analysis.md`
+- **Main project docs:** `CLAUDE.md`
+- **AI service docs:** `ai-service/CLAUDE.md`
+- **Architecture notes:** `ai-service/app/ai/neural_net_analysis.md`

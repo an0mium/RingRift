@@ -277,6 +277,6 @@ stats = runner.run()
 
 ## See Also
 
-- `/Users/armand/Development/RingRift/ai-service/app/training/selfplay_config.py` - Configuration options
-- `/Users/armand/Development/RingRift/ai-service/app/training/selfplay_runner.py` - Base runner class
-- `/Users/armand/Development/RingRift/CLAUDE.md` - General RingRift documentation
+- `ai-service/app/training/selfplay_config.py` - Configuration options
+- `ai-service/app/training/selfplay_runner.py` - Base runner class
+- `CLAUDE.md` - General RingRift documentation

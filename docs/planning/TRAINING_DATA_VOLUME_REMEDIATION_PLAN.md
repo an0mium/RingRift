@@ -588,7 +588,7 @@ PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
 **Monitoring Command:**
 
 ```bash
-watch -n 60 'df -h /Users/armand/Development/RingRift/ai-service/data/games'
+watch -n 60 'df -h ai-service/data/games'
 ```
 
 ### Long-Running Process Failures
@@ -663,7 +663,7 @@ for db in canonical_square8_2p canonical_square8_3p canonical_square8_4p canonic
 done
 
 # Check disk space
-df -h /Users/armand/Development/RingRift/ai-service/data
+df -h ai-service/data
 ```
 
 ### All VOL Commands (Copy-Paste Ready)

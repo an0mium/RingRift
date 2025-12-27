@@ -10,7 +10,7 @@ The auto-cascade NPZ export feature requested has already been fully implemented
 
 ## What Exists
 
-The `AutoExportDaemon` in `/Users/armand/Development/RingRift/ai-service/app/coordination/auto_export_daemon.py` provides complete implementation of this feature.
+The `AutoExportDaemon` in `ai-service/app/coordination/auto_export_daemon.py` provides complete implementation of this feature.
 
 ### Key Components
 
@@ -131,21 +131,21 @@ NPZ_EXPORT_COMPLETE event
 
 ### Modified
 
-- `/Users/armand/Development/RingRift/ai-service/app/coordination/daemon_manager.py`
+- `ai-service/app/coordination/daemon_manager.py`
   - Updated comment to reflect correct threshold (100 games)
 
 ### Created
 
-- `/Users/armand/Development/RingRift/ai-service/tests/unit/coordination/test_auto_export_daemon.py`
+- `ai-service/tests/unit/coordination/test_auto_export_daemon.py`
   - Comprehensive test suite (11 tests)
 
-- `/Users/armand/Development/RingRift/ai-service/docs/AUTO_NPZ_EXPORT.md`
+- `ai-service/docs/AUTO_NPZ_EXPORT.md`
   - Complete documentation and usage guide
 
-- `/Users/armand/Development/RingRift/ai-service/scripts/demo_auto_export.py`
+- `ai-service/scripts/demo_auto_export.py`
   - Interactive demo script
 
-- `/Users/armand/Development/RingRift/ai-service/AUTO_NPZ_EXPORT_SUMMARY.md`
+- `ai-service/AUTO_NPZ_EXPORT_SUMMARY.md`
   - This summary document
 
 ## Usage Examples

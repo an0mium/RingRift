@@ -46,7 +46,7 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 - `CaptureSegmentParams` interface
 - `MovementApplicationOutcome` type
 
-**Notes:** This file provides the type definitions but the actual implementation functions are stubs. These need to be implemented to match the patterns in [`CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:1).
+**Notes:** This file provides the type definitions but the actual implementation functions are stubs. These need to be implemented to match the patterns in [`CaptureAggregate.ts`](../../../src/shared/engine/aggregates/CaptureAggregate.ts).
 
 ### [`placementHelpers.ts`](../../../src/shared/engine/placementHelpers.ts)
 
@@ -77,11 +77,11 @@ Pass 13 conducted a comprehensive assessment across four key areas. Key findings
 **Functions (5 total):**
 | Function | Status | Lines |
 |----------|--------|-------|
-| [`enumerateChainCaptureSegments()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:534) | COMPLETE | Enumerates all valid capture segments |
-| [`getChainCaptureContinuationInfo()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:578) | COMPLETE | Gets continuation info for chain captures |
-| [`enumerateChainCaptures()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:605) | COMPLETE | Enumerates continuation capture targets |
-| [`updateChainCaptureStateAfterCapture()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:795) | COMPLETE | Updates chain capture state after a segment |
-| [`applyCaptureSegment()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts:839) | COMPLETE | Applies a capture segment mutation |
+| [`enumerateChainCaptureSegments()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) | COMPLETE | Enumerates all valid capture segments |
+| [`getChainCaptureContinuationInfo()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) | COMPLETE | Gets continuation info for chain captures |
+| [`enumerateChainCaptures()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) | COMPLETE | Enumerates continuation capture targets |
+| [`updateChainCaptureStateAfterCapture()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) | COMPLETE | Updates chain capture state after a segment |
+| [`applyCaptureSegment()`](../../../src/shared/engine/aggregates/CaptureAggregate.ts) | COMPLETE | Applies a capture segment mutation |
 
 **Test Coverage:** [`tests/unit/CaptureAggregate.chainCapture.shared.test.ts`](../../../tests/unit/CaptureAggregate.chainCapture.shared.test.ts) - comprehensive chain-capture tests
 
@@ -100,7 +100,7 @@ The following React test files already exist in `tests/unit/`:
 | [`VictoryModal.test.tsx`](../../../tests/unit/VictoryModal.test.tsx)                   | VictoryModal.tsx | ✅ EXISTS |
 | [`VictoryModal.logic.test.ts`](../../../tests/unit/VictoryModal.logic.test.ts)         | VictoryModal.tsx | ✅ EXISTS |
 | [`GameEventLog.snapshot.test.tsx`](../../../tests/unit/GameEventLog.snapshot.test.tsx) | GameEventLog.tsx | ✅ EXISTS |
-| [`GameContext.test.tsx`](../../../tests/unit/GameContext.test.tsx:501)                 | GameContext.tsx  | ✅ EXISTS |
+| [`GameContext.test.tsx`](../../../tests/unit/GameContext.test.tsx)                     | GameContext.tsx  | ✅ EXISTS |
 | [`LobbyPage.test.tsx`](../../../tests/unit/LobbyPage.test.tsx)                         | LobbyPage.tsx    | ✅ EXISTS |
 
 **Component Tests in `tests/unit/components/`:**

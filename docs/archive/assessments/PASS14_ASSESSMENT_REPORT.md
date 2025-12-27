@@ -21,32 +21,33 @@ Pass 14 audit reveals **documentation is largely accurate** with core technical 
 ### Audit Results by Document
 
 <<<<<<< Updated upstream
-| Document                                                                                                                            | Status      | Issues Found                                                                                                                                        |
+| Document | Status | Issues Found |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`README.md`](../../../README.md)                                                                                                         | ⚠️ Minor    | Dead link to `deprecated/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md`                                                                                      |
-| [`QUICKSTART.md`](../../../QUICKSTART.md)                                                                                                 | ⚠️ Minor    | Dead links to `deprecated/` files                                                                                                                   |
-| [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)                                                                                             | ⚠️ Minor    | References to `deprecated/` and `archive/` files                                                                                                    |
-| [`docs/architecture/../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md)                                                                                         | ✅ Verified | All endpoints match [`auth.ts`](../../../src/server/routes/auth.ts), [`game.ts`](../../../src/server/routes/game.ts), [`user.ts`](../../../src/server/routes/user.ts) |
-| [`docs/architecture/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md)                                                                           | ✅ Verified | 1313 lines, comprehensive and current                                                                                                               |
-| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md)                                                                         | ✅ Verified | 952 lines, matches [`.env.example`](../../../.env.example)                                                                                                |
-| [`docs/../../architecture/MODULE_RESPONSIBILITIES.md`](../../architecture/MODULE_RESPONSIBILITIES.md)                                                                     | ✅ Verified | Current canonical layout documented                                                                                                                 |
-| [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md)                                                                       | ✅ Accurate | Grade B+, updated Nov 27, 2025                                                                                                                      |
-| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ✅ Accurate | Updated Nov 27, 2025 with Pass 13                                                                                                                   |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md)                                                                   | ✅ Accurate | 952 lines, comprehensive                                                                                                                            |
+| [`README.md`](../../../README.md) | ⚠️ Minor | Dead link to `deprecated/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` |
+| [`QUICKSTART.md`](../../../QUICKSTART.md) | ⚠️ Minor | Dead links to `deprecated/` files |
+| [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) | ⚠️ Minor | References to `deprecated/` and `archive/` files |
+| [`docs/architecture/../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md) | ✅ Verified | All endpoints match [`auth.ts`](../../../src/server/routes/auth.ts), [`game.ts`](../../../src/server/routes/game.ts), [`user.ts`](../../../src/server/routes/user.ts) |
+| [`docs/architecture/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md) | ✅ Verified | 1313 lines, comprehensive and current |
+| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) | ✅ Verified | 952 lines, matches [`.env.example`](../../../.env.example) |
+| [`docs/../../architecture/MODULE_RESPONSIBILITIES.md`](../../architecture/MODULE_RESPONSIBILITIES.md) | ✅ Verified | Current canonical layout documented |
+| [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md) | ✅ Accurate | Grade B+, updated Nov 27, 2025 |
+| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ✅ Accurate | Updated Nov 27, 2025 with Pass 13 |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md) | ✅ Accurate | 952 lines, comprehensive |
 =======
-| Document                                                                                                                            | Status      | Issues Found                                                                                                                                                          |
+| Document | Status | Issues Found |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`README.md`](../../../README.md)                                                                                                   | ⚠️ Minor    | Dead link to `deprecated/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md`                                                                                                        |
-| [`QUICKSTART.md`](../../../QUICKSTART.md)                                                                                           | ⚠️ Minor    | Dead links to `deprecated/` files                                                                                                                                     |
-| [`CONTRIBUTING.md`](../../../CONTRIBUTING.md)                                                                                       | ⚠️ Minor    | References to `deprecated/` and `archive/` files                                                                                                                      |
-| [`docs/architecture/../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md)                                      | ✅ Verified | All endpoints match [`auth.ts`](../../../src/server/routes/auth.ts), [`game.ts`](../../../src/server/routes/game.ts), [`user.ts`](../../../src/server/routes/user.ts) |
-| [`docs/architecture/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md)                        | ✅ Verified | 1313 lines, comprehensive and current                                                                                                                                 |
-| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md)                            | ✅ Verified | 952 lines, matches [`.env.example`](../../../.env.example)                                                                                                            |
-| [`docs/../../architecture/MODULE_RESPONSIBILITIES.md`](../../architecture/MODULE_RESPONSIBILITIES.md)                               | ✅ Verified | Current canonical layout documented                                                                                                                                   |
-| [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md)                                                                 | ✅ Accurate | Grade B+, updated Nov 27, 2025                                                                                                                                        |
-| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ✅ Accurate | Updated Nov 27, 2025 with Pass 13                                                                                                                                     |
-| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md)                                                   | ✅ Accurate | 952 lines, comprehensive                                                                                                                                              |
->>>>>>> Stashed changes
+| [`README.md`](../../../README.md) | ⚠️ Minor | Dead link to `deprecated/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` |
+| [`QUICKSTART.md`](../../../QUICKSTART.md) | ⚠️ Minor | Dead links to `deprecated/` files |
+| [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) | ⚠️ Minor | References to `deprecated/` and `archive/` files |
+| [`docs/architecture/../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md) | ✅ Verified | All endpoints match [`auth.ts`](../../../src/server/routes/auth.ts), [`game.ts`](../../../src/server/routes/game.ts), [`user.ts`](../../../src/server/routes/user.ts) |
+| [`docs/architecture/../../architecture/CANONICAL_ENGINE_API.md`](../../architecture/CANONICAL_ENGINE_API.md) | ✅ Verified | 1313 lines, comprehensive and current |
+| [`docs/operations/../../operations/ENVIRONMENT_VARIABLES.md`](../../operations/ENVIRONMENT_VARIABLES.md) | ✅ Verified | 952 lines, matches [`.env.example`](../../../.env.example) |
+| [`docs/../../architecture/MODULE_RESPONSIBILITIES.md`](../../architecture/MODULE_RESPONSIBILITIES.md) | ✅ Verified | Current canonical layout documented |
+| [`ARCHITECTURE_ASSESSMENT.md`](../plans/ARCHITECTURE_ASSESSMENT.md) | ✅ Accurate | Grade B+, updated Nov 27, 2025 |
+| [`../historical/CURRENT_STATE_ASSESSMENT.md`](../historical/CURRENT_STATE_ASSESSMENT.md)(../historical/CURRENT_STATE_ASSESSMENT.md) | ✅ Accurate | Updated Nov 27, 2025 with Pass 13 |
+| [`RULES_ENGINE_ARCHITECTURE.md`](../../architecture/RULES_ENGINE_ARCHITECTURE.md) | ✅ Accurate | 952 lines, comprehensive |
+
+> > > > > > > Stashed changes
 
 ### Critical Inaccuracies
 
@@ -67,7 +68,7 @@ Pass 14 audit reveals **documentation is largely accurate** with core technical 
 
 All documented endpoints in [`docs/architecture/../../architecture/API_REFERENCE.md`](../../architecture/API_REFERENCE.md) were verified against route implementations:
 
-**Auth Routes** ([`src/server/routes/auth.ts`](../../../src/server/routes/auth.ts:1478)):
+**Auth Routes** ([`src/server/routes/auth.ts`](../../../src/server/routes/auth.ts)):
 
 - ✅ `POST /api/auth/register` - User registration
 - ✅ `POST /api/auth/login` - User login
@@ -75,7 +76,7 @@ All documented endpoints in [`docs/architecture/../../architecture/API_REFERENCE
 - ✅ `POST /api/auth/refresh` - Token refresh
 - ✅ `GET /api/auth/verify` - Verify JWT
 
-**Game Routes** ([`src/server/routes/game.ts`](../../../src/server/routes/game.ts:1645)):
+**Game Routes** ([`src/server/routes/game.ts`](../../../src/server/routes/game.ts)):
 
 - ✅ `GET /api/games` - List games
 - ✅ `POST /api/games` - Create game
@@ -88,7 +89,7 @@ All documented endpoints in [`docs/architecture/../../architecture/API_REFERENCE
 - ✅ `GET /api/games/lobby/available` - Get available lobby games
 - ✅ `GET /api/games/:gameId/diagnostics/session` - Session diagnostics
 
-**User Routes** ([`src/server/routes/user.ts`](../../../src/server/routes/user.ts:1349)):
+**User Routes** ([`src/server/routes/user.ts`](../../../src/server/routes/user.ts)):
 
 - ✅ `GET /api/users/profile` - Get current user profile
 - ✅ `PUT /api/users/profile` - Update profile
@@ -105,15 +106,16 @@ All documented endpoints in [`docs/architecture/../../architecture/API_REFERENCE
 ### Stale Content Found
 
 <<<<<<< Updated upstream
-| Document                                | Section         | Issue                                                                                    |
+| Document | Section | Issue |
 | --------------------------------------- | --------------- | ---------------------------------------------------------------------------------------- |
 =======
-| Document                                      | Section         | Issue                                                                                    |
+| Document | Section | Issue |
 | --------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------- |
->>>>>>> Stashed changes
-| [`README.md`](../../../README.md)             | Quick Links     | Reference to `deprecated/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` - directory doesn't exist |
-| [`QUICKSTART.md`](../../../QUICKSTART.md)     | Docker section  | Reference to `deprecated/DOCKER_SETUP.md`                                                |
-| [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) | Phase 1-4 Tasks | Historical content marked but still prominent                                            |
+
+> > > > > > > Stashed changes
+> > > > > > > | [`README.md`](../../../README.md) | Quick Links | Reference to `deprecated/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` - directory doesn't exist |
+> > > > > > > | [`QUICKSTART.md`](../../../QUICKSTART.md) | Docker section | Reference to `deprecated/DOCKER_SETUP.md` |
+> > > > > > > | [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) | Phase 1-4 Tasks | Historical content marked but still prominent |
 
 ### Recommended Removals
 
@@ -152,7 +154,7 @@ The `archive/` directory exists and contains historical documents:
 
 ### Detailed UX Analysis
 
-#### Animation State ([`src/client/styles/globals.css`](../../../src/client/styles/globals.css:150))
+#### Animation State ([`src/client/styles/globals.css`](../../../src/client/styles/globals.css))
 
 **Existing animations:**
 
@@ -169,7 +171,7 @@ The `archive/` directory exists and contains historical documents:
 - ❌ Phase transition animations
 - ❌ Territory claim visualization
 
-#### Board Interaction ([`src/client/components/BoardView.tsx`](../../../src/client/components/BoardView.tsx:554))
+#### Board Interaction ([`src/client/components/BoardView.tsx`](../../../src/client/components/BoardView.tsx))
 
 **Current implementation:**
 
@@ -185,7 +187,7 @@ The `archive/` directory exists and contains historical documents:
 - Selection: Ring border appears instantly
 - Move execution: Board re-renders without transition
 
-#### Game Page State ([`src/client/pages/GamePage.tsx`](../../../src/client/pages/GamePage.tsx:2144))
+#### Game Page State ([`src/client/pages/GamePage.tsx`](../../../src/client/pages/GamePage.tsx))
 
 **Current implementation (2144 lines):**
 
@@ -202,7 +204,7 @@ The `archive/` directory exists and contains historical documents:
 - No capture chain visualization
 - Phase changes are immediate text updates
 
-#### Tailwind Configuration ([`tailwind.config.js`](../../../tailwind.config.js:29))
+#### Tailwind Configuration ([`tailwind.config.js`](../../../tailwind.config.js))
 
 ```javascript
 // Current config - minimal customization
@@ -283,20 +285,21 @@ theme: {
 ### Test Infrastructure Verification
 
 <<<<<<< Updated upstream
-| Category                         | Documented Count | Files Verified                                                                                                                                                                                                                             |
+| Category | Documented Count | Files Verified |
 | -------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Hook tests                       | 98 tests         | ✅ 3 files: [`useGameActions.test.tsx`](../../../tests/unit/hooks/useGameActions.test.tsx), [`useGameConnection.test.tsx`](../../../tests/unit/hooks/useGameConnection.test.tsx), [`useGameState.test.tsx`](../../../tests/unit/hooks/useGameState.test.tsx) |
-| Context tests                    | 51 tests         | ✅ 2 files: [`AuthContext.test.tsx`](../../../tests/unit/contexts/AuthContext.test.tsx), [`GameContext.test.tsx`](../../../tests/unit/contexts/GameContext.test.tsx)                                                                                   |
-| ChoiceDialog tests               | 49 tests         | ✅ [`ChoiceDialog.test.tsx`](../../../tests/unit/components/ChoiceDialog.test.tsx)                                                                                                                                                               |
-| CURRENT_STATE_ASSESSMENT updated | -                | ✅ Updated Nov 27, 2025                                                                                                                                                                                                                    |
+| Hook tests | 98 tests | ✅ 3 files: [`useGameActions.test.tsx`](../../../tests/unit/hooks/useGameActions.test.tsx), [`useGameConnection.test.tsx`](../../../tests/unit/hooks/useGameConnection.test.tsx), [`useGameState.test.tsx`](../../../tests/unit/hooks/useGameState.test.tsx) |
+| Context tests | 51 tests | ✅ 2 files: [`AuthContext.test.tsx`](../../../tests/unit/contexts/AuthContext.test.tsx), [`GameContext.test.tsx`](../../../tests/unit/contexts/GameContext.test.tsx) |
+| ChoiceDialog tests | 49 tests | ✅ [`ChoiceDialog.test.tsx`](../../../tests/unit/components/ChoiceDialog.test.tsx) |
+| CURRENT_STATE_ASSESSMENT updated | - | ✅ Updated Nov 27, 2025 |
 =======
-| Category                         | Documented Count | Files Verified                                                                                                                                                                                                                                               |
+| Category | Documented Count | Files Verified |
 | -------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Hook tests                       | 98 tests         | ✅ 3 files: [`useGameActions.test.tsx`](../../../tests/unit/hooks/useGameActions.test.tsx), [`useGameConnection.test.tsx`](../../../tests/unit/hooks/useGameConnection.test.tsx), [`useGameState.test.tsx`](../../../tests/unit/hooks/useGameState.test.tsx) |
-| Context tests                    | 51 tests         | ✅ 2 files: [`AuthContext.test.tsx`](../../../tests/unit/contexts/AuthContext.test.tsx), [`GameContext.test.tsx`](../../../tests/unit/contexts/GameContext.test.tsx)                                                                                         |
-| ChoiceDialog tests               | 49 tests         | ✅ [`ChoiceDialog.test.tsx`](../../../tests/unit/components/ChoiceDialog.test.tsx)                                                                                                                                                                           |
-| CURRENT_STATE_ASSESSMENT updated | -                | ✅ Updated Nov 27, 2025                                                                                                                                                                                                                                      |
->>>>>>> Stashed changes
+| Hook tests | 98 tests | ✅ 3 files: [`useGameActions.test.tsx`](../../../tests/unit/hooks/useGameActions.test.tsx), [`useGameConnection.test.tsx`](../../../tests/unit/hooks/useGameConnection.test.tsx), [`useGameState.test.tsx`](../../../tests/unit/hooks/useGameState.test.tsx) |
+| Context tests | 51 tests | ✅ 2 files: [`AuthContext.test.tsx`](../../../tests/unit/contexts/AuthContext.test.tsx), [`GameContext.test.tsx`](../../../tests/unit/contexts/GameContext.test.tsx) |
+| ChoiceDialog tests | 49 tests | ✅ [`ChoiceDialog.test.tsx`](../../../tests/unit/components/ChoiceDialog.test.tsx) |
+| CURRENT_STATE_ASSESSMENT updated | - | ✅ Updated Nov 27, 2025 |
+
+> > > > > > > Stashed changes
 
 ### Pass 13 Verification Checklist
 
@@ -308,7 +311,7 @@ theme: {
 
 ### Test Coverage Structure
 
-From [`tests/README.md`](../../../tests/README.md:1212):
+From [`tests/README.md`](../../../tests/README.md):
 
 - **Test Profiles**: Core (fast CI) and Diagnostics (heavy/long-running)
 - **Heavy suites excluded from CI**: `captureSequenceEnumeration.test.ts`, `GameEngine.decisionPhases.MoveDriven.test.ts`

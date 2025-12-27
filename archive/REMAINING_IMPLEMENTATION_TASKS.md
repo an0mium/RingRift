@@ -1,7 +1,7 @@
 # Remaining Implementation Tasks - Code Agent Assignments
 
 **Generated**: November 22, 2025  
-**Source**: [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:1), [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1), [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1)  
+**Source**: [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md), [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md), [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md)  
 **Status**: Ready for Code Agent Execution  
 **Reference Context**: 13 major tasks completed (see Part 3-4 of architect report)
 
@@ -37,20 +37,20 @@
 **Effort**: 1-2 weeks  
 **Dependencies**: None
 
-**Goal**: Create comprehensive test suite covering all FAQ Q1-Q24 examples from [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) to ensure exhaustive rules compliance.
+**Goal**: Create comprehensive test suite covering all FAQ Q1-Q24 examples from [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) to ensure exhaustive rules compliance.
 
 **Affected Components**:
 
-- Backend: [`GameEngine`](src/shared/engine/GameEngine.ts:1), [`RuleEngine`](src/server/game/RuleEngine.ts:1), [`BoardManager`](src/server/game/BoardManager.ts:1)
-- Tests: New scenario test files in [`tests/scenarios/`](tests/scenarios/)
-- Documentation: [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1)
+- Backend: [`GameEngine`](../src/shared/engine/GameEngine.ts), [`RuleEngine`](../src/server/game/RuleEngine.ts), [`BoardManager`](../src/server/game/BoardManager.ts)
+- Tests: New scenario test files in [`../tests/scenarios`](../tests/scenarios)
+- Documentation: [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md)
 
 **Relevant Files**:
 
-- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) - Authoritative rulebook with FAQ Q1-Q24
-- [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1) - Current test coverage mapping
-- [`tests/scenarios/RulesMatrix.Comprehensive.test.ts`](tests/scenarios/RulesMatrix.Comprehensive.test.ts:1) - Existing scenario framework
-- [`tests/utils/fixtures.ts`](tests/utils/fixtures.ts:1) - Test state creation utilities
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) - Authoritative rulebook with FAQ Q1-Q24
+- [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md) - Current test coverage mapping
+- [`tests/scenarios/RulesMatrix.Comprehensive.test.ts`](../tests/scenarios/RulesMatrix.Comprehensive.test.ts) - Existing scenario framework
+- [`tests/utils/fixtures.ts`](../tests/utils/fixtures.ts) - Test state creation utilities
 
 **Implementation Requirements**:
 
@@ -70,18 +70,18 @@
    - **Q10, Q15, Q20**: Territory disconnection edge cases
    - **Q11, Q18, Q21, Q24**: Victory conditions and stalemate
 4. **Use existing test utilities**:
-   - [`tests/utils/fixtures.ts`](tests/utils/fixtures.ts:1) for state creation
-   - [`tests/scenarios/rulesMatrix.ts`](tests/scenarios/rulesMatrix.ts:1) for scenario helpers
+   - [`tests/utils/fixtures.ts`](../tests/utils/fixtures.ts) for state creation
+   - [`tests/scenarios/rulesMatrix.ts`](../tests/scenarios/rulesMatrix.ts) for scenario helpers
 5. **Validate against both engines**:
-   - Backend [`GameEngine`](src/shared/engine/GameEngine.ts:1)
-   - [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1)
+   - Backend [`GameEngine`](../src/shared/engine/GameEngine.ts)
+   - [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts)
 
 **Acceptance Criteria**:
 
 - [ ] 24 new test files created (one per FAQ question Q1-Q24)
 - [ ] All tests passing on square8, square19, and hexagonal boards where applicable
 - [ ] 100% coverage of FAQ examples with direct assertions
-- [ ] [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1) updated with test file references
+- [ ] [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md) updated with test file references
 - [ ] No existing tests broken
 - [ ] Each test references specific FAQ section in describe/it blocks
 - [ ] CI passing with all new tests included
@@ -105,20 +105,20 @@
 **Effort**: 1-2 weeks  
 **Dependencies**: None
 
-**Goal**: Close remaining semantic gaps between backend [`GameEngine`](src/shared/engine/GameEngine.ts:1) and [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1) to achieve deterministic trace parity.
+**Goal**: Close remaining semantic gaps between backend [`GameEngine`](../src/shared/engine/GameEngine.ts) and [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts) to achieve deterministic trace parity.
 
 **Affected Components**:
 
-- Backend: [`GameEngine`](src/shared/engine/GameEngine.ts:1)
-- Sandbox: [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1), all sandbox modules
-- Tests: [`tests/unit/Backend_vs_Sandbox.traceParity.test.ts`](tests/unit/Backend_vs_Sandbox.traceParity.test.ts:1)
+- Backend: [`GameEngine`](../src/shared/engine/GameEngine.ts)
+- Sandbox: [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts), all sandbox modules
+- Tests: [`tests/unit/Backend_vs_Sandbox.traceParity.test.ts`](tests/unit/Backend_vs_Sandbox.traceParity.test.ts)
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:104) - Lines 104-188 document current parity gaps
-- [`tests/utils/traces.ts`](tests/utils/traces.ts:1) - Trace replay utilities
-- [`tests/unit/Backend_vs_Sandbox.traceParity.test.ts`](tests/unit/Backend_vs_Sandbox.traceParity.test.ts:1)
-- [`tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`](tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 104-188 document current parity gaps
+- [`tests/utils/traces.ts`](../tests/utils/traces.ts) - Trace replay utilities
+- [`tests/unit/Backend_vs_Sandbox.traceParity.test.ts`](tests/unit/Backend_vs_Sandbox.traceParity.test.ts)
+- [`tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`](../tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts)
 
 **Implementation Requirements**:
 
@@ -127,13 +127,13 @@
    - Sandbox AI attempts `place_ring` with count > 1 that backend rejects as "dead placement"
    - Phase transition disagreements between engines
 2. **Unify sandbox canonical mutations**:
-   - Treat [`applyCanonicalMoveInternal`](src/client/sandbox/ClientSandboxEngine.ts:1900) as single source of truth
-   - Refactor [`maybeRunAITurn`](src/client/sandbox/sandboxAI.ts:437) to express all AI actions as canonical Moves
+   - Treat [`applyCanonicalMoveInternal`](../src/client/sandbox/ClientSandboxEngine.ts) as single source of truth
+   - Refactor [`maybeRunAITurn`](../src/client/sandbox/sandboxAI.ts) to express all AI actions as canonical Moves
    - Route through same mutation + history pipeline
 3. **Harden backend replay helpers**:
    - Generic `replayMovesOnBackend(initialConfig, moves: Move[]): GameTrace` helper
-   - Use [`findMatchingBackendMove`](tests/utils/traces.ts:1) for move matching
-   - Produce backend [`GameTrace`](src/shared/types/game.ts:401) for parity analysis
+   - Use [`findMatchingBackendMove`](../tests/utils/traces.ts) for move matching
+   - Produce backend [`GameTrace`](../src/shared/types/game.ts) for parity analysis
 4. **Close semantic gaps iteratively**:
    - When parity failure occurs, confirm backend has genuinely matching legal move
    - Where semantics diverge, treat as engine bug and fix underlying rules/phase logic
@@ -172,15 +172,15 @@
 
 **Affected Components**:
 
-- Build: [`jest.config.js`](jest.config.js:1)
+- Build: [`jest.config.js`](../jest.config.js)
 - Tests: All `*.snapshot.test.tsx` and component test files
 
 **Relevant Files**:
 
-- [`jest.config.js`](jest.config.js:1) - Jest configuration
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:470) - Lines 470-490 document the TSX transform issue
-- [`tests/unit/GameEventLog.snapshot.test.tsx`](tests/unit/GameEventLog.snapshot.test.tsx:1) - Currently failing
-- [`tests/unit/GameHUD.test.tsx`](tests/unit/GameHUD.test.tsx:1) - Component test
+- [`jest.config.js`](../jest.config.js) - Jest configuration
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 470-490 document the TSX transform issue
+- [`tests/unit/GameEventLog.snapshot.test.tsx`](../tests/unit/GameEventLog.snapshot.test.tsx) - Currently failing
+- [`tests/unit/GameHUD.test.tsx`](../tests/unit/GameHUD.test.tsx) - Component test
 
 **Implementation Requirements**:
 
@@ -190,7 +190,7 @@
    npm install --save-dev @testing-library/react @testing-library/jest-dom @testing-library/user-event
    ```
 
-2. **Update [`jest.config.js`](jest.config.js:1)**:
+2. **Update [`jest.config.js`](../jest.config.js)**:
    - Add transform for `.tsx` files using `ts-jest` or Babel
    - Configure test environment as `jsdom`
    - Add setup file for `@testing-library/jest-dom`
@@ -240,11 +240,11 @@
 
 **Relevant Files**:
 
-- [`.env.example`](.env.example:1) - Environment template
-- [`docker-compose.yml`](docker-compose.yml:1) - Local development setup
-- [`Dockerfile`](Dockerfile:1) - Backend container configuration
-- [`ai-service/Dockerfile`](ai-service/Dockerfile:1) - AI service container
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:966) - Part 11.2 lists required actions
+- [`.env.example`](../.env.example) - Environment template
+- [`docker-compose.yml`](../docker-compose.yml) - Local development setup
+- [`Dockerfile`](../Dockerfile) - Backend container configuration
+- [`ai-service/Dockerfile`](../ai-service/Dockerfile) - AI service container
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 11.2 lists required actions
 
 **Implementation Requirements**:
 
@@ -309,8 +309,8 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:726) - Part 8 Immediate Action #1
-- [`docker-compose.yml`](docker-compose.yml:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Immediate Action #1
+- [`docker-compose.yml`](../docker-compose.yml)
 - Production deployment docs from P0-INFRA-001
 
 **Implementation Requirements**:
@@ -381,9 +381,9 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:751) - Part 8 Immediate Action #3
-- [`QUICKSTART.md`](../QUICKSTART.md:1) - User onboarding guide
-- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) - Rules for playtesters
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Immediate Action #3
+- [`QUICKSTART.md`](../QUICKSTART.md) - User onboarding guide
+- [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) - Rules for playtesters
 
 **Implementation Requirements**:
 
@@ -447,15 +447,15 @@
 
 **Affected Components**:
 
-- Backend: [`WebSocketServer`](src/server/websocket/server.ts:1), [`GameSession`](src/server/game/GameSession.ts:1)
-- Frontend: [`GameContext`](src/client/contexts/GameContext.tsx:1), [`GamePage`](src/client/pages/GamePage.tsx:1)
+- Backend: [`WebSocketServer`](../src/server/websocket/server.ts), [`GameSession`](../src/server/game/GameSession.ts)
+- Frontend: [`GameContext`](../src/client/contexts/GameContext.tsx), [`GamePage`](../src/client/pages/GamePage.tsx)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:777) - Part 8 Short-Term #2
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:264) - P1.2 lists missing features
-- [`src/server/websocket/server.ts`](src/server/websocket/server.ts:1)
-- [`src/client/contexts/GameContext.tsx`](src/client/contexts/GameContext.tsx:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Short-Term #2
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - P1.2 lists missing features
+- [`src/server/websocket/server.ts`](../src/server/websocket/server.ts)
+- [`src/client/contexts/GameContext.tsx`](../src/client/contexts/GameContext.tsx)
 
 **Implementation Requirements**:
 
@@ -472,7 +472,7 @@
    - Auto-rejoin on WebSocket reconnect
    - Graceful handling of stale connections
 3. **State resync**:
-   - Full [`GameState`](src/shared/types/game.ts:51) sent on reconnect
+   - Full [`GameState`](../src/shared/types/game.ts) sent on reconnect
    - Validate state hash to ensure consistency
    - Resume from current phase
    - Restore pending choices if applicable
@@ -517,25 +517,25 @@
 
 **Affected Components**:
 
-- Backend: [`WebSocketServer`](src/server/websocket/server.ts:1)
-- Frontend: New `/spectate/:gameId` route, [`GamePage`](src/client/pages/GamePage.tsx:1)
+- Backend: [`WebSocketServer`](../src/server/websocket/server.ts)
+- Frontend: New `/spectate/:gameId` route, [`GamePage`](../src/client/pages/GamePage.tsx)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:788) - Part 8 Short-Term #3
-- [`src/server/websocket/server.ts`](src/server/websocket/server.ts:1)
-- [`src/client/pages/GamePage.tsx`](src/client/pages/GamePage.tsx:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Short-Term #3
+- [`src/server/websocket/server.ts`](../src/server/websocket/server.ts)
+- [`src/client/pages/GamePage.tsx`](../src/client/pages/GamePage.tsx)
 
 **Implementation Requirements**:
 
 1. **Backend spectator support**:
-   - Add `spectators` set to [`GameSession`](src/server/game/GameSession.ts:1)
+   - Add `spectators` set to [`GameSession`](../src/server/game/GameSession.ts)
    - Handle `spectator_join` and `spectator_leave` events
    - Broadcast game state to spectators
    - Don't send `player_choice_required` to spectators
    - Track spectator list
 2. **Dedicated spectator UI route**: `/spectate/:gameId`
-   - Reuse [`BoardView`](src/client/components/BoardView.tsx:1) and [`GameHUD`](src/client/components/GameHUD.tsx:1)
+   - Reuse [`BoardView`](../src/client/components/BoardView.tsx) and [`GameHUD`](../src/client/components/GameHUD.tsx)
    - Disable all move input
    - Clear visual indicator (banner: "Spectating")
    - Show spectator count
@@ -582,15 +582,15 @@
 
 **Affected Components**:
 
-- Backend: [`/api/games`](src/server/routes/game.ts:1) routes, new matchmaking service
-- Frontend: Enhanced [`LobbyPage`](src/client/pages/LobbyPage.tsx:1)
+- Backend: [`/api/games`](../src/server/routes/game.ts) routes, new matchmaking service
+- Frontend: Enhanced [`LobbyPage`](../src/client/pages/LobbyPage.tsx)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:824) - Part 8 Medium-Term #3
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:264) - P1.2 lists missing features
-- [`src/client/pages/LobbyPage.tsx`](src/client/pages/LobbyPage.tsx:1)
-- [`src/server/routes/game.ts`](src/server/routes/game.ts:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Medium-Term #3
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - P1.2 lists missing features
+- [`src/client/pages/LobbyPage.tsx`](../src/client/pages/LobbyPage.tsx)
+- [`src/server/routes/game.ts`](../src/server/routes/game.ts)
 
 **Implementation Requirements**:
 
@@ -650,12 +650,12 @@
 
 **Affected Components**:
 
-- Frontend: [`GameHUD`](src/client/components/GameHUD.tsx:1)
+- Frontend: [`GameHUD`](../src/client/components/GameHUD.tsx)
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:228) - Lines 228-235 list missing HUD features
-- [`src/client/components/GameHUD.tsx`](src/client/components/GameHUD.tsx:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 228-235 list missing HUD features
+- [`src/client/components/GameHUD.tsx`](../src/client/components/GameHUD.tsx)
 
 **Implementation Requirements**:
 
@@ -711,19 +711,19 @@
 
 **Affected Components**:
 
-- Frontend: [`/sandbox`](src/client/pages/GamePage.tsx:1) route, [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1)
+- Frontend: [`/sandbox`](../src/client/pages/GamePage.tsx) route, [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts)
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:236) - Lines 236-242 list sandbox limitations
-- [`src/client/pages/GamePage.tsx`](src/client/pages/GamePage.tsx:1) - Handles sandbox route
-- [`src/client/sandbox/ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 236-242 list sandbox limitations
+- [`src/client/pages/GamePage.tsx`](../src/client/pages/GamePage.tsx) - Handles sandbox route
+- [`src/client/sandbox/ClientSandboxEngine.ts`](../src/client/sandbox/ClientSandboxEngine.ts)
 
 **Implementation Requirements**:
 
 1. **Scenario picker**:
    - Dropdown to select pre-built scenarios
-   - Scenarios from [`tests/scenarios/rulesMatrix.ts`](tests/scenarios/rulesMatrix.ts:1)
+   - Scenarios from [`tests/scenarios/rulesMatrix.ts`](../tests/scenarios/rulesMatrix.ts)
    - Load scenario with one click
    - Examples: "Chain capture reversal", "Line reward choice", "Territory processing"
 2. **Enhanced controls**:
@@ -775,14 +775,14 @@
 
 **Affected Components**:
 
-- AI Service: [`ai-service/app/main.py`](ai-service/app/main.py:1)
-- Backend: [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:1)
+- AI Service: [`ai-service/app/main.py`](../ai-service/app/main.py)
+- Backend: [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts)
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:339) - Lines 339-344 list missing service coverage
-- [`ai-service/app/main.py`](ai-service/app/main.py:1)
-- [`src/server/game/ai/AIInteractionHandler.ts`](src/server/game/ai/AIInteractionHandler.ts:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 339-344 list missing service coverage
+- [`ai-service/app/main.py`](../ai-service/app/main.py)
+- [`src/server/game/ai/AIInteractionHandler.ts`](../src/server/game/ai/AIInteractionHandler.ts)
 
 **Implementation Requirements**:
 
@@ -798,7 +798,7 @@
    - Consider stack heights and positions
    - Prefer directions leading to more captures
 4. **Backend integration**:
-   - Update [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts:1) to call new endpoints
+   - Update [`AIInteractionHandler`](../src/server/game/ai/AIInteractionHandler.ts) to call new endpoints
    - Maintain fallback to local heuristics
    - Add integration tests
 
@@ -834,14 +834,14 @@
 
 **Affected Components**:
 
-- Backend: [`AIEngine`](src/server/game/ai/AIEngine.ts:1), [`AIServiceClient`](src/server/services/AIServiceClient.ts:1)
+- Backend: [`AIEngine`](../src/server/game/ai/AIEngine.ts), [`AIServiceClient`](../src/server/services/AIServiceClient.ts)
 - Monitoring: New metrics endpoints
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:345) - Lines 345-349 mention limited observability
-- [`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md:303) - Defines diagnostics structure
-- [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 345-349 mention limited observability
+- [`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md) - Defines diagnostics structure
+- [`src/server/game/ai/AIEngine.ts`](../src/server/game/ai/AIEngine.ts)
 
 **Implementation Requirements**:
 
@@ -899,19 +899,19 @@
 
 **Affected Components**:
 
-- Backend: [`WebSocketServer`](src/server/websocket/server.ts:1)
-- Frontend: [`GameContext`](src/client/contexts/GameContext.tsx:1)
-- Shared: New delta types in [`game.ts`](src/shared/types/game.ts:1)
+- Backend: [`WebSocketServer`](../src/server/websocket/server.ts)
+- Frontend: [`GameContext`](../src/client/contexts/GameContext.tsx)
+- Shared: New delta types in [`game.ts`](../src/shared/types/game.ts)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:622) - Part 6.1 Priority #3
-- [`src/server/websocket/server.ts`](src/server/websocket/server.ts:1)
-- [`src/client/contexts/GameContext.tsx`](src/client/contexts/GameContext.tsx:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.1 Priority #3
+- [`src/server/websocket/server.ts`](../src/server/websocket/server.ts)
+- [`src/client/contexts/GameContext.tsx`](../src/client/contexts/GameContext.tsx)
 
 **Implementation Requirements**:
 
-1. **Define delta types** in [`src/shared/types/game.ts`](src/shared/types/game.ts:1):
+1. **Define delta types** in [`src/shared/types/game.ts`](../src/shared/types/game.ts):
 
    ```typescript
    interface GameStateDelta {
@@ -924,12 +924,12 @@
    ```
 
 2. **Backend delta generation**:
-   - Track previous state in [`GameSession`](src/server/game/GameSession.ts:1)
+   - Track previous state in [`GameSession`](../src/server/game/GameSession.ts)
    - Compute diff after state changes
    - Send delta instead of full state
    - Send full state on first connect or request
 3. **Frontend delta application**:
-   - Apply delta to local state in [`GameContext`](src/client/contexts/GameContext.tsx:1)
+   - Apply delta to local state in [`GameContext`](../src/client/contexts/GameContext.tsx)
    - Request full state if delta cannot be applied
    - Validate state hash periodically
 4. **Fallback to full state**:
@@ -970,23 +970,23 @@
 
 **Affected Components**:
 
-- Frontend: [`BoardView`](src/client/components/BoardView.tsx:1), [`GameHUD`](src/client/components/GameHUD.tsx:1), [`GameContext`](src/client/contexts/GameContext.tsx:1)
+- Frontend: [`BoardView`](../src/client/components/BoardView.tsx), [`GameHUD`](../src/client/components/GameHUD.tsx), [`GameContext`](../src/client/contexts/GameContext.tsx)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:622) - Part 6.1 Priority #3
-- [`src/client/components/BoardView.tsx`](src/client/components/BoardView.tsx:1)
-- [`src/client/components/GameHUD.tsx`](src/client/components/GameHUD.tsx:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.1 Priority #3
+- [`src/client/components/BoardView.tsx`](../src/client/components/BoardView.tsx)
+- [`src/client/components/GameHUD.tsx`](../src/client/components/GameHUD.tsx)
 
 **Implementation Requirements**:
 
 1. **Memoization**:
-   - Wrap [`BoardView`](src/client/components/BoardView.tsx:1) with `React.memo()`
+   - Wrap [`BoardView`](../src/client/components/BoardView.tsx) with `React.memo()`
    - Memoize cell rendering
    - Memoize stack widgets
    - Use `useMemo` for expensive calculations
 2. **Context optimization**:
-   - Split [`GameContext`](src/client/contexts/GameContext.tsx:1) into multiple contexts
+   - Split [`GameContext`](../src/client/contexts/GameContext.tsx) into multiple contexts
    - Separate state from actions
    - Use context selectors
 3. **Selective updates**:
@@ -1030,13 +1030,13 @@
 
 **Affected Components**:
 
-- Database: [`prisma/schema.prisma`](prisma/schema.prisma:1)
+- Database: [`prisma/schema.prisma`](../prisma/schema.prisma)
 - Backend: All database access patterns
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:622) - Part 6.1 Priority #3
-- [`prisma/schema.prisma`](prisma/schema.prisma:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.1 Priority #3
+- [`prisma/schema.prisma`](../prisma/schema.prisma)
 
 **Implementation Requirements**:
 
@@ -1098,8 +1098,8 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:288) - Lines 288-292 identify missing documentation
-- [`src/server/websocket/server.ts`](src/server/websocket/server.ts:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - Lines 288-292 identify missing documentation
+- [`src/server/websocket/server.ts`](../src/server/websocket/server.ts)
 
 **Implementation Requirements**:
 
@@ -1160,8 +1160,8 @@
 
 **Relevant Files**:
 
-- [`src/server/routes/`](src/server/routes/) - All route files
-- [`README.md`](README.md:1) - Links to API docs
+- [`../src/server/routes`](../src/server/routes) - All route files
+- [`README.md`](../README.md) - Links to API docs
 
 **Implementation Requirements**:
 
@@ -1217,14 +1217,14 @@
 
 **Affected Components**:
 
-- AI Service: [`ai-service/app/training/`](ai-service/app/training/)
+- AI Service: [`../ai-service/app/training`](../ai-service/app/training)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:801) - Part 8 Medium-Term #1
-- [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)
-- [`ai-service/app/training/train.py`](ai-service/app/training/train.py:1)
-- [`ai-service/app/ai/neural_net.py`](ai-service/app/ai/neural_net.py:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Medium-Term #1
+- [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md)
+- [`ai-service/app/training/train.py`](../ai-service/app/training/train.py)
+- `ai-service/app/ai/neural_net.py`
 
 **Implementation Requirements**:
 
@@ -1284,15 +1284,15 @@
 
 **Affected Components**:
 
-- Backend: New [`RatingService`](src/server/services/RatingService.ts:1) (exists but basic)
-- Frontend: [`LeaderboardPage`](src/client/pages/LeaderboardPage.tsx:1)
+- Backend: New [`RatingService`](../src/server/services/RatingService.ts) (exists but basic)
+- Frontend: [`LeaderboardPage`](../src/client/pages/LeaderboardPage.tsx)
 - Database: Rating storage and history
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:638) - Part 6.2 Social Feature #1
-- [`src/server/services/RatingService.ts`](src/server/services/RatingService.ts:1)
-- [`src/client/pages/LeaderboardPage.tsx`](src/client/pages/LeaderboardPage.tsx:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.2 Social Feature #1
+- [`src/server/services/RatingService.ts`](../src/server/services/RatingService.ts)
+- [`src/client/pages/LeaderboardPage.tsx`](../src/client/pages/LeaderboardPage.tsx)
 
 **Implementation Requirements**:
 
@@ -1351,12 +1351,12 @@
 **Affected Components**:
 
 - Backend: Profile API, achievement tracking
-- Frontend: [`ProfilePage`](src/client/pages/ProfilePage.tsx:1)
+- Frontend: [`ProfilePage`](../src/client/pages/ProfilePage.tsx)
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:643) - Part 6.2 Social Feature #2
-- [`src/client/pages/ProfilePage.tsx`](src/client/pages/ProfilePage.tsx:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.2 Social Feature #2
+- [`src/client/pages/ProfilePage.tsx`](../src/client/pages/ProfilePage.tsx)
 
 **Implementation Requirements**:
 
@@ -1418,7 +1418,7 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:644) - Part 6.2 Social Feature #2
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.2 Social Feature #2
 
 **Implementation Requirements**:
 
@@ -1479,9 +1479,9 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:649) - Part 6.2 Platform #1
-- [`src/client/components/BoardView.tsx`](src/client/components/BoardView.tsx:1)
-- [`src/client/styles/globals.css`](src/client/styles/globals.css:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.2 Platform #1
+- [`src/client/components/BoardView.tsx`](../src/client/components/BoardView.tsx)
+- [`src/client/styles/globals.css`](../src/client/styles/globals.css)
 
 **Implementation Requirements**:
 
@@ -1546,8 +1546,8 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:650) - Part 6.2 Platform #2
-- [`src/client/index.html`](src/client/index.html:1)
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.2 Platform #2
+- [`src/client/index.html`](../src/client/index.html)
 
 **Implementation Requirements**:
 
@@ -1605,8 +1605,8 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:813) - Part 8 Medium-Term #2
-- [`src/shared/types/game.ts`](src/shared/types/game.ts:401) - `GameHistoryEntry` already defined
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 8 Medium-Term #2
+- [`src/shared/types/game.ts`](../src/shared/types/game.ts) - `GameHistoryEntry` already defined
 
 **Implementation Requirements**:
 
@@ -1666,7 +1666,7 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:1290) - For game designers section mentions tutorial need
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - For game designers section mentions tutorial need
 
 **Implementation Requirements**:
 
@@ -1724,14 +1724,14 @@
 
 **Affected Components**:
 
-- Backend: [`GameSession`](src/server/game/GameSession.ts:1), database routes
+- Backend: [`GameSession`](../src/server/game/GameSession.ts), database routes
 - Database: Enhanced Prisma schema
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:441) - P2.1 documents current gaps
-- [`prisma/schema.prisma`](prisma/schema.prisma:1)
-- [`src/server/game/GameSession.ts`](src/server/game/GameSession.ts:1)
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - P2.1 documents current gaps
+- [`prisma/schema.prisma`](../prisma/schema.prisma)
+- [`src/server/game/GameSession.ts`](../src/server/game/GameSession.ts)
 
 **Implementation Requirements**:
 
@@ -1792,8 +1792,8 @@
 
 **Relevant Files**:
 
-- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:456) - P2.2 identifies gaps
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:622) - Performance section
+- [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) - P2.2 identifies gaps
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Performance section
 
 **Implementation Requirements**:
 
@@ -1855,7 +1855,7 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:837) - Part 9 Architecture Evolution
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 9 Architecture Evolution
 
 **Implementation Requirements**:
 
@@ -1912,21 +1912,21 @@
 
 **Affected Components**:
 
-- Backend: [`GameEngine`](src/shared/engine/GameEngine.ts:1), legacy helpers
+- Backend: [`GameEngine`](../src/shared/engine/GameEngine.ts), legacy helpers
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:656) - Part 6.3 Technical Debt
-- [`P0_TASK_18_STEP_2_SUMMARY.md`](P0_TASK_18_STEP_2_SUMMARY.md:349) - Lists legacy helpers to remove
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.3 Technical Debt
+- `P0_TASK_18_STEP_2_SUMMARY.md` - Lists legacy helpers to remove
 
 **Implementation Requirements**:
 
 1. **Remove legacy helpers** (once all tests use move-driven):
-   - [`processLineFormations()`](src/server/game/GameEngine.ts:1586)
-   - [`processDisconnectedRegions()`](src/server/game/GameEngine.ts:1929)
+   - [`processLineFormations()`](../src/server/game/GameEngine.ts)
+   - [`processDisconnectedRegions()`](../src/server/game/GameEngine.ts)
    - Automatic decision mode flag
 2. **Shared engine integration**:
-   - Use [`moveActionAdapter.ts`](src/shared/engine/moveActionAdapter.ts:1) in runtime
+   - Use [`moveActionAdapter.ts`](../src/shared/engine/moveActionAdapter.ts) in runtime
    - Unify backend and shared mutators
    - Single code path for all moves
 3. **Type cleanup**:
@@ -1974,8 +1974,8 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:660) - Part 6.3 Technical Debt
-- [`docs/INDEX.md`](../docs/INDEX.md:1) - Documentation index
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 6.3 Technical Debt
+- [`docs/INDEX.md`](../docs/INDEX.md) - Documentation index
 
 **Implementation Requirements**:
 
@@ -1992,8 +1992,8 @@
 3. **Organization**:
    - Clear hierarchy
    - Consistent formatting
-   - Update [`docs/INDEX.md`](../docs/INDEX.md:1)
-   - Link from [`README.md`](README.md:1)
+   - Update [`docs/INDEX.md`](../docs/INDEX.md)
+   - Link from [`README.md`](../README.md)
 4. **Maintenance plan**:
    - Documentation update checklist
    - Review process
@@ -2036,7 +2036,7 @@
 
 **Relevant Files**:
 
-- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md:667) - Part 7.1 Current Coverage
+- [`FINAL_ARCHITECT_REPORT.md`](FINAL_ARCHITECT_REPORT.md) - Part 7.1 Current Coverage
 - jest-results.json - Coverage reports
 
 **Implementation Requirements**:
@@ -2294,8 +2294,8 @@ For immediate high-impact work:
 
 ### File Reference Conventions
 
-- All file paths are relative to workspace root: `/Users/armand/Development/RingRift`
-- Clickable links use format: [`filename`](path/to/file.ext:line)
+- All file paths are relative to the workspace root (`.`)
+- Clickable links use format: `filename`
 - Line numbers indicate relevant sections but read full files for context
 - Cross-reference between related tasks using task IDs (e.g., P0-TESTING-001)
 

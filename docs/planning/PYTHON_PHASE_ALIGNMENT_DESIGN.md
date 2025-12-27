@@ -36,12 +36,12 @@ The board state is identical - only phase tracking differs, indicating a phase m
 
 Python's phase transitions are managed by two key modules:
 
-1. **[`phase_machine.py`](../../ai-service/app/rules/phase_machine.py:168-442)** - The `advance_phases()` function that handles all phase transitions after moves
-2. **[`_game_engine_legacy.py`](../../ai-service/app/_game_engine_legacy.py:1157-1214)** - Helper methods like `_advance_to_line_processing()` and `_advance_to_territory_processing()`
+1. **[`phase_machine.py`](../../ai-service/app/rules/phase_machine.py)** - The `advance_phases()` function that handles all phase transitions after moves
+2. **[`_game_engine_legacy.py`](../../ai-service/app/_game_engine_legacy.py)** - Helper methods like `_advance_to_line_processing()` and `_advance_to_territory_processing()`
 
 ### 1.2 Key Behavior: Capture Move Handling
 
-When a capture move ends (no continuation available), Python's `advance_phases()` at [lines 293-308](../../ai-service/app/rules/phase_machine.py:293-308) executes:
+When a capture move ends (no continuation available), Python's `advance_phases()` at [lines 293-308](../../ai-service/app/rules/phase_machine.py) executes:
 
 ```python
 elif last_move.type in (
@@ -64,7 +64,7 @@ elif last_move.type in (
 
 ### 1.3 The `_advance_to_line_processing()` Method
 
-Located at [lines 1179-1197](../../ai-service/app/_game_engine_legacy.py:1179-1197):
+Located at [lines 1179-1197](../../ai-service/app/_game_engine_legacy.py):
 
 ```python
 @staticmethod
@@ -86,7 +86,7 @@ def _advance_to_line_processing(game_state: GameState, *, trace_mode: bool = Fal
 
 After reviewing the code, the **actual problem** was in the selfplay/AI move generation layer, NOT in `phase_machine.py`. The phase machine correctly sets phases, but the selfplay loop was able to auto-advance through no-op phases when `trace_mode` was disabled. This has been fixed; see the status update above.
 
-However, let me re-examine the `NO_LINE_ACTION` handler at [lines 337-366](../../ai-service/app/rules/phase_machine.py:337-366):
+However, let me re-examine the `NO_LINE_ACTION` handler at [lines 337-366](../../ai-service/app/rules/phase_machine.py):
 
 ```python
 elif last_move.type == MoveType.NO_LINE_ACTION:
@@ -99,7 +99,7 @@ elif last_move.type == MoveType.NO_LINE_ACTION:
         game_state.current_phase = GamePhase.TERRITORY_PROCESSING  # explicit
 ```
 
-The `_on_line_processing_complete()` helper at [lines 126-140](../../ai-service/app/rules/phase_machine.py:126-140):
+The `_on_line_processing_complete()` helper at [lines 126-140](../../ai-service/app/rules/phase_machine.py):
 
 ```python
 def _on_line_processing_complete(game_state: GameState, *, trace_mode: bool) -> None:
@@ -111,7 +111,7 @@ def _on_line_processing_complete(game_state: GameState, *, trace_mode: bool) -> 
     )
 ```
 
-And `_advance_to_territory_processing()` at [lines 1200-1214](../../ai-service/app/_game_engine_legacy.py:1200-1214):
+And `_advance_to_territory_processing()` at [lines 1200-1214](../../ai-service/app/_game_engine_legacy.py):
 
 ```python
 @staticmethod
@@ -136,7 +136,7 @@ The PAR-08 divergence at k=142 showing Python at `territory_processing, player=1
 2. **The replay or parity harness** may have a different phase transition interpretation
 3. **Or selfplay is generating bookkeeping moves** that aren't being recorded
 
-Let me look at the `get_phase_requirement()` method at [lines 308-395](../../ai-service/app/_game_engine_legacy.py:308-395):
+Let me look at the `get_phase_requirement()` method at [lines 308-395](../../ai-service/app/_game_engine_legacy.py):
 
 ```python
 @staticmethod
@@ -168,13 +168,13 @@ This is correct - it surfaces the requirement for bookkeeping moves when no inte
 
 TypeScript's phase transitions are managed by:
 
-1. **[`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1273-1916)** - The `processTurn()` function
-2. **[`applyMoveWithChainInfo()`](../../src/shared/engine/orchestration/turnOrchestrator.ts:1931-2311)** - Move application with chain capture info
+1. **[`turnOrchestrator.ts`](../../src/shared/engine/orchestration/turnOrchestrator.ts)** - The `processTurn()` function
+2. **[`applyMoveWithChainInfo()`](../../src/shared/engine/orchestration/turnOrchestrator.ts)** - Move application with chain capture info
 3. **FSM helpers** - `onLineProcessingComplete()`, `onTerritoryProcessingComplete()`
 
 ### 2.2 Key Behavior: Explicit Phase Transitions
 
-After capture moves, TS at [lines 2160-2191](../../src/shared/engine/orchestration/turnOrchestrator.ts:2160-2191):
+After capture moves, TS at [lines 2160-2191](../../src/shared/engine/orchestration/turnOrchestrator.ts):
 
 ```typescript
 case 'overtaking_capture':
@@ -202,7 +202,7 @@ case 'continue_capture_segment': {
 
 ### 2.3 The `no_line_action` Handler
 
-At [lines 2205-2217](../../src/shared/engine/orchestration/turnOrchestrator.ts:2205-2217):
+At [lines 2205-2217](../../src/shared/engine/orchestration/turnOrchestrator.ts):
 
 ```typescript
 case 'no_line_action': {
@@ -221,7 +221,7 @@ case 'no_line_action': {
 
 ### 2.4 The `no_territory_action` Handler
 
-At [lines 2230-2270](../../src/shared/engine/orchestration/turnOrchestrator.ts:2230-2270):
+At [lines 2230-2270](../../src/shared/engine/orchestration/turnOrchestrator.ts):
 
 ```typescript
 case 'no_territory_action': {

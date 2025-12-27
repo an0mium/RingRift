@@ -7,10 +7,11 @@
 
 > Current config note (Dec 27, 2025): The authoritative voter list now lives in `ai-service/config/distributed_hosts.yaml`.
 > Current voters: nebius-backbone-1, nebius-h100-3, hetzner-cpu1, hetzner-cpu2, vultr-a100-20gb (runpod-h100 removed).
+> Current tooling: `ai-service/scripts/p2p_cluster_status.py` (status) and `ai-service/scripts/deploy_p2p_systemd.py` (deploy/manage).
 
 **Date:** December 26, 2025
-**Deployment Script:** `/Users/armand/Development/RingRift/ai-service/scripts/deploy_p2p_cluster.py`
-**Status Check Script:** `/Users/armand/Development/RingRift/ai-service/scripts/check_p2p_cluster_status.py` (see also `check_p2p_status_all_nodes.py`)
+**Deployment Script:** `ai-service/scripts/deploy_p2p_cluster.py`
+**Status Check Script:** `ai-service/scripts/check_p2p_cluster_status.py` (see also `check_p2p_status_all_nodes.py`)
 
 ## Executive Summary
 
@@ -212,25 +213,25 @@ Final status check showed 14 healthy nodes with active P2P mesh connectivity.
 ### Check Cluster Status
 
 ```bash
-python /Users/armand/Development/RingRift/ai-service/scripts/check_p2p_cluster_status.py
+python ai-service/scripts/check_p2p_cluster_status.py
 ```
 
 ### Deploy to All Nodes
 
 ```bash
-python /Users/armand/Development/RingRift/ai-service/scripts/deploy_p2p_cluster.py
+python ai-service/scripts/deploy_p2p_cluster.py
 ```
 
 ### Deploy to Specific Nodes
 
 ```bash
-python /Users/armand/Development/RingRift/ai-service/scripts/deploy_p2p_cluster.py --nodes runpod-h100,vast-29129529
+python ai-service/scripts/deploy_p2p_cluster.py --nodes runpod-h100,vast-29129529
 ```
 
 ### Dry Run (Preview)
 
 ```bash
-python /Users/armand/Development/RingRift/ai-service/scripts/deploy_p2p_cluster.py --dry-run
+python ai-service/scripts/deploy_p2p_cluster.py --dry-run
 ```
 
 ## P2P Health Check

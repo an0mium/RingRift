@@ -32,9 +32,9 @@ The codebase has evolved 8 different sync implementations over time, creating co
 
 - **Purpose**: Legacy unified sync service
 - **Features**: Continuous polling, multi-transport, WAL, deduplication
-- **Status**: ⚠️ **DEPRECATED** - superseded by newer daemons
-- **Usage**: Referenced in a few docs/scripts, not actively used
-- **Action**: Mark deprecated, provide migration path to AutoSyncDaemon
+- **Status**: ⚠️ **DEPRECATED** (internal module) - superseded by newer daemons
+- **Usage**: Used by `scripts/unified_data_sync.py` and test coverage; keep CLI support until AutoSyncDaemon/SyncFacade fully replaces it
+- **Action**: Maintain deprecation notice; preserve the external CLI while migrating call sites
 
 ### 4. SyncOrchestrator (`app/distributed/sync_orchestrator.py`)
 
@@ -149,6 +149,8 @@ warnings.warn(
 )
 ```
 
+**CLI note**: `scripts/unified_data_sync.py` remains the supported external sync service entry point while AutoSyncDaemon/SyncFacade parity is completed.
+
 #### 2.3 SyncOrchestrator (Conditional)
 
 **File**: `app/distributed/sync_orchestrator.py`
@@ -218,7 +220,7 @@ Document how to migrate from each deprecated implementation to SyncFacade.
 Update high-value locations to use SyncFacade:
 
 #### 4.1 app/coordination/__init__.py
-Add SyncFacade exports:
+SyncFacade exports are already wired; keep this in sync with `app/coordination/sync_facade.py`:
 ```python
 # Sync Facade (December 2025 - unified sync entry point)
 from app.coordination.sync_facade import (
@@ -238,7 +240,7 @@ Update scripts that manually trigger sync to use facade:
 
 - `scripts/run_training_loop.py`
 - `scripts/sync_models.py`
-- `scripts/unified_data_sync.py` (mark as deprecated wrapper)
+- `scripts/unified_data_sync.py` (keep supported CLI; rebase onto AutoSyncDaemon/SyncFacade before deprecating the internal module)
 
 ### Phase 5: Testing
 
@@ -454,14 +456,14 @@ print(f"Total bytes: {stats['total_bytes']}")
 
 ## References
 
-- **SyncFacade**: `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_facade.py`
+- **SyncFacade**: `ai-service/app/coordination/sync_facade.py`
 - **Active Daemons**:
-  - `/Users/armand/Development/RingRift/ai-service/app/coordination/auto_sync_daemon.py`
-  - `/Users/armand/Development/RingRift/ai-service/app/coordination/cluster_data_sync.py`
-  - `/Users/armand/Development/RingRift/ai-service/app/coordination/ephemeral_sync.py`
-  - `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_router.py`
-- **Transport Layer**: `/Users/armand/Development/RingRift/ai-service/app/distributed/sync_coordinator.py`
+  - `ai-service/app/coordination/auto_sync_daemon.py`
+  - `ai-service/app/coordination/cluster_data_sync.py`
+  - `ai-service/app/coordination/ephemeral_sync.py`
+  - `ai-service/app/coordination/sync_router.py`
+- **Transport Layer**: `ai-service/app/distributed/sync_coordinator.py`
 - **Deprecated**:
-  - `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_coordinator.py` (SyncScheduler)
-  - `/Users/armand/Development/RingRift/ai-service/app/distributed/unified_data_sync.py`
-  - `/Users/armand/Development/RingRift/ai-service/app/distributed/sync_orchestrator.py` (tentative)
+  - `ai-service/app/coordination/sync_coordinator.py` (SyncScheduler)
+  - `ai-service/app/distributed/unified_data_sync.py`
+  - `ai-service/app/distributed/sync_orchestrator.py` (tentative)

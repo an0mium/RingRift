@@ -21,7 +21,7 @@ This runbook provides step-by-step instructions for executing training data gene
 ### Why This Runbook Exists
 
 - Only square8 2P has sufficient data (200+ games)
-- Hexagonal boards were blocked by HEX-PARITY-02 (now fixed in [`global_actions.py:174-220`](../../ai-service/app/rules/global_actions.py:174))
+- Hexagonal boards were blocked by HEX-PARITY-02 (now fixed in [`global_actions.py:174-220`](../../ai-service/app/rules/global_actions.py))
 - Neural network training requires large canonical datasets to be effective
 
 ---
@@ -82,7 +82,7 @@ export RINGRIFT_SKIP_RESOURCE_GUARD=1
 **Priority:** P0 (Must complete before Task 6)  
 **Dependency:** None
 
-Verify that the hexagonal parity fix in [`global_actions.py`](../../ai-service/app/rules/global_actions.py:174) is working correctly on the cluster.
+Verify that the hexagonal parity fix in [`global_actions.py`](../../ai-service/app/rules/global_actions.py) is working correctly on the cluster.
 
 ### Command
 

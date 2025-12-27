@@ -65,11 +65,11 @@ MasterLoopController
 
 ### Queue & Scheduling
 
-| Daemon               | File                        | Purpose                   |
-| -------------------- | --------------------------- | ------------------------- |
-| `QUEUE_POPULATOR`    | `queue_populator_daemon.py` | Maintain work queue       |
-| `SELFPLAY_SCHEDULER` | Built into master_loop      | Priority-based allocation |
-| `JOB_REAPER`         | `job_reaper.py`             | Kill stuck processes      |
+| Daemon               | File                         | Purpose                   |
+| -------------------- | ---------------------------- | ------------------------- |
+| `QUEUE_POPULATOR`    | `unified_queue_populator.py` | Maintain work queue       |
+| `SELFPLAY_SCHEDULER` | Built into master_loop       | Priority-based allocation |
+| `JOB_REAPER`         | `job_reaper.py`              | Kill stuck processes      |
 
 ## Daemon Lifecycle
 

@@ -63,8 +63,8 @@
 
 **Archival Details**:
 
-- **Source**: `/Users/armand/Development/RingRift/ai-service/app/coordination/sync_coordination_core.py`
-- **Destination**: `/Users/armand/Development/RingRift/ai-service/archive/deprecated_coordination/sync_coordination_core.py`
+- **Source**: `ai-service/app/coordination/sync_coordination_core.py`
+- **Destination**: `ai-service/archive/deprecated_coordination/sync_coordination_core.py`
 - **Date**: December 26, 2025
 - **Size**: 27KB
 - **Lines**: ~750 lines
@@ -275,12 +275,12 @@ During this analysis, we identified several sync-related modules. All were found
 
 ### Created:
 
-1. `/Users/armand/Development/RingRift/ai-service/SYNC_MODULES_ANALYSIS.md`
-2. `/Users/armand/Development/RingRift/ai-service/ARCHIVAL_SUMMARY_2025-12-26.md` (this file)
+1. `ai-service/SYNC_MODULES_ANALYSIS.md`
+2. `ai-service/ARCHIVAL_SUMMARY_2025-12-26.md` (this file)
 
 ### Modified:
 
-1. `/Users/armand/Development/RingRift/ai-service/archive/deprecated_coordination/README.md`
+1. `ai-service/archive/deprecated_coordination/README.md`
    - Added sync_coordination_core.py section
 
 ### Moved:

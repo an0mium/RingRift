@@ -280,7 +280,7 @@ Test coverage includes:
 
 ## See Also
 
-- `/Users/armand/Development/RingRift/ai-service/app/coordination/auto_export_daemon.py` - Implementation
-- `/Users/armand/Development/RingRift/ai-service/app/coordination/daemon_manager.py` - Daemon lifecycle
-- `/Users/armand/Development/RingRift/ai-service/scripts/export_replay_dataset.py` - Export script
-- `/Users/armand/Development/RingRift/ai-service/docs/EVENT_CATALOG.md` - Event types reference
+- `ai-service/app/coordination/auto_export_daemon.py` - Implementation
+- `ai-service/app/coordination/daemon_manager.py` - Daemon lifecycle
+- `ai-service/scripts/export_replay_dataset.py` - Export script
+- `ai-service/docs/EVENT_CATALOG.md` - Event types reference

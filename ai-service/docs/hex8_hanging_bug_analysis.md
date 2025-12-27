@@ -32,7 +32,7 @@ Using detailed debug logging, we discovered:
 
 ### The Bug
 
-In `/Users/armand/Development/RingRift/ai-service/app/rules/core.py` line 40:
+In `ai-service/app/rules/core.py` line 40:
 
 ```python
 BoardType.HEX8: BoardConfig(
@@ -127,7 +127,7 @@ Initial board:
 
 ### Files Changed
 
-- `/Users/armand/Development/RingRift/ai-service/app/rules/core.py` (line 40)
+- `ai-service/app/rules/core.py` (line 40)
 
 ### Affected Systems
 

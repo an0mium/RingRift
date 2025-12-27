@@ -4,23 +4,24 @@ This document shows concrete examples of how event naming standardization works 
 
 ## Quick Reference
 
-| Before (Non-Canonical) | After (Canonical) | Auto-Normalized? |
-|------------------------|-------------------|------------------|
-| `sync_complete` | `DATA_SYNC_COMPLETED` | ✅ Yes |
-| `SYNC_COMPLETE` | `DATA_SYNC_COMPLETED` | ✅ Yes |
-| `CLUSTER_SYNC_COMPLETE` | `DATA_SYNC_COMPLETED` | ✅ Yes |
-| `training_complete` | `TRAINING_COMPLETED` | ✅ Yes |
-| `TRAINING_COMPLETE` | `TRAINING_COMPLETED` | ✅ Yes |
-| `selfplay_batch_complete` | `SELFPLAY_COMPLETE` | ✅ Yes |
-| `model_sync_complete` | `P2P_MODEL_SYNCED` | ✅ Yes |
-| `promotion_complete` | `MODEL_PROMOTED` | ✅ Yes |
-| `evaluation_complete` | `EVALUATION_COMPLETED` | ✅ Yes |
+| Before (Non-Canonical)    | After (Canonical)      | Auto-Normalized? |
+| ------------------------- | ---------------------- | ---------------- |
+| `sync_complete`           | `DATA_SYNC_COMPLETED`  | ✅ Yes           |
+| `SYNC_COMPLETE`           | `DATA_SYNC_COMPLETED`  | ✅ Yes           |
+| `CLUSTER_SYNC_COMPLETE`   | `DATA_SYNC_COMPLETED`  | ✅ Yes           |
+| `training_complete`       | `TRAINING_COMPLETED`   | ✅ Yes           |
+| `TRAINING_COMPLETE`       | `TRAINING_COMPLETED`   | ✅ Yes           |
+| `selfplay_batch_complete` | `SELFPLAY_COMPLETE`    | ✅ Yes           |
+| `model_sync_complete`     | `P2P_MODEL_SYNCED`     | ✅ Yes           |
+| `promotion_complete`      | `MODEL_PROMOTED`       | ✅ Yes           |
+| `evaluation_complete`     | `EVALUATION_COMPLETED` | ✅ Yes           |
 
 ## Code Examples
 
 ### Example 1: Publishing Events
 
 #### Before (Multiple Inconsistent Names)
+
 ```python
 # Different parts of codebase using different names for same event
 # File 1: auto_sync_daemon.py
@@ -36,6 +37,7 @@ await router.publish("CLUSTER_SYNC_COMPLETE", payload)
 ```
 
 #### After (Normalized to Canonical)
+
 ```python
 # All variants automatically normalized to canonical form
 # File 1: auto_sync_daemon.py
@@ -56,6 +58,7 @@ await router.publish("CLUSTER_SYNC_COMPLETE", payload)
 ### Example 2: Subscribing to Events
 
 #### Before (Had to Subscribe to Multiple Variants)
+
 ```python
 from app.coordination.event_router import get_router
 
@@ -71,6 +74,7 @@ router.subscribe("DATA_SYNC_COMPLETED", on_sync)
 ```
 
 #### After (Single Canonical Subscription)
+
 ```python
 from app.coordination.event_router import get_router
 
@@ -91,6 +95,7 @@ router.subscribe("DATA_SYNC_COMPLETED", on_sync)
 ### Example 3: Event Emission in Daemons
 
 #### Before (Inconsistent Event Names)
+
 ```python
 # auto_sync_daemon.py
 async def _emit_sync_completed(self, games_synced: int):
@@ -110,6 +115,7 @@ async def _emit_sync_complete(self):
 ```
 
 #### After (Both Normalized)
+
 ```python
 # auto_sync_daemon.py
 async def _emit_sync_completed(self, games_synced: int):
@@ -133,6 +139,7 @@ async def _emit_sync_complete(self):
 ### Example 4: Event History and Debugging
 
 #### Before (Mixed Names in Logs)
+
 ```
 [EventRouter] Published: sync_complete
 [EventRouter] Published: SYNC_COMPLETE
@@ -143,6 +150,7 @@ async def _emit_sync_complete(self):
 ```
 
 #### After (Canonical Names in Logs)
+
 ```
 [EventRouter] Normalized 'sync_complete' → 'DATA_SYNC_COMPLETED'
 [EventRouter] Published: DATA_SYNC_COMPLETED
@@ -158,12 +166,14 @@ async def _emit_sync_complete(self):
 ### Example 5: Auditing Event Usage
 
 #### Before (Unknown Usage Patterns)
+
 ```python
 # No way to know which event names are used in production
 # Manual grep required: grep -r "sync_complete\|SYNC_COMPLETE" .
 ```
 
 #### After (Programmatic Audit)
+
 ```python
 from app.coordination.event_normalization import audit_event_usage
 from app.coordination.event_router import get_router
@@ -199,6 +209,7 @@ for variant, canonical in audit['non_canonical_variants'].items():
 ### Migration Example 1: Auto-Sync Daemon
 
 #### Before
+
 ```python
 # app/coordination/auto_sync_daemon.py
 async def _emit_sync_completed(self, games_synced: int):
@@ -221,6 +232,7 @@ async def _emit_sync_completed(self, games_synced: int):
 ```
 
 #### After (No Changes Required!)
+
 ```python
 # Same code - router automatically handles normalization
 # No migration needed, continues working as-is
@@ -229,6 +241,7 @@ async def _emit_sync_completed(self, games_synced: int):
 ### Migration Example 2: Sync Coordinator
 
 #### Before
+
 ```python
 # app/coordination/sync_coordinator.py
 async def on_sync_complete(result):
@@ -241,6 +254,7 @@ router.subscribe("DATA_SYNC_COMPLETED", on_sync_complete)  # Also subscribe to v
 ```
 
 #### After (Simplified)
+
 ```python
 # app/coordination/sync_coordinator.py
 async def on_sync_complete(result):
@@ -261,6 +275,7 @@ router.subscribe("DATA_SYNC_COMPLETED", on_sync_complete)
 ### Migration Example 3: Event Mappings
 
 #### Before
+
 ```python
 # app/coordination/event_mappings.py
 STAGE_TO_DATA_EVENT_MAP = {
@@ -272,6 +287,7 @@ STAGE_TO_DATA_EVENT_MAP = {
 ```
 
 #### After (Canonical)
+
 ```python
 # app/coordination/event_mappings.py
 STAGE_TO_DATA_EVENT_MAP = {
@@ -287,6 +303,7 @@ STAGE_TO_DATA_EVENT_MAP = {
 ## Testing Examples
 
 ### Test Before
+
 ```python
 def test_sync_complete():
     """Test that sync complete event is handled."""
@@ -300,6 +317,7 @@ def test_sync_complete():
 ```
 
 ### Test After
+
 ```python
 def test_sync_complete():
     """Test that DATA_SYNC_COMPLETED event is handled."""
@@ -317,6 +335,7 @@ def test_sync_complete():
 ### Pattern 1: Lifecycle Events
 
 #### Before (Inconsistent)
+
 ```python
 # Training lifecycle with inconsistent naming
 "training_start"      # present tense
@@ -325,6 +344,7 @@ def test_sync_complete():
 ```
 
 #### After (Canonical)
+
 ```python
 # Training lifecycle with consistent naming
 "TRAINING_STARTED"    # past tense, UPPERCASE
@@ -335,6 +355,7 @@ def test_sync_complete():
 ### Pattern 2: Sync Events
 
 #### Before (Ambiguous)
+
 ```python
 # What kind of sync?
 "SYNC_COMPLETE"       # Data? Model? Cluster?
@@ -343,6 +364,7 @@ def test_sync_complete():
 ```
 
 #### After (Specific)
+
 ```python
 # Clear subject + action + state
 "DATA_SYNC_STARTED"      # Data synchronization started
@@ -354,6 +376,7 @@ def test_sync_complete():
 ### Pattern 3: Completion Events
 
 #### Before (Multiple Forms)
+
 ```python
 "training_complete"       # adjective form
 "TRAINING_COMPLETED"      # past tense
@@ -362,6 +385,7 @@ def test_sync_complete():
 ```
 
 #### After (Consistent Tense)
+
 ```python
 "TRAINING_COMPLETED"      # past tense (action completed)
 "PROMOTION_COMPLETED"     # past tense → "MODEL_PROMOTED" (state change)
@@ -371,17 +395,20 @@ def test_sync_complete():
 ## Migration Checklist
 
 ### For New Code
+
 - [ ] Use canonical event names from `EVENT_NAMING_CONVENTION.md`
 - [ ] Subscribe to canonical names only
 - [ ] Use `is_canonical()` to verify event names in tests
 
 ### For Existing Code (Optional)
+
 - [ ] Update event publishers to use canonical names
 - [ ] Update event subscribers to use canonical names
 - [ ] Remove duplicate subscriptions for variant names
 - [ ] Update test assertions to use canonical names
 
 ### For Documentation
+
 - [ ] Update code comments to reference canonical names
 - [ ] Update API documentation with canonical event types
 - [ ] Add migration notes for deprecated event names
@@ -389,6 +416,7 @@ def test_sync_complete():
 ## Benefits Realized
 
 ### Before Standardization
+
 - ❌ 87 occurrences of SYNC_COMPLETE variants across 28 files
 - ❌ 124 occurrences of SELFPLAY_COMPLETE variants across 40 files
 - ❌ Developers unsure which event name to use
@@ -396,6 +424,7 @@ def test_sync_complete():
 - ❌ Logs confusing (same event, different names)
 
 ### After Standardization
+
 - ✅ Single canonical name: `DATA_SYNC_COMPLETED`
 - ✅ Single canonical name: `SELFPLAY_COMPLETE`
 - ✅ Clear naming convention for new events
@@ -407,5 +436,5 @@ def test_sync_complete():
 
 - [Event Naming Convention](EVENT_NAMING_CONVENTION.md) - Complete naming rules
 - [Event Normalization Summary](EVENT_NORMALIZATION_SUMMARY.md) - Implementation details
-- [Event Router](/Users/armand/Development/RingRift/ai-service/app/coordination/event_router.py) - Normalization integration
-- [Event Normalization](/Users/armand/Development/RingRift/ai-service/app/coordination/event_normalization.py) - Normalization utilities
+- [Event Router](../app/coordination/event_router.py) - Normalization integration
+- [Event Normalization](../app/coordination/event_normalization.py) - Normalization utilities

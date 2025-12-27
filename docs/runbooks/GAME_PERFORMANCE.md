@@ -318,7 +318,7 @@ Populate these per environment (staging, production, etc.) and keep them updated
 
 ### 7.1 Scenario and Load Pattern
 
-- **Scenario script:** [`game-creation.js`](../../tests/load/scenarios/game-creation.js:25)
+- **Scenario script:** [`game-creation.js`](../../tests/load/scenarios/game-creation.js)
 - **Command:** `BASE_URL=http://localhost:3000 npm run test:smoke:game-creation`
 - **Load pattern (k6 stages):**
   - 30s ramp-up to 10 VUs
@@ -352,7 +352,7 @@ Populate these per environment (staging, production, etc.) and keep them updated
 
 ### 7.3 SLO Comparison (POST `/api/games`)
 
-Staging SLO for POST `/api/games` (from [`tests/load/README.md`](../../tests/load/README.md:124) and [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md:1)):
+Staging SLO for POST `/api/games` (from [`tests/load/README.md`](../../tests/load/README.md) and [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md)):
 
 - p95 latency ≤ 800 ms
 - p99 latency ≤ 1500 ms
@@ -379,7 +379,7 @@ These baselines should be treated as the initial reference point for future capa
 During the PASS22 `game-creation` load test, every GET `/api/games/:gameId` request returned `400 GAME_INVALID_ID` due to an ID-format/validation mismatch between:
 
 - The ID returned by `POST /api/games`, and
-- The `GameIdParamSchema` used by [`router.get('/:gameId')`](../../src/server/routes/game.ts:438).
+- The `GameIdParamSchema` used by [`router.get('/:gameId')`](../../src/server/routes/game.ts).
 
 Impact on metrics:
 
@@ -404,7 +404,7 @@ Operators and engineers should treat the elevated `http_req_failed` in this spec
 **Environment**
 
 - `BASE_URL=http://127.0.0.1` (nginx listening on port 80 and proxying to the Node `app` service on port 3000).
-- k6 scenario script: [`game-creation.js`](../../tests/load/scenarios/game-creation.js:1).
+- k6 scenario script: [`game-creation.js`](../../tests/load/scenarios/game-creation.js).
 - Auth and health probes as in §7 (shared login helper and `/health`).
 
 **Infra / availability status**
@@ -433,7 +433,7 @@ Operators and engineers should treat the elevated `http_req_failed` in this spec
 **Environment**
 
 - Same as Scenario 1 (`BASE_URL=http://127.0.0.1` via nginx → `app:3000`).
-- k6 scenario script: [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js:1).
+- k6 scenario script: [`concurrent-games.js`](../../tests/load/scenarios/concurrent-games.js).
 
 **Infra / availability status**
 
@@ -458,7 +458,7 @@ Operators and engineers should treat the elevated `http_req_failed` in this spec
 **Environment**
 
 - Same nginx-fronted HTTP topology as Scenarios 1–2.
-- k6 scenario script: [`player-moves.js`](../../tests/load/scenarios/player-moves.js:1).
+- k6 scenario script: [`player-moves.js`](../../tests/load/scenarios/player-moves.js).
 - HTTP move endpoint flag: `MOVE_HTTP_ENDPOINT_ENABLED=false` in the script; the scenario currently exercises game creation and polling only.
 
 **Infra / availability status**
@@ -488,7 +488,7 @@ Operators and engineers should treat the elevated `http_req_failed` in this spec
 
 - `BASE_URL=http://127.0.0.1`.
 - `WS_URL=ws://127.0.0.1`.
-- k6 scenario script: [`websocket-stress.js`](../../tests/load/scenarios/websocket-stress.js:1).
+- k6 scenario script: [`websocket-stress.js`](../../tests/load/scenarios/websocket-stress.js).
 - WebSocket connections target the same Socket.IO endpoint as the browser client: `/socket.io/?EIO=4&amp;transport=websocket&amp;token=…`.
 
 **Infra / availability status**
@@ -516,6 +516,6 @@ Operators and engineers should treat the elevated `http_req_failed` in this spec
 
 &gt; For up-to-date guidance on how these PASS24.1 scenario baselines relate to P21.4‑2 (production-scale load test) and P22.10 ("Document baseline metrics from load test"), see:
 &gt;
-&gt; - [`docs/PASS21_ASSESSMENT_REPORT.md`](../archive/assessments/PASS21_ASSESSMENT_REPORT.md:393) – updated Follow-up Status (PASS24.1) note under Production Validation.
-&gt; - [`docs/PASS22_COMPLETION_SUMMARY.md`](../archive/assessments/PASS22_COMPLETION_SUMMARY.md:205) – Load Test Baselines section with PASS24.1 follow-up summary.
-&gt; - [`docs/PASS22_ASSESSMENT_REPORT.md`](../archive/assessments/PASS22_ASSESSMENT_REPORT.md:393) – Production Validation section with infra vs functional k6 scenario status.
+&gt; - [`docs/PASS21_ASSESSMENT_REPORT.md`](../archive/assessments/PASS21_ASSESSMENT_REPORT.md) – updated Follow-up Status (PASS24.1) note under Production Validation.
+&gt; - [`docs/PASS22_COMPLETION_SUMMARY.md`](../archive/assessments/PASS22_COMPLETION_SUMMARY.md) – Load Test Baselines section with PASS24.1 follow-up summary.
+&gt; - [`docs/PASS22_ASSESSMENT_REPORT.md`](../archive/assessments/PASS22_ASSESSMENT_REPORT.md) – Production Validation section with infra vs functional k6 scenario status.

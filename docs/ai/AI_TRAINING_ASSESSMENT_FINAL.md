@@ -694,50 +694,50 @@ This section enumerates the canonical modules and scripts for heuristic-weight t
 In addition to the multi-board CMA-ES/GA harness in §§11.2–11.6, the training stack now includes a **square8-focused heuristic tier evaluation pipeline** plus a small, embedded CMA-ES-style optimiser wired directly into the training CLI. This pipeline is strictly **offline** and is intended for repeatable heuristic experiments; it does not, by itself, change any production AI endpoints or TypeScript heuristics.
 
 - **Heuristic tier specifications (square8, eval-pool based)**
-  - The minimal tier specification dataclass [`HeuristicTierSpec`](../../ai-service/app/training/tier_eval_config.py:225) and the initial square8 tier list [`HEURISTIC_TIER_SPECS`](../../ai-service/app/training/tier_eval_config.py:251) live in [`tier_eval_config.py`](../../ai-service/app/training/tier_eval_config.py:1).
-  - The initial tier [`sq8_heuristic_baseline_v1`](../../ai-service/app/training/tier_eval_config.py:251) is defined for:
+  - The minimal tier specification dataclass [`HeuristicTierSpec`](../../ai-service/app/training/tier_eval_config.py) and the initial square8 tier list [`HEURISTIC_TIER_SPECS`](../../ai-service/app/training/tier_eval_config.py) live in [`tier_eval_config.py`](../../ai-service/app/training/tier_eval_config.py).
+  - The initial tier [`sq8_heuristic_baseline_v1`](../../ai-service/app/training/tier_eval_config.py) is defined for:
     - `board_type=BoardType.SQUARE8`, `num_players=2`.
-    - `eval_pool_id="v1"` (Square8 mid/late-game pool managed by [`eval_pools.py`](../../ai-service/app/training/eval_pools.py:69)).
+    - `eval_pool_id="v1"` (Square8 mid/late-game pool managed by [`eval_pools.py`](../../ai-service/app/training/eval_pools.py)).
     - `num_games=64`, with both `candidate_profile_id` and `baseline_profile_id` pointing at the canonical balanced heuristic profile.
   - Tiers are intentionally small and data-only: higher-level tooling (including CMA-ES runs) can point `candidate_profile_id` at any entry in [`HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py) without changing this module.
 
 - **Tier evaluation harness (`HeuristicAI` vs baseline on pooled states)**
-  - [`run_heuristic_tier_eval()`](../../ai-service/app/training/eval_pools.py:190) takes a single [`HeuristicTierSpec`](../../ai-service/app/training/tier_eval_config.py:225) and:
-    - Loads a fixed pool of `GameState` snapshots via [`load_state_pool()`](../../ai-service/app/training/eval_pools.py:69).
+  - [`run_heuristic_tier_eval()`](../../ai-service/app/training/eval_pools.py) takes a single [`HeuristicTierSpec`](../../ai-service/app/training/tier_eval_config.py) and:
+    - Loads a fixed pool of `GameState` snapshots via [`load_state_pool()`](../../ai-service/app/training/eval_pools.py).
     - Plays two-player games using `HeuristicAI` for both sides (candidate vs baseline), alternating seats to reduce first-move bias.
     - Aggregates **wins/draws/losses**, simple **ring/territory margins**, basic **latency statistics** for the candidate side, total move counts, and **victory reasons**.
     - Returns a JSON-serialisable dict capturing these metrics together with the tier metadata (tier id/name, board type, eval pool id, profile ids, games requested/played).
-  - [`run_all_heuristic_tiers()`](../../ai-service/app/training/eval_pools.py:418) runs one or more tiers and wraps their results in a top-level report:
+  - [`run_all_heuristic_tiers()`](../../ai-service/app/training/eval_pools.py) runs one or more tiers and wraps their results in a top-level report:
     - Assigns a `run_id`, timestamp, RNG seed, and optional `git_commit`.
     - Respects an optional `tier_ids` filter so that only selected tier ids are evaluated.
-  - The module exposes a small CLI entrypoint in [`eval_pools.py`](../../ai-service/app/training/eval_pools.py:507) that writes tier-eval reports to `results/ai_eval/`:
+  - The module exposes a small CLI entrypoint in [`eval_pools.py`](../../ai-service/app/training/eval_pools.py) that writes tier-eval reports to `results/ai_eval/`:
 
     ```bash
     cd ai-service
     python -m app.training.eval_pools --seed 1 --max-games 64
     ```
 
-    - By default this evaluates all entries in [`HEURISTIC_TIER_SPECS`](../../ai-service/app/training/tier_eval_config.py:251).
+    - By default this evaluates all entries in [`HEURISTIC_TIER_SPECS`](../../ai-service/app/training/tier_eval_config.py).
     - Use `--tiers sq8_heuristic_baseline_v1` (or a comma-separated list) to restrict the run to specific heuristic tiers.
     - The resulting `tier_eval_YYYYMMDDTHHMMSSZ.json` files under `results/ai_eval/` are **offline analysis artifacts only** (used for tuning, diagnostics, and regression checks); they are not consumed by any runtime services.
 
-- **CMA-ES-style optimiser embedded in [`train.py`](../../ai-service/app/training/train.py:1)**
-  - [`_flatten_heuristic_weights()`](../../ai-service/app/training/train.py:92) and [`_reconstruct_heuristic_profile()`](../../ai-service/app/training/train.py:116) provide a stable mapping between:
+- **CMA-ES-style optimiser embedded in [`train.py`](../../ai-service/app/training/train.py)**
+  - [`_flatten_heuristic_weights()`](../../ai-service/app/training/train.py) and [`_reconstruct_heuristic_profile()`](../../ai-service/app/training/train.py) provide a stable mapping between:
     - Dict-based heuristic profiles keyed by [`HEURISTIC_WEIGHT_KEYS`](../../ai-service/app/ai/heuristic_weights.py).
     - Ordered weight vectors suitable for optimisation algorithms.
-  - [`temporary_heuristic_profile()`](../../ai-service/app/training/train.py:129) installs a transient profile id into [`HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py) for the duration of an evaluation, then restores the original registry contents. This helper is explicitly **offline-only** and is not used on any production code paths.
-  - [`evaluate_heuristic_candidate()`](../../ai-service/app/training/train.py:166) is the fitness bridge:
+  - [`temporary_heuristic_profile()`](../../ai-service/app/training/train.py) installs a transient profile id into [`HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py) for the duration of an evaluation, then restores the original registry contents. This helper is explicitly **offline-only** and is not used on any production code paths.
+  - [`evaluate_heuristic_candidate()`](../../ai-service/app/training/train.py) is the fitness bridge:
     - Reconstructs a candidate profile from `(keys, candidate_vector)`.
-    - Uses [`temporary_heuristic_profile()`](../../ai-service/app/training/train.py:129) to register it under a temporary `cmaes_candidate_<tier_id>` profile id.
-    - Calls [`run_heuristic_tier_eval()`](../../ai-service/app/training/eval_pools.py:190) on a derived tier spec where `candidate_profile_id` is the temporary id and `baseline_profile_id` is the chosen baseline.
+    - Uses [`temporary_heuristic_profile()`](../../ai-service/app/training/train.py) to register it under a temporary `cmaes_candidate_<tier_id>` profile id.
+    - Calls [`run_heuristic_tier_eval()`](../../ai-service/app/training/eval_pools.py) on a derived tier spec where `candidate_profile_id` is the temporary id and `baseline_profile_id` is the chosen baseline.
     - Computes a scalar fitness from:
       - Win/draw/loss results (win rate with draws counting as 0.5).
       - A small bonus based on ring and territory margins.
     - Returns `(fitness, raw_tier_eval_result)` so that the optimiser can track both scalar fitness and the underlying JSON metrics.
-  - [`run_cmaes_heuristic_optimization()`](../../ai-service/app/training/train.py:227) runs a small CMA-ES-style loop over the weight vector for a given tier and base profile:
+  - [`run_cmaes_heuristic_optimization()`](../../ai-service/app/training/train.py) runs a small CMA-ES-style loop over the weight vector for a given tier and base profile:
     - Seeds both Python and NumPy RNGs for reproducibility.
     - Samples candidates from an isotropic Gaussian around the current mean.
-    - Evaluates each candidate via [`evaluate_heuristic_candidate()`](../../ai-service/app/training/train.py:166), tracking the per-generation best and the best overall candidate.
+    - Evaluates each candidate via [`evaluate_heuristic_candidate()`](../../ai-service/app/training/train.py), tracking the per-generation best and the best overall candidate.
     - Updates the search mean using log-weighted recombination of the top μ candidates and applies a simple geometric decay to the step size `sigma`.
     - Returns a JSON-serialisable report containing:
       - Run metadata (`run_type`, `tier_id`, `base_profile_id`, `generations`, `population_size`, `rng_seed`, `games_per_candidate`, `dimension`).
@@ -746,13 +746,13 @@ In addition to the multi-board CMA-ES/GA harness in §§11.2–11.6, the trainin
       - The `best` candidate (generation index, vector, fitness, and raw tier-eval result).
 
 - **Training CLI integration (offline-only heuristic mode)**
-  - The training CLI wires this optimiser behind a dedicated flag in [`parse_args()`](../../ai-service/app/training/train.py:1733):
+  - The training CLI wires this optimiser behind a dedicated flag in [`parse_args()`](../../ai-service/app/training/train.py):
     - `--cmaes-heuristic` – switch the script into heuristic-optimisation mode (no neural network training).
-    - `--cmaes-tier-id` – which [`HeuristicTierSpec.id`](../../ai-service/app/training/tier_eval_config.py:235) to use as the evaluation environment (default: `sq8_heuristic_baseline_v1`).
+    - `--cmaes-tier-id` – which [`HeuristicTierSpec.id`](../../ai-service/app/training/tier_eval_config.py) to use as the evaluation environment (default: `sq8_heuristic_baseline_v1`).
     - `--cmaes-base-profile-id` – which heuristic profile in [`HEURISTIC_WEIGHT_PROFILES`](../../ai-service/app/ai/heuristic_weights.py) to optimise around (default: `heuristic_v1_balanced`).
     - `--cmaes-generations`, `--cmaes-population-size`, `--cmaes-seed`, `--cmaes-games-per-candidate` – knobs controlling search depth, breadth, and evaluation budget for each candidate. The values shown here are **examples**, not mandated presets.
 
-  - When `--cmaes-heuristic` is supplied, [`main()`](../../ai-service/app/training/train.py:1913) short-circuits the normal training path:
+  - When `--cmaes-heuristic` is supplied, [`main()`](../../ai-service/app/training/train.py) short-circuits the normal training path:
 
     ```bash
     cd ai-service
@@ -769,7 +769,7 @@ In addition to the multi-board CMA-ES/GA harness in §§11.2–11.6, the trainin
       - Runs only the heuristic CMA-ES loop described above.
       - Does **not** start neural network training or touch any model checkpoints.
       - Writes a report to `results/ai_eval/cmaes_heuristic_square8_YYYYMMDDTHHMMSSZ.json` with the metadata, per-generation history, and best candidate vector plus its tier-eval metrics.
-    - To change the evaluation budget per candidate, pass `--cmaes-games-per-candidate`; omitting it uses the `num_games` value from the selected [`HeuristicTierSpec`](../../ai-service/app/training/tier_eval_config.py:235).
+    - To change the evaluation budget per candidate, pass `--cmaes-games-per-candidate`; omitting it uses the `num_games` value from the selected [`HeuristicTierSpec`](../../ai-service/app/training/tier_eval_config.py).
 
   - Applying a tuned heuristic profile to runtime remains a **separate, explicit step**:
     - Register a new profile id (or update an existing one) in [`heuristic_weights.py`](../../ai-service/app/ai/heuristic_weights.py).

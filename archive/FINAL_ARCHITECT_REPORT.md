@@ -38,8 +38,8 @@ RingRift is built as a **distributed multiplayer game platform** with three prim
 
 - **Express API Server** (Port 3000): REST endpoints for auth, games, users
 - **Socket.IO WebSocket Server**: Real-time game state synchronization
-- **Game engine host**: Backend orchestrator over the shared rules engine, implemented in [`GameEngine`](src/server/game/GameEngine.ts:1). Uses shared helpers under [`src/shared/engine`](src/shared/engine/types.ts:1) for movement, captures, lines, territory, placement, victory, and turn/phase progression, and delegates all **line and territory decision phases** to canonical decision helpers ([`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1), [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1)) which enumerate and apply `process_line`, `choose_line_reward`, `process_territory_region`, and `eliminate_rings_from_stack` `Move`s.
-- **Session Management**: [`GameSessionManager`](src/server/game/GameSessionManager.ts:1) with Redis-backed distributed locking
+- **Game engine host**: Backend orchestrator over the shared rules engine, implemented in [`GameEngine`](../src/server/game/GameEngine.ts). Uses shared helpers under [`src/shared/engine`](../src/shared/engine/types.ts) for movement, captures, lines, territory, placement, victory, and turn/phase progression, and delegates all **line and territory decision phases** to canonical decision helpers ([`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts), [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts)) which enumerate and apply `process_line`, `choose_line_reward`, `process_territory_region`, and `eliminate_rings_from_stack` `Move`s.
+- **Session Management**: [`GameSessionManager`](../src/server/game/GameSessionManager.ts) with Redis-backed distributed locking
 - **Database**: PostgreSQL via Prisma ORM for persistence
 - **Caching**: Redis for session data and distributed locks
 
@@ -50,7 +50,7 @@ RingRift is built as a **distributed multiplayer game platform** with three prim
 - **State Management**: Context API (GameContext, AuthContext) + React Query
 - **WebSocket Client**: Socket.IO-client for real-time updates
 - **Styling**: Tailwind CSS with dark theme support
-- **Local Sandbox**: Browser-only rules engine ([`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:1))
+- **Local Sandbox**: Browser-only rules engine ([`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts))
 
 #### AI Service (Python/FastAPI)
 
@@ -118,7 +118,7 @@ GameEngine detects line formation
 
 #### Game State Management
 
-- **GameState** ([`src/shared/types/game.ts`](src/shared/types/game.ts:1)): Canonical state representation
+- **GameState** ([`src/shared/types/game.ts`](../src/shared/types/game.ts)): Canonical state representation
   - Board configuration (cells, stacks, markers, collapsed spaces)
   - Player data (rings, eliminated, territory, timeRemaining)
   - Phase tracking (placement, movement, chain_capture, line_processing, territory_processing)
@@ -127,23 +127,23 @@ GameEngine detects line formation
 
 #### Rules Engine Stack
 
-1. **Shared Engine** ([`src/shared/engine/`](src/shared/engine/types.ts:1)):
+1. **Shared Engine** ([`src/shared/engine/`](../src/shared/engine/types.ts)):
    - Pure TypeScript validators and mutators over shared `GameState` / `BoardState`.
    - Canonical Move → GameAction adapter and single source of truth for rules semantics.
    - Reference implementation for test parity; all hosts (backend `RuleEngine` / `GameEngine` and `ClientSandboxEngine`) are thin adapters over these helpers.
 
-2. **Backend RuleEngine** ([`src/server/game/RuleEngine.ts`](src/server/game/RuleEngine.ts:1)):
+2. **Backend RuleEngine** ([`src/server/game/RuleEngine.ts`](../src/server/game/RuleEngine.ts)):
    - Validates moves against current state
    - Enumerates valid moves per phase
    - Enforces movement distance, capture rules, landing restrictions
 
-3. **GameEngine** ([`src/server/game/GameEngine.ts`](src/server/game/GameEngine.ts:1)):
+3. **GameEngine** ([`src/server/game/GameEngine.ts`](../src/server/game/GameEngine.ts)):
    - Orchestrates turn/phase flow
    - Applies moves and triggers consequences
    - Manages decision phases and PlayerChoices
    - Victory condition checking
 
-4. **ClientSandboxEngine** ([`src/client/sandbox/ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts:1)):
+4. **ClientSandboxEngine** ([`src/client/sandbox/ClientSandboxEngine.ts`](../src/client/sandbox/ClientSandboxEngine.ts)):
    - Browser-side rules implementation
    - Full parity with backend for testing
    - Local AI and human play support
@@ -187,7 +187,7 @@ Fallback Chain:
 
 #### Line Processing Workflow
 
-1. After a move is applied, the backend `GameEngine` asks the shared line helpers (geometry in [`lineDetection.ts`](src/shared/engine/lineDetection.ts:21), decisions in [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1)) to compute all applicable line‑decision `Move`s for the current state.
+1. After a move is applied, the backend `GameEngine` asks the shared line helpers (geometry in [`lineDetection.ts`](../src/shared/engine/lineDetection.ts), decisions in [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts)) to compute all applicable line‑decision `Move`s for the current state.
 2. The shared helper enumerates:
    - `process_line` `Move`s for exact‑length lines (auto‑collapse).
    - `choose_line_reward` `Move`s for overlength lines, encoding the available reward options (collapse‑all vs minimal‑collapse).
@@ -201,12 +201,12 @@ All semantics for line rewards (collapse‑all vs minimal‑collapse), when elim
 
 #### Territory Processing Workflow
 
-1. After automatic consequences from movement/captures (including line collapses) are applied, the backend `GameEngine` uses the shared territory helpers (detection in [`territoryDetection.ts`](src/shared/engine/territoryDetection.ts:36), borders in [`territoryBorders.ts`](src/shared/engine/territoryBorders.ts:35)) to discover disconnected regions for the current player.
-2. The shared decision helpers in [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1) then:
+1. After automatic consequences from movement/captures (including line collapses) are applied, the backend `GameEngine` uses the shared territory helpers (detection in [`territoryDetection.ts`](../src/shared/engine/territoryDetection.ts), borders in [`territoryBorders.ts`](../src/shared/engine/territoryBorders.ts)) to discover disconnected regions for the current player.
+2. The shared decision helpers in [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts) then:
    - Apply Q23 eligibility checks per region (does the player have at least one stack/cap **outside** the region?).
    - Enumerate `process_territory_region` `Move`s for each Q23‑eligible region.
 3. When multiple eligible regions exist, the host sets `phase = 'territory_processing'` and surfaces these canonical `Move`s as a PlayerChoice over `moveId`. When only one region is eligible, hosts may apply the corresponding `process_territory_region` `Move` directly, still via `GameEngine.makeMoveById()`.
-4. Processing a region (implemented via [`territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts:1) and [`TerritoryMutator.ts`](src/shared/engine/mutators/TerritoryMutator.ts:1)):
+4. Processing a region (implemented via [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts) and [`TerritoryMutator.ts`](../src/shared/engine/mutators/TerritoryMutator.ts)):
    - Collapses interior spaces to controlled territory.
    - Eliminates interior stacks and credits `eliminatedRings`.
    - Computes the self‑elimination cost and exposes follow‑up `eliminate_rings_from_stack` `Move`s for stacks **outside** the region when required.
@@ -220,38 +220,40 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
 
 ### 2.1 Canonical Documentation Structure Established
 
-**Primary Navigation**: [`README.md`](README.md:1) and [`docs/INDEX.md`](../docs/INDEX.md:1)
+**Primary Navigation**: [`README.md`](../README.md) and [`docs/INDEX.md`](../docs/INDEX.md)
 
 **Canonical Documents** (Single Source of Truth):
 
-| Document                                                                                                                                                                       | Role                          | Status            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ----------------- |
+| Document | Role | Status |
+| -------- | ---- | ------ |
+
 <<<<<<< Updated upstream
-| [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)                                                                                                                   | Authoritative rulebook        | ✅ Current        |
-| [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1)                                                                                                                     | Implementation spec           | ✅ Current        |
+| [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) | Authoritative rulebook | ✅ Current |
+| [`ringrift_compact_rules.md`](../ringrift_compact_rules.md) | Implementation spec | ✅ Current |
 | [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1) | Factual implementation status | ✅ Updated Nov 22 |
-| [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)                                                                                                                   | System architecture & design  | ✅ Current        |
-| [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)                                                                                                                               | Phased development plan       | ✅ Updated Nov 22 |
-| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1)                                                                                                                                         | P0/P1/P2 issue tracker        | ✅ Updated Nov 22 |
-| [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)                                                                                                                                   | AI system design & plans      | ✅ Updated Nov 22 |
-| [`QUICKSTART.md`](../QUICKSTART.md:1)                                                                                                                                             | Getting started guide         | ✅ Updated Nov 22 |
+| [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md) | System architecture & design | ✅ Current |
+| [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md) | Phased development plan | ✅ Updated Nov 22 |
+| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) | P0/P1/P2 issue tracker | ✅ Updated Nov 22 |
+| [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md) | AI system design & plans | ✅ Updated Nov 22 |
+| [`QUICKSTART.md`](../QUICKSTART.md) | Getting started guide | ✅ Updated Nov 22 |
 =======
-| [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)                                                                                                                | Authoritative rulebook        | ✅ Current        |
-| [`ringrift_compact_rules.md`](../ringrift_compact_rules.md:1)                                                                                                                  | Implementation spec           | ✅ Current        |
+| [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) | Authoritative rulebook | ✅ Current |
+| [`ringrift_compact_rules.md`](../ringrift_compact_rules.md) | Implementation spec | ✅ Current |
 | [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1) | Factual implementation status | ✅ Updated Nov 22 |
-| [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)                                                                                             | System architecture & design  | ✅ Current        |
-| [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)                                                                                                              | Phased development plan       | ✅ Updated Nov 22 |
-| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1)                                                                                                                                      | P0/P1/P2 issue tracker        | ✅ Updated Nov 22 |
-| [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)                                                                                                              | AI system design & plans      | ✅ Updated Nov 22 |
-| [`QUICKSTART.md`](../QUICKSTART.md:1)                                                                                                                                          | Getting started guide         | ✅ Updated Nov 22 |
->>>>>>> Stashed changes
-| [`CONTRIBUTING.md`](CONTRIBUTING.md:1)                                                                                                                                         | Contribution guidelines       | ✅ Current        |
+| [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md) | System architecture & design | ✅ Current |
+| [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md) | Phased development plan | ✅ Updated Nov 22 |
+| [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md) | P0/P1/P2 issue tracker | ✅ Updated Nov 22 |
+| [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md) | AI system design & plans | ✅ Updated Nov 22 |
+| [`QUICKSTART.md`](../QUICKSTART.md) | Getting started guide | ✅ Updated Nov 22 |
+
+> > > > > > > Stashed changes
+> > > > > > > | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Contribution guidelines | ✅ Current |
 
 ### 2.2 Documentation Changes Made
 
 #### Major Updates
 
-1. **README.md** ([`README.md`](README.md:1)):
+1. **README.md** ([`README.md`](../README.md)):
    - Added "Documentation Map & Canonical Sources" section
    - Updated current status with code-verified assessment
    - Added API documentation for all endpoints
@@ -265,26 +267,26 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
    - Documented all P0 task completions
    - Verified all backend/sandbox/AI components
 
-3. **STRATEGIC_ROADMAP.md** ([`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)):
+3. **STRATEGIC_ROADMAP.md** ([`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)):
    - Added "Implementation Roadmap (Post-Audit)" section
    - Documented P0/P1/P2 priorities with completion status
    - Updated phase completion markers
    - Added cross-references to TODO.md tracks
 
-4. **KNOWN_ISSUES.md** ([`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1)):
+4. **KNOWN_ISSUES.md** ([`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md)):
    - Resolved P0.1 (forced elimination) - now auto-executed
    - Resolved P0.2 (chain capture edge cases) - tests added
    - Updated with completed implementation work
    - Clarified remaining gaps
 
-5. **AI_ARCHITECTURE.md** ([`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)):
+5. **AI_ARCHITECTURE.md** ([`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md)):
    - Added difficulty-to-AI-type mapping table
    - Documented error handling & resilience architecture
    - Added UI integration details
    - Added RNG determinism section
    - Documented fallback hierarchy
 
-6. **QUICKSTART.md** ([`QUICKSTART.md`](../QUICKSTART.md:1)):
+6. **QUICKSTART.md** ([`QUICKSTART.md`](../QUICKSTART.md)):
    - Added "Playing Against AI" section
    - Added "Understanding the Game HUD" section
    - Added "Finding and Joining Games" section
@@ -293,33 +295,33 @@ All semantics for Q23 gating, internal vs self‑elimination bookkeeping, and re
 
 #### New Documents Created
 
-1. **docs/INDEX.md** ([`docs/INDEX.md`](../docs/INDEX.md:1)):
+1. **docs/INDEX.md** ([`docs/INDEX.md`](../docs/INDEX.md)):
    - Minimal "Start Here" guide for implementers/designers
    - Lists canonical docs by category
    - Clear purpose statements for each document
 
-2. **DOCUMENTATION_UPDATE_SUMMARY.md** ([`DOCUMENTATION_UPDATE_SUMMARY.md`](DOCUMENTATION_UPDATE_SUMMARY.md:1)):
+2. **DOCUMENTATION_UPDATE_SUMMARY.md** (`DOCUMENTATION_UPDATE_SUMMARY.md`):
    - Tracks all documentation changes
    - RNG system integration notes
    - Consistency checklist
 
-3. **P0_TASK_18_STEP_2_SUMMARY.md** ([`P0_TASK_18_STEP_2_SUMMARY.md`](P0_TASK_18_STEP_2_SUMMARY.md:1)):
+3. **P0_TASK_18_STEP_2_SUMMARY.md** (`P0_TASK_18_STEP_2_SUMMARY.md`):
    - Backend unified Move model refactor
    - PlayerChoice as thin adapter pattern
    - Complete architectural contracts
 
-4. **P0_TASK_18_STEP_3_SUMMARY.md** ([`P0_TASK_18_STEP_3_SUMMARY.md`](P0_TASK_18_STEP_3_SUMMARY.md:1)):
+4. **P0_TASK_18_STEP_3_SUMMARY.md** (`P0_TASK_18_STEP_3_SUMMARY.md`):
    - Sandbox alignment verification
    - No code changes needed (already compliant)
 
-5. **P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md** ([`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md:1)):
+5. **P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md** ([`P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md`](P1_AI_FALLBACK_IMPLEMENTATION_SUMMARY.md)):
    - Three-tier fallback architecture
    - Circuit breaker implementation
    - Comprehensive testing strategy
 
 #### Deprecated Documents
 
-Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
+Filed under `deprecated/` with strong deprecation banners:
 
 - `RINGRIFT_IMPROVEMENT_PLAN.md` → see `STRATEGIC_ROADMAP.md`
 - `TECHNICAL_ARCHITECTURE_ANALYSIS.md` → see `ARCHITECTURE_ASSESSMENT.md`
@@ -353,10 +355,10 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Modified [`TurnEngine.ts`](src/server/game/turn/TurnEngine.ts:1) to auto-execute forced elimination
+- Modified [`TurnEngine.ts`](../src/server/game/turn/TurnEngine.ts) to auto-execute forced elimination
 - Selection policy: prefer stacks with caps, then minimal cap height, then first stack
 - Eliminates immediately without PlayerChoice prompt
-- Updated tests in [`ForcedEliminationAndStalemate.test.ts`](tests/scenarios/ForcedEliminationAndStalemate.test.ts:1)
+- Updated tests in [`ForcedEliminationAndStalemate.test.ts`](../tests/scenarios/ForcedEliminationAndStalemate.test.ts)
 
 **Result**: Forced elimination now matches documented behavior; games never stall waiting for elimination choice
 
@@ -366,9 +368,9 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Analyzed [`captureChainEngine.ts`](src/server/game/rules/captureChainEngine.ts:1)
+- Analyzed `captureChainEngine.ts`
 - Verified cycle detection allows revisiting positions with changed stack heights
-- Added comprehensive tests in [`ComplexChainCaptures.test.ts`](tests/scenarios/ComplexChainCaptures.test.ts:1)
+- Added comprehensive tests in [`ComplexChainCaptures.test.ts`](../tests/scenarios/ComplexChainCaptures.test.ts)
 - Covered FAQ 15.3.1 (reversal) and FAQ 15.3.2 (cycles)
 
 **Result**: Chain capture behavior validated against rulebook; no infinite loops or hangs
@@ -379,8 +381,8 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Enhanced [`RefactoredEngineParity.test.ts`](tests/unit/RefactoredEngineParity.test.ts:1)
-- Extended [`RulesMatrix.Comprehensive.test.ts`](tests/scenarios/RulesMatrix.Comprehensive.test.ts:1)
+- Enhanced [`RefactoredEngineParity.test.ts`](../tests/unit/RefactoredEngineParity.test.ts)
+- Extended [`RulesMatrix.Comprehensive.test.ts`](../tests/scenarios/RulesMatrix.Comprehensive.test.ts)
 - Added territory and decision phase coverage
 - Verified move-driven model against shared engine
 
@@ -392,10 +394,10 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Refactored [`GameEngine.applyDecisionMove()`](src/server/game/GameEngine.ts:1229)
+- Refactored [`GameEngine.applyDecisionMove()`](../src/server/game/GameEngine.ts)
 - Made `moveId` required on all PlayerChoice options
 - Line/territory decisions now pure Move application
-- Documented in [`P0_TASK_18_STEP_2_SUMMARY.md`](P0_TASK_18_STEP_2_SUMMARY.md:1)
+- Documented in `P0_TASK_18_STEP_2_SUMMARY.md`
 
 **Contract Enforced**:
 
@@ -412,7 +414,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 - Audited all 8 sandbox modules
 - Confirmed all decisions use canonical Moves
 - Verified Move history completeness
-- Documented in [`P0_TASK_18_STEP_3_SUMMARY.md`](P0_TASK_18_STEP_3_SUMMARY.md:1)
+- Documented in `P0_TASK_18_STEP_3_SUMMARY.md`
 
 **Result**: No changes needed; sandbox was already fully compliant
 
@@ -424,108 +426,108 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 - **Movement & captures**
   - Canonical non‑capturing movement reachability lives in
-    [`movementLogic.ts`](src/shared/engine/movementLogic.ts:1).
+    [`movementLogic.ts`](../src/shared/engine/movementLogic.ts).
   - Overtaking capture enumeration lives in
-    [`captureLogic.ts`](src/shared/engine/captureLogic.ts:1).
+    [`captureLogic.ts`](../src/shared/engine/captureLogic.ts).
   - Validation and application are shared via
-    [`MovementValidator.ts`](src/shared/engine/validators/MovementValidator.ts:1),
-    [`CaptureValidator.ts`](src/shared/engine/validators/CaptureValidator.ts:1),
-    [`MovementMutator.ts`](src/shared/engine/mutators/MovementMutator.ts:1), and
-    [`CaptureMutator.ts`](src/shared/engine/mutators/CaptureMutator.ts:1).
+    [`MovementValidator.ts`](../src/shared/engine/validators/MovementValidator.ts),
+    [`CaptureValidator.ts`](../src/shared/engine/validators/CaptureValidator.ts),
+    [`MovementMutator.ts`](../src/shared/engine/mutators/MovementMutator.ts), and
+    [`CaptureMutator.ts`](../src/shared/engine/mutators/CaptureMutator.ts).
   - Backend `RuleEngine` and sandbox movement/capture modules now call into these helpers, with semantics validated by
-    [`movement.shared.test.ts`](tests/unit/movement.shared.test.ts:1),
-    [`captureSequenceEnumeration.test.ts`](tests/unit/captureSequenceEnumeration.test.ts:1),
-    [`RuleEngine.movementCapture.test.ts`](tests/unit/RuleEngine.movementCapture.test.ts:1), and the parity suites
-    [`MovementCaptureParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/MovementCaptureParity.RuleEngine_vs_Sandbox.test.ts:1) and
-    [`movementReachabilityParity.test.ts`](tests/unit/movementReachabilityParity.test.ts:1).
+    [`movement.shared.test.ts`](../tests/unit/movement.shared.test.ts),
+    [`captureSequenceEnumeration.test.ts`](../tests/unit/captureSequenceEnumeration.test.ts),
+    `RuleEngine.movementCapture.test.ts`, and the parity suites
+    [`MovementCaptureParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/MovementCaptureParity.RuleEngine_vs_Sandbox.test.ts) and
+    [`movementReachabilityParity.test.ts`](../tests/unit/movementReachabilityParity.test.ts).
 
 - **Lines**
   - Marker-line geometry and blocking rules are defined once in
-    [`lineDetection.ts`](src/shared/engine/lineDetection.ts:21) and consumed by backend `BoardManager`, backend `GameEngine`, and the sandbox line engines.
+    [`lineDetection.ts`](../src/shared/engine/lineDetection.ts) and consumed by backend `BoardManager`, backend `GameEngine`, and the sandbox line engines.
   - Line validation and processing (collapse + elimination bookkeeping) are shared via
-    [`LineValidator.ts`](src/shared/engine/validators/LineValidator.ts:1) and
-    [`LineMutator.ts`](src/shared/engine/mutators/LineMutator.ts:1).
+    [`LineValidator.ts`](../src/shared/engine/validators/LineValidator.ts) and
+    [`LineMutator.ts`](../src/shared/engine/mutators/LineMutator.ts).
   - Canonical line‑decision enumeration and application (including collapse‑all vs minimal‑collapse rewards and when eliminations are granted) are centralised in
-    [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1), which produces `process_line` and `choose_line_reward` `Move`s and wires `pendingLineRewardElimination` for both backend and sandbox hosts.
+    [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts), which produces `process_line` and `choose_line_reward` `Move`s and wires `pendingLineRewardElimination` for both backend and sandbox hosts.
   - Tests:
     - Geometry and basic rules:
-      [`lineDetection.shared.test.ts`](tests/unit/lineDetection.shared.test.ts:1),
-      [`LineDetectionParity.rules.test.ts`](tests/unit/LineDetectionParity.rules.test.ts:1),
+      [`lineDetection.shared.test.ts`](../tests/unit/lineDetection.shared.test.ts),
+      [`LineDetectionParity.rules.test.ts`](../tests/unit/LineDetectionParity.rules.test.ts),
       and the seed‑14 guard
-      [`Seed14Move35LineParity.test.ts`](tests/unit/Seed14Move35LineParity.test.ts:1).
+      [`Seed14Move35LineParity.test.ts`](../tests/unit/Seed14Move35LineParity.test.ts).
     - Decision helpers:
-      [`lineDecisionHelpers.shared.test.ts`](tests/unit/lineDecisionHelpers.shared.test.ts:1) – canonical line‑decision enumeration/application.
-      [`GameEngine.lines.scenarios.test.ts`](tests/unit/GameEngine.lines.scenarios.test.ts:1),
-      [`ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:1) – host‑level scenarios that exercise the same shared decision helpers in backend and sandbox.
+      [`lineDecisionHelpers.shared.test.ts`](../tests/unit/lineDecisionHelpers.shared.test.ts) – canonical line‑decision enumeration/application.
+      [`GameEngine.lines.scenarios.test.ts`](../tests/unit/GameEngine.lines.scenarios.test.ts),
+      `ClientSandboxEngine.lines.test.ts` – host‑level scenarios that exercise the same shared decision helpers in backend and sandbox.
 
 - **Territory (detection, borders, processing)**
   - Disconnected region detection is centralised in
-    [`territoryDetection.ts`](src/shared/engine/territoryDetection.ts:36).
+    [`territoryDetection.ts`](../src/shared/engine/territoryDetection.ts).
   - Marker-border expansion for regions is centralised in
-    [`territoryBorders.ts`](src/shared/engine/territoryBorders.ts:35).
+    [`territoryBorders.ts`](../src/shared/engine/territoryBorders.ts).
   - Region processing (internal eliminations, collapse of interior + borders) is centralised in
-    [`territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts:1) and
-    [`TerritoryMutator.ts`](src/shared/engine/mutators/TerritoryMutator.ts:1).
+    [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts) and
+    [`TerritoryMutator.ts`](../src/shared/engine/mutators/TerritoryMutator.ts).
   - Territory‑phase decision enumeration and self‑elimination bookkeeping (Q23, `process_territory_region`, `eliminate_rings_from_stack`) are centralised in
-    [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1), which provides the canonical `Move` surface for both backend and sandbox hosts.
+    [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts), which provides the canonical `Move` surface for both backend and sandbox hosts.
   - Backend `BoardManager` / `GameEngine` and sandbox territory engines delegate to these helpers. Behaviour is validated by:
     - Shared geometry/processing:
-      [`territoryBorders.shared.test.ts`](tests/unit/territoryBorders.shared.test.ts:1),
-      [`territoryProcessing.shared.test.ts`](tests/unit/territoryProcessing.shared.test.ts:1),
-      [`territoryProcessing.rules.test.ts`](tests/unit/territoryProcessing.rules.test.ts:1).
+      [`territoryBorders.shared.test.ts`](../tests/unit/territoryBorders.shared.test.ts),
+      [`territoryProcessing.shared.test.ts`](../tests/unit/territoryProcessing.shared.test.ts),
+      `territoryProcessing.rules.test.ts`.
     - Decision helpers:
-      [`territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts:1) – canonical `process_territory_region` / self‑elimination decisions and elimination bookkeeping.
-      [`GameEngine.territory.scenarios.test.ts`](tests/unit/GameEngine.territory.scenarios.test.ts:1),
-      [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts:1) – host‑level move‑driven territory‑phase scenarios over the shared helpers.
+      [`territoryDecisionHelpers.shared.test.ts`](../tests/unit/territoryDecisionHelpers.shared.test.ts) – canonical `process_territory_region` / self‑elimination decisions and elimination bookkeeping.
+      `GameEngine.territory.scenarios.test.ts`,
+      [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](../tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts) – host‑level move‑driven territory‑phase scenarios over the shared helpers.
       RulesMatrix territory suites such as
-      [`RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:1) and FAQ Q22/Q23 scenarios.
+      [`RulesMatrix.Territory.MiniRegion.test.ts`](../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts) and FAQ Q22/Q23 scenarios.
     - Legacy/diagnostic parity harnesses:
-      [`BoardManager.territoryDisconnection.test.ts`](tests/unit/BoardManager.territoryDisconnection.test.ts:1),
-      [`BoardManager.territoryDisconnection.square8.test.ts`](tests/unit/BoardManager.territoryDisconnection.square8.test.ts:1),
-      [`BoardManager.territoryDisconnection.hex.test.ts`](tests/unit/BoardManager.territoryDisconnection.hex.test.ts:1),
-      [`TerritoryParity.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts:1),
-      [`TerritoryDecision.seed5Move45.parity.test.ts`](tests/unit/TerritoryDecision.seed5Move45.parity.test.ts:1),
-      [`TerritoryDetection.seed5Move45.parity.test.ts`](tests/unit/TerritoryDetection.seed5Move45.parity.test.ts:1),
-      [`TerritoryDecisions.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryDecisions.GameEngine_vs_Sandbox.test.ts:1),
-      [`TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts:1) – **diagnostic 19×19 and seed‑based suites**; canonical semantics live in the shared territory helpers and RulesMatrix/FAQ coverage.
+      [`BoardManager.territoryDisconnection.test.ts`](../tests/unit/BoardManager.territoryDisconnection.test.ts),
+      [`BoardManager.territoryDisconnection.square8.test.ts`](../tests/unit/BoardManager.territoryDisconnection.square8.test.ts),
+      [`BoardManager.territoryDisconnection.hex.test.ts`](../tests/unit/BoardManager.territoryDisconnection.hex.test.ts),
+      [`TerritoryParity.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts),
+      [`TerritoryDecision.seed5Move45.parity.test.ts`](../tests/unit/TerritoryDecision.seed5Move45.parity.test.ts),
+      [`TerritoryDetection.seed5Move45.parity.test.ts`](../tests/unit/TerritoryDetection.seed5Move45.parity.test.ts),
+      [`TerritoryDecisions.GameEngine_vs_Sandbox.test.ts`](../tests/unit/TerritoryDecisions.GameEngine_vs_Sandbox.test.ts),
+      [`TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts`](../tests/unit/TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts) – **diagnostic 19×19 and seed‑based suites**; canonical semantics live in the shared territory helpers and RulesMatrix/FAQ coverage.
 
 - **Placement & no-dead-placement**
   - Canonical placement validation, including no-dead-placement wiring, is implemented in
-    [`PlacementValidator.ts`](src/shared/engine/validators/PlacementValidator.ts:1) and the core helper
+    [`PlacementValidator.ts`](../src/shared/engine/validators/PlacementValidator.ts) and the core helper
     `hasAnyLegalMoveOrCaptureFromOnBoard` in
-    [`core.ts`](src/shared/engine/core.ts:1).
+    [`core.ts`](../src/shared/engine/core.ts).
   - Placement application is centralised in
-    [`PlacementMutator.ts`](src/shared/engine/mutators/PlacementMutator.ts:1).
+    [`PlacementMutator.ts`](../src/shared/engine/mutators/PlacementMutator.ts).
   - Backend `RuleEngine.validateRingPlacement` and sandbox placement helpers both call through these helpers. Tests:
-    [`placement.shared.test.ts`](tests/unit/placement.shared.test.ts:1),
-    [`RuleEngine.placementMultiRing.test.ts`](tests/unit/RuleEngine.placementMultiRing.test.ts:1),
-    [`PlacementParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/PlacementParity.RuleEngine_vs_Sandbox.test.ts:1),
+    [`placement.shared.test.ts`](../tests/unit/placement.shared.test.ts),
+    [`RuleEngine.placementMultiRing.test.ts`](../tests/unit/RuleEngine.placementMultiRing.test.ts),
+    [`PlacementParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/PlacementParity.RuleEngine_vs_Sandbox.test.ts),
     and the sandbox forced-elimination/placement suites such as
-    [`ClientSandboxEngine.placementForcedElimination.test.ts`](tests/unit/ClientSandboxEngine.placementForcedElimination.test.ts:1).
+    [`ClientSandboxEngine.placementForcedElimination.test.ts`](../tests/unit/ClientSandboxEngine.placementForcedElimination.test.ts).
 
 - **Victory & stalemate ladder**
   - Canonical, side-effect-free victory evaluation (ring-elimination, territory-majority, stalemate ladder, hand→eliminated treatment) is centralised in
-    [`victoryLogic.ts`](src/shared/engine/victoryLogic.ts:51).
+    `victoryLogic.ts`.
   - Hosts call this helper after move application and automatic consequences. Tests:
-    [`victory.shared.test.ts`](tests/unit/victory.shared.test.ts:1),
-    [`ClientSandboxEngine.victory.test.ts`](tests/unit/ClientSandboxEngine.victory.test.ts:1),
-    [`GameEngine.victory.scenarios.test.ts`](tests/unit/GameEngine.victory.scenarios.test.ts:1),
-    [`VictoryParity.RuleEngine_vs_Sandbox.test.ts`](tests/unit/VictoryParity.RuleEngine_vs_Sandbox.test.ts:1),
+    [`victory.shared.test.ts`](../tests/unit/victory.shared.test.ts),
+    [`ClientSandboxEngine.victory.test.ts`](../tests/unit/ClientSandboxEngine.victory.test.ts),
+    [`GameEngine.victory.scenarios.test.ts`](../tests/unit/GameEngine.victory.scenarios.test.ts),
+    [`VictoryParity.RuleEngine_vs_Sandbox.test.ts`](../tests/unit/VictoryParity.RuleEngine_vs_Sandbox.test.ts),
     and the invariant guard
-    [`SInvariant.seed17FinalBoard.test.ts`](tests/unit/SInvariant.seed17FinalBoard.test.ts:1).
+    [`SInvariant.seed17FinalBoard.test.ts`](../tests/unit/SInvariant.seed17FinalBoard.test.ts).
 
 - **Turn sequencing & termination**
   - The shared phase/turn state machine is implemented in
-    [`turnLogic.ts`](src/shared/engine/turnLogic.ts:132) and surfaced to hosts via
-    [`TurnMutator.ts`](src/shared/engine/mutators/TurnMutator.ts:1).
+    [`turnLogic.ts`](../src/shared/engine/turnLogic.ts) and surfaced to hosts via
+    [`TurnMutator.ts`](../src/shared/engine/mutators/TurnMutator.ts).
   - Backend `TurnEngine` and sandbox turn engines follow the same ladder (must move when possible → forced elimination when blocked with material → skip permanently dead players), as documented in
-    [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md:1).
+    [`RULES_TERMINATION_ANALYSIS.md`](../docs/supplementary/RULES_TERMINATION_ANALYSIS.md).
   - Representative tests:
-    [`GameEngine.turnSequence.scenarios.test.ts`](tests/unit/GameEngine.turnSequence.scenarios.test.ts:1),
-    [`SandboxAI.ringPlacementNoopRegression.test.ts`](tests/unit/SandboxAI.ringPlacementNoopRegression.test.ts:1),
-    [`ClientSandboxEngine.aiSimulation.test.ts`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts:1),
+    [`GameEngine.turnSequence.scenarios.test.ts`](../tests/unit/GameEngine.turnSequence.scenarios.test.ts),
+    `SandboxAI.ringPlacementNoopRegression.test.ts`,
+    [`ClientSandboxEngine.aiSimulation.test.ts`](../tests/unit/ClientSandboxEngine.aiSimulation.test.ts),
     and the various AI stall / plateau regression suites referenced from
-    [`tests/README.md`](../tests/README.md:587).
+    [`tests/README.md`](../tests/README.md).
 
 **Result**: Backend and sandbox engines now treat the shared `src/shared/engine/*` modules as the canonical rules core. Host-specific code is responsible for IO concerns (networking, persistence, AI, UI) and thin adaptation only, with behaviour continuously validated by shared-helper unit tests, parity harnesses, and RulesMatrix/FAQ scenario suites.
 
@@ -537,14 +539,14 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Updated [`ai-service/app/main.py`](ai-service/app/main.py:1)
+- Updated [`ai-service/app/main.py`](../ai-service/app/main.py)
 - Implemented difficulty mapping:
   - 1-2: RandomAI
   - 3-5: HeuristicAI
   - 6-8: MinimaxAI
   - 9-10: MCTSAI
 - Added AI instance factory with configuration support
-- Created smoke test [`test_ai_creation.py`](ai-service/tests/test_ai_creation.py:1)
+- Created smoke test [`test_ai_creation.py`](../ai-service/tests/test_ai_creation.py)
 
 **Result**: All AI types accessible via difficulty ladder; Python service production-ready
 
@@ -554,7 +556,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Created [`run_ai_tournament.py`](ai-service/scripts/run_ai_tournament.py:1)
+- Created `run_ai_tournament.py`
 - Configurable AI types, difficulties, board types
 - Uses DefaultRulesEngine for full game simulation
 - Outputs win/loss/draw statistics
@@ -568,11 +570,11 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Enhanced [`LobbyPage.tsx`](src/client/pages/LobbyPage.tsx:1) with AI configuration
-- Updated [`GamePage.tsx`](src/client/pages/GamePage.tsx:116) with AI difficulty display
-- Enhanced [`GameHUD.tsx`](src/client/components/GameHUD.tsx:17) with AI badges and thinking indicators
-- Backend validation in [`game.ts`](src/server/routes/game.ts:117) routes
-- Created integration tests [`AIGameCreation.test.ts`](tests/integration/AIGameCreation.test.ts:1)
+- Enhanced [`LobbyPage.tsx`](../src/client/pages/LobbyPage.tsx) with AI configuration
+- Updated [`GamePage.tsx`](../src/client/pages/GamePage.tsx) with AI difficulty display
+- Enhanced [`GameHUD.tsx`](../src/client/components/GameHUD.tsx) with AI badges and thinking indicators
+- Backend validation in [`game.ts`](../src/server/routes/game.ts) routes
+- Created integration tests [`AIGameCreation.test.ts`](../tests/integration/AIGameCreation.test.ts)
 
 **Features**:
 
@@ -590,7 +592,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Created [`SeededRNG`](src/shared/utils/rng.ts:1) utility (xorshift128+ algorithm)
+- Created [`SeededRNG`](../src/shared/utils/rng.ts) utility (xorshift128+ algorithm)
 - Added `rngSeed` field to GameState
 - Database migration for seed storage
 - Integrated into:
@@ -598,7 +600,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
   - ClientSandboxEngine (local RNG)
   - AIEngine (passed to AI service)
   - Python AI implementations (local Random instances)
-- Added determinism tests: [`RNGDeterminism.test.ts`](tests/unit/RNGDeterminism.test.ts:1)
+- Added determinism tests: [`RNGDeterminism.test.ts`](../tests/unit/RNGDeterminism.test.ts)
 
 **Result**: Same seed + same inputs = same outputs; replay validation enabled
 
@@ -608,14 +610,14 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Three-tier fallback in [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:228):
+- Three-tier fallback in [`AIEngine.getAIMove()`](../src/server/game/ai/AIEngine.ts):
   1. Python AI Service (with timeout and validation)
   2. Local Heuristic AI
   3. Random valid move selection
-- Circuit breaker in [`AIServiceClient`](src/server/services/AIServiceClient.ts:20)
+- Circuit breaker in [`AIServiceClient`](../src/server/services/AIServiceClient.ts)
 - Move validation before application
 - Error events to clients
-- Comprehensive tests: [`AIEngine.fallback.test.ts`](tests/unit/AIEngine.fallback.test.ts:1), [`AIResilience.test.ts`](tests/integration/AIResilience.test.ts:1)
+- Comprehensive tests: [`AIEngine.fallback.test.ts`](../tests/unit/AIEngine.fallback.test.ts), [`AIResilience.test.ts`](../tests/integration/AIResilience.test.ts)
 
 **Result**: Zero AI-caused game stalls; graceful degradation under service failures
 
@@ -627,15 +629,15 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Enhanced [`GameHUD.tsx`](src/client/components/GameHUD.tsx:1):
+- Enhanced [`GameHUD.tsx`](../src/client/components/GameHUD.tsx):
   - Phase indicator with color-coded badges
   - Per-player ring statistics (in hand, on board, eliminated)
   - Territory space counts
   - Time controls with countdown timers
   - Current player highlighting
   - Turn/move counter
-- Server-side timer support in [`GameSession.ts`](src/server/game/GameSession.ts:1)
-- Component tests in [`GameHUD.test.tsx`](tests/unit/GameHUD.test.tsx:1)
+- Server-side timer support in [`GameSession.ts`](../src/server/game/GameSession.ts)
+- Component tests in [`GameHUD.test.tsx`](../tests/unit/GameHUD.test.tsx)
 
 **Result**: Players have clear visibility into game state and phase progression
 
@@ -645,13 +647,13 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- Complete rewrite of [`VictoryModal.tsx`](src/client/components/VictoryModal.tsx:1)
+- Complete rewrite of [`VictoryModal.tsx`](../src/client/components/VictoryModal.tsx)
 - Displays all 7 victory conditions with unique messages
 - Final statistics table (rings, territory, moves per player)
 - Game summary (board type, turns, rated status)
 - Action buttons (return to lobby, rematch, close)
 - Keyboard accessible (Escape key, ARIA labels)
-- Logic tests: [`VictoryModal.logic.test.ts`](tests/unit/VictoryModal.logic.test.ts:1) (25 passing tests)
+- Logic tests: [`VictoryModal.logic.test.ts`](../tests/unit/VictoryModal.logic.test.ts) (25 passing tests)
 
 **Result**: Professional, informative game conclusion experience
 
@@ -661,7 +663,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 **Implementation**:
 
-- WebSocket lobby broadcasting in [`server.ts`](src/server/websocket/server.ts:21)
+- WebSocket lobby broadcasting in [`server.ts`](../src/server/websocket/server.ts)
 - Events: `lobby:game_created`, `lobby:game_joined`, `lobby:game_started`, `lobby:game_cancelled`
 - Complete LobbyPage rewrite with:
   - Real-time updates (no manual refresh)
@@ -669,7 +671,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
   - Search (by creator name or game ID)
   - Sorting (newest, most players, board type, rated)
   - Empty states with helpful actions
-- Integration tests: [`LobbyRealtime.test.ts`](tests/integration/LobbyRealtime.test.ts:1)
+- Integration tests: [`LobbyRealtime.test.ts`](../tests/integration/LobbyRealtime.test.ts)
 
 **Result**: Seamless game discovery with instant updates
 
@@ -710,7 +712,7 @@ Filed under [`deprecated/`](deprecated/) with strong deprecation banners:
 
 #### 1. Rules Fidelity & Engine Correctness
 
-- **Canonical rulebook** ([`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)) serves as single source of truth
+- **Canonical rulebook** ([`ringrift_complete_rules.md`](../ringrift_complete_rules.md)) serves as single source of truth
 - **Comprehensive implementation** of all core mechanics:
   - Movement with stack height requirements
   - Overtaking captures and chain captures
@@ -1219,7 +1221,7 @@ RingRift's implementation is **faithful to the documented rules**:
 - Distance ≥ stack height requirement enforced
 - Marker flipping on traversal
 - Landing restrictions (cannot land on opponent markers)
-- All validated against [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1)
+- All validated against [`ringrift_complete_rules.md`](../ringrift_complete_rules.md)
 
 ✅ **Capture System**:
 
@@ -1273,30 +1275,30 @@ For designers who want to adjust how lines and territory behave **without forkin
 
 - **Lines**
   - Implementation:
-    - [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1) – controls:
+    - [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts) – controls:
       - Which line lengths are eligible for rewards.
       - How `process_line` vs `choose_line_reward` `Move`s are generated.
       - Whether a given collapse grants an `eliminate_rings_from_stack` opportunity (via `pendingLineRewardElimination`).
-    - Geometry and low‑level processing in [`lineDetection.ts`](src/shared/engine/lineDetection.ts:21), [`LineValidator.ts`](src/shared/engine/validators/LineValidator.ts:1), and [`LineMutator.ts`](src/shared/engine/mutators/LineMutator.ts:1).
+    - Geometry and low‑level processing in [`lineDetection.ts`](../src/shared/engine/lineDetection.ts), [`LineValidator.ts`](../src/shared/engine/validators/LineValidator.ts), and [`LineMutator.ts`](../src/shared/engine/mutators/LineMutator.ts).
   - Tests to update:
-    - [`lineDecisionHelpers.shared.test.ts`](tests/unit/lineDecisionHelpers.shared.test.ts:1) – canonical line‑decision semantics.
-    - [`GameEngine.lines.scenarios.test.ts`](tests/unit/GameEngine.lines.scenarios.test.ts:1),
-      [`ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:1) – host‑level scenarios.
+    - [`lineDecisionHelpers.shared.test.ts`](../tests/unit/lineDecisionHelpers.shared.test.ts) – canonical line‑decision semantics.
+    - [`GameEngine.lines.scenarios.test.ts`](../tests/unit/GameEngine.lines.scenarios.test.ts),
+      `ClientSandboxEngine.lines.test.ts` – host‑level scenarios.
     - Relevant RulesMatrix and FAQ suites for lines (e.g. Q7/Q8, Q22).
 
 - **Territory**
   - Implementation:
-    - [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1) – controls:
+    - [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts) – controls:
       - Region eligibility (Q23: when a region may be processed).
       - Enumeration of `process_territory_region` and `eliminate_rings_from_stack` `Move`s.
       - How internal vs self‑elimination is attributed per player.
       - Ordering/selection when multiple disconnected regions are available.
-    - Region geometry and collapse pipeline in [`territoryDetection.ts`](src/shared/engine/territoryDetection.ts:36), [`territoryBorders.ts`](src/shared/engine/territoryBorders.ts:35), and [`territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts:1).
+    - Region geometry and collapse pipeline in [`territoryDetection.ts`](../src/shared/engine/territoryDetection.ts), [`territoryBorders.ts`](../src/shared/engine/territoryBorders.ts), and [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts).
   - Tests to update:
-    - [`territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts:1) – canonical territory decision semantics.
-    - [`GameEngine.territory.scenarios.test.ts`](tests/unit/GameEngine.territory.scenarios.test.ts:1),
-      [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts:1) – host‑level decision‑phase scenarios.
-    - Territory RulesMatrix suites such as [`RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:1) and FAQ Q22/Q23 scenario files.
+    - [`territoryDecisionHelpers.shared.test.ts`](../tests/unit/territoryDecisionHelpers.shared.test.ts) – canonical territory decision semantics.
+    - `GameEngine.territory.scenarios.test.ts`,
+      [`ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts`](../tests/unit/ClientSandboxEngine.territoryDecisionPhases.MoveDriven.test.ts) – host‑level decision‑phase scenarios.
+    - Territory RulesMatrix suites such as [`RulesMatrix.Territory.MiniRegion.test.ts`](../tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts) and FAQ Q22/Q23 scenario files.
 
 Any design change to line rewards or territory behaviour should be implemented in these shared helpers first and then reflected in the corresponding shared‑helper tests and RulesMatrix/FAQ scenarios. Parity and trace‑level suites should be treated as derived diagnostics rather than the primary specification.
 
@@ -1511,9 +1513,9 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Read [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)
-2. Review [`GameEngine.ts`](src/server/game/GameEngine.ts:1) and [`RuleEngine.ts`](src/server/game/RuleEngine.ts:1)
-3. Study `/game/:gameId` flow in [`GameSession.ts`](src/server/game/GameSession.ts:1)
+1. Read [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md)
+2. Review [`GameEngine.ts`](../src/server/game/GameEngine.ts) and [`RuleEngine.ts`](../src/server/game/RuleEngine.ts)
+3. Study `/game/:gameId` flow in [`GameSession.ts`](../src/server/game/GameSession.ts)
 4. Run integration tests to understand request/response patterns
 
 **High-Impact Work**:
@@ -1527,10 +1529,10 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Review [`GamePage.tsx`](src/client/pages/GamePage.tsx:1) and [`GameContext.tsx`](src/client/contexts/GameContext.tsx:1)
-2. Understand [`BoardView.tsx`](src/client/components/BoardView.tsx:1) rendering
+1. Review [`GamePage.tsx`](../src/client/pages/GamePage.tsx) and [`GameContext.tsx`](../src/client/contexts/GameContext.tsx)
+2. Understand [`BoardView.tsx`](../src/client/components/BoardView.tsx) rendering
 3. Test `/sandbox` route for local development
-4. Study [`LobbyPage.tsx`](src/client/pages/LobbyPage.tsx:1) for patterns
+4. Study [`LobbyPage.tsx`](../src/client/pages/LobbyPage.tsx) for patterns
 
 **High-Impact Work**:
 
@@ -1543,10 +1545,10 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Read [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)
-2. Review Python AI implementations in [`ai-service/app/ai/`](ai-service/app/ai/)
-3. Study [`DefaultRulesEngine`](ai-service/app/rules/default_engine.py:1) for parity
-4. Run tournament framework in [`run_ai_tournament.py`](ai-service/scripts/run_ai_tournament.py:1)
+1. Read [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md)
+2. Review Python AI implementations in [`../ai-service/app/ai`](../ai-service/app/ai)
+3. Study [`DefaultRulesEngine`](../ai-service/app/rules/default_engine.py) for parity
+4. Run tournament framework in `run_ai_tournament.py`
 
 **High-Impact Work**:
 
@@ -1559,7 +1561,7 @@ Any design change to line rewards or territory behaviour should be implemented i
 
 **Start Here**:
 
-1. Read [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) thoroughly
+1. Read [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) thoroughly
 2. Play games in `/sandbox` to understand mechanics
 3. Test all board types and player counts
 4. Review FAQ scenarios in rules docs
@@ -1622,16 +1624,16 @@ Because explicit production SLOs and scale targets are not defined in code or do
 
 - **Player scale**
   - Initial v1 target is **low-to-medium scale**: on the order of **hundreds of concurrent users** and **tens to low hundreds of concurrent games**, not tens of thousands.
-  - Growth path should allow scale-out via multiple Node instances with sticky sessions (see [`src/server/index.ts`](src/server/index.ts:1) topology enforcement).
+  - Growth path should allow scale-out via multiple Node instances with sticky sessions (see [`src/server/index.ts`](../src/server/index.ts) topology enforcement).
 
 - **Traffic patterns**
   - Mix of:
-    - Interactive **WebSocket game traffic** (move submissions, state updates) via [`WebSocketServer`](src/server/websocket/server.ts:1) and [`GameContext`](src/client/contexts/GameContext.tsx:1).
-    - Moderate **HTTP API** traffic for auth, lobby, and profile routes via [`setupRoutes`](src/server/routes/index.ts:1).
-    - Occasional bursts from AI requests to the Python service via [`AIServiceClient`](src/server/services/AIServiceClient.ts:1).
+    - Interactive **WebSocket game traffic** (move submissions, state updates) via [`WebSocketServer`](../src/server/websocket/server.ts) and [`GameContext`](../src/client/contexts/GameContext.tsx).
+    - Moderate **HTTP API** traffic for auth, lobby, and profile routes via [`setupRoutes`](../src/server/routes/index.ts).
+    - Occasional bursts from AI requests to the Python service via [`AIServiceClient`](../src/server/services/AIServiceClient.ts).
 
 - **Data volume**
-  - Game state is kept primarily in memory (via [`GameSession`](src/server/game/GameSession.ts:1) + [`GameEngine`](src/server/game/GameEngine.ts:1)) with periodic persistence via Prisma.
+  - Game state is kept primarily in memory (via [`GameSession`](../src/server/game/GameSession.ts) + [`GameEngine`](../src/server/game/GameEngine.ts)) with periodic persistence via Prisma.
   - Database usage is moderate (user accounts, game metadata, ratings, game state snapshots, moves).
 
 ### 1.2 Reliability and Performance Assumptions
@@ -1644,8 +1646,8 @@ Because explicit production SLOs and scale targets are not defined in code or do
   - Error budgets and SLO alerts are not yet fully defined or implemented.
 
 - **Failure tolerance**
-  - Short AI outages should degrade gracefully via local fallback (already implemented in [`GameSession.maybePerformAITurn`](src/server/game/GameSession.ts:1) + [`AIEngine`](src/server/game/ai/AIEngine.ts:1)).
-  - Short Redis outages should not take down the app; this is already the case in [`startServer`](src/server/index.ts:167).
+  - Short AI outages should degrade gracefully via local fallback (already implemented in [`GameSession.maybePerformAITurn`](../src/server/game/GameSession.ts) + [`AIEngine`](../src/server/game/ai/AIEngine.ts)).
+  - Short Redis outages should not take down the app; this is already the case in [`startServer`](../src/server/index.ts).
 
 ### 1.3 Regulatory &amp; Security Assumptions
 
@@ -1655,7 +1657,7 @@ Because explicit production SLOs and scale targets are not defined in code or do
 
 - **Data classification**
   - PII is limited to:
-    - Email, username, hashed password, plus optional profile/ratings in Postgres ([`prisma/schema.prisma`](prisma/schema.prisma:1)).
+    - Email, username, hashed password, plus optional profile/ratings in Postgres ([`prisma/schema.prisma`](../prisma/schema.prisma)).
     - Chat content and game histories (moves, replays).
   - No payment data in this codebase.
 
@@ -1665,13 +1667,13 @@ Because explicit production SLOs and scale targets are not defined in code or do
 ### 1.4 Deployment Environment Assumptions
 
 - **Baseline deployment**
-  - Docker-based deployment using the monolithic image described in Docker-related docs and implied in [`package.json` scripts](package.json:6) and [`docker-compose.yml`](docker-compose.yml:1).
+  - Docker-based deployment using the monolithic image described in Docker-related docs and implied in [`package.json` scripts](../package.json) and [`docker-compose.yml`](../docker-compose.yml).
   - A **single Kubernetes cluster** or a small set of container instances behind a load balancer, with:
     - TLS termination handled by the ingress/load balancer.
-    - Sticky sessions configured when running more than one backend instance (`RINGRIFT_APP_TOPOLOGY=multi-sticky` in [`config`](src/server/config.ts:1)).
+    - Sticky sessions configured when running more than one backend instance (`RINGRIFT_APP_TOPOLOGY=multi-sticky` in [`config`](../src/server/config.ts)).
 
 - **AI service**
-  - Python AI service deployed as a **separate container/service**, reachable over HTTP by [`PythonRulesClient`](src/server/services/PythonRulesClient.ts:1) and [`AIServiceClient`](src/server/services/AIServiceClient.ts:1).
+  - Python AI service deployed as a **separate container/service**, reachable over HTTP by [`PythonRulesClient`](../src/server/services/PythonRulesClient.ts) and [`AIServiceClient`](../src/server/services/AIServiceClient.ts).
   - Same cluster/region as the Node backend to keep latency low.
 
 ### 1.5 Key Clarifying Questions for Stakeholders
@@ -1702,23 +1704,23 @@ These do not block implementation but materially affect prioritization:
 
 The system is a **TypeScript-first monolith** with a single Node/Express backend, a React SPA frontend, and a separate Python AI microservice:
 
-- Backend: [`src/server/index.ts`](src/server/index.ts:1)
-- WebSocket server: [`WebSocketServer`](src/server/websocket/server.ts:1)
+- Backend: [`src/server/index.ts`](../src/server/index.ts)
+- WebSocket server: [`WebSocketServer`](../src/server/websocket/server.ts)
 - Game domain core:
-  - [`GameEngine`](src/server/game/GameEngine.ts:1)
-  - [`RuleEngine`](src/server/game/RuleEngine.ts:1)
-  - [`BoardManager`](src/server/game/BoardManager.ts:1)
-  - [`GameSession`](src/server/game/GameSession.ts:1)
-  - [`GameSessionManager`](src/server/game/GameSessionManager.ts:1)
-- Shared rules/types: [`src/shared/types/game.ts`](src/shared/types/game.ts:1), [`src/shared/engine/*`](src/shared/engine/types.ts:1)
+  - [`GameEngine`](../src/server/game/GameEngine.ts)
+  - [`RuleEngine`](../src/server/game/RuleEngine.ts)
+  - [`BoardManager`](../src/server/game/BoardManager.ts)
+  - [`GameSession`](../src/server/game/GameSession.ts)
+  - [`GameSessionManager`](../src/server/game/GameSessionManager.ts)
+- Shared rules/types: [`src/shared/types/game.ts`](../src/shared/types/game.ts), [`src/shared/engine/*`](../src/shared/engine/types.ts)
 - Frontend SPA:
-  - [`index.tsx`](src/client/index.tsx:1)
-  - [`App`](src/client/App.tsx:1)
-  - WebSocket client and game state: [`GameContext`](src/client/contexts/GameContext.tsx:1)
+  - [`index.tsx`](../src/client/index.tsx)
+  - [`App`](../src/client/App.tsx)
+  - WebSocket client and game state: [`GameContext`](../src/client/contexts/GameContext.tsx)
 - Python AI &amp; rules:
-  - Service entry: [`ai-service/app/main.py`](ai-service/app/main.py:1)
-  - Rules engine and game logic: [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py:1), [`ai-service/app/rules`](ai-service/app/rules/__init__.py:1)
-  - Dependencies: [`ai-service/requirements.txt`](ai-service/requirements.txt:1)
+  - Service entry: [`ai-service/app/main.py`](../ai-service/app/main.py)
+  - Rules engine and game logic: `ai-service/app/game_engine.py`, [`ai-service/app/rules`](../ai-service/app/rules/__init__.py)
+  - Dependencies: [`ai-service/requirements.txt`](../ai-service/requirements.txt)
 
 A simplified architecture diagram:
 
@@ -1740,36 +1742,36 @@ graph TD
 ### 2.2 Key Data Flows
 
 - **Game creation &amp; lobby**
-  - HTTP routes under `/api/games` (see [`setupRoutes`](src/server/routes/index.ts:1)) create a game row in Postgres, including initial `gameState` and `timeControl` encoded via Prisma.
+  - HTTP routes under `/api/games` (see [`setupRoutes`](../src/server/routes/index.ts)) create a game row in Postgres, including initial `gameState` and `timeControl` encoded via Prisma.
 
 - **Realtime gameplay**
-  - Clients call `connectToGame` in [`GameContext`](src/client/contexts/GameContext.tsx:1), which opens a Socket.IO connection to `getSocketBaseUrl()` (derived from `VITE_WS_URL` / `VITE_API_URL`) and sends `join_game` with `{ gameId }`.
-  - [`WebSocketServer`](src/server/websocket/server.ts:1) authenticates the socket via JWT, validates payloads with [`WebSocketPayloadSchemas`](src/shared/validation/websocketSchemas.ts:1), and routes:
-    - `player_move` (geometry + move payloads) into [`GameSession.handlePlayerMove`](src/server/game/GameSession.ts:1).
-    - `player_move_by_id` (canonical move-id selection) into [`GameEngine.makeMoveById`](src/server/game/GameEngine.ts:1).
-  - Game state and legal moves are pushed via `game_state` and `game_over` events (wrapped by [`GameContext`](src/client/contexts/GameContext.tsx:1)).
+  - Clients call `connectToGame` in [`GameContext`](../src/client/contexts/GameContext.tsx), which opens a Socket.IO connection to `getSocketBaseUrl()` (derived from `VITE_WS_URL` / `VITE_API_URL`) and sends `join_game` with `{ gameId }`.
+  - [`WebSocketServer`](../src/server/websocket/server.ts) authenticates the socket via JWT, validates payloads with [`WebSocketPayloadSchemas`](../src/shared/validation/websocketSchemas.ts), and routes:
+    - `player_move` (geometry + move payloads) into [`GameSession.handlePlayerMove`](../src/server/game/GameSession.ts).
+    - `player_move_by_id` (canonical move-id selection) into [`GameEngine.makeMoveById`](../src/server/game/GameEngine.ts).
+  - Game state and legal moves are pushed via `game_state` and `game_over` events (wrapped by [`GameContext`](../src/client/contexts/GameContext.tsx)).
 
 - **Game rules &amp; parity**
-  - [`GameEngine`](src/server/game/GameEngine.ts:1) orchestrates phases, uses [`RuleEngine`](src/server/game/RuleEngine.ts:1) for validation, and ultimately uses shared core functions in [`src/shared/engine`](src/shared/engine/types.ts:1) (e.g., S‑invariant, reachability, capture/territory mutators).
-  - [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1) and [`PythonRulesClient`](src/server/services/PythonRulesClient.ts:1) optionally delegate validation/parity checks to the Python rules engine per [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1) and [`envFlags.getRulesMode`](src/shared/utils/envFlags.ts:61).
+  - [`GameEngine`](../src/server/game/GameEngine.ts) orchestrates phases, uses [`RuleEngine`](../src/server/game/RuleEngine.ts) for validation, and ultimately uses shared core functions in [`src/shared/engine`](../src/shared/engine/types.ts) (e.g., S‑invariant, reachability, capture/territory mutators).
+  - [`RulesBackendFacade`](../src/server/game/RulesBackendFacade.ts) and [`PythonRulesClient`](../src/server/services/PythonRulesClient.ts) optionally delegate validation/parity checks to the Python rules engine per [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) and [`envFlags.getRulesMode`](../src/shared/utils/envFlags.ts).
 
 - **AI integration**
-  - AI players are configured in [`GameSession.initialize`](src/server/game/GameSession.ts:64) via `aiOpponents` embedded in `game.gameState`.
-  - [`globalAIEngine`](src/server/game/ai/AIEngine.ts:1) and [`AIServiceClient`](src/server/services/AIServiceClient.ts:1) orchestrate:
+  - AI players are configured in [`GameSession.initialize`](../src/server/game/GameSession.ts) via `aiOpponents` embedded in `game.gameState`.
+  - [`globalAIEngine`](../src/server/game/ai/AIEngine.ts) and [`AIServiceClient`](../src/server/services/AIServiceClient.ts) orchestrate:
     - Primary AI move selection via the Python AI service.
-    - Local heuristic fallback and final random fallback on repeated failure, with detailed diagnostics and metrics (see [`AIResilience` tests](tests/integration/AIResilience.test.ts:1)).
-  - AI decisions for PlayerChoice flows (line reward, region order, ring elimination) use `AIInteractionHandler` and are expressed through canonical `Move` IDs (see shared `PlayerChoice` types in [`game.ts`](src/shared/types/game.ts:637)).
+    - Local heuristic fallback and final random fallback on repeated failure, with detailed diagnostics and metrics (see [`AIResilience` tests](../tests/integration/AIResilience.test.ts)).
+  - AI decisions for PlayerChoice flows (line reward, region order, ring elimination) use `AIInteractionHandler` and are expressed through canonical `Move` IDs (see shared `PlayerChoice` types in [`game.ts`](../src/shared/types/game.ts)).
 
 - **Persistence &amp; state**
-  - Postgres via Prisma (`@prisma/client`) using [`getDatabaseClient`](src/server/database/connection.ts:1).
+  - Postgres via Prisma (`@prisma/client`) using [`getDatabaseClient`](../src/server/database/connection.ts).
   - Redis for:
-    - Distributed rate limiting via [`RateLimiterRedis`](src/server/middleware/rateLimiter.ts:1).
+    - Distributed rate limiting via [`RateLimiterRedis`](../src/server/middleware/rateLimiter.ts).
     - Distributed game locks via `GameSessionManager` (uses Redis-based lock helper, falling back to local mode when Redis is unavailable).
 
 - **Observability**
-  - Structured logging via [`logger`](src/server/utils/logger.ts:1).
-  - Prometheus metrics via `prom-client` in [`src/server/index.ts`](src/server/index.ts:15) and domain metrics in [`rulesParityMetrics`](src/server/utils/rulesParityMetrics.ts:1).
-  - AI and parity metrics in the Python service via `prometheus_client` (see [`ai-service/requirements.txt`](ai-service/requirements.txt:11)).
+  - Structured logging via [`logger`](../src/server/utils/logger.ts).
+  - Prometheus metrics via `prom-client` in [`src/server/index.ts`](../src/server/index.ts) and domain metrics in [`rulesParityMetrics`](../src/server/utils/rulesParityMetrics.ts).
+  - AI and parity metrics in the Python service via `prometheus_client` (see [`ai-service/requirements.txt`](../ai-service/requirements.txt)).
 
 ---
 
@@ -1787,51 +1789,51 @@ Risk levels:
 #### Current State
 
 - Architecture is a **TS-first monolith** with clear separation of:
-  - HTTP API (Express in [`src/server/index.ts`](src/server/index.ts:1) + route modules).
-  - WebSocket transport via [`WebSocketServer`](src/server/websocket/server.ts:1).
-  - Game domain model in [`GameEngine`](src/server/game/GameEngine.ts:1), [`RuleEngine`](src/server/game/RuleEngine.ts:1), [`BoardManager`](src/server/game/BoardManager.ts:1).
-  - Session orchestration and concurrency via [`GameSession`](src/server/game/GameSession.ts:1) and [`GameSessionManager`](src/server/game/GameSessionManager.ts:1).
-  - AI boundary and rules delegation via `RulesBackendFacade` and Python rules engine (see [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
-- Shared core types &amp; logic under [`src/shared/`](src/shared/types/game.ts:1) are already used by server, client, and AI, with a functional `shared/engine` designed as the canonical rules source.
+  - HTTP API (Express in [`src/server/index.ts`](../src/server/index.ts) + route modules).
+  - WebSocket transport via [`WebSocketServer`](../src/server/websocket/server.ts).
+  - Game domain model in [`GameEngine`](../src/server/game/GameEngine.ts), [`RuleEngine`](../src/server/game/RuleEngine.ts), [`BoardManager`](../src/server/game/BoardManager.ts).
+  - Session orchestration and concurrency via [`GameSession`](../src/server/game/GameSession.ts) and [`GameSessionManager`](../src/server/game/GameSessionManager.ts).
+  - AI boundary and rules delegation via `RulesBackendFacade` and Python rules engine (see [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)).
+- Shared core types &amp; logic under [`src/shared/`](../src/shared/types/game.ts) are already used by server, client, and AI, with a functional `shared/engine` designed as the canonical rules source.
 - Python AI service forms a **separate microservice** but is integrated in a controlled, defensive way.
 
 #### Key Strengths
 
 - **Clear layering and abstractions**
   - Domain logic is mostly separate from transport (WebSocket/HTTP) and persistence.
-  - Rules logic is shared and well-documented in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1).
+  - Rules logic is shared and well-documented in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md).
 
 - **Strong rules architecture**
-  - Canonical `GameState`, `Move`, `PlayerChoice` types in [`game.ts`](src/shared/types/game.ts:1) with detailed commentary on phases/Move types.
+  - Canonical `GameState`, `Move`, `PlayerChoice` types in [`game.ts`](../src/shared/types/game.ts) with detailed commentary on phases/Move types.
   - S‑invariant, board invariants, and termination ladder are carefully encoded and tested.
 
 - **Pragmatic monolith**
-  - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1) correctly recommends staying monolithic; the codebase aligns with that guidance.
+  - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md) correctly recommends staying monolithic; the codebase aligns with that guidance.
   - Only the AI/rules microservice is separated, for domain-specific reasons.
 
 #### Gaps &amp; Risks
 
 1. **Rules authority and multi-engine complexity**
-   - **Issue:** Two engines (TS and Python) plus a client sandbox and a shared-core layer introduce complex parity guarantees and failure modes. While [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1) describes a robust strategy (`ts`, `python`, `shadow` via [`getRulesMode`](src/shared/utils/envFlags.ts:61)), actually operating `shadow` / `python` modes safely in production requires high confidence in parity and latency.
+   - **Issue:** Two engines (TS and Python) plus a client sandbox and a shared-core layer introduce complex parity guarantees and failure modes. While [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) describes a robust strategy (`ts`, `python`, `shadow` via [`getRulesMode`](../src/shared/utils/envFlags.ts)), actually operating `shadow` / `python` modes safely in production requires high confidence in parity and latency.
    - **Why it matters:** If TS and Python disagree on legality or final state, you can get inconsistent game results, unfair losses, or corrupted ratings.
    - **Risk level:** **P0** (rules correctness and fairness).
 
 2. **Topology and state locality in multi-instance deployments**
-   - **Issue:** [`enforceAppTopology`](src/server/index.ts:118) correctly blocks `multi-unsafe` in production and warns for `multi-sticky`, but:
+   - **Issue:** [`enforceAppTopology`](../src/server/index.ts) correctly blocks `multi-unsafe` in production and warns for `multi-sticky`, but:
      - It assumes infra-provided sticky sessions are correctly configured for **both HTTP and WebSocket**.
      - It relies on Redis locks and in-process `GameSession` caching for authoritative state.
    - **Why it matters:** Misconfigured load balancing could route different moves of the same game to different instances without locks or shared state, causing divergent game state or duplicate sessions.
    - **Risk level:** **P1** (can be mitigated with careful infra and documentation).
 
 3. **Legacy/duplicate WebSocket type contracts**
-   - **Issue:** [`src/shared/types/websocket.ts`](src/shared/types/websocket.ts:1) defines events like `'game-state'`, `'chat-message'` and `MoveRequest`, while actual runtime events use names like `game_state`, `game_over`, `join_game`, etc. (see [`WebSocketServer`](src/server/websocket/server.ts:1) and [`GameContext`](src/client/contexts/GameContext.tsx:1)).
+   - **Issue:** [`src/shared/types/websocket.ts`](../src/shared/types/websocket.ts) defines events like `'game-state'`, `'chat-message'` and `MoveRequest`, while actual runtime events use names like `game_state`, `game_over`, `join_game`, etc. (see [`WebSocketServer`](../src/server/websocket/server.ts) and [`GameContext`](../src/client/contexts/GameContext.tsx)).
    - **Why it matters:** Type drift increases confusion and onboarding cost, and may hide mismatches in client/server expectations.
    - **Risk level:** **P2**.
 
 #### Recommendations
 
 - **R1.1 – Treat TS shared core as the canonical engine and formalize Python’s role**
-  - Keep [`src/shared/engine`](src/shared/engine/types.ts:1) as the ultimate rules oracle and ensure:
+  - Keep [`src/shared/engine`](../src/shared/engine/types.ts) as the ultimate rules oracle and ensure:
     - TS backend (`GameEngine`) and client sandbox rely primarily on shared-core validators/mutators.
     - Python engine parity tests remain strict and blocking in `shadow` mode.
   - For early production, run with `RINGRIFT_RULES_MODE=ts` or `shadow` only; treat `python` authoritative as a later milestone.
@@ -1845,7 +1847,7 @@ Risk levels:
 
 - **R1.3 – Decide &amp; refactor WebSocket type contracts**
   - Either:
-    - Update [`src/shared/types/websocket.ts`](src/shared/types/websocket.ts:1) to match the **current** snake_case events and wire it into both server and client, or
+    - Update [`src/shared/types/websocket.ts`](../src/shared/types/websocket.ts) to match the **current** snake_case events and wire it into both server and client, or
     - Mark it as deprecated and introduce a smaller, accurate shared interface only for events actually used.
   - This reduces conceptual overhead for future contributors.
 
@@ -1855,39 +1857,39 @@ Risk levels:
 
 #### Current State
 
-- TypeScript code is clean, well-commented, and uses shared types extensively (e.g., [`Move`](src/shared/types/game.ts:282), `GameState`, `PlayerChoice`).
-- Jest config [`jest.config.js`](jest.config.js:1) enforces 80% coverage globally and on core engine modules, using `ts-jest` with a dedicated `tsconfig.jest.json`.
-- Python code quality is high per architectural docs (`ai-service/app/*`, Pydantic models, well-structured tests), with modern tooling defined in [`ai-service/requirements.txt`](ai-service/requirements.txt:1) (pytest, black, flake8).
+- TypeScript code is clean, well-commented, and uses shared types extensively (e.g., [`Move`](../src/shared/types/game.ts), `GameState`, `PlayerChoice`).
+- Jest config [`jest.config.js`](../jest.config.js) enforces 80% coverage globally and on core engine modules, using `ts-jest` with a dedicated `tsconfig.jest.json`.
+- Python code quality is high per architectural docs (`ai-service/app/*`, Pydantic models, well-structured tests), with modern tooling defined in [`ai-service/requirements.txt`](../ai-service/requirements.txt) (pytest, black, flake8).
 
 #### Key Strengths
 
 - **Rich type system and documentation**
-  - Shared types file [`game.ts`](src/shared/types/game.ts:1) is effectively executable documentation of rules and phases.
-  - Detailed architecture docs: [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1), [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1).
+  - Shared types file [`game.ts`](../src/shared/types/game.ts) is effectively executable documentation of rules and phases.
+  - Detailed architecture docs: [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md), [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1), [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md).
 
 - **Separation of concerns within modules**
-  - Rules validation in [`RuleEngine`](src/server/game/RuleEngine.ts:1) vs orchestration in [`GameEngine`](src/server/game/GameEngine.ts:1).
-  - WebSocket handling logic confined to [`WebSocketServer`](src/server/websocket/server.ts:1) and its helpers.
+  - Rules validation in [`RuleEngine`](../src/server/game/RuleEngine.ts) vs orchestration in [`GameEngine`](../src/server/game/GameEngine.ts).
+  - WebSocket handling logic confined to [`WebSocketServer`](../src/server/websocket/server.ts) and its helpers.
 
 - **Modern tooling**
-  - ESLint, Prettier, Husky, lint-staged configured in [`package.json`](package.json:96).
+  - ESLint, Prettier, Husky, lint-staged configured in [`package.json`](../package.json).
   - Python: black and flake8 pinned.
 
 #### Gaps &amp; Risks
 
 1. **Legacy and deprecated docs/code**
-   - **Issue:** There are many historical/deprecated docs under `deprecated/` (e.g., `CODEBASE_EVALUATION`, `RINGRIFT_IMPROVEMENT_PLAN`) plus older concepts in `.env.example` (e.g., legacy rules-mode comments) and [`src/shared/types/websocket.ts`](src/shared/types/websocket.ts:1).
+   - **Issue:** There are many historical/deprecated docs under `deprecated/` (e.g., `CODEBASE_EVALUATION`, `RINGRIFT_IMPROVEMENT_PLAN`) plus older concepts in `.env.example` (e.g., legacy rules-mode comments) and [`src/shared/types/websocket.ts`](../src/shared/types/websocket.ts).
    - **Why it matters:** New contributors may read stale narratives and implement against old plans or interfaces.
    - **Risk level:** **P2**.
 
 2. **Shared-core consolidation of rules logic (residual host glue only)**
    - **Issue (historical):** Earlier revisions kept significant portions of movement, capture, line, territory, placement, and victory logic in bespoke backend helpers (for example under `src/server/game/rules/*`) and in sandbox-only geometry modules, increasing the risk of parity drift.
-   - **Current state:** Core rules for movement, captures, lines, territory detection/borders/processing, placement (including no-dead-placement), victory, and turn sequencing are now centralised under [`src/shared/engine`](src/shared/engine/types.ts:1) and consumed by backend and sandbox hosts as shared validators/mutators and geometry helpers. Some thin host adapters and legacy utilities still exist (for example, convenience wrappers in `BoardManager` and backend-specific orchestration helpers), but they are expected to delegate to shared helpers rather than re-encode semantics.
+   - **Current state:** Core rules for movement, captures, lines, territory detection/borders/processing, placement (including no-dead-placement), victory, and turn sequencing are now centralised under [`src/shared/engine`](../src/shared/engine/types.ts) and consumed by backend and sandbox hosts as shared validators/mutators and geometry helpers. Some thin host adapters and legacy utilities still exist (for example, convenience wrappers in `BoardManager` and backend-specific orchestration helpers), but they are expected to delegate to shared helpers rather than re-encode semantics.
    - **Why it matters:** Any remaining non-shared forks of rules logic are potential surfaces for future drift across backend, sandbox, and Python.
    - **Risk level:** **P2** (materially reduced after consolidation; parity gaps should now be treated as bugs against the shared engine and its tests).
 
 3. **Client-side complexity concentrated in sandbox and GameContext**
-   - **Issue:** [`GameContext`](src/client/contexts/GameContext.tsx:1) handles connection lifecycle, reconnection, game state hydration, choice handling, move submission, and chat, all in a single context. Sandbox engines (in `src/client/sandbox/*`) are also fairly complex.
+   - **Issue:** [`GameContext`](../src/client/contexts/GameContext.tsx) handles connection lifecycle, reconnection, game state hydration, choice handling, move submission, and chat, all in a single context. Sandbox engines (in `src/client/sandbox/*`) are also fairly complex.
    - **Why it matters:** While manageable today, it raises the bar for frontend contributors and makes subtle WebSocket or state bugs harder to diagnose.
    - **Risk level:** **P2**.
 
@@ -1895,12 +1897,12 @@ Risk levels:
 
 - **R2.1 – Curate and label documentation**
   - Move truly obsolete docs into an `archive/` directory and keep only:
-    - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)
+    - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md)
     - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)
-    - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)
-    - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)
+    - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
+    - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)
     - Active P0/P1 lists (`KNOWN_ISSUES.md`, TODO/roadmap).
-  - Update `.env.example` rule-mode comments to match [`envFlags`](src/shared/utils/envFlags.ts:61) (`ts`, `python`, `shadow`).
+  - Update `.env.example` rule-mode comments to match [`envFlags`](../src/shared/utils/envFlags.ts) (`ts`, `python`, `shadow`).
 
 - **R2.2 – Continue centralizing rules-core into `src/shared/engine`**
   - For any new rules work, require changes to go through shared core first, then adapt backend/sandbox/Python to that.
@@ -1919,8 +1921,8 @@ Risk levels:
 #### Current State
 
 - Backend modules have clear boundaries:
-  - Routing in `src/server/routes/*` (e.g., [`auth`](src/server/routes/auth.ts:1), `game.ts`, `user.ts`).
-  - Middleware in `src/server/middleware/*` (e.g., [`rateLimiter`](src/server/middleware/rateLimiter.ts:1), [`errorHandler`](src/server/middleware/errorHandler.ts:1)).
+  - Routing in `src/server/routes/*` (e.g., [`auth`](../src/server/routes/auth.ts), `game.ts`, `user.ts`).
+  - Middleware in `src/server/middleware/*` (e.g., [`rateLimiter`](../src/server/middleware/rateLimiter.ts), [`errorHandler`](../src/server/middleware/errorHandler.ts)).
   - Domain/game logic in `src/server/game/*`.
   - Shared domain in `src/shared/*`.
 - AI and rules services use well-defined adapters and facades (`RulesBackendFacade`, `PythonRulesClient`, `AIServiceClient`).
@@ -1928,12 +1930,12 @@ Risk levels:
 #### Key Strengths
 
 - **Transport vs domain separation**
-  - WebSocket event handlers in [`WebSocketServer`](src/server/websocket/server.ts:1) primarily:
-    - Validate payloads via Zod schemas in [`websocketSchemas`](src/shared/validation/websocketSchemas.ts:1).
+  - WebSocket event handlers in [`WebSocketServer`](../src/server/websocket/server.ts) primarily:
+    - Validate payloads via Zod schemas in [`websocketSchemas`](../src/shared/validation/websocketSchemas.ts).
     - Delegate to `GameSessionManager` and `GameSession` rather than embedding rules logic.
 
 - **Well-encapsulated session orchestration**
-  - [`GameSession`](src/server/game/GameSession.ts:1) encapsulates:
+  - [`GameSession`](../src/server/game/GameSession.ts) encapsulates:
     - Loading a game from DB.
     - Instantiating `GameEngine` and AI players.
     - Mapping between sockets and players.
@@ -1942,13 +1944,13 @@ Risk levels:
 #### Gaps &amp; Risks
 
 1. **Game context and WebSocket events coupling to UI components**
-   - **Issue:** [`GameContext`](src/client/contexts/GameContext.tsx:1) couples low-level socket behaviors (reconnect, error, chat) with game-state logic.
+   - **Issue:** [`GameContext`](../src/client/contexts/GameContext.tsx) couples low-level socket behaviors (reconnect, error, chat) with game-state logic.
    - **Risk level:** **P2**.
 
 2. **AI observability and rules parity concerns spread across layers**
    - **Issue:** AI fallback and rules parity metrics are spread between:
      - `GameSession` diagnostics fields (`aiQualityMode`, counts).
-     - `rulesParityMetrics` in [`src/server/utils/rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts:1).
+     - `rulesParityMetrics` in [`src/server/utils/rulesParityMetrics.ts`](../src/server/utils/rulesParityMetrics.ts).
      - Python AI service metrics and tests.
    - **Why it matters:** It’s easy to accidentally add new AI behaviours without hooking them into the observability and parity framework.
    - **Risk level:** **P2**.
@@ -1972,22 +1974,22 @@ Risk levels:
 
 #### Current State
 
-- Jest configuration [`jest.config.js`](jest.config.js:1):
+- Jest configuration [`jest.config.js`](../jest.config.js):
   - TypeScript support via `ts-jest`.
   - Custom jsdom env for React tests.
   - Global coverage thresholds at 80% and per-file thresholds for key modules:
-    - [`BoardManager`](src/server/game/BoardManager.ts:1)
-    - [`RuleEngine`](src/server/game/RuleEngine.ts:1)
-    - [`GameEngine`](src/server/game/GameEngine.ts:1)
+    - [`BoardManager`](../src/server/game/BoardManager.ts)
+    - [`RuleEngine`](../src/server/game/RuleEngine.ts)
+    - [`GameEngine`](../src/server/game/GameEngine.ts)
     - `ClientSandboxEngine`.
 - Test suites (from file structure and docs):
-  - Unit tests for rules and board (e.g., [`BoardManager.test`](tests/unit/BoardManager.test.ts:1), `RuleEngine.*.test.ts`, `GameEngine.*.test.ts`).
-  - Scenario/FAQ suites: [`tests/scenarios/FAQ_*.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1), [`RULES_SCENARIO_MATRIX`](../docs/rules/RULES_SCENARIO_MATRIX.md:1).
+  - Unit tests for rules and board (e.g., [`BoardManager.test`](../tests/unit/BoardManager.test.ts), `RuleEngine.*.test.ts`, `GameEngine.*.test.ts`).
+  - Scenario/FAQ suites: [`tests/scenarios/FAQ_*.test.ts`](../tests/scenarios/FAQ_Q01_Q06.test.ts), [`RULES_SCENARIO_MATRIX`](../docs/rules/RULES_SCENARIO_MATRIX.md).
   - Integration tests:
-    - Full game flow, lobby, reconnection, AI resilience ([`tests/integration/*.test.ts`](tests/integration/AIResilience.test.ts:1)).
+    - Full game flow, lobby, reconnection, AI resilience ([`tests/integration/*.test.ts`](../tests/integration/AIResilience.test.ts)).
   - Parity &amp; AI simulation tests:
-    - Sandbox vs backend AI simulation: [`ClientSandboxEngine.aiSimulation`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts:1), [`Sandbox_vs_Backend.aiRngFullParity`](tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1).
-    - Python vs TS parity tests (in `ai-service/tests` and TS parity harness tests referenced by [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
+    - Sandbox vs backend AI simulation: [`ClientSandboxEngine.aiSimulation`](../tests/unit/ClientSandboxEngine.aiSimulation.test.ts), [`Sandbox_vs_Backend.aiRngFullParity`](../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts).
+    - Python vs TS parity tests (in `ai-service/tests` and TS parity harness tests referenced by [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)).
 
 #### Key Strengths
 
@@ -2004,7 +2006,7 @@ Risk levels:
 #### Gaps &amp; Risks
 
 1. **Scenario matrix not yet exhaustive**
-   - **Issue:** [`CURRENT_STATE_ASSESSMENT`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:135) notes that `RULES_SCENARIO_MATRIX` and FAQ coverage are still incomplete, particularly for composite examples and some FAQ Q1–Q24 diagrams. Some parity fixtures (`tests/fixtures/rules-parity/**`) are diagnostic, not all wired as hard CI gates.
+   - **Issue:** [`CURRENT_STATE_ASSESSMENT`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md) notes that `RULES_SCENARIO_MATRIX` and FAQ coverage are still incomplete, particularly for composite examples and some FAQ Q1–Q24 diagrams. Some parity fixtures (`tests/fixtures/rules-parity/**`) are diagnostic, not all wired as hard CI gates.
    - **Why it matters:** Subtle, rare game states may still behave incorrectly or diverge between TS, sandbox, and Python engines.
    - **Risk level:** **P0**.
 
@@ -2026,8 +2028,8 @@ Risk levels:
 
 - **R4.2 – Introduce lightweight E2E tests for core UX flows**
   - Use Playwright or Cypress to cover:
-    - User registration/login/logout via [`LoginPage`](src/client/pages/LoginPage.tsx:1) and related components.
-    - Joining a game, making moves, and seeing [`VictoryModal`](src/client/components/VictoryModal.tsx:1).
+    - User registration/login/logout via [`LoginPage`](../src/client/pages/LoginPage.tsx) and related components.
+    - Joining a game, making moves, and seeing [`VictoryModal`](../src/client/components/VictoryModal.tsx).
     - Reconnecting to an active game and verifying state resync (`GameReconnection` scenario already exists at integration level).
 
 - **R4.3 – Scheduled heavy AI and parity test runs**
@@ -2043,19 +2045,19 @@ Risk levels:
 #### Current State
 
 - HTTP security:
-  - [`helmet`](src/server/index.ts:5) with CSP restricting `defaultSrc` to self, `scriptSrc` to self, controlled style/img/connect sources.
-  - CORS configured via `config.server.corsOrigin` in [`config`](src/server/config.ts:1).
-  - Request size limits and compression configured in [`src/server/index.ts`](src/server/index.ts:44).
+  - [`helmet`](../src/server/index.ts) with CSP restricting `defaultSrc` to self, `scriptSrc` to self, controlled style/img/connect sources.
+  - CORS configured via `config.server.corsOrigin` in [`config`](../src/server/config.ts).
+  - Request size limits and compression configured in [`src/server/index.ts`](../src/server/index.ts).
 - Auth:
-  - JWT access and refresh tokens in auth routes ([`auth`](src/server/routes/auth.ts:1)), with:
+  - JWT access and refresh tokens in auth routes ([`auth`](../src/server/routes/auth.ts)), with:
     - Password hashing via `bcryptjs`.
     - Email verification, password reset flows (with tokens).
     - Refresh token persistence with graceful fallback when the model/table is missing.
-  - WebSocket auth middleware in [`WebSocketServer`](src/server/websocket/server.ts:51) verifying JWTs and checking the user is active via Prisma.
+  - WebSocket auth middleware in [`WebSocketServer`](../src/server/websocket/server.ts) verifying JWTs and checking the user is active via Prisma.
 - Rate limiting:
-  - Configurable rate limiters using Redis via [`rateLimiter`](src/server/middleware/rateLimiter.ts:1), [`authRateLimiter`](src/server/middleware/rateLimiter.ts:111), plus a fallback in-memory limiter when Redis is not available.
+  - Configurable rate limiters using Redis via [`rateLimiter`](../src/server/middleware/rateLimiter.ts), [`authRateLimiter`](../src/server/middleware/rateLimiter.ts), plus a fallback in-memory limiter when Redis is not available.
 - Config &amp; secrets:
-  - `.env.example` defines JWT secrets with explicit production warnings; actual enforcement is in [`config`](src/server/config.ts:1) which refuses to start with placeholder secrets in production.
+  - `.env.example` defines JWT secrets with explicit production warnings; actual enforcement is in [`config`](../src/server/config.ts) which refuses to start with placeholder secrets in production.
 - Python AI service:
   - Uses FastAPI and modern HTTP libraries; secrets and settings in environment variables (per `python-dotenv` and Pydantic settings in `ai-service`).
 
@@ -2081,12 +2083,12 @@ Risk levels:
    - **Risk level:** **P1** (for typical game context; could be P0 in stricter environments).
 
 2. **CSRF and token storage**
-   - **Issue:** Tokens are stored in `localStorage` on the client (see `localStorage.getItem('token')` in [`GameContext`](src/client/contexts/GameContext.tsx:177)). This avoids CSRF issues but increases risk if XSS is ever introduced.
+   - **Issue:** Tokens are stored in `localStorage` on the client (see `localStorage.getItem('token')` in [`GameContext`](../src/client/contexts/GameContext.tsx)). This avoids CSRF issues but increases risk if XSS is ever introduced.
    - **Why it matters:** If an XSS vulnerability appears, localStorage tokens are easily exfiltrated.
    - **Risk level:** **P1/P2** (depends on how aggressively XSS is prevented).
 
 3. **Data protection and compliance posture unclear**
-   - **Issue:** Logs may include PII (emails, usernames) in structured logs (see [`logger`](src/server/utils/logger.ts:1)). No explicit retention policy or PII scrubbing documented.
+   - **Issue:** Logs may include PII (emails, usernames) in structured logs (see [`logger`](../src/server/utils/logger.ts)). No explicit retention policy or PII scrubbing documented.
    - **Why it matters:** For GDPR/CCPA, you may need audit trails, deletion capabilities, and limited retention.
    - **Risk level:** **P2** (may become P1 if you target EU or regulated regions).
 
@@ -2113,14 +2115,14 @@ Risk levels:
 #### Current State
 
 - Node backend uses Express + Socket.IO; game logic is CPU-bound TypeScript.
-- Single server entrypoint [`src/server/index.ts`](src/server/index.ts:1) can scale via multiple instances with sticky sessions and Redis locks.
-- AI service uses Python + NumPy/SciPy + PyTorch (see [`ai-service/requirements.txt`](ai-service/requirements.txt:19)) and may be CPU-heavy.
+- Single server entrypoint [`src/server/index.ts`](../src/server/index.ts) can scale via multiple instances with sticky sessions and Redis locks.
+- AI service uses Python + NumPy/SciPy + PyTorch (see [`ai-service/requirements.txt`](../ai-service/requirements.txt)) and may be CPU-heavy.
 
 #### Key Strengths
 
 - **Prometheus metrics available**
-  - Process metrics via `collectDefaultMetrics` in [`src/server/index.ts`](src/server/index.ts:20).
-  - Domain metrics, including per-move latency histograms and WebSocket connections gauge in [`rulesParityMetrics`](src/server/utils/rulesParityMetrics.ts:1).
+  - Process metrics via `collectDefaultMetrics` in [`src/server/index.ts`](../src/server/index.ts).
+  - Domain metrics, including per-move latency histograms and WebSocket connections gauge in [`rulesParityMetrics`](../src/server/utils/rulesParityMetrics.ts).
 
 - **AI over-the-network boundary with fallbacks**
   - AI timeouts and failures are explicitly handled; `GameSession` falls back to local heuristics or random rather than blocking indefinitely.
@@ -2131,7 +2133,7 @@ Risk levels:
 #### Gaps &amp; Risks
 
 1. **AI service heavy dependencies and footprint**
-   - **Issue:** [`ai-service/requirements.txt`](ai-service/requirements.txt:1) includes torch, torchvision, gymnasium, etc. This:
+   - **Issue:** [`ai-service/requirements.txt`](../ai-service/requirements.txt) includes torch, torchvision, gymnasium, etc. This:
      - Bloats the container image.
      - Increases cold start time and attack surface.
    - **Why it matters:** If the AI service is deployed frequently or scaled dynamically, heavy containers impair responsiveness and increase costs.
@@ -2164,17 +2166,17 @@ Risk levels:
 
 #### Current State
 
-- Central Express error middleware [`errorHandler`](src/server/middleware/errorHandler.ts:1) handles:
+- Central Express error middleware [`errorHandler`](../src/server/middleware/errorHandler.ts) handles:
   - Zod validation errors.
   - Custom `createError` codes (validation/auth).
   - JWT errors.
   - Returns structured JSON errors.
 - WebSocket errors:
-  - [`WebSocketServer`](src/server/websocket/server.ts:1) maps Zod validation failures and game/DB errors to structured [`WebSocketErrorPayload`](src/shared/types/websocket.ts:249) with codes like `INVALID_PAYLOAD`, `MOVE_REJECTED`, etc.
+  - [`WebSocketServer`](../src/server/websocket/server.ts) maps Zod validation failures and game/DB errors to structured [`WebSocketErrorPayload`](../src/shared/types/websocket.ts) with codes like `INVALID_PAYLOAD`, `MOVE_REJECTED`, etc.
 - AI resilience:
-  - Integration tests [`AIResilience`](tests/integration/AIResilience.test.ts:1) validate that AI timeouts, failures, and fallbacks behave correctly.
+  - Integration tests [`AIResilience`](../tests/integration/AIResilience.test.ts) validate that AI timeouts, failures, and fallbacks behave correctly.
 - Redis and DB connectivity:
-  - [`startServer`](src/server/index.ts:167) refuses to start without DB, but logs and continues without Redis.
+  - [`startServer`](../src/server/index.ts) refuses to start without DB, but logs and continues without Redis.
 
 #### Key Strengths
 
@@ -2193,7 +2195,7 @@ Risk levels:
 #### Gaps &amp; Risks
 
 1. **Server process-level crashes on uncaught exceptions/rejections**
-   - **Issue:** [`src/server/index.ts`](src/server/index.ts:222) exits the process on `uncaughtException` / `unhandledRejection`. This is correct for fail-fast in a containerized environment, but:
+   - **Issue:** [`src/server/index.ts`](../src/server/index.ts) exits the process on `uncaughtException` / `unhandledRejection`. This is correct for fail-fast in a containerized environment, but:
      - There is no mention of supervision (e.g., K8s) or backoff in code/docs.
    - **Why it matters:** Without proper orchestration, a bug or transient failure could cause repeated restarts and outages.
    - **Risk level:** **P1** (mitigated by typical container orchestration).
@@ -2226,18 +2228,18 @@ Risk levels:
 #### Current State
 
 - Logging:
-  - [`logger`](src/server/utils/logger.ts:1) wraps Winston with:
+  - [`logger`](../src/server/utils/logger.ts) wraps Winston with:
     - JSON logs to files (`error.log`, `combined.log`) including timestamps and stack traces.
     - Colored console logging in non-production.
   - HTTP logs via `morgan` piped into Winston.
-  - Prisma query logs in dev via `getDatabaseClient` hooks ([`connection.ts`](src/server/database/connection.ts:1)).
+  - Prisma query logs in dev via `getDatabaseClient` hooks ([`connection.ts`](../src/server/database/connection.ts)).
 - Metrics:
-  - `prom-client` with default process metrics (`/metrics` endpoint in [`index.ts`](src/server/index.ts:63)).
-  - Game-specific metrics in [`rulesParityMetrics`](src/server/utils/rulesParityMetrics.ts:1), including:
+  - `prom-client` with default process metrics (`/metrics` endpoint in [`index.ts`](../src/server/index.ts)).
+  - Game-specific metrics in [`rulesParityMetrics`](../src/server/utils/rulesParityMetrics.ts), including:
     - WebSocket connections gauge.
     - Per-move latency histograms.
-    - Rules parity mismatch counters (per [`RULES_ENGINE_ARCHITECTURE`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
-  - Python AI service uses `prometheus_client` (per [`ai-service/requirements.txt`](ai-service/requirements.txt:11)).
+    - Rules parity mismatch counters (per [`RULES_ENGINE_ARCHITECTURE`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)).
+  - Python AI service uses `prometheus_client` (per [`ai-service/requirements.txt`](../ai-service/requirements.txt)).
 
 #### Key Strengths
 
@@ -2248,7 +2250,7 @@ Risk levels:
   - Logs are JSON; they’re ready to feed into ELK/Datadog/Grafana.
 
 - **AI and parity metrics**
-  - The design in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1) includes per-engine parity and mutator-first mismatch counters.
+  - The design in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) includes per-engine parity and mutator-first mismatch counters.
 
 #### Gaps &amp; Risks
 
@@ -2290,17 +2292,17 @@ Risk levels:
 #### Current State
 
 - Central config:
-  - [`config`](src/server/config.ts:1) uses Zod and `dotenv` to validate environment:
+  - [`config`](../src/server/config.ts) uses Zod and `dotenv` to validate environment:
     - Enforces `DATABASE_URL` and `REDIS_URL` in production.
     - Enforces non-placeholder `JWT_SECRET` and `JWT_REFRESH_SECRET` values.
-    - Controls `RINGRIFT_APP_TOPOLOGY` and `RINGRIFT_RULES_MODE` via [`envFlags`](src/shared/utils/envFlags.ts:61).
+    - Controls `RINGRIFT_APP_TOPOLOGY` and `RINGRIFT_RULES_MODE` via [`envFlags`](../src/shared/utils/envFlags.ts).
   - `.env.example` provides development defaults and extensive comments, including for DB, Redis, JWT, CORS, metrics, etc.
 - Shared flags:
-  - [`envFlags`](src/shared/utils/envFlags.ts:1) exposes:
+  - [`envFlags`](../src/shared/utils/envFlags.ts) exposes:
     - Sandbox debug flags for AI and capture diagnostics.
     - Rules mode (`ts`, `python`, `shadow`).
 - Client:
-  - Uses `import.meta.env.VITE_WS_URL` and `VITE_API_URL` in [`GameContext`](src/client/contexts/GameContext.tsx:56) to derive WebSocket base URL.
+  - Uses `import.meta.env.VITE_WS_URL` and `VITE_API_URL` in [`GameContext`](../src/client/contexts/GameContext.tsx) to derive WebSocket base URL.
 
 #### Key Strengths
 
@@ -2312,7 +2314,7 @@ Risk levels:
 #### Gaps &amp; Risks
 
 1. **Minor doc-code drift around rules mode**
-   - **Issue:** `.env.example` refers to legacy rules mode values (`legacy`, `shadow`, `python`) while [`envFlags`](src/shared/utils/envFlags.ts:61) uses `ts`, `python`, `shadow`.
+   - **Issue:** `.env.example` refers to legacy rules mode values (`legacy`, `shadow`, `python`) while [`envFlags`](../src/shared/utils/envFlags.ts) uses `ts`, `python`, `shadow`.
    - **Why it matters:** Can confuse operators setting env vars.
    - **Risk level:** **P3**.
 
@@ -2337,11 +2339,11 @@ Risk levels:
 
 #### Current State
 
-- Node dependencies in [`package.json`](package.json:48):
+- Node dependencies in [`package.json`](../package.json):
   - Modern versions of Express, Prisma, Socket.IO, React, Redis, Zod, etc.
 - Dev dependencies:
   - Jest, ts-jest, Testing Library, ESLint, Prettier, Husky, lint-staged, Vite, Tailwind.
-- Python dependencies in [`ai-service/requirements.txt`](ai-service/requirements.txt:1) are all pinned (`==`), including heavy ML libs.
+- Python dependencies in [`ai-service/requirements.txt`](../ai-service/requirements.txt) are all pinned (`==`), including heavy ML libs.
 
 #### Key Strengths
 
@@ -2385,11 +2387,11 @@ Risk levels:
 
 #### Current State
 
-- Build scripts in [`package.json`](package.json:6):
+- Build scripts in [`package.json`](../package.json):
   - `build`: `build:server` (tsc) + `build:client` (Vite).
-  - `start`: runs `dist/server/index.js`, serving the SPA in production (see [`src/server/index.ts`](src/server/index.ts:76)).
+  - `start`: runs `dist/server/index.js`, serving the SPA in production (see [`src/server/index.ts`](../src/server/index.ts)).
 - Docker:
-  - `docker:build` / `docker:run` scripts; `Dockerfile` and [`docker-compose.yml`](docker-compose.yml:1) support local containerized setup.
+  - `docker:build` / `docker:run` scripts; `Dockerfile` and [`docker-compose.yml`](../docker-compose.yml) support local containerized setup.
 - CI:
   - GitHub Actions workflows under `.github/workflows` (not shown here, but inferred from prior tasks).
   - `npm run build` is already wired into CI so build failures block merges.
@@ -2405,7 +2407,7 @@ Risk levels:
 #### Gaps &amp; Risks
 
 1. **No explicit release/versioning policy in code/docs**
-   - **Issue:** Version is set in [`package.json`](package.json:1) and may be exposed via health endpoint, but there’s no description of how releases are tagged, rolled out, or rolled back.
+   - **Issue:** Version is set in [`package.json`](../package.json) and may be exposed via health endpoint, but there’s no description of how releases are tagged, rolled out, or rolled back.
    - **Risk level:** **P2**.
 
 2. **AI service CI/CD not fully described**
@@ -2437,17 +2439,17 @@ Risk levels:
 
 - Documentation:
   - Architecture and status:
-    - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:1)
+    - [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md)
     - [[`../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md`](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md)](../docs/archive/historical/CURRENT_STATE_ASSESSMENT.md:1)
-    - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md:1)
-    - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)
+    - [`STRATEGIC_ROADMAP.md`](../docs/planning/STRATEGIC_ROADMAP.md)
+    - [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)
   - Rules:
-    - [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) and compact rules.
-    - [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md:1) and FAQ test implementation summaries such as [`FAQ_TEST_IMPLEMENTATION_SUMMARY.md`](FAQ_TEST_IMPLEMENTATION_SUMMARY.md:1).
+    - [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) and compact rules.
+    - [`RULES_SCENARIO_MATRIX.md`](../docs/rules/RULES_SCENARIO_MATRIX.md) and FAQ test implementation summaries such as `FAQ_TEST_IMPLEMENTATION_SUMMARY.md`.
   - Testing:
-    - [`tests/README.md`](../tests/README.md:1)
+    - [`tests/README.md`](../tests/README.md)
   - Quickstart:
-    - [`QUICKSTART.md`](../QUICKSTART.md:1), [`README.md`](README.md:1).
+    - [`QUICKSTART.md`](../QUICKSTART.md), [`README.md`](../README.md).
 
 #### Key Strengths
 
@@ -2533,8 +2535,8 @@ This roadmap assumes you are targeting a “serious production launch” with re
 
 2. **Enforce backend–sandbox–Python parity for core flows**
    - Make key parity suites (backend vs sandbox vs Python, including trace fixtures) part of required CI:
-     - TS vs Python parity tests (as described in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:1)).
-     - Sandbox vs backend AI parity tests such as [`Sandbox_vs_Backend.aiRngFullParity`](tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1).
+     - TS vs Python parity tests (as described in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md)).
+     - Sandbox vs backend AI parity tests such as [`Sandbox_vs_Backend.aiRngFullParity`](../tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts).
    - Only allow `RINGRIFT_RULES_MODE=shadow` in staging and `ts` in prod until shadow shows **zero mismatches** over a satisfactory period.
 
 **P0 – Transport and topology correctness**
@@ -2572,7 +2574,7 @@ This roadmap assumes you are targeting a “serious production launch” with re
 7. **Expand E2E coverage of critical flows**
    - Add a small Playwright/Cypress suite to simulate:
      - Registration → login → game join → full game → `VictoryModal` display.
-     - Mid-game disconnect/reconnect flows (matching [`GameReconnection`](tests/integration/GameReconnection.test.ts:1)).
+     - Mid-game disconnect/reconnect flows (matching [`GameReconnection`](../tests/integration/GameReconnection.test.ts)).
      - Spectator view path.
 
 8. **Nightly heavy AI &amp; parity tests**
@@ -2584,7 +2586,7 @@ This roadmap assumes you are targeting a “serious production launch” with re
 **Architecture &amp; maintainability**
 
 9. **WebSocket contract consolidation**
-   - Update or replace [`src/shared/types/websocket.ts`](src/shared/types/websocket.ts:1) to reflect actual events (`game_state`, `game_over`, `join_game`, etc.) and use it across server and client to eliminate dead code/old naming patterns.
+   - Update or replace [`src/shared/types/websocket.ts`](../src/shared/types/websocket.ts) to reflect actual events (`game_state`, `game_over`, `join_game`, etc.) and use it across server and client to eliminate dead code/old naming patterns.
 
 10. **Refine `GameContext` and client networking layer**
     - Split concerns so that:
@@ -2608,10 +2610,10 @@ This roadmap assumes you are targeting a “serious production launch” with re
 **Strategic rules architecture**
 
 13. **Complete migration to shared functional engine (remaining host glue only)**
-    - Follow the strangler-fig plan from [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md:76), recognising that the bulk of the work has now been delivered:
-      - **Already in place:** Movement & captures, line detection/processing, territory detection/borders/processing, placement (including no-dead-placement), victory, and turn sequencing all live primarily in `src/shared/engine/*` and are consumed by backend and sandbox hosts via shared validators/mutators and geometry helpers, with behaviour enforced by shared-helper and parity suites (see [`tests/README.md`](../tests/README.md:431) and [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md:28)).
+    - Follow the strangler-fig plan from [`ARCHITECTURE_ASSESSMENT.md`](../docs/archive/plans/ARCHITECTURE_ASSESSMENT.md), recognising that the bulk of the work has now been delivered:
+      - **Already in place:** Movement & captures, line detection/processing, territory detection/borders/processing, placement (including no-dead-placement), victory, and turn sequencing all live primarily in `src/shared/engine/*` and are consumed by backend and sandbox hosts via shared validators/mutators and geometry helpers, with behaviour enforced by shared-helper and parity suites (see [`tests/README.md`](../tests/README.md) and [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md)).
       - **Still to do:** Identify and retire any remaining host-local rule forks or ad-hoc geometry helpers that duplicate shared semantics, replacing them with thin adapters over shared helpers where possible.
-      - **Python parity:** Keep the Python engine in lockstep with the shared TypeScript engine via fixture-driven parity tests and the trace-level suites described in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md:42) and [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md:181).
+      - **Python parity:** Keep the Python engine in lockstep with the shared TypeScript engine via fixture-driven parity tests and the trace-level suites described in [`RULES_ENGINE_ARCHITECTURE.md`](../docs/architecture/RULES_ENGINE_ARCHITECTURE.md) and [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md).
 
 14. **Consider enabling Python rules authoritative mode**
     - Once shadow mode has been stable for a sustained period:
@@ -2622,13 +2624,13 @@ This roadmap assumes you are targeting a “serious production launch” with re
 
 15. **AI strength and training pipeline**
     - Invest in:
-      - Training a neural policy/value network for RingRift (see [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md:1)).
+      - Training a neural policy/value network for RingRift (see [`AI_ARCHITECTURE.md`](../docs/architecture/AI_ARCHITECTURE.md)).
       - Tuning think-time budgets and difficulty ladder.
       - Using replay data for RL (recording games in DB with proper schema and retention).
 
 16. **Player analytics and game history**
     - Implement:
-      - Persistent replays (leaning on `GameTrace` and move history in [`game.ts`](src/shared/types/game.ts:433)).
+      - Persistent replays (leaning on `GameTrace` and move history in [`game.ts`](../src/shared/types/game.ts)).
       - Leaderboards, ratings, and per-user stats surfaced in UI and APIs.
 
 **Observability &amp; platform**
