@@ -10120,292 +10120,43 @@ print(json.dumps(result))
         """Run selfplay locally using subprocess.
 
         .. deprecated:: December 2025
-            This method duplicates JobManager.run_local_selfplay().
-            Future versions should delegate to self.job_manager.run_local_selfplay().
-            Scheduled for removal in Q2 2026.
+            Delegates to JobManager.run_local_selfplay().
+            This wrapper method will be removed in Q2 2026.
         """
-        import sys
-
-        output_file = os.path.join(output_dir, f"{self.node_id}_games.jsonl")
-
-        # Build selfplay command
-        cmd = [
-            sys.executable,
-            os.path.join(self.ringrift_path, "ai-service", "scripts", "run_self_play_soak.py"),
-            "--num-games", str(num_games),
-            "--board-type", board_type,
-            "--num-players", str(num_players),
-            "--engine-mode", "descent-only" if model_path else "heuristic-only",
-            "--max-moves", "10000",  # LEARNED LESSONS - Avoid draws due to move limit
-            "--log-jsonl", output_file,
-        ]
-
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
-        env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-
-            _stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=3600  # 1 hour max
-            )
-
-            if proc.returncode == 0:
-                logger.info(f"Local selfplay completed: {num_games} games")
-                # Update progress
-                if job_id in self.improvement_loop_state:
-                    self.improvement_loop_state[job_id].selfplay_progress[self.node_id] = num_games
-            else:
-                logger.info(f"Local selfplay failed: {stderr.decode()[:500]}")
-
-        except asyncio.TimeoutError:
-            logger.info("Local selfplay timed out")
-        except Exception as e:
-            logger.info(f"Local selfplay error: {e}")
+        # Delegate to JobManager (December 2025 refactoring)
+        await self.job_manager.run_local_selfplay(
+            job_id, num_games, board_type, num_players, model_path, output_dir
+        )
 
     async def _export_training_data(self, job_id: str):
         """Export training data from selfplay games.
 
-        Converts JSONL game records to training format (HDF5 or NPZ).
-
         .. deprecated:: December 2025
-            This method duplicates JobManager.export_training_data().
-            Future versions should delegate to self.job_manager.export_training_data().
-            Scheduled for removal in Q2 2026.
+            Delegates to JobManager.export_training_data().
+            This wrapper method will be removed in Q2 2026.
         """
-        import sys
-
-        state = self.improvement_loop_state.get(job_id)
-        if not state:
-            return
-
-        logger.info(f"Exporting training data for job {job_id}, iteration {state.current_iteration}")
-
-        iteration_dir = os.path.join(
-            self.ringrift_path, "ai-service", "data", "selfplay",
-            f"improve_{job_id}", f"iter_{state.current_iteration}"
-        )
-        output_file = os.path.join(
-            self.ringrift_path, "ai-service", "data", "training",
-            f"improve_{job_id}", f"iter_{state.current_iteration}.npz"
-        )
-
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-
-        # Run export script
-        export_script = f"""
-import sys
-sys.path.insert(0, '{self.ringrift_path}/ai-service')
-import glob
-import json
-import numpy as np
-from app.training.data_export import export_games_to_training_format
-
-# Find all JSONL files from this iteration
-jsonl_files = glob.glob('{iteration_dir}/*.jsonl')
-print(f"Found {{len(jsonl_files)}} JSONL files")
-
-games = []
-for f in jsonl_files:
-    with open(f) as fp:
-        for line in fp:
-            if line.strip():
-                try:
-                    games.append(json.loads(line))
-                except (json.JSONDecodeError, ValueError):
-                    pass
-
-print(f"Loaded {{len(games)}} games")
-
-if games:
-    # Export to training format
-    try:
-        export_games_to_training_format(games, '{output_file}', '{state.board_type}')
-        print(f"Exported to {output_file}")
-    except Exception as e:
-        # Fallback: save raw game data
-        np.savez_compressed('{output_file}', games=games)
-        print(f"Saved raw games to {output_file}")
-else:
-    print("No games to export")
-"""
-
-        cmd = [sys.executable, "-c", export_script]
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-
-            _stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=600  # 10 minutes max
-            )
-
-            if proc.returncode == 0:
-                logger.info("Training data export completed")
-                state.training_data_path = output_file
-            else:
-                logger.info(f"Training data export failed: {stderr.decode()[:500]}")
-
-        except asyncio.TimeoutError:
-            logger.info("Training data export timed out")
-        except Exception as e:
-            logger.info(f"Training data export error: {e}")
+        # Delegate to JobManager (December 2025 refactoring)
+        await self.job_manager.export_training_data(job_id)
 
     async def _run_training(self, job_id: str):
         """Run neural network training on GPU node.
 
-        Finds a GPU worker and delegates training to it, or runs locally
-        if this node has a GPU.
-
         .. deprecated:: December 2025
-            This method duplicates JobManager.run_training().
-            Future versions should delegate to self.job_manager.run_training().
-            Scheduled for removal in Q2 2026.
+            Delegates to JobManager.run_training().
+            This wrapper method will be removed in Q2 2026.
         """
-
-        state = self.improvement_loop_state.get(job_id)
-        if not state:
-            return
-
-        logger.info(f"Running training for job {job_id}, iteration {state.current_iteration}")
-
-        # Find GPU worker
-        gpu_worker = None
-        with self.peers_lock:
-            for peer in self.peers.values():
-                if peer.has_gpu and peer.is_healthy():
-                    gpu_worker = peer
-                    break
-
-        # Model output path
-        new_model_path = os.path.join(
-            self.ringrift_path, "ai-service", "models",
-            f"improve_{job_id}", f"iter_{state.current_iteration}.pt"
-        )
-        os.makedirs(os.path.dirname(new_model_path), exist_ok=True)
-
-        training_config = {
-            "job_id": job_id,
-            "iteration": state.current_iteration,
-            "training_data": getattr(state, 'training_data_path', ''),
-            "output_model": new_model_path,
-            "board_type": state.board_type,
-            "num_players": state.num_players,
-            "epochs": 10,
-            "batch_size": 256,
-            "learning_rate": 0.001,
-        }
-
-        if gpu_worker and gpu_worker.node_id != self.node_id:
-            # Delegate to GPU worker
-            try:
-                timeout = ClientTimeout(total=3600)  # 1 hour for training
-                async with get_client_session(timeout) as session:
-                    url = self._url_for_peer(gpu_worker, "/improvement/train")
-                    async with session.post(url, json=training_config, headers=self._auth_headers()) as resp:
-                        if resp.status == 200:
-                            result = await resp.json()
-                            if result.get("success"):
-                                state.candidate_model_path = result.get("model_path", new_model_path)
-                                logger.info(f"Training completed on {gpu_worker.node_id}")
-                                return
-            except Exception as e:
-                logger.error(f"Failed to delegate training to {gpu_worker.node_id}: {e}")
-
-        # Run training locally
-        await self._run_local_training(training_config)
-        state.candidate_model_path = new_model_path
+        # Delegate to JobManager (December 2025 refactoring)
+        await self.job_manager.run_training(job_id)
 
     async def _run_local_training(self, config: dict):
         """Run training locally using subprocess.
 
         .. deprecated:: December 2025
-            This method duplicates JobManager.run_local_training().
-            Future versions should delegate to self.job_manager.run_local_training().
-            Scheduled for removal in Q2 2026.
+            Delegates to JobManager.run_local_training().
+            This wrapper method will be removed in Q2 2026.
         """
-        import sys
-
-        logger.info("Running local training")
-
-        training_script = f"""
-import sys
-sys.path.insert(0, '{self.ringrift_path}/ai-service')
-import numpy as np
-import torch
-
-# Load training data
-try:
-    data = np.load('{config.get("training_data", "")}', allow_pickle=True)
-    print(f"Loaded training data")
-except Exception as e:
-    print(f"No training data available: {{e}}")
-    # Create minimal model anyway
-    data = None
-
-# Import or create model architecture
-try:
-    from app.models.policy_value_net import PolicyValueNet
-    model = PolicyValueNet(
-        board_type='{config.get("board_type", "square8")}',
-        num_players={config.get("num_players", 2)}
-    )
-except ImportError:
-    # Fallback to simple model
-    import torch.nn as nn
-    model = nn.Sequential(
-        nn.Linear(64, 256),
-        nn.ReLU(),
-        nn.Linear(256, 128),
-        nn.ReLU(),
-        nn.Linear(128, 64)
-    )
-
-# Save model
-torch.save(model.state_dict(), '{config.get("output_model", "/tmp/model.pt")}')
-print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
-"""
-
-        cmd = [sys.executable, "-c", training_script]
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=3600  # 1 hour max
-            )
-
-            logger.info(f"Training output: {stdout.decode()}")
-            if proc.returncode != 0:
-                logger.info(f"Training stderr: {stderr.decode()[:500]}")
-
-        except asyncio.TimeoutError:
-            logger.info("Local training timed out")
-        except Exception as e:
-            logger.info(f"Local training error: {e}")
+        # Delegate to JobManager (December 2025 refactoring)
+        await self.job_manager.run_local_training(config)
 
     # ============================================
     # Phase 3: Training Pipeline Integration Methods
@@ -10459,6 +10210,17 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             Future versions should delegate to self.training_coordinator.dispatch_training_job().
             Scheduled for removal in Q2 2026.
         """
+        # Check if pipeline should be paused (cluster health, node availability, etc.)
+        try:
+            from app.coordination.unified_health_manager import should_pause_pipeline
+
+            should_pause, reason = should_pause_pipeline()
+            if should_pause:
+                logger.warning(f"Training dispatch paused: {reason}")
+                return None
+        except ImportError:
+            pass  # Health manager not available, proceed with dispatch
+
         job_type = job_config["job_type"]
         board_type = job_config["board_type"]
         num_players = job_config["num_players"]
