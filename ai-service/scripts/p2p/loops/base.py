@@ -601,3 +601,49 @@ class LoopManager:
     def is_started(self) -> bool:
         """Check if the manager has been started."""
         return self._started
+
+    def health_check(self) -> dict[str, Any]:
+        """Check health of all managed loops.
+
+        Returns a standardized health check result compatible with daemon protocols.
+
+        Returns:
+            Dict with status, loop metrics, and error info
+        """
+        loops_running = sum(1 for loop in self._loops.values() if loop.running)
+        total_loops = len(self._loops)
+
+        # Aggregate loop stats
+        total_runs = 0
+        total_errors = 0
+        failing_loops: list[str] = []
+
+        for name, loop in self._loops.items():
+            stats = loop.stats
+            total_runs += stats.total_runs
+            total_errors += stats.failed_runs
+            if stats.failure_rate > 0.5:  # >50% failure rate
+                failing_loops.append(name)
+
+        # Determine overall status
+        if not self._started:
+            status = "stopped"
+        elif loops_running == 0 and total_loops > 0:
+            status = "unhealthy"
+        elif failing_loops:
+            status = "degraded"
+        elif loops_running < total_loops:
+            status = "degraded"
+        else:
+            status = "healthy"
+
+        return {
+            "status": status,
+            "started": self._started,
+            "loops_running": loops_running,
+            "total_loops": total_loops,
+            "total_runs": total_runs,
+            "total_errors": total_errors,
+            "failing_loops": failing_loops,
+            "loop_status": self.get_all_status(),
+        }

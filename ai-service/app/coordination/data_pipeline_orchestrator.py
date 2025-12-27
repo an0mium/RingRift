@@ -1730,6 +1730,11 @@ class DataPipelineOrchestrator:
         # Feed back to curriculum (December 2025)
         await self._update_curriculum_on_promotion(result)
 
+        # December 27, 2025: Trigger model sync after successful promotion
+        # This ensures promoted models are distributed to all cluster nodes
+        if result.promoted and self.auto_trigger and self.auto_trigger_sync:
+            await self._trigger_model_sync_after_promotion(result)
+
     async def _update_curriculum_on_promotion(self, result) -> None:
         """Update curriculum weights based on promotion result.
 
@@ -1771,6 +1776,76 @@ class DataPipelineOrchestrator:
             logger.debug("[DataPipelineOrchestrator] curriculum_feedback not available")
         except Exception as e:
             logger.warning(f"[DataPipelineOrchestrator] Curriculum update failed: {e}")
+
+    async def _trigger_model_sync_after_evaluation(self, result) -> None:
+        """Trigger model sync after evaluation completes.
+
+        December 27, 2025: Ensures evaluated models are distributed to training
+        nodes so they can be used for further selfplay or comparison.
+
+        Args:
+            result: Evaluation result with model_path and metadata
+        """
+        try:
+            from app.coordination.sync_facade import get_sync_facade
+
+            # Get config key for logging
+            config_key = None
+            if hasattr(result, "metadata") and result.metadata:
+                config_key = result.metadata.get("config_key")
+            if not config_key and self._current_board_type and self._current_num_players:
+                config_key = f"{self._current_board_type}_{self._current_num_players}p"
+
+            facade = get_sync_facade()
+            logger.info(
+                f"[DataPipelineOrchestrator] Triggering model sync after evaluation "
+                f"({config_key or 'unknown config'})"
+            )
+            await facade.trigger_priority_sync(
+                reason="post_evaluation_sync",
+                config_key=config_key,
+                data_type="models",
+            )
+        except ImportError:
+            logger.debug("[DataPipelineOrchestrator] sync_facade not available for eval sync")
+        except Exception as e:
+            logger.warning(f"[DataPipelineOrchestrator] Model sync after evaluation failed: {e}")
+
+    async def _trigger_model_sync_after_promotion(self, result) -> None:
+        """Trigger model sync after promotion completes.
+
+        December 27, 2025: Ensures promoted models are distributed to all cluster
+        nodes so they can use the new best model for selfplay.
+
+        Args:
+            result: Promotion result with model info and metadata
+        """
+        try:
+            from app.coordination.sync_facade import get_sync_facade
+
+            # Get config key
+            config_key = None
+            if hasattr(result, "board_type") and hasattr(result, "num_players"):
+                config_key = f"{result.board_type}_{result.num_players}p"
+            elif hasattr(result, "metadata") and result.metadata:
+                config_key = result.metadata.get("config_key")
+            if not config_key and self._current_board_type and self._current_num_players:
+                config_key = f"{self._current_board_type}_{self._current_num_players}p"
+
+            facade = get_sync_facade()
+            logger.info(
+                f"[DataPipelineOrchestrator] Triggering model sync after promotion "
+                f"({config_key or 'unknown config'})"
+            )
+            await facade.trigger_priority_sync(
+                reason="post_promotion_sync",
+                config_key=config_key,
+                data_type="models",
+            )
+        except ImportError:
+            logger.debug("[DataPipelineOrchestrator] sync_facade not available for promotion sync")
+        except Exception as e:
+            logger.warning(f"[DataPipelineOrchestrator] Model sync after promotion failed: {e}")
 
     async def _on_iteration_complete(self, result) -> None:
         """Handle iteration completion."""
