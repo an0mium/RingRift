@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 # Default paths
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "unified_elo.db"
 SYNC_STATE_PATH = Path(__file__).parent.parent.parent / "data" / "elo_sync_state.json"
+ENABLE_VAST_ELO_SYNC = os.getenv("RINGRIFT_ENABLE_VAST_ELO_SYNC", "false").lower() in ("1", "true", "yes")
 
 
 @dataclass
@@ -313,14 +314,17 @@ class EloSyncManager(DatabaseSyncManager):
         self._load_elo_state()
         await self.discover_nodes()
         # Add known Vast instances
-        for name, info in self.VAST_INSTANCES.items():
-            if name not in self.nodes:
-                self.nodes[name] = SyncNodeInfo(
-                    name=name,
-                    vast_ssh_host=info["host"],
-                    vast_ssh_port=info["port"],
-                    remote_db_path=self._get_remote_db_path(),
-                )
+        if ENABLE_VAST_ELO_SYNC:
+            for name, info in self.VAST_INSTANCES.items():
+                if name not in self.nodes:
+                    self.nodes[name] = SyncNodeInfo(
+                        name=name,
+                        vast_ssh_host=info["host"],
+                        vast_ssh_port=info["port"],
+                        remote_db_path=self._get_remote_db_path(),
+                    )
+        else:
+            logger.debug("VAST ELO sync disabled; skipping VAST instance discovery")
         self._update_local_stats()
         logger.info(f"EloSyncManager initialized: {self._elo_state.local_record_count} local matches")
 

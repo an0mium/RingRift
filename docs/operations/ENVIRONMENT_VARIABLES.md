@@ -1890,6 +1890,21 @@ When enabled, tiers that would normally use NN fall back to heuristic evaluation
 Force neural-net inference/training to use CPU even when CUDA is available.
 Used by some training utilities and debugging flows.
 
+### `RINGRIFT_ENABLE_VAST_ELO_SYNC`
+
+| Property | Value                                       |
+| -------- | ------------------------------------------- |
+| Type     | `boolean` (string flag)                     |
+| Values   | `1`, `true`, `yes`, `on` (case-insensitive) |
+| Default  | `false`                                     |
+| Required | No                                          |
+
+Enable syncing the unified Elo database from the legacy hard-coded Vast.ai
+instance list in `EloSyncManager.VAST_INSTANCES`. This is **disabled by default**
+because many listed endpoints are retired or ephemeral. When disabled, Elo sync
+still uses P2P discovery and the YAML cluster config; it simply skips the static
+Vast.ai fallback list.
+
 ### `RINGRIFT_MINIMAX_ZERO_SUM_EVAL`
 
 | Property | Value                                       |
