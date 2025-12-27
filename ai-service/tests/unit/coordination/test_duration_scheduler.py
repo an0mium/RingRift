@@ -297,22 +297,44 @@ class TestScheduleNow:
         assert can_schedule is True
         assert reason == "OK"
 
-    def test_cannot_schedule_when_host_busy(self, scheduler):
-        """Test scheduling blocked when host is busy."""
+    def test_cannot_schedule_intensive_when_host_busy(self, scheduler):
+        """Test scheduling blocked for intensive task when intensive task is running."""
+        # Register an intensive task (training)
         scheduler.register_running(
             task_id="task-1",
-            task_type="training",
+            task_type="training",  # intensive task
             host="gpu-1",
             expected_duration=7200.0,
         )
 
+        # Try to schedule another intensive task (cmaes)
         can_schedule, reason = scheduler.can_schedule_now(
-            task_type="selfplay",
+            task_type="cmaes",  # intensive task
             host="gpu-1",
         )
 
         assert can_schedule is False
-        assert "busy" in reason.lower() or "unavailable" in reason.lower()
+        assert "busy" in reason.lower() or "until" in reason.lower()
+
+    def test_can_schedule_non_intensive_when_host_busy(self, scheduler):
+        """Test scheduling allowed for non-intensive task when intensive task is running."""
+        # Register an intensive task (training)
+        scheduler.register_running(
+            task_id="task-1",
+            task_type="training",  # intensive task
+            host="gpu-1",
+            expected_duration=7200.0,
+        )
+
+        # Try to schedule a non-intensive task (sync)
+        can_schedule, reason = scheduler.can_schedule_now(
+            task_type="sync",  # non-intensive task
+            host="gpu-1",
+        )
+
+        # Non-intensive tasks can be scheduled even when intensive task is running
+        assert can_schedule is True
+        assert reason == "OK"
 
 
 class TestScheduleTask:
