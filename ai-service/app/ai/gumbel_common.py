@@ -25,6 +25,14 @@ if TYPE_CHECKING:
     from ..models import GameState, Move
 
 
+# Policy logit normalization scale for completed_q() calculations.
+# Policy logits from neural networks typically range [-5, 5] for log-probs.
+# Dividing by 10.0 normalizes them to [-0.5, 0.5] range, which blends well
+# with empirical Q-values in [-1, 1] range when computing completed Q-values.
+# This ensures the prior (policy) contribution doesn't dominate empirical values.
+POLICY_LOGIT_SCALE = 10.0
+
+
 @dataclass
 class GumbelAction:
     """Represents an action with its Gumbel-perturbed value and statistics.
@@ -103,11 +111,11 @@ class GumbelAction:
 
         if self.visit_count == 0:
             # Use prior value (normalized policy logit as proxy)
-            return self.policy_logit / 10.0  # Scale to reasonable range
+            return self.policy_logit / POLICY_LOGIT_SCALE
 
         # Mix empirical Q with prior based on visit ratio
         mix = c_visit / (c_visit + max_visits)
-        return (1 - mix) * self.mean_value + mix * (self.policy_logit / 10.0)
+        return (1 - mix) * self.mean_value + mix * (self.policy_logit / POLICY_LOGIT_SCALE)
 
     @classmethod
     def from_gumbel_score(

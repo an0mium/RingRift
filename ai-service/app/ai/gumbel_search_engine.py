@@ -79,21 +79,59 @@ class SearchConfig:
 
     @classmethod
     def for_throughput(cls) -> "SearchConfig":
-        """Config optimized for throughput (selfplay)."""
+        """Config optimized for throughput (fast selfplay with exploration).
+
+        Uses lower budget for speed but maintains exploration via temperature=1.0.
+        """
         return cls(
             simulation_budget=GUMBEL_BUDGET_THROUGHPUT,
             num_sampled_actions=8,
-            temperature=1.0,
+            temperature=1.0,  # Maintain exploration for training data diversity
+        )
+
+    @classmethod
+    def for_selfplay(cls) -> "SearchConfig":
+        """Config for training data generation - prioritizes move diversity.
+
+        Uses high budget with temperature=1.0 to generate diverse training data.
+        This is the recommended config for selfplay data generation.
+        """
+        return cls(
+            simulation_budget=GUMBEL_BUDGET_QUALITY,
+            num_sampled_actions=16,
+            temperature=1.0,  # Exploration for diverse training data
+            use_root_noise=True,
+        )
+
+    @classmethod
+    def for_evaluation(cls) -> "SearchConfig":
+        """Config for strength evaluation - prioritizes best moves.
+
+        Uses high budget with temperature=0.0 for deterministic best-move selection.
+        Use this for gauntlet evaluation and tournament play.
+        """
+        return cls(
+            simulation_budget=GUMBEL_BUDGET_QUALITY,
+            num_sampled_actions=16,
+            temperature=0.0,  # Deterministic for consistent strength measurement
+            use_root_noise=False,  # No noise for evaluation
         )
 
     @classmethod
     def for_quality(cls) -> "SearchConfig":
-        """Config optimized for move quality (evaluation)."""
-        return cls(
-            simulation_budget=GUMBEL_BUDGET_QUALITY,
-            num_sampled_actions=16,
-            temperature=0.0,  # Deterministic
+        """DEPRECATED: Use for_selfplay() or for_evaluation() instead.
+
+        This method is ambiguous - 'quality' could mean:
+        - Quality training data (needs exploration) -> use for_selfplay()
+        - Quality moves for evaluation (needs determinism) -> use for_evaluation()
+
+        Kept for backward compatibility, behaves like for_evaluation().
+        """
+        logger.warning(
+            "SearchConfig.for_quality() is deprecated. "
+            "Use for_selfplay() for training data or for_evaluation() for strength testing."
         )
+        return cls.for_evaluation()
 
     @classmethod
     def for_balanced(cls) -> "SearchConfig":

@@ -334,6 +334,7 @@ COORDINATOR_REGISTRY: dict[str, CoordinatorSpec] = {
         module_path="app.coordination.auto_export_daemon",
         pattern=InitPattern.GET,
         func_name="get_auto_export_daemon",
+        check_subscribed=False,  # Subscribes in start(), called by DaemonManager
     ),
     "evaluation_daemon": CoordinatorSpec(
         name="evaluation_daemon",
@@ -341,6 +342,7 @@ COORDINATOR_REGISTRY: dict[str, CoordinatorSpec] = {
         module_path="app.coordination.evaluation_daemon",
         pattern=InitPattern.GET,
         func_name="get_evaluation_daemon",
+        check_subscribed=False,  # Subscribes in start(), called by DaemonManager
     ),
     "model_distribution_daemon": CoordinatorSpec(
         name="model_distribution_daemon",
