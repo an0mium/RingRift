@@ -55,7 +55,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # December 2025: Use consolidated daemon stats base classes
-from app.coordination.daemon_stats import DaemonStatsBase, JobDaemonStats
+from app.coordination.daemon_stats import DaemonStatsBase, JobDaemonStats, PerNodeSyncStats
 
 __all__ = [
     "UnifiedReplicationDaemon",
@@ -308,6 +308,10 @@ class UnifiedReplicationDaemon:
         self._hourly_repair_count: int = 0
         self._hourly_reset_time: float = time.time()
         self._repair_cooldowns: dict[str, float] = {}  # game_id -> last_attempt_time
+
+        # December 2025: Per-node sync reliability tracking
+        # (Harvested from deprecated replication_monitor.py)
+        self._node_sync_stats: dict[str, PerNodeSyncStats] = {}
 
     async def start(self) -> None:
         """Start both monitoring and repair loops."""
@@ -962,6 +966,18 @@ class UnifiedReplicationDaemon:
                 durations = [j.completed_at - j.started_at for j in completed]
                 self._repair_stats.avg_repair_duration_seconds = sum(durations) / len(durations)
 
+            # December 2025: Track per-node sync reliability
+            if job.target_nodes:
+                repair_duration = job.completed_at - job.started_at if job.completed_at else 0.0
+                for target_node in job.target_nodes:
+                    if target_node not in self._node_sync_stats:
+                        self._node_sync_stats[target_node] = PerNodeSyncStats(node_id=target_node)
+                    stats = self._node_sync_stats[target_node]
+                    if job.success:
+                        stats.record_success(duration=repair_duration)
+                    else:
+                        stats.record_failure(reason=job.error or "Unknown error")
+
     async def _perform_repair_transfer(self, job: RepairJob) -> bool:
         """Perform the actual data transfer for repair.
 
@@ -1145,6 +1161,11 @@ class UnifiedReplicationDaemon:
                 "target_replicas": self.config.target_replicas,
                 "monitor_interval": self.config.monitor_interval_seconds,
                 "repair_interval": self.config.repair_interval_seconds,
+            },
+            # December 2025: Per-node sync reliability metrics
+            "per_node_sync": {
+                node_id: stats.to_dict()
+                for node_id, stats in self._node_sync_stats.items()
             },
         }
 

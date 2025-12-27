@@ -1096,7 +1096,8 @@ class ClusterMonitor:
             return
 
         try:
-            from app.coordination.event_router import DataEventType, get_event_router
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import get_event_router
 
             router = get_event_router()
             router.emit(

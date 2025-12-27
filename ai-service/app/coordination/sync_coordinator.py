@@ -1354,7 +1354,13 @@ def wire_sync_events() -> SyncScheduler:
             host = payload.get("host") or payload.get("source_host")
             games_synced = payload.get("games_synced", 0)
             if host:
-                scheduler.record_sync_complete(host, success=True, games_synced=games_synced)
+                # Dec 2025 fix: Use keyword args consistently
+                scheduler.record_sync_complete(
+                    host=host,
+                    sync_id=0,
+                    games_synced=games_synced,
+                    success=True
+                )
 
         def _on_sync_failed(event: Any) -> None:
             """Handle sync failure - update scheduling."""
@@ -1362,7 +1368,15 @@ def wire_sync_events() -> SyncScheduler:
             host = payload.get("host") or payload.get("source_host")
             error = payload.get("error", "Unknown error")
             if host:
-                scheduler.record_sync_complete(host, success=False, error=error)
+                # Dec 2025 fix: Use correct keyword (error_message not error)
+                # and provide required sync_id/games_synced (0 for failures)
+                scheduler.record_sync_complete(
+                    host=host,
+                    sync_id=0,
+                    games_synced=0,
+                    success=False,
+                    error_message=error
+                )
 
         def _on_new_games(event: Any) -> None:
             """Handle new games - update priority."""
@@ -1394,8 +1408,13 @@ def wire_sync_events() -> SyncScheduler:
             )
 
             # Mark failed host - SyncScheduler will avoid it temporarily
-            scheduler.record_sync_complete(source_host, success=False,
-                                          error=f"Sync stalled after {timeout}s")
+            scheduler.record_sync_complete(
+                host=source_host,
+                sync_id=0,
+                games_synced=0,
+                success=False,
+                error_message=f"Sync stalled after {timeout}s"
+            )
 
         router.subscribe(DataEventType.DATA_SYNC_COMPLETED.value, _on_sync_completed)
         router.subscribe(DataEventType.DATA_SYNC_FAILED.value, _on_sync_failed)

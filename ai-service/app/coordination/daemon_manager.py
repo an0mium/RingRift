@@ -104,6 +104,23 @@ class DaemonManager:
     _instance: DaemonManager | None = None
 
     def __init__(self, config: DaemonManagerConfig | None = None):
+        """Initialize the DaemonManager.
+
+        Args:
+            config: Optional configuration. If None, uses DaemonManagerConfig defaults.
+
+        Sets up:
+            - Daemon registry (_daemons) for tracking daemon state
+            - Factory registry (_factories) for daemon runner functions
+            - Health monitoring task infrastructure
+            - Shutdown event and async lock for coordination
+            - DaemonLifecycleManager for start/stop/restart operations
+            - Default daemon factories from daemon_runners.py module
+            - atexit handler for graceful cleanup on process exit
+
+        December 2025: Lifecycle operations delegated to DaemonLifecycleManager.
+        Runner functions extracted to daemon_runners.py for testability.
+        """
         self.config = config or DaemonManagerConfig()
         self._daemons: dict[DaemonType, DaemonInfo] = {}
         self._factories: dict[DaemonType, Callable[[], Coroutine[Any, Any, None]]] = {}

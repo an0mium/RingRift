@@ -247,6 +247,7 @@ class DataEventType(Enum):
 
     # Cluster status events
     CLUSTER_STATUS_CHANGED = "cluster_status_changed"
+    CLUSTER_STALL_DETECTED = "cluster_stall_detected"  # Dec 2025: Node(s) stuck with no game progress
     NODE_UNHEALTHY = "node_unhealthy"
     NODE_RECOVERED = "node_recovered"
     NODE_ACTIVATED = "node_activated"  # Node activated by cluster activator

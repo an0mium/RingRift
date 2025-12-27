@@ -390,6 +390,85 @@ class EvaluationDaemonStats(DaemonStatsBase):
         return base
 
 
+@dataclass
+class PerNodeSyncStats:
+    """Per-node sync reliability statistics.
+
+    Tracks sync success/failure rates per node to identify
+    chronic problem nodes and adjust routing accordingly.
+
+    December 2025: Added as part of coordination consolidation
+    to harvest per-node reliability tracking from deprecated
+    replication_monitor.py.
+
+    Usage:
+        stats = PerNodeSyncStats(node_id="runpod-h100")
+        stats.record_success(duration=1.5)
+        stats.record_failure(reason="connection_timeout")
+        print(f"Success rate: {stats.success_rate:.2%}")
+    """
+
+    node_id: str
+    syncs_attempted: int = 0
+    syncs_successful: int = 0
+    syncs_failed: int = 0
+    last_sync_success_time: float = 0.0
+    last_sync_failure_time: float = 0.0
+    avg_sync_duration: float = 0.0
+    last_failure_reason: str = ""
+    consecutive_failures: int = 0
+
+    @property
+    def success_rate(self) -> float:
+        """Per-node sync success rate (0.0 - 1.0)."""
+        if self.syncs_attempted == 0:
+            return 1.0
+        return self.syncs_successful / self.syncs_attempted
+
+    def record_success(self, duration: float) -> None:
+        """Record successful sync to this node.
+
+        Args:
+            duration: How long the sync took in seconds
+        """
+        self.syncs_attempted += 1
+        self.syncs_successful += 1
+        self.last_sync_success_time = time.time()
+        self.consecutive_failures = 0
+        # EMA update for average duration (90% old, 10% new)
+        if self.avg_sync_duration == 0:
+            self.avg_sync_duration = duration
+        else:
+            self.avg_sync_duration = 0.9 * self.avg_sync_duration + 0.1 * duration
+
+    def record_failure(self, reason: str = "") -> None:
+        """Record failed sync to this node.
+
+        Args:
+            reason: Description of why the sync failed
+        """
+        self.syncs_attempted += 1
+        self.syncs_failed += 1
+        self.last_sync_failure_time = time.time()
+        self.last_failure_reason = reason
+        self.consecutive_failures += 1
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary for JSON/status output."""
+        return {
+            "node_id": self.node_id,
+            "syncs_attempted": self.syncs_attempted,
+            "syncs_successful": self.syncs_successful,
+            "syncs_failed": self.syncs_failed,
+            "success_rate": self.success_rate,
+            "avg_sync_duration": self.avg_sync_duration,
+            "consecutive_failures": self.consecutive_failures,
+            "last_failure_reason": self.last_failure_reason,
+            "last_sync_success_time": self.last_sync_success_time,
+            "last_sync_failure_time": self.last_sync_failure_time,
+        }
+
+
 # =============================================================================
 # Module Exports
 # =============================================================================
@@ -400,4 +479,5 @@ __all__ = [
     "CleanupDaemonStats",
     "JobDaemonStats",
     "EvaluationDaemonStats",
+    "PerNodeSyncStats",
 ]

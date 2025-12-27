@@ -125,7 +125,19 @@ class EloSyncHandlersMixin:
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_elo_sync_upload(self, request: web.Request) -> web.Response:
-        """POST /elo/sync/upload - Upload/merge unified_elo.db from another node."""
+        """POST /elo/sync/upload - Upload/merge unified_elo.db from another node.
+
+        Dec 2025: Added optional auth token check for security.
+        Set RINGRIFT_ADMIN_TOKEN to require auth, or leave unset for open access.
+        """
+        import os
+        admin_token = os.environ.get("RINGRIFT_ADMIN_TOKEN")
+        if admin_token:
+            request_token = request.headers.get("X-Admin-Token", "")
+            if request_token != admin_token:
+                logger.warning("Unauthorized Elo sync upload attempt")
+                return web.json_response({"error": "Unauthorized"}, status=401)
+
         try:
             if not self.elo_sync_manager:
                 return web.json_response({
