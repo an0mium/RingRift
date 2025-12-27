@@ -891,17 +891,20 @@ class SyncRouter:
                 get_event_bus,
             )
 
-            await get_event_bus().publish(DataEvent(
-                event_type=DataEventType.SYNC_REQUEST.value,
-                payload={
-                    "source": source,
-                    "targets": targets,
-                    "data_type": data_type.value,
-                    "reason": reason,
-                    "router": "SyncRouter",
-                },
-                source="SyncRouter",
-            ))
+            # Dec 2025: Explicit null check before publish
+            bus = get_event_bus()
+            if bus is not None:
+                await bus.publish(DataEvent(
+                    event_type=DataEventType.SYNC_REQUEST.value,
+                    payload={
+                        "source": source,
+                        "targets": targets,
+                        "data_type": data_type.value,
+                        "reason": reason,
+                        "router": "SyncRouter",
+                    },
+                    source="SyncRouter",
+                ))
 
         except Exception as e:
             logger.warning(f"[SyncRouter] Could not emit routing decision: {e}")

@@ -385,6 +385,45 @@ def discover_models(
     return results
 
 
+def find_canonical_models(
+    models_dir: Path | None = None,
+) -> dict[tuple[str, int], Path]:
+    """Find all canonical models and return mapping of (board_type, num_players) to path.
+
+    Canonical models follow the naming convention: canonical_{board_type}_{n}p.pth
+    Examples: canonical_hex8_2p.pth, canonical_square19_4p.pth
+
+    Args:
+        models_dir: Directory to scan (default: AI_SERVICE_ROOT/models)
+
+    Returns:
+        Dict mapping (board_type, num_players) tuples to model paths.
+        Example: {("hex8", 2): Path("models/canonical_hex8_2p.pth"), ...}
+    """
+    if models_dir is None:
+        models_dir = MODELS_DIR
+
+    models_dir = Path(models_dir)
+    results: dict[tuple[str, int], Path] = {}
+
+    # Pattern: canonical_{board_type}_{n}p.pth
+    canonical_pattern = re.compile(r"^canonical_([a-z0-9]+)_(\d)p\.pth$")
+
+    for f in models_dir.glob("canonical_*.pth"):
+        if f.stem.startswith("."):
+            continue
+
+        match = canonical_pattern.match(f.name)
+        if match:
+            board_type = match.group(1)
+            num_players = int(match.group(2))
+            results[(board_type, num_players)] = f
+            logger.debug(f"Found canonical model: {board_type}_{num_players}p -> {f}")
+
+    logger.info(f"Discovered {len(results)} canonical models in {models_dir}")
+    return results
+
+
 def generate_all_sidecars(models_dir: Path | None = None, overwrite: bool = False) -> int:
     """Generate sidecar JSON files for all models.
 

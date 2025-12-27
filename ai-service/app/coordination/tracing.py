@@ -44,12 +44,13 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -411,17 +412,22 @@ class TraceCollector:
     For now, it stores traces in memory and optionally logs them.
     """
 
+    # Class-level lock for thread-safe lazy initialization (Dec 2025 fix)
+    _init_lock: ClassVar[threading.Lock] = threading.Lock()
+
     def __init__(self, max_traces: int = 1000, log_traces: bool = False):
         self.max_traces = max_traces
         self.log_traces = log_traces
         self._traces: list[dict[str, Any]] = []
-        self._lock = None  # Lazy init threading.Lock
+        self._lock: threading.Lock | None = None  # Lazy init threading.Lock
 
     def collect(self, trace: TraceContext) -> None:
         """Collect a completed trace."""
+        # Thread-safe lazy initialization (Dec 2025: fixed race condition)
         if self._lock is None:
-            import threading
-            self._lock = threading.Lock()
+            with TraceCollector._init_lock:
+                if self._lock is None:  # Double-check pattern
+                    self._lock = threading.Lock()
 
         trace_dict = trace.to_dict()
 

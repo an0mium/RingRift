@@ -507,10 +507,11 @@ class EphemeralSyncDaemon:
             "timestamp": time.time(),
             "synced": False,  # Track sync status
         }
-        self._pending_games.append(game_entry)
-
-        # Persist to WAL for durability (Phase 8)
+        # Dec 2025: Write WAL FIRST for durability - if crash occurs between
+        # WAL write and memory append, game is recoverable from WAL on restart.
+        # The reverse order (memory first, then WAL) would lose data on crash.
         self._append_to_wal(game_entry)
+        self._pending_games.append(game_entry)
 
         # Immediate push if enabled
         if self.config.immediate_push_enabled and len(self._pending_games) >= 1:

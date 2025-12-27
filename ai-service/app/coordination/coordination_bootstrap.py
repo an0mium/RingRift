@@ -409,7 +409,7 @@ def _init_task_coordinator() -> BootstrapCoordinatorStatus:
 
 
 def _init_sync_coordinator() -> BootstrapCoordinatorStatus:
-    """Initialize SyncCoordinator (SyncScheduler)."""
+    """Initialize SyncCoordinator (SyncScheduler) and SyncRouter."""
     status = BootstrapCoordinatorStatus(name="sync_coordinator")
     try:
         from app.coordination.sync_coordinator import wire_sync_events
@@ -419,6 +419,18 @@ def _init_sync_coordinator() -> BootstrapCoordinatorStatus:
         status.subscribed = getattr(coordinator, "_subscribed", True)
         status.initialized_at = datetime.now()
         logger.info("[Bootstrap] SyncCoordinator initialized")
+
+        # Dec 2025: Also wire SyncRouter to event system (P0 integration gap fix)
+        try:
+            from app.coordination.sync_router import get_sync_router
+
+            sync_router = get_sync_router()
+            sync_router.wire_to_event_router()
+            logger.info("[Bootstrap] SyncRouter wired to event router")
+        except ImportError:
+            logger.debug("[Bootstrap] SyncRouter not available")
+        except Exception as e:
+            logger.warning(f"[Bootstrap] Failed to wire SyncRouter: {e}")
 
     except ImportError as e:
         status.error = f"Import error: {e}"

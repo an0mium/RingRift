@@ -600,25 +600,21 @@ class UnifiedQueuePopulator:
             return {}
 
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            # Check if we're in a running event loop (Dec 2025: use get_running_loop)
+            try:
+                asyncio.get_running_loop()
+                # We're in a running loop - can't use run_until_complete
+                # Fall back to cached priorities to avoid deadlock
                 priorities_list = getattr(self._selfplay_scheduler, "_cached_priorities", [])
                 if priorities_list:
                     return dict(priorities_list)
                 return {}
-            else:
-                priorities_list = loop.run_until_complete(
-                    self._selfplay_scheduler.get_priority_configs(top_n=12)
-                )
-                return dict(priorities_list)
-        except RuntimeError:
-            try:
+            except RuntimeError:
+                # No running loop - safe to create one and run sync
                 priorities_list = asyncio.run(
                     self._selfplay_scheduler.get_priority_configs(top_n=12)
                 )
                 return dict(priorities_list)
-            except Exception:
-                return {}
         except Exception:
             return {}
 
