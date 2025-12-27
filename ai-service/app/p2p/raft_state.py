@@ -214,24 +214,48 @@ def load_raft_partner_addresses(
     config_path: Path | None = None,
     bind_port: int = RAFT_BIND_PORT,
 ) -> list[str]:
-    """Load Raft partner addresses from distributed_hosts.yaml.
+    """Load Raft partner addresses from cluster configuration.
 
     Uses voter nodes as Raft cluster members for consistency.
 
     Args:
         node_id: This node's ID (excluded from partners)
-        config_path: Path to distributed_hosts.yaml
+        config_path: Path to distributed_hosts.yaml (fallback only)
         bind_port: Raft bind port (default from constants)
 
     Returns:
         List of partner addresses in "host:port" format
     """
+    partners: list[str] = []
+
+    # Dec 2025: Use cluster_config helpers as primary method
+    if HAS_CLUSTER_CONFIG and get_p2p_voters is not None:
+        try:
+            voters = get_p2p_voters()
+            nodes = get_cluster_nodes()
+
+            for voter_name in voters:
+                if voter_name == node_id:
+                    continue
+
+                if voter_name in nodes:
+                    node = nodes[voter_name]
+                    ssh_host = node.best_ip
+                    if ssh_host and ssh_host not in ("localhost", "127.0.0.1"):
+                        partners.append(f"{ssh_host}:{bind_port}")
+
+            if partners:
+                logger.info(f"Raft partners from cluster_config: {partners}")
+                return partners
+
+        except Exception as e:
+            logger.warning(f"Could not load Raft partners from cluster_config: {e}")
+
+    # Fallback: Load from YAML directly if cluster_config unavailable
     if config_path is None:
         config_path = (
             Path(__file__).parent.parent.parent / "config" / "distributed_hosts.yaml"
         )
-
-    partners: list[str] = []
 
     if not config_path.exists():
         logger.warning(f"Raft config not found: {config_path}")
@@ -255,10 +279,10 @@ def load_raft_partner_addresses(
             if ssh_host and ssh_host not in ("localhost", "127.0.0.1"):
                 partners.append(f"{ssh_host}:{bind_port}")
 
-        logger.info(f"Raft partners from config: {partners}")
+        logger.info(f"Raft partners from YAML fallback: {partners}")
 
     except Exception as e:
-        logger.warning(f"Could not load Raft partners from config: {e}")
+        logger.warning(f"Could not load Raft partners from YAML: {e}")
 
     return partners
 

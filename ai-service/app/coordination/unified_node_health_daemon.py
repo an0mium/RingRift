@@ -578,7 +578,7 @@ def main():
     parser.add_argument(
         "--p2p-port",
         type=int,
-        default=8770,
+        default=_get_default_p2p_port(),
         help="P2P daemon port",
     )
     parser.add_argument(

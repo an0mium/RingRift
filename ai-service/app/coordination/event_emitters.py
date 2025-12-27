@@ -941,6 +941,55 @@ async def emit_game_quality_score(
     )
 
 
+async def emit_quality_penalty_applied(
+    config_key: str,
+    penalty: float,
+    reason: str,
+    current_weight: float = 1.0,
+    source: str = "",
+    **metadata,
+) -> bool:
+    """Emit QUALITY_PENALTY_APPLIED event when quality penalty is applied to a config.
+
+    This event triggers the curriculum feedback loop to reduce selfplay rate
+    for configs with degraded quality, closing the loop:
+    quality degradation → penalty → reduced selfplay → better quality data.
+
+    Args:
+        config_key: Configuration key (e.g., "hex8_2p")
+        penalty: Penalty factor applied (0.0-1.0, where 1.0 = full penalty)
+        reason: Why penalty was applied (e.g., "low_quality_score", "high_error_rate")
+        current_weight: Current curriculum weight after penalty
+        source: Module/function that triggered the penalty
+        **metadata: Additional metadata
+
+    Returns:
+        True if emitted successfully
+
+    Example:
+        await emit_quality_penalty_applied(
+            config_key="hex8_2p",
+            penalty=0.15,
+            reason="quality_score_below_threshold",
+            current_weight=0.85,
+        )
+    """
+    return await _emit_data_event(
+        DataEventType.QUALITY_PENALTY_APPLIED,
+        {
+            "config_key": config_key,
+            "penalty": penalty,
+            "reason": reason,
+            "current_weight": current_weight,
+            "timestamp": _get_timestamp(),
+            **metadata,
+        },
+        source=source or "quality_monitor",
+        log_message=f"Emitted quality_penalty_applied for {config_key}: penalty={penalty:.2f}, reason={reason}",
+        log_level="warning",
+    )
+
+
 # =============================================================================
 # Data Sync Events
 # =============================================================================

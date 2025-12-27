@@ -223,7 +223,7 @@ class ResourceMonitoringCoordinator:
             logger.error(f"[ResourceMonitoringCoordinator] Failed to subscribe: {e}")
             return False
 
-    async def _on_cluster_capacity_changed(self, event) -> None:
+    async def _on_cluster_capacity_changed(self, event: Any) -> None:
         """Handle CLUSTER_CAPACITY_CHANGED event."""
         payload = event.payload
 
@@ -241,7 +241,7 @@ class ResourceMonitoringCoordinator:
             utilization = (total_slots - available_slots) / total_slots
             self._update_cluster_backpressure(utilization)
 
-    async def _on_node_capacity_updated(self, event) -> None:
+    async def _on_node_capacity_updated(self, event: Any) -> None:
         """Handle NODE_CAPACITY_UPDATED event."""
         payload = event.payload
         node_id = payload.get("node_id", "")

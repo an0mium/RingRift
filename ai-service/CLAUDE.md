@@ -903,8 +903,17 @@ The P2P orchestrator has been decomposed into modular manager classes at `script
 | `JobManager`          | 663   | Job spawning and lifecycle management          |
 | `SelfplayScheduler`   | 737   | Priority-based selfplay config selection       |
 | `TrainingCoordinator` | 734   | Training dispatch, completion, model promotion |
+| `LoopManager`         | ~400  | Background loop orchestration (5 loops)        |
 
 All managers use dependency injection for testability. See `scripts/p2p/managers/README.md` for architecture details.
+
+**LoopManager Background Loops** (Dec 27, 2025):
+
+- `EloSyncLoop` - Elo rating synchronization
+- `IdleDetectionLoop` - GPU idle detection for termination
+- `AutoScalingLoop` - Cluster auto-scaling decisions
+- `JobReaperLoop` - Completed job cleanup
+- `QueuePopulatorLoop` - Work queue maintenance
 
 ### P2P SWIM/Raft Transition (December 2025)
 
