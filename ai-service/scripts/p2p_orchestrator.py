@@ -2288,6 +2288,8 @@ class P2POrchestrator(
         # Must have valid lease to act as leader
         if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
             logger.info("Leadership lease expired, stepping down")
+            # Dec 2025: Emit LEADER_LOST before clearing leader_id
+            old_leader_id = self.leader_id
             self.role = NodeRole.FOLLOWER
             self.leader_id = None
             self.leader_lease_id = ""
@@ -2295,6 +2297,7 @@ class P2POrchestrator(
             self.last_lease_renewal = 0.0
             self._release_voter_grant_if_self()
             self._save_state()
+            _emit_p2p_leader_lost_sync(old_leader_id, "lease_expired")
             with contextlib.suppress(RuntimeError):
                 asyncio.get_running_loop().create_task(self._start_election())
             return False

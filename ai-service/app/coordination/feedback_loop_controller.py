@@ -1432,6 +1432,84 @@ class FeedbackLoopController:
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling work completed: {e}")
 
+    def _on_work_failed(self, event: Any) -> None:
+        """Handle work failure events (Phase 27 - December 2025).
+
+        Tracks work queue failure metrics for monitoring and alerting.
+        Enables:
+        1. Failure rate monitoring per config
+        2. Node health correlation
+        3. Automatic selfplay rate adjustment on high failure rates
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            work_id = payload.get("work_id", "")
+            work_type = payload.get("work_type", "unknown")
+            board_type = payload.get("board_type", "")
+            num_players = payload.get("num_players", 0)
+            node_id = payload.get("node_id", "")
+            reason = payload.get("reason", "unknown")
+
+            config_key = ""
+            if board_type and num_players:
+                config_key = f"{board_type}_{num_players}p"
+
+            logger.warning(
+                f"[FeedbackLoopController] Work failed: "
+                f"id={work_id}, type={work_type}, config={config_key or 'N/A'}, "
+                f"node={node_id}, reason={reason}"
+            )
+
+            # Update metrics if we have a config
+            if config_key:
+                state = self._get_or_create_state(config_key)
+                if not hasattr(state, 'work_failed_count'):
+                    state.work_failed_count = 0
+                state.work_failed_count += 1
+
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+            logger.debug(f"[FeedbackLoopController] Error handling work failed: {e}")
+
+    def _on_work_timeout(self, event: Any) -> None:
+        """Handle work timeout events (Phase 27 - December 2025).
+
+        Tracks work queue timeout metrics for monitoring and alerting.
+        Timeouts may indicate:
+        1. Node health issues
+        2. Network connectivity problems
+        3. Resource exhaustion on target node
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+
+            work_id = payload.get("work_id", "")
+            work_type = payload.get("work_type", "unknown")
+            board_type = payload.get("board_type", "")
+            num_players = payload.get("num_players", 0)
+            node_id = payload.get("node_id", "")
+            timeout_seconds = payload.get("timeout_seconds", 0)
+
+            config_key = ""
+            if board_type and num_players:
+                config_key = f"{board_type}_{num_players}p"
+
+            logger.warning(
+                f"[FeedbackLoopController] Work timed out: "
+                f"id={work_id}, type={work_type}, config={config_key or 'N/A'}, "
+                f"node={node_id}, timeout={timeout_seconds}s"
+            )
+
+            # Update metrics if we have a config
+            if config_key:
+                state = self._get_or_create_state(config_key)
+                if not hasattr(state, 'work_timeout_count'):
+                    state.work_timeout_count = 0
+                state.work_timeout_count += 1
+
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+            logger.debug(f"[FeedbackLoopController] Error handling work timeout: {e}")
+
     # =========================================================================
     # Internal Actions
     # =========================================================================
