@@ -68,6 +68,8 @@ class PromotionCandidate:
     # Dec 27, 2025: Track Elo improvement for stricter promotion
     elo_improvement: float = 0.0  # Elo gain vs previous model
     estimated_elo: float = 0.0  # Estimated Elo from evaluation
+    # Dec 28, 2025: Track if model beats current best (for relative promotion)
+    beats_current_best: bool = False  # True if this model won head-to-head vs champion
 
 
 class AutoPromotionDaemon:
@@ -210,21 +212,27 @@ class AutoPromotionDaemon:
         if estimated_elo:
             candidate.estimated_elo = float(estimated_elo)
 
+        # Dec 28, 2025: Extract beats_current_best from payload
+        # This flag indicates if the model won head-to-head vs the current champion
+        beats_current_best = payload.get("beats_current_best", payload.get("beats_champion", False))
+        if beats_current_best:
+            candidate.beats_current_best = bool(beats_current_best)
+
         # Check if ready for promotion decision
         await self._check_promotion(candidate)
 
     async def _check_promotion(self, candidate: PromotionCandidate) -> None:
         """Check if candidate meets promotion criteria.
 
+        Uses the two-tier promotion system from thresholds.py:
+        1. ASPIRATIONAL thresholds - strong models that definitely should promote
+        2. MINIMUM floor + beats_current_best - incremental improvements that beat champion
+
         Args:
             candidate: PromotionCandidate to evaluate
         """
-        # Get thresholds for this config
-        from app.config.thresholds import get_promotion_thresholds
-
-        thresholds = get_promotion_thresholds(candidate.config_key)
-        vs_random_threshold = thresholds.get("vs_random", 0.85)
-        vs_heuristic_threshold = thresholds.get("vs_heuristic", 0.60)
+        # Dec 28, 2025: Use unified should_promote_model() for two-tier promotion
+        from app.config.thresholds import should_promote_model
 
         # Check if we have required results
         has_random = "RANDOM" in candidate.evaluation_results
@@ -255,20 +263,25 @@ class AutoPromotionDaemon:
             )
             return
 
-        # Check win rates
+        # Get win rates
         random_win_rate = candidate.evaluation_results.get("RANDOM", 0.0)
         heuristic_win_rate = candidate.evaluation_results.get("HEURISTIC", 0.0)
 
-        passes_random = random_win_rate >= vs_random_threshold
-        passes_heuristic = heuristic_win_rate >= vs_heuristic_threshold
+        # Dec 28, 2025: Use two-tier promotion system
+        # - Aspirational: Model meets high thresholds for strong performance
+        # - Relative: Model beats current best AND meets minimum floor
+        should_promote, reason = should_promote_model(
+            config_key=candidate.config_key,
+            vs_random_rate=random_win_rate,
+            vs_heuristic_rate=heuristic_win_rate,
+            beats_current_best=candidate.beats_current_best,
+        )
 
-        if passes_random and passes_heuristic:
+        if should_promote:
             candidate.consecutive_passes += 1
             logger.info(
-                f"[AutoPromotion] {candidate.config_key} PASSES: "
-                f"vs_random={random_win_rate:.1%} (>={vs_random_threshold:.0%}), "
-                f"vs_heuristic={heuristic_win_rate:.1%} (>={vs_heuristic_threshold:.0%}) "
-                f"[streak={candidate.consecutive_passes}]"
+                f"[AutoPromotion] {candidate.config_key} PASSES: {reason} "
+                f"[streak={candidate.consecutive_passes}, beats_best={candidate.beats_current_best}]"
             )
 
             # Check cooldown
@@ -283,8 +296,14 @@ class AutoPromotionDaemon:
 
             # Check consecutive passes
             if candidate.consecutive_passes >= self.config.consecutive_passes_required:
-                # Dec 27, 2025: Check Elo improvement requirement
-                if self.config.min_elo_improvement > 0 and candidate.elo_improvement < self.config.min_elo_improvement:
+                # Dec 27, 2025: Check Elo improvement requirement (optional)
+                # Note: For relative promotion, we may want to skip this check
+                # since beating champion is already strong signal
+                if (
+                    self.config.min_elo_improvement > 0
+                    and not candidate.beats_current_best  # Skip Elo check if beat champion
+                    and candidate.elo_improvement < self.config.min_elo_improvement
+                ):
                     logger.info(
                         f"[AutoPromotion] {candidate.config_key}: "
                         f"Elo improvement {candidate.elo_improvement:+.1f} < {self.config.min_elo_improvement} required"
@@ -295,9 +314,9 @@ class AutoPromotionDaemon:
             # Reset streak on failure
             candidate.consecutive_passes = 0
             logger.info(
-                f"[AutoPromotion] {candidate.config_key} FAILS: "
-                f"vs_random={random_win_rate:.1%} (need {vs_random_threshold:.0%}), "
-                f"vs_heuristic={heuristic_win_rate:.1%} (need {vs_heuristic_threshold:.0%})"
+                f"[AutoPromotion] {candidate.config_key} FAILS: {reason} "
+                f"(vs_random={random_win_rate:.1%}, vs_heuristic={heuristic_win_rate:.1%}, "
+                f"beats_best={candidate.beats_current_best})"
             )
 
     async def _promote_model(self, candidate: PromotionCandidate) -> None:

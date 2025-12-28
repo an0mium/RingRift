@@ -959,7 +959,10 @@ PROMOTION_RELATIVE_ENABLED: bool = True
 
 
 def get_promotion_thresholds(config_key: str) -> dict[str, float]:
-    """Get promotion thresholds for a specific board/player configuration.
+    """Get ASPIRATIONAL promotion thresholds for a configuration.
+
+    These are the target thresholds for strong (2000+ Elo) models.
+    For relative promotion, use should_promote_model() instead.
 
     Args:
         config_key: Configuration key like 'hex8_2p', 'square19_4p'
@@ -971,13 +974,80 @@ def get_promotion_thresholds(config_key: str) -> dict[str, float]:
         return PROMOTION_THRESHOLDS_BY_CONFIG[config_key]
 
     # Parse config to get player count for fallback
-    # Dec 28, 2025: Raised fallback thresholds to match explicit config values
     if "_4p" in config_key:
         return {"vs_random": 0.60, "vs_heuristic": 0.50}
     elif "_3p" in config_key:
         return {"vs_random": 0.65, "vs_heuristic": 0.55}
     else:
         return {"vs_random": 0.90, "vs_heuristic": 0.85}
+
+
+def get_minimum_thresholds(config_key: str) -> dict[str, float]:
+    """Get MINIMUM floor thresholds for relative promotion.
+
+    These are the absolute minimum requirements - models below this
+    are garbage and should never be promoted.
+
+    Args:
+        config_key: Configuration key like 'hex8_2p', 'square19_4p'
+
+    Returns:
+        Dict with 'vs_random' and 'vs_heuristic' minimum thresholds
+    """
+    if config_key in PROMOTION_MINIMUM_THRESHOLDS:
+        return PROMOTION_MINIMUM_THRESHOLDS[config_key]
+
+    # Parse config to get player count for fallback
+    if "_4p" in config_key:
+        return {"vs_random": 0.35, "vs_heuristic": 0.0}
+    elif "_3p" in config_key:
+        return {"vs_random": 0.45, "vs_heuristic": 0.0}
+    else:
+        return {"vs_random": 0.65, "vs_heuristic": 0.0}
+
+
+def should_promote_model(
+    config_key: str,
+    vs_random_rate: float,
+    vs_heuristic_rate: float,
+    beats_current_best: bool = False,
+) -> tuple[bool, str]:
+    """Determine if a model should be promoted using two-tier system.
+
+    Promotion criteria (in order of precedence):
+    1. If model meets ASPIRATIONAL thresholds -> promote (strong model)
+    2. If PROMOTION_RELATIVE_ENABLED and beats_current_best:
+       - If model meets MINIMUM floor -> promote (incremental improvement)
+    3. Otherwise -> don't promote
+
+    Args:
+        config_key: Configuration key like 'hex8_2p'
+        vs_random_rate: Win rate against random opponent (0.0-1.0)
+        vs_heuristic_rate: Win rate against heuristic opponent (0.0-1.0)
+        beats_current_best: Whether this model beats the current best model
+
+    Returns:
+        Tuple of (should_promote, reason)
+    """
+    aspirational = get_promotion_thresholds(config_key)
+    minimum = get_minimum_thresholds(config_key)
+
+    # Check aspirational thresholds first
+    if vs_random_rate >= aspirational["vs_random"] and vs_heuristic_rate >= aspirational["vs_heuristic"]:
+        return True, f"Meets aspirational targets (vs_random={vs_random_rate:.1%} >= {aspirational['vs_random']:.0%}, vs_heuristic={vs_heuristic_rate:.1%} >= {aspirational['vs_heuristic']:.0%})"
+
+    # Check relative promotion
+    if PROMOTION_RELATIVE_ENABLED and beats_current_best:
+        if vs_random_rate >= minimum["vs_random"]:
+            return True, f"Beats current best and meets minimum floor (vs_random={vs_random_rate:.1%} >= {minimum['vs_random']:.0%})"
+        else:
+            return False, f"Beats current best but below minimum floor (vs_random={vs_random_rate:.1%} < {minimum['vs_random']:.0%})"
+
+    # Didn't meet any criteria
+    if vs_random_rate < aspirational["vs_random"]:
+        return False, f"Below aspirational vs_random ({vs_random_rate:.1%} < {aspirational['vs_random']:.0%})"
+    else:
+        return False, f"Below aspirational vs_heuristic ({vs_heuristic_rate:.1%} < {aspirational['vs_heuristic']:.0%})"
 
 
 # =============================================================================

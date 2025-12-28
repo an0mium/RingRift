@@ -362,29 +362,56 @@ class UnifiedDistributionDaemon:
         unregister_coordinator(self.name)
         self._coordinator_status = CoordinatorStatus.STOPPED
 
-    def _subscribe_to_events(self) -> None:
-        """Subscribe to MODEL_PROMOTED and NPZ_EXPORT_COMPLETE events."""
-        try:
-            from app.coordination.event_router import DataEventType, subscribe
+    def _subscribe_to_events(self, max_retries: int = 3) -> None:
+        """Subscribe to MODEL_PROMOTED and NPZ_EXPORT_COMPLETE events.
 
-            # Model events
-            subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
-            subscribe(DataEventType.MODEL_UPDATED, self._on_model_updated)
-            subscribe(DataEventType.MODEL_DISTRIBUTION_STARTED, self._on_model_distribution_started)
-            subscribe(DataEventType.MODEL_DISTRIBUTION_FAILED, self._on_model_distribution_failed)
-            logger.info("Subscribed to MODEL_PROMOTED, MODEL_UPDATED events")
+        December 28, 2025: Added retry logic with exponential backoff for
+        robustness during startup when event bus may not be ready.
 
-            # NPZ events
+        Args:
+            max_retries: Maximum retry attempts before falling back to polling
+        """
+        import time as time_module
+
+        for attempt in range(max_retries):
             try:
-                from app.coordination.event_router import StageEvent
-                subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_exported)
-                logger.info("Subscribed to NPZ_EXPORT_COMPLETE events")
-            except (ImportError, AttributeError):
-                subscribe("npz_export_complete", self._on_npz_exported)
-                logger.info("Subscribed to npz_export_complete string events")
+                from app.coordination.event_router import DataEventType, subscribe
 
-        except ImportError as e:
-            logger.warning(f"Event system not available ({e}), will poll for new files")
+                # Model events
+                subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
+                subscribe(DataEventType.MODEL_UPDATED, self._on_model_updated)
+                subscribe(DataEventType.MODEL_DISTRIBUTION_STARTED, self._on_model_distribution_started)
+                subscribe(DataEventType.MODEL_DISTRIBUTION_FAILED, self._on_model_distribution_failed)
+                logger.info("Subscribed to MODEL_PROMOTED, MODEL_UPDATED events")
+
+                # NPZ events
+                try:
+                    from app.coordination.event_router import StageEvent
+                    subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_exported)
+                    logger.info("Subscribed to NPZ_EXPORT_COMPLETE events")
+                except (ImportError, AttributeError):
+                    subscribe("npz_export_complete", self._on_npz_exported)
+                    logger.info("Subscribed to npz_export_complete string events")
+
+                # Success - exit retry loop
+                return
+
+            except ImportError as e:
+                if attempt < max_retries - 1:
+                    backoff = 2 ** attempt  # 1s, 2s, 4s
+                    logger.warning(
+                        f"Event system not ready, retry {attempt + 1}/{max_retries} "
+                        f"in {backoff}s: {e}"
+                    )
+                    time_module.sleep(backoff)
+                else:
+                    logger.warning(
+                        f"Event system not available after {max_retries} attempts ({e}), "
+                        "will poll for new files"
+                    )
+            except Exception as e:
+                logger.warning(f"Subscription failed: {e}, will poll for new files")
+                return
 
     # =========================================================================
     # Event Handlers

@@ -968,9 +968,17 @@ class UnifiedDataSyncService:
         db_name = Path(remote_db).name
         local_path = local_dir / db_name
 
-        # Rsync with bandwidth limit
+        # Dec 2025: Include WAL files (.db-wal, .db-shm) to prevent data loss
+        # WAL files contain uncommitted transactions that would be lost otherwise
+        remote_dir = str(Path(remote_db).parent) + "/"
+
+        # Rsync with bandwidth limit and WAL file inclusion
         bwlimit = self.config.rsync_bandwidth_limit_kbps
-        rsync_cmd = f'rsync -avz --checksum --bwlimit={bwlimit} -e "ssh {ssh_args}" {host.ssh_user}@{host.ssh_host}:{remote_db} {local_path}'
+        rsync_cmd = (
+            f'rsync -avz --checksum --bwlimit={bwlimit} '
+            f'--include="{db_name}" --include="{db_name}-wal" --include="{db_name}-shm" --exclude="*" '
+            f'-e "ssh {ssh_args}" {host.ssh_user}@{host.ssh_host}:{remote_dir} {local_dir}/'
+        )
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -1394,7 +1402,12 @@ class UnifiedDataSyncService:
         Returns (games_synced, error_message).
         """
         ssh_args = self._build_ssh_args(host)
-        rsync_cmd = f'rsync -avz --checksum -e "ssh {ssh_args}" {host.ssh_user}@{host.ssh_host}:{host.remote_db_path}/*.db {local_dir}/'
+        # Dec 2025: Include WAL files (.db-wal, .db-shm) to prevent data loss
+        rsync_cmd = (
+            f'rsync -avz --checksum '
+            f'--include="*.db" --include="*.db-wal" --include="*.db-shm" --exclude="*" '
+            f'-e "ssh {ssh_args}" {host.ssh_user}@{host.ssh_host}:{host.remote_db_path}/ {local_dir}/'
+        )
 
         try:
             process = await asyncio.create_subprocess_shell(

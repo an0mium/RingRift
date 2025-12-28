@@ -61,6 +61,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
@@ -68,6 +69,10 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe counter for unique reservation IDs within a process
+_reservation_counter = 0
+_counter_lock = threading.Lock()
 
 # Constants
 DEFAULT_RESERVATION_DIR = Path("/tmp/ringrift_sync_reserve")
@@ -159,9 +164,15 @@ class DiskSpaceReservation:
         # Add safety margin to reservation
         self.reserved_bytes = int(estimated_bytes * (1 + safety_margin))
 
-        # Create unique reservation file name based on target path hash
+        # Create unique reservation file name based on target path hash, PID, and counter
+        # The counter ensures uniqueness even within the same process for concurrent syncs
+        global _reservation_counter
+        with _counter_lock:
+            _reservation_counter += 1
+            counter = _reservation_counter
+
         path_hash = hashlib.md5(str(self.target_dir).encode()).hexdigest()[:12]
-        self.reservation_file = self.reservation_dir / f"{RESERVATION_FILE_PREFIX}{path_hash}_{os.getpid()}"
+        self.reservation_file = self.reservation_dir / f"{RESERVATION_FILE_PREFIX}{path_hash}_{os.getpid()}_{counter}"
 
         self._acquired = False
 

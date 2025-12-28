@@ -439,7 +439,12 @@ class P2PFallbackSync:
             if ssh_port != 22:
                 ssh_args += f" -p {ssh_port}"
 
-            rsync_cmd = f'rsync -avz --checksum -e "ssh {ssh_args}" {ssh_user}@{ssh_host}:{remote_db_path}/*.db {local_dir}/'
+            # Dec 2025: Include WAL files (.db-wal, .db-shm) to prevent data loss
+            rsync_cmd = (
+                f'rsync -avz --checksum '
+                f'--include="*.db" --include="*.db-wal" --include="*.db-shm" --exclude="*" '
+                f'-e "ssh {ssh_args}" {ssh_user}@{ssh_host}:{remote_db_path}/ {local_dir}/'
+            )
 
             process = await asyncio.create_subprocess_shell(
                 rsync_cmd,
