@@ -52,7 +52,7 @@ class AutoPromotionConfig:
     # Dry run mode - log but don't actually promote
     dry_run: bool = False
     # Dec 27, 2025: Minimum Elo improvement over previous model required for promotion
-    min_elo_improvement: float = 75.0  # Must gain 75+ Elo to promote
+    min_elo_improvement: float = 25.0  # Dec 28: Lowered from 75 to accelerate iteration
 
 
 @dataclass

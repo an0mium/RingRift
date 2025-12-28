@@ -19,7 +19,7 @@ See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 # =============================================================================
 
 # Games needed to trigger training (per config)
-TRAINING_TRIGGER_GAMES = 500
+TRAINING_TRIGGER_GAMES = 100  # Dec 28: Lowered from 500 to accelerate training loop
 
 # Minimum interval between training runs (seconds)
 TRAINING_MIN_INTERVAL_SECONDS = 1200  # 20 minutes
@@ -86,6 +86,11 @@ TIER_VALIDATION_NUM_PLAYERS = 2
 
 # Games per board type for tier evaluation
 TIER_VALIDATION_GAMES_PER_BOARD = 100
+
+# Games per opponent for gauntlet evaluation (increased from 20 for better precision)
+# At 50 games: ~14% confidence interval on win rate
+# At 100 games: ~10% confidence interval on win rate
+GAUNTLET_GAMES_PER_OPPONENT = 50
 
 # Cooldown between promotion attempts (seconds)
 PROMOTION_COOLDOWN_SECONDS = 900  # 15 minutes
@@ -241,33 +246,36 @@ MAX_ELO_RATING = 3000.0
 # This prevents selecting checkpoints strong in neural-vs-neural but weak vs basics
 
 # Minimum win rate against random AI for checkpoint qualification
-# Lowered from 85% to 70% - 73% is decent for early training
-MIN_WIN_RATE_VS_RANDOM = 0.70  # 70%
+# Dec 28, 2025: Raised from 70% to 85% - weak data causes Elo plateau
+MIN_WIN_RATE_VS_RANDOM = 0.85  # 85% (must dominate random)
 
 # Minimum win rate against heuristic AI for checkpoint qualification
-# Lowered from 60% to 50% - break-even with heuristic is acceptable start
-MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50%
+# Dec 28, 2025: Raised from 75% to 85% - 75% still plateaus at ~1650 Elo.
+# AlphaZero-quality training requires decisively beating heuristics.
+# 85% vs heuristic correlates with 1800+ Elo potential.
+MIN_WIN_RATE_VS_HEURISTIC = 0.85  # 85% (must decisively beat heuristic for 1800+ Elo)
 
 # -----------------------------------------------------------------------------
 # 3-Player Adjusted Thresholds
 # -----------------------------------------------------------------------------
 # For 3-player games, random baseline is 33% (1/3 chance), not 50%.
-# Thresholds adjusted: 70% for 2p (1.4x over 50%) -> 55% for 3p (1.65x over 33%)
-# Heuristic: 25% is achievable for early 3p models (can tighten later)
+# Dec 28, 2025: Raised thresholds - weak data was causing plateau
+# 85% for 2p (2.55x over 33%) -> 55% for 3p (1.65x over 33%)
+# Heuristic raised to 45% to ensure quality training data
 
-MIN_WIN_RATE_VS_RANDOM_3P = 0.40  # 40% (1.2x better than 33% random baseline) - lowered from 55% as canonical models fail it
-MIN_WIN_RATE_VS_HEURISTIC_3P = 0.25  # 25% (achievable for early 3p models)
+MIN_WIN_RATE_VS_RANDOM_3P = 0.55  # 55% (1.65x better than 33% random baseline)
+MIN_WIN_RATE_VS_HEURISTIC_3P = 0.45  # 45% (must beat heuristic convincingly)
 
 # -----------------------------------------------------------------------------
 # 4-Player Adjusted Thresholds
 # -----------------------------------------------------------------------------
 # For 4-player games, random baseline is 25% (1/4 chance), not 50%.
-# Thresholds are adjusted to match equivalent relative improvement.
-# 70% for 2p (1.4x over 50%) -> 50% for 4p (2x over 25%)
-# Heuristic: 20% is achievable for early 4p models (can tighten later)
+# Dec 28, 2025: Raised thresholds - weak data was causing plateau
+# 85% for 2p (3.4x over 25%) -> 65% for 4p (2.6x over 25%)
+# Heuristic raised to 40% to ensure quality training data
 
-MIN_WIN_RATE_VS_RANDOM_4P = 0.50  # 50% (2x better than 25% random baseline)
-MIN_WIN_RATE_VS_HEURISTIC_4P = 0.20  # 20% (baseline for early 4p models, tighten later)
+MIN_WIN_RATE_VS_RANDOM_4P = 0.65  # 65% (2.6x better than 25% random baseline)
+MIN_WIN_RATE_VS_HEURISTIC_4P = 0.40  # 40% (must beat heuristic convincingly)
 
 
 def get_min_win_rate_vs_random(num_players: int = 2) -> float:
@@ -397,6 +405,10 @@ BASELINE_ELO_HEURISTIC_STRONG = 1400  # Heuristic at difficulty 8
 BASELINE_ELO_MCTS_LIGHT = 1500        # MCTS with 32 simulations
 BASELINE_ELO_MCTS_MEDIUM = 1700       # MCTS with 128 simulations
 BASELINE_ELO_MCTS_STRONG = 1900       # MCTS with 512 simulations
+
+# Dec 28, 2025: Added 2000+ Elo baselines - required to measure models above 1900
+BASELINE_ELO_MCTS_MASTER = 2000       # MCTS with 1024 simulations
+BASELINE_ELO_MCTS_GRANDMASTER = 2100  # MCTS with 2048 simulations
 
 # =============================================================================
 # Evaluation Thresholds

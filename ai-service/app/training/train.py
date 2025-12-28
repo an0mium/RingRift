@@ -599,12 +599,14 @@ def train_model(
     stochastic_depth: bool = False,
     stochastic_depth_prob: float = 0.1,
     adaptive_warmup: bool = False,
-    hard_example_mining: bool = False,
+    # Dec 28, 2025: Enabled by default to reduce overfitting and reach 2000+ Elo
+    hard_example_mining: bool = True,  # Focus on difficult examples
     hard_example_top_k: float = 0.3,
     # Outcome-weighted policy loss (2025-12)
     # Weights policy loss by game outcome: winner's moves → higher weight, loser's → lower
     # Inspired by EBMO outcome-contrastive loss for improved move quality learning
-    enable_outcome_weighted_policy: bool = False,
+    # Dec 28, 2025: Enabled by default to improve move quality learning
+    enable_outcome_weighted_policy: bool = True,  # Learn from winning moves
     outcome_weight_scale: float = 0.5,  # How much to scale by outcome (0=no effect, 1=full)
     auto_tune_batch_size: bool = True,  # Enabled by default for 15-30% better throughput
     track_calibration: bool = False,
@@ -614,8 +616,9 @@ def train_model(
     hot_buffer_mix_ratio: float = 0.3,
     external_hot_buffer: Any | None = None,  # Pre-populated HotDataBuffer from caller
     use_integrated_enhancements: bool = True,  # December 2025: Enable by default for Elo improvement
-    enable_curriculum: bool = False,
-    enable_augmentation: bool = False,
+    # Dec 28, 2025: Enabled curriculum and augmentation by default to reduce overfitting
+    enable_curriculum: bool = True,  # Progressive difficulty during training
+    enable_augmentation: bool = True,  # Board symmetry augmentation
     enable_elo_weighting: bool = True,  # December 2025: Enable for sample prioritization (+20-35 Elo)
     enable_auxiliary_tasks: bool = True,  # December 2025: Enable for multi-task learning (+5-15 Elo)
     enable_batch_scheduling: bool = False,
@@ -658,7 +661,9 @@ def train_model(
     enable_checkpoint_averaging: bool = True,
     num_checkpoints_to_average: int = 5,
     # Quality-weighted training (2025-12) - resurrected from ebmo_network.py
-    enable_quality_weighting: bool = False,
+    # December 2025: Enabled by default to improve training signal quality
+    # Quality weighting focuses learning on high-quality MCTS-derived moves
+    enable_quality_weighting: bool = True,
     quality_weight_blend: float = 0.5,
     quality_ranking_weight: float = 0.1,
 ):
@@ -1815,10 +1820,10 @@ def train_model(
     use_hex_v4 = bool(use_hex_model and model_version == 'v4')
     use_hex_v3 = bool(use_hex_model and model_version == 'v3')
 
-    # December 2025: Detect heuristic feature count from NPZ for v5_heavy model
+    # December 2025: Detect heuristic feature count from NPZ for v5_heavy/v6 models
     # This enables automatic switching between fast (21) and full (49) modes
     detected_num_heuristics: int | None = None
-    if model_version in ('v5', 'v5-gnn', 'v5-heavy'):
+    if model_version in ('v5', 'v5-gnn', 'v5-heavy', 'v6', 'v6-xl'):
         if isinstance(data_path, list):
             heuristic_check_path = data_path[0] if data_path else ""
         else:
@@ -2115,6 +2120,32 @@ def train_model(
                 f"Initializing RingRiftCNN_v5_Heavy with board_size={board_size}, "
                 f"policy_size={policy_size}, num_players={v5_num_players}, "
                 f"filters={v5_filters}, use_gnn={use_gnn}, heuristics={heuristic_mode_str}"
+            )
+    elif model_version in ('v6', 'v6-xl'):
+        # V6 Large architecture: Scaled-up model for 2000+ Elo (December 2025)
+        # Uses same architecture as V5 Heavy but with increased capacity:
+        # - num_filters: 256 (v6) or 320 (v6-xl) vs 160 in v5
+        # - num_se_blocks: 10-12 vs 6 in v5
+        # - num_attention_blocks: 8-10 vs 5 in v5
+        # - Full 49 heuristic features
+        from app.ai.neural_net.v6_large import create_v6_model
+        v6_num_players = MAX_PLAYERS if multi_player else num_players
+        v6_variant = "xl" if model_version == "v6-xl" else "large"
+        # Use detected heuristic count from NPZ, or default to full features (49)
+        v6_num_heuristics = detected_num_heuristics if detected_num_heuristics else 49
+        model = create_v6_model(
+            board_type=config.board_type.name.lower(),
+            num_players=v6_num_players,
+            variant=v6_variant,
+            num_heuristics=v6_num_heuristics,
+            dropout=dropout,
+        )
+        if not distributed or is_main_process():
+            param_count = sum(p.numel() for p in model.parameters())
+            logger.info(
+                f"Initializing V6 {v6_variant} model for {config.board_type.name}: "
+                f"{param_count:,} parameters, num_players={v6_num_players}, "
+                f"heuristics={v6_num_heuristics}"
             )
     elif multi_player:
         # Multi-player mode: RingRiftCNN_v2 with per-player value head + multi_player_value_loss

@@ -97,7 +97,7 @@ class EvaluationConfig:
     early_stopping_min_games: int = 10
 
     # Concurrency
-    max_concurrent_evaluations: int = 1
+    max_concurrent_evaluations: int = 4  # Dec 28: Increased from 1 to reduce bottleneck
 
     # Timeouts
     evaluation_timeout_seconds: float = 600.0  # 10 minutes

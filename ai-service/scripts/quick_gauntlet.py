@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Add the project root to the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.training.game_gauntlet import run_baseline_gauntlet, BaselineOpponent
+from app.training.game_gauntlet import run_baseline_gauntlet, BaselineOpponent, GAUNTLET_GAMES_PER_OPPONENT
 
 
 def _configure_multiprocessing() -> None:
@@ -76,8 +76,8 @@ Examples:
     parser.add_argument(
         "--games",
         type=int,
-        default=15,
-        help="Games per opponent (default: 15)",
+        default=GAUNTLET_GAMES_PER_OPPONENT,
+        help=f"Games per opponent (default: {GAUNTLET_GAMES_PER_OPPONENT})",
     )
     parser.add_argument(
         "--parallel",

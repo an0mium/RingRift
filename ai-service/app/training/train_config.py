@@ -96,11 +96,15 @@ class LearningRateConfig:
 
 @dataclass
 class EnhancementConfig:
-    """Configuration for training enhancements (December 2025)."""
+    """Configuration for training enhancements (December 2025).
+
+    Dec 28, 2025: Enabled curriculum, augmentation, and quality weighting by default.
+    Previous defaults (all False) caused overfitting and Elo plateau at 1600-1700.
+    """
 
     use_integrated_enhancements: bool = True
-    enable_curriculum: bool = False
-    enable_augmentation: bool = False
+    enable_curriculum: bool = True  # Dec 28: Enabled - prevents overfitting
+    enable_augmentation: bool = True  # Dec 28: Enabled - board symmetries
     enable_elo_weighting: bool = True
     enable_auxiliary_tasks: bool = True
     enable_batch_scheduling: bool = False
@@ -113,9 +117,9 @@ class EnhancementConfig:
     external_hot_buffer: Any | None = None
 
     # Quality-weighted training (December 2025)
-    # Resurrected from archive/deprecated_ai/ebmo_network.py
-    enable_quality_weighting: bool = False
-    quality_weight_blend: float = 0.5  # 0 = uniform, 1 = fully quality-weighted
+    # Dec 28: Enabled by default - critical for 2000+ Elo
+    enable_quality_weighting: bool = True  # Dec 28: Enabled - focus on high-quality samples
+    quality_weight_blend: float = 0.7  # Dec 28: Increased from 0.5 for stronger weighting
     quality_ranking_weight: float = 0.1  # Weight for ranking loss term
     quality_ranking_margin: float = 0.5  # Margin for ranking loss
     quality_min_weight: float = 0.1  # Minimum sample weight
@@ -137,13 +141,17 @@ class FaultToleranceConfig:
 
 @dataclass
 class ModelArchConfig:
-    """Configuration for model architecture."""
+    """Configuration for model architecture.
+
+    Dec 28, 2025: Increased dropout from 0.08 to 0.15 to reduce overfitting.
+    Training logs showed 46% divergence (train=0.99, val=1.46).
+    """
 
     model_version: str = "v2"
     model_type: str = "cnn"  # cnn, gnn, hybrid
     num_res_blocks: int | None = None
     num_filters: int | None = None
-    dropout: float = 0.08
+    dropout: float = 0.15  # Dec 28: Increased from 0.08 to reduce overfitting
     freeze_policy: bool = False
 
     # Advanced features

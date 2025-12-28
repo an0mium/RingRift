@@ -396,30 +396,54 @@ def get_budget_for_difficulty(difficulty: int) -> int:
     """Get recommended Gumbel budget for a difficulty level.
 
     Args:
-        difficulty: Difficulty level 1-11
+        difficulty: Difficulty level 1-11+
 
     Returns:
         Recommended simulation budget
+
+    December 2025: Added MASTER tier (3200) for difficulty 10+ to support
+    2000+ Elo training. Previous cap at ULTIMATE (1600) was insufficient.
+
+    Tiers:
+        1-6: STANDARD (800) - Basic training
+        7-9: QUALITY (800) - Quality games
+        10: ULTIMATE (1600) - Strong training (1800-2000 Elo)
+        11+: MASTER (3200) - 2000+ Elo training
     """
     if difficulty <= 6:
         return GUMBEL_BUDGET_STANDARD
     elif difficulty <= 9:
         return GUMBEL_BUDGET_QUALITY
-    else:
+    elif difficulty == 10:
         return GUMBEL_BUDGET_ULTIMATE
+    else:
+        # December 2025: Added MASTER tier for 2000+ Elo training
+        return GUMBEL_BUDGET_MASTER
 
 
 # =============================================================================
 # Board-Specific Budgets (Dec 2025 ML Acceleration)
 # =============================================================================
-# Smaller boards need less search depth, allowing 2x faster selfplay games.
-# This directly increases training throughput for smaller configs.
+# December 2025 UPDATE: Increased budgets for 2000+ Elo training.
+# Previous low budgets (400-800) were insufficient for strong models.
+# AlphaZero uses 800 minimum; we need 1600-3200 for 2000+ Elo.
+#
+# These are now QUALITY training defaults. For throughput/bootstrap,
+# use difficulty=6 or lower to get THROUGHPUT/STANDARD budgets.
 
 BUDGET_BY_BOARD_TYPE = {
-    "hex8": 400,       # Small hex - 2x faster (was 800)
-    "square8": 600,    # Small square - 1.3x faster (was 800)
-    "square19": 800,   # Large square - keep full budget
-    "hexagonal": 800,  # Large hex - keep full budget
+    "hex8": 1600,       # Small hex - ULTIMATE for quality (was 400)
+    "square8": 1600,    # Small square - ULTIMATE for quality (was 600)
+    "square19": 2400,   # Large square - between ULTIMATE and MASTER
+    "hexagonal": 2400,  # Large hex - between ULTIMATE and MASTER
+}
+
+# Throughput-optimized budgets for fast iteration (use when bootstrapping)
+BUDGET_BY_BOARD_TYPE_FAST = {
+    "hex8": 400,        # Fast bootstrap mode
+    "square8": 600,     # Fast bootstrap mode
+    "square19": 800,    # Keep reasonable for large boards
+    "hexagonal": 800,   # Keep reasonable for large boards
 }
 
 
@@ -468,6 +492,7 @@ def get_elo_adaptive_budget(
     elo_weak_threshold: float = 1300.0,
     elo_medium_threshold: float = 1500.0,
     elo_strong_threshold: float = 1700.0,
+    elo_master_threshold: float = 1900.0,
 ) -> int:
     """Get Elo-adaptive MCTS budget based on model strength.
 
@@ -475,7 +500,11 @@ def get_elo_adaptive_budget(
     - Weak models (< 1300 Elo): Low budget for fast iteration
     - Medium models (1300-1500): Standard budget
     - Strong models (1500-1700): High quality budget
-    - Very strong (> 1700): Maximum quality
+    - Very strong (1700-1900): Ultimate budget for breaking plateaus
+    - Master (> 1900): Maximum budget for 2000+ Elo training
+
+    December 2025 UPDATE: Added MASTER tier (3200) for 2000+ Elo training.
+    Previous cap at QUALITY (800) was insufficient for breaking Elo plateaus.
 
     The budget also scales with training epoch to provide higher quality
     data as training progresses.
@@ -486,6 +515,7 @@ def get_elo_adaptive_budget(
         elo_weak_threshold: Elo below which model is considered weak
         elo_medium_threshold: Elo below which model is considered medium
         elo_strong_threshold: Elo above which model is considered very strong
+        elo_master_threshold: Elo above which model needs MASTER budget
 
     Returns:
         Recommended simulation budget
@@ -497,6 +527,8 @@ def get_elo_adaptive_budget(
         225
         >>> get_elo_adaptive_budget(1800, training_epoch=100)
         1600
+        >>> get_elo_adaptive_budget(1950, training_epoch=100)
+        3200
     """
     # Base budget from Elo
     if model_elo < elo_weak_threshold:
@@ -506,11 +538,16 @@ def get_elo_adaptive_budget(
         progress = (model_elo - elo_weak_threshold) / (elo_medium_threshold - elo_weak_threshold)
         base = int(50 + progress * 100)
     elif model_elo < elo_strong_threshold:
-        # Interpolate between 150 and 400
+        # Interpolate between 150 and 800
         progress = (model_elo - elo_medium_threshold) / (elo_strong_threshold - elo_medium_threshold)
-        base = int(150 + progress * 250)
+        base = int(150 + progress * 650)  # Increased from 250 to reach 800
+    elif model_elo < elo_master_threshold:
+        # Interpolate between 800 and 1600 (ULTIMATE)
+        progress = (model_elo - elo_strong_threshold) / (elo_master_threshold - elo_strong_threshold)
+        base = int(GUMBEL_BUDGET_QUALITY + progress * (GUMBEL_BUDGET_ULTIMATE - GUMBEL_BUDGET_QUALITY))
     else:
-        base = GUMBEL_BUDGET_QUALITY  # 800 - Maximum quality for strong models
+        # December 2025: MASTER budget for 2000+ Elo training
+        base = GUMBEL_BUDGET_MASTER  # 3200 - Maximum quality for master-level models
 
     # Scale up with training epoch (up to 2x at epoch 100+)
     epoch_multiplier = min(2.0, 1.0 + training_epoch / 100)

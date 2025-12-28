@@ -47,6 +47,7 @@ from .v5_heavy import (
 )
 from .v6_large import (
     create_v6_model,
+    V5_1_CONFIG,
     V6_LARGE_CONFIG,
     V6_XL_CONFIG,
 )
@@ -69,8 +70,8 @@ __all__ = [
     "get_model_config_for_board",
 ]
 
-# Valid memory tier options (v6 added December 2025)
-VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "v6", "v6-xl", "gnn", "hybrid")
+# Valid memory tier options (v6 added December 2025, v5.1 added for 256ch/20 blocks)
+VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "v5.1", "v6", "v6-xl", "gnn", "hybrid")
 
 # ============================================================================
 # Memory Tier Quick Reference (December 2025)
@@ -80,6 +81,7 @@ VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", 
 # |----------|----------------------|---------|------------------------|----------------------------|
 # | v6       | V5 Heavy (scaled)    | ~25M    | 256 filters, 10 SE, 8 attn| 1800+ Elo target (NEW)   |
 # | v6-xl    | V5 Heavy (max)       | ~35M    | 320 filters + GNN      | 2000+ Elo target (NEW)     |
+# | v5.1     | V5 Heavy (256/20)    | ~22M    | 256 filters, 10 SE, 10 attn| Balanced 1800+ Elo       |
 # | v5       | RingRiftCNN_v5_Heavy | ~6.2M   | SE+Attn+FiLM, heuristics| Max strength (21 heuristics)|
 # | v5-gnn   | RingRiftCNN_v5_Heavy | ~6.3M   | v5 + GNN refinement    | Max strength + connectivity|
 # | v4       | RingRiftCNN_v4       | ~5.1M   | Attention, spatial     | Default, NAS-optimized     |
@@ -253,9 +255,14 @@ def _create_hex_model(
         num_players: Number of players
     """
     # V6 models (December 2025 - scaled for 2000+ Elo)
-    if tier in ("v6", "v6-xl"):
+    if tier in ("v6", "v6-xl", "v5.1"):
         board_type = "hex8" if board_size == 9 else "hexagonal"
-        variant = "xl" if tier == "v6-xl" else "large"
+        if tier == "v6-xl":
+            variant = "xl"
+        elif tier == "v5.1":
+            variant = "v5.1"
+        else:
+            variant = "large"
         return create_v6_model(
             board_type=board_type,
             num_players=num_players,
@@ -405,9 +412,14 @@ def _create_square_model(
 ) -> nn.Module:
     """Create a square board model based on memory tier."""
     # V6 models (December 2025 - scaled for 2000+ Elo)
-    if tier in ("v6", "v6-xl"):
+    if tier in ("v6", "v6-xl", "v5.1"):
         board_type = "square8" if board_size == 8 else "square19"
-        variant = "xl" if tier == "v6-xl" else "large"
+        if tier == "v6-xl":
+            variant = "xl"
+        elif tier == "v5.1":
+            variant = "v5.1"
+        else:
+            variant = "large"
         return create_v6_model(
             board_type=board_type,
             num_players=num_players,
@@ -583,6 +595,14 @@ def _get_tier_config(board_type: BoardType, tier: str) -> dict[str, Any]:
             "recommended_model": "HexNeuralNet_v5_Heavy" if is_hex else "RingRiftCNN_v5_Heavy",
             "description": "V5 Heavy + GNN refinement (~6.3-6.6M params, requires PyTorch Geometric)",
             "requires_pyg": True,
+        },
+        # V5.1 - December 2025: 256 channels, 20 blocks for 1800+ Elo
+        "v5.1": {
+            "num_res_blocks": 20,  # 10 SE + 10 attention
+            "num_filters": 256,
+            "estimated_params_m": 22.0 if is_hex8 else 24.0 if is_hex else 22.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy (v5.1 config)" if is_hex else "RingRiftCNN_v5_Heavy (v5.1 config)",
+            "description": "V5.1: Balanced 256 filters, 20 blocks for 1800+ Elo (~22M params)",
         },
         # V6 models - December 2025 ML acceleration for 2000+ Elo
         "v6": {

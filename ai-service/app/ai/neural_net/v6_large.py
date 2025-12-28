@@ -86,6 +86,20 @@ V6_XL_CONFIG = {
     "num_attention_heads": 8,
 }
 
+# V5.1: Exactly 256 channels, 20 blocks as specified for Elo improvement
+# ~22M parameters - balanced for 1800+ Elo
+V5_1_CONFIG = {
+    "num_filters": 256,           # 256 channels as specified
+    "num_se_blocks": 10,          # 10 SE blocks
+    "num_attention_blocks": 10,   # 10 attention blocks = 20 total blocks
+    "num_heuristics": 49,         # Full features
+    "use_geometry_encoding": True,
+    "use_gnn": False,
+    "se_reduction": 16,
+    "dropout": 0.1,
+    "num_attention_heads": 8,
+}
+
 # V6 Efficient: Speed-optimized for high-throughput selfplay
 # ~15M parameters - faster than V5 Heavy with better architecture
 V6_EFFICIENT_CONFIG = {
@@ -133,6 +147,8 @@ def create_v6_model(
         config = V6_XL_CONFIG.copy()
     elif variant == "efficient":
         config = V6_EFFICIENT_CONFIG.copy()
+    elif variant == "v5.1" or variant == "v5_1":
+        config = V5_1_CONFIG.copy()
     else:
         config = V6_LARGE_CONFIG.copy()
 
@@ -210,6 +226,7 @@ V6_ARCHITECTURE_VERSION = "v6.0.0"
 
 __all__ = [
     # Configuration presets
+    "V5_1_CONFIG",
     "V6_LARGE_CONFIG",
     "V6_XL_CONFIG",
     "V6_EFFICIENT_CONFIG",

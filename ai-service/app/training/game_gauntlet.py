@@ -238,6 +238,7 @@ try:
     from app.config.thresholds import (
         BASELINE_ELO_HEURISTIC,
         BASELINE_ELO_RANDOM,
+        GAUNTLET_GAMES_PER_OPPONENT,
         MIN_WIN_RATE_VS_HEURISTIC,
         MIN_WIN_RATE_VS_RANDOM,
         get_min_win_rate_vs_heuristic,
@@ -250,6 +251,7 @@ except ImportError:
     # Fallback values - keep in sync with app/config/thresholds.py
     BASELINE_ELO_RANDOM = 400
     BASELINE_ELO_HEURISTIC = 1200
+    GAUNTLET_GAMES_PER_OPPONENT = 50
     MIN_WIN_RATE_VS_RANDOM = 0.70  # 70% (matches thresholds.py)
     MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50% (matches thresholds.py)
     HAS_ELO_ADAPTIVE = False
@@ -898,7 +900,7 @@ def run_baseline_gauntlet(
     model_path: str | Path | None = None,
     board_type: Any = None,  # BoardType
     opponents: list[BaselineOpponent] | None = None,
-    games_per_opponent: int = 20,
+    games_per_opponent: int = GAUNTLET_GAMES_PER_OPPONENT,
     num_players: int = 2,
     check_baseline_gating: bool = True,
     verbose: bool = False,

@@ -65,6 +65,7 @@ __all__ = [
     "ModelLocation",
     "NPZLocation",
     "CheckpointLocation",
+    "SyncReceipt",
     "TorrentMetadata",
     "NodeCapacity",
     "NodeInventory",
@@ -184,6 +185,25 @@ class CheckpointLocation:
     registered_at: float = 0.0
     last_seen: float = 0.0
     is_best: bool = False  # Whether this is the best checkpoint for this config
+
+
+@dataclass
+class SyncReceipt:
+    """Receipt confirming a file has been synced to a destination node.
+
+    December 2025: Added for push-based sync with verified cleanup.
+    GPU nodes push data to coordinator, receive receipts confirming sync.
+    Files are only deleted locally after N verified receipts exist.
+
+    The checksum is SHA256 of the file contents, used to verify integrity.
+    """
+    file_path: str  # Relative path (e.g., "data/games/selfplay_hex8.db")
+    file_checksum: str  # SHA256 hash of file contents
+    synced_to: str  # Destination node_id
+    synced_at: float  # Unix timestamp when sync completed
+    verified: bool = False  # Whether checksum was verified at destination
+    file_size: int = 0  # Size in bytes (for reporting)
+    source_node: str = ""  # Node that initiated the push
 
 
 @dataclass
@@ -726,6 +746,20 @@ class ClusterManifest:
                 last_seen REAL NOT NULL
             );
 
+            -- Sync receipts table (December 2025)
+            -- Tracks verified syncs for safe cleanup on GPU nodes
+            -- Files are only deleted after N verified receipts exist
+            CREATE TABLE IF NOT EXISTS sync_receipts (
+                file_path TEXT NOT NULL,
+                file_checksum TEXT NOT NULL,  -- SHA256 hash
+                synced_to TEXT NOT NULL,      -- Destination node_id
+                synced_at REAL NOT NULL,      -- Timestamp
+                verified INTEGER DEFAULT 0,   -- Checksum verified at destination
+                file_size INTEGER DEFAULT 0,  -- For reporting
+                source_node TEXT DEFAULT '',  -- Node that pushed
+                PRIMARY KEY (file_path, synced_to)
+            );
+
             -- Metadata table
             CREATE TABLE IF NOT EXISTS manifest_metadata (
                 key TEXT PRIMARY KEY,
@@ -772,6 +806,10 @@ class ClusterManifest:
                 ON checkpoint_locations(config_key, is_best);
             CREATE INDEX IF NOT EXISTS idx_torrent_metadata_file
                 ON torrent_metadata(file_path);
+            CREATE INDEX IF NOT EXISTS idx_sync_receipts_file
+                ON sync_receipts(file_path);
+            CREATE INDEX IF NOT EXISTS idx_sync_receipts_verified
+                ON sync_receipts(file_path, verified);
 
             -- Initialize metadata
             INSERT OR IGNORE INTO manifest_metadata (key, value, updated_at)
@@ -3142,6 +3180,298 @@ class ClusterManifest:
         )
 
         return result
+
+    # =========================================================================
+    # Sync Receipt Registry (December 2025 - Push-Based Sync with Safe Cleanup)
+    # =========================================================================
+
+    def register_sync_receipt(self, receipt: SyncReceipt) -> None:
+        """Record that a file was successfully synced to a destination.
+
+        Called by GPU nodes after pushing data to coordinator and receiving
+        confirmation. Used by safe cleanup to ensure files aren't deleted
+        until they have N verified copies.
+
+        Args:
+            receipt: SyncReceipt with file path, checksum, and destination
+        """
+        now = time.time()
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO sync_receipts
+                (file_path, file_checksum, synced_to, synced_at, verified,
+                 file_size, source_node)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                receipt.file_path,
+                receipt.file_checksum,
+                receipt.synced_to,
+                receipt.synced_at or now,
+                1 if receipt.verified else 0,
+                receipt.file_size,
+                receipt.source_node,
+            ))
+            conn.commit()
+
+        logger.debug(
+            f"Registered sync receipt: {receipt.file_path} -> {receipt.synced_to} "
+            f"(verified={receipt.verified})"
+        )
+
+    def get_sync_receipts(self, file_path: str) -> list[SyncReceipt]:
+        """Get all sync receipts for a file.
+
+        Args:
+            file_path: Path to the file (relative or absolute)
+
+        Returns:
+            List of SyncReceipt objects for all destinations
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT file_path, file_checksum, synced_to, synced_at,
+                       verified, file_size, source_node
+                FROM sync_receipts
+                WHERE file_path = ?
+                ORDER BY synced_at DESC
+            """, (file_path,))
+
+            receipts = []
+            for row in cursor.fetchall():
+                receipts.append(SyncReceipt(
+                    file_path=row[0],
+                    file_checksum=row[1],
+                    synced_to=row[2],
+                    synced_at=row[3],
+                    verified=bool(row[4]),
+                    file_size=row[5] or 0,
+                    source_node=row[6] or "",
+                ))
+            return receipts
+
+    def get_verified_replication_count(self, file_path: str) -> int:
+        """Return number of verified copies of this file across cluster.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Count of verified sync receipts (copies on other nodes)
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(DISTINCT synced_to)
+                FROM sync_receipts
+                WHERE file_path = ? AND verified = 1
+            """, (file_path,))
+            return cursor.fetchone()[0]
+
+    def is_safe_to_delete(
+        self,
+        file_path: str,
+        min_copies: int = 2,
+    ) -> bool:
+        """Check if file has been synced to at least N verified locations.
+
+        This is the gate for safe cleanup - files are only deleted locally
+        after this returns True.
+
+        Args:
+            file_path: Path to the file to check
+            min_copies: Minimum number of verified copies required
+
+        Returns:
+            True if file has min_copies verified replicas, False otherwise
+        """
+        verified_count = self.get_verified_replication_count(file_path)
+        return verified_count >= min_copies
+
+    def get_pending_sync_files(
+        self,
+        max_age_hours: float = 24.0,
+        data_dir: Path | None = None,
+    ) -> list[Path]:
+        """Get files that haven't been synced anywhere yet.
+
+        Scans the local data directory and returns files that have no
+        sync receipts. Used by SyncPushDaemon to find files to push.
+
+        Args:
+            max_age_hours: Only return files older than this (to avoid
+                          syncing files still being written)
+            data_dir: Directory to scan (defaults to games directory)
+
+        Returns:
+            List of Path objects for files needing sync
+        """
+        if data_dir is None:
+            data_dir = self.db_path.parent.parent / "games"
+
+        pending: list[Path] = []
+        now = time.time()
+        min_age_seconds = max_age_hours * 3600
+
+        # Get all known synced files
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT file_path FROM sync_receipts")
+            synced_files = {row[0] for row in cursor.fetchall()}
+
+        # Scan for database files
+        if data_dir.exists():
+            for db_path in data_dir.glob("*.db"):
+                if db_path.name.startswith("."):
+                    continue
+
+                # Check age
+                try:
+                    stat = db_path.stat()
+                    if (now - stat.st_mtime) < min_age_seconds:
+                        continue  # Too new, might still be written to
+                except OSError:
+                    continue
+
+                # Check if already synced
+                rel_path = str(db_path)
+                if rel_path not in synced_files:
+                    pending.append(db_path)
+
+        return pending
+
+    def mark_receipt_verified(
+        self,
+        file_path: str,
+        synced_to: str,
+        checksum: str,
+    ) -> bool:
+        """Mark a sync receipt as verified after checksum confirmation.
+
+        Called when coordinator confirms file exists with matching checksum.
+
+        Args:
+            file_path: Path to the file
+            synced_to: Destination node that was synced to
+            checksum: Expected checksum (must match existing receipt)
+
+        Returns:
+            True if receipt was found and verified, False otherwise
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            # Check if receipt exists with matching checksum
+            cursor.execute("""
+                SELECT file_checksum FROM sync_receipts
+                WHERE file_path = ? AND synced_to = ?
+            """, (file_path, synced_to))
+            row = cursor.fetchone()
+
+            if not row:
+                logger.warning(
+                    f"No sync receipt found for {file_path} -> {synced_to}"
+                )
+                return False
+
+            if row[0] != checksum:
+                logger.warning(
+                    f"Checksum mismatch for {file_path} -> {synced_to}: "
+                    f"expected {row[0][:16]}..., got {checksum[:16]}..."
+                )
+                return False
+
+            # Mark as verified
+            cursor.execute("""
+                UPDATE sync_receipts
+                SET verified = 1, synced_at = ?
+                WHERE file_path = ? AND synced_to = ?
+            """, (time.time(), file_path, synced_to))
+            conn.commit()
+
+            logger.debug(f"Verified sync receipt: {file_path} -> {synced_to}")
+            return True
+
+    def delete_sync_receipts(self, file_path: str) -> int:
+        """Delete all sync receipts for a file.
+
+        Called after file is deleted locally to clean up receipts.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Number of receipts deleted
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM sync_receipts WHERE file_path = ?",
+                (file_path,)
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+
+        if deleted > 0:
+            logger.debug(f"Deleted {deleted} sync receipts for {file_path}")
+        return deleted
+
+    def get_sync_stats(self) -> dict[str, Any]:
+        """Get statistics about sync receipts.
+
+        Returns:
+            Dict with sync stats: total_receipts, verified_receipts,
+            unique_files, files_with_N_copies, etc.
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            # Total receipts
+            cursor.execute("SELECT COUNT(*) FROM sync_receipts")
+            total = cursor.fetchone()[0]
+
+            # Verified receipts
+            cursor.execute(
+                "SELECT COUNT(*) FROM sync_receipts WHERE verified = 1"
+            )
+            verified = cursor.fetchone()[0]
+
+            # Unique files
+            cursor.execute(
+                "SELECT COUNT(DISTINCT file_path) FROM sync_receipts"
+            )
+            unique_files = cursor.fetchone()[0]
+
+            # Files with 2+ verified copies (safe to delete)
+            cursor.execute("""
+                SELECT COUNT(*) FROM (
+                    SELECT file_path
+                    FROM sync_receipts
+                    WHERE verified = 1
+                    GROUP BY file_path
+                    HAVING COUNT(DISTINCT synced_to) >= 2
+                )
+            """)
+            safe_to_delete = cursor.fetchone()[0]
+
+            # Files with only unverified receipts
+            cursor.execute("""
+                SELECT COUNT(DISTINCT file_path) FROM sync_receipts
+                WHERE file_path NOT IN (
+                    SELECT file_path FROM sync_receipts WHERE verified = 1
+                )
+            """)
+            unverified_only = cursor.fetchone()[0]
+
+            return {
+                "total_receipts": total,
+                "verified_receipts": verified,
+                "unique_files": unique_files,
+                "safe_to_delete_count": safe_to_delete,
+                "unverified_only_count": unverified_only,
+                "verification_rate": verified / total if total > 0 else 0.0,
+            }
 
 
 # =============================================================================
