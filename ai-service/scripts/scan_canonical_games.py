@@ -250,8 +250,8 @@ def inventory_games(db_path: Path, state: ScanState) -> Iterator[GameInfo]:
                 board_type=row["board_type"],
                 num_players=row["num_players"],
                 total_moves=total_moves,
-                source=row.get("source") if has_source else None,
-                parity_status=row.get("parity_status") if has_parity else None,
+                source=row["source"] if has_source else None,
+                parity_status=row["parity_status"] if has_parity else None,
                 source_db=db_path,
             )
 
