@@ -263,6 +263,34 @@ class PipelineCircuitBreaker:
             self._fallback_failure_count = 0
         logger.info("[PipelineCircuitBreaker] Manually reset")
 
+    def get_status(self) -> dict[str, Any]:
+        """Get circuit breaker status."""
+        if self._breaker:
+            status = self._breaker.get_status(self.PIPELINE_TARGET)
+            return {
+                "state": status.state.value,
+                "failure_count": status.failure_count,
+                "success_count": self._success_count,
+                "failures_by_stage": dict(self._failures_by_stage),
+                "last_failure_time": status.last_failure_time or 0.0,
+                "time_until_reset": status.time_since_open or 0,
+                "consecutive_opens": status.consecutive_opens,
+                "using_canonical": True,
+            }
+        return {
+            "state": self._fallback_state.value,
+            "failure_count": self._fallback_failure_count,
+            "success_count": self._success_count,
+            "failures_by_stage": dict(self._failures_by_stage),
+            "last_failure_time": self._fallback_last_failure_time,
+            "time_until_reset": 0,
+            "consecutive_opens": 0,
+            "using_canonical": False,
+        }
+
+
+# Backward-compat alias (deprecated - use PipelineCircuitBreaker)
+CircuitBreaker = PipelineCircuitBreaker
 
 
 class PipelineStage(Enum):
@@ -959,6 +987,11 @@ class DataPipelineOrchestrator(
                 DataEventType.REPAIR_FAILED.value,
                 self._on_repair_failed,
             )
+            # December 2025: Track abandoned tasks for accurate pending count
+            router.subscribe(
+                DataEventType.TASK_ABANDONED.value,
+                self._on_task_abandoned,
+            )
             router.subscribe(
                 DataEventType.QUALITY_SCORE_UPDATED.value,
                 self._on_quality_score_updated,
@@ -1082,6 +1115,11 @@ class DataPipelineOrchestrator(
 
 
 
+    # =========================================================================
+    # Orphaned Event Handlers (December 27, 2025)
+    # These handlers wire previously orphaned events that were being emitted
+    # but had no subscribers, breaking feedback loops.
+    # =========================================================================
 
 
 
@@ -1095,6 +1133,11 @@ class DataPipelineOrchestrator(
 
 
 
+
+
+    # =========================================================================
+    # Quality Gate Methods (December 2025 - Phase 14)
+    # =========================================================================
 
     async def _check_training_data_quality(self, npz_path: str, iteration: int) -> bool:
         """Check if training data meets quality threshold.
@@ -1286,6 +1329,10 @@ class DataPipelineOrchestrator(
 
 
 
+    # =========================================================================
+    # Circuit Breaker and Auto-Trigger Helpers (December 2025)
+    # =========================================================================
+
     def _can_auto_trigger(self) -> bool:
         """Check if auto-triggering is allowed.
 
@@ -1466,6 +1513,16 @@ class DataPipelineOrchestrator(
 
 
 
+    # =========================================================================
+    # Quality and Cache Event Handlers (December 2025)
+    # =========================================================================
+
+
+
+
+    # =========================================================================
+    # Resource Constraint Event Handlers (December 2025)
+    # =========================================================================
 
 
 
@@ -1474,6 +1531,22 @@ class DataPipelineOrchestrator(
 
 
 
+
+
+
+
+
+
+
+
+    async def _pause_pipeline(self, reason: str) -> None:
+        """Pause the pipeline due to resource constraints."""
+        if self._paused:
+            return  # Already paused
+
+        self._paused = True
+        self._pause_reason = reason
+        self._pause_time = time.time()
 
         logger.warning(f"[DataPipelineOrchestrator] Pipeline PAUSED: {reason}")
 
@@ -1603,52 +1676,16 @@ class DataPipelineOrchestrator(
 
 
 
-    def get_status(self) -> dict[str, Any]:
-        """Get orchestrator status for monitoring."""
-        stats = self.get_stats()
-
-        # Get active iterations
-        active_iterations = list(self._iteration_records.keys())
-
-        return {
-            "current_stage": self._current_stage.value,
-            "current_iteration": self._current_iteration,
-            "active_iterations": active_iterations,
-            "iterations_completed": stats.iterations_completed,
-            "iterations_failed": stats.iterations_failed,
-            "total_games_generated": stats.total_games_generated,
-            "total_models_trained": stats.total_models_trained,
-            "promotions": stats.promotions,
-            "average_iteration_duration": round(stats.average_iteration_duration, 1),
-            "stage_durations": {
-                k: round(v, 1) for k, v in stats.stage_durations.items()
-            },
-            "subscribed": self._subscribed,
-            "auto_trigger": self.auto_trigger,
-            # Per-stage auto-trigger controls (December 2025)
-            "auto_trigger_sync": self.auto_trigger_sync,
-            "auto_trigger_export": self.auto_trigger_export,
-            "auto_trigger_training": self.auto_trigger_training,
-            "auto_trigger_evaluation": self.auto_trigger_evaluation,
-            "auto_trigger_promotion": self.auto_trigger_promotion,
-            # Circuit breaker status (December 2025)
-            "circuit_breaker": self.get_circuit_breaker_status(),
-            # Quality and cache tracking (December 2025)
-            "quality_distribution": dict(self._quality_distribution),
-            "pending_cache_refresh": self._pending_cache_refresh,
-            "cache_invalidation_count": self._cache_invalidation_count,
-            # Optimization tracking (December 2025)
-            "active_optimization": self._active_optimization,
-            "optimization_run_id": self._optimization_run_id,
-            # Resource constraint tracking (December 2025)
-            "paused": self._paused,
-            "pause_reason": self._pause_reason,
-            "backpressure_active": self._backpressure_active,
-            "resource_constraints": dict(self._resource_constraints),
-        }
 
 
 
+
+
+# =============================================================================
+# Singleton and convenience functions
+# =============================================================================
+
+_pipeline_orchestrator: DataPipelineOrchestrator | None = None
 
 
 def get_pipeline_orchestrator() -> DataPipelineOrchestrator:

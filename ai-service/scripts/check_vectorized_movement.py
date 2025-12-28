@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Test parity and performance of vectorized movement generation.
+"""Check parity and performance of vectorized movement generation.
 
 Compares the new generate_movement_moves_batch_vectorized with the legacy
 Python-loop implementation to ensure identical results.
+
+December 2025: Renamed from test_vectorized_movement.py to clarify
+this is a check script, not a pytest test file.
 """
 
 import argparse

@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
 # Dec 2025: Use consolidated handler utilities
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
@@ -44,8 +45,10 @@ logger = logging.getLogger(__name__)
 _event_bridge = get_event_bridge()
 
 
-class GauntletHandlersMixin:
+class GauntletHandlersMixin(BaseP2PHandler):
     """Mixin providing gauntlet HTTP handlers.
+
+    Inherits from BaseP2PHandler for consistent response formatting.
 
     Requires the implementing class to have:
     - node_id: str
@@ -86,23 +89,21 @@ class GauntletHandlersMixin:
             data = await request.json()
         except (AttributeError, ValueError, UnicodeDecodeError):
             # Dec 2025: Catch all JSON parsing errors
-            return web.json_response({"error": "Invalid JSON"}, status=400)
+            return self.error_response("Invalid JSON", status=400)
 
         run_id = data.get("run_id", "unknown")
         config_key = data.get("config_key", "")
         tasks = data.get("tasks", [])
 
         if not config_key or not tasks:
-            return web.json_response({
-                "error": "config_key and tasks required"
-            }, status=400)
+            return self.error_response("config_key and tasks required", status=400)
 
         logger.info(f"Gauntlet: Executing {len(tasks)} games for {config_key} (run {run_id})")
 
         try:
             results = await self._execute_gauntlet_batch(config_key, tasks)
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "node_id": self.node_id,
                 "run_id": run_id,
@@ -112,10 +113,11 @@ class GauntletHandlersMixin:
 
         except Exception as e:
             logger.info(f"Gauntlet execution error: {e}")
-            return web.json_response({
-                "success": False,
-                "error": str(e),
-            }, status=500)
+            return self.error_response(
+                str(e),
+                status=500,
+                details={"success": False},
+            )
 
     async def _execute_gauntlet_batch(
         self,
@@ -364,7 +366,7 @@ class GauntletHandlersMixin:
 
         Returns information about this node's gauntlet capabilities.
         """
-        return web.json_response({
+        return self.json_response({
             "node_id": self.node_id,
             "available": True,
             "has_gpu": self.self_info.has_gpu if hasattr(self.self_info, "has_gpu") else False,
@@ -386,15 +388,12 @@ class GauntletHandlersMixin:
             games_per_side = data.get("games_per_side", 4)
 
             if not all([config_key, model_id, baseline_id]):
-                return web.json_response(
-                    {"error": "Missing required fields"},
-                    status=400
-                )
+                return self.error_response("Missing required fields", status=400)
 
             # Parse config
             parts = config_key.rsplit("_", 1)
             if len(parts) != 2:
-                return web.json_response({"error": "Invalid config_key"}, status=400)
+                return self.error_response("Invalid config_key", status=400)
             board_type = parts[0]
             num_players = int(parts[1].rstrip("p"))
 
@@ -448,7 +447,7 @@ class GauntletHandlersMixin:
                 "node_id": self.node_id,
             })
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "node_id": self.node_id,
                 "model_id": model_id,
@@ -460,4 +459,4 @@ class GauntletHandlersMixin:
             })
 
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

@@ -97,70 +97,56 @@ class TestVastProviderConfiguration:
 
 
 class TestVastProviderGPUParsing:
-    """Tests for GPU type parsing."""
+    """Tests for GPU type parsing via GPUType.from_string().
+
+    Note: VastProvider now uses GPUType.from_string() from base.py,
+    so these tests verify the parsing works correctly for Vast.ai GPU names.
+    """
 
     def test_parse_gh200(self):
         """Test parsing GH200 GPU."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("NVIDIA GH200 96GB") == GPUType.GH200_96GB
-        assert provider._parse_gpu_type("gh200") == GPUType.GH200_96GB
+        assert GPUType.from_string("NVIDIA GH200 96GB") == GPUType.GH200_96GB
+        assert GPUType.from_string("gh200") == GPUType.GH200_96GB
 
     def test_parse_h100(self):
         """Test parsing H100 GPU."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("NVIDIA H100 80GB") == GPUType.H100_80GB
-        assert provider._parse_gpu_type("h100") == GPUType.H100_80GB
+        assert GPUType.from_string("NVIDIA H100 80GB") == GPUType.H100_80GB
+        assert GPUType.from_string("h100") == GPUType.H100_80GB
 
     def test_parse_a100_80gb(self):
         """Test parsing A100 80GB GPU."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("NVIDIA A100 80GB") == GPUType.A100_80GB
-        assert provider._parse_gpu_type("a100-80gb") == GPUType.A100_80GB
+        assert GPUType.from_string("NVIDIA A100 80GB") == GPUType.A100_80GB
+        assert GPUType.from_string("a100-80gb") == GPUType.A100_80GB
 
     def test_parse_a100_40gb(self):
         """Test parsing A100 40GB GPU (default A100)."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("NVIDIA A100 40GB") == GPUType.A100_40GB
-        assert provider._parse_gpu_type("A100") == GPUType.A100_40GB
+        assert GPUType.from_string("NVIDIA A100 40GB") == GPUType.A100_40GB
+        assert GPUType.from_string("A100") == GPUType.A100_40GB
 
     def test_parse_a10_not_confused_with_a100(self):
         """Test A10 is not confused with A100."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("NVIDIA A10") == GPUType.A10
-        assert provider._parse_gpu_type("A10G") == GPUType.A10
+        assert GPUType.from_string("NVIDIA A10") == GPUType.A10
+        assert GPUType.from_string("A10G") == GPUType.A10
 
     def test_parse_rtx_5090(self):
         """Test parsing RTX 5090 GPU."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("RTX 5090") == GPUType.RTX_5090
-        assert provider._parse_gpu_type("GeForce RTX 5090") == GPUType.RTX_5090
+        assert GPUType.from_string("RTX 5090") == GPUType.RTX_5090
+        assert GPUType.from_string("GeForce RTX 5090") == GPUType.RTX_5090
 
     def test_parse_rtx_4090(self):
         """Test parsing RTX 4090 GPU."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("RTX 4090") == GPUType.RTX_4090
-        assert provider._parse_gpu_type("GeForce RTX 4090 Ti") == GPUType.RTX_4090
+        assert GPUType.from_string("RTX 4090") == GPUType.RTX_4090
+        assert GPUType.from_string("GeForce RTX 4090 Ti") == GPUType.RTX_4090
 
     def test_parse_rtx_3090(self):
         """Test parsing RTX 3090 GPU."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("RTX 3090") == GPUType.RTX_3090
-        assert provider._parse_gpu_type("GeForce RTX 3090 Ti") == GPUType.RTX_3090
+        assert GPUType.from_string("RTX 3090") == GPUType.RTX_3090
+        assert GPUType.from_string("GeForce RTX 3090 Ti") == GPUType.RTX_3090
 
     def test_parse_unknown_gpu(self):
         """Test parsing unknown GPU returns UNKNOWN."""
-        provider = VastProvider(cli_path="/usr/bin/vastai")
-
-        assert provider._parse_gpu_type("Unknown GPU") == GPUType.UNKNOWN
-        assert provider._parse_gpu_type("") == GPUType.UNKNOWN
+        assert GPUType.from_string("Unknown GPU") == GPUType.UNKNOWN
+        assert GPUType.from_string("") == GPUType.UNKNOWN
 
 
 class TestVastProviderInstanceParsing:

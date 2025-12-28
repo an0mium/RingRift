@@ -166,6 +166,11 @@ docs/ai/CLUSTER_NODE_CONFIGURATION.md
 scripts/archive/
 docs/archive/status_reports/
 
+# Archive config backups (contain real IPs and credentials)
+archive/config_backups/distributed_hosts.yaml.bak*
+archive/config_backups/nginx-cluster.conf.bak*
+archive/config_backups/*.yaml.bak*
+
 # Cluster-specific operational scripts (contain node names/IPs)
 scripts/cluster/
 scripts/auto_training_pipeline.py

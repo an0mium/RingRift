@@ -164,10 +164,7 @@ class VultrProvider(CloudProvider):
         except (json.JSONDecodeError, KeyError):
             return None
 
-    async def get_instance_status(self, instance_id: str) -> InstanceStatus:
-        """Get instance status."""
-        instance = await self.get_instance(instance_id)
-        return instance.status if instance else InstanceStatus.UNKNOWN
+    # get_instance_status() uses base class default
 
     async def _get_ssh_key_id(self) -> str | None:
         """Get SSH key ID from Vultr account."""

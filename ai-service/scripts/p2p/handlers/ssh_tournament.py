@@ -35,14 +35,19 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
+
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeRole
 
 logger = logging.getLogger(__name__)
 
 
-class SSHTournamentHandlersMixin:
+class SSHTournamentHandlersMixin(BaseP2PHandler):
     """Mixin providing SSH tournament HTTP handlers.
+
+    Inherits from BaseP2PHandler for common response formatting utilities
+    (json_response, error_response).
 
     Requires the implementing class to have:
     - node_id: str
@@ -73,10 +78,11 @@ class SSHTournamentHandlersMixin:
 
         try:
             if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can start SSH tournaments",
-                    "leader_id": self.leader_id,
-                }, status=403)
+                return self.error_response(
+                    "Only the leader can start SSH tournaments",
+                    status=403,
+                    details={"leader_id": self.leader_id},
+                )
 
             data = await request.json()
 
@@ -85,7 +91,7 @@ class SSHTournamentHandlersMixin:
             if board == "hexagonal":
                 board = "hex"
             if board not in ("square8", "square19", "hex8", "hex"):
-                return web.json_response({"error": f"Invalid board: {board!r}"}, status=400)
+                return self.error_response(f"Invalid board: {board!r}", status=400)
 
             games_per_matchup = int(data.get("games_per_matchup", 50) or 50)
             seed = int(data.get("seed", 1) or 1)
@@ -188,9 +194,9 @@ class SSHTournamentHandlersMixin:
 
             asyncio.create_task(self._monitor_ssh_tournament_process(job_id, proc))
 
-            return web.json_response({"success": True, "job": run_state.to_dict()})
+            return self.json_response({"success": True, "job": run_state.to_dict()})
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_ssh_tournament_status(self, request: web.Request) -> web.Response:
         """Get status of SSH-distributed tournaments."""
@@ -201,14 +207,14 @@ class SSHTournamentHandlersMixin:
                 if job_id:
                     job = self.ssh_tournament_runs.get(job_id)
                     if not job:
-                        return web.json_response({"error": "Tournament not found"}, status=404)
-                    return web.json_response(job.to_dict())
+                        return self.error_response("Tournament not found", status=404)
+                    return self.json_response(job.to_dict())
 
-                return web.json_response({
+                return self.json_response({
                     jid: job.to_dict() for jid, job in self.ssh_tournament_runs.items()
                 })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_ssh_tournament_cancel(self, request: web.Request) -> web.Response:
         """Cancel a running SSH tournament (best-effort)."""
@@ -216,42 +222,45 @@ class SSHTournamentHandlersMixin:
 
         try:
             if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can cancel SSH tournaments",
-                    "leader_id": self.leader_id,
-                }, status=403)
+                return self.error_response(
+                    "Only the leader can cancel SSH tournaments",
+                    status=403,
+                    details={"leader_id": self.leader_id},
+                )
 
             data = await request.json()
             job_id = data.get("job_id")
             if not job_id:
-                return web.json_response({"error": "job_id is required"}, status=400)
+                return self.error_response("job_id is required", status=400)
 
             with self.ssh_tournament_lock:
                 job = self.ssh_tournament_runs.get(job_id)
             if not job:
-                return web.json_response({"error": "Tournament not found"}, status=404)
+                return self.error_response("Tournament not found", status=404)
 
             if job.status != "running":
-                return web.json_response({
-                    "success": False,
-                    "error": f"Cannot cancel tournament in status: {job.status}",
-                }, status=400)
+                return self.error_response(
+                    f"Cannot cancel tournament in status: {job.status}",
+                    status=400,
+                    details={"success": False},
+                )
 
             try:
                 os.kill(job.pid, signal.SIGTERM)
             except Exception as e:
-                return web.json_response({
-                    "success": False,
-                    "error": f"Failed to signal process: {e}",
-                }, status=500)
+                return self.error_response(
+                    f"Failed to signal process: {e}",
+                    status=500,
+                    details={"success": False},
+                )
 
             with self.ssh_tournament_lock:
                 job.status = "cancelled"
                 job.completed_at = time.time()
 
-            return web.json_response({"success": True, "job_id": job_id})
+            return self.json_response({"success": True, "job_id": job_id})
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def _monitor_ssh_tournament_process(self, job_id: str, proc) -> None:
         """Monitor a tournament subprocess and update status."""

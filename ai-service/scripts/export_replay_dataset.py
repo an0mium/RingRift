@@ -964,6 +964,14 @@ def export_replay_dataset_multi(
                 db_games += 1
                 db_samples += samples_added
 
+                # Track newest game timestamp for freshness metadata
+                # Prefer completed_at over created_at since we want when game ended
+                game_time = meta.get("completed_at") or meta.get("created_at")
+                if game_time:
+                    game_time_str = str(game_time)
+                    if newest_game_time is None or game_time_str > newest_game_time:
+                        newest_game_time = game_time_str
+
             games_processed += 1
             if max_games is not None and games_processed >= max_games:
                 break
@@ -1142,6 +1150,17 @@ def export_replay_dataset_multi(
 
     # Add spatial_size to metadata for training validation
     save_kwargs["spatial_size"] = np.asarray(int(actual_spatial))
+
+    # Add freshness metadata for training data sync (December 2025)
+    # This allows TrainingDataSyncDaemon to pick fresh data over stale data
+    from datetime import datetime, timezone
+    export_time = datetime.now(tz=timezone.utc).isoformat()
+    save_kwargs["metadata"] = np.asarray({
+        "export_time": export_time,
+        "newest_game_time": newest_game_time,  # ISO format string or None
+        "game_count": games_processed,
+        "sample_count": len(features_arr),
+    })
 
     # Add data checksums for integrity verification (December 2025)
     save_kwargs = embed_checksums_in_save_kwargs(save_kwargs)

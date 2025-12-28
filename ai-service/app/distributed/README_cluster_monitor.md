@@ -87,15 +87,15 @@ Reads from `config/distributed_hosts.yaml`:
 
 ```yaml
 hosts:
-  lambda-gh200-a:
-    ssh_host: 192.222.51.29
-    tailscale_ip: 100.123.183.70
+  my-training-node:
+    ssh_host: 192.0.2.1  # Replace with your IP
+    tailscale_ip: 100.x.x.x  # Optional Tailscale IP
     ssh_user: ubuntu
     ssh_key: ~/.ssh/id_cluster
     ringrift_path: ~/ringrift/ai-service
     role: nn_training_primary
     status: ready
-    gpu: NVIDIA GH200 (96GB)
+    gpu: NVIDIA H100 (80GB)
 ```
 
 ## Output Format

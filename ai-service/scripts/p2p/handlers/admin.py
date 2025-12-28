@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
+
 if TYPE_CHECKING:
     pass
 
@@ -40,8 +42,10 @@ except ImportError:
     AUTO_UPDATE_ENABLED = False
 
 
-class AdminHandlersMixin:
+class AdminHandlersMixin(BaseP2PHandler):
     """Mixin providing admin and git HTTP handlers.
+
+    Inherits from BaseP2PHandler for consistent response formatting.
 
     Requires the implementing class to have:
     - ringrift_path: str
@@ -73,7 +77,7 @@ class AdminHandlersMixin:
             if has_updates and local_commit and remote_commit:
                 commits_behind = self._get_commits_behind(local_commit, remote_commit)
 
-            return web.json_response({
+            return self.json_response({
                 "local_commit": local_commit[:8] if local_commit else None,
                 "local_commit_full": local_commit,
                 "local_branch": local_branch,
@@ -86,7 +90,7 @@ class AdminHandlersMixin:
                 "ringrift_path": self.ringrift_path,
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_git_update(self, request: web.Request) -> web.Response:
         """Manually trigger a git update on this node.
@@ -102,14 +106,14 @@ class AdminHandlersMixin:
             request_token = request.headers.get("X-Admin-Token", "")
             if request_token != admin_token:
                 logger.warning("Unauthorized git update attempt")
-                return web.json_response({"error": "Unauthorized"}, status=401)
+                return self.error_response("Unauthorized", status=401)
 
         try:
             # Check for updates first
             has_updates, local_commit, remote_commit = self._check_for_updates()
 
             if not has_updates:
-                return web.json_response({
+                return self.json_response({
                     "success": True,
                     "message": "Already up to date",
                     "local_commit": local_commit[:8] if local_commit else None,
@@ -121,20 +125,20 @@ class AdminHandlersMixin:
             if success:
                 # Schedule restart
                 asyncio.create_task(self._restart_orchestrator())
-                return web.json_response({
+                return self.json_response({
                     "success": True,
                     "message": "Update successful, restarting...",
                     "old_commit": local_commit[:8] if local_commit else None,
                     "new_commit": remote_commit[:8] if remote_commit else None,
                 })
             else:
-                return web.json_response({
+                return self.json_response({
                     "success": False,
                     "message": message,
                 }, status=400)
 
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_admin_restart(self, request: web.Request) -> web.Response:
         """Force restart the orchestrator process.
@@ -151,15 +155,15 @@ class AdminHandlersMixin:
             request_token = request.headers.get("X-Admin-Token", "")
             if request_token != admin_token:
                 logger.warning("Unauthorized admin restart attempt")
-                return web.json_response({"error": "Unauthorized"}, status=401)
+                return self.error_response("Unauthorized", status=401)
 
         try:
             logger.info("Admin restart requested via API")
             # Schedule restart (gives time to return response)
             asyncio.create_task(self._restart_orchestrator())
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "message": "Restart scheduled, process will restart in 2 seconds",
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

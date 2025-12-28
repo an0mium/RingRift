@@ -73,6 +73,9 @@ class TransportResult:
 
     Unified result type for all transport operations to provide
     consistent return values and error handling.
+
+    December 28, 2025: Consolidated from transport_base.py and cluster_transport.py.
+    Added `data` field and `to_dict()` method from cluster_transport.py.
     """
 
     success: bool
@@ -80,6 +83,7 @@ class TransportResult:
     error: str | None = None
     latency_ms: float = 0.0
     bytes_transferred: int = 0
+    data: Any | None = None  # Result data from operation (e.g., API response)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -87,10 +91,27 @@ class TransportResult:
         if not self.success and not self.error:
             self.error = "Unknown error"
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "success": self.success,
+            "transport_used": self.transport_used,
+            "error": self.error,
+            "latency_ms": self.latency_ms,
+            "bytes_transferred": self.bytes_transferred,
+            "data": self.data,
+            "metadata": self.metadata,
+        }
+
 
 @dataclass
 class TransportError(Exception):
-    """Exception raised by transport operations."""
+    """Exception raised by transport operations.
+
+    December 28, 2025: Canonical location for transport errors.
+    Subclasses RetryableTransportError and PermanentTransportError
+    added from cluster_transport.py for retry classification.
+    """
 
     message: str
     transport: str = ""
@@ -104,6 +125,30 @@ class TransportError(Exception):
         if self.target:
             parts.append(f"target={self.target}")
         return " | ".join(parts)
+
+
+class RetryableTransportError(TransportError):
+    """Temporary transport error - safe to retry.
+
+    Used for transient failures like network timeouts, connection refused,
+    or temporary node unavailability.
+
+    December 28, 2025: Moved from cluster_transport.py during consolidation.
+    """
+
+    pass
+
+
+class PermanentTransportError(TransportError):
+    """Permanent transport error - don't retry.
+
+    Used for configuration errors, authentication failures, or
+    when the target is definitively unreachable.
+
+    December 28, 2025: Moved from cluster_transport.py during consolidation.
+    """
+
+    pass
 
 
 @dataclass

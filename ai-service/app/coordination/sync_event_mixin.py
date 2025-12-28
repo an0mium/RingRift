@@ -76,6 +76,7 @@ class SyncEventMixin(SyncMixinBase):
         Subscribes to:
         - DATA_STALE: Training data is stale, trigger urgent sync
         - SYNC_TRIGGERED: External sync request
+        - SYNC_REQUEST: SyncRouter-triggered sync (December 28, 2025)
         """
         if self._subscribed:
             return
@@ -125,6 +126,21 @@ class SyncEventMixin(SyncMixinBase):
             if hasattr(DataEventType, 'NODE_RECOVERED'):
                 bus.subscribe(DataEventType.NODE_RECOVERED, self._wrap_handler(self._on_node_recovered))
                 logger.info("[AutoSyncDaemon] Subscribed to NODE_RECOVERED (exclusion reset)")
+
+            # December 28, 2025: Subscribe to backpressure events to pause sync during high load
+            if hasattr(DataEventType, 'BACKPRESSURE_ACTIVATED'):
+                bus.subscribe(DataEventType.BACKPRESSURE_ACTIVATED, self._wrap_handler(self._on_backpressure_activated))
+                logger.info("[AutoSyncDaemon] Subscribed to BACKPRESSURE_ACTIVATED (pause sync)")
+
+            if hasattr(DataEventType, 'BACKPRESSURE_RELEASED'):
+                bus.subscribe(DataEventType.BACKPRESSURE_RELEASED, self._wrap_handler(self._on_backpressure_released))
+                logger.info("[AutoSyncDaemon] Subscribed to BACKPRESSURE_RELEASED (resume sync)")
+
+            # December 28, 2025: Subscribe to SYNC_REQUEST for SyncRouter-triggered sync operations
+            # This wires the previously orphaned SYNC_REQUEST event emitted by SyncRouter._emit_sync_routing_decision
+            if hasattr(DataEventType, 'SYNC_REQUEST'):
+                bus.subscribe(DataEventType.SYNC_REQUEST, self._wrap_handler(self._on_sync_request))
+                logger.info("[AutoSyncDaemon] Subscribed to SYNC_REQUEST (SyncRouter integration)")
 
             self._subscribed = True
             if HAS_RESILIENT_HANDLER:
@@ -521,3 +537,122 @@ class SyncEventMixin(SyncMixinBase):
 
     # Note: _sync_all() and _sync_to_peer() are expected from main class
     # _emit_sync_failure() and _emit_sync_stalled() are inherited from SyncMixinBase
+
+    async def _on_backpressure_activated(self, event) -> None:
+        """Handle BACKPRESSURE_ACTIVATED event - pause sync operations.
+
+        December 28, 2025: When the cluster is under high backpressure
+        (training jobs consuming resources, high sync queue), we pause
+        sync operations to avoid competing with training for resources.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            overall_pressure = payload.get("overall_pressure", 0.0)
+            reason = payload.get("reason", "cluster_overloaded")
+
+            logger.info(
+                f"[AutoSyncDaemon] BACKPRESSURE_ACTIVATED: pressure={overall_pressure:.2f}, "
+                f"reason={reason} - pausing sync operations"
+            )
+
+            self._sync_paused = True
+            self._backpressure_reason = reason
+            self._events_processed += 1
+
+        except (RuntimeError, OSError, ConnectionError) as e:
+            self._errors_count += 1
+            self._last_error = str(e)
+            logger.error(f"[AutoSyncDaemon] Error handling BACKPRESSURE_ACTIVATED: {e}")
+
+    async def _on_backpressure_released(self, event) -> None:
+        """Handle BACKPRESSURE_RELEASED event - resume sync operations.
+
+        December 28, 2025: When backpressure is released, we resume
+        sync operations. This may also trigger an immediate sync cycle
+        to catch up on any missed data.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            paused_duration = payload.get("paused_duration_seconds", 0.0)
+
+            logger.info(
+                f"[AutoSyncDaemon] BACKPRESSURE_RELEASED: paused for {paused_duration:.1f}s "
+                "- resuming sync operations"
+            )
+
+            self._sync_paused = False
+            self._backpressure_reason = ""
+            self._events_processed += 1
+
+            # Trigger a sync cycle to catch up on missed data
+            if paused_duration > 60.0:  # If paused for more than a minute
+                logger.info(
+                    "[AutoSyncDaemon] Extended backpressure period - triggering catch-up sync"
+                )
+                fire_and_forget(
+                    self._sync_all(),
+                    on_error=lambda exc: logger.warning(f"Catch-up sync failed: {exc}"),
+                )
+
+        except (RuntimeError, OSError, ConnectionError) as e:
+            self._errors_count += 1
+            self._last_error = str(e)
+            logger.error(f"[AutoSyncDaemon] Error handling BACKPRESSURE_RELEASED: {e}")
+
+    async def _on_sync_request(self, event) -> None:
+        """Handle SYNC_REQUEST event - execute SyncRouter-triggered sync.
+
+        December 28, 2025: Wires the previously orphaned SYNC_REQUEST event
+        emitted by SyncRouter._emit_sync_routing_decision(). This enables
+        the SyncRouter to trigger targeted sync operations.
+
+        Payload:
+            source: Node ID of data source
+            targets: List of target node IDs for sync
+            data_type: Type of data (game, model, npz)
+            reason: Human-readable sync reason
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else {}
+            source = payload.get("source", "")
+            targets = payload.get("targets", [])
+            data_type = payload.get("data_type", "game")
+            reason = payload.get("reason", "sync_request")
+
+            if not targets:
+                logger.debug("[AutoSyncDaemon] SYNC_REQUEST: no targets, skipping")
+                return
+
+            logger.info(
+                f"[AutoSyncDaemon] SYNC_REQUEST received: "
+                f"source={source}, targets={len(targets)}, "
+                f"data_type={data_type}, reason={reason}"
+            )
+
+            self._events_processed += 1
+
+            # Sync to each target node
+            success_count = 0
+            for target in targets:
+                if target == self.node_id:
+                    # Skip self - we're the target, not the source
+                    continue
+                try:
+                    success = await self._sync_to_peer(target)
+                    if success:
+                        success_count += 1
+                except (RuntimeError, OSError, ConnectionError) as sync_err:
+                    logger.warning(
+                        f"[AutoSyncDaemon] SYNC_REQUEST sync to {target} failed: {sync_err}"
+                    )
+
+            if success_count > 0:
+                logger.info(
+                    f"[AutoSyncDaemon] SYNC_REQUEST completed: "
+                    f"{success_count}/{len(targets)} targets synced"
+                )
+
+        except (RuntimeError, OSError, ConnectionError) as e:
+            self._errors_count += 1
+            self._last_error = str(e)
+            logger.error(f"[AutoSyncDaemon] Error handling SYNC_REQUEST: {e}")

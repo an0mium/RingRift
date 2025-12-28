@@ -878,6 +878,19 @@ class TransactionIsolation(SingletonMixin):
 
         logger.debug("TransactionIsolation connection closed")
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton, closing connections first.
+
+        December 2025: Override to call close() before clearing instance
+        to prevent resource leaks during testing.
+        """
+        with cls._get_lock():
+            if cls.has_instance():
+                instance = cls.get_instance()
+                instance.close()
+            super().reset_instance()
+
 
 # Module-level singleton access
 _instance: TransactionIsolation | None = None

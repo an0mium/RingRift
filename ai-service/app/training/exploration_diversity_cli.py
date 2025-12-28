@@ -1,10 +1,13 @@
-"""Test exploration bonuses for diverse data generation.
+"""CLI tool to test exploration bonuses for diverse data generation.
 
 Compares move diversity and position coverage with different
 exploration settings (beta, gamma values).
 
 Usage:
-    python -m app.training.test_exploration_diversity --games 30
+    python -m app.training.exploration_diversity_cli --games 30
+
+December 2025: Renamed from test_exploration_diversity.py to clarify
+this is a CLI utility, not a pytest test file.
 """
 
 from __future__ import annotations

@@ -95,8 +95,8 @@ class TestBoundedHistory:
 
         assert history.get_recent(3) == [3, 4, 5]
         assert history.get_recent(10) == [1, 2, 3, 4, 5]
-        # Note: get_recent(0) returns all items due to Python slice behavior [-0:]
-        assert history.get_recent(0) == [1, 2, 3, 4, 5]
+        # get_recent(0) returns empty list (0 items requested)
+        assert history.get_recent(0) == []
 
     def test_get_oldest(self):
         """Test getting oldest items."""

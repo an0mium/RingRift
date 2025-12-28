@@ -565,11 +565,53 @@ def reset_coordinator_singleton():
     return _reset
 
 
+@pytest.fixture(autouse=True)
+def reset_all_singletons():
+    """Auto-reset all SingletonMixin singletons before AND after each test.
+
+    This fixture auto-discovers ALL singletons via SingletonMixin._instances
+    and resets them, preventing test pollution from state persisting across tests.
+
+    December 2025: Created to replace hardcoded singleton list with auto-discovery.
+    Uses SingletonRegistry for unified reset of all 60+ singleton types.
+    """
+    from app.coordination.singleton_registry import SingletonRegistry
+
+    # Reset before test
+    count_before = SingletonRegistry.reset_all_sync()
+
+    # Also reset event router state (subscriptions persist even after singleton reset)
+    try:
+        from app.coordination.event_router import get_router
+        router = get_router()
+        router.reset()
+    except Exception:
+        pass  # Router may not be initialized
+
+    yield
+
+    # Reset after test
+    count_after = SingletonRegistry.reset_all_sync()
+
+    # Also reset event router state
+    try:
+        from app.coordination.event_router import get_router
+        router = get_router()
+        router.reset()
+    except Exception:
+        pass
+
+
 @pytest.fixture(autouse=False)
 def reset_all_coordination_singletons():
-    """Reset all coordination singletons before and after test.
+    """Legacy fixture: Reset hardcoded coordination singletons.
 
-    Usage: Add this fixture to tests that need singleton isolation.
+    DEPRECATED: Use reset_all_singletons (autouse=True) instead.
+    This fixture is kept for backward compatibility with tests that
+    explicitly request it.
+
+    December 2025: Superseded by reset_all_singletons which auto-discovers
+    all singletons via SingletonMixin._instances.
     """
     singletons = [
         ("app.coordination.leadership_coordinator", "_leadership_coordinator"),

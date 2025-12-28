@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 from app.coordination.event_emitters import (
     emit_health_check_failed,
     emit_health_check_passed,
+    emit_node_activated,
     emit_node_unhealthy,
 )
 
@@ -672,11 +673,29 @@ class ClusterWatchdogDaemon(BaseDaemon[ClusterWatchdogConfig]):
 
             # nohup may return non-zero but still succeed
             logger.info(f"[ClusterWatchdog] Spawn result for {node.node_id}: rc={result.returncode}")
+            # December 2025: Emit NODE_ACTIVATED event for cluster coordination
+            config_key = f"{board_type}_{num_players}p"
+            asyncio.create_task(
+                emit_node_activated(
+                    node_id=node.node_id,
+                    activation_type="selfplay",
+                    config_key=config_key,
+                )
+            )
             return True
 
         except subprocess.TimeoutExpired:
             # Timeout with nohup often means success (command is running)
             logger.info(f"[ClusterWatchdog] Spawn timeout for {node.node_id} (likely succeeded)")
+            # December 2025: Emit NODE_ACTIVATED event for cluster coordination
+            config_key = f"{board_type}_{num_players}p"
+            asyncio.create_task(
+                emit_node_activated(
+                    node_id=node.node_id,
+                    activation_type="selfplay",
+                    config_key=config_key,
+                )
+            )
             return True
         except Exception as e:
             node.error = str(e)

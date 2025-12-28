@@ -103,35 +103,33 @@ except ImportError:
 
 
 # =============================================================================
-# Error Classes
+# Error Classes - Import from canonical location (December 28, 2025)
 # =============================================================================
 
+# Canonical definitions now in transport_base.py
+from app.coordination.transport_base import (
+    TransportError as _CanonicalTransportError,
+    RetryableTransportError,
+    PermanentTransportError,
+    TransportResult as _CanonicalTransportResult,
+)
 
-class TransportError(Exception):
-    """Base transport error for cluster operations."""
+# Backward-compatible wrapper for TransportError (different __init__ signature)
+# The canonical version is a dataclass; this preserves the old interface
+class TransportError(_CanonicalTransportError):
+    """Base transport error for cluster operations.
+
+    December 28, 2025: Wrapper for backward compatibility.
+    Canonical location is app.coordination.transport_base.TransportError.
+    """
 
     def __init__(self, message: str, target: str | None = None, transport: str | None = None):
-        super().__init__(message)
-        self.target = target
-        self.transport = transport
-
-
-class RetryableTransportError(TransportError):
-    """Temporary transport error - safe to retry.
-
-    Used for transient failures like network timeouts, connection refused,
-    or temporary node unavailability.
-    """
-    pass
-
-
-class PermanentTransportError(TransportError):
-    """Permanent transport error - don't retry.
-
-    Used for configuration errors, authentication failures, or
-    when the target is definitively unreachable.
-    """
-    pass
+        # Initialize the dataclass fields directly
+        object.__setattr__(self, 'message', message)
+        object.__setattr__(self, 'transport', transport or "")
+        object.__setattr__(self, 'target', target or "")
+        object.__setattr__(self, 'cause', None)
+        Exception.__init__(self, message)
 
 
 # =============================================================================
@@ -193,24 +191,9 @@ class NodeConfig:
         return self.tailscale_ip or self.hostname
 
 
-@dataclass
-class TransportResult:
-    """Result of a transport operation."""
-    success: bool
-    transport_used: str | None = None
-    data: Any | None = None
-    error: str | None = None
-    latency_ms: float = 0.0
-    bytes_transferred: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "success": self.success,
-            "transport_used": self.transport_used,
-            "error": self.error,
-            "latency_ms": self.latency_ms,
-            "bytes_transferred": self.bytes_transferred,
-        }
+# TransportResult is now imported from transport_base.py (December 28, 2025)
+# Re-export the canonical version for backward compatibility
+TransportResult = _CanonicalTransportResult
 
 
 # Use canonical circuit breaker from distributed module

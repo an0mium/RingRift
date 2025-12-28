@@ -1,0 +1,229 @@
+# RingRift Cluster Configuration Template
+# Copy to distributed_hosts.yaml and fill in your values
+# DO NOT commit distributed_hosts.yaml - it contains secrets!
+#
+# This file defines the cluster topology for distributed training.
+# See CLAUDE.md for configuration details.
+
+sync_routing:
+  # Disk usage thresholds
+  max_disk_usage_percent: 70
+  target_disk_usage_percent: 60
+  min_free_disk_percent: 15
+  # Number of replicas to maintain for training data
+  replication_target: 3
+  # Hosts excluded from sync targets
+  excluded_hosts: []
+  # External storage configuration (e.g., NAS, external drives)
+  allowed_external_storage:
+    - host: your-coordinator
+      path: /path/to/external/storage
+      receive_games: true
+      receive_npz: true
+      receive_models: true
+      subdirs:
+        games: selfplay_repository
+        npz: canonical_data
+        models: canonical_models
+  # Priority hosts for data distribution (receive data first)
+  priority_hosts:
+    - your-training-node-1
+    - your-training-node-2
+  # Configs that need more selfplay data
+  underserved_configs:
+    - square19_4p
+    - hexagonal_3p
+    - hexagonal_4p
+
+auto_sync:
+  enabled: true
+  interval_seconds: 60
+  gossip_interval_seconds: 15
+  skip_nfs_sync: true
+  max_concurrent_syncs: 12
+  min_games_to_sync: 10
+  bandwidth_limit_mbps: 100
+  exclude_hosts: []
+  # Per-provider bandwidth limits (supports glob patterns)
+  host_bandwidth_overrides:
+    vast-*: 50
+    runpod-*: 100
+    nebius-*: 100
+    vultr-*: 50
+    lambda-*: 100
+    hetzner-*: 30
+
+elo_sync:
+  coordinator: your-coordinator
+  sync_port: 8766
+  sync_interval: 300
+  divergence_threshold: 50
+  transports:
+    - tailscale
+    - aria2
+    - http
+
+# P2P voter configuration - stable nodes for leader election
+# Quorum requires majority of voters (e.g., 3 of 5, 4 of 7)
+# Only use nodes with: stable connectivity, not NAT blocked, not containerized
+p2p_voters:
+  - your-stable-node-1
+  - your-stable-node-2
+  - your-stable-node-3
+  - your-stable-node-4
+  - your-stable-node-5
+
+hosts:
+  # ============================================================
+  # COORDINATOR NODE
+  # The coordinator manages the cluster but doesn't run training
+  # ============================================================
+  your-coordinator:
+    ssh_host: 10.0.0.1 # Replace with actual IP or hostname
+    ssh_user: your-username
+    ssh_key: ~/.ssh/id_ed25519
+    ringrift_path: ~/Development/RingRift/ai-service
+    venv_activate: source ~/Development/RingRift/ai-service/venv/bin/activate
+    memory_gb: 64
+    cpus: 8
+    gpu: none # or "M3 Max" etc.
+    gpu_vram_gb: 0
+    role: coordinator
+    status: ready
+    selfplay_enabled: false
+    training_enabled: false
+    p2p_enabled: true
+    storage_paths:
+      games: /path/to/games
+      models: /path/to/models
+      training_data: /path/to/training
+      checkpoints: /path/to/checkpoints
+      logs: /path/to/logs
+      sync_incoming: /path/to/incoming
+
+  # ============================================================
+  # GPU TRAINING NODES
+  # High-VRAM nodes for neural network training
+  # ============================================================
+
+  # Example: Lambda Labs GH200 node
+  lambda-gh200-example:
+    ssh_host: 192.0.2.1 # Replace with actual IP
+    tailscale_ip: 100.x.x.x # Optional: Tailscale IP if available
+    ssh_user: ubuntu
+    ssh_key: ~/.ssh/id_ed25519
+    ringrift_path: ~/ringrift/ai-service
+    venv_activate: cd ~/ringrift/ai-service
+    memory_gb: 432
+    cpus: 64
+    gpu: GH200 (96 GB)
+    gpu_vram_gb: 96
+    role: gpu_training_primary
+    status: ready
+    selfplay_enabled: false # Training-only
+    training_enabled: true
+    p2p_enabled: true
+    nat_blocked: true # Set if provider blocks inbound connections
+    force_relay_mode: true # Use relay for P2P if NAT blocked
+
+  # Example: H100 node
+  nebius-h100-example:
+    ssh_host: 192.0.2.2
+    tailscale_ip: 100.x.x.x
+    ssh_port: 22
+    ssh_user: ubuntu
+    ssh_key: ~/.ssh/id_cluster
+    ringrift_path: ~/ringrift/ai-service
+    venv_activate: source ~/ringrift/ai-service/venv/bin/activate
+    memory_gb: 200
+    cpus: 16
+    gpu: H100 SXM
+    gpu_vram_gb: 80
+    role: gpu_training_primary
+    status: ready
+    nebius_id: computeinstance-xxxxxxxxxx # Provider instance ID
+    region: eu-north1
+    p2p_enabled: true
+
+  # ============================================================
+  # GPU SELFPLAY NODES
+  # Lower-VRAM nodes for selfplay game generation
+  # ============================================================
+
+  # Example: Vast.ai node (ephemeral)
+  vast-example:
+    ssh_host: ssh1.vast.ai
+    ssh_port: 12345 # Replace with actual port
+    ssh_user: root
+    ssh_key: ~/.ssh/id_cluster
+    ringrift_path: ~/ringrift/ai-service
+    venv_activate: source ~/ringrift/ai-service/venv/bin/activate
+    memory_gb: 128
+    cpus: 32
+    gpu: RTX 4090
+    gpu_vram_gb: 24
+    role: gpu_selfplay
+    status: ready
+    vast_instance_id: '12345678' # Provider instance ID
+    p2p_enabled: true
+    is_ephemeral: true # Mark ephemeral for aggressive sync
+
+  # Example: RunPod node
+  runpod-a100-example:
+    ssh_host: 192.0.2.3
+    ssh_port: 22
+    ssh_user: root
+    ssh_key: ~/.ssh/id_cluster
+    ringrift_path: /workspace/ringrift/ai-service
+    venv_activate: source /workspace/ringrift/ai-service/venv/bin/activate
+    memory_gb: 80
+    cpus: 24
+    gpu: A100 PCIe
+    gpu_vram_gb: 80
+    role: gpu_selfplay
+    status: ready
+    runpod_id: xxxxxxxxxxxx
+    p2p_enabled: true
+
+  # ============================================================
+  # CPU SELFPLAY NODES
+  # CPU-only nodes for heuristic selfplay
+  # ============================================================
+
+  # Example: Hetzner CPU node
+  hetzner-cpu-example:
+    ssh_host: 192.0.2.4
+    ssh_port: 22
+    ssh_user: root
+    ssh_key: ~/.ssh/id_cluster
+    ringrift_path: /root/ringrift/ai-service
+    venv_activate: source /root/ringrift/ai-service/venv/bin/activate
+    memory_gb: 32
+    cpus: 16
+    role: cpu_selfplay
+    status: ready
+    hetzner_id: ringrift-cpu-example
+    region: eu-central
+    p2p_enabled: true
+    note: CPU-only node for heuristic selfplay
+
+  # ============================================================
+  # PROXY NODES (Optional)
+  # For SSH tunneling to internal networks
+  # ============================================================
+
+  # Example: AWS proxy
+  aws-proxy-example:
+    ssh_host: 192.0.2.5
+    ssh_port: 22
+    ssh_user: ec2-user
+    ssh_key: ~/.ssh/your-proxy-key.pem
+    ringrift_path: null # No codebase on proxy
+    memory_gb: 1
+    cpus: 2
+    role: proxy
+    status: proxy_only
+    aws_instance_id: i-xxxxxxxxxxxxxxxxx
+    selfplay_enabled: false
+    training_enabled: false
+    p2p_enabled: false

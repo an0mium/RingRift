@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
+
 if TYPE_CHECKING:
     from scripts.p2p_orchestrator import P2POrchestrator
 
@@ -48,8 +50,10 @@ def compute_file_checksum(file_path: Path | str, algorithm: str = "sha256") -> s
     return hasher.hexdigest()
 
 
-class DeliveryHandlersMixin:
+class DeliveryHandlersMixin(BaseP2PHandler):
     """Mixin providing delivery verification handlers.
+
+    Inherits from BaseP2PHandler for consistent response formatting.
 
     To use, inherit from this mixin in P2POrchestrator and register routes:
 
@@ -88,8 +92,8 @@ class DeliveryHandlersMixin:
             file_type = data.get("file_type", "")
 
             if not file_path_str:
-                return web.json_response(
-                    {"error": "Missing required field: file_path"},
+                return self.error_response(
+                    "Missing required field: file_path",
                     status=400,
                 )
 
@@ -97,12 +101,12 @@ class DeliveryHandlersMixin:
 
             # Check if file exists
             if not file_path.exists():
-                return web.json_response({
+                return self.json_response({
                     "verified": False,
                     "file_path": str(file_path),
                     "exists": False,
                     "error": "File not found",
-                    "node_id": getattr(self, "node_id", "unknown"),
+                    "node_id": self.node_id,
                 })
 
             # Get file info
@@ -112,13 +116,13 @@ class DeliveryHandlersMixin:
             try:
                 actual_checksum = f"sha256:{compute_file_checksum(file_path)}"
             except (OSError, IOError) as e:
-                return web.json_response({
+                return self.json_response({
                     "verified": False,
                     "file_path": str(file_path),
                     "exists": True,
                     "file_size": file_size,
                     "error": f"Failed to compute checksum: {e}",
-                    "node_id": getattr(self, "node_id", "unknown"),
+                    "node_id": self.node_id,
                 })
 
             # Compare checksums if expected was provided
@@ -140,7 +144,7 @@ class DeliveryHandlersMixin:
                 "exists": True,
                 "actual_checksum": actual_checksum,
                 "file_size": file_size,
-                "node_id": getattr(self, "node_id", "unknown"),
+                "node_id": self.node_id,
             }
 
             if checksum_match is not None:
@@ -150,11 +154,11 @@ class DeliveryHandlersMixin:
             if type_validation is not None:
                 response["type_validation"] = type_validation
 
-            return web.json_response(response)
+            return self.json_response(response)
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error verifying delivery: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def _validate_file_type(
         self: "P2POrchestrator",
@@ -240,8 +244,8 @@ class DeliveryHandlersMixin:
             node_id = request.match_info.get("node_id", "")
 
             if not node_id:
-                return web.json_response(
-                    {"error": "Missing node_id parameter"},
+                return self.error_response(
+                    "Missing node_id parameter",
                     status=400,
                 )
 
@@ -253,7 +257,7 @@ class DeliveryHandlersMixin:
                 status = ledger.get_node_delivery_status(node_id)
                 recent = ledger.get_deliveries_for_node(node_id, limit=10)
 
-                return web.json_response({
+                return self.json_response({
                     "node_id": node_id,
                     "total_verified": status.get("total_verified", 0),
                     "failure_rate_24h": status.get("failure_rate_24h", 0.0),
@@ -262,12 +266,12 @@ class DeliveryHandlersMixin:
                 })
 
             except ImportError:
-                return web.json_response({
-                    "node_id": node_id,
-                    "error": "Delivery ledger not available",
-                    "available": False,
-                }, status=501)
+                return self.error_response(
+                    "Delivery ledger not available",
+                    status=501,
+                    details={"node_id": node_id, "available": False},
+                )
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error getting delivery status: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

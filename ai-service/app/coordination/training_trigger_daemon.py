@@ -144,6 +144,7 @@ class TrainingTriggerDaemon(HandlerBase):
         - QUALITY_SCORE_UPDATED: Keep intensity in sync
         - TRAINING_BLOCKED_BY_QUALITY: Pause intensity
         - EVALUATION_COMPLETED: Gauntlet -> training feedback
+        - TRAINING_INTENSITY_CHANGED: Updates from unified_feedback orchestrator
         """
         return {
             "npz_export_complete": self._on_npz_export_complete,
@@ -152,6 +153,7 @@ class TrainingTriggerDaemon(HandlerBase):
             "quality_score_updated": self._on_quality_score_updated,
             "training_blocked_by_quality": self._on_training_blocked_by_quality,
             "evaluation_completed": self._on_evaluation_completed,
+            "training_intensity_changed": self._on_training_intensity_changed,
         }
 
     async def _on_start(self) -> None:
@@ -358,6 +360,43 @@ class TrainingTriggerDaemon(HandlerBase):
             )
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling quality update: {e}")
+
+    async def _on_training_intensity_changed(self, event: Any) -> None:
+        """Handle training intensity changes from unified_feedback orchestrator.
+
+        December 2025: Enables event-driven quality feedback instead of direct
+        object assignment. The unified_feedback.py emits TRAINING_INTENSITY_CHANGED
+        when quality metrics change, and this handler updates local state.
+
+        Payload:
+            config_key: str - The board config (e.g., "hex8_2p")
+            intensity: str - The new intensity level
+            quality: float - The quality score that triggered the change
+        """
+        try:
+            payload = getattr(event, "payload", {})
+            config_key = payload.get("config_key") or payload.get("config")
+            if not config_key:
+                return
+
+            new_intensity = payload.get("intensity")
+            if not new_intensity:
+                return
+
+            state = self._get_or_create_state(config_key)
+            old_intensity = state.training_intensity
+
+            # Only update if intensity actually changed
+            if old_intensity != new_intensity:
+                state.training_intensity = new_intensity
+                quality = payload.get("quality", 0.0)
+                logger.info(
+                    f"[TrainingTriggerDaemon] {config_key}: "
+                    f"intensity changed via event: {old_intensity} → {new_intensity} "
+                    f"(quality={quality:.2f})"
+                )
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling intensity change: {e}")
 
     async def _on_training_blocked_by_quality(self, event: Any) -> None:
         """Handle training blocked events to pause intensity."""

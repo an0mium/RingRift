@@ -4,6 +4,8 @@ Provides HTTP endpoints for distributed CMA-ES (Covariance Matrix Adaptation
 Evolution Strategy) hyperparameter optimization. Enables parallel evaluation
 of candidate solutions across cluster nodes.
 
+Inherits from BaseP2PHandler for standardized response formatting.
+
 Usage:
     class P2POrchestrator(CMAESHandlersMixin, ...):
         pass
@@ -34,14 +36,19 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
+
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeRole
 
 logger = logging.getLogger(__name__)
 
 
-class CMAESHandlersMixin:
+class CMAESHandlersMixin(BaseP2PHandler):
     """Mixin providing distributed CMA-ES HTTP handlers.
+
+    Inherits from BaseP2PHandler for standardized response formatting
+    (json_response, error_response).
 
     Requires the implementing class to have:
     - node_id: str
@@ -80,10 +87,11 @@ class CMAESHandlersMixin:
 
         try:
             if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can start distributed CMA-ES",
-                    "leader_id": self.leader_id,
-                }, status=403)
+                return self.error_response(
+                    "Only the leader can start distributed CMA-ES",
+                    status=403,
+                    details={"leader_id": self.leader_id},
+                )
 
             data = await request.json()
             job_id = f"cmaes_{uuid.uuid4().hex[:8]}"
@@ -110,9 +118,10 @@ class CMAESHandlersMixin:
             state.worker_nodes = gpu_nodes
 
             if not state.worker_nodes:
-                return web.json_response({
-                    "error": "No GPU workers available for CMA-ES",
-                }, status=503)
+                return self.error_response(
+                    "No GPU workers available for CMA-ES",
+                    status=503,
+                )
 
             self.distributed_cmaes_state[job_id] = state
             state.status = "running"
@@ -122,7 +131,7 @@ class CMAESHandlersMixin:
             # Launch coordinator task
             asyncio.create_task(self._run_distributed_cmaes(job_id))
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "job_id": job_id,
                 "workers": state.worker_nodes,
@@ -135,7 +144,7 @@ class CMAESHandlersMixin:
                 },
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_cmaes_evaluate(self, request: web.Request) -> web.Response:
         """Request evaluation of weights from workers.
@@ -151,7 +160,7 @@ class CMAESHandlersMixin:
             individual_idx = data.get("individual_idx", 0)
 
             if not job_id:
-                return web.json_response({"error": "job_id required"}, status=400)
+                return self.error_response("job_id required", status=400)
 
             # Extract evaluation parameters from request
             games_per_eval = data.get("games_per_eval", 5)
@@ -167,13 +176,13 @@ class CMAESHandlersMixin:
                 games_per_eval=games_per_eval, board_type=board_type, num_players=num_players
             ))
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "job_id": job_id,
                 "status": "evaluation_started",
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_cmaes_status(self, request: web.Request) -> web.Response:
         """Get status of distributed CMA-ES jobs."""
@@ -182,17 +191,17 @@ class CMAESHandlersMixin:
 
             if job_id:
                 if job_id not in self.distributed_cmaes_state:
-                    return web.json_response({"error": "Job not found"}, status=404)
+                    return self.error_response("Job not found", status=404)
                 state = self.distributed_cmaes_state[job_id]
-                return web.json_response(state.to_dict())
+                return self.json_response(state.to_dict())
 
             # Return all jobs
-            return web.json_response({
+            return self.json_response({
                 job_id: state.to_dict()
                 for job_id, state in self.distributed_cmaes_state.items()
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_cmaes_result(self, request: web.Request) -> web.Response:
         """Receive evaluation result from a worker."""
@@ -205,7 +214,7 @@ class CMAESHandlersMixin:
             worker_id = data.get("worker_id", "unknown")
 
             if job_id not in self.distributed_cmaes_state:
-                return web.json_response({"error": "Job not found"}, status=404)
+                return self.error_response("Job not found", status=404)
 
             logger.info(f"CMA-ES result: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f} from {worker_id}")
 
@@ -222,9 +231,9 @@ class CMAESHandlersMixin:
                 state.best_fitness = fitness
                 state.best_weights = data.get("weights", {})
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "job_id": job_id,
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

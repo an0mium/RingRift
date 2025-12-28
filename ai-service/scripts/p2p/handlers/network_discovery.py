@@ -2,6 +2,7 @@
 
 Provides network discovery and IP management methods for the P2P orchestrator.
 Extracted to reduce p2p_orchestrator.py complexity and improve testability.
+Inherits from BaseP2PHandler for consistent response formatting.
 
 This mixin handles:
 - Local IP and Tailscale IP detection
@@ -32,6 +33,8 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
+
 if TYPE_CHECKING:
     pass
 
@@ -44,9 +47,10 @@ except ImportError:
     PEER_TIMEOUT = 60.0
 
 
-class NetworkDiscoveryMixin:
+class NetworkDiscoveryMixin(BaseP2PHandler):
     """Mixin providing network discovery and IP management.
 
+    Inherits from BaseP2PHandler for consistent response formatting.
     This mixin contains methods for detecting network topology,
     managing Tailscale connectivity, and diagnosing connectivity issues.
     """
@@ -194,15 +198,12 @@ class NetworkDiscoveryMixin:
             data = await request.json()
             target_node = data.get("node_id", "")
             if not target_node:
-                return web.json_response(
-                    {"error": "node_id required"},
-                    status=400
-                )
+                return self.error_response("node_id required", status=400)
 
             # Check if hybrid transport is available
             hybrid = getattr(self, "hybrid_transport", None)
             if not hybrid:
-                return web.json_response({
+                return self.json_response({
                     "node_id": target_node,
                     "error": "Hybrid transport not available",
                     "available_transports": [],
@@ -210,17 +211,14 @@ class NetworkDiscoveryMixin:
 
             # Run diagnostics
             results = await hybrid.diagnose_connectivity(target_node)
-            return web.json_response({
+            return self.json_response({
                 "node_id": target_node,
                 "diagnostics": results,
             })
 
         except Exception as e:
             logger.warning(f"Connectivity diagnosis failed: {e}")
-            return web.json_response(
-                {"error": str(e)},
-                status=500
-            )
+            return self.error_response(str(e), status=500)
 
     async def handle_network_status(self, request: web.Request) -> web.Response:
         """Get network topology status.
@@ -250,7 +248,7 @@ class NetworkDiscoveryMixin:
                     )
                 )
 
-            return web.json_response({
+            return self.json_response({
                 "local_ip": local_ip,
                 "tailscale_ip": tailscale_ip,
                 "has_tailscale": local_tailscale,
@@ -263,7 +261,4 @@ class NetworkDiscoveryMixin:
 
         except Exception as e:
             logger.warning(f"Network status check failed: {e}")
-            return web.json_response(
-                {"error": str(e)},
-                status=500
-            )
+            return self.error_response(str(e), status=500)

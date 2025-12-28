@@ -339,17 +339,19 @@ class TestGetPushNeighbors:
     @pytest.mark.asyncio
     async def test_get_push_neighbors_returns_list(self, mock_mixin):
         """Test that _get_push_neighbors returns a list."""
-        with patch("app.coordination.sync_event_mixin.ClusterManifest") as mock_manifest:
-            mock_instance = MagicMock()
-            mock_instance.get_storage_nodes.return_value = [
-                MagicMock(node_id="node1", disk_free_gb=100),
-                MagicMock(node_id="node2", disk_free_gb=50),
-            ]
-            mock_manifest.get_instance.return_value = mock_instance
+        # Set up mock cluster manifest on the mixin (method uses self._cluster_manifest)
+        mock_manifest = MagicMock()
+        mock_manifest.get_all_nodes.return_value = {
+            "node1": {"disk_usage_percent": 30, "is_storage_node": True, "is_ephemeral": False},
+            "node2": {"disk_usage_percent": 40, "is_storage_node": False, "is_ephemeral": False},
+        }
+        mock_mixin._cluster_manifest = mock_manifest
+        mock_mixin.config.exclude_hosts = set()
+        mock_mixin.config.max_disk_usage_percent = 70
 
-            result = await mock_mixin._get_push_neighbors(max_neighbors=3)
+        result = await mock_mixin._get_push_neighbors(max_neighbors=3)
 
-            assert isinstance(result, list)
+        assert isinstance(result, list)
 
 
 # ============================================
@@ -386,12 +388,15 @@ class TestNodeRecoveryHandler:
         mock_mixin._excluded_nodes.add("recovered-node")
         mock_mixin._node_failure_counts["recovered-node"] = 5
 
-        event = {"payload": {"node_id": "recovered-node"}}
+        event = MagicMock()
+        event.payload = {"node_id": "recovered-node"}
 
         await mock_mixin._on_node_recovered(event)
 
+        # Node should be removed from exclusion set (via discard)
         assert "recovered-node" not in mock_mixin._excluded_nodes
-        assert "recovered-node" not in mock_mixin._node_failure_counts
+        # Failure count is reset to 0, not removed
+        assert mock_mixin._node_failure_counts["recovered-node"] == 0
 
     @pytest.mark.asyncio
     async def test_on_node_recovered_handles_missing_attributes(self, mock_mixin):
@@ -400,7 +405,8 @@ class TestNodeRecoveryHandler:
         del mock_mixin._excluded_nodes
         del mock_mixin._node_failure_counts
 
-        event = {"payload": {"node_id": "some-node"}}
+        event = MagicMock()
+        event.payload = {"node_id": "some-node"}
 
         # Should not raise
         await mock_mixin._on_node_recovered(event)
@@ -416,33 +422,47 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_handler_increments_error_count_on_exception(self, mock_mixin):
-        """Test that errors increment the error counter."""
+        """Test that errors increment the error counter.
+
+        Note: Handlers use fire_and_forget() for async operations, so exceptions
+        in _trigger_urgent_sync won't propagate. We test by making the sync operation
+        raise an exception that's caught by the handler's specific exception types.
+        """
         initial_errors = mock_mixin._errors_count
 
-        # Force an error in the handler
-        with patch.object(
-            mock_mixin,
-            "_trigger_urgent_sync",
-            side_effect=Exception("Test error"),
-        ):
-            try:
-                await mock_mixin._on_data_stale({"payload": {"config_key": "hex8_2p"}})
-            except Exception:
-                mock_mixin._errors_count += 1
-                mock_mixin._last_error = "Test error"
+        # Make _urgent_sync_pending a property that raises an error when accessed
+        # This simulates a RuntimeError during the handler's sync
+        class BrokenDict(dict):
+            def __setitem__(self, key, value):
+                raise RuntimeError("Test error")
+
+        mock_mixin._urgent_sync_pending = BrokenDict()
+
+        event = MagicMock()
+        event.payload = {"board_type": "hex8", "num_players": 2}
+
+        # Handler catches RuntimeError and increments error count
+        await mock_mixin._on_data_stale(event)
 
         assert mock_mixin._errors_count > initial_errors
-        assert mock_mixin._last_error == "Test error"
+        assert "Test error" in mock_mixin._last_error
 
     @pytest.mark.asyncio
     async def test_handler_continues_after_error(self, mock_mixin):
         """Test that one failed event doesn't break subsequent ones."""
         mock_mixin._running = True
 
-        # Process multiple events
-        for i in range(3):
+        # Process multiple events with proper format (board_type + num_players)
+        configs = [
+            {"board_type": "hex8", "num_players": 2},
+            {"board_type": "square8", "num_players": 2},
+            {"board_type": "hex8", "num_players": 4},
+        ]
+        for config in configs:
             try:
-                await mock_mixin._on_data_stale({"payload": {"config_key": f"config_{i}"}})
+                event = MagicMock()
+                event.payload = config
+                await mock_mixin._on_data_stale(event)
             except Exception:
                 pass
 
@@ -478,14 +498,19 @@ class TestModelDistributionCompleteHandler:
     @pytest.mark.asyncio
     async def test_on_model_distribution_clears_pending_requests(self, mock_mixin):
         """Test that model distribution completion clears pending sync requests."""
-        # Add some pending model sync requests
-        mock_mixin._pending_model_syncs = {"model1", "model2"}
+        # Handler uses .pop(config_key, None) so it expects a dict, not a set
+        # It constructs config_key from board_type and num_players
+        mock_mixin._pending_model_syncs = {"hex8_2p": True, "square8_2p": True}
 
-        event = {"payload": {"model_path": "model1"}}
+        event = MagicMock()
+        event.payload = {"model_id": "model1", "board_type": "hex8", "num_players": 2}
 
         await mock_mixin._on_model_distribution_complete(event)
 
-        # Should have logged completion
+        # The config_key "hex8_2p" should be removed
+        assert "hex8_2p" not in mock_mixin._pending_model_syncs
+        # square8_2p should still be there
+        assert "square8_2p" in mock_mixin._pending_model_syncs
 
 
 # ============================================
@@ -499,13 +524,18 @@ class TestDataSyncStartedHandler:
     @pytest.mark.asyncio
     async def test_on_data_sync_started_tracks_active_sync(self, mock_mixin):
         """Test that sync start tracks the active operation."""
-        mock_mixin._active_syncs = set()
+        # Handler expects _active_syncs to be a dict (it stores host -> {start_time, sync_type})
+        mock_mixin._active_syncs = {}
 
-        event = {"payload": {"target_node": "node1", "sync_id": "sync123"}}
+        event = MagicMock()
+        event.payload = {"host": "node1", "sync_type": "incremental"}
 
         await mock_mixin._on_data_sync_started(event)
 
-        # Should track the sync
+        # Should track the sync with host as key
+        assert "node1" in mock_mixin._active_syncs
+        assert "start_time" in mock_mixin._active_syncs["node1"]
+        assert mock_mixin._active_syncs["node1"]["sync_type"] == "incremental"
 
 
 # ============================================
@@ -519,10 +549,12 @@ class TestEventIntegration:
     @pytest.mark.asyncio
     async def test_full_event_flow_data_stale_to_sync(self, mock_mixin):
         """Test complete flow from DATA_STALE to sync completion."""
-        # Simulate DATA_STALE event
-        await mock_mixin._on_data_stale({"payload": {"config_key": "hex8_2p"}})
+        # Simulate DATA_STALE event - handler expects board_type and num_players
+        event = MagicMock()
+        event.payload = {"board_type": "hex8", "num_players": 2}
+        await mock_mixin._on_data_stale(event)
 
-        # Should mark urgent sync pending
+        # Should mark urgent sync pending (config_key is constructed from board_type + num_players)
         assert "hex8_2p" in mock_mixin._urgent_sync_pending
 
         # Trigger urgent sync
@@ -536,9 +568,17 @@ class TestEventIntegration:
     @pytest.mark.asyncio
     async def test_multiple_configs_tracked_independently(self, mock_mixin):
         """Test that multiple configs are tracked independently."""
-        await mock_mixin._on_data_stale({"payload": {"config_key": "hex8_2p"}})
-        await mock_mixin._on_data_stale({"payload": {"config_key": "square8_2p"}})
-        await mock_mixin._on_data_stale({"payload": {"config_key": "hex8_4p"}})
+        # Handler constructs config_key from board_type + num_players
+        event1 = MagicMock()
+        event1.payload = {"board_type": "hex8", "num_players": 2}
+        event2 = MagicMock()
+        event2.payload = {"board_type": "square8", "num_players": 2}
+        event3 = MagicMock()
+        event3.payload = {"board_type": "hex8", "num_players": 4}
+
+        await mock_mixin._on_data_stale(event1)
+        await mock_mixin._on_data_stale(event2)
+        await mock_mixin._on_data_stale(event3)
 
         assert len(mock_mixin._urgent_sync_pending) == 3
         assert "hex8_2p" in mock_mixin._urgent_sync_pending

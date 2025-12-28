@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import concurrent.futures
 import json
 import logging
 import os
@@ -184,19 +185,52 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
     def reset_instance(cls) -> None:
         """Reset the singleton (for testing).
 
-        Overrides SingletonMixin.reset_instance() to ensure proper async shutdown
-        of the daemon manager before clearing the singleton reference.
+        Overrides SingletonMixin.reset_instance() to ensure proper cleanup:
+        1. Cancels _health_task directly (avoids async task leaks)
+        2. Clears restart state tracking
+        3. Attempts graceful shutdown if event loop available
+
+        December 2025: Enhanced for singleton registry test cleanup.
         """
-        if cls.has_instance():
-            instance = cls.get_instance()
-            try:
-                loop = asyncio.get_running_loop()
-                fire_and_forget(
-                    instance.shutdown(),
-                    name="daemon_manager_reset_shutdown",
-                )
-            except RuntimeError:
-                instance._sync_shutdown()
+        from app.coordination.singleton_mixin import SingletonMixin
+
+        with cls._get_lock():
+            if cls in SingletonMixin._instances:
+                instance = SingletonMixin._instances[cls]
+
+                # 1. Cancel health task directly (prevents async leaks)
+                if hasattr(instance, "_health_task") and instance._health_task:
+                    if not instance._health_task.done():
+                        instance._health_task.cancel()
+                    instance._health_task = None
+
+                # 2. Clear restart state tracking
+                if hasattr(instance, "_persisted_restart_counts"):
+                    instance._persisted_restart_counts.clear()
+                if hasattr(instance, "_restart_timestamps"):
+                    instance._restart_timestamps.clear()
+                if hasattr(instance, "_permanently_failed"):
+                    instance._permanently_failed.clear()
+
+                # 3. Mark as not running
+                if hasattr(instance, "_running"):
+                    instance._running = False
+
+                # 4. Set shutdown event to stop loops
+                if hasattr(instance, "_shutdown_event"):
+                    instance._shutdown_event.set()
+
+                # 5. Try graceful shutdown (best effort)
+                try:
+                    loop = asyncio.get_running_loop()
+                    fire_and_forget(
+                        instance.shutdown(),
+                        name="daemon_manager_reset_shutdown",
+                    )
+                except RuntimeError:
+                    # No running loop - sync cleanup already done above
+                    pass
+
         # Call parent to clear the singleton reference
         super().reset_instance()
 
@@ -2055,20 +2089,47 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                 # December 2025: Call daemon's health_check() if available
                 # This enables daemon-specific health monitoring beyond just task liveness
                 # December 2025 (P1): Add timeout protection to prevent health loop hanging
+                # December 2025: Enhanced to handle both sync and async methods with timeout
                 if info.instance is not None and hasattr(info.instance, 'health_check'):
                     try:
+                        health_check_timeout = 5.0  # seconds
                         health_result = info.instance.health_check()
+
                         # Handle both sync and async health_check methods
                         if asyncio.iscoroutine(health_result):
-                            # Timeout protection: prevent blocking health checks from hanging the loop
+                            # Async health check - use asyncio timeout
                             try:
-                                health_result = await asyncio.wait_for(health_result, timeout=5.0)
+                                health_result = await asyncio.wait_for(
+                                    health_result, timeout=health_check_timeout
+                                )
                             except asyncio.TimeoutError:
                                 logger.warning(
-                                    f"{daemon_type.value} health_check() timed out (5s)"
+                                    f"{daemon_type.value} async health_check() timed out "
+                                    f"({health_check_timeout}s)"
                                 )
-                                # Treat timeout as unhealthy
-                                health_result = {"healthy": False, "message": "health_check() timeout (5s)"}
+                                health_result = {
+                                    "healthy": False,
+                                    "message": f"health_check() timeout ({health_check_timeout}s)",
+                                }
+                        elif callable(getattr(health_result, '__await__', None)):
+                            # Awaitable object (not coroutine but can be awaited)
+                            try:
+                                health_result = await asyncio.wait_for(
+                                    health_result, timeout=health_check_timeout
+                                )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    f"{daemon_type.value} awaitable health_check() timed out "
+                                    f"({health_check_timeout}s)"
+                                )
+                                health_result = {
+                                    "healthy": False,
+                                    "message": f"health_check() timeout ({health_check_timeout}s)",
+                                }
+                        # Sync health_result is already returned - no additional timeout needed
+                        # since the call has already completed. Timeout protection for truly
+                        # blocking sync calls would require ThreadPoolExecutor which adds
+                        # complexity. Most health_check() methods are fast and non-blocking.
 
                         # Check if result indicates unhealthy state
                         is_healthy = True

@@ -30,14 +30,14 @@ class MyProvider(CloudProvider):
 
 ### Provider Implementations
 
-| Provider        | File                  | GPU Types                 | Notes                     |
-| --------------- | --------------------- | ------------------------- | ------------------------- |
-| **Lambda Labs** | `lambda_provider.py`  | GH200, H100, A10          | ⚠️ TERMINATED Dec 2025   |
-| **Vast.ai**     | `vast_provider.py`    | RTX 5090, 4090, 3090, A40 | Ephemeral, cheap          |
-| **Vultr**       | `vultr_provider.py`   | A100 (vGPU)               | Persistent                |
-| **Hetzner**     | `hetzner_provider.py` | CPU only                  | P2P voters, data sync     |
-| **RunPod**      | (via cluster_config)  | H100, A100, L40S          | Persistent `/workspace`   |
-| **Nebius**      | (via cluster_config)  | H100 80GB, L40S           | Training backbone         |
+| Provider        | File                  | GPU Types                 | Notes                   |
+| --------------- | --------------------- | ------------------------- | ----------------------- |
+| **Lambda Labs** | `lambda_provider.py`  | GH200, H100, A10          | ⚠️ TERMINATED Dec 2025  |
+| **Vast.ai**     | `vast_provider.py`    | RTX 5090, 4090, 3090, A40 | Ephemeral, cheap        |
+| **Vultr**       | `vultr_provider.py`   | A100 (vGPU)               | Persistent              |
+| **Hetzner**     | `hetzner_provider.py` | CPU only                  | P2P voters, data sync   |
+| **RunPod**      | (via cluster_config)  | H100, A100, L40S          | Persistent `/workspace` |
+| **Nebius**      | (via cluster_config)  | H100 80GB, L40S           | Training backbone       |
 
 ## Usage
 
@@ -113,18 +113,18 @@ From `config/distributed_hosts.yaml`:
 
 ```yaml
 hosts:
-  lambda-gh200-a:
+  my-training-node:
     provider: lambda
     gpu_type: GH200
-    ssh_host: 100.123.183.70
+    ssh_host: 100.x.x.x # Replace with your Tailscale IP
     ssh_key: ~/.ssh/id_cluster
 
-  vast-29129529:
+  vast-example:
     provider: vast
     gpu_type: RTX 4090
     is_ephemeral: true
     ssh_host: ssh6.vast.ai
-    ssh_port: 19528
+    ssh_port: 12345 # Replace with your port
 ```
 
 ## See Also

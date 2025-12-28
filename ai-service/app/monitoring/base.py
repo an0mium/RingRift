@@ -238,6 +238,42 @@ class HealthMonitor(ABC):
 
         return result
 
+    async def run_check_async(self) -> MonitoringResult:
+        """Async version of run_check for use in async contexts.
+
+        December 28, 2025: Added to avoid blocking the event loop when
+        health checks involve network calls (SSH, HTTP).
+
+        Default implementation runs check_health() in a thread executor.
+        Subclasses can override for native async implementation.
+
+        Returns:
+            MonitoringResult from the check
+        """
+        import asyncio
+        import time
+        start = time.time()
+
+        try:
+            # Run synchronous check in thread executor to avoid blocking
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, self.check_health)
+        except Exception as e:
+            result = MonitoringResult(
+                status=HealthStatus.UNKNOWN,
+                alerts=[Alert(
+                    level=AlertLevel.CRITICAL,
+                    category="monitor_error",
+                    message=f"Async health check failed: {e!s}",
+                )],
+            )
+
+        result.duration_ms = (time.time() - start) * 1000
+        self._last_result = result
+        self._last_check = datetime.utcnow()
+
+        return result
+
 
 class CompositeMonitor(HealthMonitor):
     """Monitor that aggregates results from multiple sub-monitors.
@@ -293,6 +329,76 @@ class CompositeMonitor(HealthMonitor):
                     category="sub_monitor_error",
                     message=f"Sub-monitor {monitor.name} failed: {e!s}",
                 ))
+
+        return MonitoringResult(
+            status=worst_status,
+            metrics=all_metrics,
+            alerts=all_alerts,
+            details=all_details,
+        )
+
+    async def check_health_async(self) -> MonitoringResult:
+        """Async version that runs all sub-monitors concurrently.
+
+        December 28, 2025: Added to avoid blocking the event loop when
+        health checks involve network calls (SSH, HTTP).
+
+        Returns:
+            Aggregated MonitoringResult from all monitors
+        """
+        import asyncio
+
+        all_metrics: dict[str, Any] = {}
+        all_alerts: list[Alert] = []
+        all_details: dict[str, Any] = {}
+        worst_status = HealthStatus.HEALTHY
+
+        # Run all monitors concurrently
+        async def run_monitor(monitor: HealthMonitor) -> tuple[str, MonitoringResult | Exception]:
+            try:
+                result = await monitor.run_check_async()
+                return (monitor.name, result)
+            except Exception as e:
+                return (monitor.name, e)
+
+        tasks = [run_monitor(m) for m in self._monitors]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for name_or_result in results:
+            if isinstance(name_or_result, Exception):
+                all_alerts.append(Alert(
+                    level=AlertLevel.WARNING,
+                    category="sub_monitor_error",
+                    message=f"Sub-monitor failed with exception: {name_or_result!s}",
+                ))
+                continue
+
+            name, result = name_or_result
+            if isinstance(result, Exception):
+                all_alerts.append(Alert(
+                    level=AlertLevel.WARNING,
+                    category="sub_monitor_error",
+                    message=f"Sub-monitor {name} failed: {result!s}",
+                ))
+                continue
+
+            # Aggregate metrics with monitor name prefix
+            for key, value in result.metrics.items():
+                all_metrics[f"{name}.{key}"] = value
+
+            # Collect all alerts
+            all_alerts.extend(result.alerts)
+
+            # Store sub-monitor details
+            all_details[name] = result.to_dict()
+
+            # Update worst status
+            if result.status == HealthStatus.UNHEALTHY:
+                worst_status = HealthStatus.UNHEALTHY
+            elif result.status == HealthStatus.DEGRADED and worst_status == HealthStatus.HEALTHY:
+                worst_status = HealthStatus.DEGRADED
+            elif result.status == HealthStatus.UNKNOWN and worst_status == HealthStatus.HEALTHY:
+                worst_status = HealthStatus.UNKNOWN
 
         return MonitoringResult(
             status=worst_status,

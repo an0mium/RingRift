@@ -1213,3 +1213,61 @@ class PipelineEventHandlerMixin:
         if not hasattr(self, "_queued_work_count"):
             self._queued_work_count = 0
         self._queued_work_count += 1
+
+    # =========================================================================
+    # Task Lifecycle Event Handlers (December 2025)
+    # =========================================================================
+
+    async def _on_task_abandoned(self, event) -> None:
+        """Handle TASK_ABANDONED - update pending counts and track abandonments.
+
+        December 2025: Wire previously orphaned event. Emitted when jobs are
+        intentionally cancelled (e.g., due to backpressure, resource constraints,
+        or pipeline requirements). Different from TASK_FAILED which indicates errors.
+
+        Actions:
+        - Log the abandonment for metrics
+        - Decrement pending work count
+        - Track abandonment reason for debugging
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        task_id = payload.get("task_id", "unknown")
+        task_type = payload.get("task_type", "unknown")
+        reason = payload.get("reason", "unknown")
+        node_id = payload.get("node_id", "")
+        config_key = payload.get("config_key", "")
+
+        logger.info(
+            f"[DataPipelineOrchestrator] Task abandoned: {task_id} "
+            f"(type={task_type}, node={node_id}, reason={reason})"
+        )
+
+        # Track abandonments for metrics
+        if not hasattr(self, "_abandoned_task_count"):
+            self._abandoned_task_count = 0
+        self._abandoned_task_count += 1
+
+        # Decrement pending work count if we were tracking it
+        if hasattr(self, "_queued_work_count") and self._queued_work_count > 0:
+            self._queued_work_count -= 1
+
+        # Store last abandonment for debugging
+        if not hasattr(self, "_last_task_abandonment"):
+            self._last_task_abandonment = None
+        self._last_task_abandonment = {
+            "task_id": task_id,
+            "task_type": task_type,
+            "reason": reason,
+            "node_id": node_id,
+            "config_key": config_key,
+            "timestamp": time.time(),
+        }
+
+        # Track by config for per-config analysis
+        if config_key:
+            if not hasattr(self, "_abandonments_by_config"):
+                self._abandonments_by_config: dict[str, int] = {}
+            self._abandonments_by_config[config_key] = (
+                self._abandonments_by_config.get(config_key, 0) + 1
+            )

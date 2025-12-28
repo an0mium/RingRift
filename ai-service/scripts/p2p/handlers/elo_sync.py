@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 # Dec 2025: Use consolidated handler utilities
+from scripts.p2p.handlers.base import BaseP2PHandler
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
 if TYPE_CHECKING:
@@ -42,8 +43,11 @@ logger = logging.getLogger(__name__)
 _event_bridge = get_event_bridge()
 
 
-class EloSyncHandlersMixin:
+class EloSyncHandlersMixin(BaseP2PHandler):
     """Mixin providing Elo sync HTTP handlers.
+
+    Inherits from BaseP2PHandler to use standardized response formatting
+    (json_response, error_response) and common utilities.
 
     Requires the implementing class to have:
     - node_id: str
@@ -62,7 +66,7 @@ class EloSyncHandlersMixin:
         """GET /elo/sync/status - Get Elo database sync status."""
         try:
             if not self.elo_sync_manager:
-                return web.json_response({
+                return self.json_response({
                     "enabled": False,
                     "error": "EloSyncManager not initialized"
                 })
@@ -71,28 +75,25 @@ class EloSyncHandlersMixin:
             status["enabled"] = True
             status["node_id"] = self.node_id
 
-            return web.json_response(status)
+            return self.json_response(status)
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_elo_sync_trigger(self, request: web.Request) -> web.Response:
         """POST /elo/sync/trigger - Manually trigger Elo database sync."""
         try:
             if not self.elo_sync_manager:
-                return web.json_response({
-                    "success": False,
-                    "error": "EloSyncManager not initialized"
-                }, status=503)
+                return self.error_response("EloSyncManager not initialized", status=503)
 
             # Trigger sync
             success = await self.elo_sync_manager.sync_with_cluster()
 
-            return web.json_response({
+            return self.json_response({
                 "success": success,
                 "status": self.elo_sync_manager.get_status()
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_elo_sync_download(self, request: web.Request) -> web.Response:
         """GET /elo/sync/db - Download unified_elo.db for cluster sync."""
@@ -101,7 +102,7 @@ class EloSyncHandlersMixin:
             db_path = ai_root / "data" / "unified_elo.db"
 
             if not db_path.exists():
-                return web.json_response({"error": "Database not found"}, status=404)
+                return self.error_response("Database not found", status=404)
 
             # Read and return the database file
             with open(db_path, 'rb') as f:
@@ -116,7 +117,7 @@ class EloSyncHandlersMixin:
                 }
             )
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_elo_sync_upload(self, request: web.Request) -> web.Response:
         """POST /elo/sync/upload - Upload/merge unified_elo.db from another node.
@@ -130,19 +131,16 @@ class EloSyncHandlersMixin:
             request_token = request.headers.get("X-Admin-Token", "")
             if request_token != admin_token:
                 logger.warning("Unauthorized Elo sync upload attempt")
-                return web.json_response({"error": "Unauthorized"}, status=401)
+                return self.error_response("Unauthorized", status=401)
 
         try:
             if not self.elo_sync_manager:
-                return web.json_response({
-                    "success": False,
-                    "error": "EloSyncManager not initialized"
-                }, status=503)
+                return self.error_response("EloSyncManager not initialized", status=503)
 
             # Read uploaded database
             data = await request.read()
             if not data:
-                return web.json_response({"error": "No data received"}, status=400)
+                return self.error_response("No data received", status=400)
 
             # Save to temp file and merge
             with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as f:
@@ -160,7 +158,7 @@ class EloSyncHandlersMixin:
 
                 self.elo_sync_manager._update_local_stats()
 
-                return web.json_response({
+                return self.json_response({
                     "success": success,
                     "match_count": self.elo_sync_manager.state.local_match_count
                 })
@@ -168,7 +166,7 @@ class EloSyncHandlersMixin:
                 temp_path.unlink(missing_ok=True)
 
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def _trigger_elo_sync_after_matches(self, num_matches: int = 1):
         """Trigger Elo sync after recording new matches.

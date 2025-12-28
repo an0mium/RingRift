@@ -31,14 +31,18 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.handlers.base import BaseP2PHandler
+
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeRole
 
 logger = logging.getLogger(__name__)
 
 
-class TournamentHandlersMixin:
+class TournamentHandlersMixin(BaseP2PHandler):
     """Mixin providing distributed tournament HTTP handlers.
+
+    Inherits from BaseP2PHandler for consistent response formatting.
 
     Requires the implementing class to have:
     - node_id: str
@@ -83,7 +87,7 @@ class TournamentHandlersMixin:
             if self.role != NodeRole.LEADER:
                 agent_ids = data.get("agent_ids", [])
                 if len(agent_ids) < 2:
-                    return web.json_response({"error": "At least 2 agents required"}, status=400)
+                    return self.error_response("At least 2 agents required", status=400)
 
                 proposal = self._propose_tournament(
                     board_type=data.get("board_type", "square8"),
@@ -92,7 +96,7 @@ class TournamentHandlersMixin:
                     games_per_pairing=data.get("games_per_pairing", 2),
                 )
 
-                return web.json_response({
+                return self.json_response({
                     "success": True,
                     "mode": "proposal",
                     "proposal_id": proposal["proposal_id"],
@@ -105,7 +109,7 @@ class TournamentHandlersMixin:
 
             agent_ids = data.get("agent_ids", [])
             if len(agent_ids) < 2:
-                return web.json_response({"error": "At least 2 agents required"}, status=400)
+                return self.error_response("At least 2 agents required", status=400)
 
             # Create round-robin pairings
             pairings = []
@@ -138,7 +142,7 @@ class TournamentHandlersMixin:
             state.worker_nodes = workers
 
             if not state.worker_nodes:
-                return web.json_response({"error": "No workers available"}, status=503)
+                return self.error_response("No workers available", status=503)
 
             self.distributed_tournament_state[job_id] = state
 
@@ -147,7 +151,7 @@ class TournamentHandlersMixin:
             # Launch coordinator task
             asyncio.create_task(self._run_distributed_tournament(job_id))
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "job_id": job_id,
                 "agents": agent_ids,
@@ -155,7 +159,7 @@ class TournamentHandlersMixin:
                 "workers": workers,
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_tournament_match(self, request: web.Request) -> web.Response:
         """Request a tournament match to be played by a worker."""
@@ -165,20 +169,20 @@ class TournamentHandlersMixin:
             match_info = data.get("match")
 
             if not job_id or not match_info:
-                return web.json_response({"error": "job_id and match required"}, status=400)
+                return self.error_response("job_id and match required", status=400)
 
             logger.info(f"Received tournament match request: {match_info}")
 
             # Start match in background
             asyncio.create_task(self._play_tournament_match(job_id, match_info))
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "job_id": job_id,
                 "status": "match_started",
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_tournament_status(self, request: web.Request) -> web.Response:
         """Get status of distributed tournaments."""
@@ -187,16 +191,16 @@ class TournamentHandlersMixin:
 
             if job_id:
                 if job_id not in self.distributed_tournament_state:
-                    return web.json_response({"error": "Tournament not found"}, status=404)
+                    return self.error_response("Tournament not found", status=404)
                 state = self.distributed_tournament_state[job_id]
-                return web.json_response(state.to_dict())
+                return self.json_response(state.to_dict())
 
-            return web.json_response({
+            return self.json_response({
                 job_id: state.to_dict()
                 for job_id, state in self.distributed_tournament_state.items()
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_tournament_result(self, request: web.Request) -> web.Response:
         """Receive match result from a worker."""
@@ -207,7 +211,7 @@ class TournamentHandlersMixin:
             worker_id = data.get("worker_id", "unknown")
 
             if job_id not in self.distributed_tournament_state:
-                return web.json_response({"error": "Tournament not found"}, status=404)
+                return self.error_response("Tournament not found", status=404)
 
             state = self.distributed_tournament_state[job_id]
             state.results.append(match_result)
@@ -216,11 +220,11 @@ class TournamentHandlersMixin:
 
             logger.info(f"Tournament result: {state.completed_matches}/{state.total_matches} matches from {worker_id}")
 
-            return web.json_response({
+            return self.json_response({
                 "success": True,
                 "job_id": job_id,
                 "completed": state.completed_matches,
                 "total": state.total_matches,
             })
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

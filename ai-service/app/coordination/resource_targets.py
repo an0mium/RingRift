@@ -761,6 +761,55 @@ class ResourceTargetManager(SingletonMixin):
                 details={"error": str(e)},
             )
 
+    # ==========================================
+    # Singleton Reset (for testing)
+    # ==========================================
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance and clear all internal state.
+
+        This method clears all internal state before resetting the singleton,
+        ensuring clean state for tests. Internal state cleared:
+        - Host targets cache
+        - Utilization history
+        - Backpressure factor
+        - Adaptive update timestamp
+        - Database initialization flags
+
+        December 2025: Added for singleton registry test cleanup.
+        """
+        from app.coordination.singleton_mixin import SingletonMixin
+
+        with cls._get_lock():
+            if cls in SingletonMixin._instances:
+                instance = SingletonMixin._instances[cls]
+
+                # Clear host targets cache
+                if hasattr(instance, "_host_targets"):
+                    instance._host_targets.clear()
+
+                # Clear utilization history
+                if hasattr(instance, "_utilization_history"):
+                    instance._utilization_history.clear()
+
+                # Reset backpressure factor
+                if hasattr(instance, "_backpressure_factor"):
+                    instance._backpressure_factor = 1.0
+
+                # Reset adaptive update timestamp
+                if hasattr(instance, "_last_adaptive_update"):
+                    instance._last_adaptive_update = 0.0
+
+                # Reset DB initialization flags (allow reinit on next access)
+                if hasattr(instance, "_db_initialized"):
+                    instance._db_initialized = False
+                if hasattr(instance, "_readonly_mode"):
+                    instance._readonly_mode = False
+
+            # Call parent reset
+            super().reset_instance()
+
 
 # Module-level singleton accessors
 _manager: ResourceTargetManager | None = None

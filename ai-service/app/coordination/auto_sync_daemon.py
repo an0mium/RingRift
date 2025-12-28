@@ -55,7 +55,7 @@ Node Selection:
     _prioritize_targets()    - Sort by ephemeral, training activity
 
 Event Integration:
-    - Subscribes to: NEW_GAMES_AVAILABLE, TRAINING_STARTED, NODE_RECOVERED
+    - Subscribes to: NEW_GAMES_AVAILABLE, TRAINING_STARTED, NODE_RECOVERED, SYNC_REQUEST
     - Emits: DATA_SYNC_STARTED, DATA_SYNC_COMPLETED, DATA_SYNC_FAILED
 
 Usage:
@@ -229,6 +229,10 @@ class AutoSyncDaemon(
         # Phase 9: Event subscription for DATA_STALE triggers
         self._subscribed = False
         self._urgent_sync_pending: dict[str, float] = {}  # config_key -> request_time
+
+        # December 28, 2025: Backpressure handling - pause sync during high load
+        self._sync_paused = False
+        self._backpressure_reason: str = ""
 
         # Quality extraction for training data prioritization (December 2025)
         self._quality_config: Any = None
@@ -855,6 +859,14 @@ class AutoSyncDaemon(
     async def _sync_loop(self) -> None:
         """Main sync loop."""
         while self._running:
+            # December 28, 2025: Check backpressure before running sync cycle
+            if self._sync_paused:
+                logger.debug(
+                    f"[AutoSyncDaemon] Sync paused due to backpressure: {self._backpressure_reason}"
+                )
+                await asyncio.sleep(self.config.interval_seconds)
+                continue
+
             try:
                 games_synced = await self._sync_cycle()
                 self._stats.total_syncs += 1

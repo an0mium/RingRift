@@ -69,27 +69,6 @@ class VastProvider(CloudProvider):
 
         return result.stdout, result.stderr, result.returncode
 
-    def _parse_gpu_type(self, gpu_name: str) -> GPUType:
-        """Parse GPU type from Vast.ai GPU name."""
-        name_lower = gpu_name.lower()
-        if "gh200" in name_lower:
-            return GPUType.GH200_96GB
-        if "h100" in name_lower:
-            return GPUType.H100_80GB
-        if "a100" in name_lower:
-            if "80" in name_lower:
-                return GPUType.A100_80GB
-            return GPUType.A100_40GB
-        if "a10" in name_lower and "a100" not in name_lower:
-            return GPUType.A10
-        if "5090" in name_lower:
-            return GPUType.RTX_5090
-        if "4090" in name_lower:
-            return GPUType.RTX_4090
-        if "3090" in name_lower:
-            return GPUType.RTX_3090
-        return GPUType.UNKNOWN
-
     def _parse_instance(self, data: dict) -> Instance:
         """Parse Vast.ai instance JSON into Instance object."""
         status_map = {
@@ -101,9 +80,9 @@ class VastProvider(CloudProvider):
         actual_status = data.get("actual_status", "unknown")
         status = status_map.get(actual_status, InstanceStatus.UNKNOWN)
 
-        # Parse GPU info
+        # Parse GPU info using base class method
         gpu_name = data.get("gpu_name", "")
-        gpu_type = self._parse_gpu_type(gpu_name)
+        gpu_type = GPUType.from_string(gpu_name)
         gpu_count = data.get("num_gpus", 1)
 
         return Instance(
@@ -140,18 +119,7 @@ class VastProvider(CloudProvider):
             logger.error(f"Failed to parse vastai output: {e}")
             return []
 
-    async def get_instance(self, instance_id: str) -> Instance | None:
-        """Get specific instance by ID."""
-        instances = await self.list_instances()
-        for inst in instances:
-            if inst.id == instance_id:
-                return inst
-        return None
-
-    async def get_instance_status(self, instance_id: str) -> InstanceStatus:
-        """Get instance status."""
-        instance = await self.get_instance(instance_id)
-        return instance.status if instance else InstanceStatus.UNKNOWN
+    # get_instance() and get_instance_status() use base class defaults
 
     async def scale_up(
         self,

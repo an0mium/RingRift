@@ -1050,6 +1050,66 @@ class UnifiedEventRouter:
         event_type_str = normalize_event_type(event_type_str)
         return bool(self._subscribers.get(event_type_str))
 
+    def reset(self) -> None:
+        """Clear all subscriptions and state (for testing).
+
+        Clears:
+        - All event type subscriptions
+        - All global subscribers
+        - Event history
+        - Seen events set (deduplication)
+
+        December 2025: Added for singleton registry test cleanup.
+        """
+        self._subscribers.clear()
+        self._global_subscribers.clear()
+        self._event_history.clear()
+        self._seen_events.clear()
+        self._seen_events_order.clear()
+        self._seen_hashes.clear()
+        self._seen_hashes_order.clear()
+        # Also clear statistics
+        self._events_routed.clear()
+        self._events_by_source.clear()
+        logger.debug("[EventRouter] Reset: cleared all subscriptions and state")
+
+    def unsubscribe_all(self, event_type: str | DataEventType | StageEvent | None = None) -> int:
+        """Remove all subscribers for an event type (or all if None).
+
+        Args:
+            event_type: Event type to clear subscribers for.
+                       If None, clears ALL subscribers (global and type-specific).
+
+        Returns:
+            Number of subscribers removed.
+
+        December 2025: Added for targeted test cleanup.
+        """
+        count = 0
+
+        if event_type is None:
+            # Clear all subscribers
+            for subs_list in self._subscribers.values():
+                count += len(subs_list)
+            count += len(self._global_subscribers)
+            self._subscribers.clear()
+            self._global_subscribers.clear()
+        else:
+            # Clear subscribers for specific event type
+            if hasattr(event_type, 'value'):
+                event_type_str = event_type.value
+            else:
+                event_type_str = str(event_type)
+
+            event_type_str = normalize_event_type(event_type_str)
+
+            if event_type_str in self._subscribers:
+                count = len(self._subscribers[event_type_str])
+                del self._subscribers[event_type_str]
+
+        logger.debug(f"[EventRouter] Unsubscribed {count} callbacks for {event_type}")
+        return count
+
     def get_history(
         self,
         event_type: str | None = None,
@@ -1679,8 +1739,12 @@ _validate_router_class()
 # =============================================================================
 
 @dataclass
-class CoordinatorStats:
-    """Statistics for the event coordinator (backwards-compatible alias)."""
+class EventRouterStats:
+    """Statistics for the event router.
+
+    December 28, 2025: Renamed from CoordinatorStats to avoid collision
+    with the generic CoordinatorStats in coordinator_base.py.
+    """
     events_bridged_data_to_cross: int = 0
     events_bridged_stage_to_cross: int = 0
     events_bridged_cross_to_data: int = 0
@@ -1694,6 +1758,7 @@ class CoordinatorStats:
 # Aliases for backward compatibility
 UnifiedEventCoordinator = UnifiedEventRouter
 EventRouter = UnifiedEventRouter  # Common alias used in documentation
+CoordinatorStats = EventRouterStats  # Backward-compat alias (deprecated Dec 28, 2025)
 
 
 def get_event_coordinator() -> UnifiedEventRouter:

@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 # Dec 2025: Use consolidated handler utilities
+from scripts.p2p.handlers.base import BaseP2PHandler
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
 if TYPE_CHECKING:
@@ -44,8 +45,11 @@ logger = logging.getLogger(__name__)
 _event_bridge = get_event_bridge()
 
 
-class GossipHandlersMixin:
+class GossipHandlersMixin(BaseP2PHandler):
     """Mixin providing gossip protocol HTTP handlers.
+
+    Inherits from BaseP2PHandler for consistent response formatting and
+    error handling across all P2P handler mixins.
 
     Requires the implementing class to have:
     - node_id: str
@@ -94,7 +98,7 @@ class GossipHandlersMixin:
         """
         try:
             if self.auth_token and not self._is_request_authorized(request):
-                return web.json_response({"error": "unauthorized"}, status=401)
+                return self.error_response("unauthorized", status=401)
 
             # GOSSIP COMPRESSION: Handle gzip-compressed requests
             # Dec 2025: Enhanced to check gzip magic bytes (0x1f 0x8b) before decompression
@@ -187,7 +191,7 @@ class GossipHandlersMixin:
         except Exception as e:
             # Dec 2025: Added logging for debugging gossip failures
             logger.error(f"Error handling gossip request: {e}", exc_info=True)
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_gossip_anti_entropy(self, request: web.Request) -> web.Response:
         """POST /gossip/anti-entropy - Full state exchange for consistency repair.
@@ -208,7 +212,7 @@ class GossipHandlersMixin:
         """
         try:
             if self.auth_token and not self._is_request_authorized(request):
-                return web.json_response({"error": "unauthorized"}, status=401)
+                return self.error_response("unauthorized", status=401)
 
             data = await request.json()
         except (AttributeError):
@@ -276,7 +280,7 @@ class GossipHandlersMixin:
                 "disk_percent": getattr(self.self_info, "disk_percent", 0),
             }
 
-            return web.json_response({
+            return self.json_response({
                 "anti_entropy": True,
                 "sender": self.node_id,
                 "timestamp": now,
@@ -287,4 +291,4 @@ class GossipHandlersMixin:
         except Exception as e:
             # Dec 2025: Added logging for debugging anti-entropy failures
             logger.error(f"Error handling anti-entropy request: {e}", exc_info=True)
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

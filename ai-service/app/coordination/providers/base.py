@@ -146,9 +146,11 @@ class CloudProvider(ABC):
         """
         ...
 
-    @abstractmethod
     async def get_instance(self, instance_id: str) -> Instance | None:
         """Get a specific instance by ID.
+
+        Default implementation iterates list_instances(). Subclasses with
+        more efficient lookups (e.g., direct CLI/API) should override.
 
         Args:
             instance_id: Provider-specific instance ID
@@ -156,11 +158,16 @@ class CloudProvider(ABC):
         Returns:
             Instance if found, None otherwise
         """
-        ...
+        instances = await self.list_instances()
+        for inst in instances:
+            if inst.id == instance_id:
+                return inst
+        return None
 
-    @abstractmethod
     async def get_instance_status(self, instance_id: str) -> InstanceStatus:
         """Get current status of an instance.
+
+        Default implementation calls get_instance() and returns status.
 
         Args:
             instance_id: Provider-specific instance ID
@@ -168,7 +175,8 @@ class CloudProvider(ABC):
         Returns:
             Current instance status
         """
-        ...
+        instance = await self.get_instance(instance_id)
+        return instance.status if instance else InstanceStatus.UNKNOWN
 
     @abstractmethod
     async def scale_up(

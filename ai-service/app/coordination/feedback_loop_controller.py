@@ -121,7 +121,23 @@ except ImportError:
 
 @dataclass
 class FeedbackState:
-    """State tracking for a single config's feedback loop."""
+    """State tracking for a single config's feedback loop.
+
+    DEPRECATION NOTE (December 28, 2025):
+    This class will be consolidated with MonitoringFeedbackState in
+    app.coordination.feedback_state in Q1 2026. New code should prefer:
+
+        from app.coordination.feedback_state import MonitoringFeedbackState
+
+    Field mapping for migration:
+        last_selfplay_quality -> quality_score
+        last_training_accuracy -> training_accuracy
+        last_evaluation_win_rate -> win_rate
+        last_elo -> elo_current
+        current_curriculum_weight -> curriculum_weight
+        current_training_intensity -> training_intensity
+        current_exploration_boost -> exploration_boost
+    """
 
     config_key: str
 

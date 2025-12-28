@@ -1751,6 +1751,36 @@ async def emit_node_recovered(
     )
 
 
+async def emit_node_activated(
+    node_id: str,
+    activation_type: str = "selfplay",
+    config_key: str = "",
+    **metadata,
+) -> bool:
+    """Emit NODE_ACTIVATED event.
+
+    December 2025: Emitted when a node is activated by cluster watchdog
+    or other activation mechanisms.
+
+    Args:
+        node_id: Identifier of the activated node
+        activation_type: Type of activation (selfplay, training, etc.)
+        config_key: Board configuration activated (e.g., "hex8_2p")
+        **metadata: Additional metadata
+    """
+    return await _emit_data_event(
+        DataEventType.NODE_ACTIVATED,
+        {
+            "node_id": node_id,
+            "host_id": node_id,
+            "activation_type": activation_type,
+            "config_key": config_key,
+            **metadata,
+        },
+        log_message=f"Emitted node_activated event for {node_id}",
+    )
+
+
 # =============================================================================
 # Error Recovery & Resilience Events (December 2025)
 # =============================================================================

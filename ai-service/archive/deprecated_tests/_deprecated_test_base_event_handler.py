@@ -28,6 +28,10 @@ class ConcreteEventHandler(BaseEventHandler):
             "TEST_EVENT_2": self._on_test_event_2,
         }
 
+    async def _run_cycle(self) -> None:
+        """Required abstract method implementation."""
+        pass
+
     async def _on_test_event_1(self, event: Any) -> None:
         self.handled_events.append(("TEST_EVENT_1", event))
 
@@ -46,6 +50,10 @@ class ErrorHandler(BaseEventHandler):
             "ERROR_EVENT": self._on_error_event,
         }
 
+    async def _run_cycle(self) -> None:
+        """Required abstract method implementation."""
+        pass
+
     async def _on_error_event(self, event: Any) -> None:
         raise ValueError("Test error")
 
@@ -58,6 +66,10 @@ class EmptyHandler(BaseEventHandler):
 
     def _get_subscriptions(self) -> Dict[Any, Callable]:
         return {}
+
+    async def _run_cycle(self) -> None:
+        """Required abstract method implementation."""
+        pass
 
 
 class TestBaseEventHandlerInit:

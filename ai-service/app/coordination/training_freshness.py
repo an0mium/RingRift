@@ -515,6 +515,9 @@ class TrainingFreshnessChecker:
     ) -> bool:
         """Trigger data sync from cluster.
 
+        Uses sync_best_fresh_data() from TrainingDataSyncDaemon for unified
+        freshness-aware syncing (December 2025).
+
         Args:
             board_type: Board type to sync
             num_players: Number of players
@@ -522,14 +525,45 @@ class TrainingFreshnessChecker:
         Returns:
             True if sync was triggered successfully
         """
+        config_key = f"{board_type}_{num_players}p"
+
+        # Try the new unified sync entry point first (December 2025)
+        try:
+            from app.coordination.training_data_sync_daemon import sync_best_fresh_data
+
+            logger.info(f"Triggering unified sync for {config_key}")
+            result = await sync_best_fresh_data(
+                config_key=config_key,
+                max_age_hours=self.config.max_age_hours,
+            )
+
+            if result.success:
+                if result.bytes_transferred > 0:
+                    logger.info(
+                        f"Synced {result.bytes_transferred / 1024 / 1024:.1f}MB "
+                        f"for {config_key} from {result.source.value if result.source else 'unknown'}"
+                    )
+                elif result.skipped_reason:
+                    logger.info(f"Sync for {config_key}: {result.skipped_reason}")
+                return True
+            else:
+                if result.error:
+                    logger.warning(f"Sync issue for {config_key}: {result.error}")
+                return False
+
+        except ImportError:
+            pass  # Fall back to AutoSyncDaemon
+        except (OSError, IOError, RuntimeError) as e:
+            logger.warning(f"Unified sync failed for {config_key}: {e}, falling back")
+
+        # Fallback to AutoSyncDaemon
         daemon = self._get_sync_daemon()
         if daemon is None:
             logger.warning("AutoSyncDaemon not available for sync trigger")
             return False
 
         try:
-            # Request priority sync for this configuration
-            logger.info(f"Triggering priority sync for {board_type}_{num_players}p")
+            logger.info(f"Triggering priority sync for {config_key} via AutoSyncDaemon")
 
             # Check if daemon is running
             if not daemon._running:
@@ -540,7 +574,7 @@ class TrainingFreshnessChecker:
             await daemon.trigger_sync()
             return True
 
-        except Exception as e:
+        except (OSError, IOError, RuntimeError, AttributeError) as e:
             logger.error(f"Failed to trigger sync: {e}")
             return False
 

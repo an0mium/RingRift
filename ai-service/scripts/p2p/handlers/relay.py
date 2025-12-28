@@ -4,6 +4,9 @@ Provides HTTP endpoints for NAT-blocked node communication.
 Acts as a relay hub allowing nodes behind NAT/firewalls to participate
 in the cluster by polling for commands from the leader.
 
+Inherits from BaseP2PHandler for consistent response formatting and
+authentication utilities.
+
 Usage:
     class P2POrchestrator(RelayHandlersMixin, ...):
         pass
@@ -31,6 +34,8 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
+
+from scripts.p2p.handlers.base import BaseP2PHandler
 
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeInfo
@@ -67,8 +72,11 @@ except ImportError:
             lock.release()
 
 
-class RelayHandlersMixin:
+class RelayHandlersMixin(BaseP2PHandler):
     """Mixin providing relay HTTP handlers for NAT-blocked nodes.
+
+    Inherits from BaseP2PHandler for consistent response formatting
+    (json_response, error_response) and authentication utilities.
 
     Requires the implementing class to have:
     - node_id: str
@@ -193,7 +201,7 @@ class RelayHandlersMixin:
 
             effective_leader = self._get_leader_peer()
             effective_leader_id = effective_leader.node_id if effective_leader else None
-            return web.json_response(
+            return self.json_response(
                 {
                     "success": True,
                     "self": self.self_info.to_dict(),
@@ -223,7 +231,7 @@ class RelayHandlersMixin:
             )
 
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=400)
+            return self.error_response(str(e), status=400)
 
     async def handle_relay_enqueue(self, request: web.Request) -> web.Response:
         """POST /relay/enqueue - Enqueue a command for a NAT-blocked node on this relay.
@@ -261,22 +269,21 @@ class RelayHandlersMixin:
             payload = {}
 
         if not target_node_id or not cmd_type:
-            return web.json_response(
-                {
-                    "success": False,
-                    "error": "invalid_request",
-                    "message": "target_node_id and type are required",
-                },
+            return self.error_response(
+                "target_node_id and type are required",
                 status=400,
+                error_code="invalid_request",
             )
 
         cmd_id = self._enqueue_relay_command(target_node_id, cmd_type, payload)
         if not cmd_id:
-            return web.json_response(
-                {"success": False, "error": "queue_full"}, status=429
+            return self.error_response(
+                "queue_full",
+                status=429,
+                error_code="queue_full",
             )
 
-        return web.json_response({"success": True, "id": cmd_id})
+        return self.json_response({"success": True, "id": cmd_id})
 
     async def handle_relay_peers(self, request: web.Request) -> web.Response:
         """GET /relay/peers - Get list of all peers including NAT-blocked ones.
@@ -285,7 +292,7 @@ class RelayHandlersMixin:
         """
         try:
             if self.auth_token and not self._is_request_authorized(request):
-                return web.json_response({"error": "unauthorized"}, status=401)
+                return self.error_response("unauthorized", status=401)
             self._update_self_info()
             effective_leader = self._get_leader_peer()
             async with AsyncLockWrapper(self.peers_lock):
@@ -295,7 +302,7 @@ class RelayHandlersMixin:
             nat_blocked = {k: v for k, v in all_peers.items() if v.get("nat_blocked")}
             direct = {k: v for k, v in all_peers.items() if not v.get("nat_blocked")}
 
-            return web.json_response(
+            return self.json_response(
                 {
                     "success": True,
                     "leader_id": (
@@ -320,7 +327,7 @@ class RelayHandlersMixin:
             )
 
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)
 
     async def handle_relay_status(self, request: web.Request) -> web.Response:
         """GET /relay/status - Get relay queue status for debugging.
@@ -330,7 +337,7 @@ class RelayHandlersMixin:
         """
         try:
             if self.auth_token and not self._is_request_authorized(request):
-                return web.json_response({"error": "unauthorized"}, status=401)
+                return self.error_response("unauthorized", status=401)
 
             now = time.time()
             queue_status = {}
@@ -369,7 +376,7 @@ class RelayHandlersMixin:
                     if getattr(p, "nat_blocked", False)
                 ]
 
-            return web.json_response(
+            return self.json_response(
                 {
                     "success": True,
                     "total_pending_commands": total_pending,
@@ -380,4 +387,4 @@ class RelayHandlersMixin:
             )
 
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            return self.error_response(str(e), status=500)

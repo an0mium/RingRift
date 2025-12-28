@@ -157,10 +157,7 @@ class HetznerProvider(CloudProvider):
         except json.JSONDecodeError:
             return None
 
-    async def get_instance_status(self, instance_id: str) -> InstanceStatus:
-        """Get server status."""
-        instance = await self.get_instance(instance_id)
-        return instance.status if instance else InstanceStatus.UNKNOWN
+    # get_instance_status() uses base class default
 
     async def scale_up(
         self,

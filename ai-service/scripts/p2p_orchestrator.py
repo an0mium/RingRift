@@ -3099,6 +3099,64 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"FollowerDiscoveryLoop: not available: {e}")
 
+            # SelfHealingLoop - December 28, 2025
+            # Migrated from inline _self_healing_loop (~71 LOC removed)
+            # Recovers stuck jobs (leader) and cleans stale processes (all nodes)
+            try:
+                from scripts.p2p.loops import SelfHealingLoop
+                self_healing = SelfHealingLoop(
+                    is_leader=lambda: self.role == NodeRole.LEADER,
+                    get_health_manager=get_health_manager,
+                    get_work_queue=get_work_queue,
+                    cleanup_stale_processes=self._cleanup_stale_processes,
+                )
+                manager.register(self_healing)
+            except (ImportError, TypeError) as e:
+                logger.debug(f"SelfHealingLoop: not available: {e}")
+
+            # PredictiveMonitoringLoop - December 28, 2025
+            # Migrated from inline _predictive_monitoring_loop (~98 LOC removed)
+            # Proactive monitoring and alerting for cluster health
+            def _get_peers_for_monitoring() -> list[Any]:
+                """Get list of alive peers for monitoring."""
+                with self.peers_lock:
+                    return [p for p in self.peers.values() if p.is_alive()]
+
+            def _get_production_models() -> tuple[list[str], float]:
+                """Get production model info for alert checks."""
+                model_ids = []
+                last_training = time.time() - 3600  # Default to 1 hour ago
+                try:
+                    from app.training.model_registry import ModelRegistry, ModelStage
+                    registry = ModelRegistry()
+                    production_models = registry.get_versions_by_stage(ModelStage.PRODUCTION)
+                    model_ids = [f"{m['model_id']}_v{m['version']}" for m in production_models]
+                    if production_models:
+                        from datetime import datetime
+                        latest_update = max(
+                            datetime.fromisoformat(m['updated_at'].replace('Z', '+00:00'))
+                            for m in production_models
+                            if m.get('updated_at')
+                        )
+                        last_training = latest_update.timestamp()
+                except Exception as e:
+                    logger.debug(f"Model registry lookup failed: {e}")
+                return model_ids, last_training
+
+            try:
+                from scripts.p2p.loops import PredictiveMonitoringLoop
+                predictive_monitoring = PredictiveMonitoringLoop(
+                    is_leader=lambda: self.role == NodeRole.LEADER,
+                    get_alert_manager=get_predictive_alerts,
+                    get_work_queue=get_work_queue,
+                    get_peers=_get_peers_for_monitoring,
+                    get_notifier=lambda: self.notifier,
+                    get_production_models=_get_production_models,
+                )
+                manager.register(predictive_monitoring)
+            except (ImportError, TypeError) as e:
+                logger.debug(f"PredictiveMonitoringLoop: not available: {e}")
+
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
             return True
@@ -17471,176 +17529,13 @@ print(json.dumps(result))
     # Now runs via LoopManager as AutoScalingLoop.
     # See scripts/p2p/loops/coordination_loops.py for implementation.
 
-    async def _predictive_monitoring_loop(self):
-        """Background loop for proactive monitoring and alerting.
+    # NOTE: _predictive_monitoring_loop() removed Dec 2025 (~98 LOC).
+    # Now runs via LoopManager as PredictiveMonitoringLoop.
+    # See scripts/p2p/loops/resilience_loops.py for implementation.
 
-        Predicts issues before they occur and sends proactive alerts.
-        Only runs on the leader node.
-        """
-        MONITOR_INTERVAL = 300  # 5 minutes
-        await asyncio.sleep(90)  # Initial delay
-
-        logger.info("Predictive monitoring loop started")
-
-        while self.running:
-            try:
-                # Only leader performs monitoring
-                if self.role != NodeRole.LEADER:
-                    await asyncio.sleep(MONITOR_INTERVAL)
-                    continue
-
-                alert_manager = get_predictive_alerts()
-                if alert_manager is None:
-                    await asyncio.sleep(MONITOR_INTERVAL)
-                    continue
-
-                # Collect metrics from peers
-                with self.peers_lock:
-                    for peer in self.peers.values():
-                        if not peer.is_alive():
-                            continue
-
-                        # Record disk usage
-                        disk_pct = float(getattr(peer, "disk_percent", 0) or 0)
-                        if disk_pct > 0:
-                            alert_manager.record_disk_usage(peer.node_id, disk_pct)
-
-                        # Record memory usage
-                        mem_pct = float(getattr(peer, "mem_percent", 0) or 0)
-                        if mem_pct > 0:
-                            alert_manager.record_memory_usage(peer.node_id, mem_pct)
-
-                # Record queue depth
-                wq = get_work_queue()
-                if wq is not None:
-                    status = wq.get_queue_status()
-                    pending = status.get("by_status", {}).get("pending", 0)
-                    alert_manager.record_queue_depth(pending)
-
-                # Check for alerts
-                node_ids = [p.node_id for p in self.peers.values() if p.is_alive()]
-
-                # Get production models from registry (2025-12-18)
-                model_ids = []
-                last_training = time.time() - 3600  # Default to 1 hour ago
-                try:
-                    from app.training.model_registry import ModelRegistry, ModelStage
-                    registry = ModelRegistry()
-                    production_models = registry.get_versions_by_stage(ModelStage.PRODUCTION)
-                    model_ids = [f"{m['model_id']}_v{m['version']}" for m in production_models]
-
-                    # Get last training time from most recently updated model
-                    if production_models:
-                        # updated_at is ISO format string
-                        from datetime import datetime
-                        latest_update = max(
-                            datetime.fromisoformat(m['updated_at'].replace('Z', '+00:00'))
-                            for m in production_models
-                            if m.get('updated_at')
-                        )
-                        last_training = latest_update.timestamp()
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Model registry lookup failed, using defaults: {e}")
-
-                alerts = await alert_manager.run_all_checks(
-                    node_ids=node_ids,
-                    model_ids=model_ids,
-                    last_training_time=last_training,
-                )
-
-                # Send alerts via webhook notifier
-                for alert in alerts:
-                    try:
-                        await self.notifier.send(
-                            title=f"Proactive Alert: {alert.alert_type.value}",
-                            message=alert.message,
-                            level="warning" if alert.severity.value == "warning" else "error",
-                            fields={
-                                "action": alert.action,
-                                "target": alert.target_id,
-                            },
-                            node_id=alert.target_id,
-                        )
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning(f"Failed to send proactive alert: {e}")
-
-                await asyncio.sleep(MONITOR_INTERVAL)
-
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"Predictive monitoring loop error: {e}")
-                await asyncio.sleep(MONITOR_INTERVAL)
-
-    async def _self_healing_loop(self):
-        """Background loop for self-healing: recover stuck jobs and unhealthy nodes.
-
-        Detects jobs that have exceeded their expected timeout and automatically
-        terminates and reschedules them. Stuck job recovery only runs on the leader,
-        but stale process cleanup runs on all nodes.
-        """
-        HEALING_INTERVAL = 60  # 1 minute
-        await asyncio.sleep(45)  # Initial delay
-
-        logger.info("Self-healing loop started")
-        last_stale_check = 0
-
-        while self.running:
-            try:
-                # Stale process cleanup runs on ALL nodes (not just leader)
-                now = time.time()
-                if now - last_stale_check >= STALE_PROCESS_CHECK_INTERVAL:
-                    try:
-                        killed = self._cleanup_stale_processes()
-                        if killed > 0:
-                            logger.info(f"Cleaned up {killed} stale processes")
-                    except Exception as e:  # noqa: BLE001
-                        logger.debug(f"Stale process cleanup error: {e}")
-                    last_stale_check = now
-
-                # Only leader performs job recovery
-                if self.role != NodeRole.LEADER:
-                    await asyncio.sleep(HEALING_INTERVAL)
-                    continue
-
-                # December 2025: Use UnifiedHealthManager (consolidated from recovery_manager)
-                health_manager = get_health_manager()
-                if health_manager is None:
-                    await asyncio.sleep(HEALING_INTERVAL)
-                    continue
-
-                # Wire up work queue
-                wq = get_work_queue()
-                if wq is not None:
-                    health_manager.set_work_queue(wq)
-
-                    # Get running work items
-                    status = wq.get_queue_status()
-                    running_items = status.get("running", [])
-
-                    # Convert to WorkItem objects for stuck job detection
-                    from app.coordination.work_queue import WorkItem
-
-                    work_items = []
-                    for item_dict in running_items:
-                        with contextlib.suppress(Exception):
-                            work_items.append(WorkItem.from_dict(item_dict))
-
-                    # Find stuck jobs
-                    stuck_jobs = health_manager.find_stuck_jobs(work_items)
-
-                    for work_item, expected_timeout in stuck_jobs:
-                        logger.warning(
-                            f"Detected stuck job {work_item.work_id} on {work_item.claimed_by} "
-                            f"(running {time.time() - work_item.started_at:.0f}s > expected {expected_timeout * 1.5:.0f}s)"
-                        )
-                        result = await health_manager.recover_stuck_job(work_item, expected_timeout)
-                        if result.value == "success":
-                            logger.info(f"Recovered stuck job {work_item.work_id}")
-
-                await asyncio.sleep(HEALING_INTERVAL)
-
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"Self-healing loop error: {e}")
-                await asyncio.sleep(HEALING_INTERVAL)
+    # NOTE: _self_healing_loop() removed Dec 2025 (~71 LOC).
+    # Now runs via LoopManager as SelfHealingLoop.
+    # See scripts/p2p/loops/resilience_loops.py for implementation.
 
     # NOTE: _job_reaper_loop() removed Dec 2025 (60 LOC).
     # Now runs via LoopManager as JobReaperLoop.
@@ -28259,16 +28154,13 @@ print(json.dumps({{
 
         # NOTE: _auto_scaling_loop removed Dec 2025 - now runs via LoopManager (AutoScalingLoop)
 
-        # Predictive monitoring loop: alert before problems occur - auto-restart
-        tasks.append(self._create_safe_task(
-            self._predictive_monitoring_loop(), "predictive_monitoring",
-            factory=self._predictive_monitoring_loop
-        ))
+        # NOTE: _predictive_monitoring_loop removed Dec 2025 (~98 LOC)
+        # Now runs via LoopManager as PredictiveMonitoringLoop.
+        # See scripts/p2p/loops/resilience_loops.py for implementation.
 
-        # Self-healing loop: recover stuck jobs and unhealthy nodes - auto-restart
-        tasks.append(self._create_safe_task(
-            self._self_healing_loop(), "self_healing", factory=self._self_healing_loop
-        ))
+        # NOTE: _self_healing_loop removed Dec 2025 (~71 LOC)
+        # Now runs via LoopManager as SelfHealingLoop.
+        # See scripts/p2p/loops/resilience_loops.py for implementation.
 
         # NOTE: _job_reaper_loop removed Dec 2025 - now runs via LoopManager (JobReaperLoop)
 

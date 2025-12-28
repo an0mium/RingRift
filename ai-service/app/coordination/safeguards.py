@@ -536,6 +536,58 @@ class Safeguards(SingletonMixin):
         )
 
     # ==========================================
+    # Singleton Reset (for testing)
+    # ==========================================
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance and clear all internal state.
+
+        This method clears all internal state before resetting the singleton,
+        ensuring clean state for tests. Internal state cleared:
+        - Circuit breaker states
+        - Spawn rate trackers (global and per-node)
+        - Task counts
+        - Emergency state
+        - Block reason
+
+        December 2025: Added for singleton registry test cleanup.
+        """
+        from app.coordination.singleton_mixin import SingletonMixin
+
+        with cls._get_lock():
+            if cls in SingletonMixin._instances:
+                instance = SingletonMixin._instances[cls]
+
+                # Clear circuit breaker state
+                if hasattr(instance, "_circuit_breaker"):
+                    try:
+                        instance._circuit_breaker.reset()
+                    except Exception:
+                        pass  # Circuit breaker may not have reset method
+
+                # Clear spawn rate trackers
+                if hasattr(instance, "_global_tracker"):
+                    instance._global_tracker._spawns.clear()
+                if hasattr(instance, "_node_trackers"):
+                    instance._node_trackers.clear()
+
+                # Clear task counts
+                if hasattr(instance, "_task_counts"):
+                    instance._task_counts.clear()
+
+                # Clear emergency state
+                if hasattr(instance, "_emergency_active"):
+                    instance._emergency_active = False
+
+                # Clear block reason
+                if hasattr(instance, "_last_block_reason"):
+                    instance._last_block_reason = ""
+
+            # Call parent reset
+            super().reset_instance()
+
+    # ==========================================
     # Internal Methods
     # ==========================================
 

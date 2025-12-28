@@ -411,6 +411,119 @@ async def sync_training_data_for_config(
         )
 
 
+async def trigger_local_refresh(
+    config_key: str,
+    max_age_hours: float = 1.0,
+) -> bool:
+    """Trigger local consolidation and export if data is stale.
+
+    This kicks off:
+    1. DataConsolidationDaemon to merge scattered selfplay games
+    2. AutoExportDaemon to export fresh NPZ
+
+    Args:
+        config_key: Config key (e.g., 'hex8_2p')
+        max_age_hours: Maximum acceptable data age in hours
+
+    Returns:
+        True if refresh was triggered, False if data is already fresh
+    """
+    manifest = await get_training_data_manifest()
+    best = manifest.get_best_data(config_key)
+
+    # Check if local data is fresh enough
+    if best and best.source == DataSource.LOCAL:
+        if best.age_hours is not None and best.age_hours <= max_age_hours:
+            logger.info(
+                f"{config_key}: Local data is fresh ({best.age_hours:.1f}h old)"
+            )
+            return False
+
+    # Trigger consolidation and export
+    logger.info(f"{config_key}: Triggering local refresh (stale or missing)")
+
+    try:
+        from app.distributed.data_events import DataEventType, emit_data_event
+
+        emit_data_event(
+            DataEventType.SYNC_TRIGGERED,
+            config_key=config_key,
+            reason="stale_data_refresh",
+            max_age_hours=max_age_hours,
+        )
+        return True
+    except (ImportError, AttributeError) as e:
+        logger.warning(f"Failed to trigger refresh event: {e}")
+        return False
+
+
+async def sync_best_fresh_data(
+    config_key: str,
+    max_age_hours: float = 1.0,
+    freshness_weight: float = 0.4,
+    force: bool = False,
+) -> SyncResult:
+    """Sync the best fresh training data for a config.
+
+    This is the main entry point for pre-training sync. It:
+    1. Checks if local data is fresh enough
+    2. If not, triggers local refresh (consolidation + export)
+    3. If remote has fresher/larger data, syncs it
+
+    Args:
+        config_key: Config key (e.g., 'hex8_2p')
+        max_age_hours: Maximum acceptable data age
+        freshness_weight: Weight for freshness in scoring (0-1)
+        force: Force re-sync even if local is acceptable
+
+    Returns:
+        SyncResult with transfer details
+    """
+    manifest = await get_training_data_manifest()
+
+    # Get best data considering both size AND freshness
+    best = manifest.get_best_data(
+        config_key,
+        min_size_mb=1,
+        max_age_hours=max_age_hours if not force else None,
+        freshness_weight=freshness_weight,
+    )
+
+    if not best:
+        # No data available - trigger local refresh
+        await trigger_local_refresh(config_key, max_age_hours)
+        return SyncResult(
+            config_key=config_key,
+            success=False,
+            error="No training data found, triggered local refresh",
+        )
+
+    # If best is local, check freshness
+    if best.source == DataSource.LOCAL:
+        if best.age_hours and best.age_hours > max_age_hours and not force:
+            # Local data is stale, trigger refresh
+            await trigger_local_refresh(config_key, max_age_hours)
+            return SyncResult(
+                config_key=config_key,
+                success=True,
+                source=DataSource.LOCAL,
+                local_path=best.path,
+                skipped_reason=(
+                    f"Local data stale ({best.age_hours:.1f}h), triggered refresh"
+                ),
+            )
+        return SyncResult(
+            config_key=config_key,
+            success=True,
+            source=DataSource.LOCAL,
+            local_path=best.path,
+            skipped_reason="Best data is already local and fresh",
+        )
+
+    # Sync from remote (OWC or S3)
+    return await sync_training_data_for_config(config_key, force=force)
+
+
 @dataclass
 class TrainingDataSyncDaemon:
     """Daemon that proactively syncs training data.
@@ -440,7 +553,48 @@ class TrainingDataSyncDaemon:
             "bytes_transferred": 0,
         }
         self._task = asyncio.create_task(self._run_loop())
+        self._subscribe_to_events()
         logger.info("TrainingDataSyncDaemon started")
+
+    def _subscribe_to_events(self) -> None:
+        """Subscribe to data pipeline events."""
+        try:
+            from app.coordination.event_router import get_event_bus
+            from app.distributed.data_events import DataEventType
+
+            bus = get_event_bus()
+            bus.subscribe(DataEventType.NPZ_EXPORT_COMPLETE, self._on_npz_export)
+            bus.subscribe(DataEventType.TRAINING_STARTED, self._on_training_started)
+            logger.debug("TrainingDataSyncDaemon subscribed to pipeline events")
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"Event bus not available, skipping subscriptions: {e}")
+
+    async def _on_npz_export(self, event: dict) -> None:
+        """Handle NPZ export completion - refresh manifest."""
+        config_key = event.get("config_key")
+        if config_key:
+            logger.info(f"NPZ export completed for {config_key}, refreshing manifest")
+            try:
+                manifest = await get_training_data_manifest()
+                await manifest.refresh_local()
+                self._stats["manifest_refreshes"] = (
+                    self._stats.get("manifest_refreshes", 0) + 1
+                )
+            except (OSError, IOError) as e:
+                logger.warning(f"Failed to refresh manifest: {e}")
+
+    async def _on_training_started(self, event: dict) -> None:
+        """Handle training start - ensure data is fresh."""
+        config_key = event.get("config_key")
+        if config_key:
+            logger.info(f"Training started for {config_key}, ensuring data freshness")
+            result = await sync_best_fresh_data(config_key)
+            if result.success:
+                logger.info(
+                    f"Data ready for {config_key}: {result.skipped_reason or 'synced'}"
+                )
+            else:
+                logger.warning(f"Data sync issue for {config_key}: {result.error}")
 
     async def stop(self) -> None:
         """Stop the daemon."""

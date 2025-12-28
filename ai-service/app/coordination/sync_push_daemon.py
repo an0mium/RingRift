@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import logging
 import os
 import shutil
@@ -50,6 +49,7 @@ import aiohttp
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 from app.coordination.protocols import HealthCheckResult
+from app.coordination.sync_integrity import compute_file_checksum
 from app.distributed.cluster_manifest import (
     ClusterManifest,
     SyncReceipt,

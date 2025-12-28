@@ -958,7 +958,7 @@ class TestHealthCheckExtended:
             errors=["error1", "error2", "error3", "error4", "error5", "error6"],  # > 5 errors
         )
 
-        result = await daemon.health_check()
+        result = daemon.health_check()  # sync method
         assert result.healthy is False
         assert "errors" in result.message.lower() or "too many" in result.message.lower()
 
@@ -974,7 +974,7 @@ class TestHealthCheckExtended:
             errors=[],
         )
 
-        result = await daemon.health_check()
+        result = daemon.health_check()  # sync method
         assert result.details.get("nodes_discovered") == 10
         assert result.details.get("nodes_activated") == 3
 
