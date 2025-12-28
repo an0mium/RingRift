@@ -1575,6 +1575,7 @@ from scripts.p2p.managers import (
 )
 from scripts.p2p.managers.state_manager import PersistedLeaderState
 from scripts.p2p.metrics_manager import MetricsManager
+from scripts.p2p.resource_detector import ResourceDetector, ResourceDetectorMixin
 
 # Unified resource checking utilities (80% max utilization)
 # Includes graceful degradation for dynamic workload management
@@ -2089,6 +2090,7 @@ class P2POrchestrator(
     ConsensusMixin,       # PySyncObj Raft consensus
     SwimHandlersMixin,    # /swim/* HTTP handlers
     RaftHandlersMixin,    # /raft/* HTTP handlers
+    ResourceDetectorMixin,  # Resource detection delegation (Dec 28, 2025)
 ):
     """Main P2P orchestrator class that runs on each node.
 
@@ -2184,6 +2186,13 @@ class P2POrchestrator(
         self.build_version = self._detect_build_version()
         self.start_time = time.time()
         self.last_peer_bootstrap = 0.0
+
+        # Resource detection delegation (Dec 28, 2025)
+        self._resource_detector = ResourceDetector(
+            ringrift_path=self.ringrift_path,
+            start_time=self.start_time,
+            startup_grace_period=STARTUP_JSONL_GRACE_PERIOD_SECONDS,
+        )
 
         # Public endpoint peers should use to reach us. Peers learn our host from
         # the heartbeat socket address, but the port must be self-reported. This
@@ -6960,79 +6969,10 @@ class P2POrchestrator(
                 job.status = "failed"
                 job.error_message = str(e)
 
-    async def _training_sync_loop(self):
-        """Background loop to periodically sync data to training nodes.
-
-        Leader-only: Runs every TRAINING_SYNC_INTERVAL seconds to ensure
-        training nodes have the latest selfplay data.
-        """
-        logger.info(f"Training sync loop started (interval: {self.training_sync_interval}s)")
-
-        while self.running:
-            try:
-                await asyncio.sleep(self.training_sync_interval)
-
-                if not self._is_leader():
-                    continue
-
-                # Check if enough time has passed since last sync
-                if time.time() - self.last_training_sync_time < self.training_sync_interval:
-                    continue
-
-                # Check disk capacity before syncing
-                has_capacity, disk_percent = check_disk_has_capacity()
-                if not has_capacity:
-                    logger.info(f"SKIPPING training sync - Disk {disk_percent:.1f}% >= {MAX_DISK_USAGE_PERCENT}%")
-                    continue
-
-                logger.info("Running periodic training node sync...")
-
-                # Emit DATA_SYNC_STARTED event (Dec 2025)
-                sync_start_time = time.time()
-                await _emit_data_sync_started(
-                    host="training_nodes",
-                    sync_type="incremental",
-                    source="p2p_training_sync_loop",
-                )
-
-                # Dec 2025: Add 10-minute timeout budget to prevent indefinite hangs
-                try:
-                    result = await asyncio.wait_for(
-                        self._sync_selfplay_to_training_nodes(),
-                        timeout=600.0  # 10 minutes max
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("Training sync timed out after 10 minutes")
-                    result = {"success": False, "error": "Sync timeout after 600s"}
-                sync_duration = time.time() - sync_start_time
-
-                if result.get("success"):
-                    sync_jobs = result.get("sync_jobs_created", 0)
-                    logger.info(f"Training sync completed: {sync_jobs} jobs created")
-
-                    # Emit DATA_SYNC_COMPLETED event (Dec 2025)
-                    await _emit_data_sync_completed(
-                        host="training_nodes",
-                        games_synced=sync_jobs,  # Use jobs as proxy for games
-                        duration=sync_duration,
-                        source="p2p_training_sync_loop",
-                    )
-                else:
-                    error_msg = result.get("error", "Unknown error")
-                    logger.info(f"Training sync failed: {error_msg}")
-
-                    # Emit DATA_SYNC_FAILED event (Dec 2025)
-                    await _emit_data_sync_failed(
-                        host="training_nodes",
-                        error=error_msg,
-                        source="p2p_training_sync_loop",
-                    )
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"Training sync loop error: {e}")
-                await asyncio.sleep(60)  # Wait before retrying
+    # NOTE: _training_sync_loop() removed Dec 2025 (72 LOC).
+    # Now runs via LoopManager as TrainingSyncLoop.
+    # See scripts/p2p/loops/training_sync_loop.py for implementation.
+    # The loop calls self._sync_selfplay_to_training_nodes() via callback.
 
     async def _force_ip_refresh_all_sources(self) -> int:
         """Force immediate refresh of IPs from all CLI sources (Tailscale, Vast, AWS).
@@ -28300,10 +28240,8 @@ print(json.dumps({{
                 self._git_update_loop(), "git_update", factory=self._git_update_loop
             ))
 
-        # Add training node priority sync loop (leader-only sync to high-GPU nodes) - auto-restart
-        tasks.append(self._create_safe_task(
-            self._training_sync_loop(), "training_sync", factory=self._training_sync_loop
-        ))
+        # NOTE: _training_sync_loop removed Dec 2025 - now runs via LoopManager (TrainingSyncLoop)
+        # See scripts/p2p/loops/training_sync_loop.py for implementation
 
         # Add cloud IP refresh loops (best-effort; no-op if not configured).
         if HAS_DYNAMIC_REGISTRY:
@@ -28317,8 +28255,8 @@ print(json.dumps({{
         # Phase 26: Continuous bootstrap loop - ensures isolated nodes can rejoin
         tasks.append(self._create_safe_task(self._continuous_bootstrap_loop(), "continuous_bootstrap"))
 
-        # Phase 30: Follower discovery loop - non-leaders actively discover peers
-        tasks.append(self._create_safe_task(self._follower_discovery_loop(), "follower_discovery"))
+        # NOTE: _follower_discovery_loop removed Dec 2025 - now runs via LoopManager (FollowerDiscoveryLoop)
+        # See scripts/p2p/loops/discovery_loop.py for implementation
 
         # NOTE: _data_management_loop removed Dec 2025 - now runs via LoopManager (DataManagementLoop)
         # See scripts/p2p/loops/data_loops.py for implementation

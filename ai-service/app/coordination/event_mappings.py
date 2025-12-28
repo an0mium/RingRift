@@ -231,6 +231,31 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     "parity_validation_started": "PARITY_VALIDATION_STARTED",
     "parity_validation_completed": "PARITY_VALIDATION_COMPLETED",
     "parity_failure_rate_changed": "PARITY_FAILURE_RATE_CHANGED",
+    # December 2025: Additional cross-process events for cluster coordination
+    # Model distribution events
+    "model_distribution_started": "MODEL_DISTRIBUTION_STARTED",
+    "model_distribution_failed": "MODEL_DISTRIBUTION_FAILED",
+    # Data consolidation events
+    "consolidation_started": "CONSOLIDATION_STARTED",
+    "consolidation_complete": "CONSOLIDATION_COMPLETE",
+    # Replication/repair events
+    "repair_completed": "REPAIR_COMPLETED",
+    "repair_failed": "REPAIR_FAILED",
+    "replication_alert": "REPLICATION_ALERT",
+    # Split-brain detection (P2P cluster)
+    "split_brain_detected": "SPLIT_BRAIN_DETECTED",
+    "split_brain_resolved": "SPLIT_BRAIN_RESOLVED",
+    # Sync integrity events
+    "sync_request": "SYNC_REQUEST",
+    "sync_checksum_failed": "SYNC_CHECKSUM_FAILED",
+    "sync_node_unreachable": "SYNC_NODE_UNREACHABLE",
+    # Recovery events
+    "recovery_initiated": "RECOVERY_INITIATED",
+    "recovery_completed": "RECOVERY_COMPLETED",
+    "recovery_failed": "RECOVERY_FAILED",
+    # Node lifecycle events
+    "node_terminated": "NODE_TERMINATED",
+    "cluster_stall_detected": "CLUSTER_STALL_DETECTED",
 }
 
 # Reverse mapping: CrossProcess → DataEventType

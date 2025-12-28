@@ -726,6 +726,136 @@ class StateManager:
         return cleared
 
     # =========================================================================
+    # Startup State Validation (December 2025 P2P Hardening)
+    # =========================================================================
+
+    def validate_loaded_state(
+        self, state: PersistedState, max_job_age_hours: float = 24.0, max_peer_stale_seconds: float = 300.0
+    ) -> tuple[bool, list[str]]:
+        """Validate loaded state for consistency and staleness.
+
+        Called on startup to detect and report issues with persisted state.
+        Does NOT modify state - use clear_stale_jobs/peers for cleanup.
+
+        Args:
+            state: The loaded PersistedState to validate
+            max_job_age_hours: Jobs older than this are considered stale (default 24h)
+            max_peer_stale_seconds: Peers without heartbeat for this long are stale (default 5min)
+
+        Returns:
+            Tuple of (is_valid, list_of_issues)
+            is_valid is True if no critical issues found
+        """
+        issues: list[str] = []
+        now = time.time()
+        max_job_age_seconds = max_job_age_hours * 3600
+
+        # 1. Check for stale jobs (started too long ago)
+        stale_job_count = 0
+        for job in state.jobs:
+            started_at = job.get("started_at", 0)
+            if started_at and (now - started_at) > max_job_age_seconds:
+                stale_job_count += 1
+                if stale_job_count <= 3:  # Only log first 3
+                    job_id = job.get("job_id", "unknown")
+                    age_hours = (now - started_at) / 3600
+                    issues.append(f"Stale job {job_id}: started {age_hours:.1f}h ago")
+
+        if stale_job_count > 3:
+            issues.append(f"  ... and {stale_job_count - 3} more stale jobs")
+
+        # 2. Check for stale peers (no heartbeat in a while)
+        stale_peer_count = 0
+        for peer_id, peer_info in state.peers.items():
+            last_heartbeat = peer_info.get("last_heartbeat", 0)
+            if last_heartbeat and (now - last_heartbeat) > max_peer_stale_seconds:
+                stale_peer_count += 1
+                if stale_peer_count <= 3:  # Only log first 3
+                    stale_minutes = (now - last_heartbeat) / 60
+                    issues.append(f"Stale peer {peer_id}: no heartbeat in {stale_minutes:.1f}min")
+
+        if stale_peer_count > 3:
+            issues.append(f"  ... and {stale_peer_count - 3} more stale peers")
+
+        # 3. Check leader lease validity
+        leader_state = state.leader_state
+        if leader_state.leader_id and leader_state.leader_lease_expires < now:
+            expired_ago = (now - leader_state.leader_lease_expires) / 60
+            issues.append(f"Leader lease expired {expired_ago:.1f}min ago (leader: {leader_state.leader_id})")
+
+        # 4. Check voter configuration
+        if not leader_state.voter_node_ids:
+            issues.append("No voter nodes configured - leader election may fail")
+
+        # Emit validation event
+        _safe_emit_event("startup_state_validated", {
+            "is_valid": len(issues) == 0,
+            "issue_count": len(issues),
+            "stale_jobs": stale_job_count,
+            "stale_peers": stale_peer_count,
+            "total_jobs": len(state.jobs),
+            "total_peers": len(state.peers),
+        })
+
+        return len(issues) == 0, issues
+
+    def clear_stale_peers(self, max_stale_seconds: float = 300.0) -> int:
+        """Clear peers that haven't sent heartbeat recently.
+
+        Args:
+            max_stale_seconds: Peers without heartbeat for this long are cleared (default 5min)
+
+        Returns:
+            Number of peers cleared
+        """
+        cleared = 0
+        now = time.time()
+        cutoff = now - max_stale_seconds
+
+        try:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM peers WHERE last_heartbeat < ? OR last_heartbeat IS NULL",
+                    (cutoff,),
+                )
+                cleared = cursor.rowcount
+                conn.commit()
+                if cleared > 0:
+                    logger.info(f"Cleared {cleared} stale peers from database (no heartbeat in {max_stale_seconds}s)")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to clear stale peers: {e}")
+        return cleared
+
+    def clear_stale_jobs_by_age(self, max_age_hours: float = 24.0) -> int:
+        """Clear jobs that are older than the specified age.
+
+        Args:
+            max_age_hours: Jobs started more than this many hours ago are cleared
+
+        Returns:
+            Number of jobs cleared
+        """
+        cleared = 0
+        now = time.time()
+        cutoff = now - (max_age_hours * 3600)
+
+        try:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM jobs WHERE started_at < ? AND started_at > 0",
+                    (cutoff,),
+                )
+                cleared = cursor.rowcount
+                conn.commit()
+                if cleared > 0:
+                    logger.info(f"Cleared {cleared} stale jobs from database (older than {max_age_hours}h)")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to clear stale jobs by age: {e}")
+        return cleared
+
+    # =========================================================================
     # Health Check (December 2025)
     # =========================================================================
 

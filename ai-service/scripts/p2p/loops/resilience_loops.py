@@ -152,6 +152,31 @@ class PredictiveMonitoringConfig:
             raise ValueError("initial_delay_seconds must be >= 0")
 
 
+@dataclass
+class SplitBrainDetectionConfig:
+    """Configuration for split-brain detection loop.
+
+    December 2025 P2P Hardening: Detect network partitions that could
+    cause multiple leaders in the cluster.
+    """
+
+    detection_interval_seconds: float = 60.0
+    initial_delay_seconds: float = 120.0
+    request_timeout_seconds: float = 5.0
+    min_peers_for_detection: int = 3
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.detection_interval_seconds <= 0:
+            raise ValueError("detection_interval_seconds must be > 0")
+        if self.initial_delay_seconds < 0:
+            raise ValueError("initial_delay_seconds must be >= 0")
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be > 0")
+        if self.min_peers_for_detection < 1:
+            raise ValueError("min_peers_for_detection must be >= 1")
+
+
 # =============================================================================
 # SelfHealingLoop
 # =============================================================================
@@ -455,13 +480,187 @@ class PredictiveMonitoringLoop(BaseLoop):
         }
 
 
+# =============================================================================
+# SplitBrainDetectionLoop (December 2025 P2P Hardening)
+# =============================================================================
+
+
+class SplitBrainDetectionLoop(BaseLoop):
+    """Background loop for detecting split-brain conditions.
+
+    Periodically polls all known peers for their leader_id and detects
+    if multiple leaders exist in the cluster (indicating network partition).
+
+    December 2025 P2P Hardening: This loop runs on all nodes and emits
+    SPLIT_BRAIN_DETECTED events when multiple leaders are detected.
+
+    Key responsibilities:
+    1. Poll peers for their leader_id
+    2. Detect multiple leaders (split-brain condition)
+    3. Emit alerts and log critical warnings
+    4. Track detection statistics
+    """
+
+    def __init__(
+        self,
+        get_peers: Callable[[], dict[str, Any]],
+        get_peer_endpoint: Callable[[str], str | None],
+        get_own_leader_id: Callable[[], str | None],
+        get_cluster_epoch: Callable[[], int],
+        on_split_brain_detected: Callable[[list[str], int], Coroutine[Any, Any, None]] | None = None,
+        config: SplitBrainDetectionConfig | None = None,
+    ):
+        """Initialize split-brain detection loop.
+
+        Args:
+            get_peers: Callback returning dict of peer_id -> peer_info
+            get_peer_endpoint: Callback returning HTTP endpoint for a peer
+            get_own_leader_id: Callback returning this node's view of leader_id
+            get_cluster_epoch: Callback returning current cluster epoch
+            on_split_brain_detected: Optional async callback when split-brain detected
+            config: Loop configuration
+        """
+        self.config = config or SplitBrainDetectionConfig()
+        super().__init__(
+            name="split_brain_detection",
+            interval=self.config.detection_interval_seconds,
+        )
+        self._get_peers = get_peers
+        self._get_peer_endpoint = get_peer_endpoint
+        self._get_own_leader_id = get_own_leader_id
+        self._get_cluster_epoch = get_cluster_epoch
+        self._on_split_brain_detected = on_split_brain_detected
+
+        # Statistics
+        self._detections = 0
+        self._checks_performed = 0
+        self._last_detection_time: float = 0.0
+        self._last_leaders_seen: list[str] = []
+
+    async def _on_start(self) -> None:
+        """Initial delay before starting detection."""
+        logger.info("Split-brain detection loop starting...")
+        await asyncio.sleep(self.config.initial_delay_seconds)
+        logger.info("Split-brain detection loop started")
+
+    async def _run_once(self) -> None:
+        """Execute one detection iteration."""
+        self._checks_performed += 1
+        peers = self._get_peers()
+
+        # Need minimum number of peers for meaningful detection
+        if len(peers) < self.config.min_peers_for_detection:
+            return
+
+        # Collect leader_id from all reachable peers
+        leaders_seen: dict[str, list[str]] = {}  # leader_id -> list of nodes reporting it
+        own_leader = self._get_own_leader_id()
+        if own_leader:
+            leaders_seen.setdefault(own_leader, []).append("self")
+
+        # Poll peers in parallel
+        async def poll_peer(peer_id: str) -> tuple[str, str | None]:
+            """Poll a single peer for its leader_id."""
+            endpoint = self._get_peer_endpoint(peer_id)
+            if not endpoint:
+                return peer_id, None
+
+            try:
+                import aiohttp
+
+                timeout = aiohttp.ClientTimeout(total=self.config.request_timeout_seconds)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    url = f"{endpoint}/status"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return peer_id, data.get("leader_id")
+            except Exception:
+                pass  # Peer unreachable, skip
+            return peer_id, None
+
+        # Poll all peers
+        tasks = [poll_peer(peer_id) for peer_id in peers.keys()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, tuple):
+                peer_id, leader_id = result
+                if leader_id:
+                    leaders_seen.setdefault(leader_id, []).append(peer_id)
+
+        # Check for split-brain: multiple distinct leaders
+        unique_leaders = list(leaders_seen.keys())
+
+        if len(unique_leaders) > 1:
+            self._detections += 1
+            self._last_detection_time = time.time()
+            self._last_leaders_seen = unique_leaders
+
+            logger.critical(
+                f"[SplitBrain] DETECTED: {len(unique_leaders)} leaders in cluster! "
+                f"Leaders: {unique_leaders}"
+            )
+
+            # Log which nodes report which leader
+            for leader_id, reporters in leaders_seen.items():
+                logger.warning(
+                    f"[SplitBrain] Leader '{leader_id}' reported by: {reporters}"
+                )
+
+            # Emit event
+            try:
+                from app.distributed.data_events import DataEventType, DataEvent
+
+                event = DataEvent(
+                    event_type=DataEventType.SPLIT_BRAIN_DETECTED,
+                    payload={
+                        "leaders_seen": unique_leaders,
+                        "leader_reporters": {k: v for k, v in leaders_seen.items()},
+                        "cluster_epoch": self._get_cluster_epoch(),
+                        "total_peers_polled": len(peers),
+                        "detection_time": self._last_detection_time,
+                    },
+                    source="SplitBrainDetectionLoop",
+                )
+                # Try to publish via event bus
+                try:
+                    from app.coordination.event_router import get_event_bus
+                    bus = get_event_bus()
+                    if bus:
+                        bus.publish(event)
+                except ImportError:
+                    pass
+            except ImportError:
+                pass
+
+            # Call callback if provided
+            if self._on_split_brain_detected:
+                try:
+                    await self._on_split_brain_detected(unique_leaders, self._get_cluster_epoch())
+                except Exception as e:
+                    logger.error(f"[SplitBrain] Callback error: {e}")
+
+    def get_detection_stats(self) -> dict[str, Any]:
+        """Get split-brain detection statistics."""
+        return {
+            "detections": self._detections,
+            "checks_performed": self._checks_performed,
+            "last_detection_time": self._last_detection_time,
+            "last_leaders_seen": self._last_leaders_seen,
+            **self.stats.to_dict(),
+        }
+
+
 __all__ = [
     # Configuration
     "SelfHealingConfig",
     "PredictiveMonitoringConfig",
+    "SplitBrainDetectionConfig",
     # Loops
     "SelfHealingLoop",
     "PredictiveMonitoringLoop",
+    "SplitBrainDetectionLoop",
     # Constants
     "STALE_PROCESS_CHECK_INTERVAL",
 ]
