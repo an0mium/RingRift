@@ -1300,16 +1300,19 @@ CHECKPOINT_TIMEOUT = 120
 
 # December 2025: Increased patience values to allow more training.
 # Previous values (10) caused training to stop after 3-5 epochs,
-# but 15-20+ epochs are needed to reach 2000+ Elo.
+# but 20-30 epochs are needed to reach 2000+ Elo.
+#
+# Dec 28, 2025: Further increased - 15 epochs still plateaus at 1650 Elo.
+# Models need 20+ epochs to learn deep tactics for 1800+ Elo.
 #
 # Minimum training epochs before early stopping can trigger
-MIN_TRAINING_EPOCHS = 15
+MIN_TRAINING_EPOCHS = 20
 
 # Validation patience - epochs without improvement before early stopping
-VALIDATION_PATIENCE = 15
+VALIDATION_PATIENCE = 22
 
 # Elo plateau patience - updates without Elo improvement before early stopping
-ELO_PATIENCE = 15
+ELO_PATIENCE = 20
 
 # Learning rate warmup steps (linear warmup from 0 to lr)
 LR_WARMUP_STEPS = 0  # Default: no warmup (set via CLI --warmup-steps)
