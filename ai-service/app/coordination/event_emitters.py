@@ -1,9 +1,23 @@
 """Centralized Event Emitters for RingRift AI.
 
+.. deprecated:: December 2025
+    This module is deprecated. Use ``app.coordination.event_router`` directly:
+
+    from app.coordination.event_router import get_event_bus, DataEvent, DataEventType
+
+    bus = get_event_bus()
+    await bus.publish(DataEvent(
+        event_type=DataEventType.TRAINING_COMPLETED,
+        payload={"job_id": "...", "board_type": "...", ...},
+        source="my_component",
+    ))
+
+    This module will be removed in Q2 2026.
+
 This module provides typed emit functions for all event types, eliminating
 the need for each module to re-implement event emission logic.
 
-Usage:
+Usage (DEPRECATED):
     from app.coordination.event_emitters import (
         emit_training_started,
         emit_training_complete,
@@ -33,10 +47,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import warnings
 from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Emit deprecation warning on import (December 2025)
+warnings.warn(
+    "app.coordination.event_emitters is deprecated. "
+    "Use app.coordination.event_router directly (get_event_bus(), DataEvent, DataEventType). "
+    "This module will be removed in Q2 2026.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 # =============================================================================
 # Event Bus Imports (with atomic state to prevent race conditions)

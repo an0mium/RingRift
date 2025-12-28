@@ -3330,8 +3330,8 @@ class NeuralNetAI(BaseAI):
             else:  # HEXAGONAL
                 model_id = _pick_first_existing_model_id(
                     [
-                        f"ringrift_best_hex_{players_for_alias}p",
-                        f"ringrift_v4_hex_{players_for_alias}p",
+                        f"ringrift_best_hexagonal_{players_for_alias}p",
+                        f"ringrift_v4_hexagonal_{players_for_alias}p",
                     ]
                 )
             logger.info(

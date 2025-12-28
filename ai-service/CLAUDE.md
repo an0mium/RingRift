@@ -1080,18 +1080,19 @@ ai-service/
 
 RingRift uses a P2P mesh network for distributed training across ~32 configured nodes (Dec 2025).
 
-**Note:** Lambda Labs account terminated Dec 2025 - all Lambda nodes permanently removed.
+**Note:** Lambda Labs account restored Dec 28, 2025 - GH200 instances being setup.
 
-### Active Cluster (Dec 27, 2025)
+### Active Cluster (Dec 28, 2025)
 
-| Provider | Nodes | GPUs                                        | Status |
-| -------- | ----- | ------------------------------------------- | ------ |
-| Vast.ai  | 14    | RTX 5090/5080, 4090, 3090, A40, 3060/4060Ti | Active |
-| RunPod   | 8     | H100, A100 (5x), L40S, RTX 3090 Ti          | Active |
-| Nebius   | 3     | H100 80GB (2x), L40S backbone               | Active |
-| Vultr    | 2     | A100 20GB vGPU                              | Active |
-| Hetzner  | 3     | CPU only (P2P voters)                       | Active |
-| Local    | 2     | Mac Studio M3 (coordinator)                 | Active |
+| Provider     | Nodes | GPUs                                        | Status  |
+| ------------ | ----- | ------------------------------------------- | ------- |
+| Lambda GH200 | TBD   | GH200 96GB (being setup)                    | Pending |
+| Vast.ai      | 14    | RTX 5090/5080, 4090, 3090, A40, 3060/4060Ti | Active  |
+| RunPod       | 8     | H100, A100 (5x), L40S, RTX 3090 Ti          | Active  |
+| Nebius       | 3     | H100 80GB (2x), L40S backbone               | Active  |
+| Vultr        | 2     | A100 20GB vGPU                              | Active  |
+| Hetzner      | 3     | CPU only (P2P voters)                       | Active  |
+| Local        | 2     | Mac Studio M3 (coordinator)                 | Active  |
 
 ### P2P Cluster Management
 
