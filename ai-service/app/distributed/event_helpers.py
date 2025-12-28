@@ -384,8 +384,10 @@ async def emit_evaluation_completed_safe(
 
     try:
         # Build extra payload for promotion daemon
+        # Note: config_key is required by AutoPromotionDaemon (checks config_key or config)
         extra_payload: dict[str, Any] = {
             "source": source,
+            "config_key": config,  # For AutoPromotionDaemon
             "beats_current_best": beats_current_best,
         }
         if vs_random_rate is not None:
@@ -394,7 +396,7 @@ async def emit_evaluation_completed_safe(
             extra_payload["vs_heuristic_rate"] = vs_heuristic_rate
 
         await _emit_evaluation_completed(
-            model_id=config,
+            model_id=config,  # Also used as model_id for backward compat
             elo=elo,
             win_rate=win_rate,
             games_played=games,
