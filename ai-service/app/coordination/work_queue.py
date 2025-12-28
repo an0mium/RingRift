@@ -709,7 +709,10 @@ class WorkQueue:
         return True
 
     def fail_work(self, work_id: str, error: str = "") -> bool:
-        """Mark work as failed. May be retried if attempts < max_attempts."""
+        """Mark work as failed. May be retried if attempts < max_attempts.
+
+        P0.3 Dec 2025: Event emission moved inside lock for atomicity.
+        """
         permanent = False
         with self.lock:
             item = self.items.get(work_id)
@@ -735,15 +738,18 @@ class WorkQueue:
                 self._save_stats()
                 logger.error(f"Work {work_id} permanently failed: {error}")
 
-        # Emit event to unified coordination (December 2025)
-        self._emit_work_event(
-            "WORK_FAILED" if permanent else "WORK_RETRY",
-            item,
-            error=error,
-            permanent=permanent,
-        )
-        # Notify (outside lock)
-        self.notifier.on_work_failed(item, permanent=permanent)
+            # P0.3 Dec 2025: Event emission now atomic with state change
+            try:
+                self._emit_work_event(
+                    "WORK_FAILED" if permanent else "WORK_RETRY",
+                    item,
+                    error=error,
+                    permanent=permanent,
+                )
+                self.notifier.on_work_failed(item, permanent=permanent)
+            except Exception as e:
+                logger.warning(f"Failed to emit WORK_FAILED event: {e}")
+
         return True
 
     def cancel_work(self, work_id: str) -> bool:

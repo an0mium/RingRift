@@ -414,17 +414,56 @@ class SSHClient:
 
     def _record_success(self) -> None:
         """Record successful command execution."""
-        self._health.last_success = time.time()
-        self._health.consecutive_successes += 1
-        self._health.consecutive_failures = 0
-        self._health.total_successes += 1
+        self._health.record_success()
 
     def _record_failure(self) -> None:
         """Record failed command execution."""
-        self._health.last_failure = time.time()
-        self._health.consecutive_failures += 1
-        self._health.consecutive_successes = 0
-        self._health.total_failures += 1
+        self._health.record_failure()
+
+    async def _try_early_recovery_probe(self) -> bool:
+        """Try an early recovery probe to test if host is back.
+
+        Returns True if probe succeeded and circuit was closed.
+        """
+        if not self._health.should_try_early_probe:
+            return False
+
+        self._health.mark_probe_attempted()
+        logger.debug(f"Attempting early recovery probe for {self._config.host}")
+
+        # Use a lightweight probe command with short timeout
+        probe_cmd = self._build_ssh_command("echo ok", use_tailscale=bool(self._config.tailscale_ip))
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *probe_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, _ = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=5.0,  # Short timeout for probe
+                )
+
+                if proc.returncode == 0 and b"ok" in stdout:
+                    logger.info(f"Early recovery probe succeeded for {self._config.host}")
+                    self._health.record_success()  # This closes the circuit
+                    return True
+                else:
+                    logger.debug(f"Early recovery probe failed for {self._config.host}: exit={proc.returncode}")
+                    return False
+
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.debug(f"Early recovery probe timed out for {self._config.host}")
+                return False
+
+        except (OSError, ValueError) as e:
+            logger.debug(f"Early recovery probe error for {self._config.host}: {e}")
+            return False
 
     def _get_control_path(self) -> str:
         """Get ControlMaster socket path for this host."""
