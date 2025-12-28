@@ -73,8 +73,8 @@ __all__ = [
 # Environment variable prefix
 ENV_PREFIX = "RINGRIFT_SYNC_PUSH"
 
-# Default P2P port for coordinator
-P2P_DEFAULT_PORT = 8770
+# Dec 2025: Use centralized P2P port config instead of hardcoded value
+from app.config.coordination_defaults import get_p2p_port
 
 # Maximum file size to push inline (larger files use chunked transfer)
 MAX_INLINE_SIZE_MB = 50

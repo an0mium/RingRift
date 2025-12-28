@@ -116,6 +116,66 @@ class OrphanDetectionDaemon:
         self._failed_orphans_db = Path(self.config.games_dir) / ".failed_orphans.db"
         self._init_failed_orphans_db()
 
+    def _init_failed_orphans_db(self) -> None:
+        """Initialize SQLite table for failed orphan registrations.
+
+        P0.2 Dec 2025: Persist failed orphans for later retry to prevent data loss.
+        """
+        try:
+            self._failed_orphans_db.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(self._failed_orphans_db) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS failed_orphans (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        path TEXT UNIQUE NOT NULL,
+                        board_type TEXT,
+                        num_players INTEGER,
+                        game_count INTEGER,
+                        error_message TEXT,
+                        retry_count INTEGER DEFAULT 0,
+                        created_at REAL DEFAULT (strftime('%s', 'now')),
+                        last_retry_at REAL
+                    )
+                """)
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to initialize failed_orphans DB: {e}")
+
+    def _persist_failed_orphan(self, orphan: OrphanInfo, error: str) -> None:
+        """Persist a failed orphan registration for later retry.
+
+        P0.2 Dec 2025: Ensures orphaned data is not permanently lost.
+        """
+        try:
+            with sqlite3.connect(self._failed_orphans_db) as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO failed_orphans
+                    (path, board_type, num_players, game_count, error_message, retry_count, last_retry_at)
+                    VALUES (?, ?, ?, ?, ?,
+                        COALESCE((SELECT retry_count + 1 FROM failed_orphans WHERE path = ?), 1),
+                        strftime('%s', 'now'))
+                """, (
+                    str(orphan.path),
+                    orphan.board_type,
+                    orphan.num_players,
+                    orphan.game_count,
+                    error,
+                    str(orphan.path),
+                ))
+                conn.commit()
+            logger.debug(f"Persisted failed orphan: {orphan.path}")
+        except Exception as e:
+            logger.error(f"Failed to persist failed orphan {orphan.path}: {e}")
+
+    def _clear_failed_orphan(self, path: Path) -> None:
+        """Remove successfully registered orphan from failed table."""
+        try:
+            with sqlite3.connect(self._failed_orphans_db) as conn:
+                conn.execute("DELETE FROM failed_orphans WHERE path = ?", (str(path),))
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"Failed to clear orphan from failed table: {e}")
+
     async def start(self) -> None:
         """Start the daemon."""
         logger.info("OrphanDetectionDaemon starting...")

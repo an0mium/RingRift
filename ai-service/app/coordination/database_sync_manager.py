@@ -495,7 +495,7 @@ class DatabaseSyncManager(SyncManagerBase):
             if self.enable_merge:
                 result = await self._merge_databases(tmp_path)
             else:
-                shutil.copy(tmp_path, self.db_path)
+                atomic_copy(tmp_path, self.db_path)
                 result = True
 
             tmp_path.unlink(missing_ok=True)

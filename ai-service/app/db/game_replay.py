@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # - v11: Added search_stats_json column for rich training data (Q-values, uncertainty, etc.)
 # - v12: Added engine_mode column for fast AI type filtering/analysis
 # - v13: Added parity_status, parity_checked_at, parity_divergence_move for TS/Python parity tracking
+# - v14: Added orphaned_games table and triggers for move data integrity enforcement
 SCHEMA_VERSION = 14
 
 # Default snapshot interval (every N moves)
@@ -1257,6 +1258,62 @@ class GameReplayDB:
 
         self._set_schema_version(conn, 13)
         logger.info("Migration to v13 complete")
+
+    def _migrate_v13_to_v14(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v13 to v14.
+
+        Adds move data integrity enforcement (December 2025 - Phase 6):
+        - orphaned_games table: Quarantine for games detected without move data
+        - Trigger: prevent completing games without moves (enforces data quality)
+
+        This migration is part of the move data integrity enforcement initiative
+        to prevent games from being recorded without move data.
+        """
+        logger.info("Migrating schema from v13 to v14")
+
+        # Create orphaned_games quarantine table
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orphaned_games (
+                game_id TEXT PRIMARY KEY,
+                detected_at TEXT NOT NULL,
+                reason TEXT,
+                original_status TEXT,
+                board_type TEXT,
+                num_players INTEGER
+            )
+        """
+        )
+
+        # Create index for efficient cleanup queries
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orphaned_detected ON orphaned_games(detected_at)"
+        )
+
+        # Create trigger to prevent completing games without moves
+        # Note: SQLite triggers can only RAISE on certain conditions
+        # This trigger logs a warning when a game is marked complete with 0 moves
+        # The actual enforcement happens in Python code (GameWriter.finalize, store_game)
+        try:
+            conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS enforce_moves_on_complete
+                BEFORE UPDATE ON games
+                WHEN NEW.game_status IN ('completed', 'finished')
+                     AND NEW.total_moves = 0
+                     AND OLD.total_moves = 0
+                BEGIN
+                    SELECT RAISE(ABORT, 'Cannot complete game without moves: total_moves must be > 0');
+                END
+            """
+            )
+        except sqlite3.OperationalError as e:
+            # Trigger might already exist in some databases
+            if "already exists" not in str(e).lower():
+                logger.warning(f"Could not create enforcement trigger: {e}")
+
+        self._set_schema_version(conn, 14)
+        logger.info("Migration to v14 complete - move data integrity enforcement enabled")
 
     # =========================================================================
     # Write Operations

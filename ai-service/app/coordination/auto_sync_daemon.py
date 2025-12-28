@@ -1090,6 +1090,12 @@ class AutoSyncDaemon:
             name="auto_sync_loop",
         )
 
+        # December 2025: Start pending writes retry processor
+        self._pending_writes_task = safe_create_task(
+            self._process_pending_writes(),
+            name="pending_writes_processor",
+        )
+
         # Register with coordinator registry
         register_coordinator(self)
 

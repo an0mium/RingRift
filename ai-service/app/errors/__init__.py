@@ -200,6 +200,44 @@ class DiskError(ResourceError):
     code = ErrorCode.DISK_FULL
 
 
+class DiskSpaceError(DiskError):
+    """Insufficient disk space for operation.
+
+    This is a specialized disk error for out-of-space conditions.
+    Used by disk_utils.ensure_disk_space() to prevent data loss
+    when disk fills up.
+
+    Attributes:
+        path: The path where disk space was checked
+        available_bytes: Available space in bytes
+        required_bytes: Required space in bytes
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        path: str | None = None,
+        available_bytes: int | None = None,
+        required_bytes: int | None = None,
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ):
+        # Build details dict
+        details = context or {}
+        if path is not None:
+            details["path"] = path
+        if available_bytes is not None:
+            details["available_bytes"] = available_bytes
+        if required_bytes is not None:
+            details["required_bytes"] = required_bytes
+
+        super().__init__(message, details=details, **kwargs)
+        self.path = path
+        self.available_bytes = available_bytes
+        self.required_bytes = required_bytes
+
+
 class MemoryExhaustedError(ResourceError):
     """System ran out of memory."""
     code = ErrorCode.MEMORY_OOM
@@ -491,6 +529,7 @@ __all__ = [
     "GPUError",
     "GPUOutOfMemoryError",
     "DiskError",
+    "DiskSpaceError",
     "MemoryExhaustedError",
     # Network
     "NetworkError",
