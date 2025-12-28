@@ -1263,23 +1263,45 @@ class SelfplayScheduler:
 
         Phase 5 (Dec 2025): Responds to requests for more/fewer selfplay games.
         Typically emitted when training needs more data urgently.
+
+        Dec 28 2025: Extended to handle search_budget and velocity feedback
+        from FeedbackLoopController for reaching 2000+ Elo.
         """
         try:
-            config_key = event.payload.get("config_key", "")
-            target_games = event.payload.get("target_games", 0)
-            priority_val = event.payload.get("priority", "normal")
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            target_games = payload.get("target_games", 0)
+            priority_val = payload.get("priority", "normal")
+            search_budget = payload.get("search_budget", 0)
+            exploration_boost = payload.get("exploration_boost", 1.0)
+            velocity = payload.get("velocity", 0.0)
+            reason = payload.get("reason", "")
 
             if config_key in self._config_priorities:
                 priority = self._config_priorities[config_key]
+
+                # Dec 28 2025: Apply search budget from velocity feedback
+                if search_budget > 0 and reason == "velocity_feedback":
+                    old_budget = getattr(priority, "search_budget", 400)
+                    priority.search_budget = search_budget
+                    logger.info(
+                        f"[SelfplayScheduler] Updating {config_key} search budget: "
+                        f"{old_budget}→{search_budget} (velocity={velocity:.1f} Elo/hr)"
+                    )
+
+                # Apply exploration boost
+                if exploration_boost != 1.0:
+                    priority.exploration_boost = exploration_boost
+
                 # Boost priority based on urgency
-                if priority_val == "high":
+                if priority_val.upper() == "HIGH":
                     priority.training_pending = True
                     priority.exploration_boost = max(1.2, priority.exploration_boost)
                     logger.info(
                         f"[SelfplayScheduler] Boosting {config_key} priority "
                         f"(target: {target_games} games, priority: {priority_val})"
                     )
-                elif priority_val == "low":
+                elif priority_val.lower() == "low":
                     # Reduce priority for this config
                     priority.exploration_boost = min(0.8, priority.exploration_boost)
         except Exception as e:

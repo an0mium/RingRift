@@ -11508,10 +11508,15 @@ print(json.dumps(result))
             except Exception as e:
                 logger.warning(f"Could not register sync receipt: {e}")
 
+            # Use stored_path if we created it during S3 upload
+            final_stored_path = stored_path if 'stored_path' in dir() else str(local_path)
+
             return web.json_response({
                 "status": "received",
                 "checksum_verified": checksum_verified,
-                "stored_at": str(local_path),
+                "stored_at": final_stored_path,
+                "storage_tier": storage_tier,
+                "disk_usage_percent": local_disk_usage,
                 "node_id": self.node_id,
             })
 

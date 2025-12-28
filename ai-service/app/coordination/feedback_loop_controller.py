@@ -98,6 +98,11 @@ class FeedbackState:
     last_training_accuracy: float = 0.0
     last_evaluation_win_rate: float = 0.0
 
+    # Elo tracking for velocity calculation (Dec 28 2025)
+    last_elo: float = 1500.0
+    elo_history: list = None  # List of (timestamp, elo) tuples
+    elo_velocity: float = 0.0  # Elo points per hour
+
     # Status
     last_promotion_success: bool | None = None
     consecutive_failures: int = 0
@@ -117,6 +122,37 @@ class FeedbackState:
     current_training_intensity: str = "normal"  # normal, accelerated, hot_path, reduced
     current_exploration_boost: float = 1.0  # 1.0 = normal, >1.0 = more exploration
     current_curriculum_weight: float = 1.0  # curriculum priority multiplier
+    current_search_budget: int = 400  # Gumbel MCTS budget (Dec 28 2025)
+
+    def __post_init__(self):
+        if self.elo_history is None:
+            self.elo_history = []
+
+    def update_elo(self, elo: float, timestamp: float = None) -> float:
+        """Update Elo and calculate velocity.
+
+        Dec 28 2025: Track Elo over time to detect plateaus.
+        Returns: Elo velocity (points per hour)
+        """
+        if timestamp is None:
+            timestamp = time.time()
+
+        self.last_elo = elo
+        self.elo_history.append((timestamp, elo))
+
+        # Keep last 10 data points
+        if len(self.elo_history) > 10:
+            self.elo_history = self.elo_history[-10:]
+
+        # Calculate velocity from last 3+ data points
+        if len(self.elo_history) >= 3:
+            oldest_time, oldest_elo = self.elo_history[0]
+            newest_time, newest_elo = self.elo_history[-1]
+            hours_elapsed = (newest_time - oldest_time) / 3600.0
+            if hours_elapsed > 0.01:  # At least ~36 seconds
+                self.elo_velocity = (newest_elo - oldest_elo) / hours_elapsed
+
+        return self.elo_velocity
 
 
 class FeedbackLoopController:
@@ -1200,8 +1236,9 @@ class FeedbackLoopController:
 
         Actions:
         1. Record evaluation results
-        2. Consider promotion if win rate threshold met
-        3. Adjust curriculum based on performance
+        2. Track Elo velocity (Dec 28 2025)
+        3. Adjust selfplay intensity based on velocity
+        4. Consider promotion if win rate threshold met
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
@@ -1218,10 +1255,16 @@ class FeedbackLoopController:
             state.last_evaluation_time = time.time()
             state.last_evaluation_win_rate = win_rate
 
+            # Dec 28 2025: Track Elo velocity for plateau detection
+            velocity = state.update_elo(elo)
+
             logger.info(
                 f"[FeedbackLoopController] Evaluation complete for {config_key}: "
-                f"win_rate={win_rate:.2%}, elo={elo:.0f}"
+                f"win_rate={win_rate:.2%}, elo={elo:.0f}, velocity={velocity:.1f} Elo/hr"
             )
+
+            # Dec 28 2025: Adjust selfplay based on velocity and Elo gap
+            self._adjust_selfplay_for_velocity(config_key, state, elo, velocity)
 
             # Consider promotion if threshold met
             if win_rate >= self.promotion_threshold:
@@ -1229,6 +1272,83 @@ class FeedbackLoopController:
 
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling evaluation complete: {e}")
+
+    def _adjust_selfplay_for_velocity(
+        self, config_key: str, state: FeedbackState, elo: float, velocity: float
+    ) -> None:
+        """Adjust selfplay intensity based on Elo velocity.
+
+        Dec 28 2025: Key feedback loop for reaching 2000+ Elo.
+        - Low velocity (plateau) → Increase search budget, boost exploration
+        - High velocity (improving) → Maintain current settings
+        - Near 2000 Elo goal → Fine-tune with higher budget
+        """
+        TARGET_ELO = 2000.0
+        PLATEAU_THRESHOLD = 10.0  # Elo per hour - below this is a plateau
+        FAST_IMPROVEMENT_THRESHOLD = 50.0  # Elo per hour
+
+        elo_gap = TARGET_ELO - elo
+        is_plateau = velocity < PLATEAU_THRESHOLD and len(state.elo_history) >= 3
+        is_fast = velocity > FAST_IMPROVEMENT_THRESHOLD
+
+        # Determine new search budget based on velocity and gap
+        if is_plateau:
+            # Plateau detected - boost search budget
+            old_budget = state.current_search_budget
+            new_budget = min(800, old_budget + 100)  # Increase by 100, cap at 800
+            state.current_search_budget = new_budget
+            state.current_exploration_boost = min(2.0, state.current_exploration_boost * 1.2)
+
+            logger.warning(
+                f"[FeedbackLoopController] PLATEAU DETECTED for {config_key}: "
+                f"velocity={velocity:.1f} Elo/hr, elo_gap={elo_gap:.0f}. "
+                f"Increasing budget {old_budget}→{new_budget}, "
+                f"exploration_boost={state.current_exploration_boost:.2f}"
+            )
+        elif is_fast:
+            # Fast improvement - maintain current settings
+            logger.info(
+                f"[FeedbackLoopController] Fast improvement for {config_key}: "
+                f"velocity={velocity:.1f} Elo/hr. Maintaining settings."
+            )
+        elif elo > 1800:
+            # Near goal - fine-tune with higher budget
+            state.current_search_budget = max(600, state.current_search_budget)
+            logger.info(
+                f"[FeedbackLoopController] Near goal for {config_key}: "
+                f"elo={elo:.0f}, using budget={state.current_search_budget}"
+            )
+
+        # Emit selfplay target update event
+        self._emit_selfplay_adjustment(config_key, state, elo_gap, velocity)
+
+    def _emit_selfplay_adjustment(
+        self, config_key: str, state: FeedbackState, elo_gap: float, velocity: float
+    ) -> None:
+        """Emit SELFPLAY_TARGET_UPDATED event with adjusted parameters.
+
+        Dec 28 2025: This event is consumed by SelfplayScheduler to adjust
+        search budget and game allocation.
+        """
+        try:
+            from app.coordination.event_router import DataEventType, get_event_bus
+
+            bus = get_event_bus()
+            if bus:
+                bus.emit(DataEventType.SELFPLAY_TARGET_UPDATED, {
+                    "config_key": config_key,
+                    "search_budget": state.current_search_budget,
+                    "exploration_boost": state.current_exploration_boost,
+                    "elo_gap": elo_gap,
+                    "velocity": velocity,
+                    "priority": "HIGH" if elo_gap > 500 or velocity < 10 else "NORMAL",
+                    "reason": "velocity_feedback",
+                })
+                logger.debug(
+                    f"[FeedbackLoopController] Emitted SELFPLAY_TARGET_UPDATED for {config_key}"
+                )
+        except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+            logger.debug(f"[FeedbackLoopController] Could not emit selfplay adjustment: {e}")
 
     def _on_evaluation_failed(self, event: Any) -> None:
         """Handle evaluation failure.
