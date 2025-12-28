@@ -99,9 +99,15 @@ result = robust_push("file.npz", "host", 22, "/path/file.npz", TransferConfig())
 
 **Root Cause:** Missing DataEventBus -> Router bridge in `_setup_bus_bridges()`.
 
-**Status:** FIXED in commit pending (Dec 27, 2025)
+**Status:** FIXED (Dec 28, 2025)
 
-**Fix Applied:** Added `_on_data_bus_event()` handler and DataEventBus subscription loop in `event_router.py`.
+**Fixes Applied:**
+
+1. Added DataEventBus -> Router bridge in `event_router.py` (Dec 27)
+2. Added subscriptions in `coordination_bootstrap.py:_wire_missing_event_subscriptions()` (Dec 28):
+   - HOST_OFFLINE → UnifiedHealthManager.handle_node_offline()
+   - HOST_ONLINE → UnifiedHealthManager.handle_node_online()
+   - LEADER_ELECTED → LeadershipCoordinator.on_leader_change()
 
 ---
 

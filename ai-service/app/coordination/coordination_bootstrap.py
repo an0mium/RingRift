@@ -1224,6 +1224,115 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
         results["sync_stalled_handler"] = False
         logger.warning(f"[Bootstrap] Failed to wire sync stalled: {e}")
 
+    # 16. Wire HOST_OFFLINE to UnifiedHealthManager (December 2025 - Phase 12)
+    # P2P orchestrator emits this when a peer goes offline - health manager should respond
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_host_offline(event):
+            """Handle HOST_OFFLINE - notify health manager of node failure."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id") or payload.get("peer_id")
+
+            if not node_id:
+                return
+
+            logger.info(f"[Bootstrap] Node offline: {node_id}")
+
+            try:
+                from app.coordination.unified_health_manager import get_unified_health_manager
+
+                health_mgr = get_unified_health_manager()
+                if hasattr(health_mgr, "handle_node_offline"):
+                    await health_mgr.handle_node_offline(node_id)
+                elif hasattr(health_mgr, "mark_node_unhealthy"):
+                    health_mgr.mark_node_unhealthy(node_id, reason="p2p_offline")
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[Bootstrap] Health manager unavailable for offline handling: {e}")
+
+        bus.subscribe(DataEventType.HOST_OFFLINE, on_host_offline)
+        results["host_offline_handler"] = True
+        logger.debug("[Bootstrap] Wired HOST_OFFLINE -> UnifiedHealthManager")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["host_offline_handler"] = False
+        logger.warning(f"[Bootstrap] Failed to wire host offline: {e}")
+
+    # 17. Wire HOST_ONLINE to UnifiedHealthManager (December 2025 - Phase 12)
+    # P2P orchestrator emits this when a previously offline peer recovers
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_host_online(event):
+            """Handle HOST_ONLINE - notify health manager of node recovery."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id") or payload.get("peer_id")
+
+            if not node_id:
+                return
+
+            logger.info(f"[Bootstrap] Node online: {node_id}")
+
+            try:
+                from app.coordination.unified_health_manager import get_unified_health_manager
+
+                health_mgr = get_unified_health_manager()
+                if hasattr(health_mgr, "handle_node_online"):
+                    await health_mgr.handle_node_online(node_id)
+                elif hasattr(health_mgr, "mark_node_healthy"):
+                    health_mgr.mark_node_healthy(node_id)
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[Bootstrap] Health manager unavailable for online handling: {e}")
+
+        bus.subscribe(DataEventType.HOST_ONLINE, on_host_online)
+        results["host_online_handler"] = True
+        logger.debug("[Bootstrap] Wired HOST_ONLINE -> UnifiedHealthManager")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["host_online_handler"] = False
+        logger.warning(f"[Bootstrap] Failed to wire host online: {e}")
+
+    # 18. Wire LEADER_ELECTED to LeadershipCoordinator (December 2025 - Phase 12)
+    # P2P orchestrator emits this when leadership changes - coordinator should track
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_leader_elected(event):
+            """Handle LEADER_ELECTED - notify leadership coordinator of change."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            leader_id = payload.get("leader_id") or payload.get("new_leader")
+            previous_leader = payload.get("previous_leader")
+
+            if not leader_id:
+                return
+
+            logger.info(f"[Bootstrap] Leader elected: {leader_id} (was: {previous_leader})")
+
+            try:
+                from app.coordination.leadership_coordinator import get_leadership_coordinator
+
+                leadership = get_leadership_coordinator()
+                if hasattr(leadership, "on_leader_change"):
+                    await leadership.on_leader_change(leader_id, previous_leader)
+                elif hasattr(leadership, "set_leader"):
+                    leadership.set_leader(leader_id)
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[Bootstrap] Leadership coordinator unavailable: {e}")
+
+        bus.subscribe(DataEventType.LEADER_ELECTED, on_leader_elected)
+        results["leader_elected_handler"] = True
+        logger.debug("[Bootstrap] Wired LEADER_ELECTED -> LeadershipCoordinator")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["leader_elected_handler"] = False
+        logger.warning(f"[Bootstrap] Failed to wire leader elected: {e}")
+
     wired = sum(1 for v in results.values() if v)
     total = len(results)
     logger.info(f"[Bootstrap] Wired {wired}/{total} missing event subscriptions")
