@@ -160,6 +160,9 @@ class DaemonType(Enum):
     # Quality monitor (December 2025) - continuous selfplay quality monitoring
     QUALITY_MONITOR = "quality_monitor"
 
+    # Integrity check (December 2025) - scans for games without move data
+    INTEGRITY_CHECK = "integrity_check"
+
     # Model performance watchdog (December 2025) - monitors model win rates
     MODEL_PERFORMANCE_WATCHDOG = "model_performance_watchdog"
 

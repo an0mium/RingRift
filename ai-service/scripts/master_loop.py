@@ -1349,15 +1349,18 @@ class MasterLoopController:
 
             if self.dry_run:
                 # Just show priorities in dry run mode
-                priorities = await scheduler.get_priority_configs(top_n=6)
+                # Dec 28, 2025: Show all 12 configs to match max_configs
+                priorities = await scheduler.get_priority_configs(top_n=12)
                 for config_key, priority in priorities:
                     logger.info(f"[MasterLoop] [DRY RUN] Priority: {config_key} = {priority:.2f}")
                 return
 
             # Get allocations from scheduler
+            # Dec 28, 2025: Increased max_configs from 6 to 12 to cover all board/player configs
+            # Previous value starved square19_*, hexagonal_* configs
             allocation = await scheduler.allocate_selfplay_batch(
                 games_per_config=500,
-                max_configs=6,
+                max_configs=12,
             )
 
             if allocation:

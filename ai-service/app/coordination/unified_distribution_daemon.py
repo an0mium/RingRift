@@ -897,6 +897,128 @@ class UnifiedDistributionDaemon:
             return None
 
     # =========================================================================
+    # Remote Path Detection (December 28, 2025)
+    # =========================================================================
+
+    async def _discover_remote_path(
+        self,
+        host: str,
+        user: str = "root",
+        ssh_key: str | None = None,
+    ) -> str:
+        """Discover the correct remote path for ai-service on a node.
+
+        Probes the remote node to find which path pattern exists. Results are
+        cached per host for efficiency.
+
+        Args:
+            host: Remote host IP or hostname
+            user: SSH user (default: root)
+            ssh_key: Optional SSH key path
+
+        Returns:
+            The discovered remote path, or default "~/ringrift/ai-service" if
+            no path is found or all probes fail.
+        """
+        # Check cache first
+        with _remote_path_cache_lock:
+            if host in _remote_path_cache:
+                return _remote_path_cache[host]
+
+        # Build SSH options
+        ssh_opts = ["-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
+        if ssh_key:
+            ssh_opts.extend(["-i", ssh_key])
+
+        # Probe each path pattern
+        for path_pattern in REMOTE_PATH_PATTERNS:
+            # Expand ~ for the test command (shell will expand it)
+            test_cmd = f"test -d {path_pattern} && echo exists"
+
+            cmd = ["ssh"] + ssh_opts + [f"{user}@{host}", test_cmd]
+
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=15.0,  # Quick timeout for path probing
+                )
+
+                if process.returncode == 0 and b"exists" in stdout:
+                    logger.debug(
+                        f"[UnifiedDistributionDaemon] Discovered remote path "
+                        f"for {host}: {path_pattern}"
+                    )
+                    # Cache the result
+                    with _remote_path_cache_lock:
+                        _remote_path_cache[host] = path_pattern
+                    return path_pattern
+
+            except (OSError, asyncio.TimeoutError, asyncio.SubprocessError) as e:
+                logger.debug(
+                    f"[UnifiedDistributionDaemon] Path probe failed for "
+                    f"{host}:{path_pattern}: {e}"
+                )
+                continue
+
+        # Default fallback if no path found
+        default_path = "~/ringrift/ai-service"
+        logger.warning(
+            f"[UnifiedDistributionDaemon] No valid remote path found for {host}, "
+            f"using default: {default_path}"
+        )
+        with _remote_path_cache_lock:
+            _remote_path_cache[host] = default_path
+        return default_path
+
+    async def _get_remote_path(
+        self,
+        target: dict[str, Any] | str,
+    ) -> tuple[str, str, str, str | None]:
+        """Get remote path for a target, discovering if needed.
+
+        Args:
+            target: Target host as string or dict with host/user/remote_path
+
+        Returns:
+            Tuple of (host, user, remote_path, ssh_key)
+        """
+        if isinstance(target, str):
+            host = target
+            user = "root"
+            explicit_path = None
+            ssh_key = None
+        else:
+            host = target.get("host", "")
+            user = target.get("user", target.get("ssh_user", "root"))
+            explicit_path = target.get("remote_path")
+            ssh_key = target.get("ssh_key")
+
+        # Use explicit path if provided, otherwise discover
+        if explicit_path:
+            remote_path = explicit_path
+        else:
+            remote_path = await self._discover_remote_path(host, user, ssh_key)
+
+        return host, user, remote_path, ssh_key
+
+    def clear_remote_path_cache(self, host: str | None = None) -> None:
+        """Clear cached remote path(s).
+
+        Args:
+            host: Specific host to clear, or None to clear all
+        """
+        with _remote_path_cache_lock:
+            if host:
+                _remote_path_cache.pop(host, None)
+            else:
+                _remote_path_cache.clear()
+
+    # =========================================================================
     # Checksum Verification
     # =========================================================================
 

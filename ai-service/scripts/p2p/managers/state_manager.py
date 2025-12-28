@@ -283,90 +283,86 @@ class StateManager:
             PersistedState containing peers, jobs, and leader state
         """
         state = PersistedState()
-        conn = None
 
         try:
-            conn = self._db_connect()
-            cursor = conn.cursor()
+            with self._db_connection(read_only=True) as conn:
+                cursor = conn.cursor()
 
-            # Load peers
-            cursor.execute("SELECT node_id, info_json FROM peers")
-            for row in cursor.fetchall():
-                try:
-                    if row[0] == node_id:
-                        continue
-                    state.peers[row[0]] = json.loads(row[1])
-                except Exception as e:
-                    logger.error(f"Failed to load peer {row[0]}: {e}")
+                # Load peers
+                cursor.execute("SELECT node_id, info_json FROM peers")
+                for row in cursor.fetchall():
+                    try:
+                        if row[0] == node_id:
+                            continue
+                        state.peers[row[0]] = json.loads(row[1])
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.error(f"Failed to load peer {row[0]}: {e}")
 
-            # Load running jobs
-            cursor.execute("SELECT * FROM jobs WHERE status = 'running'")
-            for row in cursor.fetchall():
-                state.jobs.append({
-                    "job_id": row[0],
-                    "job_type": row[1],
-                    "node_id": row[2],
-                    "board_type": row[3],
-                    "num_players": row[4],
-                    "engine_mode": row[5],
-                    "pid": row[6],
-                    "started_at": row[7],
-                    "status": row[8],
-                })
+                # Load running jobs
+                cursor.execute("SELECT * FROM jobs WHERE status = 'running'")
+                for row in cursor.fetchall():
+                    state.jobs.append({
+                        "job_id": row[0],
+                        "job_type": row[1],
+                        "node_id": row[2],
+                        "board_type": row[3],
+                        "num_players": row[4],
+                        "engine_mode": row[5],
+                        "pid": row[6],
+                        "started_at": row[7],
+                        "status": row[8],
+                    })
 
-            # Load leader state
-            cursor.execute("SELECT key, value FROM state")
-            state_rows = {row[0]: row[1] for row in cursor.fetchall() if row and row[0]}
+                # Load leader state
+                cursor.execute("SELECT key, value FROM state")
+                state_rows = {row[0]: row[1] for row in cursor.fetchall() if row and row[0]}
 
-            state.leader_state.leader_id = state_rows.get("leader_id", "")
+                state.leader_state.leader_id = state_rows.get("leader_id", "")
 
-            if raw_lease_id := state_rows.get("leader_lease_id"):
-                state.leader_state.leader_lease_id = raw_lease_id
+                if raw_lease_id := state_rows.get("leader_lease_id"):
+                    state.leader_state.leader_lease_id = raw_lease_id
 
-            if raw_lease_expires := state_rows.get("leader_lease_expires"):
-                with contextlib.suppress(Exception):
-                    state.leader_state.leader_lease_expires = float(raw_lease_expires)
+                if raw_lease_expires := state_rows.get("leader_lease_expires"):
+                    with contextlib.suppress(ValueError, TypeError):
+                        state.leader_state.leader_lease_expires = float(raw_lease_expires)
 
-            if raw_last_renewal := state_rows.get("last_lease_renewal"):
-                with contextlib.suppress(Exception):
-                    state.leader_state.last_lease_renewal = float(raw_last_renewal)
+                if raw_last_renewal := state_rows.get("last_lease_renewal"):
+                    with contextlib.suppress(ValueError, TypeError):
+                        state.leader_state.last_lease_renewal = float(raw_last_renewal)
 
-            if raw_role := state_rows.get("role"):
-                state.leader_state.role = str(raw_role)
+                if raw_role := state_rows.get("role"):
+                    state.leader_state.role = str(raw_role)
 
-            if raw_grant_leader := state_rows.get("voter_grant_leader_id"):
-                state.leader_state.voter_grant_leader_id = str(raw_grant_leader)
+                if raw_grant_leader := state_rows.get("voter_grant_leader_id"):
+                    state.leader_state.voter_grant_leader_id = str(raw_grant_leader)
 
-            if raw_grant_lease := state_rows.get("voter_grant_lease_id"):
-                state.leader_state.voter_grant_lease_id = str(raw_grant_lease)
+                if raw_grant_lease := state_rows.get("voter_grant_lease_id"):
+                    state.leader_state.voter_grant_lease_id = str(raw_grant_lease)
 
-            if raw_grant_expires := state_rows.get("voter_grant_expires"):
-                with contextlib.suppress(Exception):
-                    state.leader_state.voter_grant_expires = float(raw_grant_expires)
+                if raw_grant_expires := state_rows.get("voter_grant_expires"):
+                    with contextlib.suppress(ValueError, TypeError):
+                        state.leader_state.voter_grant_expires = float(raw_grant_expires)
 
-            # Load voter configuration
-            if raw_voters := state_rows.get("voter_node_ids"):
-                try:
-                    parsed = json.loads(raw_voters)
-                    if isinstance(parsed, list):
+                # Load voter configuration
+                if raw_voters := state_rows.get("voter_node_ids"):
+                    try:
+                        parsed = json.loads(raw_voters)
+                        if isinstance(parsed, list):
+                            state.leader_state.voter_node_ids = [
+                                str(v).strip() for v in parsed if str(v).strip()
+                            ]
+                    except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
                         state.leader_state.voter_node_ids = [
-                            str(v).strip() for v in parsed if str(v).strip()
+                            t.strip() for t in str(raw_voters).split(",") if t.strip()
                         ]
-                except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
-                    state.leader_state.voter_node_ids = [
-                        t.strip() for t in str(raw_voters).split(",") if t.strip()
-                    ]
 
-            if raw_config_source := state_rows.get("voter_config_source"):
-                state.leader_state.voter_config_source = str(raw_config_source)
+                if raw_config_source := state_rows.get("voter_config_source"):
+                    state.leader_state.voter_config_source = str(raw_config_source)
 
-            logger.info(f"Loaded state: {len(state.peers)} peers, {len(state.jobs)} jobs")
+                logger.info(f"Loaded state: {len(state.peers)} peers, {len(state.jobs)} jobs")
 
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error(f"Failed to load state: {e}")
-        finally:
-            if conn:
-                conn.close()
 
         return state
 
@@ -389,54 +385,50 @@ class StateManager:
             peers_lock: Optional lock for thread-safe peer access
             jobs_lock: Optional lock for thread-safe job access
         """
-        conn = None
         try:
-            conn = self._db_connect()
-            cursor = conn.cursor()
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
 
-            # Save peers (with optional locking)
-            cursor.execute("DELETE FROM peers WHERE node_id = ?", (node_id,))
+                # Save peers (with optional locking)
+                cursor.execute("DELETE FROM peers WHERE node_id = ?", (node_id,))
 
-            if peers_lock:
-                with peers_lock:
+                if peers_lock:
+                    with peers_lock:
+                        self._save_peers_unlocked(cursor, node_id, peers)
+                else:
                     self._save_peers_unlocked(cursor, node_id, peers)
-            else:
-                self._save_peers_unlocked(cursor, node_id, peers)
 
-            # Save jobs (with optional locking)
-            if jobs_lock:
-                with jobs_lock:
+                # Save jobs (with optional locking)
+                if jobs_lock:
+                    with jobs_lock:
+                        self._save_jobs_unlocked(cursor, jobs)
+                else:
                     self._save_jobs_unlocked(cursor, jobs)
-            else:
-                self._save_jobs_unlocked(cursor, jobs)
 
-            # Save leader state
-            role_value = leader_state.role
-            voter_node_ids_json = json.dumps(sorted(set(leader_state.voter_node_ids or [])))
+                # Save leader state
+                role_value = leader_state.role
+                voter_node_ids_json = json.dumps(sorted(set(leader_state.voter_node_ids or [])))
 
-            state_payload = [
-                ("leader_id", leader_state.leader_id or ""),
-                ("leader_lease_id", leader_state.leader_lease_id or ""),
-                ("leader_lease_expires", str(float(leader_state.leader_lease_expires or 0.0))),
-                ("last_lease_renewal", str(float(leader_state.last_lease_renewal or 0.0))),
-                ("role", role_value),
-                ("voter_node_ids", voter_node_ids_json),
-                ("voter_config_source", leader_state.voter_config_source or ""),
-                ("voter_grant_leader_id", leader_state.voter_grant_leader_id or ""),
-                ("voter_grant_lease_id", leader_state.voter_grant_lease_id or ""),
-                ("voter_grant_expires", str(float(leader_state.voter_grant_expires or 0.0))),
-            ]
-            cursor.executemany(
-                "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
-                state_payload,
-            )
+                state_payload = [
+                    ("leader_id", leader_state.leader_id or ""),
+                    ("leader_lease_id", leader_state.leader_lease_id or ""),
+                    ("leader_lease_expires", str(float(leader_state.leader_lease_expires or 0.0))),
+                    ("last_lease_renewal", str(float(leader_state.last_lease_renewal or 0.0))),
+                    ("role", role_value),
+                    ("voter_node_ids", voter_node_ids_json),
+                    ("voter_config_source", leader_state.voter_config_source or ""),
+                    ("voter_grant_leader_id", leader_state.voter_grant_leader_id or ""),
+                    ("voter_grant_lease_id", leader_state.voter_grant_lease_id or ""),
+                    ("voter_grant_expires", str(float(leader_state.voter_grant_expires or 0.0))),
+                ]
+                cursor.executemany(
+                    "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+                    state_payload,
+                )
 
-            conn.commit()
-        except Exception as e:
+                conn.commit()
+        except sqlite3.Error as e:
             logger.error(f"Failed to save state: {e}")
-        finally:
-            if conn:
-                conn.close()
 
     def _save_peers_unlocked(
         self, cursor: sqlite3.Cursor, node_id: str, peers: dict[str, Any]
