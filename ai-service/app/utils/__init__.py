@@ -32,6 +32,7 @@ from __future__ import annotations
 
 __all__ = [
     "debug_utils",
+    "disk_utils",
     "env_config",
     "numpy_utils",
     "torch_utils",
@@ -62,6 +63,10 @@ __all__ = [
     "RETRY_STANDARD",
     "RETRY_SSH",
     "RETRY_HTTP",
+    # Disk utilities (Dec 2025)
+    "check_disk_space_available",
+    "ensure_disk_space",
+    "get_available_disk_space",
 ]
 
 # =============================================================================
@@ -148,5 +153,21 @@ def __getattr__(name: str):
                 "RETRY_HTTP": _RETRY_HTTP,
             }
         return _lazy_cache["retry"][name]
+
+    # Disk utilities (Dec 2025)
+    if name in ("check_disk_space_available", "ensure_disk_space",
+                "get_available_disk_space"):
+        if "disk_utils" not in _lazy_cache:
+            from app.utils.disk_utils import (
+                check_disk_space_available as _cdsa,
+                ensure_disk_space as _eds,
+                get_available_disk_space as _gads,
+            )
+            _lazy_cache["disk_utils"] = {
+                "check_disk_space_available": _cdsa,
+                "ensure_disk_space": _eds,
+                "get_available_disk_space": _gads,
+            }
+        return _lazy_cache["disk_utils"][name]
 
     raise AttributeError(f"module 'app.utils' has no attribute {name!r}")
