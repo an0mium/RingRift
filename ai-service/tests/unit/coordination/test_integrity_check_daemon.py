@@ -250,7 +250,8 @@ class TestIntegrityCheckDaemon:
 
         result = daemon.health_check()
 
-        assert result.status in ["healthy", "unhealthy"]
+        # HealthCheckResult uses healthy bool and CoordinatorStatus enum
+        assert isinstance(result.healthy, bool)
         assert "running" in result.details
         assert "data_dir" in result.details
 

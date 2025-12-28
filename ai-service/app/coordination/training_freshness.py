@@ -325,14 +325,25 @@ class TrainingFreshnessChecker:
                 # ~200 bytes per sample for typical configurations
                 estimated_samples = stat.st_size // 200
 
+                # P1.6 Dec 2025: Get content-based age from NPZ metadata
+                content_age_hours = None
+                if self.config.validate_content_age:
+                    npz_creation_time = self._get_npz_creation_time(npz_path)
+                    if npz_creation_time:
+                        content_age_hours = (now - npz_creation_time) / 3600
+
+                # Use content age for staleness check if available and enabled
+                effective_age = content_age_hours if content_age_hours is not None else age_hours
+
                 sources.append(DataSourceInfo(
                     path=npz_path,
                     age_hours=age_hours,
                     size_bytes=stat.st_size,
                     game_count=estimated_samples,  # Actually sample count
-                    is_stale=age_hours > self.config.max_age_hours,
+                    is_stale=effective_age > self.config.max_age_hours,
                     board_type=board_type,
                     num_players=num_players,
+                    content_age_hours=content_age_hours,
                 ))
 
         return sources

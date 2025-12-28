@@ -899,13 +899,16 @@ DATA_SAMPLING_QUALITY_WEIGHT = 0.4
 # =============================================================================
 # Board-Type Specific Promotion Thresholds (December 2025)
 # =============================================================================
-# Different board types have different difficulty levels for AI training.
-# Larger boards (square19, hexagonal) are harder, so we use relaxed thresholds.
+# Two-tier promotion system:
+# 1. ASPIRATIONAL thresholds - target for 2000+ Elo models
+# 2. MINIMUM thresholds - absolute floor to avoid promoting garbage
+# 3. RELATIVE promotion - if model beats current best, promote even if below aspirational
+#
+# This prevents progress from stalling when no models reach aspirational targets yet.
 
+# Aspirational thresholds - these are the targets for strong models
 PROMOTION_THRESHOLDS_BY_CONFIG: dict[str, dict[str, float]] = {
     # Hex8 (61 cells) - smaller, easier
-    # Dec 28, 2025: Raised vs_heuristic thresholds to stop promoting weak models
-    # Old threshold 0.60 promoted ~1350 Elo models; need 0.85 for ~1800+ Elo
     "hex8_2p": {"vs_random": 0.90, "vs_heuristic": 0.85},
     "hex8_3p": {"vs_random": 0.65, "vs_heuristic": 0.55},
     "hex8_4p": {"vs_random": 0.60, "vs_heuristic": 0.50},
@@ -925,6 +928,34 @@ PROMOTION_THRESHOLDS_BY_CONFIG: dict[str, dict[str, float]] = {
     "hexagonal_3p": {"vs_random": 0.55, "vs_heuristic": 0.40},
     "hexagonal_4p": {"vs_random": 0.50, "vs_heuristic": 0.35},
 }
+
+# Dec 28, 2025: Minimum floor thresholds for relative promotion
+# If model beats current best AND meets minimum floor, allow promotion
+# This prevents progress from stalling while still avoiding garbage models
+PROMOTION_MINIMUM_THRESHOLDS: dict[str, dict[str, float]] = {
+    # 2-player: Must beat random decisively (70%+), any heuristic performance OK
+    "hex8_2p": {"vs_random": 0.70, "vs_heuristic": 0.0},
+    "square8_2p": {"vs_random": 0.70, "vs_heuristic": 0.0},
+    "square19_2p": {"vs_random": 0.65, "vs_heuristic": 0.0},
+    "hexagonal_2p": {"vs_random": 0.65, "vs_heuristic": 0.0},
+
+    # 3-player: Lower bar due to increased complexity
+    "hex8_3p": {"vs_random": 0.50, "vs_heuristic": 0.0},
+    "square8_3p": {"vs_random": 0.50, "vs_heuristic": 0.0},
+    "square19_3p": {"vs_random": 0.45, "vs_heuristic": 0.0},
+    "hexagonal_3p": {"vs_random": 0.45, "vs_heuristic": 0.0},
+
+    # 4-player: Even lower bar
+    "hex8_4p": {"vs_random": 0.40, "vs_heuristic": 0.0},
+    "square8_4p": {"vs_random": 0.40, "vs_heuristic": 0.0},
+    "square19_4p": {"vs_random": 0.35, "vs_heuristic": 0.0},
+    "hexagonal_4p": {"vs_random": 0.35, "vs_heuristic": 0.0},
+}
+
+# Enable relative promotion (beat-the-champion mode)
+# When True: Promote if (meets minimum floor) AND (beats current best model)
+# When False: Only promote if meets aspirational thresholds
+PROMOTION_RELATIVE_ENABLED: bool = True
 
 
 def get_promotion_thresholds(config_key: str) -> dict[str, float]:

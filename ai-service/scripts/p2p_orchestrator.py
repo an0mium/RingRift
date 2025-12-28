@@ -27515,7 +27515,7 @@ print(json.dumps({{
                 with self.jobs_lock:
                     self.local_jobs[job_id] = job
 
-                logger.info(f"Started GUMBEL selfplay job {job_id} (PID {proc.pid}, sims={simulation_budget})")
+                logger.info(f"Started GUMBEL selfplay job {job_id} (PID {proc.pid}, sims={effective_budget})")
 
                 # Track diversity metrics for monitoring (Phase 2B, Dec 2025)
                 self.selfplay_scheduler.track_diversity({
