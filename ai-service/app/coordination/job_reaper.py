@@ -273,7 +273,10 @@ class JobReaperDaemon:
         return True
 
     def blacklist_node(self, node_id: str, reason: str, duration: float = NODE_BLACKLIST_DURATION):
-        """Add a node to the temporary blacklist."""
+        """Add a node to the temporary blacklist.
+
+        P0.4 Dec 2025: Now persists to SQLite so blacklist survives restart.
+        """
         now = time.time()
 
         if node_id in self.blacklisted_nodes:
@@ -286,14 +289,18 @@ class JobReaperDaemon:
                 f"Node {node_id} blacklist extended (failure #{bl.failure_count}): {reason}"
             )
         else:
-            self.blacklisted_nodes[node_id] = BlacklistedNode(
+            bl = BlacklistedNode(
                 node_id=node_id,
                 reason=reason,
                 blacklisted_at=now,
                 expires_at=now + duration,
             )
+            self.blacklisted_nodes[node_id] = bl
             self.stats.nodes_blacklisted += 1
             logger.warning(f"Node {node_id} blacklisted for {duration}s: {reason}")
+
+        # P0.4: Persist to SQLite
+        self._persist_blacklist_entry(self.blacklisted_nodes[node_id])
 
     async def _get_timed_out_jobs(self) -> list[dict[str, Any]]:
         """Query work queue for jobs that have exceeded their timeout."""

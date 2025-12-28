@@ -224,7 +224,7 @@ class LeaderElectionMixin(P2PMixinBase):
         return vote_count
 
     def _detect_split_brain(self) -> dict[str, Any] | None:
-        """Detect if cluster is in split-brain state.
+        """Detect if cluster is in split-brain state and trigger resolution.
 
         Split-brain occurs when voters report different leaders.
         This is a critical situation that must be resolved.
@@ -272,11 +272,88 @@ class LeaderElectionMixin(P2PMixinBase):
             f"{list(leaders_seen.keys())}"
         )
 
+        # Emit SPLIT_BRAIN_DETECTED event
+        self._safe_emit_event("SPLIT_BRAIN_DETECTED", {
+            "leaders_seen": list(leaders_seen.keys()),
+            "voter_count": len(voters),
+            "severity": severity,
+        })
+
+        # ENFORCEMENT: Trigger resolution immediately
+        self._resolve_split_brain(leaders_seen)
+
         return {
             "leaders_seen": leaders_seen,
             "severity": severity,
             "recommended_action": "force_election" if severity == "critical" else "wait",
         }
+
+    def _resolve_split_brain(self, leaders_seen: dict[str, list[str]]) -> None:
+        """Resolve split-brain by demoting self if not the canonical leader.
+
+        Canonical leader is determined by:
+        1. Highest peer count (most votes)
+        2. Lowest node_id as tiebreaker (deterministic)
+
+        Args:
+            leaders_seen: Dict mapping leader_id to list of voters recognizing them
+        """
+        # Import NodeRole lazily
+        try:
+            from scripts.p2p.types import NodeRole
+        except ImportError:
+            from enum import Enum
+
+            class NodeRole(str, Enum):
+                LEADER = "leader"
+                FOLLOWER = "follower"
+
+        # Only relevant if we think we're the leader
+        if self.role != NodeRole.LEADER:
+            return
+
+        # Find canonical leader: highest vote count, then lowest node_id
+        canonical_leader = None
+        max_votes = 0
+        for leader_id, voters in leaders_seen.items():
+            vote_count = len(voters)
+            if vote_count > max_votes or (vote_count == max_votes and (
+                canonical_leader is None or leader_id < canonical_leader
+            )):
+                canonical_leader = leader_id
+                max_votes = vote_count
+
+        if canonical_leader is None:
+            return
+
+        # If we're not the canonical leader, step down
+        if canonical_leader != self.node_id:
+            self._log_warning(
+                f"SPLIT-BRAIN RESOLUTION: Demoting self ({self.node_id}) in favor of "
+                f"canonical leader {canonical_leader} (has {max_votes} votes)"
+            )
+
+            # Step down from leadership
+            self.role = NodeRole.FOLLOWER
+            self.leader_id = canonical_leader
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
+            self.last_lease_renewal = 0.0
+            self._release_voter_grant_if_self()
+
+            # Save state and emit event
+            if hasattr(self, "_save_state"):
+                self._save_state()
+
+            self._safe_emit_event("SPLIT_BRAIN_RESOLVED", {
+                "demoted_node": self.node_id,
+                "canonical_leader": canonical_leader,
+                "canonical_votes": max_votes,
+            })
+        else:
+            self._log_info(
+                f"SPLIT-BRAIN RESOLUTION: This node ({self.node_id}) is the canonical leader"
+            )
 
 
 # Convenience functions for external use

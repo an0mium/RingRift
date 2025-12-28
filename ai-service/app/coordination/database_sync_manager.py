@@ -53,6 +53,12 @@ from app.coordination.sync_base import (
 
 logger = logging.getLogger(__name__)
 
+# Retry configuration for network operations
+HTTP_MAX_RETRIES = 3
+HTTP_INITIAL_BACKOFF = 1.0
+HTTP_BACKOFF_MULTIPLIER = 2.0
+HTTP_MAX_BACKOFF = 30.0
+
 
 # =============================================================================
 # Atomic File Operations
@@ -394,40 +400,73 @@ class DatabaseSyncManager(SyncManagerBase):
         )
 
     async def _sync_via_http(self, node: SyncNodeInfo) -> bool:
-        """Sync via HTTP download."""
+        """Sync via HTTP download with retry logic.
+
+        Uses exponential backoff for transient network failures.
+        """
         if not node.http_url:
             return False
 
         try:
             import aiohttp
-
-            url = f"{node.http_url.rstrip('/')}/data/{self.db_type}.db"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                    if resp.status != 200:
-                        return False
-
-                    # Download to temp file
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
-                        tmp.write(await resp.read())
-                        tmp_path = Path(tmp.name)
-
-                    # Merge or replace
-                    if self.enable_merge:
-                        result = await self._merge_databases(tmp_path)
-                    else:
-                        atomic_copy(tmp_path, self.db_path)
-                        result = True
-
-                    tmp_path.unlink()
-                    return result
-
         except ImportError:
             logger.debug(f"[{self.db_type}] aiohttp not available for HTTP sync")
             return False
-        except Exception as e:
-            logger.warning(f"[{self.db_type}] HTTP sync failed: {e}")
-            return False
+
+        url = f"{node.http_url.rstrip('/')}/data/{self.db_type}.db"
+        backoff = HTTP_INITIAL_BACKOFF
+        last_error: Exception | None = None
+
+        for attempt in range(HTTP_MAX_RETRIES + 1):
+            tmp_path: Path | None = None
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                        if resp.status != 200:
+                            # Non-retryable status codes
+                            if resp.status in (404, 403, 401):
+                                logger.debug(f"[{self.db_type}] HTTP {resp.status} for {url}")
+                                return False
+                            # Retryable server errors (5xx)
+                            if resp.status >= 500 and attempt < HTTP_MAX_RETRIES:
+                                logger.warning(
+                                    f"[{self.db_type}] HTTP {resp.status} from {node.node_id}, "
+                                    f"retry {attempt + 1}/{HTTP_MAX_RETRIES + 1} in {backoff:.1f}s"
+                                )
+                                await asyncio.sleep(backoff)
+                                backoff = min(backoff * HTTP_BACKOFF_MULTIPLIER, HTTP_MAX_BACKOFF)
+                                continue
+                            return False
+
+                        # Download to temp file
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+                            tmp.write(await resp.read())
+                            tmp_path = Path(tmp.name)
+
+                        # Merge or replace
+                        if self.enable_merge:
+                            result = await self._merge_databases(tmp_path)
+                        else:
+                            atomic_copy(tmp_path, self.db_path)
+                            result = True
+
+                        tmp_path.unlink()
+                        return result
+
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+                last_error = e
+                if tmp_path and tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
+                if attempt < HTTP_MAX_RETRIES:
+                    logger.warning(
+                        f"[{self.db_type}] HTTP sync to {node.node_id} failed: {e}. "
+                        f"Retry {attempt + 1}/{HTTP_MAX_RETRIES + 1} in {backoff:.1f}s"
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * HTTP_BACKOFF_MULTIPLIER, HTTP_MAX_BACKOFF)
+
+        logger.warning(f"[{self.db_type}] HTTP sync failed after {HTTP_MAX_RETRIES + 1} attempts: {last_error}")
+        return False
 
     async def _rsync_pull(
         self,
