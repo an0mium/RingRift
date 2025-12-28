@@ -101,12 +101,20 @@ class OrphanDetectionDaemon:
     in the central manifest, leading to "invisible" training data.
     """
 
+    # P0.2 Dec 2025: Retry settings for orphan registration
+    _REGISTRATION_MAX_RETRIES = 3
+    _REGISTRATION_BACKOFF_BASE = 30.0  # seconds: 30, 60, 120
+
     def __init__(self, config: OrphanDetectionConfig | None = None):
         self.config = config or OrphanDetectionConfig()
         self._running = False
         self._last_scan_time: float = 0.0
         self._orphan_history: list[dict[str, Any]] = []
         self._event_subscription = None
+        # P0.2 Dec 2025: Track registration failures for health check
+        self._registration_errors: int = 0
+        self._failed_orphans_db = Path(self.config.games_dir) / ".failed_orphans.db"
+        self._init_failed_orphans_db()
 
     async def start(self) -> None:
         """Start the daemon."""

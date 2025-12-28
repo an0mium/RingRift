@@ -55,6 +55,47 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Atomic File Operations
+# =============================================================================
+
+
+def atomic_copy(src: Path, dst: Path) -> None:
+    """Atomically copy a file using temp file + rename pattern.
+
+    On POSIX systems, rename within the same filesystem is atomic.
+    This prevents corrupted destination files if the copy is interrupted.
+
+    Args:
+        src: Source file path
+        dst: Destination file path
+
+    Raises:
+        OSError: If the copy or rename fails
+    """
+    # Create temp file in the same directory as destination for atomic rename
+    dst_dir = dst.parent
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(
+        dir=dst_dir,
+        prefix=".tmp_atomic_",
+        suffix=dst.suffix,
+        delete=False,
+    ) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        # Copy to temp file
+        shutil.copy2(src, tmp_path)
+        # Atomic rename (POSIX guarantees atomicity for same-filesystem renames)
+        tmp_path.rename(dst)
+    except Exception:
+        # Clean up temp file on failure
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+# =============================================================================
 # Data Classes
 # =============================================================================
 
@@ -375,7 +416,7 @@ class DatabaseSyncManager(SyncManagerBase):
                     if self.enable_merge:
                         result = await self._merge_databases(tmp_path)
                     else:
-                        shutil.copy(tmp_path, self.db_path)
+                        atomic_copy(tmp_path, self.db_path)
                         result = True
 
                     tmp_path.unlink()

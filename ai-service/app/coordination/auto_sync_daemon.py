@@ -1246,6 +1246,19 @@ class AutoSyncDaemon:
                         f"[AutoSyncDaemon] Write-through timeout for game {game_id} "
                         f"(timeout={self.config.ephemeral_write_through_timeout}s)"
                     )
+                    # Dec 2025: Retry with exponential backoff before giving up
+                    retry_success = await self._push_with_retry(
+                        game_entry, max_attempts=3, base_delay=2.0
+                    )
+                    if retry_success:
+                        logger.info(
+                            f"[AutoSyncDaemon] Write-through succeeded after retry for game {game_id}"
+                        )
+                        return True
+
+                    # All retries failed - persist to retry queue to prevent data loss
+                    self._persist_failed_write(game_entry)
+
                     # Emit SYNC_STALLED for failover routing (Dec 2025)
                     fire_and_forget(
                         self._emit_sync_stalled(
@@ -1254,7 +1267,7 @@ class AutoSyncDaemon:
                             data_type="game",
                         )
                     )
-                    # Fall back to async push
+                    # Fall back to async push (for any remaining pending games)
                     fire_and_forget(self._push_pending_games())
                     return False
             else:

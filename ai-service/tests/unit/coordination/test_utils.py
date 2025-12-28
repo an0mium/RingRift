@@ -1,18 +1,13 @@
-"""Tests for coordination utility classes (December 2025).
+"""Tests for app.coordination.utils module.
 
-Tests for app/coordination/utils.py:
-- BoundedHistory[T] - Fixed-size history collection
-- HistoryEntry - Entry dataclass with metadata
-- MetricsAccumulator - Windowed statistics
-- MetricsSnapshot - Snapshot dataclass
-- CallbackRegistry[T] - Type-safe callback management
+Tests for BoundedHistory, MetricsAccumulator, and CallbackRegistry classes.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -33,24 +28,28 @@ from app.coordination.utils import (
 class TestHistoryEntry:
     """Tests for HistoryEntry dataclass."""
 
-    def test_create_entry_with_defaults(self):
-        """Create entry with default timestamp and empty metadata."""
+    def test_creates_with_defaults(self):
+        """Test creating entry with default timestamp."""
         entry = HistoryEntry(value="test")
         assert entry.value == "test"
-        assert isinstance(entry.timestamp, float)
+        assert entry.timestamp > 0
         assert entry.metadata == {}
 
-    def test_create_entry_with_metadata(self):
-        """Create entry with custom metadata."""
-        entry = HistoryEntry(value=42, metadata={"source": "test"})
+    def test_creates_with_metadata(self):
+        """Test creating entry with metadata."""
+        entry = HistoryEntry(value=42, metadata={"key": "value"})
         assert entry.value == 42
-        assert entry.metadata["source"] == "test"
+        assert entry.metadata == {"key": "value"}
 
-    def test_create_entry_with_explicit_timestamp(self):
-        """Create entry with explicit timestamp."""
-        ts = 1735312800.0
-        entry = HistoryEntry(value="x", timestamp=ts)
-        assert entry.timestamp == ts
+    def test_generic_type(self):
+        """Test that HistoryEntry works with different types."""
+        str_entry: HistoryEntry[str] = HistoryEntry(value="string")
+        int_entry: HistoryEntry[int] = HistoryEntry(value=123)
+        list_entry: HistoryEntry[list] = HistoryEntry(value=[1, 2, 3])
+
+        assert str_entry.value == "string"
+        assert int_entry.value == 123
+        assert list_entry.value == [1, 2, 3]
 
 
 # =============================================================================
@@ -58,193 +57,177 @@ class TestHistoryEntry:
 # =============================================================================
 
 
-class TestBoundedHistoryBasics:
-    """Basic BoundedHistory functionality."""
+class TestBoundedHistory:
+    """Tests for BoundedHistory class."""
 
-    def test_create_empty_history(self):
-        """Create an empty history."""
-        history = BoundedHistory[str](max_size=10)
+    def test_init_defaults(self):
+        """Test default initialization."""
+        history: BoundedHistory[int] = BoundedHistory()
+        assert history.max_size == 100
+        assert history.track_timestamps is True
         assert len(history) == 0
-        assert history.oldest is None
-        assert history.newest is None
 
-    def test_append_single_item(self):
-        """Append a single item."""
-        history = BoundedHistory[int](max_size=10)
-        history.append(42)
-        assert len(history) == 1
-        assert history.oldest == 42
-        assert history.newest == 42
+    def test_init_custom_size(self):
+        """Test custom max_size."""
+        history: BoundedHistory[str] = BoundedHistory(max_size=10)
+        assert history.max_size == 10
 
-    def test_append_multiple_items(self):
-        """Append multiple items in sequence."""
-        history = BoundedHistory[int](max_size=10)
+    def test_append_and_len(self):
+        """Test appending items and length."""
+        history: BoundedHistory[int] = BoundedHistory(max_size=5)
+        history.append(1)
+        history.append(2)
+        history.append(3)
+        assert len(history) == 3
+
+    def test_append_with_metadata(self):
+        """Test appending with metadata."""
+        history: BoundedHistory[str] = BoundedHistory(max_size=5)
+        history.append("event", source="test", priority=1)
+        entries = history.get_entries()
+        assert len(entries) == 1
+        assert entries[0].metadata == {"source": "test", "priority": 1}
+
+    def test_bounded_eviction(self):
+        """Test that old items are evicted when max_size reached."""
+        history: BoundedHistory[int] = BoundedHistory(max_size=3)
         for i in range(5):
             history.append(i)
-        assert len(history) == 5
-        assert history.oldest == 0
-        assert history.newest == 4
 
-    def test_extend_history(self):
-        """Extend history with list of items."""
-        history = BoundedHistory[str](max_size=10)
-        history.extend(["a", "b", "c"])
         assert len(history) == 3
-        assert history.get_all() == ["a", "b", "c"]
+        assert history.get_all() == [2, 3, 4]
+        assert history.total_added == 5
 
-    def test_clear_history(self):
-        """Clear all history."""
-        history = BoundedHistory[int](max_size=10)
+    def test_extend(self):
+        """Test extending with multiple items."""
+        history: BoundedHistory[int] = BoundedHistory(max_size=10)
+        history.extend([1, 2, 3, 4, 5])
+        assert len(history) == 5
+        assert history.get_all() == [1, 2, 3, 4, 5]
+
+    def test_clear(self):
+        """Test clearing history."""
+        history: BoundedHistory[int] = BoundedHistory()
         history.extend([1, 2, 3])
         history.clear()
         assert len(history) == 0
-        assert history.oldest is None
+        assert history.get_all() == []
 
-
-class TestBoundedHistoryBounding:
-    """Tests for max_size enforcement."""
-
-    def test_evict_oldest_when_full(self):
-        """Oldest items are evicted when max_size is reached."""
-        history = BoundedHistory[int](max_size=3)
-        for i in range(5):
-            history.append(i)
-        assert len(history) == 3
-        assert history.get_all() == [2, 3, 4]
-
-    def test_is_full_property(self):
-        """is_full property is accurate."""
-        history = BoundedHistory[int](max_size=3)
-        assert not history.is_full
-        history.extend([1, 2, 3])
-        assert history.is_full
-
-    def test_total_added_tracks_evicted(self):
-        """total_added includes evicted items."""
-        history = BoundedHistory[int](max_size=3)
-        for i in range(10):
-            history.append(i)
-        assert len(history) == 3
-        assert history.total_added == 10
-
-
-class TestBoundedHistoryRetrieval:
-    """Tests for retrieving items from history."""
-
-    def test_get_recent_items(self):
-        """Get n most recent items."""
-        history = BoundedHistory[int](max_size=10)
+    def test_get_recent(self):
+        """Test getting recent items."""
+        history: BoundedHistory[int] = BoundedHistory()
         history.extend([1, 2, 3, 4, 5])
         assert history.get_recent(3) == [3, 4, 5]
-        assert history.get_recent(10) == [1, 2, 3, 4, 5]
-
-    def test_get_recent_zero_or_negative(self):
-        """get_recent with zero or negative returns empty list."""
-        history = BoundedHistory[int](max_size=10)
-        history.extend([1, 2, 3])
+        assert history.get_recent(10) == [1, 2, 3, 4, 5]  # More than available
         assert history.get_recent(0) == []
         assert history.get_recent(-1) == []
 
-    def test_get_oldest_items(self):
-        """Get n oldest items."""
-        history = BoundedHistory[int](max_size=10)
+    def test_get_oldest(self):
+        """Test getting oldest items."""
+        history: BoundedHistory[int] = BoundedHistory()
         history.extend([1, 2, 3, 4, 5])
         assert history.get_oldest(3) == [1, 2, 3]
+        assert history.get_oldest(10) == [1, 2, 3, 4, 5]
 
-    def test_get_all_items(self):
-        """Get all items as list."""
-        history = BoundedHistory[str](max_size=10)
-        history.extend(["a", "b", "c"])
-        assert history.get_all() == ["a", "b", "c"]
+    def test_oldest_newest_properties(self):
+        """Test oldest and newest properties."""
+        history: BoundedHistory[int] = BoundedHistory()
+        assert history.oldest is None
+        assert history.newest is None
 
-    def test_get_entries_returns_full_entries(self):
-        """get_entries returns HistoryEntry objects."""
-        history = BoundedHistory[str](max_size=10)
-        history.append("test", source="unit_test")
-        entries = history.get_entries()
-        assert len(entries) == 1
-        assert entries[0].value == "test"
-        assert entries[0].metadata["source"] == "unit_test"
-
-
-class TestBoundedHistoryTimestamps:
-    """Tests for timestamp tracking."""
-
-    def test_oldest_newest_timestamps(self):
-        """oldest_timestamp and newest_timestamp are accurate."""
-        history = BoundedHistory[int](max_size=10, track_timestamps=True)
-        t1 = time.time()
         history.append(1)
-        time.sleep(0.01)
-        history.append(2)
-        t2 = time.time()
+        assert history.oldest == 1
+        assert history.newest == 1
 
-        assert history.oldest_timestamp is not None
-        assert history.newest_timestamp is not None
-        assert t1 <= history.oldest_timestamp <= history.newest_timestamp <= t2
+        history.append(2)
+        history.append(3)
+        assert history.oldest == 1
+        assert history.newest == 3
+
+    def test_timestamp_properties(self):
+        """Test timestamp properties."""
+        history: BoundedHistory[int] = BoundedHistory()
+        assert history.oldest_timestamp is None
+        assert history.newest_timestamp is None
+
+        history.append(1)
+        ts1 = history.oldest_timestamp
+        assert ts1 is not None
+        assert ts1 == history.newest_timestamp
+
+        time.sleep(0.01)  # Small delay
+        history.append(2)
+        assert history.oldest_timestamp == ts1
+        assert history.newest_timestamp > ts1
+
+    def test_filter(self):
+        """Test filtering items."""
+        history: BoundedHistory[int] = BoundedHistory()
+        history.extend([1, 2, 3, 4, 5, 6])
+        evens = history.filter(lambda x: x % 2 == 0)
+        assert evens == [2, 4, 6]
 
     def test_filter_by_time(self):
-        """Filter items by timestamp range."""
-        history = BoundedHistory[int](max_size=10, track_timestamps=True)
+        """Test filtering by timestamp."""
+        history: BoundedHistory[int] = BoundedHistory()
         history.append(1)
+        time.sleep(0.05)
         mid_time = time.time()
-        time.sleep(0.01)
+        time.sleep(0.05)
         history.append(2)
         history.append(3)
 
         # Items after mid_time
         recent = history.filter_by_time(since=mid_time)
-        assert len(recent) == 2
+        assert recent == [2, 3]
 
-    def test_disable_timestamps(self):
-        """Timestamps can be disabled for performance."""
-        history = BoundedHistory[int](max_size=10, track_timestamps=False)
-        history.append(1)
-        entries = history.get_entries()
-        assert entries[0].timestamp == 0.0
-
-
-class TestBoundedHistoryFiltering:
-    """Tests for filtering and counting."""
-
-    def test_filter_by_predicate(self):
-        """Filter items by custom predicate."""
-        history = BoundedHistory[int](max_size=10)
-        history.extend([1, 2, 3, 4, 5, 6])
-        evens = history.filter(lambda x: x % 2 == 0)
-        assert evens == [2, 4, 6]
+        # Items before mid_time
+        old = history.filter_by_time(until=mid_time)
+        assert old == [1]
 
     def test_count_matching(self):
-        """Count items matching predicate."""
-        history = BoundedHistory[int](max_size=10)
-        history.extend([1, 2, 3, 4, 5])
-        count = history.count_matching(lambda x: x > 3)
-        assert count == 2
+        """Test counting matching items."""
+        history: BoundedHistory[int] = BoundedHistory()
+        history.extend([1, 2, 3, 4, 5, 6])
+        assert history.count_matching(lambda x: x > 3) == 3
+        assert history.count_matching(lambda x: x == 10) == 0
 
+    def test_is_full(self):
+        """Test is_full property."""
+        history: BoundedHistory[int] = BoundedHistory(max_size=3)
+        assert not history.is_full
+        history.extend([1, 2])
+        assert not history.is_full
+        history.append(3)
+        assert history.is_full
 
-class TestBoundedHistoryIterators:
-    """Tests for iteration and container protocols."""
-
-    def test_iterate_history(self):
-        """Iterate over history items."""
-        history = BoundedHistory[int](max_size=10)
+    def test_iteration(self):
+        """Test iteration over items."""
+        history: BoundedHistory[int] = BoundedHistory()
         history.extend([1, 2, 3])
         items = list(history)
         assert items == [1, 2, 3]
 
-    def test_bool_conversion(self):
-        """Bool conversion is accurate."""
-        history = BoundedHistory[int](max_size=10)
+    def test_bool(self):
+        """Test boolean evaluation."""
+        history: BoundedHistory[int] = BoundedHistory()
         assert not history
         history.append(1)
         assert history
 
-    def test_contains_check(self):
-        """Item containment check works."""
-        history = BoundedHistory[str](max_size=10)
-        history.extend(["a", "b", "c"])
-        assert "b" in history
-        assert "z" not in history
+    def test_contains(self):
+        """Test membership testing."""
+        history: BoundedHistory[int] = BoundedHistory()
+        history.extend([1, 2, 3])
+        assert 2 in history
+        assert 10 not in history
+
+    def test_no_timestamps(self):
+        """Test with timestamp tracking disabled."""
+        history: BoundedHistory[int] = BoundedHistory(track_timestamps=False)
+        history.append(1)
+        entries = history.get_entries()
+        assert entries[0].timestamp == 0.0
 
 
 # =============================================================================
@@ -255,21 +238,22 @@ class TestBoundedHistoryIterators:
 class TestMetricsSnapshot:
     """Tests for MetricsSnapshot dataclass."""
 
-    def test_create_snapshot(self):
-        """Create a metrics snapshot."""
+    def test_creates_with_values(self):
+        """Test creating snapshot with values."""
         snapshot = MetricsSnapshot(
             count=100,
-            total=150.0,
-            mean=1.5,
-            min_value=0.5,
-            max_value=3.0,
-            std_dev=0.3,
-            recent_mean=1.6,
+            total=250.0,
+            mean=2.5,
+            min_value=1.0,
+            max_value=5.0,
+            std_dev=0.5,
+            recent_mean=2.6,
             trend=0.01,
         )
         assert snapshot.count == 100
-        assert snapshot.mean == 1.5
+        assert snapshot.mean == 2.5
         assert snapshot.trend == 0.01
+        assert snapshot.timestamp > 0
 
 
 # =============================================================================
@@ -277,198 +261,199 @@ class TestMetricsSnapshot:
 # =============================================================================
 
 
-class TestMetricsAccumulatorBasics:
-    """Basic MetricsAccumulator functionality."""
+class TestMetricsAccumulator:
+    """Tests for MetricsAccumulator class."""
 
-    def test_create_empty_accumulator(self):
-        """Create empty accumulator."""
-        metrics = MetricsAccumulator(window_size=50, name="test")
+    def test_init_defaults(self):
+        """Test default initialization."""
+        metrics = MetricsAccumulator()
+        assert metrics.window_size == 100
+        assert metrics.name == "metric"
+        assert metrics.higher_is_better is False
         assert metrics.count == 0
-        assert metrics.mean == 0.0
-        assert metrics.current is None
 
-    def test_add_single_value(self):
-        """Add single value."""
-        metrics = MetricsAccumulator(window_size=50)
-        metrics.add(1.0)
-        assert metrics.count == 1
-        assert metrics.mean == 1.0
-        assert metrics.current == 1.0
+    def test_init_custom(self):
+        """Test custom initialization."""
+        metrics = MetricsAccumulator(
+            window_size=50,
+            name="loss",
+            higher_is_better=True,
+        )
+        assert metrics.window_size == 50
+        assert metrics.name == "loss"
+        assert metrics.higher_is_better is True
 
-    def test_add_multiple_values(self):
-        """Add multiple values."""
-        metrics = MetricsAccumulator(window_size=50)
+    def test_add_and_count(self):
+        """Test adding values and counting."""
+        metrics = MetricsAccumulator()
         metrics.add(1.0)
         metrics.add(2.0)
         metrics.add(3.0)
         assert metrics.count == 3
-        assert metrics.mean == 2.0
-        assert metrics.total == 6.0
+        assert metrics.window_count == 3
 
     def test_add_batch(self):
-        """Add batch of values."""
-        metrics = MetricsAccumulator(window_size=50)
-        metrics.add_batch([1.0, 2.0, 3.0, 4.0])
-        assert metrics.count == 4
-        assert metrics.mean == 2.5
-
-
-class TestMetricsAccumulatorStatistics:
-    """Tests for statistical calculations."""
-
-    def test_min_max_tracking(self):
-        """Min and max are tracked correctly."""
-        metrics = MetricsAccumulator(window_size=50)
-        metrics.add_batch([3.0, 1.0, 5.0, 2.0])
-        assert metrics.min_value == 1.0
-        assert metrics.max_value == 5.0
-
-    def test_std_dev_calculation(self):
-        """Standard deviation is calculated correctly."""
-        metrics = MetricsAccumulator(window_size=50)
-        metrics.add_batch([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])
-        # Population: [2,4,4,4,5,5,7,9], mean=5, var=4, std=2
-        # Sample std_dev is slightly different
-        assert 1.5 < metrics.std_dev < 2.5
-
-    def test_std_dev_with_few_values(self):
-        """std_dev returns 0 with fewer than 2 values."""
-        metrics = MetricsAccumulator(window_size=50)
-        assert metrics.std_dev == 0.0
-        metrics.add(1.0)
-        assert metrics.std_dev == 0.0
-
-    def test_variance_calculation(self):
-        """Variance is calculated correctly."""
-        metrics = MetricsAccumulator(window_size=50)
-        metrics.add_batch([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])
-        assert 3.0 < metrics.variance < 6.0
-
-
-class TestMetricsAccumulatorWindow:
-    """Tests for windowed statistics."""
-
-    def test_window_eviction(self):
-        """Oldest values are evicted from window."""
-        metrics = MetricsAccumulator(window_size=3)
+        """Test adding multiple values at once."""
+        metrics = MetricsAccumulator()
         metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
-        assert metrics.window_count == 3
+        assert metrics.count == 5
+
+    def test_mean(self):
+        """Test mean calculation."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([2.0, 4.0, 6.0, 8.0])
+        assert metrics.mean == 5.0
+
+    def test_mean_empty(self):
+        """Test mean when empty."""
+        metrics = MetricsAccumulator()
+        assert metrics.mean == 0.0
+
+    def test_window_mean(self):
+        """Test window mean vs overall mean."""
+        metrics = MetricsAccumulator(window_size=3)
+        # Add 5 values, window only keeps last 3
+        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
+        assert metrics.mean == 3.0  # (1+2+3+4+5)/5
         assert metrics.window_mean == 4.0  # (3+4+5)/3
 
-    def test_window_mean_vs_total_mean(self):
-        """Window mean differs from total mean."""
-        metrics = MetricsAccumulator(window_size=2)
-        metrics.add_batch([1.0, 2.0, 10.0, 11.0])
-        assert metrics.mean == 6.0  # (1+2+10+11)/4
-        assert metrics.window_mean == 10.5  # (10+11)/2
-
-    def test_get_recent_values(self):
-        """Get recent values from window."""
-        metrics = MetricsAccumulator(window_size=5)
-        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
-        assert metrics.get_recent(3) == [3.0, 4.0, 5.0]
-
-
-class TestMetricsAccumulatorTrend:
-    """Tests for trend calculation."""
-
-    def test_increasing_trend(self):
-        """Trend is positive for increasing values."""
-        metrics = MetricsAccumulator(window_size=10)
-        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
-        assert metrics.trend > 0
-
-    def test_decreasing_trend(self):
-        """Trend is negative for decreasing values."""
-        metrics = MetricsAccumulator(window_size=10)
-        metrics.add_batch([5.0, 4.0, 3.0, 2.0, 1.0])
-        assert metrics.trend < 0
-
-    def test_flat_trend(self):
-        """Trend is near zero for constant values."""
-        metrics = MetricsAccumulator(window_size=10)
-        metrics.add_batch([3.0, 3.0, 3.0, 3.0, 3.0])
-        assert abs(metrics.trend) < 0.01
-
-    def test_trend_with_few_values(self):
-        """Trend returns 0 with fewer than 2 values."""
-        metrics = MetricsAccumulator(window_size=10)
-        assert metrics.trend == 0.0
-        metrics.add(1.0)
-        assert metrics.trend == 0.0
-
-
-class TestMetricsAccumulatorImprovement:
-    """Tests for improvement tracking."""
-
-    def test_is_improving_lower_is_better(self):
-        """is_improving with higher_is_better=False (default)."""
-        metrics = MetricsAccumulator(window_size=10, higher_is_better=False)
-        metrics.add_batch([5.0, 4.0, 3.0, 2.0, 1.0])  # Decreasing = improving
-        assert metrics.is_improving
-
-    def test_is_improving_higher_is_better(self):
-        """is_improving with higher_is_better=True."""
-        metrics = MetricsAccumulator(window_size=10, higher_is_better=True)
-        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])  # Increasing = improving
-        assert metrics.is_improving
-
-    def test_best_value_lower_is_better(self):
-        """best_value with higher_is_better=False."""
-        metrics = MetricsAccumulator(window_size=10, higher_is_better=False)
-        metrics.add_batch([3.0, 1.0, 5.0, 2.0])
-        assert metrics.best_value == 1.0
-
-    def test_best_value_higher_is_better(self):
-        """best_value with higher_is_better=True."""
-        metrics = MetricsAccumulator(window_size=10, higher_is_better=True)
-        metrics.add_batch([3.0, 1.0, 5.0, 2.0])
-        assert metrics.best_value == 5.0
-
-
-class TestMetricsAccumulatorReset:
-    """Tests for reset functionality."""
-
-    def test_full_reset(self):
-        """Full reset clears everything."""
-        metrics = MetricsAccumulator(window_size=10)
-        metrics.add_batch([1.0, 2.0, 3.0])
-        metrics.reset()
-        assert metrics.count == 0
-        assert metrics.total == 0.0
+    def test_min_max(self):
+        """Test min and max tracking."""
+        metrics = MetricsAccumulator()
         assert metrics.min_value is None
         assert metrics.max_value is None
 
-    def test_window_reset(self):
-        """Window reset keeps all-time stats."""
-        metrics = MetricsAccumulator(window_size=10)
+        metrics.add_batch([3.0, 1.0, 4.0, 1.5, 9.2])
+        assert metrics.min_value == 1.0
+        assert metrics.max_value == 9.2
+
+    def test_best_value_lower_is_better(self):
+        """Test best value when lower is better."""
+        metrics = MetricsAccumulator(higher_is_better=False)
+        metrics.add_batch([3.0, 1.0, 2.0])
+        assert metrics.best_value == 1.0
+
+    def test_best_value_higher_is_better(self):
+        """Test best value when higher is better."""
+        metrics = MetricsAccumulator(higher_is_better=True)
+        metrics.add_batch([3.0, 1.0, 2.0])
+        assert metrics.best_value == 3.0
+
+    def test_std_dev(self):
+        """Test standard deviation calculation."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])
+        # Population std dev would be 2.0, sample std dev is ~2.14
+        assert 2.0 < metrics.std_dev < 2.2
+
+    def test_std_dev_insufficient_data(self):
+        """Test std_dev with insufficient data."""
+        metrics = MetricsAccumulator()
+        assert metrics.std_dev == 0.0
+        metrics.add(1.0)
+        assert metrics.std_dev == 0.0
+
+    def test_variance(self):
+        """Test variance calculation."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([2.0, 4.0, 6.0])
+        assert metrics.variance > 0
+        assert abs(metrics.std_dev - metrics.variance ** 0.5) < 0.0001
+
+    def test_trend_increasing(self):
+        """Test trend calculation for increasing values."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
+        assert metrics.trend > 0
+
+    def test_trend_decreasing(self):
+        """Test trend calculation for decreasing values."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([5.0, 4.0, 3.0, 2.0, 1.0])
+        assert metrics.trend < 0
+
+    def test_trend_flat(self):
+        """Test trend calculation for flat values."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([3.0, 3.0, 3.0, 3.0, 3.0])
+        assert abs(metrics.trend) < 0.001
+
+    def test_trend_insufficient_data(self):
+        """Test trend with insufficient data."""
+        metrics = MetricsAccumulator()
+        assert metrics.trend == 0.0
+        metrics.add(1.0)
+        assert metrics.trend == 0.0
+
+    def test_is_improving_lower_better(self):
+        """Test is_improving when lower is better."""
+        metrics = MetricsAccumulator(higher_is_better=False)
+        metrics.add_batch([5.0, 4.0, 3.0, 2.0, 1.0])  # Decreasing
+        assert metrics.is_improving is True
+
+    def test_is_improving_higher_better(self):
+        """Test is_improving when higher is better."""
+        metrics = MetricsAccumulator(higher_is_better=True)
+        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])  # Increasing
+        assert metrics.is_improving is True
+
+    def test_current(self):
+        """Test current value."""
+        metrics = MetricsAccumulator()
+        assert metrics.current is None
+        metrics.add(1.0)
+        assert metrics.current == 1.0
+        metrics.add(2.0)
+        assert metrics.current == 2.0
+
+    def test_get_recent(self):
+        """Test getting recent values."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
+        assert metrics.get_recent(3) == [3.0, 4.0, 5.0]
+
+    def test_reset(self):
+        """Test full reset."""
+        metrics = MetricsAccumulator()
         metrics.add_batch([1.0, 2.0, 3.0])
+        metrics.reset()
+        assert metrics.count == 0
+        assert metrics.window_count == 0
+        assert metrics.min_value is None
+        assert metrics.max_value is None
+        assert metrics.best_value is None
+
+    def test_reset_window(self):
+        """Test window-only reset."""
+        metrics = MetricsAccumulator()
+        metrics.add_batch([1.0, 2.0, 3.0])
+        total_before = metrics.total
         metrics.reset_window()
-        assert metrics.count == 3
-        assert metrics.total == 6.0
+        assert metrics.count == 3  # Total count preserved
+        assert metrics.total == total_before
         assert metrics.window_count == 0
 
-
-class TestMetricsAccumulatorSerialization:
-    """Tests for serialization."""
-
     def test_get_snapshot(self):
-        """get_snapshot returns MetricsSnapshot."""
-        metrics = MetricsAccumulator(window_size=10, name="loss")
-        metrics.add_batch([1.0, 2.0, 3.0])
+        """Test snapshot creation."""
+        metrics = MetricsAccumulator(name="test")
+        metrics.add_batch([1.0, 2.0, 3.0, 4.0, 5.0])
         snapshot = metrics.get_snapshot()
         assert isinstance(snapshot, MetricsSnapshot)
-        assert snapshot.count == 3
-        assert snapshot.mean == 2.0
+        assert snapshot.count == 5
+        assert snapshot.mean == 3.0
+        assert snapshot.min_value == 1.0
+        assert snapshot.max_value == 5.0
 
     def test_to_dict(self):
-        """to_dict returns dictionary representation."""
-        metrics = MetricsAccumulator(window_size=10, name="loss")
+        """Test dictionary serialization."""
+        metrics = MetricsAccumulator(name="loss")
         metrics.add_batch([1.0, 2.0, 3.0])
         d = metrics.to_dict()
         assert d["name"] == "loss"
         assert d["count"] == 3
-        assert d["mean"] == 2.0
+        assert "mean" in d
+        assert "trend" in d
+        assert "is_improving" in d
 
 
 # =============================================================================
@@ -476,220 +461,287 @@ class TestMetricsAccumulatorSerialization:
 # =============================================================================
 
 
-class TestCallbackRegistryBasics:
-    """Basic CallbackRegistry functionality."""
+class TestCallbackRegistry:
+    """Tests for CallbackRegistry class."""
 
-    def test_create_empty_registry(self):
-        """Create empty registry."""
-        registry = CallbackRegistry[str](name="test")
+    def test_init_defaults(self):
+        """Test default initialization."""
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        assert registry.name == "callbacks"
         assert registry.count == 0
 
-    def test_register_callback(self):
-        """Register a callback."""
-        registry = CallbackRegistry[str]()
+    def test_init_custom_name(self):
+        """Test custom name."""
+        registry: CallbackRegistry[str] = CallbackRegistry(name="events")
+        assert registry.name == "events"
+
+    def test_register(self):
+        """Test registering callbacks."""
 
         def handler(data: str) -> None:
             pass
 
+        registry: CallbackRegistry[str] = CallbackRegistry()
         registry.register(handler)
         assert registry.count == 1
 
     def test_register_duplicate_ignored(self):
-        """Duplicate registration is ignored."""
-        registry = CallbackRegistry[str]()
+        """Test that duplicate registration is ignored."""
 
         def handler(data: str) -> None:
             pass
 
+        registry: CallbackRegistry[str] = CallbackRegistry()
         registry.register(handler)
         registry.register(handler)
         assert registry.count == 1
 
-    def test_unregister_callback(self):
-        """Unregister a callback."""
-        registry = CallbackRegistry[str]()
+    def test_unregister(self):
+        """Test unregistering callbacks."""
 
         def handler(data: str) -> None:
             pass
 
+        registry: CallbackRegistry[str] = CallbackRegistry()
         registry.register(handler)
-        assert registry.unregister(handler)
+        result = registry.unregister(handler)
+        assert result is True
         assert registry.count == 0
 
-    def test_unregister_nonexistent(self):
-        """Unregistering nonexistent callback returns False."""
-        registry = CallbackRegistry[str]()
+    def test_unregister_not_found(self):
+        """Test unregistering non-existent callback."""
 
         def handler(data: str) -> None:
             pass
 
-        assert not registry.unregister(handler)
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        result = registry.unregister(handler)
+        assert result is False
 
-    def test_clear_callbacks(self):
-        """Clear all callbacks."""
-        registry = CallbackRegistry[str]()
-        registry.register(lambda x: None)
-        registry.register(lambda x: None)
+    def test_clear(self):
+        """Test clearing all callbacks."""
+
+        def handler1(data: str) -> None:
+            pass
+
+        def handler2(data: str) -> None:
+            pass
+
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        registry.register(handler1)
+        registry.register(handler2)
         registry.clear()
         assert registry.count == 0
 
-
-class TestCallbackRegistryInvocation:
-    """Tests for callback invocation."""
-
     @pytest.mark.asyncio
-    async def test_invoke_sync_callbacks(self):
-        """Invoke synchronous callbacks."""
-        registry = CallbackRegistry[int]()
+    async def test_invoke_all_sync_handlers(self):
+        """Test invoking sync handlers."""
         results = []
 
-        def handler1(data: int) -> None:
-            results.append(data * 2)
+        def handler1(data: str) -> None:
+            results.append(f"h1:{data}")
 
-        def handler2(data: int) -> None:
-            results.append(data * 3)
+        def handler2(data: str) -> None:
+            results.append(f"h2:{data}")
 
+        registry: CallbackRegistry[str] = CallbackRegistry()
         registry.register(handler1)
         registry.register(handler2)
-        errors = await registry.invoke_all(5)
 
+        errors = await registry.invoke_all("test")
         assert errors == []
-        assert results == [10, 15]
+        assert results == ["h1:test", "h2:test"]
 
     @pytest.mark.asyncio
-    async def test_invoke_async_callbacks(self):
-        """Invoke asynchronous callbacks."""
-        registry = CallbackRegistry[str]()
+    async def test_invoke_all_async_handlers(self):
+        """Test invoking async handlers."""
         results = []
 
         async def async_handler(data: str) -> None:
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.001)
             results.append(f"async:{data}")
 
+        registry: CallbackRegistry[str] = CallbackRegistry()
         registry.register(async_handler)
-        errors = await registry.invoke_all("test")
 
+        errors = await registry.invoke_all("test")
         assert errors == []
         assert results == ["async:test"]
 
     @pytest.mark.asyncio
-    async def test_invoke_mixed_callbacks(self):
-        """Invoke mix of sync and async callbacks."""
-        registry = CallbackRegistry[str]()
+    async def test_invoke_all_mixed_handlers(self):
+        """Test invoking mixed sync and async handlers."""
         results = []
 
-        def sync_handler(data: str) -> None:
-            results.append(f"sync:{data}")
+        def sync_handler(data: int) -> None:
+            results.append(data * 2)
 
-        async def async_handler(data: str) -> None:
-            results.append(f"async:{data}")
+        async def async_handler(data: int) -> None:
+            await asyncio.sleep(0.001)
+            results.append(data * 3)
 
+        registry: CallbackRegistry[int] = CallbackRegistry()
         registry.register(sync_handler)
         registry.register(async_handler)
-        errors = await registry.invoke_all("test")
 
+        errors = await registry.invoke_all(5)
         assert errors == []
-        assert "sync:test" in results
-        assert "async:test" in results
-
-    def test_invoke_sync_only(self):
-        """invoke_all_sync only invokes sync callbacks."""
-        registry = CallbackRegistry[str]()
-        results = []
-
-        def sync_handler(data: str) -> None:
-            results.append(f"sync:{data}")
-
-        async def async_handler(data: str) -> None:
-            results.append(f"async:{data}")
-
-        registry.register(sync_handler)
-        registry.register(async_handler)
-        errors = registry.invoke_all_sync("test")
-
-        assert errors == []
-        assert results == ["sync:test"]
-
-
-class TestCallbackRegistryErrorHandling:
-    """Tests for error handling."""
+        assert 10 in results  # sync: 5*2
+        assert 15 in results  # async: 5*3
 
     @pytest.mark.asyncio
-    async def test_callback_error_isolated(self):
-        """Errors in one callback don't affect others."""
-        registry = CallbackRegistry[int]()
+    async def test_invoke_all_error_handling(self):
+        """Test that errors are captured but don't stop other handlers."""
         results = []
 
-        def good_handler(data: int) -> None:
+        def failing_handler(data: str) -> None:
+            raise ValueError("test error")
+
+        def succeeding_handler(data: str) -> None:
             results.append(data)
 
-        def bad_handler(data: int) -> None:
-            raise ValueError("test error")
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        registry.register(failing_handler)
+        registry.register(succeeding_handler)
 
-        registry.register(bad_handler)
-        registry.register(good_handler)
-        errors = await registry.invoke_all(42)
-
+        errors = await registry.invoke_all("test")
         assert len(errors) == 1
         assert isinstance(errors[0], ValueError)
-        assert results == [42]
+        assert results == ["test"]  # Succeeding handler still ran
+
+    def test_invoke_all_sync_method(self):
+        """Test sync-only invocation method."""
+        results = []
+
+        def sync_handler(data: str) -> None:
+            results.append(f"sync:{data}")
+
+        async def async_handler(data: str) -> None:
+            results.append(f"async:{data}")
+
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        registry.register(sync_handler)
+        registry.register(async_handler)
+
+        errors = registry.invoke_all_sync("test")
+        assert errors == []
+        assert results == ["sync:test"]  # Async handler skipped
+
+    def test_invoke_all_sync_error_handling(self):
+        """Test sync-only invocation error handling."""
+
+        def failing_handler(data: str) -> None:
+            raise RuntimeError("sync error")
+
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        registry.register(failing_handler)
+
+        errors = registry.invoke_all_sync("test")
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError)
 
     @pytest.mark.asyncio
-    async def test_error_count_tracked(self):
-        """Error count is tracked."""
-        registry = CallbackRegistry[int]()
+    async def test_invocation_count(self):
+        """Test invocation counting."""
 
-        def bad_handler(data: int) -> None:
-            raise ValueError("test error")
+        def handler(data: str) -> None:
+            pass
 
-        registry.register(bad_handler)
-        await registry.invoke_all(1)
-        await registry.invoke_all(2)
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        registry.register(handler)
 
+        assert registry.invocation_count == 0
+        await registry.invoke_all("test")
+        assert registry.invocation_count == 1
+        await registry.invoke_all("test2")
+        assert registry.invocation_count == 2
+
+    @pytest.mark.asyncio
+    async def test_error_count(self):
+        """Test error counting."""
+
+        def failing_handler(data: str) -> None:
+            raise ValueError("error")
+
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        registry.register(failing_handler)
+
+        assert registry.error_count == 0
+        await registry.invoke_all("test")
+        assert registry.error_count == 1
+        await registry.invoke_all("test2")
         assert registry.error_count == 2
 
     @pytest.mark.asyncio
-    async def test_error_rate_calculated(self):
-        """Error rate is calculated correctly."""
-        registry = CallbackRegistry[int]()
+    async def test_error_rate(self):
+        """Test error rate calculation."""
 
-        def bad_handler(data: int) -> None:
-            if data % 2 == 0:
-                raise ValueError("even error")
+        call_count = 0
 
-        registry.register(bad_handler)
-        await registry.invoke_all(1)  # OK
-        await registry.invoke_all(2)  # Error
-        await registry.invoke_all(3)  # OK
-        await registry.invoke_all(4)  # Error
+        def sometimes_failing(data: int) -> None:
+            nonlocal call_count
+            call_count += 1
+            if data < 0:
+                raise ValueError("negative")
+
+        registry: CallbackRegistry[int] = CallbackRegistry()
+        registry.register(sometimes_failing)
+
+        # 2 successes, 2 failures
+        await registry.invoke_all(1)
+        await registry.invoke_all(2)
+        await registry.invoke_all(-1)
+        await registry.invoke_all(-2)
 
         assert registry.invocation_count == 4
         assert registry.error_count == 2
         assert registry.error_rate == 0.5
 
-
-class TestCallbackRegistryStats:
-    """Tests for statistics."""
-
-    @pytest.mark.asyncio
-    async def test_invocation_count(self):
-        """Invocation count is tracked."""
-        registry = CallbackRegistry[str]()
-        registry.register(lambda x: None)
-        registry.register(lambda x: None)
-
-        await registry.invoke_all("a")
-        await registry.invoke_all("b")
-
-        assert registry.invocation_count == 4  # 2 callbacks × 2 invocations
+    def test_error_rate_empty(self):
+        """Test error rate when no invocations."""
+        registry: CallbackRegistry[str] = CallbackRegistry()
+        assert registry.error_rate == 0.0
 
     def test_get_stats(self):
-        """get_stats returns comprehensive stats."""
-        registry = CallbackRegistry[str](name="events")
-        registry.register(lambda x: None)
+        """Test getting registry statistics."""
+        registry: CallbackRegistry[str] = CallbackRegistry(name="test_registry")
 
+        def handler(data: str) -> None:
+            pass
+
+        registry.register(handler)
         stats = registry.get_stats()
-        assert stats["name"] == "events"
+
+        assert stats["name"] == "test_registry"
         assert stats["callback_count"] == 1
         assert stats["invocation_count"] == 0
+        assert stats["error_count"] == 0
         assert stats["error_rate"] == 0.0
+
+    def test_generic_types(self):
+        """Test that CallbackRegistry works with various types."""
+        # Dict type
+        dict_results = []
+
+        def dict_handler(data: dict) -> None:
+            dict_results.append(data)
+
+        dict_registry: CallbackRegistry[dict] = CallbackRegistry()
+        dict_registry.register(dict_handler)
+        dict_registry.invoke_all_sync({"key": "value"})
+        assert dict_results == [{"key": "value"}]
+
+        # Custom object type
+        class Event:
+            def __init__(self, name: str):
+                self.name = name
+
+        event_results = []
+
+        def event_handler(event: Event) -> None:
+            event_results.append(event.name)
+
+        event_registry: CallbackRegistry[Event] = CallbackRegistry()
+        event_registry.register(event_handler)
+        event_registry.invoke_all_sync(Event("test_event"))
+        assert event_results == ["test_event"]

@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # - v11: Added search_stats_json column for rich training data (Q-values, uncertainty, etc.)
 # - v12: Added engine_mode column for fast AI type filtering/analysis
 # - v13: Added parity_status, parity_checked_at, parity_divergence_move for TS/Python parity tracking
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Default snapshot interval (every N moves)
 DEFAULT_SNAPSHOT_INTERVAL = 20
