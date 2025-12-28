@@ -83,6 +83,19 @@ class NodeSyncCapability:
     disk_usage_percent: float = 0.0
     available_gb: float = 0.0
     last_sync_time: float = 0.0  # Dec 2025: Timestamp of last successful sync
+    # Dec 2025: Added missing properties to fix AttributeError crashes
+    selfplay_enabled: bool = False  # Whether node runs selfplay jobs
+    has_gpu: bool = False  # Whether node has GPU (inferred from provider/role)
+
+    @property
+    def training_enabled(self) -> bool:
+        """Alias for is_training_node for consistency."""
+        return self.is_training_node
+
+    @property
+    def disk_percent(self) -> float:
+        """Alias for disk_usage_percent for consistency."""
+        return self.disk_usage_percent
 
 
 class SyncRouter:

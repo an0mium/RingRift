@@ -998,7 +998,14 @@ def run_baseline_gauntlet(
             pass  # Registry not available, continue without
 
     if opponents is None:
-        opponents = [BaselineOpponent.RANDOM, BaselineOpponent.HEURISTIC]
+        # December 2025: Extended defaults to measure Elo up to ~1800
+        # Previous [RANDOM, HEURISTIC] capped observable Elo at ~1200-1500
+        opponents = [
+            BaselineOpponent.RANDOM,       # ~400 Elo
+            BaselineOpponent.HEURISTIC,    # ~1200 Elo
+            BaselineOpponent.MCTS_LIGHT,   # ~1500 Elo (32 sims)
+            BaselineOpponent.MCTS_MEDIUM,  # ~1700 Elo (128 sims)
+        ]
 
     result = GauntletResult()
 

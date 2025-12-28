@@ -442,18 +442,21 @@ class SelfplayRunner(ABC):
 
             # Run async wait in sync context
             import asyncio
+            import concurrent.futures
             try:
                 loop = asyncio.get_running_loop()
-                # We're in an async context - use await directly
-                task = loop.create_task(
-                    wait_for_model_distribution(
-                        self.config.board_type,
-                        self.config.num_players,
-                        timeout=300.0,
+                # We're in an async context - use thread to avoid nested loop
+                # This runs the coroutine in a separate thread's event loop
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run,
+                        wait_for_model_distribution(
+                            self.config.board_type,
+                            self.config.num_players,
+                            timeout=300.0,
+                        )
                     )
-                )
-                # Block on the task
-                available = loop.run_until_complete(task)
+                    available = future.result(timeout=310.0)
             except RuntimeError:
                 # No running loop - create new one
                 available = asyncio.run(

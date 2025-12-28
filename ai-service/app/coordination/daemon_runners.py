@@ -1042,6 +1042,29 @@ async def create_coordinator_disk_manager() -> None:
         raise
 
 
+async def create_sync_push() -> None:
+    """Create and run sync push daemon (December 28, 2025).
+
+    Push-based sync for GPU training nodes:
+    - At 50% disk: Start pushing completed games to coordinator
+    - At 70% disk: Push urgently (bypass write locks if safe)
+    - At 75% disk: Clean up files with 2+ verified copies
+    - Never delete files without verified sync receipts
+
+    This is part of the "sync then clean" pattern to prevent data loss
+    on GPU nodes that fill up during selfplay.
+    """
+    try:
+        from app.coordination.sync_push_daemon import SyncPushDaemon
+
+        daemon = SyncPushDaemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"SyncPushDaemon not available: {e}")
+        raise
+
+
 # =============================================================================
 # Miscellaneous Daemons
 # =============================================================================

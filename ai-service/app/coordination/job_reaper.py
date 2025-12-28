@@ -145,10 +145,11 @@ class JobReaperDaemon:
         self.stats = ReaperStats()
 
         # Job type specific timeouts (in seconds)
+        # Dec 2025: Increased gpu_selfplay from 1hr to 2hr - jobs taking 1.5+ hours were killed prematurely
         self.job_timeouts = {
             "selfplay": 7200,       # 2 hours
-            "gpu_selfplay": 3600,   # 1 hour
-            "hybrid_selfplay": 5400, # 1.5 hours
+            "gpu_selfplay": 7200,   # 2 hours (was 1hr, increased Dec 2025)
+            "hybrid_selfplay": 7200, # 2 hours (was 1.5hr, aligned Dec 2025)
             "gumbel_selfplay": 10800, # 3 hours (MCTS is slow)
             "training": 14400,      # 4 hours
             "cmaes": 7200,          # 2 hours

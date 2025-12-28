@@ -578,7 +578,7 @@ hosts:
     gpu: H100 SXM
     gpu_vram_gb: 80
     role: gpu_training_primary
-    status: retired  # Dec 27, 2025: Unreachable via ProxyJump, no public IP
+    status: offline  # Dec 28: Changed from retired to offline - completely skip in all operations
     nebius_id: computeinstance-e00xsba9efvkpvk8wy
     region: eu-north1
     p2p_enabled: false

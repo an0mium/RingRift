@@ -101,12 +101,14 @@ def main():
     print(f"  Board: {args.board_type}, Players: {args.num_players}, Games/opponent: {args.games}")
     print("=" * 60)
 
+    # Use default opponents from run_baseline_gauntlet (extended Dec 2025)
+    # Includes: RANDOM, HEURISTIC, MCTS_LIGHT, MCTS_MEDIUM for Elo up to ~1800
     result = run_baseline_gauntlet(
         model_path=str(model_path),
         board_type=args.board_type,
         num_players=args.num_players,
         games_per_opponent=args.games,
-        opponents=[BaselineOpponent.RANDOM, BaselineOpponent.HEURISTIC],
+        opponents=None,  # Use extended defaults
         verbose=True,
         early_stopping=True,
         parallel_opponents=args.parallel,

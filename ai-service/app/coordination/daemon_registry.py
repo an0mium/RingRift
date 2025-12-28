@@ -440,6 +440,15 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DISK_SPACE_MANAGER),
         category="recovery",
     ),
+    # Sync push daemon (December 28, 2025) - push-based sync for GPU training nodes
+    # GPU nodes push data to coordinator before cleanup to prevent data loss
+    DaemonType.SYNC_PUSH: DaemonSpec(
+        runner_name="create_sync_push",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="sync",
+        auto_restart=True,
+        health_check_interval=60.0,
+    ),
     # =========================================================================
     # Data Consolidation
     # =========================================================================
