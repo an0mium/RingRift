@@ -5,7 +5,6 @@ December 2025 - Phase 3 consolidation tests.
 
 import asyncio
 import time
-from dataclasses import dataclass
 from typing import Any, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,16 +25,10 @@ from app.coordination.monitor_base import (
 # =============================================================================
 
 
-@dataclass(kw_only=True)
-class TestMonitorConfig(MonitorConfig):
-    """Test configuration."""
-    test_setting: str = "test_value"
-
-
-class TestMonitor(MonitorBase[TestMonitorConfig]):
+class TestMonitor(MonitorBase[MonitorConfig]):
     """Concrete test monitor implementation."""
 
-    def __init__(self, config: TestMonitorConfig | None = None):
+    def __init__(self, config: MonitorConfig | None = None):
         super().__init__(config)
         self.run_cycle_called = 0
         self.events_received: list[dict] = []
@@ -47,8 +40,8 @@ class TestMonitor(MonitorBase[TestMonitorConfig]):
         if self._fail_on_cycle:
             raise RuntimeError("Test cycle failure")
 
-    def _get_default_config(self) -> TestMonitorConfig:
-        return TestMonitorConfig(check_interval_seconds=1)
+    def _get_default_config(self) -> MonitorConfig:
+        return MonitorConfig(check_interval_seconds=1)
 
     def _get_event_subscriptions(self) -> dict[str, Callable]:
         return {
@@ -131,7 +124,7 @@ class TestMonitorStats:
 # =============================================================================
 
 
-class TestMonitorConfig:
+class TestMonitorConfigTests:
     """Tests for MonitorConfig dataclass."""
 
     def test_default_values(self):
@@ -147,14 +140,12 @@ class TestMonitorConfig:
 
     def test_custom_config(self):
         """Test custom configuration."""
-        config = TestMonitorConfig(
+        config = MonitorConfig(
             check_interval_seconds=60,
             unhealthy_error_threshold=0.3,
-            test_setting="custom",
         )
         assert config.check_interval_seconds == 60
         assert config.unhealthy_error_threshold == 0.3
-        assert config.test_setting == "custom"
 
 
 # =============================================================================
@@ -192,9 +183,9 @@ class TestMonitorBaseSingleton:
 
     def test_get_instance_with_config(self):
         """Test singleton creation with config."""
-        config = TestMonitorConfig(test_setting="custom_value")
+        config = MonitorConfig(check_interval_seconds=123)
         m = TestMonitor.get_instance(config)
-        assert m.config.test_setting == "custom_value"
+        assert m.config.check_interval_seconds == 123
 
 
 # =============================================================================
@@ -236,7 +227,7 @@ class TestMonitorBaseLifecycle:
     @pytest.mark.asyncio
     async def test_disabled_config(self):
         """Test monitor with disabled config."""
-        config = TestMonitorConfig(enabled=False)
+        config = MonitorConfig(enabled=False)
         monitor = TestMonitor(config)
         await monitor.start()
         assert not monitor.is_running
@@ -264,7 +255,7 @@ class TestMonitorBaseEventSubscription:
     @pytest.mark.asyncio
     async def test_subscribe_to_events(self):
         """Test event subscription on start."""
-        with patch("app.coordination.monitor_base.get_router") as mock_get_router:
+        with patch("app.coordination.event_router.get_router") as mock_get_router:
             mock_router = MagicMock()
             mock_get_router.return_value = mock_router
 
@@ -283,10 +274,10 @@ class TestMonitorBaseEventSubscription:
     @pytest.mark.asyncio
     async def test_subscribe_disabled(self):
         """Test subscription disabled via config."""
-        config = TestMonitorConfig(subscribe_to_events=False)
+        config = MonitorConfig(subscribe_to_events=False)
         monitor = TestMonitor(config)
 
-        with patch("app.coordination.monitor_base.get_router") as mock_get_router:
+        with patch("app.coordination.event_router.get_router") as mock_get_router:
             await monitor.start()
             mock_get_router.assert_not_called()
             await monitor.stop()
@@ -295,7 +286,7 @@ class TestMonitorBaseEventSubscription:
     async def test_subscribe_import_error(self):
         """Test graceful handling of import error."""
         with patch(
-            "app.coordination.monitor_base.get_router",
+            "app.coordination.event_router.get_router",
             side_effect=ImportError("No router"),
         ):
             monitor = TestMonitor()
@@ -357,7 +348,7 @@ class TestMonitorBaseDeduplication:
 
     def test_dedup_disabled(self):
         """Test deduplication can be disabled."""
-        config = TestMonitorConfig(dedup_enabled=False)
+        config = MonitorConfig(dedup_enabled=False)
         monitor = TestMonitor(config)
         event = {"id": "123"}
 
@@ -366,7 +357,7 @@ class TestMonitorBaseDeduplication:
 
     def test_dedup_ttl_expiry(self):
         """Test deduplication entries expire."""
-        config = TestMonitorConfig(dedup_ttl_seconds=0.1)
+        config = MonitorConfig(dedup_ttl_seconds=0.1)
         monitor = TestMonitor(config)
         event = {"id": "123"}
 
@@ -380,7 +371,7 @@ class TestMonitorBaseDeduplication:
 
     def test_dedup_size_limit(self):
         """Test deduplication size limit."""
-        config = TestMonitorConfig(dedup_max_size=5)
+        config = MonitorConfig(dedup_max_size=5)
         monitor = TestMonitor(config)
 
         # Add more than max size
@@ -422,7 +413,7 @@ class TestMonitorBaseHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_degraded(self):
         """Test health check with elevated error rate."""
-        config = TestMonitorConfig(
+        config = MonitorConfig(
             degraded_error_threshold=0.1,
             unhealthy_error_threshold=0.5,
         )
@@ -443,7 +434,7 @@ class TestMonitorBaseHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_unhealthy(self):
         """Test health check with high error rate."""
-        config = TestMonitorConfig(unhealthy_error_threshold=0.5)
+        config = MonitorConfig(unhealthy_error_threshold=0.5)
         monitor = TestMonitor(config)
         await monitor.start()
 
@@ -461,7 +452,7 @@ class TestMonitorBaseHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_stale(self):
         """Test health check with stale activity."""
-        config = TestMonitorConfig(stale_threshold_seconds=0.1)
+        config = MonitorConfig(stale_threshold_seconds=0.1)
         monitor = TestMonitor(config)
         await monitor.start()
 

@@ -36,6 +36,7 @@ from typing import Any
 # December 2025: Import WorkStatus from canonical source
 from app.coordination.types import WorkStatus  # noqa: E402
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult  # noqa: E402
+from app.utils.disk_utils import is_enospc_error, handle_enospc_error
 
 logger = logging.getLogger(__name__)
 
@@ -526,8 +527,13 @@ class WorkQueue:
             ))
 
             conn.commit()
-        except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
+        except sqlite3.OperationalError as e:
+            # Dec 28, 2025: Check for ENOSPC and emit DISK_FULL event
+            if is_enospc_error(e):
+                handle_enospc_error(e, self.db_path, operation="save work item")
             logger.error(f"Database error saving work item {item.work_id}: {e}")
+        except sqlite3.IntegrityError as e:
+            logger.error(f"Database integrity error saving work item {item.work_id}: {e}")
         except Exception as e:
             logger.error(f"Failed to save work item {item.work_id}: {e}")
         finally:
@@ -555,8 +561,13 @@ class WorkQueue:
                 )
 
             conn.commit()
-        except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
+        except sqlite3.OperationalError as e:
+            # Dec 28, 2025: Check for ENOSPC and emit DISK_FULL event
+            if is_enospc_error(e):
+                handle_enospc_error(e, self.db_path, operation="save work stats")
             logger.error(f"Database error saving work stats: {e}")
+        except sqlite3.IntegrityError as e:
+            logger.error(f"Database integrity error saving work stats: {e}")
         except Exception as e:
             logger.error(f"Failed to save work stats: {e}")
         finally:
@@ -578,8 +589,13 @@ class WorkQueue:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM work_items WHERE work_id = ?", (work_id,))
             conn.commit()
-        except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
+        except sqlite3.OperationalError as e:
+            # Dec 28, 2025: Check for ENOSPC and emit DISK_FULL event
+            if is_enospc_error(e):
+                handle_enospc_error(e, self.db_path, operation="delete work item")
             logger.error(f"Database error deleting work item {work_id}: {e}")
+        except sqlite3.IntegrityError as e:
+            logger.error(f"Database integrity error deleting work item {work_id}: {e}")
         except Exception as e:
             logger.error(f"Failed to delete work item {work_id}: {e}")
         finally:

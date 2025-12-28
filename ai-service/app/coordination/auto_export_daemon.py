@@ -30,9 +30,10 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.core.async_context import safe_create_task
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +80,25 @@ class ConfigExportState:
     consecutive_failures: int = 0
 
 
-class AutoExportDaemon:
-    """Daemon that automatically exports training data when thresholds are met."""
+class AutoExportDaemon(HandlerBase):
+    """Daemon that automatically exports training data when thresholds are met.
+
+    Inherits from HandlerBase (December 2025 migration) providing:
+    - Automatic event subscription via _get_event_subscriptions()
+    - Singleton pattern via get_instance()
+    - Standardized health check format
+    - Lifecycle management (start/stop)
+    """
 
     def __init__(self, config: AutoExportConfig | None = None):
-        self.config = config or AutoExportConfig()
-        self._running = False
-        self._task: asyncio.Task | None = None
+        self._daemon_config = config or AutoExportConfig()
+        super().__init__(
+            name="auto_export",
+            config=self._daemon_config,
+            cycle_interval=300.0,  # 5 minutes scan interval
+        )
         self._export_states: dict[str, ConfigExportState] = {}
-        self._export_semaphore = asyncio.Semaphore(self.config.max_concurrent_exports)
-        self._event_subscriptions: list[Any] = []
+        self._export_semaphore = asyncio.Semaphore(self._daemon_config.max_concurrent_exports)
         self._state_db_initialized = False
         # December 2025: Deduplication guard - when StageEvent subscriptions are active,
         # skip DataEventType handlers to prevent double-counting games
@@ -97,70 +107,45 @@ class AutoExportDaemon:
         # Export is gated on sync completion to prevent race conditions where
         # export starts before data from other nodes has arrived.
         self._pending_sync_configs: set[str] = set()
+        # Track whether we should skip due to coordinator mode
+        self._coordinator_skip = False
 
-    async def start(self) -> None:
-        """Start the auto export daemon."""
-        # December 2025: Coordinator-only mode check
-        # Export is CPU-intensive - should NEVER run on coordinator nodes
+    @property
+    def config(self) -> AutoExportConfig:
+        """Get the daemon configuration."""
+        return self._daemon_config
+
+    def _get_event_subscriptions(self) -> dict[str, Callable]:
+        """Return event subscriptions for HandlerBase.
+
+        Subscribes to:
+        - SELFPLAY_COMPLETE: Track new games and trigger export
+        - SYNC_COMPLETE: Cross-node data sync completion
+        - NEW_GAMES_AVAILABLE: New games from local selfplay
+        - DATA_SYNC_COMPLETED: Clear sync pending flag
+        """
+        return {
+            "selfplay_complete": self._on_selfplay_complete,
+            "sync_complete": self._on_sync_complete,
+            "new_games_available": self._on_new_games,
+            "data_sync_completed": self._on_data_sync_completed,
+        }
+
+    async def _on_start(self) -> None:
+        """Hook called before main loop - check coordinator mode and init state DB."""
         from app.config.env import env
         if env.is_coordinator or not env.export_enabled:
             logger.info(
                 f"[AutoExportDaemon] Skipped on coordinator node: {env.node_id} "
                 f"(is_coordinator={env.is_coordinator}, export_enabled={env.export_enabled})"
             )
+            self._coordinator_skip = True
             return
-
-        if self._running:
-            logger.warning("[AutoExportDaemon] Already running")
-            return
-
-        self._running = True
-        logger.info("[AutoExportDaemon] Starting auto export daemon")
 
         # Initialize state persistence and load previous state (Phase 8)
-        if self.config.persist_state:
+        if self._daemon_config.persist_state:
             self._init_state_db()
             self._load_state()
-
-        # Subscribe to selfplay events
-        await self._subscribe_to_events()
-
-        # Start background monitoring task
-        self._task = safe_create_task(
-            self._monitor_loop(),
-            name="auto_export_monitor",
-        )
-        self._task.add_done_callback(self._on_task_done)
-
-    async def stop(self) -> None:
-        """Stop the auto export daemon."""
-        self._running = False
-
-        if self._task:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-
-        # Unsubscribe from events
-        for unsub in self._event_subscriptions:
-            try:
-                if callable(unsub):
-                    unsub()
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[AutoExportDaemon] Error unsubscribing: {e}")
-
-        logger.info("[AutoExportDaemon] Stopped")
-
-    def _on_task_done(self, task: asyncio.Task) -> None:
-        """Handle task completion or failure."""
-        try:
-            exc = task.exception()
-            if exc:
-                logger.error(f"[AutoExportDaemon] Task failed: {exc}")
-        except asyncio.CancelledError:
-            pass
-        except asyncio.InvalidStateError:
-            pass
 
     # ========== State Persistence (Phase 8 Dec 2025) ==========
 
@@ -288,49 +273,7 @@ class AutoExportDaemon:
         except (sqlite3.Error, OSError) as e:
             logger.debug(f"[AutoExportDaemon] Failed to save state for {config_key}: {e}")
 
-    # ========== Event Subscriptions ==========
-
-    async def _subscribe_to_events(self) -> None:
-        """Subscribe to relevant events.
-
-        Phase 3A.3 (Dec 2025): Now subscribes to SYNC_COMPLETE to trigger
-        export when games are synced from other nodes.
-
-        December 2025: Added deduplication guard. When StageEvent subscriptions
-        succeed, we set _stage_events_active=True to skip duplicate processing
-        from DataEventType handlers.
-        """
-        try:
-            # P0.5 (December 2025): Use get_router() instead of deprecated get_stage_event_bus()
-            from app.coordination.event_router import StageEvent, get_router
-
-            router = get_router()
-            unsub = router.subscribe(StageEvent.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-            self._event_subscriptions.append(unsub)
-            # Mark stage events active to prevent duplicate handling from DataEventType
-            self._stage_events_active = True
-            logger.info("[AutoExportDaemon] Subscribed to SELFPLAY_COMPLETE (StageEvent)")
-
-            # Phase 3A.3: Also subscribe to SYNC_COMPLETE for cross-node data
-            unsub = router.subscribe(StageEvent.SYNC_COMPLETE, self._on_sync_complete)
-            self._event_subscriptions.append(unsub)
-            logger.info("[AutoExportDaemon] Subscribed to SYNC_COMPLETE events")
-        except ImportError:
-            logger.warning("[AutoExportDaemon] Stage events not available")
-
-        try:
-            from app.coordination.event_router import DataEventType, get_router
-
-            router = get_router()
-            router.subscribe(DataEventType.NEW_GAMES_AVAILABLE, self._on_new_games)
-            router.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete_event)
-            router.subscribe(DataEventType.DATA_SYNC_COMPLETED, self._on_data_sync_completed)
-            logger.info(
-                "[AutoExportDaemon] Subscribed to NEW_GAMES_AVAILABLE, SELFPLAY_COMPLETE, "
-                "DATA_SYNC_COMPLETED events"
-            )
-        except ImportError:
-            logger.warning("[AutoExportDaemon] Data events not available")
+    # ========== Event Handlers ==========
 
     async def _on_selfplay_complete(self, result: Any) -> None:
         """Handle selfplay completion event.
@@ -751,21 +694,14 @@ class AutoExportDaemon:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[AutoExportDaemon] Failed to emit export complete event: {e}")
 
-    async def _monitor_loop(self) -> None:
-        """Background loop to periodically check for pending exports."""
-        while self._running:
-            try:
-                # Scan for databases that may need export
-                await self._scan_for_pending_exports()
+    async def _run_cycle(self) -> None:
+        """Main work loop iteration - called by HandlerBase at 5 minute intervals."""
+        # Skip if we're on a coordinator node
+        if self._coordinator_skip:
+            return
 
-                # Wait before next scan
-                await asyncio.sleep(300)  # 5 minutes
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"[AutoExportDaemon] Monitor loop error: {e}")
-                await asyncio.sleep(60)
+        # Scan for databases that may need export
+        await self._scan_for_pending_exports()
 
     async def _scan_for_pending_exports(self) -> None:
         """Scan databases to find configs needing export."""
@@ -821,13 +757,15 @@ class AutoExportDaemon:
             },
         }
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Overrides HandlerBase.health_check() with export-specific logic.
 
         Returns:
             HealthCheckResult with status and details
         """
-        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        from app.coordination.contracts import CoordinatorStatus
 
         if not self._running:
             return HealthCheckResult(
@@ -854,16 +792,21 @@ class AutoExportDaemon:
         )
 
 
-# Singleton instance
-_daemon: AutoExportDaemon | None = None
-
-
+# December 2025: Using HandlerBase singleton pattern
 def get_auto_export_daemon() -> AutoExportDaemon:
-    """Get or create the singleton auto export daemon."""
-    global _daemon
-    if _daemon is None:
-        _daemon = AutoExportDaemon()
-    return _daemon
+    """Get or create the singleton auto export daemon.
+
+    December 2025: Now uses HandlerBase.get_instance() singleton pattern.
+    """
+    return AutoExportDaemon.get_instance()
+
+
+def reset_auto_export_daemon() -> None:
+    """Reset the singleton instance (for testing).
+
+    December 2025: Added for test isolation.
+    """
+    AutoExportDaemon.reset_instance()
 
 
 async def start_auto_export_daemon() -> AutoExportDaemon:
@@ -878,5 +821,6 @@ __all__ = [
     "AutoExportDaemon",
     "ConfigExportState",
     "get_auto_export_daemon",
+    "reset_auto_export_daemon",
     "start_auto_export_daemon",
 ]

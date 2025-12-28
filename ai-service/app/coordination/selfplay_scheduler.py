@@ -72,7 +72,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import yaml
 
@@ -83,8 +83,12 @@ from app.config.thresholds import (
 )
 from app.coordination.protocols import HealthCheckResult
 
-# Note: backpressure import moved to lazy loading in allocate_selfplay_batch()
-# to break circular dependency cycle (Dec 2025)
+# Import interfaces for type hints (no circular dependency)
+from app.coordination.interfaces import IBackpressureMonitor
+
+# Note: backpressure concrete import moved to lazy loading in allocate_selfplay_batch()
+# to break circular dependency cycle (Dec 2025). The IBackpressureMonitor protocol
+# from interfaces allows type hints without importing the concrete class.
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +267,8 @@ class SelfplayScheduler:
         get_hybrid_selfplay_limits_fn: Callable[..., dict[str, int]] | None = None,
         # Safeguard callback
         is_emergency_active_fn: Callable[[], bool] | None = None,
+        # Dependency injection for breaking circular dependencies (Dec 2025)
+        backpressure_monitor: Optional[IBackpressureMonitor] = None,
         # Verbosity
         verbose: bool = False,
     ):
@@ -307,6 +313,8 @@ class SelfplayScheduler:
         # Lazy dependencies
         self._training_freshness = None
         self._cluster_manifest = None
+        # Injected backpressure monitor (breaks circular dep with backpressure.py)
+        self._backpressure_monitor: Optional[IBackpressureMonitor] = backpressure_monitor
 
         # Load priority overrides from config (Dec 2025)
         self._load_priority_overrides()
@@ -836,10 +844,12 @@ class SelfplayScheduler:
         """
         # Check backpressure before allocating (Dec 2025)
         try:
-            # Lazy import to break circular dependency cycle
-            from app.coordination.backpressure import get_backpressure_monitor
-            bp_monitor = get_backpressure_monitor()
-            bp_signal = await bp_monitor.get_signal()
+            # Use injected monitor if available, otherwise lazy import
+            # (Dec 2025: IBackpressureMonitor protocol enables dependency injection)
+            if self._backpressure_monitor is None:
+                from app.coordination.backpressure import get_backpressure_monitor
+                self._backpressure_monitor = get_backpressure_monitor()
+            bp_signal = await self._backpressure_monitor.get_signal()
 
             if bp_signal.should_pause:
                 logger.warning(

@@ -2688,6 +2688,30 @@ class P2POrchestrator(
                 f"manager={'✓' if manager_events_ok else '✗'}"
             )
 
+        # December 2025 (Wave 7 Phase 1.2): Critical subscription failure mode
+        # These subscriptions are required for the training pipeline to function.
+        # Without them, events like DATA_SYNC_COMPLETED and TRAINING_COMPLETED
+        # won't trigger downstream actions, causing the pipeline to stall silently.
+        CRITICAL_SUBSCRIPTION_GROUPS = ["manager_events"]  # Contains DATA_SYNC_COMPLETED, TRAINING_COMPLETED
+        self._event_subscription_status["critical_failed"] = []
+
+        for group in CRITICAL_SUBSCRIPTION_GROUPS:
+            if not self._event_subscription_status.get(group, False):
+                self._event_subscription_status["critical_failed"].append(group)
+
+        if self._event_subscription_status["critical_failed"]:
+            failed_groups = self._event_subscription_status["critical_failed"]
+            msg = f"[P2P] CRITICAL: Event subscription groups failed: {failed_groups}"
+            logger.critical(msg)
+
+            # Optional: fail startup on critical subscription failure
+            # Enable via environment variable for strict production deployments
+            if os.environ.get("RINGRIFT_FAIL_ON_SUBSCRIPTION_FAILURE", "").lower() == "true":
+                raise RuntimeError(
+                    f"Critical event subscriptions failed: {failed_groups}. "
+                    "Set RINGRIFT_FAIL_ON_SUBSCRIPTION_FAILURE=false to allow startup anyway."
+                )
+
         # NOTE: _manager_health_status validation is deferred to after _loop_manager
         # initialization below (line ~2730). This avoids AttributeError on _loop_manager.
 
@@ -3574,6 +3598,72 @@ class P2POrchestrator(
             message=message,
             details=details,
         )
+
+    async def _subscribe_with_retry(
+        self,
+        event_name: str,
+        handler: Any,
+        max_attempts: int = 3,
+        is_critical: bool = False,
+    ) -> bool:
+        """Subscribe to event with exponential backoff retry.
+
+        December 2025 (Wave 7 Phase 1.1): Implements reliable event subscription
+        with automatic retry on failure. This prevents pipeline stalls caused by
+        transient subscription failures at startup.
+
+        Args:
+            event_name: Name of the event to subscribe to
+            handler: Handler function to call when event fires
+            max_attempts: Maximum subscription attempts (default: 3)
+            is_critical: If True, failure is logged at ERROR level
+
+        Returns:
+            True if subscription succeeded, False otherwise
+        """
+        from app.coordination.event_router import subscribe
+
+        for attempt in range(max_attempts):
+            try:
+                subscribe(event_name, handler)
+                logger.info(f"[P2P] Subscribed to {event_name}")
+                return True
+            except Exception as e:  # noqa: BLE001
+                delay = 2 ** attempt  # 1s, 2s, 4s exponential backoff
+                level = logger.error if is_critical else logger.warning
+                level(
+                    f"[P2P] Subscription to {event_name} failed "
+                    f"(attempt {attempt + 1}/{max_attempts}): {e}"
+                )
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay)
+
+        if is_critical:
+            logger.critical(
+                f"[P2P] CRITICAL: Failed to subscribe to {event_name} "
+                f"after {max_attempts} attempts"
+            )
+        return False
+
+    def _subscribe_single(
+        self,
+        event_name: str,
+        handler: Any,
+        is_critical: bool = False,
+    ) -> bool:
+        """Synchronous single subscription attempt.
+
+        Used for initial subscription setup. Returns True on success.
+        For retry logic, use _subscribe_with_retry in async context.
+        """
+        try:
+            from app.coordination.event_router import subscribe
+            subscribe(event_name, handler)
+            return True
+        except Exception as e:  # noqa: BLE001
+            level = logger.error if is_critical else logger.debug
+            level(f"[P2P] Failed to subscribe to {event_name}: {e}")
+            return False
 
     def _subscribe_to_daemon_events(self) -> bool:
         """Subscribe to daemon status events for observability.

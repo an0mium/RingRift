@@ -154,6 +154,12 @@ class DaemonType(Enum):
     # S3 backup (December 2025) - backup models to S3 after promotion
     S3_BACKUP = "s3_backup"
 
+    # S3 node sync (December 2025) - bi-directional S3 sync for all cluster nodes
+    S3_NODE_SYNC = "s3_node_sync"
+
+    # S3 consolidation (December 2025) - consolidates data from all nodes (coordinator only)
+    S3_CONSOLIDATION = "s3_consolidation"
+
     # Quality monitor (December 2025) - continuous selfplay quality monitoring
     QUALITY_MONITOR = "quality_monitor"
 

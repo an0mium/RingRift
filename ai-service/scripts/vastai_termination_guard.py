@@ -144,10 +144,17 @@ class VastaiTerminationGuard:
     def _sync_emergency_blocking(self) -> bool:
         """Perform emergency sync (blocking, for signal handlers).
 
+        Dec 28, 2025: Fixed race condition by:
+        1. Writing pre-sync manifest (so we know what was lost if we die mid-sync)
+        2. Prioritizing files by modification time (newest first)
+        3. Notifying ephemeral data guard of sync attempt
+        4. Using shorter per-file timeout to sync more files before termination
+
         Returns True on success.
         """
         logger.info("Starting emergency data sync...")
         self.status.emergency_sync_triggered = True
+        start_time = time.time()
 
         data_dir = Path(self.config.data_dir)
         if not data_dir.exists():
@@ -163,14 +170,43 @@ class VastaiTerminationGuard:
             logger.error("No sync target configured!")
             return False
 
+        # Dec 28, 2025: Write pre-sync manifest FIRST
+        # This way if we die mid-sync, the coordinator knows what was lost
+        manifest = self._write_pre_sync_manifest(db_files)
+        if manifest:
+            try:
+                # Sync manifest first (it's tiny)
+                subprocess.run(
+                    ["rsync", "-avz", "--timeout=10", str(manifest), self.config.sync_target],
+                    capture_output=True, timeout=15
+                )
+            except Exception as e:
+                logger.warning(f"Failed to sync manifest: {e}")
+
+        # Dec 28, 2025: Sort by modification time, newest first
+        # This prioritizes saving the most recent games if we run out of time
+        db_files_sorted = sorted(db_files, key=lambda p: p.stat().st_mtime, reverse=True)
+
         synced = 0
         errors = 0
+        skipped = 0
 
-        for db_path in db_files:
+        # Dec 28, 2025: Use shorter per-file timeout (20s vs 60s) to sync more files
+        # If we have 6 files and 120s total, we want to try all of them
+        per_file_timeout = min(30, self.config.emergency_sync_timeout // max(1, len(db_files_sorted)))
+
+        for db_path in db_files_sorted:
+            # Check if we're running out of time
+            elapsed = time.time() - start_time
+            if elapsed > self.config.emergency_sync_timeout - 10:  # Leave 10s safety margin
+                logger.warning(f"Timeout approaching, skipping remaining files")
+                skipped = len(db_files_sorted) - synced - errors
+                break
+
             try:
-                # Use rsync for robust transfer
+                # Use rsync for robust transfer with shorter timeout
                 cmd = [
-                    "rsync", "-avz", "--progress", "--timeout=60",
+                    "rsync", "-avz", "--timeout=20",
                     str(db_path),
                     self.config.sync_target,
                 ]
@@ -179,7 +215,7 @@ class VastaiTerminationGuard:
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=self.config.emergency_sync_timeout,
+                    timeout=per_file_timeout,
                 )
 
                 if result.returncode == 0:
@@ -197,13 +233,82 @@ class VastaiTerminationGuard:
                 errors += 1
 
         # Log summary
-        total = len(db_files)
-        if errors == 0:
+        total = len(db_files_sorted)
+        if errors == 0 and skipped == 0:
             logger.info(f"Emergency sync complete: {synced}/{total} files synced")
         else:
-            logger.warning(f"Emergency sync partial: {synced}/{total} synced, {errors} errors")
+            logger.warning(
+                f"Emergency sync partial: {synced}/{total} synced, "
+                f"{errors} errors, {skipped} skipped"
+            )
 
-        return errors == 0
+        # Dec 28, 2025: Notify ephemeral data guard (best effort)
+        self._notify_ephemeral_guard(synced, errors, skipped)
+
+        return errors == 0 and skipped == 0
+
+    def _write_pre_sync_manifest(self, db_files: list[Path]) -> Optional[Path]:
+        """Write a manifest of files we're about to sync.
+
+        Dec 28, 2025: This manifest is synced FIRST, so even if we die mid-sync,
+        the coordinator knows what data was at risk.
+        """
+        try:
+            manifest_path = Path(self.config.data_dir) / ".emergency_sync_manifest.json"
+            import json
+            manifest_data = {
+                "instance_id": self.config.instance_id,
+                "timestamp": time.time(),
+                "hostname": os.uname().nodename if hasattr(os, 'uname') else "unknown",
+                "files": [
+                    {
+                        "name": f.name,
+                        "size": f.stat().st_size,
+                        "mtime": f.stat().st_mtime,
+                        "games": self._count_games_in_db(f),
+                    }
+                    for f in db_files
+                ],
+                "total_games": self._count_local_games(),
+            }
+            with open(manifest_path, "w") as f:
+                json.dump(manifest_data, f, indent=2)
+            logger.info(f"Wrote pre-sync manifest: {len(db_files)} files, {manifest_data['total_games']} games")
+            return manifest_path
+        except Exception as e:
+            logger.warning(f"Failed to write pre-sync manifest: {e}")
+            return None
+
+    def _count_games_in_db(self, db_path: Path) -> int:
+        """Count games in a single database."""
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM games")
+            count = cursor.fetchone()[0]
+            conn.close()
+            return count
+        except Exception:
+            return 0
+
+    def _notify_ephemeral_guard(self, synced: int, errors: int, skipped: int) -> None:
+        """Notify the coordination layer's ephemeral data guard of sync results.
+
+        Dec 28, 2025: Best-effort notification - don't fail if guard unavailable.
+        """
+        try:
+            from app.coordination.ephemeral_data_guard import get_ephemeral_guard
+            guard = get_ephemeral_guard()
+            guard.record_emergency_sync(
+                host=self.config.instance_id or os.uname().nodename,
+                files_synced=synced,
+                files_failed=errors,
+                files_skipped=skipped,
+            )
+        except ImportError:
+            logger.debug("Ephemeral data guard not available")
+        except Exception as e:
+            logger.debug(f"Failed to notify ephemeral guard: {e}")
 
     async def _sync_incremental(self) -> int:
         """Perform incremental sync of new games.

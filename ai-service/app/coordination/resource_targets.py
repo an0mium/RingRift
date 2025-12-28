@@ -35,10 +35,14 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.utils.yaml_utils import safe_load_yaml
 from app.coordination.singleton_mixin import SingletonMixin
+
+# Import interfaces for type hints (no circular dependency)
+# December 2025: IResourceTargets/IResourceTargetManager enable protocol-based typing
+from app.coordination.interfaces import IResourceTargets, IResourceTargetManager
 
 logger = logging.getLogger(__name__)
 

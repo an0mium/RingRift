@@ -350,6 +350,70 @@ class EphemeralDataGuard:
             self._checkpoints[host].games_synced = games_synced
             self._save_checkpoint(self._checkpoints[host])
 
+    def record_emergency_sync(
+        self,
+        host: str,
+        files_synced: int,
+        files_failed: int,
+        files_skipped: int,
+    ) -> None:
+        """Record the results of an emergency sync attempt.
+
+        Dec 28, 2025: Called by vastai_termination_guard when emergency sync completes.
+        This records what happened so we can track data loss.
+
+        Args:
+            host: Host that performed emergency sync
+            files_synced: Number of files successfully synced
+            files_failed: Number of files that failed to sync
+            files_skipped: Number of files skipped due to timeout
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Record in evacuation history
+            cursor.execute("""
+                INSERT INTO evacuation_history
+                (host, triggered_at, games_at_risk, games_recovered, completed_at, success)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                host,
+                time.time(),
+                files_failed + files_skipped,  # At risk = failed + skipped
+                files_synced,
+                time.time(),
+                1 if files_failed == 0 and files_skipped == 0 else 0,
+            ))
+            conn.commit()
+
+            # Log outcome
+            if files_failed == 0 and files_skipped == 0:
+                logger.info(f"[EphemeralGuard] Emergency sync from {host}: all {files_synced} files synced")
+            else:
+                logger.warning(
+                    f"[EphemeralGuard] Emergency sync from {host}: "
+                    f"{files_synced} synced, {files_failed} failed, {files_skipped} skipped"
+                )
+
+            # Emit event for coordination layer
+            try:
+                from app.coordination.event_router import get_event_bus
+                bus = get_event_bus()
+                bus.publish("EMERGENCY_SYNC_COMPLETED", {
+                    "host": host,
+                    "files_synced": files_synced,
+                    "files_failed": files_failed,
+                    "files_skipped": files_skipped,
+                    "success": files_failed == 0 and files_skipped == 0,
+                    "timestamp": time.time(),
+                })
+            except ImportError:
+                pass
+
+        except sqlite3.Error as e:
+            logger.error(f"Failed to record emergency sync: {e}")
+
     def _is_ephemeral_host(self, host: str) -> bool:
         """Check if a host is ephemeral based on naming patterns."""
         host_lower = host.lower()

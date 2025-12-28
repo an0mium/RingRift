@@ -45,9 +45,12 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.config.env import env
+
+# Import interfaces for type hints (no circular dependency)
+from app.coordination.interfaces import IResourceTargets, IResourceTargetManager
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +60,18 @@ logger = logging.getLogger(__name__)
 
 # Lazy initialization of targets to avoid circular import with resource_targets
 # December 2025: Moved from module-level import to lazy accessor pattern
+# The IResourceTargets protocol from interfaces allows type hints without circular deps.
 _cached_targets: dict[str, float] | None = None
+_cached_target_manager: Optional[IResourceTargetManager] = None
 
 
 def _get_targets() -> dict[str, float]:
-    """Lazy load resource targets to avoid circular import."""
+    """Lazy load resource targets to avoid circular import.
+
+    Uses lazy import pattern (Dec 2025) to break circular dependency with
+    resource_targets.py. The IResourceTargets/IResourceTargetManager protocols
+    enable type hints at module level without importing concrete classes.
+    """
     global _cached_targets
     if _cached_targets is not None:
         return _cached_targets
@@ -87,6 +97,25 @@ def _get_targets() -> dict[str, float]:
             "scale_down": env.scale_down_threshold,
         }
     return _cached_targets
+
+
+def _get_resource_target_manager() -> Optional[IResourceTargetManager]:
+    """Lazy load resource target manager to avoid circular import.
+
+    Returns:
+        ResourceTargetManager instance or None if unavailable
+    """
+    global _cached_target_manager
+    if _cached_target_manager is not None:
+        return _cached_target_manager
+
+    try:
+        from app.coordination.resource_targets import get_resource_target_manager
+        _cached_target_manager = get_resource_target_manager()
+        return _cached_target_manager
+    except (ImportError, AttributeError) as e:
+        logger.debug(f"ResourceTargetManager not available: {e}")
+        return None
 
 
 # Module-level constants use env defaults; actual values come from _get_targets()

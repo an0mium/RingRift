@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from app.rules.history_contract import validate_canonical_move
-from app.utils.disk_utils import ensure_disk_space
+from app.utils.disk_utils import ensure_disk_space, is_enospc_error, handle_enospc_error
 
 logger = logging.getLogger(__name__)
 
@@ -716,6 +716,10 @@ class GameReplayDB:
 
         Uses configurable journal mode and busy timeout for better concurrency.
         WAL mode is best for local storage, DELETE mode is best for NFS.
+
+        Raises:
+            DiskSpaceError: If commit fails due to ENOSPC (disk full).
+                This is converted from sqlite3.OperationalError for proper handling.
         """
         conn = sqlite3.connect(str(self._db_path), timeout=float(SQLITE_TIMEOUT))
         conn.row_factory = sqlite3.Row
@@ -727,6 +731,13 @@ class GameReplayDB:
         try:
             yield conn
             conn.commit()
+        except sqlite3.OperationalError as e:
+            conn.rollback()
+            # Dec 28, 2025: Check for ENOSPC specifically and convert to DiskSpaceError
+            # This enables proper handling (event emission, alerts) vs silent failure
+            if is_enospc_error(e):
+                handle_enospc_error(e, self._db_path, operation="database commit")
+            raise
         except (sqlite3.Error, OSError):
             conn.rollback()
             raise

@@ -36,9 +36,9 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from app.coordination.protocols import HealthCheckResult
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -103,87 +103,70 @@ class ConfigTrainingState:
     consecutive_failures: int = 0
 
 
-class TrainingTriggerDaemon:
-    """Daemon that automatically triggers training when conditions are met."""
+class TrainingTriggerDaemon(HandlerBase):
+    """Daemon that automatically triggers training when conditions are met.
+
+    Inherits from HandlerBase (December 2025 migration) providing:
+    - Automatic event subscription via _get_event_subscriptions()
+    - Singleton pattern via get_instance()
+    - Standardized health check format
+    - Lifecycle management (start/stop)
+    """
 
     def __init__(self, config: TrainingTriggerConfig | None = None):
-        self.config = config or TrainingTriggerConfig()
-        self._running = False
-        self._task: asyncio.Task | None = None
+        self._daemon_config = config or TrainingTriggerConfig()
+        super().__init__(
+            name="training_trigger",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.scan_interval_seconds),
+        )
         self._training_states: dict[str, ConfigTrainingState] = {}
-        self._training_semaphore = asyncio.Semaphore(self.config.max_concurrent_training)
-        self._event_subscriptions: list[Any] = []
+        self._training_semaphore = asyncio.Semaphore(self._daemon_config.max_concurrent_training)
         self._active_training_tasks: dict[str, asyncio.Task] = {}
+        # Track whether we should skip due to coordinator mode
+        self._coordinator_skip = False
 
     @property
-    def is_running(self) -> bool:
-        """Check if daemon is currently running."""
-        return self._running
+    def config(self) -> TrainingTriggerConfig:
+        """Get the daemon configuration."""
+        return self._daemon_config
 
-    async def start(self) -> None:
-        """Start the training trigger daemon."""
-        # December 2025: Coordinator-only mode check
-        # This daemon spawns training processes - should NEVER run on coordinator nodes
+    def _get_event_subscriptions(self) -> dict[str, Callable]:
+        """Return event subscriptions for HandlerBase.
+
+        Subscribes to:
+        - NPZ_EXPORT_COMPLETE: Immediate training trigger after export
+        - TRAINING_COMPLETED: Track state after training finishes
+        - TRAINING_THRESHOLD_REACHED: Honor master_loop-triggered requests
+        - QUALITY_SCORE_UPDATED: Keep intensity in sync
+        - TRAINING_BLOCKED_BY_QUALITY: Pause intensity
+        - EVALUATION_COMPLETED: Gauntlet -> training feedback
+        """
+        return {
+            "npz_export_complete": self._on_npz_export_complete,
+            "training_completed": self._on_training_completed,
+            "training_threshold_reached": self._on_training_threshold_reached,
+            "quality_score_updated": self._on_quality_score_updated,
+            "training_blocked_by_quality": self._on_training_blocked_by_quality,
+            "evaluation_completed": self._on_evaluation_completed,
+        }
+
+    async def _on_start(self) -> None:
+        """Hook called before main loop - check coordinator mode."""
         from app.config.env import env
         if env.is_coordinator or not env.training_enabled:
             logger.info(
                 f"[TrainingTriggerDaemon] Skipped on coordinator node: {env.node_id} "
                 f"(is_coordinator={env.is_coordinator}, training_enabled={env.training_enabled})"
             )
-            return
+            self._coordinator_skip = True
 
-        if self._running:
-            logger.warning("[TrainingTriggerDaemon] Already running")
-            return
-
-        self._running = True
-        logger.info("[TrainingTriggerDaemon] Starting training trigger daemon")
-
-        # Subscribe to relevant events
-        await self._subscribe_to_events()
-
-        # Start background monitoring task
-        self._task = asyncio.create_task(self._monitor_loop())
-        self._task.add_done_callback(self._on_task_done)
-
-    async def stop(self) -> None:
-        """Stop the training trigger daemon."""
-        self._running = False
-
-        # Cancel monitoring task
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-
-        # Cancel any active training tasks
+    async def _on_stop(self) -> None:
+        """Hook called when stopping - cancel active training tasks."""
         for config_key, task in self._active_training_tasks.items():
             if not task.done():
                 task.cancel()
                 logger.info(f"[TrainingTriggerDaemon] Cancelled training for {config_key}")
-
-        # Unsubscribe from events
-        for unsub in self._event_subscriptions:
-            try:
-                if callable(unsub):
-                    unsub()
-            except Exception as e:
-                logger.debug(f"[TrainingTriggerDaemon] Error unsubscribing: {e}")
-
-        logger.info("[TrainingTriggerDaemon] Stopped")
-
-    def _on_task_done(self, task: asyncio.Task) -> None:
-        """Handle task completion or failure."""
-        try:
-            exc = task.exception()
-            if exc:
-                logger.error(f"[TrainingTriggerDaemon] Task failed: {exc}")
-        except asyncio.CancelledError:
-            pass
-        except asyncio.InvalidStateError:
-            pass
 
     def _get_training_params_for_intensity(
         self, intensity: str
@@ -258,65 +241,6 @@ class TrainingTriggerDaemon:
 
         # Fallback to static config threshold
         return self.config.min_samples_threshold
-
-    async def _subscribe_to_events(self) -> None:
-        """Subscribe to relevant events."""
-        try:
-            # P0.5 (December 2025): Use get_router() instead of deprecated get_stage_event_bus()
-            from app.coordination.event_router import StageEvent, get_router
-
-            router = get_router()
-            unsub = router.subscribe(StageEvent.NPZ_EXPORT_COMPLETE, self._on_npz_export_complete)
-            self._event_subscriptions.append(unsub)
-            logger.info("[TrainingTriggerDaemon] Subscribed to NPZ_EXPORT_COMPLETE events")
-        except ImportError:
-            logger.warning("[TrainingTriggerDaemon] Stage events not available")
-
-        try:
-            # P0.5 (December 2025): Use get_router() instead of deprecated get_event_bus()
-            from app.coordination.event_router import DataEventType, get_router
-
-            router = get_router()
-            # Subscribe to training completion to track state
-            unsub = router.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_completed)
-            self._event_subscriptions.append(unsub)
-            logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_COMPLETED events")
-
-            # Honor master_loop-triggered training requests + intensity hints
-            if hasattr(DataEventType, 'TRAINING_THRESHOLD_REACHED'):
-                unsub = router.subscribe(
-                    DataEventType.TRAINING_THRESHOLD_REACHED,
-                    self._on_training_threshold_reached,
-                )
-                self._event_subscriptions.append(unsub)
-                logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_THRESHOLD_REACHED events")
-
-            # Subscribe to quality updates to keep intensity in sync
-            if hasattr(DataEventType, 'QUALITY_SCORE_UPDATED'):
-                unsub = router.subscribe(
-                    DataEventType.QUALITY_SCORE_UPDATED,
-                    self._on_quality_score_updated,
-                )
-                self._event_subscriptions.append(unsub)
-                logger.info("[TrainingTriggerDaemon] Subscribed to QUALITY_SCORE_UPDATED events")
-
-            # Subscribe to training blocks to pause intensity
-            if hasattr(DataEventType, 'TRAINING_BLOCKED_BY_QUALITY'):
-                unsub = router.subscribe(
-                    DataEventType.TRAINING_BLOCKED_BY_QUALITY,
-                    self._on_training_blocked_by_quality,
-                )
-                self._event_subscriptions.append(unsub)
-                logger.info("[TrainingTriggerDaemon] Subscribed to TRAINING_BLOCKED_BY_QUALITY events")
-
-            # December 2025: Subscribe to EVALUATION_COMPLETED for gauntlet → training feedback
-            # This closes the critical feedback loop: model performance → training parameters
-            if hasattr(DataEventType, 'EVALUATION_COMPLETED'):
-                unsub = router.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_completed)
-                self._event_subscriptions.append(unsub)
-                logger.info("[TrainingTriggerDaemon] Subscribed to EVALUATION_COMPLETED events")
-        except ImportError:
-            logger.warning("[TrainingTriggerDaemon] Data events not available")
 
     async def _on_npz_export_complete(self, result: Any) -> None:
         """Handle NPZ export completion - immediate training trigger."""
@@ -990,21 +914,14 @@ class TrainingTriggerDaemon:
         except Exception as e:
             logger.warning(f"[TrainingTriggerDaemon] Failed to emit training event: {e}")
 
-    async def _monitor_loop(self) -> None:
-        """Background loop to periodically check for training opportunities."""
-        while self._running:
-            try:
-                # Scan for training opportunities
-                await self._scan_for_training_opportunities()
+    async def _run_cycle(self) -> None:
+        """Main work loop iteration - called by HandlerBase at scan_interval_seconds."""
+        # Skip if we're on a coordinator node
+        if self._coordinator_skip:
+            return
 
-                # Wait before next scan
-                await asyncio.sleep(self.config.scan_interval_seconds)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"[TrainingTriggerDaemon] Monitor loop error: {e}")
-                await asyncio.sleep(60)
+        # Scan for training opportunities
+        await self._scan_for_training_opportunities()
 
     async def _scan_for_training_opportunities(self) -> None:
         """Scan for configs that may need training."""
@@ -1109,16 +1026,21 @@ class TrainingTriggerDaemon:
         )
 
 
-# Singleton instance
-_daemon: TrainingTriggerDaemon | None = None
-
-
+# December 2025: Using HandlerBase singleton pattern
 def get_training_trigger_daemon() -> TrainingTriggerDaemon:
-    """Get or create the singleton training trigger daemon."""
-    global _daemon
-    if _daemon is None:
-        _daemon = TrainingTriggerDaemon()
-    return _daemon
+    """Get or create the singleton training trigger daemon.
+
+    December 2025: Now uses HandlerBase.get_instance() singleton pattern.
+    """
+    return TrainingTriggerDaemon.get_instance()
+
+
+def reset_training_trigger_daemon() -> None:
+    """Reset the singleton instance (for testing).
+
+    December 2025: Added for test isolation.
+    """
+    TrainingTriggerDaemon.reset_instance()
 
 
 async def start_training_trigger_daemon() -> TrainingTriggerDaemon:
@@ -1133,5 +1055,6 @@ __all__ = [
     "TrainingTriggerConfig",
     "TrainingTriggerDaemon",
     "get_training_trigger_daemon",
+    "reset_training_trigger_daemon",
     "start_training_trigger_daemon",
 ]

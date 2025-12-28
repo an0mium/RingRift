@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DaemonConfig:
     """Base configuration for all daemons.
 
@@ -59,6 +59,8 @@ class DaemonConfig:
     - enabled: Whether the daemon should run
     - check_interval_seconds: How often to run the main cycle
     - handle_signals: Whether to register SIGTERM/SIGINT handlers
+
+    Note: Uses kw_only=True for safe dataclass inheritance.
     """
 
     enabled: bool = True

@@ -36,8 +36,21 @@ __all__ = [
     "check_disk_space_available",
     "ensure_disk_space",
     "get_available_disk_space",
+    "is_enospc_error",
+    "handle_enospc_error",
     "DEFAULT_MIN_BYTES",
 ]
+
+# Patterns that indicate ENOSPC/disk full errors in sqlite3 messages
+ENOSPC_PATTERNS = (
+    "disk full",
+    "no space left",
+    "database or disk is full",
+    "disk i/o error",
+    "enospc",
+    "errno 28",  # ENOSPC on Linux
+    "cannot allocate",
+)
 
 
 def get_available_disk_space(path: str | Path) -> int:
@@ -168,3 +181,116 @@ def ensure_disk_space(
                 "operation": operation,
             },
         )
+
+
+def is_enospc_error(error: Exception) -> bool:
+    """Check if an exception is caused by ENOSPC (disk full).
+
+    This detects disk full errors from sqlite3.OperationalError and other
+    low-level I/O errors. Use this to determine if an operation failed
+    due to insufficient disk space rather than other causes.
+
+    Args:
+        error: The exception to check.
+
+    Returns:
+        True if the error indicates disk full, False otherwise.
+
+    Example:
+        try:
+            conn.execute("INSERT INTO games ...")
+        except sqlite3.OperationalError as e:
+            if is_enospc_error(e):
+                # Handle disk full specifically
+                emit_disk_full_event()
+                raise DiskSpaceError(...) from e
+            raise  # Re-raise other errors
+    """
+    error_msg = str(error).lower()
+    return any(pattern in error_msg for pattern in ENOSPC_PATTERNS)
+
+
+def handle_enospc_error(
+    error: Exception,
+    path: str | Path,
+    operation: str = "write",
+    emit_event: bool = True,
+) -> None:
+    """Convert an ENOSPC error to DiskSpaceError and optionally emit event.
+
+    This function should be called when you catch a sqlite3.OperationalError
+    or OSError and determine it's caused by disk full. It:
+    1. Logs the error with full context
+    2. Optionally emits a DISK_FULL event for monitoring
+    3. Raises DiskSpaceError with proper context
+
+    Args:
+        error: The original exception that triggered this.
+        path: The file path where the error occurred.
+        operation: Description of the operation that failed.
+        emit_event: Whether to emit DISK_FULL event (default True).
+
+    Raises:
+        DiskSpaceError: Always raises with context from the original error.
+
+    Example:
+        try:
+            conn.execute("INSERT INTO games ...")
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            if is_enospc_error(e):
+                handle_enospc_error(e, db_path, "store game")
+            raise
+    """
+    from app.errors import DiskSpaceError
+
+    path = Path(path)
+
+    # Get current disk state for context
+    try:
+        available = get_available_disk_space(path)
+        available_mb = available / (1024 * 1024)
+    except OSError:
+        available = 0
+        available_mb = 0.0
+
+    logger.error(
+        "ENOSPC error during %s at %s: %s (%.1f MB available)",
+        operation,
+        path,
+        error,
+        available_mb,
+    )
+
+    # Emit DISK_FULL event for monitoring/alerting
+    # Dec 28, 2025: Added to enable cluster-wide disk monitoring
+    if emit_event:
+        try:
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            bus.publish(
+                "DISK_FULL",
+                {
+                    "path": str(path),
+                    "operation": operation,
+                    "available_bytes": available,
+                    "available_mb": round(available_mb, 1),
+                    "error": str(error),
+                    "timestamp": __import__("time").time(),
+                },
+            )
+        except Exception as emit_err:
+            # Don't fail if event emission fails - the DiskSpaceError is what matters
+            logger.debug("Failed to emit DISK_FULL event: %s", emit_err)
+
+    raise DiskSpaceError(
+        f"Disk full during {operation}: {error}",
+        context={
+            "path": str(path),
+            "operation": operation,
+            "available_bytes": available,
+            "available_mb": round(available_mb, 1),
+            "original_error": str(error),
+        },
+    ) from error

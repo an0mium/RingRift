@@ -27,7 +27,9 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ __all__ = [
     "QualityMonitorConfig",
     "QualityMonitorDaemon",
     "create_quality_monitor",
+    "get_quality_monitor",
+    "reset_quality_monitor",
 ]
 
 
@@ -64,11 +68,17 @@ class QualityMonitorConfig:
     persist_interval: float = 60.0  # How often to save state (seconds)
 
 
-class QualityMonitorDaemon:
+class QualityMonitorDaemon(HandlerBase):
     """Daemon that monitors selfplay data quality continuously.
 
     Periodically checks quality of recent selfplay data and emits events
     when quality changes, enabling the feedback loop to react appropriately.
+
+    Inherits from HandlerBase (December 2025 migration) providing:
+    - Automatic event subscription via _get_event_subscriptions()
+    - Singleton pattern via get_instance()
+    - Standardized health check format
+    - Lifecycle management (start/stop)
 
     Attributes:
         config: Monitor configuration
@@ -77,50 +87,39 @@ class QualityMonitorDaemon:
     """
 
     def __init__(self, config: QualityMonitorConfig | None = None):
-        self.config = config or QualityMonitorConfig()
-        self._running = False
-        self._task: asyncio.Task | None = None
+        self._daemon_config = config or QualityMonitorConfig()
+        super().__init__(
+            name="quality_monitor",
+            config=self._daemon_config,
+            cycle_interval=self._daemon_config.check_interval,
+        )
         self.last_quality: float = 1.0
         self.current_state: QualityState = QualityState.UNKNOWN
         self._last_event_time: float = 0.0
         self._event_cooldown: float = 30.0  # Min seconds between same-type events
-        self._subscribed: bool = False
         # Phase 9: Track per-config quality for targeted checks
         self._config_quality: dict[str, float] = {}
         # Dec 2025: State persistence
-        self._state_path = self.config.state_path or DEFAULT_STATE_PATH
+        self._state_path = self._daemon_config.state_path or DEFAULT_STATE_PATH
         self._last_persist_time: float = 0.0
         self._quality_history: list[dict[str, Any]] = []  # Rolling history of quality checks
         self._max_history_size: int = 100  # Keep last 100 quality checks
         # Load persisted state
         self._load_state()
 
-    async def start(self) -> None:
-        """Start the quality monitor daemon."""
-        if self._running:
-            logger.warning("QualityMonitorDaemon already running")
-            return
+    @property
+    def config(self) -> QualityMonitorConfig:
+        """Get the daemon configuration."""
+        return self._daemon_config
 
-        self._running = True
-        self._subscribe_to_events()
-        self._task = asyncio.create_task(self._monitor_loop())
-        self._task.add_done_callback(self._handle_task_error)
-        logger.info("QualityMonitorDaemon started")
+    def _get_event_subscriptions(self) -> dict[str, Callable]:
+        """Return event subscriptions for HandlerBase.
 
-    def _subscribe_to_events(self) -> None:
-        """Subscribe to quality check request events (Phase 9)."""
-        if self._subscribed:
-            return
-        try:
-            from app.coordination.event_router import DataEventType, get_event_bus
-
-            bus = get_event_bus()
-            if hasattr(DataEventType, 'QUALITY_CHECK_REQUESTED'):
-                bus.subscribe(DataEventType.QUALITY_CHECK_REQUESTED, self._on_quality_check_requested)
-                logger.info("[QualityMonitorDaemon] Subscribed to QUALITY_CHECK_REQUESTED")
-            self._subscribed = True
-        except Exception as e:
-            logger.warning(f"[QualityMonitorDaemon] Failed to subscribe to events: {e}")
+        Subscribes to QUALITY_CHECK_REQUESTED for on-demand quality checks.
+        """
+        return {
+            "quality_check_requested": self._on_quality_check_requested,
+        }
 
     async def _on_quality_check_requested(self, event) -> None:
         """Handle on-demand quality check requests (Phase 9).
@@ -201,17 +200,6 @@ class QualityMonitorDaemon:
         except (ImportError, RuntimeError, TypeError) as e:
             logger.debug(f"[QualityMonitorDaemon] Failed to emit QUALITY_CHECK_FAILED: {e}")
 
-    def _handle_task_error(self, task: asyncio.Task) -> None:
-        """Handle errors from the monitor task."""
-        try:
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc:
-                logger.error(f"QualityMonitorDaemon task failed: {exc}")
-        except asyncio.InvalidStateError:
-            pass
-
     def _load_state(self) -> None:
         """Load persisted quality state from disk (Dec 2025).
 
@@ -290,30 +278,13 @@ class QualityMonitorDaemon:
         if len(self._quality_history) > self._max_history_size:
             self._quality_history = self._quality_history[-self._max_history_size:]
 
-    async def stop(self) -> None:
-        """Stop the quality monitor daemon."""
-        self._running = False
-        # Save state before stopping (Dec 2025)
+    async def _on_stop(self) -> None:
+        """Hook called when daemon stops - saves state before stopping (Dec 2025)."""
         self._save_state()
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        logger.info("QualityMonitorDaemon stopped")
 
-    async def _monitor_loop(self) -> None:
-        """Main monitoring loop."""
-        while self._running:
-            try:
-                await self._check_quality()
-                await asyncio.sleep(self.config.check_interval)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Quality check error: {e}")
-                await asyncio.sleep(self.config.check_interval)
+    async def _run_cycle(self) -> None:
+        """Main work loop iteration - called by HandlerBase at check_interval."""
+        await self._check_quality()
 
     async def _check_quality(self) -> None:
         """Check current quality and emit events if needed."""
@@ -484,7 +455,7 @@ class QualityMonitorDaemon:
         """Get daemon status."""
         return {
             "running": self._running,
-            "subscribed": self._subscribed,
+            "subscribed": self._event_subscribed,  # Use HandlerBase attribute
             "last_quality": self.last_quality,
             "current_state": self.current_state.value,
             "config_quality": self._config_quality,
@@ -545,13 +516,15 @@ class QualityMonitorDaemon:
             "max": max_score,
         }
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Check daemon health (December 2025: CoordinatorProtocol compliance).
+
+        Overrides HandlerBase.health_check() with quality-specific logic.
 
         Returns:
             HealthCheckResult with status and details
         """
-        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+        from app.coordination.contracts import CoordinatorStatus
 
         if not self._running:
             return HealthCheckResult(
@@ -586,10 +559,12 @@ async def create_quality_monitor() -> None:
     The daemon monitors selfplay data quality and emits events when
     quality changes significantly, enabling the feedback loop to react.
 
+    December 2025: Updated to use HandlerBase singleton pattern.
+
     Raises:
         asyncio.CancelledError: When the daemon is stopped.
     """
-    daemon = QualityMonitorDaemon()
+    daemon = QualityMonitorDaemon.get_instance()
     await daemon.start()
 
     try:
@@ -599,3 +574,19 @@ async def create_quality_monitor() -> None:
     except asyncio.CancelledError:
         await daemon.stop()
         raise
+
+
+def get_quality_monitor() -> QualityMonitorDaemon:
+    """Get the singleton QualityMonitorDaemon instance.
+
+    December 2025: Added for consistency with other daemon accessors.
+    """
+    return QualityMonitorDaemon.get_instance()
+
+
+def reset_quality_monitor() -> None:
+    """Reset the singleton instance (for testing).
+
+    December 2025: Added for test isolation.
+    """
+    QualityMonitorDaemon.reset_instance()
