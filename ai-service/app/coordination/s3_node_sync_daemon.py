@@ -328,7 +328,7 @@ class S3NodeSyncDaemon:
                 logger.warning(f"Push errors: {result.errors}")
                 result.success = False
 
-        except Exception as e:
+        except (OSError, asyncio.TimeoutError, json.JSONDecodeError) as e:
             logger.error(f"Push cycle failed: {e}")
             result.success = False
             result.errors.append(str(e))
@@ -422,7 +422,7 @@ class S3NodeSyncDaemon:
                     if uploaded:
                         result.uploaded_files.append(db_file.name)
                         result.bytes_transferred += db_file.stat().st_size
-                except Exception as e:
+                except (OSError, asyncio.TimeoutError) as e:
                     result.errors.append(f"{db_file.name}: {e}")
 
         return result
@@ -452,7 +452,7 @@ class S3NodeSyncDaemon:
                     if uploaded:
                         result.uploaded_files.append(model_file.name)
                         result.bytes_transferred += model_file.stat().st_size
-                except Exception as e:
+                except (OSError, asyncio.TimeoutError) as e:
                     result.errors.append(f"{model_file.name}: {e}")
 
         return result
@@ -478,7 +478,7 @@ class S3NodeSyncDaemon:
                     if uploaded:
                         result.uploaded_files.append(npz_file.name)
                         result.bytes_transferred += npz_file.stat().st_size
-                except Exception as e:
+                except (OSError, asyncio.TimeoutError) as e:
                     result.errors.append(f"{npz_file.name}: {e}")
 
         return result
@@ -574,7 +574,7 @@ class S3NodeSyncDaemon:
                 logger.info(f"Downloaded training data for {config_key}")
             else:
                 logger.warning(f"No consolidated training data for {config_key} in S3")
-        except Exception as e:
+        except (OSError, asyncio.TimeoutError) as e:
             result.errors.append(f"{config_key}.npz: {e}")
 
         self._pull_count += 1
@@ -597,7 +597,7 @@ class S3NodeSyncDaemon:
                 result.downloaded_files.append(model_name)
                 result.bytes_transferred += local_path.stat().st_size
                 logger.info(f"Downloaded model {model_name}")
-        except Exception as e:
+        except (OSError, asyncio.TimeoutError) as e:
             result.errors.append(f"{model_name}: {e}")
 
         return result
@@ -693,7 +693,7 @@ class S3NodeSyncDaemon:
                 timestamp=data["timestamp"],
                 files=data["files"],
             )
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, KeyError, asyncio.TimeoutError) as e:
             logger.warning(f"Failed to get manifest for {node_id}: {e}")
             return None
         finally:

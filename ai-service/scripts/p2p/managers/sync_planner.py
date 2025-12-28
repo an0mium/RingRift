@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.config.coordination_defaults import SQLiteDefaults
+from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
 if TYPE_CHECKING:
     from ..models import (
@@ -133,7 +134,7 @@ class SyncStats:
     last_event_error: str = ""
 
 
-class SyncPlanner:
+class SyncPlanner(EventSubscriptionMixin):
     """Manages data synchronization planning and execution for P2P cluster.
 
     This class is extracted from P2POrchestrator to handle:
@@ -146,6 +147,8 @@ class SyncPlanner:
     - Uses callbacks to access orchestrator state
     - Thread-safe with explicit lock passing
     - Testable in isolation with mock callbacks
+
+    Inherits from EventSubscriptionMixin for standardized event handling (Dec 2025).
 
     Usage:
         # In P2POrchestrator.__init__():
@@ -164,6 +167,8 @@ class SyncPlanner:
         cluster = await self.sync_planner.collect_cluster_manifest()
         plan = self.sync_planner.generate_sync_plan(cluster)
     """
+
+    MIXIN_TYPE = "sync_planner"
 
     def __init__(
         self,
@@ -1318,67 +1323,22 @@ class SyncPlanner:
         }
 
     # =========================================================================
-    # Event Subscriptions (December 2025)
+    # Event Subscriptions (December 2025 - uses EventSubscriptionMixin)
     # =========================================================================
 
-    def subscribe_to_events(self) -> None:
-        """Subscribe to sync-relevant events.
+    def _get_event_subscriptions(self) -> dict[str, Any]:
+        """Return event subscriptions for EventSubscriptionMixin.
 
-        Subscribes to:
-        - LEADER_ELECTED: Clear cached manifests when leadership changes
-        - NODE_RECOVERED: Trigger manifest refresh for recovered nodes
+        Dec 28, 2025: Migrated to use EventSubscriptionMixin pattern.
 
-        December 28, 2025: Added for cluster-wide coordination.
-        Uses double-check locking pattern for thread safety.
+        Returns:
+            Dict mapping event names to handler methods
         """
-        # Fast path - already subscribed
-        if getattr(self, "_subscribed", False):
-            return
-
-        # Initialize lock if needed (backward compat)
-        if not hasattr(self, "_subscription_lock"):
-            self._subscription_lock = threading.Lock()
-
-        # Slow path with lock to prevent race conditions
-        with self._subscription_lock:
-            # Double-check after acquiring lock
-            if getattr(self, "_subscribed", False):
-                return
-
-            try:
-                from app.coordination.event_router import get_event_bus
-                from app.distributed.data_events import DataEventType
-
-                bus = get_event_bus()
-                subscribed_count = 0
-
-                # Subscribe to LEADER_ELECTED to clear stale manifests
-                if hasattr(DataEventType, "LEADER_ELECTED"):
-                    bus.subscribe(DataEventType.LEADER_ELECTED, self._on_leader_elected)
-                    subscribed_count += 1
-                    logger.info("[SyncPlanner] Subscribed to LEADER_ELECTED")
-
-                # Subscribe to NODE_RECOVERED to refresh manifests for recovered nodes
-                if hasattr(DataEventType, "NODE_RECOVERED"):
-                    bus.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
-                    subscribed_count += 1
-                    logger.info("[SyncPlanner] Subscribed to NODE_RECOVERED")
-
-                # Subscribe to HOST_ONLINE for new nodes joining cluster
-                if hasattr(DataEventType, "HOST_ONLINE"):
-                    bus.subscribe(DataEventType.HOST_ONLINE, self._on_host_online)
-                    subscribed_count += 1
-                    logger.info("[SyncPlanner] Subscribed to HOST_ONLINE")
-
-                self._subscribed = True
-                logger.info(f"[SyncPlanner] Event subscriptions complete ({subscribed_count} events)")
-
-            except ImportError:
-                logger.debug("[SyncPlanner] Event router not available")
-                self._subscribed = False
-            except (RuntimeError, AttributeError) as e:
-                logger.warning(f"[SyncPlanner] Failed to subscribe: {e}")
-                self._subscribed = False
+        return {
+            "LEADER_ELECTED": self._on_leader_elected,
+            "NODE_RECOVERED": self._on_node_recovered,
+            "HOST_ONLINE": self._on_host_online,
+        }
 
     async def _on_leader_elected(self, event) -> None:
         """Handle LEADER_ELECTED events - clear cached manifests.
@@ -1386,19 +1346,15 @@ class SyncPlanner:
         When leadership changes, cached manifests may be stale since
         the new leader should re-collect from all nodes.
         """
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            new_leader = payload.get("leader_id", "")
+        payload = self._extract_event_payload(event)
+        new_leader = payload.get("leader_id", "")
 
-            logger.info(f"[SyncPlanner] LEADER_ELECTED: {new_leader}, clearing cached manifests")
+        self._log_info(f"LEADER_ELECTED: {new_leader}, clearing cached manifests")
 
-            # Clear cached manifests to force re-collection
-            self._cached_local_manifest = None
-            self._cached_manifest_time = 0.0
-            self._cluster_manifest = None
-
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[SyncPlanner] Error handling leader elected: {e}")
+        # Clear cached manifests to force re-collection
+        self._cached_local_manifest = None
+        self._cached_manifest_time = 0.0
+        self._cluster_manifest = None
 
     async def _on_node_recovered(self, event) -> None:
         """Handle NODE_RECOVERED events - invalidate manifest cache.
@@ -1406,21 +1362,17 @@ class SyncPlanner:
         When a node recovers, it may have new data that the leader
         needs to discover via manifest collection.
         """
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            node_id = payload.get("node_id", "") or payload.get("host", "")
+        payload = self._extract_event_payload(event)
+        node_id = payload.get("node_id", "") or payload.get("host", "")
 
-            if not node_id:
-                return
+        if not node_id:
+            return
 
-            logger.info(f"[SyncPlanner] NODE_RECOVERED: {node_id}, invalidating manifest cache")
+        self._log_info(f"NODE_RECOVERED: {node_id}, invalidating manifest cache")
 
-            # Invalidate cluster manifest to trigger re-collection
-            # Local manifest is kept since it's about this node
-            self._cluster_manifest = None
-
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[SyncPlanner] Error handling node recovered: {e}")
+        # Invalidate cluster manifest to trigger re-collection
+        # Local manifest is kept since it's about this node
+        self._cluster_manifest = None
 
     async def _on_host_online(self, event) -> None:
         """Handle HOST_ONLINE events - invalidate cluster manifest.
@@ -1428,17 +1380,13 @@ class SyncPlanner:
         When a new host comes online, it may have data that the leader
         should include in cluster-wide sync planning.
         """
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            node_id = payload.get("node_id", "")
+        payload = self._extract_event_payload(event)
+        node_id = payload.get("node_id", "")
 
-            if not node_id:
-                return
+        if not node_id:
+            return
 
-            logger.info(f"[SyncPlanner] HOST_ONLINE: {node_id}, invalidating cluster manifest")
+        self._log_info(f"HOST_ONLINE: {node_id}, invalidating cluster manifest")
 
-            # Invalidate cluster manifest to trigger re-collection
-            self._cluster_manifest = None
-
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[SyncPlanner] Error handling host online: {e}")
+        # Invalidate cluster manifest to trigger re-collection
+        self._cluster_manifest = None

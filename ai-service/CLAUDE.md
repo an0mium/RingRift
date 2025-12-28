@@ -629,7 +629,13 @@ data = state.to_dict()
 restored = CanonicalFeedbackState.from_dict(data)
 ```
 
-Inheritance: `CanonicalFeedbackState` → `SignalFeedbackState` → `MonitoringFeedbackState`
+Inheritance hierarchy:
+
+```
+CanonicalFeedbackState (base - 22 fields)
+├── SignalFeedbackState (orchestrator - +6 fields)
+└── MonitoringFeedbackState (monitoring - +9 fields, +6 methods)
+```
 
 ### Temperature Scheduling (`app/training/temperature_scheduling.py`)
 
@@ -742,6 +748,7 @@ Major consolidation effort completed December 2025:
 | `EloSyncManager` + `RegistrySyncManager`                                                 | `DatabaseSyncManager` base class         | ~567            | Complete |
 | 28 `_init_*()` functions in `coordination_bootstrap.py`                                  | `COORDINATOR_REGISTRY` + generic handler | ~17             | Complete |
 | 5× NodeStatus definitions                                                                | `node_status.py`                         | ~200            | Complete |
+| 5× FeedbackState definitions                                                             | `feedback_state.py`                      | ~100            | Complete |
 | DaemonManager factory methods (65 of 66)                                                 | `daemon_runners.py`                      | ~1,580          | Complete |
 | `tracing.py` + `distributed_lock.py` + `optional_imports.py` + `yaml_utils.py`           | `core_utils.py`                          | ~0 (re-exports) | Complete |
 | `coordinator_base.py` + `coordinator_dependencies.py`                                    | `core_base.py`                           | ~0 (re-exports) | Complete |
@@ -752,6 +759,7 @@ Major consolidation effort completed December 2025:
 | Module               | Purpose                                                       |
 | -------------------- | ------------------------------------------------------------- |
 | `node_status.py`     | Unified NodeHealthState enum + NodeMonitoringStatus dataclass |
+| `feedback_state.py`  | Canonical FeedbackState classes with 3-tier hierarchy         |
 | `daemon_runners.py`  | 66 daemon runner functions extracted from DaemonManager       |
 | `daemon_registry.py` | Declarative DaemonSpec registry for all 66 daemon types       |
 
@@ -761,6 +769,15 @@ Major consolidation effort completed December 2025:
 - `NodeMonitoringStatus` dataclass: 20+ fields for node identity, health, GPU, workload
 - Backward-compatible aliases: `NodeStatus`, `ClusterNodeStatus`
 - Migration: `from app.coordination.node_status import NodeMonitoringStatus as NodeStatus`
+
+**`feedback_state.py`** consolidates 5 duplicate FeedbackState definitions (Dec 28, 2025):
+
+- `CanonicalFeedbackState`: Base class with 22 fields (quality metrics, Elo tracking, timing)
+- `SignalFeedbackState`: Extends base with +6 fields (training_intensity, exploration_boost)
+- `MonitoringFeedbackState`: Extends base with +9 fields, +4 methods (update_elo, compute_urgency)
+- Backward-compatible alias: `FeedbackState` → `CanonicalFeedbackState`
+- Migration: Replace local FeedbackState classes with import from `app.coordination.feedback_state`
+- Unit tests: 43 tests in `tests/unit/coordination/test_feedback_state.py`
 
 **`daemon_runners.py`** extracts runner functions from DaemonManager:
 

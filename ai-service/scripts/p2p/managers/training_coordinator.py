@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from aiohttp import ClientTimeout, web
     from ..models import TrainingJob, TrainingThresholds, NodeInfo
 
+from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
+
 logger = logging.getLogger(__name__)
 
 # Import constants from canonical source to avoid duplication
@@ -47,7 +49,7 @@ except ImportError:
     _HAS_EVENT_EMITTERS = False
 
 
-class TrainingCoordinator:
+class TrainingCoordinator(EventSubscriptionMixin):
     """Coordinates training job dispatch and completion workflows.
 
     Responsibilities:
@@ -55,6 +57,8 @@ class TrainingCoordinator:
     - Manage training job dispatch and coordination
     - Handle training completion workflows (gauntlet, promotion)
     - Prevent duplicate training triggers via hash-based deduplication
+
+    Inherits from EventSubscriptionMixin for standardized event handling (Dec 2025).
 
     Usage (dependency injection pattern):
         coordinator = TrainingCoordinator(
@@ -77,6 +81,8 @@ class TrainingCoordinator:
         # Handle completion
         await coordinator.handle_training_job_completion(job)
     """
+
+    MIXIN_TYPE = "training_coordinator"
 
     def __init__(
         self,

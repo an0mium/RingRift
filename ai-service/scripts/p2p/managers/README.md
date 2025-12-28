@@ -4,6 +4,105 @@
 
 The `scripts/p2p/managers/` directory contains domain-specific manager classes extracted from the monolithic `p2p_orchestrator.py` as part of the **Phase 2B refactoring** (December 2025). This decomposition improves modularity, testability, and maintainability of the P2P orchestration layer.
 
+**Current Status (December 28, 2025)**: All 7 managers fully delegated (100% coverage), ~1,990 LOC removed from p2p_orchestrator.py.
+
+---
+
+## P2PEventMixin and Helper Classes
+
+### EventSubscriptionMixin (`p2p_mixin_base.py`)
+
+The `EventSubscriptionMixin` class provides standardized event subscription for all P2P managers. It consolidates ~100 LOC of duplicated event subscription patterns found across 6 manager files.
+
+**Features:**
+
+- Thread-safe double-checked locking for subscription
+- Safe event router import with graceful fallback
+- Declarative event subscription via `_get_event_subscriptions()`
+- Health check integration for subscription status
+
+**Usage:**
+
+```python
+from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
+
+class MyManager(EventSubscriptionMixin):
+    _subscription_log_prefix = "MyManager"
+
+    def __init__(self):
+        self._init_subscription_state()
+
+    def _get_event_subscriptions(self) -> dict:
+        """Return mapping of event types to handlers."""
+        return {
+            "HOST_OFFLINE": self._on_host_offline,
+            "NODE_RECOVERED": self._on_node_recovered,
+            "TRAINING_COMPLETED": self._on_training_completed,
+        }
+
+    async def _on_host_offline(self, event) -> None:
+        payload = self._extract_event_payload(event)
+        node_id = payload.get("node_id", "")
+        self._log_info(f"Host went offline: {node_id}")
+
+# Subscribe during initialization
+manager = MyManager()
+manager.subscribe_to_events()
+```
+
+**Helper Methods:**
+
+| Method                               | Purpose                                     |
+| ------------------------------------ | ------------------------------------------- |
+| `_init_subscription_state()`         | Initialize `_subscribed` flag and lock      |
+| `subscribe_to_events()`              | Thread-safe subscription to declared events |
+| `is_subscribed()`                    | Check subscription status                   |
+| `get_subscription_status()`          | Get status for health check inclusion       |
+| `_extract_event_payload(event)`      | Safely extract payload from event object    |
+| `_safe_emit_event(type, payload)`    | Emit event with error handling              |
+| `_log_info/debug/warning/error(msg)` | Prefixed logging helpers                    |
+
+### P2PMixinBase (`p2p_mixin_base.py`)
+
+Base class providing shared functionality for all P2P orchestrator mixins:
+
+- Database connection helpers with automatic cleanup
+- State initialization patterns
+- Peer alive counting
+- Event emission with error handling
+- Configuration constant loading
+
+### P2PManagerBase (`p2p_mixin_base.py`)
+
+Combined base class inheriting from both `P2PMixinBase` and `EventSubscriptionMixin`:
+
+```python
+from scripts.p2p.p2p_mixin_base import P2PManagerBase
+
+class MyManager(P2PManagerBase):
+    MIXIN_TYPE = "my_manager"
+    _subscription_log_prefix = "MyManager"
+
+    def __init__(self, ...):
+        self._init_subscription_state()
+
+    def _get_event_subscriptions(self) -> dict:
+        return {"HOST_OFFLINE": self._on_host_offline}
+
+    def health_check(self) -> dict:
+        status = "healthy"
+        sub_status = self.get_subscription_status()
+        if not sub_status["subscribed"]:
+            status = "degraded"
+        return {
+            "status": status,
+            "manager": self.MIXIN_TYPE,
+            **sub_status,
+        }
+```
+
+---
+
 ## Modules
 
 ### 1. StateManager (`state_manager.py`)
@@ -303,28 +402,234 @@ The managers module is part of the ongoing P2P orchestrator decomposition:
 
 ---
 
-## Delegation Status (Updated Dec 27, 2025)
+## Delegation Status (Updated Dec 28, 2025)
 
-~1,990 LOC removed from `p2p_orchestrator.py` during Dec 27 cleanup.
+~1,990 LOC removed from `p2p_orchestrator.py` during Dec 27-28 cleanup.
 
-| Manager             | Methods Delegated | Status      | LOC Removed | Notes                     |
-| ------------------- | ----------------- | ----------- | ----------- | ------------------------- |
-| StateManager        | 7/7 (100%)        | ✅ Complete | ~200        | All delegated             |
-| NodeSelector        | 6/6 (100%)        | ✅ Complete | ~50         | All wrappers removed      |
-| TrainingCoordinator | 5/5 (100%)        | ✅ Complete | ~450        | All wrappers removed      |
-| JobManager          | 7/7 (100%)        | ✅ Complete | ~400        | All wrappers removed      |
-| SelfplayScheduler   | 7/7 (100%)        | ✅ Complete | ~430        | All callbacks wired       |
-| SyncPlanner         | 4/4 (100%)        | ✅ Complete | ~60         | Thin wrapper remains      |
-| LoopManager         | 5/5 (100%)        | ✅ Complete | ~400        | All loops via LoopManager |
+| Manager             | Methods Delegated | Status      | LOC Removed | Notes                           |
+| ------------------- | ----------------- | ----------- | ----------- | ------------------------------- |
+| StateManager        | 7/7 (100%)        | ✅ Complete | ~200        | SQLite persistence, epochs      |
+| NodeSelector        | 6/6 (100%)        | ✅ Complete | ~50         | Node ranking, job placement     |
+| TrainingCoordinator | 5/5 (100%)        | ✅ Complete | ~450        | Job dispatch, model promotion   |
+| JobManager          | 7/7 (100%)        | ✅ Complete | ~400        | Selfplay, training, tournaments |
+| SelfplayScheduler   | 7/7 (100%)        | ✅ Complete | ~430        | Priority scheduling, curriculum |
+| SyncPlanner         | 4/4 (100%)        | ✅ Complete | ~60         | Manifest collection, planning   |
+| LoopManager         | 5/5 (100%)        | ✅ Complete | ~400        | All background loops migrated   |
 
-**Dec 27 Cleanup Highlights**:
+**Dec 27-28 Cleanup Highlights**:
 
 - Removed `_dispatch_training_job`, `_handle_training_job_completion`, `_schedule_model_comparison_tournament`, `_run_post_training_gauntlet` (→ TrainingCoordinator)
 - Removed `_run_gpu_selfplay_job`, `_run_distributed_tournament`, `_run_distributed_selfplay`, `_export_training_data`, `_run_training`, `_cleanup_old_completed_jobs` (→ JobManager)
 - Removed `_target_selfplay_jobs_for_node`, `_get_hybrid_job_targets`, `_should_spawn_cpu_only_jobs`, `_pick_weighted_selfplay_config`, `_get_elo_based_priority_boost`, `_get_diversity_metrics`, `_track_selfplay_diversity` (→ SelfplayScheduler)
 - Migrated 5 background loops to LoopManager (`_elo_sync_loop`, `_idle_detection_loop`, `_auto_scaling_loop`, `_job_reaper_loop`, `_queue_populator_loop`)
 
-**All managers 100% delegated** - no remaining partial delegation.
+**All 7 managers 100% delegated** - no remaining partial delegation.
+
+---
+
+## LoopManager and Background Loops
+
+### 7. LoopManager (`../loops/`)
+
+**Purpose**: Centralized management of all P2P background loops.
+
+**Responsibilities**:
+
+- Coordinated start/stop for all loops
+- Dependency-ordered startup (topological sort)
+- Status aggregation for monitoring
+- Graceful shutdown coordination
+- Health check aggregation
+
+**Key Classes**:
+
+- `LoopManager` - Central coordinator for all loops
+- `BaseLoop` - Abstract base class for loop implementations
+- `BackoffConfig` - Exponential backoff configuration
+- `LoopStats` - Per-loop execution statistics
+
+**Background Loops (December 2025)**:
+
+| Loop                       | File                          | Interval | Purpose                                    |
+| -------------------------- | ----------------------------- | -------- | ------------------------------------------ |
+| `JobReaperLoop`            | `job_loops.py`                | 5 min    | Clean stale jobs (1hr), stuck jobs (2hr)   |
+| `IdleDetectionLoop`        | `job_loops.py`                | 30 sec   | Detect idle GPUs, trigger selfplay         |
+| `WorkerPullLoop`           | `job_loops.py`                | 30 sec   | Workers poll leader for work (pull model)  |
+| `WorkQueueMaintenanceLoop` | `job_loops.py`                | 5 min    | Check timeouts, cleanup old items (24hr)   |
+| `EloSyncLoop`              | `elo_sync_loop.py`            | 5 min    | Elo rating synchronization                 |
+| `QueuePopulatorLoop`       | `queue_populator_loop.py`     | 1 min    | Work queue maintenance                     |
+| `SelfHealingLoop`          | `resilience_loops.py`         | 5 min    | Recover stuck jobs, clean stale processes  |
+| `PredictiveMonitoringLoop` | `resilience_loops.py`         | 5 min    | Track trends, emit alerts before threshold |
+| `ManifestCollectionLoop`   | `manifest_collection_loop.py` | 1 min    | Collect data manifests from peers          |
+| `TrainingSyncLoop`         | `training_sync_loop.py`       | 5 min    | Sync training data to training nodes       |
+
+**Usage**:
+
+```python
+from scripts.p2p.loops import LoopManager, BaseLoop, JobReaperLoop, IdleDetectionLoop
+
+# Create manager
+manager = LoopManager(name="p2p_loops")
+
+# Register loops with dependencies
+manager.register(JobReaperLoop(
+    get_active_jobs=lambda: orchestrator.active_jobs,
+    cancel_job=orchestrator.cancel_job,
+))
+manager.register(IdleDetectionLoop(
+    get_idle_gpus=orchestrator.get_idle_gpus,
+    spawn_selfplay=orchestrator.spawn_selfplay,
+    depends_on=["job_reaper"],  # Start after JobReaperLoop
+))
+
+# Start all loops (respects dependency order)
+results = await manager.start_all()
+
+# Monitor health
+health = manager.health_check()
+print(f"Status: {health['status']}, Loops running: {health['loops_running']}/{health['total_loops']}")
+
+# Graceful shutdown
+await manager.stop_all(timeout=30.0)
+```
+
+**Creating Custom Loops**:
+
+```python
+from scripts.p2p.loops import BaseLoop
+
+class MyCustomLoop(BaseLoop):
+    def __init__(self, get_data_fn, process_fn):
+        super().__init__(
+            name="my_custom_loop",
+            interval=60.0,  # Run every 60 seconds
+            depends_on=["elo_sync"],  # Optional: start after elo_sync
+        )
+        self.get_data = get_data_fn
+        self.process = process_fn
+
+    async def _run_once(self) -> None:
+        """Execute one iteration of the loop."""
+        data = self.get_data()
+        if data:
+            await self.process(data)
+
+    async def _on_start(self) -> None:
+        """Called when loop starts."""
+        self._log_info("Starting custom loop")
+
+    async def _on_error(self, error: Exception) -> None:
+        """Called when an error occurs."""
+        self._log_error(f"Error: {error}")
+```
+
+---
+
+## Health Check Integration with DaemonManager
+
+All managers and loops implement `health_check()` returning results compatible with `DaemonManager` integration.
+
+### Manager Health Check Pattern
+
+```python
+def health_check(self) -> HealthCheckResult:
+    """Check manager health for DaemonManager integration."""
+    try:
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+    except ImportError:
+        return {"healthy": True, "status": "running", "message": "OK"}
+
+    # Include subscription status
+    sub_status = self.get_subscription_status()
+    if not sub_status["subscribed"]:
+        return HealthCheckResult(
+            healthy=False,
+            status=CoordinatorStatus.DEGRADED,
+            message="Event subscriptions not active",
+            details=sub_status,
+        )
+
+    # Manager-specific health checks
+    if self._error_count > 10:
+        return HealthCheckResult(
+            healthy=False,
+            status=CoordinatorStatus.ERROR,
+            message=f"Too many errors: {self._error_count}",
+        )
+
+    return HealthCheckResult(
+        healthy=True,
+        status=CoordinatorStatus.RUNNING,
+        message="Manager operational",
+        details={
+            **sub_status,
+            "jobs_processed": self._stats.jobs_processed,
+        },
+    )
+```
+
+### Health Metrics Reported
+
+| Manager             | Key Health Metrics                                   |
+| ------------------- | ---------------------------------------------------- |
+| StateManager        | DB connection health, cluster epoch, pending writes  |
+| NodeSelector        | Cache freshness, nodes ranked, selection latency     |
+| TrainingCoordinator | Training jobs active, cooldown status, last dispatch |
+| JobManager          | Active jobs, spawn rate, error count                 |
+| SelfplayScheduler   | Active configs, diversity metrics, curriculum state  |
+| SyncPlanner         | Sync in progress, manifest freshness, file count     |
+| LoopManager         | Loops running, total runs, failing loops             |
+
+### DaemonManager Integration
+
+The P2P orchestrator aggregates health from all managers at the `/status` endpoint:
+
+```python
+def health_check(self) -> HealthCheckResult:
+    """Aggregate health from all managers."""
+    manager_health = self._validate_manager_health()
+
+    if not manager_health["all_healthy"]:
+        return HealthCheckResult(
+            healthy=False,
+            status=CoordinatorStatus.DEGRADED,
+            message=f"Unhealthy managers: {manager_health['unhealthy']}",
+            details=manager_health,
+        )
+
+    return HealthCheckResult(
+        healthy=True,
+        status=CoordinatorStatus.RUNNING,
+        message="P2P orchestrator operational",
+        details={
+            "node_id": self.node_id,
+            "role": self.role.name,
+            "leader_id": self.leader_id,
+            "active_peers": len(self.peers),
+            "uptime_seconds": time.time() - self._start_time,
+        },
+    )
+```
+
+### Querying Health
+
+```python
+# Via P2P /status endpoint
+import httpx
+response = httpx.get("http://localhost:8770/status")
+status = response.json()
+print(f"Health: {status['health_check']['status']}")
+
+# Via DaemonManager
+from app.coordination.daemon_manager import get_daemon_manager
+from app.coordination.daemon_types import DaemonType
+
+dm = get_daemon_manager()
+health = await dm.get_daemon_health(DaemonType.P2P_BACKEND)
+print(f"Status: {health['status']}, Managers: {health['details']['managers']}")
+```
+
+---
 
 ### Migration Path
 
@@ -352,6 +657,31 @@ from scripts.p2p.managers import (
     SyncStats,
     TrainingCoordinator,
 )
+
+# LoopManager and loops from separate package
+from scripts.p2p.loops import (
+    BackoffConfig,
+    BaseLoop,
+    LoopManager,
+    LoopStats,
+    # Individual loops
+    EloSyncLoop,
+    IdleDetectionLoop,
+    JobReaperLoop,
+    ManifestCollectionLoop,
+    QueuePopulatorLoop,
+    SelfHealingLoop,
+    TrainingSyncLoop,
+    WorkerPullLoop,
+    WorkQueueMaintenanceLoop,
+)
+
+# Event subscription mixin
+from scripts.p2p.p2p_mixin_base import (
+    EventSubscriptionMixin,
+    P2PManagerBase,
+    P2PMixinBase,
+)
 ```
 
 ---
@@ -367,24 +697,30 @@ python3 -m py_compile scripts/p2p/managers/sync_planner.py
 python3 -m py_compile scripts/p2p/managers/job_manager.py
 python3 -m py_compile scripts/p2p/managers/selfplay_scheduler.py
 python3 -m py_compile scripts/p2p/managers/training_coordinator.py
+python3 -m py_compile scripts/p2p/loops/base.py
+python3 -m py_compile scripts/p2p/p2p_mixin_base.py
 ```
 
 ### Import Check
 
 ```bash
 python3 -c "from scripts.p2p.managers import StateManager, NodeSelector, SyncPlanner, JobManager, SelfplayScheduler, TrainingCoordinator; print('All imports successful')"
+python3 -c "from scripts.p2p.loops import LoopManager, BaseLoop, BackoffConfig; print('Loops imported')"
+python3 -c "from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin, P2PManagerBase; print('Mixins imported')"
 ```
 
 ### Unit Testing
 
 Each manager has dedicated unit tests in `tests/unit/p2p/`:
 
-| Test File               | Tests | Coverage                                   |
-| ----------------------- | ----- | ------------------------------------------ |
-| `test_state_manager.py` | 35    | SQLite persistence, cluster epoch, job ops |
-| `test_node_selector.py` | 38    | GPU/CPU ranking, filtering, selection      |
-| `test_job_manager.py`   | 30    | Job spawning, lifecycle, script selection  |
-| `test_loops.py`         | 50+   | Loop management, LoopManager integration   |
+| Test File                  | Tests | Coverage                                   |
+| -------------------------- | ----- | ------------------------------------------ |
+| `test_state_manager.py`    | 35    | SQLite persistence, cluster epoch, job ops |
+| `test_node_selector.py`    | 38    | GPU/CPU ranking, filtering, selection      |
+| `test_job_manager.py`      | 30    | Job spawning, lifecycle, script selection  |
+| `test_job_loops.py`        | 37    | JobReaperLoop, IdleDetectionLoop           |
+| `test_resilience_loops.py` | 25    | SelfHealingLoop, PredictiveMonitoringLoop  |
+| `test_loops.py`            | 50+   | LoopManager, BaseLoop, BackoffConfig       |
 
 **Running tests**:
 
@@ -614,6 +950,11 @@ self._recent_hashes.add(job_hash)
 ## Related Documentation
 
 - [SELFPLAY_SCHEDULER_USAGE.md](./SELFPLAY_SCHEDULER_USAGE.md) - Detailed selfplay scheduler guide
-- `../p2p_orchestrator.py` - Main orchestrator (being decomposed)
+- `../p2p_orchestrator.py` - Main orchestrator (~25,900 LOC after delegation)
+- `../p2p_mixin_base.py` - EventSubscriptionMixin and P2PManagerBase classes
+- `../loops/` - Background loop implementations and LoopManager
+- `../handlers/` - HTTP handler mixins for P2P endpoints
 - `../models.py` - Data models (NodeInfo, ClusterJob, etc.)
 - `../../CLAUDE.md` - AI service context
+- `app/coordination/daemon_manager.py` - DaemonManager for health integration
+- `app/coordination/protocols.py` - HealthCheckResult protocol

@@ -393,6 +393,43 @@ aws s3 cp s3://ringrift-archive/glacier/old_games.db.gz . \
     --request-payer requester
 ```
 
+### Automated S3 Backup (December 2025)
+
+The coordinator runs hourly S3 backups via `coordinator_s3_backup.py`:
+
+```bash
+# Run once (manual)
+PYTHONPATH=. python scripts/coordinator_s3_backup.py
+
+# Run in daemon mode (hourly)
+PYTHONPATH=. python scripts/coordinator_s3_backup.py --daemon
+
+# Dry run (preview)
+PYTHONPATH=. python scripts/coordinator_s3_backup.py --dry-run
+```
+
+**Data Flow:**
+
+```
+Cluster Nodes (GPU)
+    ↓ (rsync via AutoSyncDaemon)
+Mac Studio Coordinator
+    ↓ (aws s3 sync via coordinator_s3_backup.py)
+AWS S3 (ringrift-models-20251214)
+```
+
+**What gets backed up:**
+
+- `consolidated/models/` - All canonical\_\*.pth files
+- `consolidated/databases/` - All canonical\_\*.db files
+- `consolidated/training/` - All \*.npz training data
+
+**Related scripts:**
+
+- `scripts/coordinator_s3_backup.py` - Main backup script
+- `app/coordination/s3_backup_daemon.py` - Event-driven backup (on MODEL_PROMOTED)
+- `app/coordination/s3_node_sync_daemon.py` - Per-node sync (if AWS creds available)
+
 ## See Also
 
 - `scripts/lib/transfer.py` - Transfer implementation
