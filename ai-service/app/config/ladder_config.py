@@ -561,7 +561,7 @@ def _build_default_generic_board_configs(
     best_model_prefix = {
         BoardType.SQUARE8: "ringrift_best_sq8",
         BoardType.SQUARE19: "ringrift_best_sq19",
-        BoardType.HEXAGONAL: "ringrift_best_hex",
+        BoardType.HEXAGONAL: "ringrift_best_hexagonal",
     }[board_type]
 
     nnue_model_id = f"nnue_{board_type.value}_{num_players}p"
