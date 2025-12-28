@@ -1,7 +1,12 @@
 # RingRift AI-Service Strategic Improvement Plan
 
+> **⚠️ HISTORICAL DOCUMENT**: This plan was created on December 25, 2025.
+> Many items have been addressed in subsequent work (Dec 26-28, 2025).
+> See `DEPRECATION_TIMELINE.md` for current deprecation status and `CLAUDE.md`
+> for current infrastructure state.
+
 **Created**: December 25, 2025
-**Status**: Active
+**Status**: Historical (superseded by ongoing work)
 **Last Assessment**: Comprehensive 4-agent exploration
 
 ---

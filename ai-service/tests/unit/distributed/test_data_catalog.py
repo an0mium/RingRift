@@ -68,8 +68,10 @@ def isolated_catalog(temp_sync_dir, temp_manifest_path, tmp_path):
     - tmp_path/games (local_game_dirs)
     - temp_sync_dir (synced data)
 
-    All other discovery mechanisms are disabled.
+    All other discovery mechanisms are disabled (HAS_GAME_DISCOVERY = False).
     """
+    import app.distributed.data_catalog as dc_module
+
     # Reset singleton
     reset_data_catalog()
     reset_data_registry()
@@ -77,20 +79,29 @@ def isolated_catalog(temp_sync_dir, temp_manifest_path, tmp_path):
     local_dirs = [tmp_path / "games"]
     local_dirs[0].mkdir()
 
-    # Create catalog with ONLY the tmp directories
-    catalog = DataCatalog(
-        sync_dir=temp_sync_dir,
-        manifest_path=temp_manifest_path,
-        local_game_dirs=local_dirs,
-        node_id="test-node",
-    )
+    # Temporarily disable GameDiscovery to use manual discovery only
+    # This ensures we only scan our test directories
+    original_has_game_discovery = dc_module.HAS_GAME_DISCOVERY
+    dc_module.HAS_GAME_DISCOVERY = False
 
-    # Override _provider to ensure no NFS/storage provider paths are used
-    catalog._provider = None
+    try:
+        # Create catalog with ONLY the tmp directories
+        catalog = DataCatalog(
+            sync_dir=temp_sync_dir,
+            manifest_path=temp_manifest_path,
+            local_game_dirs=local_dirs,
+            node_id="test-node",
+        )
 
-    yield catalog
-    reset_data_catalog()
-    reset_data_registry()
+        # Override _provider to ensure no NFS/storage provider paths are used
+        catalog._provider = None
+
+        yield catalog
+    finally:
+        # Restore original value
+        dc_module.HAS_GAME_DISCOVERY = original_has_game_discovery
+        reset_data_catalog()
+        reset_data_registry()
 
 
 # Alias for backward compatibility with existing tests
@@ -602,18 +613,29 @@ class TestSuggestBestTrainingSources:
 
 
 class TestNPZDiscovery:
-    """Tests for NPZ file discovery."""
+    """Tests for NPZ file discovery.
+
+    Note: discover_npz_files() searches multiple directories. Tests must carefully
+    structure paths to avoid duplicate discovery from overlapping search paths.
+    We use completely separate paths to ensure isolation.
+    """
 
     def test_discover_npz_empty(self, catalog):
         """Test NPZ discovery with no files."""
         with patch("app.distributed.data_catalog.DATA_DIR", Path("/nonexistent")):
-            with patch("app.distributed.data_catalog.GAMES_DIR", Path("/nonexistent/games")):
+            with patch("app.distributed.data_catalog.GAMES_DIR", Path("/other/nonexistent/games")):
                 sources = catalog.discover_npz_files()
                 assert sources == []
 
     def test_discover_npz_parses_filename(self, catalog, tmp_path):
         """Test that NPZ filenames are parsed for config."""
-        training_dir = tmp_path / "training"
+        # Use completely separate paths to avoid overlap
+        data_dir = tmp_path / "data"
+        games_dir = tmp_path / "separate_games"  # Different parent than data_dir
+        data_dir.mkdir()
+        games_dir.mkdir()
+
+        training_dir = data_dir / "training"
         training_dir.mkdir()
         npz_path = training_dir / "hex8_2p.npz"
 
@@ -621,8 +643,8 @@ class TestNPZDiscovery:
         import numpy as np
         np.savez(npz_path, policy=np.zeros(100))
 
-        with patch("app.distributed.data_catalog.DATA_DIR", tmp_path):
-            with patch("app.distributed.data_catalog.GAMES_DIR", tmp_path / "games"):
+        with patch("app.distributed.data_catalog.DATA_DIR", data_dir):
+            with patch("app.distributed.data_catalog.GAMES_DIR", games_dir):
                 sources = catalog.discover_npz_files()
 
         assert len(sources) == 1
@@ -634,14 +656,20 @@ class TestNPZDiscovery:
         """Test NPZ filtering by board type."""
         import numpy as np
 
-        training_dir = tmp_path / "training"
+        # Use completely separate paths to avoid overlap
+        data_dir = tmp_path / "data"
+        games_dir = tmp_path / "separate_games"
+        data_dir.mkdir()
+        games_dir.mkdir()
+
+        training_dir = data_dir / "training"
         training_dir.mkdir()
 
         for filename in ["hex8_2p.npz", "square8_2p.npz", "hexagonal_4p.npz"]:
             np.savez(training_dir / filename, policy=np.zeros(100))
 
-        with patch("app.distributed.data_catalog.DATA_DIR", tmp_path):
-            with patch("app.distributed.data_catalog.GAMES_DIR", tmp_path / "games"):
+        with patch("app.distributed.data_catalog.DATA_DIR", data_dir):
+            with patch("app.distributed.data_catalog.GAMES_DIR", games_dir):
                 sources = catalog.discover_npz_files(board_type="hex8")
 
         assert len(sources) == 1
@@ -651,14 +679,20 @@ class TestNPZDiscovery:
         """Test NPZ filtering by player count."""
         import numpy as np
 
-        training_dir = tmp_path / "training"
+        # Use completely separate paths to avoid overlap
+        data_dir = tmp_path / "data"
+        games_dir = tmp_path / "separate_games"
+        data_dir.mkdir()
+        games_dir.mkdir()
+
+        training_dir = data_dir / "training"
         training_dir.mkdir()
 
         for filename in ["hex8_2p.npz", "hex8_4p.npz"]:
             np.savez(training_dir / filename, policy=np.zeros(100))
 
-        with patch("app.distributed.data_catalog.DATA_DIR", tmp_path):
-            with patch("app.distributed.data_catalog.GAMES_DIR", tmp_path / "games"):
+        with patch("app.distributed.data_catalog.DATA_DIR", data_dir):
+            with patch("app.distributed.data_catalog.GAMES_DIR", games_dir):
                 sources = catalog.discover_npz_files(num_players=4)
 
         assert len(sources) == 1
@@ -668,14 +702,20 @@ class TestNPZDiscovery:
         """Test NPZ filtering by minimum samples."""
         import numpy as np
 
-        training_dir = tmp_path / "training"
+        # Use completely separate paths to avoid overlap
+        data_dir = tmp_path / "data"
+        games_dir = tmp_path / "separate_games"
+        data_dir.mkdir()
+        games_dir.mkdir()
+
+        training_dir = data_dir / "training"
         training_dir.mkdir()
 
         np.savez(training_dir / "small.npz", policy=np.zeros(10))
         np.savez(training_dir / "large.npz", policy=np.zeros(1000))
 
-        with patch("app.distributed.data_catalog.DATA_DIR", tmp_path):
-            with patch("app.distributed.data_catalog.GAMES_DIR", tmp_path / "games"):
+        with patch("app.distributed.data_catalog.DATA_DIR", data_dir):
+            with patch("app.distributed.data_catalog.GAMES_DIR", games_dir):
                 sources = catalog.discover_npz_files(min_samples=500)
 
         assert len(sources) == 1

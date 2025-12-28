@@ -144,156 +144,91 @@ class TrainingCoordinator(EventSubscriptionMixin):
         self._get_training_jobs = get_training_jobs  # Store for health_check
 
     # =========================================================================
-    # Event Subscriptions (December 2025)
+    # Event Subscriptions (December 2025 - uses EventSubscriptionMixin)
     # =========================================================================
 
-    def subscribe_to_events(self) -> None:
-        """Subscribe to training-relevant events.
+    def _get_event_subscriptions(self) -> dict[str, Any]:
+        """Return event subscriptions for EventSubscriptionMixin.
 
-        Subscribes to:
-        - SELFPLAY_COMPLETE: Check training readiness after selfplay batch
-        - DATA_SYNC_COMPLETED: Check training readiness after data sync
-        - EVALUATION_COMPLETED: Handle model promotion after evaluation
-        - REGRESSION_DETECTED: Pause or rollback training on regression
+        Dec 28, 2025: Migrated to use EventSubscriptionMixin pattern.
 
-        Dec 28, 2025: Added thread-safe double-check locking pattern.
+        Returns:
+            Dict mapping event names to handler methods
         """
-        # Fast path - already initialized
-        if self._subscribed:
-            return
-
-        # Slow path with lock to prevent race conditions
-        with self._subscription_lock:
-            # Double-check after acquiring lock
-            if self._subscribed:
-                return
-
-            try:
-                from app.coordination.event_router import get_event_bus
-                from app.distributed.data_events import DataEventType
-
-                bus = get_event_bus()
-
-                # Subscribe to SELFPLAY_COMPLETE to check if enough data for training
-                if hasattr(DataEventType, "SELFPLAY_COMPLETE"):
-                    bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-                    logger.info("[TrainingCoordinator] Subscribed to SELFPLAY_COMPLETE")
-
-                # Subscribe to DATA_SYNC_COMPLETED to check training readiness
-                if hasattr(DataEventType, "DATA_SYNC_COMPLETED"):
-                    bus.subscribe(DataEventType.DATA_SYNC_COMPLETED, self._on_data_sync_completed)
-                    logger.info("[TrainingCoordinator] Subscribed to DATA_SYNC_COMPLETED")
-
-                # Subscribe to EVALUATION_COMPLETED for promotion workflows
-                if hasattr(DataEventType, "EVALUATION_COMPLETED"):
-                    bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_completed)
-                    logger.info("[TrainingCoordinator] Subscribed to EVALUATION_COMPLETED")
-
-                # Subscribe to REGRESSION_DETECTED for training adjustments
-                if hasattr(DataEventType, "REGRESSION_DETECTED"):
-                    bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
-                    logger.info("[TrainingCoordinator] Subscribed to REGRESSION_DETECTED")
-
-                # December 2025: Subscribe to TASK_ABANDONED to cleanup abandoned training jobs
-                if hasattr(DataEventType, "TASK_ABANDONED"):
-                    bus.subscribe(DataEventType.TASK_ABANDONED, self._on_task_abandoned)
-                    logger.info("[TrainingCoordinator] Subscribed to TASK_ABANDONED")
-
-                # December 2025: Subscribe to P2P_NODE_DEAD to cancel training jobs on dead nodes
-                if hasattr(DataEventType, "P2P_NODE_DEAD"):
-                    bus.subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_dead)
-                    logger.info("[TrainingCoordinator] Subscribed to P2P_NODE_DEAD")
-
-                self._subscribed = True
-            except ImportError:
-                logger.debug("[TrainingCoordinator] Event router not available")
-                self._subscribed = False  # December 2025: Explicit reset on failure
-            except (RuntimeError, AttributeError) as e:
-                logger.warning(f"[TrainingCoordinator] Failed to subscribe: {e}")
-                self._subscribed = False  # December 2025: Explicit reset on failure
+        return {
+            "SELFPLAY_COMPLETE": self._on_selfplay_complete,
+            "DATA_SYNC_COMPLETED": self._on_data_sync_completed,
+            "EVALUATION_COMPLETED": self._on_evaluation_completed,
+            "REGRESSION_DETECTED": self._on_regression_detected,
+            "TASK_ABANDONED": self._on_task_abandoned,
+            "P2P_NODE_DEAD": self._on_node_dead,
+        }
 
     async def _on_selfplay_complete(self, event) -> None:
         """Handle SELFPLAY_COMPLETE events - check training readiness."""
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
-            game_count = payload.get("game_count", 0)
+        payload = self._extract_event_payload(event)
+        config_key = payload.get("config_key", "")
+        game_count = payload.get("game_count", 0)
 
-            logger.debug(
-                f"[TrainingCoordinator] SELFPLAY_COMPLETE: {config_key} with {game_count} games"
-            )
+        logger.debug(
+            f"[TrainingCoordinator] SELFPLAY_COMPLETE: {config_key} with {game_count} games"
+        )
 
-            # Check training readiness - this will emit TRAINING_THRESHOLD_REACHED if ready
-            jobs = self.check_training_readiness()
-            if jobs:
-                logger.info(
-                    f"[TrainingCoordinator] Training ready for {len(jobs)} configs after selfplay"
-                )
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[TrainingCoordinator] Error handling selfplay complete: {e}")
+        # Check training readiness - this will emit TRAINING_THRESHOLD_REACHED if ready
+        jobs = self.check_training_readiness()
+        if jobs:
+            self._log_info(f"Training ready for {len(jobs)} configs after selfplay")
 
     async def _on_data_sync_completed(self, event) -> None:
         """Handle DATA_SYNC_COMPLETED events - check training readiness."""
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            sync_type = payload.get("sync_type", "")
+        payload = self._extract_event_payload(event)
+        sync_type = payload.get("sync_type", "")
 
-            logger.debug(f"[TrainingCoordinator] DATA_SYNC_COMPLETED: {sync_type}")
+        logger.debug(f"[TrainingCoordinator] DATA_SYNC_COMPLETED: {sync_type}")
 
-            # Check training readiness after data becomes available
-            jobs = self.check_training_readiness()
-            if jobs:
-                logger.info(
-                    f"[TrainingCoordinator] Training ready for {len(jobs)} configs after sync"
-                )
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[TrainingCoordinator] Error handling sync complete: {e}")
+        # Check training readiness after data becomes available
+        jobs = self.check_training_readiness()
+        if jobs:
+            self._log_info(f"Training ready for {len(jobs)} configs after sync")
 
     async def _on_evaluation_completed(self, event) -> None:
         """Handle EVALUATION_COMPLETED events - potential model promotion."""
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
-            model_path = payload.get("model_path", "")
-            win_rate = payload.get("win_rate", 0.0)
-            passed = payload.get("passed", False)
+        payload = self._extract_event_payload(event)
+        config_key = payload.get("config_key", "")
+        model_path = payload.get("model_path", "")
+        win_rate = payload.get("win_rate", 0.0)
+        passed = payload.get("passed", False)
 
-            logger.info(
-                f"[TrainingCoordinator] EVALUATION_COMPLETED: {config_key} "
-                f"win_rate={win_rate:.1%}, passed={passed}"
+        self._log_info(
+            f"EVALUATION_COMPLETED: {config_key} win_rate={win_rate:.1%}, passed={passed}"
+        )
+
+        # Model promotion is handled by auto_promotion_daemon, but we log here
+        if passed:
+            self._log_info(
+                f"Model {model_path} passed evaluation, "
+                f"promotion will be handled by AutoPromotionDaemon"
             )
-
-            # Model promotion is handled by auto_promotion_daemon, but we log here
-            if passed:
-                logger.info(
-                    f"[TrainingCoordinator] Model {model_path} passed evaluation, "
-                    f"promotion will be handled by AutoPromotionDaemon"
-                )
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[TrainingCoordinator] Error handling evaluation complete: {e}")
 
     async def _on_regression_detected(self, event) -> None:
         """Handle REGRESSION_DETECTED events - may pause training."""
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
-            severity = payload.get("severity", "unknown")
-            elo_drop = payload.get("elo_drop", 0)
+        payload = self._extract_event_payload(event)
+        config_key = payload.get("config_key", "")
+        severity = payload.get("severity", "unknown")
+        elo_drop = payload.get("elo_drop", 0)
 
+        logger.warning(
+            f"[TrainingCoordinator] REGRESSION_DETECTED: {config_key} "
+            f"severity={severity}, elo_drop={elo_drop}"
+        )
+
+        # For severe regressions, we could pause training
+        # The RollbackManager handles actual model rollback
+        if severity in ("severe", "critical"):
             logger.warning(
-                f"[TrainingCoordinator] REGRESSION_DETECTED: {config_key} "
-                f"severity={severity}, elo_drop={elo_drop}"
+                f"[TrainingCoordinator] Severe regression on {config_key} - "
+                f"training may need to be paused"
             )
-
-            # For severe regressions, we could pause training
-            # The RollbackManager handles actual model rollback
-            if severity in ("severe", "critical"):
-                logger.warning(
-                    f"[TrainingCoordinator] Severe regression on {config_key} - "
-                    f"training may need to be paused"
-                )
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[TrainingCoordinator] Error handling regression: {e}")
 
     async def _on_task_abandoned(self, event) -> None:
         """Handle TASK_ABANDONED events - cleanup training state for abandoned jobs.
@@ -307,43 +242,36 @@ class TrainingCoordinator(EventSubscriptionMixin):
         2. Log the abandonment for debugging
         3. Update metrics if available
         """
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            task_id = payload.get("task_id", "")
-            task_type = payload.get("task_type", "")
-            config_key = payload.get("config_key", "")
-            reason = payload.get("reason", "unknown")
+        payload = self._extract_event_payload(event)
+        task_id = payload.get("task_id", "")
+        task_type = payload.get("task_type", "")
+        config_key = payload.get("config_key", "")
+        reason = payload.get("reason", "unknown")
 
-            # Only handle training-related task abandonments
-            if task_type not in ("training", "nnue_training", "cmaes_training"):
-                return
+        # Only handle training-related task abandonments
+        if task_type not in ("training", "nnue_training", "cmaes_training"):
+            return
 
-            logger.info(
-                f"[TrainingCoordinator] TASK_ABANDONED: {task_type} task {task_id} "
-                f"for {config_key}, reason={reason}"
-            )
+        self._log_info(
+            f"TASK_ABANDONED: {task_type} task {task_id} for {config_key}, reason={reason}"
+        )
 
-            # Clear training trigger cache to allow re-triggering
-            # Use config_key as cache key pattern
-            if config_key:
-                cache_keys_to_clear = [
-                    k for k in self._training_trigger_cache
-                    if config_key in k
-                ]
-                for key in cache_keys_to_clear:
-                    self._training_trigger_cache.pop(key, None)
-                    logger.debug(
-                        f"[TrainingCoordinator] Cleared trigger cache: {key}"
-                    )
+        # Clear training trigger cache to allow re-triggering
+        # Use config_key as cache key pattern
+        if config_key:
+            cache_keys_to_clear = [
+                k for k in self._training_trigger_cache
+                if config_key in k
+            ]
+            for key in cache_keys_to_clear:
+                self._training_trigger_cache.pop(key, None)
+                logger.debug(f"[TrainingCoordinator] Cleared trigger cache: {key}")
 
-            # Reset game tracking if this was an NNUE training job
-            if task_type == "nnue_training" and config_key:
-                # Don't reset - abandoned job means we still have the games
-                # Just allow re-triggering on next threshold check
-                pass
-
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[TrainingCoordinator] Error handling task abandoned: {e}")
+        # Reset game tracking if this was an NNUE training job
+        if task_type == "nnue_training" and config_key:
+            # Don't reset - abandoned job means we still have the games
+            # Just allow re-triggering on next threshold check
+            pass
 
     async def _on_node_dead(self, event) -> None:
         """Handle P2P_NODE_DEAD events - mark training jobs on dead node as failed.
@@ -355,53 +283,47 @@ class TrainingCoordinator(EventSubscriptionMixin):
 
         The training job reassignment is handled by the main training dispatch loop.
         """
-        try:
-            payload = event.payload if hasattr(event, "payload") else {}
-            node_id = payload.get("node_id", "")
-            reason = payload.get("reason", "unknown")
+        payload = self._extract_event_payload(event)
+        node_id = payload.get("node_id", "")
+        reason = payload.get("reason", "unknown")
 
-            if not node_id:
-                return
+        if not node_id:
+            return
 
+        logger.warning(f"[TrainingCoordinator] P2P_NODE_DEAD: {node_id}, reason={reason}")
+
+        # Check if any training jobs were running on this node
+        training_jobs = self.get_training_jobs()
+        training_lock = self.get_training_lock()
+        jobs_on_dead_node = []
+
+        with training_lock:
+            for job_id, job in training_jobs.items():
+                job_node = getattr(job, "node_id", None) or getattr(job, "assigned_node", None)
+                if job_node == node_id and getattr(job, "status", "") == "running":
+                    jobs_on_dead_node.append((job_id, job))
+
+        if jobs_on_dead_node:
             logger.warning(
-                f"[TrainingCoordinator] P2P_NODE_DEAD: {node_id}, reason={reason}"
+                f"[TrainingCoordinator] Found {len(jobs_on_dead_node)} training jobs "
+                f"on dead node {node_id}"
             )
 
-            # Check if any training jobs were running on this node
-            training_jobs = self.get_training_jobs()
-            training_lock = self.get_training_lock()
-            jobs_on_dead_node = []
-
-            with training_lock:
-                for job_id, job in training_jobs.items():
-                    job_node = getattr(job, "node_id", None) or getattr(job, "assigned_node", None)
-                    if job_node == node_id and getattr(job, "status", "") == "running":
-                        jobs_on_dead_node.append((job_id, job))
-
-            if jobs_on_dead_node:
+            for job_id, job in jobs_on_dead_node:
+                config_key = f"{getattr(job, 'board_type', 'unknown')}_{getattr(job, 'num_players', 0)}p"
                 logger.warning(
-                    f"[TrainingCoordinator] Found {len(jobs_on_dead_node)} training jobs "
-                    f"on dead node {node_id}"
+                    f"[TrainingCoordinator] Training job {job_id} for {config_key} "
+                    f"was running on dead node {node_id} - will be reassigned"
                 )
 
-                for job_id, job in jobs_on_dead_node:
-                    config_key = f"{getattr(job, 'board_type', 'unknown')}_{getattr(job, 'num_players', 0)}p"
-                    logger.warning(
-                        f"[TrainingCoordinator] Training job {job_id} for {config_key} "
-                        f"was running on dead node {node_id} - will be reassigned"
-                    )
-
-                    # Clear trigger cache to allow re-triggering
-                    if config_key:
-                        cache_keys_to_clear = [
-                            k for k in self._training_trigger_cache
-                            if config_key in k
-                        ]
-                        for key in cache_keys_to_clear:
-                            self._training_trigger_cache.pop(key, None)
-
-        except (AttributeError, KeyError, TypeError) as e:
-            logger.debug(f"[TrainingCoordinator] Error handling node dead: {e}")
+                # Clear trigger cache to allow re-triggering
+                if config_key:
+                    cache_keys_to_clear = [
+                        k for k in self._training_trigger_cache
+                        if config_key in k
+                    ]
+                    for key in cache_keys_to_clear:
+                        self._training_trigger_cache.pop(key, None)
 
     # =========================================================================
     # Training Readiness Checking

@@ -1,5 +1,9 @@
 # Consolidated Next Steps - December 2025
 
+> **⚠️ HISTORICAL DOCUMENT**: This assessment was created on December 26, 2025.
+> Many items marked "Pending" have since been addressed in subsequent work sessions
+> (Dec 27-28, 2025). See `DEPRECATION_TIMELINE.md` and `CLAUDE.md` for current status.
+
 **Assessment Date**: December 26, 2025
 **Overall System Health**: 72% (Functional but fragile)
 

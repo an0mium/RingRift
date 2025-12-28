@@ -211,6 +211,93 @@ Triggered for urgent data needs:
 - Bypasses normal queue
 - Used for orphan game recovery
 
+## Transport Selection
+
+The sync infrastructure uses multi-transport failover for resilient file transfers:
+
+### Transport Priority Order
+
+| Priority | Transport | When Used                     | Characteristics                  |
+| -------- | --------- | ----------------------------- | -------------------------------- |
+| 1        | Tailscale | Direct Tailscale IP available | Fastest, bypasses NAT            |
+| 2        | SSH/rsync | SSH accessible                | Reliable, supports resume        |
+| 3        | Base64    | Binary streams fail           | Text-safe, works through proxies |
+| 4        | HTTP      | All else fails                | Via P2P endpoints                |
+
+### Selection Logic
+
+```
+ClusterTransport.transfer_file(local_path, remote_path, node)
+    |
+    +-- Can attempt? (circuit breaker check)
+    |      |
+    |      No --> Return error
+    |
+    +-- Try Tailscale (direct IP)
+    |      |
+    |      Success --> Done
+    |      Fail --> Next transport
+    |
+    +-- Try SSH/rsync (hostname)
+    |      |
+    |      Success --> Done
+    |      Fail --> Next transport
+    |
+    +-- Try Base64 (text encoding)
+    |      |
+    |      Success --> Done
+    |      Fail --> Return error, record circuit failure
+```
+
+### Circuit Breaker Protection
+
+Per-node circuit breakers prevent repeated failures:
+
+- **Failure threshold**: 5 consecutive failures opens circuit
+- **Recovery timeout**: 60 seconds before retry
+- **Half-open state**: Single test request to verify recovery
+
+### Transport-Specific Notes
+
+**Tailscale**: Preferred for nodes on the Tailscale mesh (100 MB/s). Uses direct IPs from `distributed_hosts.yaml`.
+
+**SSH/rsync**: Falls back to hostname. Supports partial file resume. Requires SSH keys configured.
+
+**Base64**: Encodes binary as text via `cat file | base64 | ssh ... 'base64 -d > file'`. Useful when SCP/rsync gets "Connection reset by peer" errors.
+
+### Programmatic Transport Control
+
+```python
+from app.coordination.cluster_transport import ClusterTransport, NodeConfig
+
+transport = ClusterTransport()
+
+# Transfer with automatic failover
+result = await transport.transfer_file(
+    local_path=Path("data/games/selfplay.db"),
+    remote_path="data/games/selfplay.db",
+    node=NodeConfig(hostname="gpu-node-1", ...),
+    direction="push",
+)
+
+# Check circuit breaker status
+if not transport.can_attempt("gpu-node-1"):
+    print("Node circuit open - recent failures")
+```
+
+## Module Layering
+
+Two different `sync_coordinator.py` modules serve distinct purposes:
+
+| Module           | Location                               | Purpose                                    | Status               |
+| ---------------- | -------------------------------------- | ------------------------------------------ | -------------------- |
+| Execution Layer  | `app/distributed/sync_coordinator.py`  | P2P orchestrator sync, manifest collection | **ACTIVE**           |
+| Scheduling Layer | `app/coordination/sync_coordinator.py` | Deprecated scheduler                       | DEPRECATED (Q2 2026) |
+
+The **execution layer** (`distributed/`) handles actual data transfers within the P2P orchestrator.
+
+Use `SyncFacade` or `AutoSyncDaemon` for programmatic sync - they route to the correct underlying layer.
+
 ## Configuration
 
 ### Auto-Sync Settings

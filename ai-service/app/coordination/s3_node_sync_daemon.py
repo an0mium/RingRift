@@ -512,8 +512,13 @@ class S3NodeSyncDaemon:
             # Upload if sizes differ
             return local_size != s3_size
 
-        except Exception:
-            # On any error, assume we should upload
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            # Dec 2025: Narrowed from bare Exception - S3 response parsing failed
+            logger.warning(f"S3 head-object response parsing failed for {s3_path}: {e}")
+            return True
+        except (OSError, asyncio.TimeoutError, asyncio.CancelledError) as e:
+            # Dec 2025: Network/process errors - assume upload needed
+            logger.debug(f"S3 head-object failed for {s3_path} (will upload): {e}")
             return True
 
     async def _s3_upload(self, local_path: str, s3_path: str) -> bool:
