@@ -223,8 +223,12 @@ class SSHHealth:
         """Calculate current recovery timeout with exponential backoff.
 
         Backoff sequence: 30s -> 60s -> 120s -> 240s -> 300s (capped)
+        The first open (consecutive_opens=1) uses base timeout (30s).
+        Subsequent opens use exponentially increasing timeouts.
         """
-        timeout = self.initial_recovery_timeout * (self.backoff_multiplier ** self._consecutive_opens)
+        # Use (opens - 1) so first open uses base timeout
+        exponent = max(0, self._consecutive_opens - 1)
+        timeout = self.initial_recovery_timeout * (self.backoff_multiplier ** exponent)
         return min(timeout, self.max_recovery_timeout)
 
     # Keep legacy property for backward compatibility

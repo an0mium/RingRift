@@ -739,6 +739,388 @@ def verified_database_copy(
 
 
 # =============================================================================
+# Fast Checksum for Large Files (December 28, 2025)
+# =============================================================================
+
+
+def compute_fast_checksum(
+    path: Path,
+    algorithm: HashAlgorithm = "md5",
+) -> str:
+    """Compute a fast checksum for large files using chunked sampling.
+
+    For files > 100MB, this reads only the first 64KB, middle 64KB, and
+    last 64KB, providing a fast "fingerprint" that catches most corruption.
+
+    For smaller files, computes full checksum.
+
+    Args:
+        path: Path to file
+        algorithm: Hash algorithm to use (default: md5 for speed)
+
+    Returns:
+        Hex-encoded checksum string
+
+    Example:
+        # Fast check for large model files
+        checksum = compute_fast_checksum(Path("model.pth"))
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    size = path.stat().st_size
+    sample_size = 65536  # 64KB
+
+    # For small files, use full checksum
+    if size < 100 * 1024 * 1024:  # 100MB
+        return compute_file_checksum(path, algorithm=algorithm)
+
+    try:
+        hasher = hashlib.new(algorithm)
+    except ValueError as e:
+        raise ValueError(f"Unsupported hash algorithm: {algorithm}") from e
+
+    try:
+        with open(path, "rb") as f:
+            # Read first 64KB
+            data = f.read(sample_size)
+            hasher.update(data)
+
+            # Read middle 64KB
+            middle_pos = max(0, (size // 2) - (sample_size // 2))
+            f.seek(middle_pos)
+            data = f.read(sample_size)
+            hasher.update(data)
+
+            # Read last 64KB
+            f.seek(max(0, size - sample_size))
+            data = f.read(sample_size)
+            hasher.update(data)
+
+            # Include file size in hash for extra safety
+            hasher.update(str(size).encode())
+
+        return hasher.hexdigest()
+
+    except PermissionError as e:
+        raise PermissionError(f"Cannot read file: {path}") from e
+
+
+# =============================================================================
+# Remote Checksum Verification (December 28, 2025)
+# =============================================================================
+
+
+async def compute_remote_checksum(
+    ssh_host: str,
+    remote_path: str,
+    ssh_user: str = "ubuntu",
+    ssh_key: str = "~/.ssh/id_cluster",
+    algorithm: HashAlgorithm = "md5",
+    timeout: float = 60.0,
+) -> str | None:
+    """Compute checksum of a remote file via SSH.
+
+    Uses md5sum/sha256sum on the remote host for efficiency (no file transfer).
+
+    Args:
+        ssh_host: Remote SSH host (IP or hostname)
+        remote_path: Path to file on remote host
+        ssh_user: SSH username (default: ubuntu)
+        ssh_key: Path to SSH private key
+        algorithm: Hash algorithm (md5 or sha256)
+        timeout: Command timeout in seconds
+
+    Returns:
+        Hex-encoded checksum string, or None if command fails
+
+    Example:
+        checksum = await compute_remote_checksum(
+            "192.168.1.100",
+            "/data/games/canonical_hex8_2p.db",
+        )
+    """
+    import asyncio
+    import os
+
+    # Choose command based on algorithm
+    cmd_name = f"{algorithm}sum" if algorithm in ("md5", "sha256") else f"{algorithm}sum"
+
+    ssh_key_expanded = os.path.expanduser(ssh_key)
+    ssh_cmd = [
+        "ssh",
+        "-i", ssh_key_expanded,
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        "-o", "BatchMode=yes",
+        f"{ssh_user}@{ssh_host}",
+        f"{cmd_name} '{remote_path}' 2>/dev/null | cut -d' ' -f1",
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *ssh_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+
+        if proc.returncode == 0 and stdout:
+            checksum = stdout.decode().strip()
+            if checksum and len(checksum) in (32, 64, 128):  # md5, sha256, sha512
+                return checksum
+
+        logger.debug(
+            f"[SyncIntegrity] Remote checksum failed for {ssh_host}:{remote_path}: "
+            f"returncode={proc.returncode}, stderr={stderr.decode() if stderr else ''}"
+        )
+        return None
+
+    except asyncio.TimeoutError:
+        logger.warning(f"[SyncIntegrity] Remote checksum timeout for {ssh_host}:{remote_path}")
+        return None
+    except Exception as e:
+        logger.debug(f"[SyncIntegrity] Remote checksum error: {e}")
+        return None
+
+
+async def verify_sync_checksum(
+    source_path: str,
+    dest_path: str,
+    ssh_host: str | None = None,
+    ssh_user: str = "ubuntu",
+    ssh_key: str = "~/.ssh/id_cluster",
+    algorithm: HashAlgorithm = "md5",
+    use_fast_checksum: bool = True,
+) -> tuple[bool, str]:
+    """Verify file checksums match after sync operation.
+
+    Compares checksums between source and destination files. Supports both
+    local-to-local and local-to-remote verification.
+
+    Args:
+        source_path: Path to source file (local)
+        dest_path: Path to destination file (local or remote)
+        ssh_host: If provided, dest_path is on this remote host
+        ssh_user: SSH username for remote verification
+        ssh_key: Path to SSH private key
+        algorithm: Hash algorithm to use (md5 for speed, sha256 for security)
+        use_fast_checksum: Use chunked sampling for files > 100MB
+
+    Returns:
+        Tuple of (success, error_message)
+        - success: True if checksums match
+        - error_message: Empty string on success, error details on failure
+
+    Example:
+        # Local verification
+        success, error = await verify_sync_checksum(
+            "/data/source.db",
+            "/backup/source.db",
+        )
+
+        # Remote verification
+        success, error = await verify_sync_checksum(
+            "/data/source.db",
+            "/data/games/source.db",
+            ssh_host="192.168.1.100",
+        )
+    """
+    source = Path(source_path)
+
+    # Compute source checksum
+    try:
+        if use_fast_checksum and source.stat().st_size > 100 * 1024 * 1024:
+            source_checksum = compute_fast_checksum(source, algorithm=algorithm)
+        else:
+            source_checksum = compute_file_checksum(source, algorithm=algorithm)
+    except Exception as e:
+        return False, f"Failed to compute source checksum: {e}"
+
+    # Compute destination checksum
+    if ssh_host:
+        # Remote file
+        dest_checksum = await compute_remote_checksum(
+            ssh_host=ssh_host,
+            remote_path=dest_path,
+            ssh_user=ssh_user,
+            ssh_key=ssh_key,
+            algorithm=algorithm,
+        )
+        if dest_checksum is None:
+            return False, f"Failed to compute remote checksum on {ssh_host}:{dest_path}"
+    else:
+        # Local file
+        dest = Path(dest_path)
+        if not dest.exists():
+            return False, f"Destination file not found: {dest_path}"
+        try:
+            if use_fast_checksum and dest.stat().st_size > 100 * 1024 * 1024:
+                dest_checksum = compute_fast_checksum(dest, algorithm=algorithm)
+            else:
+                dest_checksum = compute_file_checksum(dest, algorithm=algorithm)
+        except Exception as e:
+            return False, f"Failed to compute destination checksum: {e}"
+
+    # Compare checksums
+    if source_checksum != dest_checksum:
+        error_msg = (
+            f"Checksum mismatch: source={source_checksum[:16]}..., "
+            f"dest={dest_checksum[:16] if dest_checksum else 'None'}..."
+        )
+        logger.error(f"[SyncIntegrity] {error_msg}")
+        return False, error_msg
+
+    logger.debug(f"[SyncIntegrity] Checksum verified: {source_path} -> {dest_path}")
+    return True, ""
+
+
+async def verify_and_retry_sync(
+    source_path: str,
+    dest_path: str,
+    ssh_host: str,
+    ssh_user: str = "ubuntu",
+    ssh_key: str = "~/.ssh/id_cluster",
+    sync_func=None,
+    max_retries: int = 1,
+) -> tuple[bool, str]:
+    """Verify sync checksum and retry once if verification fails.
+
+    This is the main entry point for checksum-verified sync operations.
+    After a sync completes, it:
+    1. Verifies the checksum matches
+    2. If mismatch, deletes the corrupted file and retries sync once
+    3. Emits SYNC_CHECKSUM_FAILED event if retry also fails
+
+    Args:
+        source_path: Path to source file
+        dest_path: Path to destination file on remote host
+        ssh_host: Remote SSH host
+        ssh_user: SSH username
+        ssh_key: Path to SSH private key
+        sync_func: Async callable to execute the sync (takes no args, returns bool)
+        max_retries: Number of retry attempts (default: 1)
+
+    Returns:
+        Tuple of (success, error_message)
+
+    Example:
+        async def do_rsync():
+            result = await rsync_to_target(source, target)
+            return result.success
+
+        success, error = await verify_and_retry_sync(
+            "/data/source.db",
+            "/data/games/source.db",
+            ssh_host="192.168.1.100",
+            sync_func=do_rsync,
+        )
+    """
+    # First verification
+    success, error = await verify_sync_checksum(
+        source_path=source_path,
+        dest_path=dest_path,
+        ssh_host=ssh_host,
+        ssh_user=ssh_user,
+        ssh_key=ssh_key,
+    )
+
+    if success:
+        return True, ""
+
+    # Checksum failed - retry if sync_func provided
+    if sync_func is None or max_retries < 1:
+        return False, error
+
+    logger.warning(
+        f"[SyncIntegrity] Checksum verification failed, attempting cleanup and retry: {error}"
+    )
+
+    # Delete corrupted file on remote
+    try:
+        import asyncio
+        import os
+
+        ssh_key_expanded = os.path.expanduser(ssh_key)
+        delete_cmd = [
+            "ssh",
+            "-i", ssh_key_expanded,
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            f"{ssh_user}@{ssh_host}",
+            f"rm -f '{dest_path}'",
+        ]
+
+        proc = await asyncio.create_subprocess_exec(
+            *delete_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=30.0)
+
+    except Exception as e:
+        logger.warning(f"[SyncIntegrity] Failed to delete corrupted file: {e}")
+
+    # Retry sync
+    try:
+        retry_success = await sync_func()
+        if not retry_success:
+            await _emit_sync_checksum_failed(source_path, dest_path, ssh_host, "Retry sync failed")
+            return False, "Retry sync failed"
+
+    except Exception as e:
+        await _emit_sync_checksum_failed(source_path, dest_path, ssh_host, str(e))
+        return False, f"Retry sync error: {e}"
+
+    # Verify again after retry
+    success, error = await verify_sync_checksum(
+        source_path=source_path,
+        dest_path=dest_path,
+        ssh_host=ssh_host,
+        ssh_user=ssh_user,
+        ssh_key=ssh_key,
+    )
+
+    if not success:
+        await _emit_sync_checksum_failed(source_path, dest_path, ssh_host, error)
+        return False, f"Checksum verification failed after retry: {error}"
+
+    logger.info(f"[SyncIntegrity] Checksum verified after retry: {source_path} -> {ssh_host}:{dest_path}")
+    return True, ""
+
+
+async def _emit_sync_checksum_failed(
+    source_path: str,
+    dest_path: str,
+    target_node: str,
+    error: str,
+) -> None:
+    """Emit SYNC_CHECKSUM_FAILED event for monitoring.
+
+    Args:
+        source_path: Source file path
+        dest_path: Destination file path
+        target_node: Target node hostname/IP
+        error: Error description
+    """
+    try:
+        from app.distributed.data_events import DataEventType, emit_data_event
+
+        emit_data_event(
+            event_type=DataEventType.SYNC_CHECKSUM_FAILED,
+            source="sync_integrity",
+            metadata={
+                "source_path": source_path,
+                "dest_path": dest_path,
+                "target_node": target_node,
+                "error": error,
+            },
+        )
+    except (ImportError, AttributeError) as e:
+        logger.debug(f"[SyncIntegrity] Could not emit SYNC_CHECKSUM_FAILED: {e}")
+
+
+# =============================================================================
 # Module Exports
 # =============================================================================
 
@@ -750,9 +1132,13 @@ __all__ = [
     "atomic_file_write",
     "check_sqlite_integrity",
     "compute_db_checksum",
+    "compute_fast_checksum",
     "compute_file_checksum",
+    "compute_remote_checksum",
     "prepare_database_for_transfer",
     "verified_database_copy",
+    "verify_and_retry_sync",
     "verify_checksum",
+    "verify_sync_checksum",
     "verify_sync_integrity",
 ]

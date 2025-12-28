@@ -28077,6 +28077,7 @@ print(json.dumps({{
             app.router.add_get('/admin/purge_stale', self.handle_purge_stale_peers)      # Purge stale peers by heartbeat age
             app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
             app.router.add_post('/admin/restart', self.handle_admin_restart)             # Force restart orchestrator
+            app.router.add_post('/admin/reset_node_jobs', self.handle_admin_reset_node_jobs)  # Reset job counts for zombie nodes
 
             # Phase 5: Event subscription visibility (December 2025)
             app.router.add_get('/subscriptions', self.handle_subscriptions)              # Show event subscriptions

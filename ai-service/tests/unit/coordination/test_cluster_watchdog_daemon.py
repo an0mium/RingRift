@@ -676,3 +676,562 @@ class TestErrorEscalation:
 
         # Should increment to max_consecutive_failures
         assert sample_node.consecutive_failures >= daemon.config.max_consecutive_failures
+
+
+# =============================================================================
+# Singleton Pattern Tests
+# =============================================================================
+
+
+class TestSingletonPattern:
+    """Tests for singleton factory functions."""
+
+    def teardown_method(self):
+        """Reset singleton after each test."""
+        from app.coordination.cluster_watchdog_daemon import reset_cluster_watchdog_daemon
+        reset_cluster_watchdog_daemon()
+
+    def test_get_instance_returns_daemon(self):
+        """get_cluster_watchdog_daemon returns a daemon instance."""
+        from app.coordination.cluster_watchdog_daemon import get_cluster_watchdog_daemon
+        daemon = get_cluster_watchdog_daemon()
+        assert isinstance(daemon, ClusterWatchdogDaemon)
+
+    def test_get_instance_returns_same_instance(self):
+        """get_cluster_watchdog_daemon returns same instance on repeated calls."""
+        from app.coordination.cluster_watchdog_daemon import get_cluster_watchdog_daemon
+        daemon1 = get_cluster_watchdog_daemon()
+        daemon2 = get_cluster_watchdog_daemon()
+        assert daemon1 is daemon2
+
+    def test_reset_instance_clears_singleton(self):
+        """reset_cluster_watchdog_daemon clears the singleton."""
+        from app.coordination.cluster_watchdog_daemon import (
+            get_cluster_watchdog_daemon,
+            reset_cluster_watchdog_daemon,
+        )
+        daemon1 = get_cluster_watchdog_daemon()
+        reset_cluster_watchdog_daemon()
+        daemon2 = get_cluster_watchdog_daemon()
+        assert daemon1 is not daemon2
+
+
+# =============================================================================
+# Vultr CLI Query Tests
+# =============================================================================
+
+
+class TestVultrCliQuery:
+    """Tests for Vultr CLI querying."""
+
+    @pytest.mark.asyncio
+    async def test_query_vultr_cli_parses_output(self, daemon):
+        """_query_vultr_cli parses CLI output correctly."""
+        mock_output = json.dumps({
+            "instances": [
+                {
+                    "id": "vultr-123",
+                    "status": "active",
+                    "main_ip": "192.168.1.100",
+                    "label": "gpu-a100-node",
+                }
+            ]
+        })
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+
+        with patch('subprocess.run', return_value=mock_result):
+            nodes = await daemon._query_vultr_cli()
+
+        assert len(nodes) == 1
+        assert nodes[0].node_id == "vultr-gpu-a100-node"
+        assert nodes[0].provider == "vultr"
+        assert nodes[0].gpu_memory_gb == 20  # Default for Vultr A100 vGPU
+
+    @pytest.mark.asyncio
+    async def test_query_vultr_cli_handles_cli_failure(self, daemon):
+        """_query_vultr_cli handles CLI failure gracefully."""
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "CLI error"
+
+        with patch('subprocess.run', return_value=mock_result):
+            nodes = await daemon._query_vultr_cli()
+
+        assert nodes == []
+
+    @pytest.mark.asyncio
+    async def test_query_vultr_cli_skips_inactive(self, daemon):
+        """_query_vultr_cli skips inactive instances."""
+        mock_output = json.dumps({
+            "instances": [
+                {"id": "1", "status": "stopped", "main_ip": "10.0.0.1", "label": "gpu-node-1"},
+                {"id": "2", "status": "active", "main_ip": "10.0.0.2", "label": "a100-node"},
+            ]
+        })
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+
+        with patch('subprocess.run', return_value=mock_result):
+            nodes = await daemon._query_vultr_cli()
+
+        assert len(nodes) == 1
+        assert nodes[0].node_id == "vultr-a100-node"
+
+    @pytest.mark.asyncio
+    async def test_query_vultr_cli_skips_non_gpu(self, daemon):
+        """_query_vultr_cli skips non-GPU instances."""
+        mock_output = json.dumps({
+            "instances": [
+                {"id": "1", "status": "active", "main_ip": "10.0.0.1", "label": "cpu-only"},
+                {"id": "2", "status": "active", "main_ip": "10.0.0.2", "label": "a100-gpu-node"},
+            ]
+        })
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = mock_output
+
+        with patch('subprocess.run', return_value=mock_result):
+            nodes = await daemon._query_vultr_cli()
+
+        assert len(nodes) == 1
+        assert nodes[0].node_id == "vultr-a100-gpu-node"
+
+    @pytest.mark.asyncio
+    async def test_query_vultr_cli_handles_missing_cli(self, daemon):
+        """_query_vultr_cli handles missing CLI gracefully."""
+        with patch('subprocess.run', side_effect=FileNotFoundError("vultr-cli not found")):
+            nodes = await daemon._query_vultr_cli()
+
+        assert nodes == []
+
+
+# =============================================================================
+# Cluster Health Event Handler Tests
+# =============================================================================
+
+
+class TestClusterHealthHandlers:
+    """Tests for cluster health event handlers."""
+
+    @pytest.mark.asyncio
+    async def test_on_cluster_unhealthy_pauses_spawning(self, daemon):
+        """_on_cluster_unhealthy sets _cluster_healthy to False."""
+        assert daemon._cluster_healthy is True
+
+        event = {"payload": {"reason": "Too many failures"}}
+        await daemon._on_cluster_unhealthy(event)
+
+        assert daemon._cluster_healthy is False
+
+    @pytest.mark.asyncio
+    async def test_on_cluster_healthy_resumes_spawning(self, daemon):
+        """_on_cluster_healthy sets _cluster_healthy to True."""
+        daemon._cluster_healthy = False
+
+        event = {}
+        await daemon._on_cluster_healthy(event)
+
+        assert daemon._cluster_healthy is True
+
+    @pytest.mark.asyncio
+    async def test_on_cluster_unhealthy_handles_missing_payload(self, daemon):
+        """_on_cluster_unhealthy handles missing payload gracefully."""
+        event = {}
+        # Should not raise
+        await daemon._on_cluster_unhealthy(event)
+        assert daemon._cluster_healthy is False
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_skipped_when_cluster_unhealthy(self, daemon):
+        """_run_cycle is skipped when cluster is unhealthy."""
+        daemon._cluster_healthy = False
+
+        with patch.object(
+            daemon, '_discover_nodes',
+            new_callable=AsyncMock
+        ) as mock_discover:
+            await daemon._run_cycle()
+
+        # Should not call discover_nodes when unhealthy
+        mock_discover.assert_not_called()
+
+
+# =============================================================================
+# Node Status Check Tests
+# =============================================================================
+
+
+class TestNodeStatusCheck:
+    """Tests for checking node status via SSH."""
+
+    @pytest.mark.asyncio
+    async def test_check_node_status_sets_reachable(self, daemon, sample_node):
+        """_check_node_status sets is_reachable on success."""
+        sample_node.is_reachable = False
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "50 %"
+
+        with patch('subprocess.run', return_value=mock_result), \
+             patch('app.coordination.cluster_watchdog_daemon.emit_health_check_passed', new_callable=AsyncMock):
+            await daemon._check_node_status(sample_node)
+
+        assert sample_node.is_reachable is True
+        assert sample_node.gpu_utilization == 50.0
+
+    @pytest.mark.asyncio
+    async def test_check_node_status_handles_no_ssh_cmd(self, daemon):
+        """_check_node_status handles missing SSH command."""
+        node = WatchdogNodeStatus(
+            node_id="test",
+            provider="vast",
+            ssh_cmd="",  # No SSH command
+        )
+
+        await daemon._check_node_status(node)
+
+        assert node.is_reachable is False
+        assert "No SSH command" in node.error
+
+    @pytest.mark.asyncio
+    async def test_check_node_status_handles_timeout(self, daemon, sample_node):
+        """_check_node_status handles SSH timeout."""
+        import subprocess
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd="ssh", timeout=30)), \
+             patch('app.coordination.cluster_watchdog_daemon.emit_health_check_failed', new_callable=AsyncMock):
+            await daemon._check_node_status(sample_node)
+
+        assert sample_node.is_reachable is False
+        assert "timeout" in sample_node.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_check_node_status_parses_python_processes(self, daemon, sample_node):
+        """_check_node_status parses python process count."""
+        # First call returns GPU util, second returns process count
+        mock_results = [
+            MagicMock(returncode=0, stdout="25 %"),  # GPU util
+            MagicMock(returncode=0, stdout="5"),     # Python processes
+        ]
+
+        with patch('subprocess.run', side_effect=mock_results), \
+             patch('app.coordination.cluster_watchdog_daemon.emit_health_check_passed', new_callable=AsyncMock):
+            await daemon._check_node_status(sample_node)
+
+        assert sample_node.python_processes == 5
+
+    @pytest.mark.asyncio
+    async def test_check_node_status_updates_last_check(self, daemon, sample_node):
+        """_check_node_status updates last_check timestamp."""
+        sample_node.last_check = 0.0
+        before = time.time()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "10 %"
+
+        with patch('subprocess.run', return_value=mock_result), \
+             patch('app.coordination.cluster_watchdog_daemon.emit_health_check_passed', new_callable=AsyncMock):
+            await daemon._check_node_status(sample_node)
+
+        assert sample_node.last_check >= before
+
+
+# =============================================================================
+# Health Check Extended Tests
+# =============================================================================
+
+
+class TestHealthCheckExtended:
+    """Extended tests for health check."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_excessive_errors(self, daemon):
+        """Health check returns DEGRADED for excessive errors."""
+        daemon._running = True
+        daemon._last_cycle_stats = WatchdogCycleStats(
+            cycle_start=time.time() - 10,
+            cycle_end=time.time() - 5,
+            errors=["error1", "error2", "error3", "error4", "error5", "error6"],  # > 5 errors
+        )
+
+        result = await daemon.health_check()
+        assert result.healthy is False
+        assert "errors" in result.message.lower() or "too many" in result.message.lower()
+
+    @pytest.mark.asyncio
+    async def test_health_check_includes_cycle_stats(self, daemon):
+        """Health check includes cycle statistics in details."""
+        daemon._running = True
+        daemon._last_cycle_stats = WatchdogCycleStats(
+            cycle_start=time.time() - 10,
+            cycle_end=time.time() - 5,
+            nodes_discovered=10,
+            nodes_activated=3,
+            errors=[],
+        )
+
+        result = await daemon.health_check()
+        assert result.details.get("nodes_discovered") == 10
+        assert result.details.get("nodes_activated") == 3
+
+
+# =============================================================================
+# On Stop Handler Tests
+# =============================================================================
+
+
+class TestOnStopHandler:
+    """Tests for graceful shutdown handler."""
+
+    @pytest.mark.asyncio
+    async def test_on_stop_emits_shutdown_event(self, daemon):
+        """_on_stop emits coordinator shutdown event."""
+        daemon._running = True
+        daemon._cycles_completed = 5
+        daemon._cluster_healthy = True
+
+        with patch('app.coordination.cluster_watchdog_daemon.emit_coordinator_shutdown', new_callable=AsyncMock) as mock_emit:
+            await daemon._on_stop()
+
+        mock_emit.assert_called_once()
+        call_kwargs = mock_emit.call_args.kwargs
+        assert call_kwargs["coordinator_name"] == daemon._get_daemon_name()
+        assert call_kwargs["reason"] == "graceful"
+
+    @pytest.mark.asyncio
+    async def test_on_stop_handles_import_error(self, daemon):
+        """_on_stop handles ImportError gracefully."""
+        with patch(
+            'app.coordination.cluster_watchdog_daemon.emit_coordinator_shutdown',
+            side_effect=ImportError("No emitter"),
+        ):
+            # Should not raise
+            await daemon._on_stop()
+
+    @pytest.mark.asyncio
+    async def test_on_stop_handles_exception(self, daemon):
+        """_on_stop handles other exceptions gracefully."""
+        with patch(
+            'app.coordination.cluster_watchdog_daemon.emit_coordinator_shutdown',
+            side_effect=RuntimeError("Unexpected error"),
+        ):
+            # Should not raise
+            await daemon._on_stop()
+
+
+# =============================================================================
+# Activation Edge Case Tests
+# =============================================================================
+
+
+class TestActivationEdgeCases:
+    """Tests for edge cases in node activation."""
+
+    @pytest.mark.asyncio
+    async def test_activate_node_no_ssh_cmd(self, daemon):
+        """_activate_node returns False when no SSH command."""
+        node = WatchdogNodeStatus(
+            node_id="test",
+            provider="vast",
+            ssh_cmd="",  # No SSH command
+        )
+
+        result = await daemon._activate_node(node)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_activate_node_timeout_treated_as_success(self, daemon, sample_node):
+        """_activate_node treats timeout as success (nohup may timeout)."""
+        import subprocess
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(cmd="ssh", timeout=60)):
+            result = await daemon._activate_node(sample_node)
+
+        # Timeout with nohup often means success
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_activate_node_cycles_configs(self, daemon, sample_node):
+        """_activate_node cycles through selfplay configs."""
+        initial_index = daemon._config_index
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        with patch('subprocess.run', return_value=mock_result):
+            await daemon._activate_node(sample_node)
+
+        # Config index should have advanced
+        expected_index = (initial_index + 1) % len(daemon.config.selfplay_configs)
+        assert daemon._config_index == expected_index
+
+
+# =============================================================================
+# Get Status Extended Tests
+# =============================================================================
+
+
+class TestGetStatusExtended:
+    """Extended tests for status retrieval."""
+
+    def test_get_status_includes_nodes_list(self, daemon):
+        """get_status includes list of tracked nodes."""
+        daemon._running = True
+        daemon._nodes = {
+            "vast-1": WatchdogNodeStatus(
+                node_id="vast-1",
+                provider="vast",
+                ssh_cmd="ssh root@10.0.0.1",
+                gpu_utilization=50.0,
+                python_processes=3,
+                is_reachable=True,
+                consecutive_failures=0,
+            ),
+            "runpod-1": WatchdogNodeStatus(
+                node_id="runpod-1",
+                provider="runpod",
+                ssh_cmd="ssh root@10.0.0.2",
+                gpu_utilization=0.0,
+                is_reachable=False,
+                consecutive_failures=2,
+            ),
+        }
+
+        status = daemon.get_status()
+
+        assert "nodes" in status
+        assert len(status["nodes"]) == 2
+
+        vast_node = next(n for n in status["nodes"] if n["id"] == "vast-1")
+        assert vast_node["provider"] == "vast"
+        assert vast_node["gpu_util"] == 50.0
+        assert vast_node["processes"] == 3
+        assert vast_node["reachable"] is True
+
+    def test_get_status_includes_last_cycle(self, daemon):
+        """get_status includes last cycle statistics."""
+        daemon._running = True
+        daemon._last_cycle_stats = WatchdogCycleStats(
+            nodes_discovered=10,
+            nodes_reachable=8,
+            nodes_idle=3,
+            nodes_activated=2,
+            nodes_failed=1,
+        )
+
+        status = daemon.get_status()
+
+        assert "last_cycle" in status
+        assert status["last_cycle"]["discovered"] == 10
+        assert status["last_cycle"]["reachable"] == 8
+        assert status["last_cycle"]["idle"] == 3
+        assert status["last_cycle"]["activated"] == 2
+        assert status["last_cycle"]["failed"] == 1
+
+    def test_get_status_includes_config(self, daemon, mock_config):
+        """get_status includes watchdog-specific config."""
+        status = daemon.get_status()
+
+        assert "config" in status
+        assert status["config"]["min_gpu_utilization"] == mock_config.min_gpu_utilization
+
+    def test_get_status_tracked_nodes_count(self, daemon):
+        """get_status includes tracked nodes count."""
+        daemon._nodes = {
+            "node1": WatchdogNodeStatus(node_id="node1", provider="vast", ssh_cmd=""),
+            "node2": WatchdogNodeStatus(node_id="node2", provider="runpod", ssh_cmd=""),
+        }
+
+        status = daemon.get_status()
+        assert status["tracked_nodes"] == 2
+
+
+# =============================================================================
+# Node Unhealthy Event Tests
+# =============================================================================
+
+
+class TestNodeUnhealthyEvent:
+    """Tests for NODE_UNHEALTHY event emission."""
+
+    @pytest.mark.asyncio
+    async def test_emits_node_unhealthy_on_persistent_failure(self, daemon, sample_node):
+        """Emits NODE_UNHEALTHY after max consecutive failures."""
+        sample_node.is_reachable = True  # Start reachable
+        sample_node.gpu_utilization = 5.0  # Idle
+        sample_node.consecutive_failures = daemon.config.max_consecutive_failures - 1
+        sample_node.last_activation = 0.0  # Not recently activated
+
+        with patch.object(
+            daemon, '_discover_nodes',
+            return_value=[sample_node]
+        ), patch.object(
+            daemon, '_check_node_status',
+            new_callable=AsyncMock
+        ), patch.object(
+            daemon, '_activate_node',
+            return_value=False  # Activation fails
+        ), patch(
+            'app.coordination.cluster_watchdog_daemon.emit_node_unhealthy',
+            new_callable=AsyncMock
+        ) as mock_emit:
+            await daemon._run_cycle()
+
+        # Should emit NODE_UNHEALTHY
+        mock_emit.assert_called_once()
+        call_kwargs = mock_emit.call_args.kwargs
+        assert call_kwargs["node_id"] == sample_node.node_id
+        assert "failures" in call_kwargs["reason"].lower() or "persistent" in call_kwargs["reason"].lower()
+
+
+# =============================================================================
+# Max Activations Per Cycle Tests
+# =============================================================================
+
+
+class TestMaxActivationsPerCycle:
+    """Tests for max activations per cycle limit."""
+
+    @pytest.mark.asyncio
+    async def test_respects_max_activations_limit(self, daemon):
+        """_run_cycle respects max_activations_per_cycle."""
+        daemon.config.max_activations_per_cycle = 2
+
+        # Create 5 idle nodes
+        nodes = [
+            WatchdogNodeStatus(
+                node_id=f"vast-{i}",
+                provider="vast",
+                ssh_cmd=f"ssh root@10.0.0.{i}",
+                gpu_utilization=0.0,  # All idle
+                is_reachable=True,
+            )
+            for i in range(5)
+        ]
+
+        activation_count = 0
+
+        async def mock_activate(node):
+            nonlocal activation_count
+            activation_count += 1
+            return True
+
+        with patch.object(
+            daemon, '_discover_nodes',
+            return_value=nodes
+        ), patch.object(
+            daemon, '_check_node_status',
+            new_callable=AsyncMock
+        ), patch.object(
+            daemon, '_activate_node',
+            side_effect=mock_activate
+        ):
+            await daemon._run_cycle()
+
+        # Should only activate max_activations_per_cycle nodes
+        assert activation_count == 2
