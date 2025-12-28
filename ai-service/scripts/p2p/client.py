@@ -39,7 +39,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-DEFAULT_PORT = 8770
+# Import centralized port constant
+try:
+    from .constants import DEFAULT_PORT
+except ImportError:
+    DEFAULT_PORT = 8770  # Fallback if constants unavailable
+
 DEFAULT_TIMEOUT = 30
 
 

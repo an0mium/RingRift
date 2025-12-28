@@ -37,6 +37,12 @@ from typing import Any, Callable, Coroutine
 
 from .base import BaseLoop
 
+# Import centralized port constant
+try:
+    from ..constants import DEFAULT_PORT
+except ImportError:
+    DEFAULT_PORT = 8770  # Fallback if constants unavailable
+
 logger = logging.getLogger(__name__)
 
 
@@ -429,7 +435,7 @@ class TailscalePeerDiscoveryConfig:
     min_connected_peers: int = 3  # If fewer peers, always run discovery
     connect_timeout_seconds: float = 10.0
     max_nodes_per_cycle: int = 10
-    p2p_port: int = 8770
+    p2p_port: int = DEFAULT_PORT
     # Hostname patterns for compute nodes we want in the P2P network
     compute_patterns: tuple[str, ...] = (
         "lambda-", "vast-", "gh200", "h100", "a100", "a10",

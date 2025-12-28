@@ -317,12 +317,14 @@ class TestAutoSyncDaemonLifecycle:
              patch("app.coordination.auto_sync_daemon.safe_create_task") as mock_task, \
              patch("app.coordination.auto_sync_daemon.register_coordinator"):
 
-            mock_task.return_value = MagicMock()
+            # December 2025: Use AsyncMock so task can be awaited in stop()
+            mock_task.return_value = AsyncMock()
             await daemon.start()
 
         # Then stop it
         with patch("app.coordination.auto_sync_daemon.unregister_coordinator"):
             daemon._sync_task = None  # Clear task to avoid cancel
+            daemon._pending_writes_task = None  # Clear pending writes task
             await daemon.stop()
 
         assert daemon._running is False

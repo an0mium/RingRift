@@ -34,6 +34,7 @@ from typing import Any
 
 from app.coordination.contracts import HealthCheckResult
 from app.coordination.handler_base import HandlerBase, HandlerStats
+from app.distributed.data_events import DataEventType
 from app.training.npz_combiner import (
     CombineResult,
     NPZCombinerConfig,
@@ -144,8 +145,8 @@ class NPZCombinationDaemon(HandlerBase):
     def _get_event_subscriptions(self) -> dict[str, Any]:
         """Return event type to handler mapping."""
         return {
-            "npz_export_complete": self._on_npz_export_complete,
-            "npz_combination_complete": self._on_npz_export_complete,  # Also on manual trigger
+            DataEventType.NPZ_EXPORT_COMPLETE.value: self._on_npz_export_complete,
+            DataEventType.NPZ_COMBINATION_COMPLETE.value: self._on_npz_export_complete,  # Also on manual trigger
         }
 
     async def _run_cycle(self) -> None:
@@ -359,8 +360,21 @@ async def get_npz_combination_daemon() -> NPZCombinationDaemon:
 def get_npz_combination_daemon_sync() -> NPZCombinationDaemon:
     """Get the singleton instance (sync version for imports).
 
+    .. deprecated::
+        This function is not thread-safe. Use get_npz_combination_daemon()
+        in async code instead. Will be removed in Q2 2026.
+
     Note: Use get_npz_combination_daemon() in async code.
     """
+    import warnings
+
+    warnings.warn(
+        "get_npz_combination_daemon_sync() is deprecated and not thread-safe. "
+        "Use 'await get_npz_combination_daemon()' in async code instead. "
+        "Will be removed in Q2 2026.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     global _daemon_instance
     if _daemon_instance is None:
         _daemon_instance = NPZCombinationDaemon()
