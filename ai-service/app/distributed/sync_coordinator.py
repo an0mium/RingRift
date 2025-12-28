@@ -81,7 +81,9 @@ try:
     HAS_ARIA2 = True
 except ImportError:
     HAS_ARIA2 = False
-    def check_aria2_available():
+
+    def check_aria2_available() -> bool:
+        """Stub: aria2 module not available."""
         return False
 
 try:
@@ -127,16 +129,20 @@ try:
 except ImportError:
     HAS_SYNC_METRICS = False
 
-    def record_sync_coordinator_op(*args, **kwargs):
+    def record_sync_coordinator_op(*args, **kwargs) -> None:
+        """Stub: metrics module not available."""
         return None
 
-    def record_nfs_skip(*args, **kwargs):
+    def record_nfs_skip(*args, **kwargs) -> None:
+        """Stub: metrics module not available."""
         return None
 
-    def update_data_server_status(*args, **kwargs):
+    def update_data_server_status(*args, **kwargs) -> None:
+        """Stub: metrics module not available."""
         return None
 
-    def update_sync_sources_count(*args, **kwargs):
+    def update_sync_sources_count(*args, **kwargs) -> None:
+        """Stub: metrics module not available."""
         return None
 
 # Event emission for sync feedback loops (Phase 21.2 - Dec 2025)

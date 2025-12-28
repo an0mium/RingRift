@@ -4192,7 +4192,15 @@ class P2POrchestrator(
     # TASK ISOLATION - Prevent single task failure from crashing all tasks
     # =========================================================================
 
-    async def _safe_task_wrapper(self, coro, task_name: str) -> None:
+    # Task factory registry for restart support
+    _task_factories: dict[str, "Callable[[], Coroutine]"] = {}
+
+    async def _safe_task_wrapper(
+        self,
+        coro,
+        task_name: str,
+        factory: "Callable[[], Coroutine] | None" = None,
+    ) -> None:
         """Wrap a coroutine to catch exceptions and prevent cascade failures.
 
         This is a CRITICAL stability fix: without isolation, a single exception
@@ -4202,43 +4210,85 @@ class P2POrchestrator(
         Args:
             coro: The coroutine to wrap
             task_name: Human-readable task name for logging
+            factory: Optional callable that returns a new coroutine for restarts
 
         Returns:
             None - exceptions are logged but not raised
         """
-        try:
-            await coro
-        except asyncio.CancelledError:
-            logger.debug(f"Task '{task_name}' cancelled (shutdown)")
-            raise  # Re-raise CancelledError for graceful shutdown
-        except SystemExit:
-            # SystemExit from main loop exit - ignore in background tasks
-            # This prevents "Task exception was never retrieved" log pollution
-            logger.debug(f"Task '{task_name}' received SystemExit (orchestrator shutdown)")
-            return
-        except Exception as e:  # noqa: BLE001
-            # Log but don't propagate - other tasks continue running
-            logger.error(f"Task '{task_name}' crashed: {e}", exc_info=True)
-            # Optionally restart the task after a delay
-            if self.running:
-                logger.info(f"Restarting task '{task_name}' in 30 seconds...")
-                await asyncio.sleep(30)
-                if self.running:
-                    # Restart by creating a new task with the same wrapper
-                    logger.info(f"Restarting task '{task_name}'")
+        # Register factory for potential restarts
+        if factory is not None:
+            self._task_factories[task_name] = factory
 
-    def _create_safe_task(self, coro, name: str) -> asyncio.Task:
-        """Create a task wrapped with exception isolation.
+        restart_count = 0
+        max_restarts = 5
+
+        while True:
+            try:
+                await coro
+                return  # Normal completion
+            except asyncio.CancelledError:
+                logger.debug(f"Task '{task_name}' cancelled (shutdown)")
+                raise  # Re-raise CancelledError for graceful shutdown
+            except SystemExit:
+                # SystemExit from main loop exit - ignore in background tasks
+                # This prevents "Task exception was never retrieved" log pollution
+                logger.debug(f"Task '{task_name}' received SystemExit (orchestrator shutdown)")
+                return
+            except Exception as e:  # noqa: BLE001
+                # Log but don't propagate - other tasks continue running
+                logger.error(f"Task '{task_name}' crashed: {e}", exc_info=True)
+
+                # Check if we can restart
+                restart_factory = factory or self._task_factories.get(task_name)
+                if not self.running or restart_factory is None:
+                    logger.warning(f"Task '{task_name}' cannot restart (no factory or shutdown)")
+                    return
+
+                restart_count += 1
+                if restart_count > max_restarts:
+                    logger.error(
+                        f"Task '{task_name}' exceeded max restarts ({max_restarts}), giving up"
+                    )
+                    return
+
+                # Exponential backoff: 30s, 60s, 120s, 240s, 480s
+                delay = min(30 * (2 ** (restart_count - 1)), 480)
+                logger.info(
+                    f"Restarting task '{task_name}' in {delay}s "
+                    f"(attempt {restart_count}/{max_restarts})..."
+                )
+                await asyncio.sleep(delay)
+
+                if not self.running:
+                    return
+
+                # Create new coroutine from factory
+                try:
+                    coro = restart_factory()
+                    logger.info(f"Restarted task '{task_name}'")
+                except Exception as restart_error:
+                    logger.error(f"Failed to restart task '{task_name}': {restart_error}")
+                    return
+
+    def _create_safe_task(
+        self,
+        coro,
+        name: str,
+        factory: "Callable[[], Coroutine] | None" = None,
+    ) -> asyncio.Task:
+        """Create a task wrapped with exception isolation and restart support.
 
         Args:
             coro: The coroutine to run
             name: Task name for logging
+            factory: Optional callable that returns a new coroutine for restarts.
+                     If not provided, task cannot be automatically restarted.
 
         Returns:
             asyncio.Task wrapped with safe error handling
         """
         return asyncio.create_task(
-            self._safe_task_wrapper(coro, name),
+            self._safe_task_wrapper(coro, name, factory),
             name=name,
         )
 
@@ -28152,29 +28202,47 @@ print(json.dumps({{
         # Notify systemd that we're ready to serve
         systemd_notify_ready()
 
-        # Start background tasks with exception isolation
+        # Start background tasks with exception isolation and restart support
         # CRITICAL FIX (Dec 2025): Each task is wrapped to prevent cascade failures.
         # Previously, a single exception in any task would crash all 18+ tasks.
+        # Dec 2025 Update: Added factory functions for auto-restart on critical tasks.
         tasks = [
-            self._create_safe_task(self._heartbeat_loop(), "heartbeat"),
+            # Critical heartbeat loop - auto-restart on failure
+            self._create_safe_task(
+                self._heartbeat_loop(), "heartbeat", factory=self._heartbeat_loop
+            ),
             # NOTE: _manifest_collection_loop removed Dec 2025 - now runs via LoopManager (ManifestCollectionLoop)
             # See scripts/p2p/loops/manifest_collection_loop.py for implementation
-            self._create_safe_task(self._job_management_loop(), "job_management"),
-            self._create_safe_task(self._discovery_loop(), "discovery"),
-            # IMPROVED: Dedicated voter heartbeat loop for reliable leader election
-            self._create_safe_task(self._voter_heartbeat_loop(), "voter_heartbeat"),
+            # Job management - auto-restart on failure
+            self._create_safe_task(
+                self._job_management_loop(), "job_management", factory=self._job_management_loop
+            ),
+            # Discovery - auto-restart on failure
+            self._create_safe_task(
+                self._discovery_loop(), "discovery", factory=self._discovery_loop
+            ),
+            # IMPROVED: Dedicated voter heartbeat loop for reliable leader election - auto-restart
+            self._create_safe_task(
+                self._voter_heartbeat_loop(), "voter_heartbeat", factory=self._voter_heartbeat_loop
+            ),
             # NOTE: _nat_management_loop removed Dec 2025 - now runs via LoopManager (NATManagementLoop)
             # See scripts/p2p/loops/network_loops.py for implementation
             # SWIM gossip membership for leaderless failure detection (<5s vs 60s+)
-            self._create_safe_task(self._swim_membership_loop(), "swim_membership"),
+            self._create_safe_task(
+                self._swim_membership_loop(), "swim_membership", factory=self._swim_membership_loop
+            ),
         ]
 
         # Add git update loop if enabled
         if AUTO_UPDATE_ENABLED:
-            tasks.append(self._create_safe_task(self._git_update_loop(), "git_update"))
+            tasks.append(self._create_safe_task(
+                self._git_update_loop(), "git_update", factory=self._git_update_loop
+            ))
 
-        # Add training node priority sync loop (leader-only sync to high-GPU nodes)
-        tasks.append(self._create_safe_task(self._training_sync_loop(), "training_sync"))
+        # Add training node priority sync loop (leader-only sync to high-GPU nodes) - auto-restart
+        tasks.append(self._create_safe_task(
+            self._training_sync_loop(), "training_sync", factory=self._training_sync_loop
+        ))
 
         # Add cloud IP refresh loops (best-effort; no-op if not configured).
         if HAS_DYNAMIC_REGISTRY:
@@ -28212,11 +28280,16 @@ print(json.dumps({{
 
         # NOTE: _auto_scaling_loop removed Dec 2025 - now runs via LoopManager (AutoScalingLoop)
 
-        # Predictive monitoring loop: alert before problems occur
-        tasks.append(self._create_safe_task(self._predictive_monitoring_loop(), "predictive_monitoring"))
+        # Predictive monitoring loop: alert before problems occur - auto-restart
+        tasks.append(self._create_safe_task(
+            self._predictive_monitoring_loop(), "predictive_monitoring",
+            factory=self._predictive_monitoring_loop
+        ))
 
-        # Self-healing loop: recover stuck jobs and unhealthy nodes
-        tasks.append(self._create_safe_task(self._self_healing_loop(), "self_healing"))
+        # Self-healing loop: recover stuck jobs and unhealthy nodes - auto-restart
+        tasks.append(self._create_safe_task(
+            self._self_healing_loop(), "self_healing", factory=self._self_healing_loop
+        ))
 
         # NOTE: _job_reaper_loop removed Dec 2025 - now runs via LoopManager (JobReaperLoop)
 

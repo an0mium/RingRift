@@ -558,6 +558,51 @@ class WorkQueueMonitorDaemon(MonitorBase[WorkQueueMonitorConfig]):
         })
         return base_status
 
+    def health_check(self):
+        """Return health status with work-queue specific metrics.
+
+        Overrides MonitorBase.health_check() to include queue-specific details
+        like backpressure state, stuck job count, and queue depth.
+
+        Returns:
+            HealthCheckResult with status, message, and queue-specific details.
+        """
+        # Update custom stats before calling base health check
+        stats = self.get_queue_stats()
+        self._monitor_stats.custom.update({
+            "pending_count": stats.pending_count,
+            "claimed_count": stats.claimed_count,
+            "running_count": stats.running_count,
+            "completed_count": stats.completed_count,
+            "failed_count": stats.failed_count,
+            "backpressure_active": stats.backpressure_active,
+            "stuck_job_count": stats.stuck_job_count,
+            "avg_latency_seconds": round(stats.avg_latency_seconds, 2),
+        })
+
+        # Get base health check result
+        result = super().health_check()
+
+        # Downgrade health if backpressure is active or stuck jobs detected
+        if stats.backpressure_active and result.healthy:
+            from app.coordination.protocols import CoordinatorStatus
+            result = result.__class__(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Backpressure active: {stats.pending_count} pending jobs",
+                details=result.details,
+            )
+        elif stats.stuck_job_count > 0 and result.healthy:
+            from app.coordination.protocols import CoordinatorStatus
+            result = result.__class__(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"{stats.stuck_job_count} stuck job(s) detected",
+                details=result.details,
+            )
+
+        return result
+
 
 # =============================================================================
 # Convenience Functions (Backward Compatibility)

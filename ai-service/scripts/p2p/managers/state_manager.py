@@ -647,9 +647,17 @@ class StateManager:
             The new cluster epoch value
         """
         with self._lock:
+            old_epoch = self._cluster_epoch
             self._cluster_epoch += 1
             self.save_cluster_epoch()
             logger.info(f"Incremented cluster epoch to {self._cluster_epoch}")
+
+            # Emit EPOCH_ADVANCED event (Dec 2025)
+            _safe_emit_event("epoch_advanced", {
+                "old_epoch": old_epoch,
+                "new_epoch": self._cluster_epoch,
+            })
+
             return self._cluster_epoch
 
     def set_cluster_epoch(self, epoch: int) -> None:
