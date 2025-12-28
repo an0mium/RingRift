@@ -675,7 +675,39 @@ class UnifiedEventRouter:
         event: RouterEvent,
         exclude_origin: bool = False,
     ) -> None:
-        """Dispatch event to router subscribers with deduplication."""
+        """Dispatch event to router subscribers with deduplication.
+
+        Core event routing algorithm (December 2025):
+
+        1. **Event-ID Deduplication**: Each RouterEvent has a unique UUID. Events
+           already in _seen_events set are skipped to prevent duplicate processing.
+
+        2. **Content-Hash Deduplication**: Events forwarded through multiple buses
+           (stage, cross-process) may arrive as different RouterEvent objects with
+           identical payloads. The content_hash (SHA256 of type+payload) catches
+           these. Exception: Router-originated events can repeat same content.
+
+        3. **LRU Eviction**: Both seen event IDs and content hashes are bounded
+           by _max_seen_events (default 10000) using deque-based FIFO eviction.
+
+        4. **Subscriber Invocation**: Callbacks from _global_subscribers (all events)
+           and _subscribers[event_type] (type-specific) are called in registration
+           order with timeout protection (DEFAULT_HANDLER_TIMEOUT_SECONDS).
+
+        5. **Error Handling**: Failed handlers log errors and push to dead-letter
+           queue (DLQ) for later analysis. SystemExit/KeyboardInterrupt propagate.
+
+        6. **Metrics**: Tracks events_routed by type and events_by_source for
+           debugging and monitoring.
+
+        Args:
+            event: The RouterEvent to dispatch
+            exclude_origin: Deprecated, kept for API compatibility
+
+        Note:
+            This is an internal method. Use publish() or publish_sync() for
+            public event emission.
+        """
         _ = exclude_origin  # Kept for API compatibility
         async with self._lock:
             # Deduplication: skip if we've already seen this event by ID
@@ -790,7 +822,17 @@ class UnifiedEventRouter:
         event: RouterEvent,
         exclude_origin: bool = False,
     ) -> None:
-        """Synchronous dispatch for non-async contexts with deduplication."""
+        """Synchronous dispatch for non-async contexts with deduplication.
+
+        Identical to _dispatch() but uses threading locks instead of asyncio locks.
+        Used when no event loop is running (e.g., signal handlers, module init).
+
+        See _dispatch() for full algorithm documentation.
+
+        Args:
+            event: The RouterEvent to dispatch
+            exclude_origin: Deprecated, kept for API compatibility
+        """
         _ = exclude_origin  # Kept for API compatibility
         with self._sync_lock:
             # Deduplication: skip if we've already seen this event by ID

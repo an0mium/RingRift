@@ -212,8 +212,144 @@ ln -sf canonical_hex8_4p.pth ringrift_best_hex8_4p.pth
 
 ---
 
+## Daemon Lifecycle Issues (FIXED Dec 28, 2025)
+
+### curriculum_integration Daemon Crash
+
+**Issue:** curriculum_integration daemon crashed immediately on start with "object NoneType can't be used in 'await' expression".
+
+**Root Cause:** `daemon_runners.py:926` called `await bridge.start()` but `MomentumToCurriculumBridge.start()` is a synchronous method that uses threading internally and returns None.
+
+**Fix Applied:** Removed `await` keyword before `bridge.start()`.
+
+**Status:** FIXED (commit e2d274011)
+
+---
+
+### model_distribution Daemon Restart Loop
+
+**Issue:** UnifiedDistributionDaemon kept dying and restarting every few minutes.
+
+**Root Cause:** The main loop used `while self._running:` which exits naturally when `_running` is set to False during shutdown. `daemon_lifecycle.py` treated normal loop exit as completion requiring restart.
+
+**Fix Applied:** Changed to `while True:` with explicit `CancelledError` handling and proper `finally` cleanup block.
+
+**Status:** FIXED (commit e2d274011)
+
+---
+
+### SelfplayScheduler "No subscriptions succeeded"
+
+**Issue:** SelfplayScheduler logged "No subscriptions succeeded for reactive scheduling" on startup, disabling reactive scheduling.
+
+**Root Cause:** `selfplay_scheduler.py` used `get_event_bus()` which can return None if data_events module is unavailable, causing all subscriptions to skip.
+
+**Fix Applied:** Changed to `get_router()` which always returns a valid `UnifiedEventRouter` singleton and handles event type normalization automatically.
+
+**Status:** FIXED (commit e2d274011)
+
+---
+
+### SyncNodeInfo Attribute Error
+
+**Issue:** database_sync_manager.py failed with "'SyncNodeInfo' object has no attribute 'node_id'".
+
+**Root Cause:** December 2025 consolidation created `SyncNodeInfo` with `name` attribute but logging code at lines 438 and 467 used `node_id`.
+
+**Fix Applied:** Changed two occurrences of `node.node_id` to `node.name`.
+
+**Status:** FIXED (commit e2d274011)
+
+---
+
+## Technical Debt - Consolidation Opportunities
+
+Identified via exploration agents Dec 28, 2025:
+
+### Sync Mixins (~2,783 LOC potential savings)
+
+| File                              | LOC | Consolidation Opportunity |
+| --------------------------------- | --- | ------------------------- |
+| `scripts/p2p/membership_mixin.py` | 420 | Merge common P2P patterns |
+| `scripts/p2p/consensus_mixin.py`  | 380 | Merge common P2P patterns |
+| `scripts/p2p/handlers/swim.py`    | 350 | Merge handler base class  |
+| `scripts/p2p/handlers/raft.py`    | 320 | Merge handler base class  |
+| `scripts/p2p/p2p_mixin_base.py`   | 250 | Already serves as base    |
+
+**Recommendation:** Expand `P2PMixinBase` to absorb common patterns from membership/consensus mixins.
+
+---
+
+### Health Check Infrastructure (~1,500 LOC potential savings)
+
+| Module                         | LOC | Notes                         |
+| ------------------------------ | --- | ----------------------------- |
+| `health_check_orchestrator.py` | 626 | Node-level health tracking    |
+| `unified_health_manager.py`    | 520 | System-level health scoring   |
+| `health_facade.py`             | 150 | Already serves as entry point |
+
+**Recommendation:** Complete migration of callers to `health_facade.py` entry points.
+
+---
+
+### Pipeline Action Mixins (~1,000 LOC potential savings)
+
+| File                   | LOC | Notes                |
+| ---------------------- | --- | -------------------- |
+| `pipeline_actions.py`  | 850 | Stage invokers       |
+| `pipeline_triggers.py` | 420 | Event-based triggers |
+
+**Recommendation:** Merge into single `pipeline_orchestration.py` module.
+
+---
+
+## Technical Debt - Documentation Gaps
+
+### Missing Module Docstrings
+
+| Module                     | LOC    | Purpose                       |
+| -------------------------- | ------ | ----------------------------- |
+| `daemon_registry.py`       | 326    | Daemon specification registry |
+| `event_router.py`          | 1,200+ | Unified event routing         |
+| `sync_router.py`           | 600+   | Intelligent sync routing      |
+| `database_sync_manager.py` | 669    | Base class for DB sync        |
+
+---
+
+### Methods Lacking Documentation
+
+Critical methods without docstrings:
+
+| Method                          | File                    | Purpose                |
+| ------------------------------- | ----------------------- | ---------------------- |
+| `_route_event_to_subscribers()` | `event_router.py`       | Core routing algorithm |
+| `_calculate_priority_score()`   | `selfplay_scheduler.py` | Priority calculation   |
+| `_select_optimal_transport()`   | `cluster_transport.py`  | Transport selection    |
+
+---
+
+## Technical Debt - Test Coverage Gaps
+
+Modules without test coverage identified Dec 28, 2025:
+
+| Category      | Modules                                            | Untested LOC |
+| ------------- | -------------------------------------------------- | ------------ |
+| Data Pipeline | data_pipeline_orchestrator, integrity_check_daemon | ~2,500       |
+| Sync          | sync_durability, sync_facade                       | ~1,800       |
+| Health        | health_check_orchestrator                          | ~626         |
+| P2P Managers  | 7 manager modules                                  | ~4,000+      |
+
+**Priority Test Additions:**
+
+1. `test_data_pipeline_orchestrator.py` - Critical for pipeline reliability
+2. `test_integrity_check_daemon.py` - Data integrity protection
+3. `test_sync_durability.py` - Sync reliability
+
+---
+
 ## See Also
 
 - `CLAUDE.local.md` - Additional operational context
 - `TRAINING_DATA_REGISTRY.md` - Data quality tracking
 - `docs/DAEMON_REGISTRY.md` - Daemon configuration reference
+- `docs/CONSOLIDATION_STATUS_2025_12_28.md` - Consolidation progress
