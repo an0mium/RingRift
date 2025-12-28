@@ -1727,6 +1727,19 @@ class AutoSyncDaemon:
                 "duration_seconds": 0,
             }
 
+        # Dec 2025: CRITICAL - Checkpoint WAL before transfer to prevent corruption
+        try:
+            from app.coordination.sync_integrity import prepare_database_for_transfer
+            prep_success, prep_msg = prepare_database_for_transfer(source)
+            if not prep_success:
+                logger.warning(
+                    f"[AutoSyncDaemon] Failed to prepare {source} for broadcast: {prep_msg}"
+                )
+        except ImportError:
+            pass  # sync_integrity not available
+        except (OSError, sqlite3.Error) as e:
+            logger.warning(f"[AutoSyncDaemon] Error preparing database for broadcast: {e}")
+
         # Get provider-specific bandwidth limit
         bandwidth_kbps = self.get_bandwidth_for_node(
             target["node_id"],

@@ -36,6 +36,7 @@ __all__ = [
     "FatalError",
     # Infrastructure errors
     "InfrastructureError",
+    "InvalidGameError",
     "InvalidMoveError",
     "InvalidStateError",
     "LifecycleError",
@@ -479,6 +480,29 @@ class DataQualityError(TrainingError):
     - Too many duplicates
     """
     code: str = "DATA_QUALITY_ERROR"
+
+
+class InvalidGameError(DataQualityError):
+    """Game data integrity violation.
+
+    Raised when a game cannot be stored or finalized due to data integrity
+    issues, such as missing move data. This is a critical safeguard to
+    prevent useless games from polluting training databases.
+    """
+    code: str = "INVALID_GAME_ERROR"
+
+    def __init__(
+        self,
+        message: str,
+        game_id: str | None = None,
+        move_count: int | None = None,
+        context: dict[str, Any] | None = None,
+    ):
+        super().__init__(message, context=context)
+        if game_id:
+            self.context["game_id"] = game_id
+        if move_count is not None:
+            self.context["move_count"] = move_count
 
     def __init__(
         self,
