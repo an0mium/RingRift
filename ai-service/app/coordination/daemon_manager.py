@@ -369,6 +369,7 @@ class DaemonManager:
         its restart limit and requires manual intervention.
 
         Uses fire_and_forget since the emitter is async but this is called from sync context.
+        If no event loop is running, the event is logged but not emitted.
         """
         try:
             from app.distributed.data_events import emit_daemon_permanently_failed
@@ -376,6 +377,17 @@ class DaemonManager:
             import socket
             hostname = socket.gethostname()
             restart_count = len(self._restart_timestamps.get(daemon_type.value, []))
+
+            # Check if we have an event loop running
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # No event loop - can't emit async event
+                logger.info(
+                    f"DAEMON_PERMANENTLY_FAILED: {daemon_type.value} "
+                    f"(restart_count={restart_count}, no event loop)"
+                )
+                return
 
             fire_and_forget(
                 emit_daemon_permanently_failed(

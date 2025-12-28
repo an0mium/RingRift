@@ -172,7 +172,7 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
             result.databases_scanned = len(databases)
 
             if not databases:
-                logger.warning(f"No databases found in {self._config.data_dir}")
+                logger.warning(f"No databases found in {self.config.data_dir}")
                 self._last_result = result
                 return
 
@@ -212,7 +212,7 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
             self._total_orphans_cleaned += result.orphan_games_cleaned
 
             # Emit event if configured
-            if self._config.emit_events and result.orphan_games_found > 0:
+            if self.config.emit_events and result.orphan_games_found > 0:
                 await self._emit_integrity_event(result)
 
             logger.info(
@@ -231,7 +231,7 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
 
     def _find_databases(self) -> list[Path]:
         """Find all game databases to check."""
-        data_dir = Path(self._config.data_dir)
+        data_dir = Path(self.config.data_dir)
         if not data_dir.exists():
             return []
 
@@ -286,7 +286,7 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
                 WHERE m.game_id IS NULL
                 LIMIT ?
             """,
-                (self._config.max_orphans_per_scan,),
+                (self.config.max_orphans_per_scan,),
             )
 
             results = []
@@ -400,7 +400,7 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
                 SELECT game_id FROM orphaned_games
                 WHERE detected_at < datetime('now', ?)
             """,
-                (f"-{self._config.quarantine_after_days} days",),
+                (f"-{self.config.quarantine_after_days} days",),
             )
 
             game_ids = [row[0] for row in cursor.fetchall()]
@@ -476,7 +476,7 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
             "stopped": self._stopped,
             "total_orphans_found": self._total_orphans_found,
             "total_orphans_cleaned": self._total_orphans_cleaned,
-            "data_dir": self._config.data_dir,
+            "data_dir": self.config.data_dir,
         }
 
         if self._last_result:

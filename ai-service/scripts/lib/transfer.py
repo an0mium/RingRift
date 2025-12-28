@@ -33,7 +33,9 @@ import hashlib
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -41,6 +43,68 @@ from pathlib import Path
 from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# WAL File Handling (December 2025)
+# =============================================================================
+# SQLite databases using WAL mode have companion files (.db-wal, .db-shm)
+# that MUST be synced together with the main .db file to prevent data loss.
+
+
+def checkpoint_database(db_path: str | Path) -> bool:
+    """Force WAL checkpoint to flush pending transactions to main database.
+
+    Call this BEFORE syncing a database to minimize WAL size and ensure
+    all transactions are in the main .db file.
+
+    Args:
+        db_path: Path to the database file
+
+    Returns:
+        True if checkpoint succeeded, False otherwise
+    """
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return False
+
+    try:
+        with sqlite3.connect(str(db_path), timeout=30.0) as conn:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            if mode.upper() == "WAL":
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return True
+    except Exception as e:
+        logger.warning(f"WAL checkpoint failed for {db_path}: {e}")
+        return False
+
+
+def get_db_with_wal_files(db_path: str | Path) -> list[Path]:
+    """Get database file along with any WAL files that should be synced.
+
+    Args:
+        db_path: Path to the .db file
+
+    Returns:
+        List of paths: [.db-wal, .db-shm, .db] (existing files only)
+    """
+    db_path = Path(db_path)
+    files = []
+
+    # Add WAL files first (order matters for consistency)
+    wal_path = db_path.with_suffix(db_path.suffix + "-wal")
+    if wal_path.exists():
+        files.append(wal_path)
+
+    shm_path = db_path.with_suffix(db_path.suffix + "-shm")
+    if shm_path.exists():
+        files.append(shm_path)
+
+    # Add main database last
+    if db_path.exists():
+        files.append(db_path)
+
+    return files
 
 # Default SSH options for robust transfers
 DEFAULT_SSH_OPTIONS = [
