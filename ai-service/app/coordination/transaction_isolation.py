@@ -568,7 +568,7 @@ class TransactionIsolation(SingletonMixin):
                 try:
                     if row["backup_path"] and Path(row["backup_path"]).exists():
                         # Restore from backup
-                        shutil.copy2(row["backup_path"], row["dest_path"])
+                        atomic_copy(Path(row["backup_path"]), Path(row["dest_path"]))
                         logger.debug(
                             f"Restored {row['dest_path']} from {row['backup_path']}"
                         )
