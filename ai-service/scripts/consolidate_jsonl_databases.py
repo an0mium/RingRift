@@ -7,6 +7,7 @@ into per-config canonical databases for faster training data export.
 Features:
 - Deduplicates by game_id
 - Validates game completeness before merging
+- VALIDATES MOVE DATA PRESENCE - games without moves are rejected
 - Updates existing canonical databases incrementally
 - Tracks merge statistics
 
@@ -20,12 +21,16 @@ Usage:
     # Merge specific config
     python scripts/consolidate_jsonl_databases.py --config hex8_4p
 
+    # Strict mode - fail on any data integrity issues
+    python scripts/consolidate_jsonl_databases.py --strict
+
     # Custom paths
     python scripts/consolidate_jsonl_databases.py \
         --source-dir /path/to/jsonl_dbs \
         --dest-dir /path/to/canonical
 
 December 2025: Created for database consolidation.
+December 2025: Added move data validation (games without moves are rejected).
 """
 
 from __future__ import annotations
@@ -61,6 +66,19 @@ logger = logging.getLogger("consolidate")
 
 
 @dataclass
+class SourceValidationResult:
+    """Result of validating a source database."""
+    db_path: str = ""
+    has_games_table: bool = False
+    has_moves_table: bool = False
+    game_count: int = 0
+    games_with_moves: int = 0
+    games_without_moves: int = 0
+    is_valid: bool = False
+    error: str | None = None
+
+
+@dataclass
 class MergeStats:
     """Statistics for merge operation."""
     source_db: str = ""
@@ -70,6 +88,7 @@ class MergeStats:
     games_merged: int = 0
     games_duplicate: int = 0
     games_invalid: int = 0
+    games_no_moves: int = 0  # Games skipped because they lack move data
     errors: list = field(default_factory=list)
 
 
@@ -90,6 +109,84 @@ def find_jsonl_databases(base_dir: Path) -> list[Path]:
     for pattern in ["**/jsonl_aggregated.db", "**/jsonl_*.db"]:
         databases.extend(base_dir.glob(pattern))
     return list(set(databases))
+
+
+def validate_source_database(
+    db_path: Path,
+    board_type: str,
+    num_players: int,
+) -> SourceValidationResult:
+    """Validate a source database has move data.
+
+    This is a CRITICAL validation step to prevent importing games without moves.
+    Games without move data are useless for training and pollute databases.
+
+    Returns:
+        SourceValidationResult with validation details
+    """
+    result = SourceValidationResult(db_path=str(db_path))
+
+    if not db_path.exists():
+        result.error = "Database file does not exist"
+        return result
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+
+        # Check if games table exists
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='games'"
+        )
+        result.has_games_table = cursor.fetchone() is not None
+
+        # Check if game_moves table exists
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='game_moves'"
+        )
+        result.has_moves_table = cursor.fetchone() is not None
+
+        if not result.has_games_table:
+            result.error = "Missing 'games' table"
+            conn.close()
+            return result
+
+        # Count games for this config
+        cursor = conn.execute("""
+            SELECT COUNT(*) FROM games
+            WHERE board_type = ? AND num_players = ?
+            AND game_status IN ('completed', 'finished')
+            AND total_moves >= ?
+        """, (board_type, num_players, MIN_MOVES_FOR_VALID))
+        result.game_count = cursor.fetchone()[0]
+
+        if result.game_count == 0:
+            result.is_valid = True  # Empty but valid
+            conn.close()
+            return result
+
+        # Check how many games have move data
+        if result.has_moves_table:
+            cursor = conn.execute("""
+                SELECT COUNT(DISTINCT g.game_id)
+                FROM games g
+                INNER JOIN game_moves m ON g.game_id = m.game_id
+                WHERE g.board_type = ? AND g.num_players = ?
+                AND g.game_status IN ('completed', 'finished')
+                AND g.total_moves >= ?
+            """, (board_type, num_players, MIN_MOVES_FOR_VALID))
+            result.games_with_moves = cursor.fetchone()[0]
+        else:
+            result.games_with_moves = 0
+
+        result.games_without_moves = result.game_count - result.games_with_moves
+        result.is_valid = True
+
+        conn.close()
+        return result
+
+    except sqlite3.Error as e:
+        result.error = f"Database error: {e}"
+        return result
 
 
 def get_existing_game_ids(db_path: Path) -> set[str]:
@@ -227,6 +324,7 @@ def merge_games(
     num_players: int,
     existing_ids: set[str],
     dry_run: bool = False,
+    strict: bool = False,
 ) -> MergeStats:
     """Merge valid games from source to destination database.
 
@@ -236,6 +334,18 @@ def merge_games(
     - game_initial_state: initial board state
     - game_state_snapshots: state snapshots
     - game_players: player info
+
+    CRITICAL: Only merges games that have corresponding move data.
+    Games without moves are skipped and logged as warnings.
+
+    Args:
+        source_db: Source database path
+        dest_db: Destination database path
+        board_type: Board type to filter by
+        num_players: Number of players to filter by
+        existing_ids: Set of game IDs already in destination
+        dry_run: If True, don't actually write to database
+        strict: If True, raise error on any integrity issues
     """
     stats = MergeStats(
         source_db=str(source_db),
@@ -256,12 +366,29 @@ def merge_games(
         src_conn = sqlite3.connect(str(source_db))
         src_conn.row_factory = sqlite3.Row
 
-        # Get valid games for this config
+        # Check if source has game_moves table
+        cursor = src_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='game_moves'"
+        )
+        has_moves_table = cursor.fetchone() is not None
+
+        if not has_moves_table:
+            logger.warning(
+                f"  SKIPPING {source_db.parent.name}: no game_moves table - "
+                f"cannot import games without move data"
+            )
+            stats.errors.append("No game_moves table in source database")
+            src_conn.close()
+            return stats
+
+        # Get valid games that HAVE move data (INNER JOIN ensures moves exist)
         cursor = src_conn.execute("""
-            SELECT * FROM games
-            WHERE board_type = ? AND num_players = ?
-            AND game_status IN ('completed', 'finished')
-            AND total_moves >= ?
+            SELECT DISTINCT g.*
+            FROM games g
+            INNER JOIN game_moves m ON g.game_id = m.game_id
+            WHERE g.board_type = ? AND g.num_players = ?
+            AND g.game_status IN ('completed', 'finished')
+            AND g.total_moves >= ?
         """, (board_type, num_players, MIN_MOVES_FOR_VALID))
 
         games_to_merge = []
@@ -281,6 +408,29 @@ def merge_games(
             games_to_merge.append(row_dict)
             game_ids_to_merge.append(game_id)
             existing_ids.add(game_id)  # Track for dedup within this merge
+
+        # Also count games WITHOUT moves to report them
+        cursor = src_conn.execute("""
+            SELECT COUNT(g.game_id) as no_moves_count
+            FROM games g
+            LEFT JOIN game_moves m ON g.game_id = m.game_id
+            WHERE g.board_type = ? AND g.num_players = ?
+            AND g.game_status IN ('completed', 'finished')
+            AND g.total_moves >= ?
+            AND m.game_id IS NULL
+        """, (board_type, num_players, MIN_MOVES_FOR_VALID))
+        no_moves_count = cursor.fetchone()[0]
+        stats.games_no_moves = no_moves_count
+
+        if no_moves_count > 0:
+            logger.warning(
+                f"  SKIPPED {no_moves_count} games without move data in {source_db.parent.name}"
+            )
+            if strict:
+                raise ValueError(
+                    f"Found {no_moves_count} games without move data in {source_db}. "
+                    f"Use --no-strict to skip these games instead of failing."
+                )
 
         if dry_run:
             stats.games_merged = len(games_to_merge)
@@ -377,8 +527,18 @@ def consolidate_config(
     source_dir: Path = OWC_SELFPLAY_DIR,
     dest_dir: Path = OWC_CANONICAL_DIR,
     dry_run: bool = False,
+    strict: bool = False,
 ) -> ConsolidationResult:
-    """Consolidate all jsonl databases for a specific config."""
+    """Consolidate all jsonl databases for a specific config.
+
+    Args:
+        board_type: Board type (e.g., 'hex8', 'square8')
+        num_players: Number of players (2, 3, or 4)
+        source_dir: Directory containing source databases
+        dest_dir: Directory to write canonical databases
+        dry_run: If True, don't actually write to database
+        strict: If True, fail on any data integrity issues (games without moves)
+    """
     config = f"{board_type}_{num_players}p"
     result = ConsolidationResult(config=config)
 
@@ -421,7 +581,7 @@ def consolidate_config(
 
     # Second pass: merge games
     for db, count in sources_with_data:
-        stats = merge_games(db, dest_db, board_type, num_players, existing_ids, dry_run)
+        stats = merge_games(db, dest_db, board_type, num_players, existing_ids, dry_run, strict)
         result.merge_stats.append(stats)
         result.games_added += stats.games_merged
 

@@ -5762,7 +5762,17 @@ class P2POrchestrator(
 
             if shutil.which("pgrep"):
                 # December 2025: Added selfplay.py pattern - the current unified selfplay entry point
-                for pattern in ("selfplay.py", "run_self_play_soak.py", "run_gpu_selfplay.py", "run_hybrid_selfplay.py"):
+                # December 2025: Added gumbel_selfplay and SelfplayRunner patterns for module invocations
+                for pattern in (
+                    "selfplay.py",
+                    "run_self_play_soak.py",
+                    "run_gpu_selfplay.py",
+                    "run_hybrid_selfplay.py",
+                    "gumbel_selfplay",  # screen session name
+                    "SelfplayRunner",   # class-based invocation
+                    "selfplay_runner",  # module invocation
+                    "-m app.training.selfplay",  # module mode
+                ):
                     out = subprocess.run(
                         ["pgrep", "-f", pattern],
                         capture_output=True,
@@ -5772,7 +5782,7 @@ class P2POrchestrator(
                     if out.returncode == 0 and out.stdout.strip():
                         selfplay_pids.update([p for p in out.stdout.strip().split() if p])
 
-                for pattern in ("train_", "train.py"):
+                for pattern in ("train_", "train.py", "-m app.training.train"):
                     out = subprocess.run(
                         ["pgrep", "-f", pattern],
                         capture_output=True,
