@@ -2129,6 +2129,64 @@ class AutoSyncDaemon:
             if proc.returncode == 0:
                 bytes_transferred = source.stat().st_size
 
+                # December 2025: Checksum verification after broadcast sync
+                verify_checksum = target.get("verify_checksum", True)
+                if verify_checksum and node_config:
+                    try:
+                        from app.coordination.sync_integrity import verify_and_retry_sync
+
+                        remote_file_path = f"{games_path}/synced/{source.name}"
+
+                        async def retry_broadcast():
+                            # Retry with same rsync command
+                            retry_proc = await asyncio.create_subprocess_exec(
+                                *cmd,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                            )
+                            _, _ = await asyncio.wait_for(
+                                retry_proc.communicate(),
+                                timeout=dynamic_timeout,
+                            )
+                            return retry_proc.returncode == 0
+
+                        checksum_ok, error = await verify_and_retry_sync(
+                            source_path=str(source),
+                            dest_path=remote_file_path,
+                            ssh_host=target["host"],
+                            ssh_user=ssh_user,
+                            ssh_key="~/.ssh/id_cluster",
+                            sync_func=retry_broadcast,
+                            max_retries=1,
+                        )
+
+                        if not checksum_ok:
+                            logger.error(
+                                f"[AutoSyncDaemon] Checksum verification failed for broadcast "
+                                f"{source.name} -> {target['node_id']}: {error}"
+                            )
+                            self._stats.databases_verification_failed += 1
+                            return {
+                                "source": str(source),
+                                "target": target["node_id"],
+                                "success": False,
+                                "duration_seconds": duration,
+                                "error": f"Checksum verification failed: {error}",
+                            }
+                        else:
+                            self._stats.databases_verified += 1
+                            logger.debug(
+                                f"[AutoSyncDaemon] Broadcast checksum verified: "
+                                f"{source.name} -> {target['node_id']}"
+                            )
+
+                    except ImportError:
+                        logger.debug("[AutoSyncDaemon] sync_integrity not available, skipping verification")
+                    except Exception as e:
+                        logger.warning(f"[AutoSyncDaemon] Broadcast checksum verification error: {e}")
+                        # Don't fail the sync if verification fails - just log it
+                        self._stats.databases_verification_failed += 1
+
                 logger.info(
                     f"[AutoSyncDaemon] Synced {source.name} to {target['node_id']} in {duration:.1f}s"
                 )

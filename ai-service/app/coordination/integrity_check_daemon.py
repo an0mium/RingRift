@@ -153,6 +153,11 @@ class IntegrityCheckDaemon(BaseDaemon[IntegrityCheckConfig]):
         self._total_orphans_found = 0
         self._total_orphans_cleaned = 0
 
+    @staticmethod
+    def _get_default_config() -> IntegrityCheckConfig:
+        """Return default configuration from environment."""
+        return IntegrityCheckConfig.from_env()
+
     async def _run_cycle(self) -> None:
         """Run one integrity check cycle."""
         logger.info("Starting integrity check cycle...")

@@ -534,14 +534,23 @@ class DatabaseSyncManager(SyncManagerBase):
             except asyncio.TimeoutError:
                 proc.kill()
                 logger.warning(f"[{self.db_type}] Rsync to {host} timed out")
-                tmp_path.unlink(missing_ok=True)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
 
             if proc.returncode != 0:
                 logger.warning(
                     f"[{self.db_type}] Rsync from {host} failed: {stderr.decode()[:200]}"
                 )
-                tmp_path.unlink(missing_ok=True)
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                return False
+
+            # Dec 2025: Validate synced database integrity
+            is_valid, errors = validate_synced_database(tmp_path, check_integrity=True)
+            if not is_valid:
+                logger.warning(
+                    f"[{self.db_type}] Synced database failed validation: {errors}"
+                )
+                shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
 
             # Merge or replace
@@ -551,7 +560,8 @@ class DatabaseSyncManager(SyncManagerBase):
                 atomic_copy(tmp_path, self.db_path)
                 result = True
 
-            tmp_path.unlink(missing_ok=True)
+            # Clean up temp directory (includes WAL files)
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
             if result:
                 self._update_local_stats()
@@ -563,6 +573,9 @@ class DatabaseSyncManager(SyncManagerBase):
 
         except Exception as e:
             logger.error(f"[{self.db_type}] Rsync pull error: {e}")
+            # Clean up on exception
+            if 'tmp_dir' in locals():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
             return False
 
     async def _rsync_push(
@@ -588,6 +601,9 @@ class DatabaseSyncManager(SyncManagerBase):
                 logger.warning(f"[{self.db_type}] Local database not found: {self.db_path}")
                 return False
 
+            # Dec 2025: Checkpoint WAL before push to ensure all data is in main .db file
+            checkpoint_database(str(self.db_path))
+
             # Build rsync command (Dec 2025: use centralized timeout)
             from app.config.thresholds import RSYNC_TIMEOUT
             from app.utils.env_config import get_str
@@ -596,13 +612,23 @@ class DatabaseSyncManager(SyncManagerBase):
             ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
             if ssh_key:
                 ssh_cmd += f" -i {ssh_key}"
+
+            # Dec 2025: Include WAL files (.db-wal, .db-shm) to prevent data loss
+            db_name = self.db_path.name
+            parent_dir = str(self.db_path.parent) + "/"
+            remote_dir = str(Path(remote_path).parent) + "/"
+
             rsync_cmd = [
                 "rsync",
                 "-avz",
                 f"--timeout={RSYNC_TIMEOUT}",
+                f"--include={db_name}",
+                f"--include={db_name}-wal",
+                f"--include={db_name}-shm",
+                "--exclude=*",
                 "-e", ssh_cmd,
-                str(self.db_path),
-                f"{ssh_user}@{host}:{remote_path}",
+                parent_dir,
+                f"{ssh_user}@{host}:{remote_dir}",
             ]
 
             # Run rsync
