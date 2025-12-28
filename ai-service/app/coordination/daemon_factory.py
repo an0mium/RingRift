@@ -602,6 +602,107 @@ class DaemonFactory:
         self._ensure_initialized()
         return list(self._registry.keys())
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the daemon factory.
+
+        Verifies:
+            - Registry is initialized
+            - Import paths for registered daemons are valid
+            - Cached daemon instances are accessible
+
+        Returns:
+            HealthCheckResult with factory status and details.
+
+        December 2025: Added for DaemonManager integration.
+        """
+        from app.coordination.contracts import HealthCheckResult, CoordinatorStatus
+
+        try:
+            self._ensure_initialized()
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Registry initialization failed: {e}",
+                details={"error": str(e)},
+            )
+
+        # Track validation results
+        valid_specs = 0
+        invalid_specs: list[str] = []
+        import_errors: list[str] = []
+
+        import importlib
+
+        for key, spec in self._registry.items():
+            try:
+                # Validate import path is loadable (doesn't actually import)
+                importlib.util.find_spec(spec.import_path)
+                valid_specs += 1
+            except (ModuleNotFoundError, ImportError) as e:
+                import_errors.append(f"{key}: {spec.import_path} - {e}")
+            except Exception as e:
+                invalid_specs.append(f"{key}: {e}")
+
+        # Check cached instances
+        healthy_instances = 0
+        unhealthy_instances: list[str] = []
+
+        for key, instance in self._instances.items():
+            try:
+                # Check if instance has health_check method and call it
+                if hasattr(instance, "health_check") and callable(instance.health_check):
+                    try:
+                        result = instance.health_check()
+                        if hasattr(result, "healthy") and result.healthy:
+                            healthy_instances += 1
+                        else:
+                            unhealthy_instances.append(key)
+                    except Exception:
+                        # health_check failed
+                        unhealthy_instances.append(key)
+                else:
+                    # No health_check method, assume healthy if running
+                    if hasattr(instance, "_running") and instance._running:
+                        healthy_instances += 1
+                    elif hasattr(instance, "is_running") and callable(instance.is_running):
+                        if instance.is_running():
+                            healthy_instances += 1
+                        else:
+                            unhealthy_instances.append(key)
+                    else:
+                        # Can't determine health, assume OK
+                        healthy_instances += 1
+            except Exception as e:
+                unhealthy_instances.append(f"{key}: {e}")
+
+        # Determine overall health
+        is_healthy = len(import_errors) == 0 and len(invalid_specs) == 0
+        status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+        if import_errors:
+            message = f"Import errors detected: {len(import_errors)} module(s)"
+        elif unhealthy_instances:
+            message = f"Some cached instances unhealthy: {len(unhealthy_instances)}"
+        else:
+            message = f"Factory healthy: {valid_specs} specs, {healthy_instances} cached instances"
+
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status,
+            message=message,
+            details={
+                "initialized": self._initialized,
+                "registered_count": len(self._registry),
+                "valid_specs": valid_specs,
+                "cached_instances": len(self._instances),
+                "healthy_instances": healthy_instances,
+                "import_errors": import_errors[:5] if import_errors else [],  # Limit output
+                "invalid_specs": invalid_specs[:5] if invalid_specs else [],
+                "unhealthy_instances": unhealthy_instances[:5] if unhealthy_instances else [],
+            },
+        )
+
 
 # Module-level singleton
 _daemon_factory: DaemonFactory | None = None
@@ -625,7 +726,8 @@ def reset_daemon_factory() -> None:
 
 __all__ = [
     "DaemonFactory",
-    "DaemonSpec",
+    "DaemonImportSpec",
+    "DaemonSpec",  # Backward compat alias for DaemonImportSpec
     "get_daemon_factory",
     "reset_daemon_factory",
 ]

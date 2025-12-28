@@ -18,6 +18,7 @@ from scripts.p2p.p2p_mixin_base import (
     P2PMixinBase,
     EventSubscriptionMixin,
     P2PManagerBase,
+    SubscriptionRetryConfig,
 )
 
 
@@ -436,6 +437,214 @@ class TestEventSubscriptionMixin:
         assert call_count == 10
         # Only one subscription actually happened
         assert mixin.is_subscribed() is True
+
+
+# =============================================================================
+# SubscriptionRetryConfig Tests (December 28, 2025 - Wave 7 Phase 1.1)
+# =============================================================================
+
+
+class TestSubscriptionRetryConfig:
+    """Test SubscriptionRetryConfig dataclass."""
+
+    def test_default_values(self) -> None:
+        """Test default configuration values."""
+        config = SubscriptionRetryConfig()
+        assert config.max_attempts == 3
+        assert config.initial_delay_seconds == 1.0
+        assert config.max_delay_seconds == 8.0
+        assert config.backoff_multiplier == 2.0
+
+    def test_custom_values(self) -> None:
+        """Test custom configuration values."""
+        config = SubscriptionRetryConfig(
+            max_attempts=5,
+            initial_delay_seconds=0.5,
+            max_delay_seconds=30.0,
+            backoff_multiplier=3.0,
+        )
+        assert config.max_attempts == 5
+        assert config.initial_delay_seconds == 0.5
+        assert config.max_delay_seconds == 30.0
+        assert config.backoff_multiplier == 3.0
+
+
+class TestSubscribeToEventsWithRetry:
+    """Test subscribe_to_events_with_retry() method."""
+
+    def test_success_on_first_attempt(self) -> None:
+        """Test successful subscription on first attempt."""
+
+        class TestMixin(EventSubscriptionMixin):
+            _subscription_log_prefix = "TestMixin"
+
+            def _get_event_subscriptions(self) -> dict:
+                return {}  # Empty subscriptions marks as subscribed
+
+        mixin = TestMixin()
+        result = mixin.subscribe_to_events_with_retry()
+
+        assert result is True
+        assert mixin.is_subscribed() is True
+
+    def test_success_on_retry(self) -> None:
+        """Test successful subscription after a failed attempt."""
+        attempt_count = 0
+
+        class TestMixin(EventSubscriptionMixin):
+            _subscription_log_prefix = "TestMixin"
+
+            def _get_event_subscriptions(self) -> dict:
+                return {"FAKE_EVENT": lambda e: None}
+
+            def subscribe_to_events(self) -> None:
+                nonlocal attempt_count
+                attempt_count += 1
+                # Fail first attempt, succeed on second
+                if attempt_count >= 2:
+                    self._init_subscription_state()
+                    self._subscribed = True
+                else:
+                    self._init_subscription_state()
+                    self._subscribed = False
+
+        mixin = TestMixin()
+        config = SubscriptionRetryConfig(
+            max_attempts=3,
+            initial_delay_seconds=0.01,  # Fast for testing
+            max_delay_seconds=0.1,
+        )
+        result = mixin.subscribe_to_events_with_retry(config)
+
+        assert result is True
+        assert attempt_count == 2
+
+    def test_failure_after_max_attempts(self) -> None:
+        """Test failure after exhausting all retry attempts."""
+        attempt_count = 0
+
+        class TestMixin(EventSubscriptionMixin):
+            _subscription_log_prefix = "TestMixin"
+
+            def _get_event_subscriptions(self) -> dict:
+                return {"FAKE_EVENT": lambda e: None}
+
+            def subscribe_to_events(self) -> None:
+                nonlocal attempt_count
+                attempt_count += 1
+                # Always fail
+                self._init_subscription_state()
+                self._subscribed = False
+
+        mixin = TestMixin()
+        config = SubscriptionRetryConfig(
+            max_attempts=3,
+            initial_delay_seconds=0.01,  # Fast for testing
+            max_delay_seconds=0.1,
+        )
+        result = mixin.subscribe_to_events_with_retry(config)
+
+        assert result is False
+        assert attempt_count == 3
+        assert mixin.is_subscribed() is False
+
+    def test_exponential_backoff_timing(self) -> None:
+        """Test that exponential backoff delays are applied correctly."""
+        attempt_times: list[float] = []
+        attempt_count = 0
+
+        class TestMixin(EventSubscriptionMixin):
+            _subscription_log_prefix = "TestMixin"
+
+            def _get_event_subscriptions(self) -> dict:
+                return {"FAKE_EVENT": lambda e: None}
+
+            def subscribe_to_events(self) -> None:
+                nonlocal attempt_count
+                attempt_count += 1
+                attempt_times.append(time.time())
+                # Always fail
+                self._init_subscription_state()
+                self._subscribed = False
+
+        mixin = TestMixin()
+        config = SubscriptionRetryConfig(
+            max_attempts=3,
+            initial_delay_seconds=0.05,
+            max_delay_seconds=1.0,
+            backoff_multiplier=2.0,
+        )
+        mixin.subscribe_to_events_with_retry(config)
+
+        # Check delays: 0.05s after 1st, 0.10s after 2nd
+        assert len(attempt_times) == 3
+
+        # Delay between attempt 1 and 2 should be ~0.05s
+        delay_1_2 = attempt_times[1] - attempt_times[0]
+        assert 0.04 <= delay_1_2 <= 0.10, f"Expected ~0.05s, got {delay_1_2}"
+
+        # Delay between attempt 2 and 3 should be ~0.10s (2x)
+        delay_2_3 = attempt_times[2] - attempt_times[1]
+        assert 0.08 <= delay_2_3 <= 0.15, f"Expected ~0.10s, got {delay_2_3}"
+
+    def test_uses_default_config_when_none(self) -> None:
+        """Test that default config is used when None is passed."""
+        attempt_count = 0
+
+        class TestMixin(EventSubscriptionMixin):
+            _subscription_log_prefix = "TestMixin"
+
+            def _get_event_subscriptions(self) -> dict:
+                return {"FAKE_EVENT": lambda e: None}
+
+            def subscribe_to_events(self) -> None:
+                nonlocal attempt_count
+                attempt_count += 1
+                self._init_subscription_state()
+                self._subscribed = False
+
+        mixin = TestMixin()
+
+        with patch.object(time, "sleep"):  # Skip actual delays
+            mixin.subscribe_to_events_with_retry(None)
+
+        # Should use default max_attempts=3
+        assert attempt_count == 3
+
+    def test_max_delay_cap(self) -> None:
+        """Test that delay is capped at max_delay_seconds."""
+        delays: list[float] = []
+
+        class TestMixin(EventSubscriptionMixin):
+            _subscription_log_prefix = "TestMixin"
+
+            def _get_event_subscriptions(self) -> dict:
+                return {"FAKE_EVENT": lambda e: None}
+
+            def subscribe_to_events(self) -> None:
+                self._init_subscription_state()
+                self._subscribed = False
+
+        mixin = TestMixin()
+        config = SubscriptionRetryConfig(
+            max_attempts=5,
+            initial_delay_seconds=0.01,
+            max_delay_seconds=0.02,  # Very low cap
+            backoff_multiplier=10.0,  # Would exceed cap quickly
+        )
+
+        # Capture delays
+        original_sleep = time.sleep
+
+        def capture_sleep(delay: float) -> None:
+            delays.append(delay)
+
+        with patch.object(time, "sleep", side_effect=capture_sleep):
+            mixin.subscribe_to_events_with_retry(config)
+
+        # All delays should be capped at 0.02
+        for delay in delays:
+            assert delay <= config.max_delay_seconds
 
 
 # =============================================================================

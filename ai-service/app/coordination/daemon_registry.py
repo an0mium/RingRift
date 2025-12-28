@@ -656,3 +656,147 @@ def validate_registry_or_raise() -> None:
             + "\n\nFix: Add missing entries to DAEMON_REGISTRY in daemon_registry.py"
         )
         raise ValueError(error_msg)
+
+
+def check_registry_health() -> "HealthCheckResult":
+    """Check health of the daemon registry.
+
+    Performs comprehensive validation of the daemon registry:
+        - Registry structure validation
+        - Dependency graph validation
+        - Runner function availability
+        - Deprecated daemon tracking
+
+    Returns:
+        HealthCheckResult with registry status and details.
+
+    Example:
+        >>> from app.coordination.daemon_registry import check_registry_health
+        >>> result = check_registry_health()
+        >>> if not result.healthy:
+        ...     print(f"Registry issues: {result.message}")
+
+    December 2025: Added for DaemonManager integration.
+    """
+    import time
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    # Import contracts lazily to avoid circular imports
+    try:
+        from app.coordination.contracts import HealthCheckResult, CoordinatorStatus
+    except ImportError:
+        # Fallback if contracts not available
+        @dataclass
+        class HealthCheckResult:  # type: ignore[no-redef]
+            healthy: bool
+            status: str = "running"
+            message: str = ""
+            timestamp: float = field(default_factory=time.time)
+            details: dict[str, Any] = field(default_factory=dict)
+
+        class CoordinatorStatus:  # type: ignore[no-redef]
+            RUNNING = "running"
+            DEGRADED = "degraded"
+            ERROR = "error"
+
+    # Run validation
+    validation_errors = validate_registry()
+
+    # Count categories
+    categories = get_categories()
+    category_counts = {cat: len(get_daemons_by_category(cat)) for cat in categories}
+
+    # Count deprecated
+    deprecated_daemons = get_deprecated_daemons()
+    deprecated_count = len(deprecated_daemons)
+
+    # Check for missing runner functions
+    missing_runners: list[str] = []
+    try:
+        from app.coordination import daemon_runners
+
+        for daemon_type, spec in DAEMON_REGISTRY.items():
+            if not hasattr(daemon_runners, spec.runner_name):
+                missing_runners.append(f"{daemon_type.name}: {spec.runner_name}")
+    except ImportError:
+        missing_runners.append("daemon_runners module not importable")
+
+    # Check dependency graph for cycles
+    cycle_issues: list[str] = []
+    visited: set[DaemonType] = set()
+    rec_stack: set[DaemonType] = set()
+
+    def has_cycle(daemon_type: DaemonType) -> bool:
+        """DFS to detect cycles in dependency graph."""
+        visited.add(daemon_type)
+        rec_stack.add(daemon_type)
+
+        spec = DAEMON_REGISTRY.get(daemon_type)
+        if spec:
+            for dep in spec.depends_on:
+                if dep not in visited:
+                    if has_cycle(dep):
+                        return True
+                elif dep in rec_stack:
+                    cycle_issues.append(f"Cycle detected: {daemon_type.name} -> {dep.name}")
+                    return True
+
+        rec_stack.remove(daemon_type)
+        return False
+
+    for daemon_type in DAEMON_REGISTRY:
+        if daemon_type not in visited:
+            has_cycle(daemon_type)
+
+    # Determine overall health
+    is_healthy = (
+        len(validation_errors) == 0
+        and len(missing_runners) == 0
+        and len(cycle_issues) == 0
+    )
+
+    if not is_healthy:
+        status = CoordinatorStatus.ERROR if validation_errors else CoordinatorStatus.DEGRADED
+        if validation_errors:
+            message = f"Registry validation failed: {len(validation_errors)} error(s)"
+        elif missing_runners:
+            message = f"Missing runners: {len(missing_runners)}"
+        else:
+            message = f"Dependency cycle detected: {len(cycle_issues)}"
+    else:
+        status = CoordinatorStatus.RUNNING
+        message = f"Registry healthy: {len(DAEMON_REGISTRY)} daemons, {len(categories)} categories"
+
+    return HealthCheckResult(
+        healthy=is_healthy,
+        status=status,
+        message=message,
+        details={
+            "total_daemons": len(DAEMON_REGISTRY),
+            "categories": category_counts,
+            "deprecated_count": deprecated_count,
+            "deprecated_daemons": [d[0].name for d in deprecated_daemons[:5]],  # Limit
+            "validation_errors": validation_errors[:5] if validation_errors else [],
+            "missing_runners": missing_runners[:5] if missing_runners else [],
+            "cycle_issues": cycle_issues[:5] if cycle_issues else [],
+        },
+    )
+
+
+__all__ = [
+    # Core data structures
+    "DaemonSpec",
+    "DAEMON_REGISTRY",
+    "DEPRECATED_TYPES",
+    # Query functions
+    "get_daemons_by_category",
+    "get_categories",
+    "get_deprecated_daemons",
+    "get_deprecated_types",
+    "is_daemon_deprecated",
+    # Validation
+    "validate_registry",
+    "validate_registry_or_raise",
+    "check_registry_health",
+]

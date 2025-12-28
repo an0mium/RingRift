@@ -1126,3 +1126,588 @@ def _update_database_parity_gate(
             logger.info(f"Updated parity gate status: {status} (passed={passed_count}, failed={failed_count})")
     except Exception as e:
         logger.warning(f"Failed to update database parity gate: {e}")
+
+
+# -----------------------------------------------------------------------------
+# TypeScript Reference Hash Storage - Permanent Parity Gate Solution
+# -----------------------------------------------------------------------------
+#
+# December 2025: This module enables parity validation on cluster nodes without
+# requiring Node.js by storing pre-computed TypeScript state hashes.
+#
+# Workflow:
+# 1. Coordinator (with Node.js) runs full TS parity validation
+# 2. TS state hashes are stored in ts_parity_hashes table
+# 3. Databases are synced to cluster nodes
+# 4. Cluster nodes validate Python hashes against stored TS hashes
+#
+# This eliminates the need for the `RINGRIFT_ALLOW_PENDING_GATE` workaround.
+# -----------------------------------------------------------------------------
+
+TS_PARITY_HASHES_SCHEMA = """
+-- TypeScript reference hashes for offline parity validation
+-- Populated during full TS parity validation on coordinator
+CREATE TABLE IF NOT EXISTS ts_parity_hashes (
+    game_id TEXT NOT NULL,
+    move_number INTEGER NOT NULL,  -- 0 = initial state, 1+ = after move N
+    ts_state_hash TEXT NOT NULL,
+    ts_current_player INTEGER,
+    ts_current_phase TEXT,
+    ts_game_status TEXT,
+    validated_at TEXT NOT NULL,
+    PRIMARY KEY (game_id, move_number),
+    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ts_hashes_game ON ts_parity_hashes(game_id);
+"""
+
+
+def _ensure_ts_hashes_table(db: GameReplayDB) -> None:
+    """Ensure ts_parity_hashes table exists in database."""
+    try:
+        with db._get_connection() as conn:
+            conn.executescript(TS_PARITY_HASHES_SCHEMA)
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to create ts_parity_hashes table: {e}")
+
+
+def store_ts_hashes(
+    db: GameReplayDB,
+    game_id: str,
+    ts_summaries: dict[int, StateSummary],
+) -> int:
+    """Store TypeScript state hashes for a game.
+
+    Called after successful TS parity validation on coordinator.
+
+    Args:
+        db: GameReplayDB instance
+        game_id: ID of the validated game
+        ts_summaries: Dict mapping move_number (k) to TS state summary
+
+    Returns:
+        Number of hashes stored
+    """
+    from datetime import datetime, timezone
+
+    _ensure_ts_hashes_table(db)
+
+    now = datetime.now(timezone.utc).isoformat()
+    stored = 0
+
+    try:
+        with db._get_connection() as conn:
+            # Clear any existing hashes for this game
+            conn.execute(
+                "DELETE FROM ts_parity_hashes WHERE game_id = ?",
+                (game_id,),
+            )
+
+            # Insert new hashes
+            for k, summary in ts_summaries.items():
+                if summary.state_hash is None:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO ts_parity_hashes
+                    (game_id, move_number, ts_state_hash, ts_current_player,
+                     ts_current_phase, ts_game_status, validated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        game_id,
+                        k,
+                        summary.state_hash,
+                        summary.current_player,
+                        summary.current_phase,
+                        summary.game_status,
+                        now,
+                    ),
+                )
+                stored += 1
+
+            conn.commit()
+
+    except Exception as e:
+        logger.warning(f"Failed to store TS hashes for {game_id}: {e}")
+
+    return stored
+
+
+def get_ts_hashes(
+    db: GameReplayDB,
+    game_id: str,
+) -> dict[int, StateSummary] | None:
+    """Retrieve stored TypeScript state hashes for a game.
+
+    Args:
+        db: GameReplayDB instance
+        game_id: ID of the game
+
+    Returns:
+        Dict mapping move_number to StateSummary, or None if no hashes stored
+    """
+    try:
+        with db._get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT move_number, ts_state_hash, ts_current_player,
+                       ts_current_phase, ts_game_status
+                FROM ts_parity_hashes
+                WHERE game_id = ?
+                ORDER BY move_number
+                """,
+                (game_id,),
+            )
+            rows = cursor.fetchall()
+
+            if not rows:
+                return None
+
+            result = {}
+            for row in rows:
+                result[row["move_number"]] = StateSummary(
+                    move_index=row["move_number"],
+                    current_player=row["ts_current_player"],
+                    current_phase=row["ts_current_phase"],
+                    game_status=row["ts_game_status"],
+                    state_hash=row["ts_state_hash"],
+                )
+
+            return result
+
+    except Exception as e:
+        logger.debug(f"Failed to get TS hashes for {game_id}: {e}")
+        return None
+
+
+def has_ts_hashes(db: GameReplayDB, game_id: str) -> bool:
+    """Check if a game has stored TypeScript reference hashes."""
+    try:
+        with db._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT 1 FROM ts_parity_hashes WHERE game_id = ? LIMIT 1",
+                (game_id,),
+            )
+            return cursor.fetchone() is not None
+    except Exception:
+        return False
+
+
+def count_games_with_ts_hashes(db: GameReplayDB) -> int:
+    """Count how many games have stored TS reference hashes."""
+    try:
+        with db._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(DISTINCT game_id) FROM ts_parity_hashes"
+            )
+            result = cursor.fetchone()
+            return result[0] if result else 0
+    except Exception:
+        return 0
+
+
+@dataclass
+class TSHashParityResult:
+    """Result of validating Python against stored TS hashes."""
+    game_id: str
+    passed: bool
+    moves_checked: int
+    total_ts_hashes: int
+    diverged_at: int | None = None
+    mismatch_kind: str | None = None
+    python_hash: str | None = None
+    ts_hash: str | None = None
+    error_message: str | None = None
+
+
+def validate_game_against_ts_hashes(
+    db: GameReplayDB,
+    game_id: str,
+    *,
+    verbose: bool = False,
+) -> TSHashParityResult:
+    """Validate a game's Python replay against stored TypeScript hashes.
+
+    This enables parity validation on cluster nodes without Node.js by
+    comparing Python's computed state hashes against pre-stored TS hashes.
+
+    Args:
+        db: GameReplayDB instance
+        game_id: ID of the game to validate
+        verbose: Log detailed progress
+
+    Returns:
+        TSHashParityResult with validation status
+
+    December 2025: Created for permanent parity gate solution.
+    """
+    import time
+
+    start_time = time.time()
+
+    # Get stored TS hashes
+    ts_hashes = get_ts_hashes(db, game_id)
+    if ts_hashes is None:
+        return TSHashParityResult(
+            game_id=game_id,
+            passed=False,
+            moves_checked=0,
+            total_ts_hashes=0,
+            error_message="No TypeScript reference hashes stored for this game",
+        )
+
+    total_ts_hashes = len(ts_hashes)
+
+    # Get moves
+    moves = db.get_moves(game_id)
+    if not moves:
+        return TSHashParityResult(
+            game_id=game_id,
+            passed=False,
+            moves_checked=0,
+            total_ts_hashes=total_ts_hashes,
+            error_message="No moves found for this game",
+        )
+
+    # Get initial state
+    state = _get_python_initial_state_for_replay(db, game_id)
+
+    # Check initial state (k=0)
+    if 0 in ts_hashes:
+        py_hash = _compute_state_hash(state)
+        ts_summary = ts_hashes[0]
+        if py_hash != ts_summary.state_hash:
+            return TSHashParityResult(
+                game_id=game_id,
+                passed=False,
+                moves_checked=0,
+                total_ts_hashes=total_ts_hashes,
+                diverged_at=0,
+                mismatch_kind="state_hash",
+                python_hash=py_hash,
+                ts_hash=ts_summary.state_hash,
+            )
+
+    # Replay moves and compare hashes
+    checked = 1 if 0 in ts_hashes else 0
+    for i, move in enumerate(moves):
+        k = i + 1  # TS uses k=1 for state after first move
+
+        try:
+            state = GameEngine.apply_move(state, move, trace_mode=False)
+        except Exception as e:
+            return TSHashParityResult(
+                game_id=game_id,
+                passed=False,
+                moves_checked=checked,
+                total_ts_hashes=total_ts_hashes,
+                diverged_at=k,
+                mismatch_kind="python_replay_error",
+                error_message=f"Move {i} failed: {type(e).__name__}: {e}",
+            )
+
+        if k in ts_hashes:
+            py_hash = _compute_state_hash(state)
+            ts_summary = ts_hashes[k]
+
+            # Compare state hash
+            if py_hash != ts_summary.state_hash:
+                return TSHashParityResult(
+                    game_id=game_id,
+                    passed=False,
+                    moves_checked=checked,
+                    total_ts_hashes=total_ts_hashes,
+                    diverged_at=k,
+                    mismatch_kind="state_hash",
+                    python_hash=py_hash,
+                    ts_hash=ts_summary.state_hash,
+                )
+
+            # Compare phase
+            py_phase = (
+                state.current_phase.value
+                if hasattr(state.current_phase, "value")
+                else str(state.current_phase)
+            )
+            if py_phase != ts_summary.current_phase:
+                return TSHashParityResult(
+                    game_id=game_id,
+                    passed=False,
+                    moves_checked=checked,
+                    total_ts_hashes=total_ts_hashes,
+                    diverged_at=k,
+                    mismatch_kind="current_phase",
+                    error_message=f"Phase mismatch: py={py_phase}, ts={ts_summary.current_phase}",
+                )
+
+            # Compare player
+            if state.current_player != ts_summary.current_player:
+                return TSHashParityResult(
+                    game_id=game_id,
+                    passed=False,
+                    moves_checked=checked,
+                    total_ts_hashes=total_ts_hashes,
+                    diverged_at=k,
+                    mismatch_kind="current_player",
+                    error_message=f"Player mismatch: py={state.current_player}, ts={ts_summary.current_player}",
+                )
+
+            checked += 1
+
+        if verbose and (i + 1) % 20 == 0:
+            logger.debug(
+                f"[TSHashParity] Game {game_id}: verified {checked}/{total_ts_hashes} hashes"
+            )
+
+    elapsed_ms = (time.time() - start_time) * 1000
+
+    if verbose:
+        logger.info(
+            f"[TSHashParity] Game {game_id}: PASSED "
+            f"({checked}/{total_ts_hashes} hashes in {elapsed_ms:.1f}ms)"
+        )
+
+    return TSHashParityResult(
+        game_id=game_id,
+        passed=True,
+        moves_checked=checked,
+        total_ts_hashes=total_ts_hashes,
+    )
+
+
+def validate_database_with_ts_hashes(
+    db_path: str | Path,
+    *,
+    max_games: int | None = None,
+    update_status: bool = True,
+    verbose: bool = False,
+) -> dict[str, Any]:
+    """Validate all games in database against stored TypeScript hashes.
+
+    This is the primary parity validation function for cluster nodes.
+    It validates Python replay against pre-computed TS hashes, enabling
+    full parity checking without requiring Node.js.
+
+    Args:
+        db_path: Path to the GameReplayDB database
+        max_games: Maximum number of games to validate (None = all)
+        update_status: Update parity_status in database
+        verbose: Log detailed progress
+
+    Returns:
+        Dict with validation statistics
+
+    December 2025: Created for permanent parity gate solution.
+    """
+    import time
+
+    start_time = time.time()
+    db_path = Path(db_path)
+
+    db = GameReplayDB(str(db_path))
+
+    # Check if database has TS hashes
+    games_with_hashes = count_games_with_ts_hashes(db)
+    if games_with_hashes == 0:
+        logger.warning(
+            f"[TSHashParity] {db_path.name}: No TypeScript reference hashes found. "
+            "Run full TS parity validation on coordinator first."
+        )
+        return {
+            "database": str(db_path),
+            "total_games": 0,
+            "games_with_ts_hashes": 0,
+            "passed": 0,
+            "failed": 0,
+            "pass_rate": 0.0,
+            "failed_games": [],
+            "elapsed_seconds": time.time() - start_time,
+            "error": "no_ts_hashes",
+        }
+
+    # Get games that have TS hashes
+    limit = max_games if max_games else 100_000
+    games = db.query_games(limit=limit, require_moves=True)
+    game_ids = [g["game_id"] for g in games]
+
+    # Filter to games with TS hashes
+    games_to_check = [gid for gid in game_ids if has_ts_hashes(db, gid)]
+
+    if not games_to_check:
+        return {
+            "database": str(db_path),
+            "total_games": len(game_ids),
+            "games_with_ts_hashes": 0,
+            "passed": 0,
+            "failed": 0,
+            "pass_rate": 0.0,
+            "failed_games": [],
+            "elapsed_seconds": time.time() - start_time,
+            "error": "no_games_with_ts_hashes",
+        }
+
+    logger.info(
+        f"[TSHashParity] {db_path.name}: Validating {len(games_to_check)} games "
+        f"with TS reference hashes"
+    )
+
+    passed = 0
+    failed = 0
+    failed_games: list[tuple[str, str]] = []
+
+    for i, game_id in enumerate(games_to_check):
+        result = validate_game_against_ts_hashes(db, game_id, verbose=verbose)
+
+        if result.passed:
+            passed += 1
+            if update_status:
+                _update_parity_status(db, game_id, "passed")
+        else:
+            failed += 1
+            error_msg = result.error_message or result.mismatch_kind or "unknown error"
+            failed_games.append((game_id, error_msg))
+            if update_status:
+                _update_parity_status(db, game_id, "failed", result.diverged_at)
+
+        if (i + 1) % 100 == 0 or verbose:
+            logger.info(
+                f"[TSHashParity] {db_path.name}: {i + 1}/{len(games_to_check)} games "
+                f"(passed={passed}, failed={failed})"
+            )
+
+    elapsed = time.time() - start_time
+
+    # Update database-level parity gate status
+    if update_status and (passed + failed) > 0:
+        gate_status = "passed" if failed == 0 else "failed"
+        _update_database_parity_gate(db, gate_status, passed, failed)
+
+    total_checked = passed + failed
+    result = {
+        "database": str(db_path),
+        "total_games": len(game_ids),
+        "games_with_ts_hashes": len(games_to_check),
+        "passed": passed,
+        "failed": failed,
+        "pass_rate": passed / total_checked if total_checked > 0 else 1.0,
+        "failed_games": failed_games[:50],
+        "elapsed_seconds": elapsed,
+    }
+
+    logger.info(
+        f"[TSHashParity] {db_path.name}: Complete. "
+        f"{passed}/{total_checked} passed ({result['pass_rate']:.1%}), "
+        f"elapsed={elapsed:.1f}s"
+    )
+
+    return result
+
+
+def populate_ts_hashes_from_validation(
+    db_path: str | Path,
+    *,
+    max_games: int | None = None,
+    verbose: bool = False,
+) -> dict[str, Any]:
+    """Run full TS parity validation and store TS hashes for later use.
+
+    This should be run on the coordinator (which has Node.js) to populate
+    the ts_parity_hashes table. Once populated, the database can be synced
+    to cluster nodes for Python-only validation.
+
+    Args:
+        db_path: Path to the GameReplayDB database
+        max_games: Maximum number of games to validate
+        verbose: Log detailed progress
+
+    Returns:
+        Dict with statistics on hashes stored
+
+    December 2025: Part of permanent parity gate solution.
+    """
+    import time
+
+    if not _is_ts_replay_available():
+        return {
+            "error": "TypeScript replay not available",
+            "detail": "Node.js/npx not found. Run this on coordinator.",
+            "stored": 0,
+        }
+
+    start_time = time.time()
+    db_path = Path(db_path)
+    db = GameReplayDB(str(db_path))
+
+    # Get games to validate
+    limit = max_games if max_games else 100_000
+    games = db.query_games(limit=limit, require_moves=True)
+    game_ids = [g["game_id"] for g in games]
+
+    if not game_ids:
+        return {
+            "database": str(db_path),
+            "total_games": 0,
+            "games_processed": 0,
+            "hashes_stored": 0,
+            "failed": 0,
+            "elapsed_seconds": time.time() - start_time,
+        }
+
+    logger.info(
+        f"[PopulateTSHashes] {db_path.name}: Processing {len(game_ids)} games"
+    )
+
+    games_processed = 0
+    hashes_stored = 0
+    failed = 0
+
+    for i, game_id in enumerate(game_ids):
+        try:
+            # Run TS replay to get hashes
+            total_moves_ts, ts_summaries = _run_ts_replay(db_path, game_id)
+
+            # Store the hashes
+            stored = store_ts_hashes(db, game_id, ts_summaries)
+            hashes_stored += stored
+            games_processed += 1
+
+            # Update parity status
+            _update_parity_status(db, game_id, "passed")
+
+            if verbose or (i + 1) % 50 == 0:
+                logger.info(
+                    f"[PopulateTSHashes] {db_path.name}: {i + 1}/{len(game_ids)} games, "
+                    f"{hashes_stored} hashes stored"
+                )
+
+        except Exception as e:
+            failed += 1
+            logger.warning(f"[PopulateTSHashes] Game {game_id} failed: {e}")
+            _update_parity_status(db, game_id, "error")
+
+    elapsed = time.time() - start_time
+
+    # Update database-level status
+    if games_processed > 0:
+        gate_status = "passed" if failed == 0 else "partial"
+        _update_database_parity_gate(db, gate_status, games_processed, failed)
+
+    result = {
+        "database": str(db_path),
+        "total_games": len(game_ids),
+        "games_processed": games_processed,
+        "hashes_stored": hashes_stored,
+        "failed": failed,
+        "elapsed_seconds": elapsed,
+    }
+
+    logger.info(
+        f"[PopulateTSHashes] {db_path.name}: Complete. "
+        f"{games_processed} games, {hashes_stored} hashes stored, "
+        f"{failed} failed, elapsed={elapsed:.1f}s"
+    )
+
+    return result

@@ -365,7 +365,7 @@ class LeaderElectionMixin(P2PMixinBase):
 
         has_quorum = self._has_voter_quorum()
         voter_count = len(self.voter_node_ids) if self.voter_node_ids else 0
-        alive_voters = self._count_alive_voters()
+        alive_voters = self._count_alive_peers(self.voter_node_ids or [])
         lease_remaining = max(0, self.leader_lease_expires - time.time())
         # Unhealthy if no quorum and we should have voters
         is_healthy = has_quorum or voter_count == 0

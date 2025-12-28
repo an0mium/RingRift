@@ -2054,12 +2054,21 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
                 # December 2025: Call daemon's health_check() if available
                 # This enables daemon-specific health monitoring beyond just task liveness
+                # December 2025 (P1): Add timeout protection to prevent health loop hanging
                 if info.instance is not None and hasattr(info.instance, 'health_check'):
                     try:
                         health_result = info.instance.health_check()
                         # Handle both sync and async health_check methods
                         if asyncio.iscoroutine(health_result):
-                            health_result = await health_result
+                            # Timeout protection: prevent blocking health checks from hanging the loop
+                            try:
+                                health_result = await asyncio.wait_for(health_result, timeout=5.0)
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    f"{daemon_type.value} health_check() timed out (5s)"
+                                )
+                                # Treat timeout as unhealthy
+                                health_result = {"healthy": False, "message": "health_check() timeout (5s)"}
 
                         # Check if result indicates unhealthy state
                         is_healthy = True

@@ -1180,19 +1180,32 @@ class MasterLoopController:
                     f"intensity={state.training_intensity}, ready={ready_for_training}"
                 )
 
-                # Sync intensity to TrainingTriggerDaemon (Gap 2 fix: Dec 2025)
-                # This ensures the training subprocess uses the correct parameters
+                # Sync intensity via event emission (Dec 2025 - Event-driven refactor)
+                # TrainingTriggerDaemon subscribes to QUALITY_SCORE_UPDATED and computes
+                # intensity from quality_score. This avoids fragile direct state access.
                 try:
-                    from app.coordination.training_trigger_daemon import (
-                        get_training_trigger_daemon,
+                    from app.distributed.data_events import (
+                        DataEvent,
+                        DataEventType,
+                        get_event_bus,
                     )
-                    trigger_daemon = get_training_trigger_daemon()
-                    if config_key in trigger_daemon._training_states:
-                        trigger_daemon._training_states[config_key].training_intensity = (
-                            state.training_intensity
-                        )
+
+                    # Emit quality score update with config_key for training coordination
+                    event = DataEvent(
+                        event_type=DataEventType.QUALITY_SCORE_UPDATED,
+                        payload={
+                            "config_key": config_key,
+                            "quality_score": quality_score,
+                            "source": "master_loop",
+                        },
+                        source="master_loop._on_quality_assessed",
+                    )
+
+                    # Create task to emit async event without blocking
+                    import asyncio
+                    asyncio.create_task(get_event_bus().publish(event))
                 except ImportError:
-                    pass  # Daemon not available
+                    pass  # Event system not available
 
         except Exception as e:
             logger.debug(f"[MasterLoop] Error handling quality event: {e}")

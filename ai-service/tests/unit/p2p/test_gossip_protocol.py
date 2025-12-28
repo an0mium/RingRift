@@ -591,13 +591,15 @@ class TestProcessGossipPeerEndpoints:
     def test_stores_learned_endpoints(self):
         """Test that learned endpoints are stored."""
         protocol = TestableGossipProtocol()
+        # Pre-populate peers to avoid asyncio.create_task call
+        protocol.peers["node-1"] = MockNodeInfo(node_id="node-1", last_heartbeat=time.time())
 
         endpoints = [
             {
                 "node_id": "node-1",
                 "host": "192.168.1.1",
                 "port": 8770,
-                "tailscale_ip": "100.64.0.1",
+                "tailscale_ip": "",  # No tailscale IP
                 "last_heartbeat": time.time(),
             }
         ]
@@ -605,7 +607,7 @@ class TestProcessGossipPeerEndpoints:
         protocol._process_gossip_peer_endpoints(endpoints)
 
         assert "node-1" in protocol._gossip_learned_endpoints
-        assert protocol._gossip_learned_endpoints["node-1"]["host"] == "100.64.0.1"
+        assert protocol._gossip_learned_endpoints["node-1"]["host"] == "192.168.1.1"
 
     def test_ignores_self_endpoint(self):
         """Test that own endpoint is ignored."""
@@ -624,8 +626,10 @@ class TestProcessGossipPeerEndpoints:
         assert protocol.node_id not in protocol._gossip_learned_endpoints
 
     def test_prefers_tailscale_ip(self):
-        """Test that tailscale IP is preferred over host."""
+        """Test that tailscale IP is preferred over host when storing."""
         protocol = TestableGossipProtocol()
+        # Pre-populate peers to avoid asyncio.create_task call
+        protocol.peers["node-1"] = MockNodeInfo(node_id="node-1", last_heartbeat=time.time())
 
         endpoints = [
             {
@@ -638,7 +642,35 @@ class TestProcessGossipPeerEndpoints:
 
         protocol._process_gossip_peer_endpoints(endpoints)
 
+        # When tailscale_ip is present, it should be used as the host value
         assert protocol._gossip_learned_endpoints["node-1"]["host"] == "100.64.0.1"
+        assert protocol._gossip_learned_endpoints["node-1"]["tailscale_ip"] == "100.64.0.1"
+
+    @pytest.mark.asyncio
+    async def test_attempts_connection_for_unknown_peer(self):
+        """Test that connection is attempted for unknown peers."""
+        protocol = TestableGossipProtocol()
+        connect_called = False
+
+        async def mock_connect(node_id, host, port):
+            nonlocal connect_called
+            connect_called = True
+
+        protocol._try_connect_gossip_peer = mock_connect
+
+        endpoints = [
+            {
+                "node_id": "unknown-node",
+                "host": "192.168.1.1",
+                "port": 8770,
+            }
+        ]
+
+        protocol._process_gossip_peer_endpoints(endpoints)
+
+        # Allow the task to run
+        await asyncio.sleep(0.01)
+        assert connect_called
 
 
 class TestHandleIncomingClusterEpoch:
@@ -762,31 +794,55 @@ class TestProcessAntiEntropyResponse:
 class TestPublicAPIMethods:
     """Test public API methods."""
 
-    def test_get_gossip_peer_states_returns_copy(self):
-        """Test that get_gossip_peer_states returns a copy."""
+    def test_get_gossip_peer_states_returns_shallow_copy(self):
+        """Test that get_gossip_peer_states returns a shallow copy of dict keys."""
         protocol = TestableGossipProtocol()
         protocol._gossip_peer_states["node-1"] = {"data": "test"}
 
         states = protocol.get_gossip_peer_states()
 
-        # Modify the copy
-        states["node-1"]["data"] = "modified"
+        # Adding new key to copy shouldn't affect original
+        states["node-2"] = {"data": "new"}
 
-        # Original should be unchanged
-        assert protocol._gossip_peer_states["node-1"]["data"] == "test"
+        assert "node-2" not in protocol._gossip_peer_states
+        assert "node-1" in states
 
-    def test_get_gossip_learned_endpoints_returns_copy(self):
-        """Test that get_gossip_learned_endpoints returns a copy."""
+    def test_get_gossip_learned_endpoints_returns_shallow_copy(self):
+        """Test that get_gossip_learned_endpoints returns a shallow copy of dict keys."""
         protocol = TestableGossipProtocol()
         protocol._gossip_learned_endpoints["node-1"] = {"host": "192.168.1.1"}
 
         endpoints = protocol.get_gossip_learned_endpoints()
 
-        # Modify the copy
-        endpoints["node-1"]["host"] = "modified"
+        # Adding new key to copy shouldn't affect original
+        endpoints["node-2"] = {"host": "192.168.1.2"}
 
-        # Original should be unchanged
-        assert protocol._gossip_learned_endpoints["node-1"]["host"] == "192.168.1.1"
+        assert "node-2" not in protocol._gossip_learned_endpoints
+        assert "node-1" in endpoints
+
+    def test_get_gossip_peer_states_contains_all_data(self):
+        """Test that get_gossip_peer_states returns all current data."""
+        protocol = TestableGossipProtocol()
+        protocol._gossip_peer_states["node-1"] = {"data": "test1"}
+        protocol._gossip_peer_states["node-2"] = {"data": "test2"}
+
+        states = protocol.get_gossip_peer_states()
+
+        assert len(states) == 2
+        assert states["node-1"]["data"] == "test1"
+        assert states["node-2"]["data"] == "test2"
+
+    def test_get_gossip_learned_endpoints_contains_all_data(self):
+        """Test that get_gossip_learned_endpoints returns all current data."""
+        protocol = TestableGossipProtocol()
+        protocol._gossip_learned_endpoints["node-1"] = {"host": "192.168.1.1"}
+        protocol._gossip_learned_endpoints["node-2"] = {"host": "192.168.1.2"}
+
+        endpoints = protocol.get_gossip_learned_endpoints()
+
+        assert len(endpoints) == 2
+        assert endpoints["node-1"]["host"] == "192.168.1.1"
+        assert endpoints["node-2"]["host"] == "192.168.1.2"
 
 
 class TestGossipStateTopeers:

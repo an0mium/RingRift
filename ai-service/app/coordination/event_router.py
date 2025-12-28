@@ -1649,8 +1649,9 @@ class CoordinatorStats:
     is_running: bool = False
 
 
-# Alias for unified_event_coordinator.UnifiedEventCoordinator
+# Aliases for backward compatibility
 UnifiedEventCoordinator = UnifiedEventRouter
+EventRouter = UnifiedEventRouter  # Common alias used in documentation
 
 
 def get_event_coordinator() -> UnifiedEventRouter:
