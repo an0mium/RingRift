@@ -821,16 +821,18 @@ class SelfplayScheduler:
     async def allocate_selfplay_batch(
         self,
         games_per_config: int = DEFAULT_GAMES_PER_CONFIG,
-        max_configs: int = 6,
+        max_configs: int = 12,
     ) -> dict[str, dict[str, int]]:
         """Allocate selfplay games across cluster nodes.
 
         Args:
             games_per_config: Target games per config
-            max_configs: Maximum configs to allocate
+            max_configs: Maximum configs to allocate (default: 12 for all configs)
 
         Returns:
             Dict mapping config_key to {node_id: num_games}
+
+        December 28, 2025: Changed default from 6 to 12 to include all board/player configs.
         """
         # Check backpressure before allocating (Dec 2025)
         try:

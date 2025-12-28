@@ -111,6 +111,120 @@ def get_idle_nodes(nodes: list[NodeInfo], gpu_threshold: float = 10.0) -> list[N
     ]
 
 
+def get_zombie_nodes(nodes: list[NodeInfo], gpu_threshold: float = 5.0) -> list[NodeInfo]:
+    """Filter to zombie nodes (has jobs but GPU is nearly idle).
+
+    These are nodes where selfplay processes appear to be stuck or crashed
+    but the P2P job counts haven't been reset.
+    """
+    return [
+        n for n in nodes
+        if n.selfplay_jobs > 0 and n.gpu_percent < gpu_threshold
+    ]
+
+
+def cleanup_zombie_processes(node: NodeInfo) -> bool:
+    """Kill zombie Python selfplay processes on a node via SSH.
+
+    Returns True if cleanup was successful.
+    """
+    if not node.ssh_host or not node.ssh_port:
+        logger.warning(f"No SSH config for {node.node_id}, cannot cleanup")
+        return False
+
+    ssh_key = Path(node.ssh_key).expanduser() if node.ssh_key else None
+
+    cmd = [
+        "ssh",
+        "-o", "ConnectTimeout=15",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-p", str(node.ssh_port),
+    ]
+
+    if ssh_key and ssh_key.exists():
+        cmd.extend(["-i", str(ssh_key)])
+
+    cmd.append(f"{node.ssh_user}@{node.ssh_host}")
+
+    # Kill all Python selfplay processes
+    kill_cmd = "pkill -f 'python.*selfplay' || true; echo 'CLEANUP_DONE'"
+    cmd.append(kill_cmd)
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if "CLEANUP_DONE" in result.stdout:
+            logger.info(f"Killed zombie processes on {node.node_id}")
+            return True
+        else:
+            logger.warning(f"Cleanup on {node.node_id} may have failed: {result.stderr[:200]}")
+    except subprocess.TimeoutExpired:
+        logger.warning(f"SSH to {node.node_id} timed out during cleanup")
+    except Exception as e:
+        logger.error(f"Cleanup error on {node.node_id}: {e}")
+
+    return False
+
+
+def reset_node_job_counts(node: NodeInfo, leader_url: str = "http://localhost:8770") -> bool:
+    """Reset job counts for a node on the P2P leader.
+
+    Returns True if successful.
+    """
+    import urllib.request
+
+    url = f"{leader_url}/admin/reset_node_jobs"
+    data = json.dumps({"node_id": node.node_id}).encode()
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.load(resp)
+            if result.get("success"):
+                logger.info(
+                    f"Reset job counts for {node.node_id}: "
+                    f"selfplay {result.get('previous_selfplay_jobs', '?')}->0"
+                )
+                return True
+    except Exception as e:
+        logger.warning(f"Failed to reset job counts for {node.node_id}: {e}")
+
+    return False
+
+
+def cleanup_zombies(nodes: list[NodeInfo], leader_url: str = "http://localhost:8770") -> int:
+    """Clean up zombie processes on nodes and reset their job counts.
+
+    Returns the number of nodes cleaned up.
+    """
+    zombie_nodes = get_zombie_nodes(nodes)
+    if not zombie_nodes:
+        logger.info("No zombie nodes found")
+        return 0
+
+    logger.info(f"Found {len(zombie_nodes)} zombie nodes to clean up")
+
+    cleaned = 0
+    for node in zombie_nodes:
+        logger.info(
+            f"Cleaning up {node.node_id} "
+            f"(jobs: {node.selfplay_jobs}, GPU: {node.gpu_percent}%)"
+        )
+
+        # Step 1: Kill processes via SSH
+        if cleanup_zombie_processes(node):
+            # Step 2: Reset job counts on leader
+            if reset_node_job_counts(node, leader_url):
+                cleaned += 1
+
+    return cleaned
+
+
 def start_selfplay_via_http(node: NodeInfo, board_type: str, num_players: int, num_games: int) -> bool:
     """Try to start selfplay via direct HTTP request."""
     import urllib.request

@@ -256,33 +256,24 @@ class TestFactoryFunctions:
 
     def test_create_lambda_idle_daemon_import(self):
         """Test lambda factory can be imported."""
-        try:
-            from app.coordination.unified_idle_shutdown_daemon import (
-                create_lambda_idle_daemon,
-            )
-            assert callable(create_lambda_idle_daemon)
-        except ImportError:
-            pytest.skip("Factory function not yet implemented")
+        from app.coordination.unified_idle_shutdown_daemon import (
+            create_lambda_idle_daemon,
+        )
+        assert callable(create_lambda_idle_daemon)
 
     def test_create_vast_idle_daemon_import(self):
         """Test vast factory can be imported."""
-        try:
-            from app.coordination.unified_idle_shutdown_daemon import (
-                create_vast_idle_daemon,
-            )
-            assert callable(create_vast_idle_daemon)
-        except ImportError:
-            pytest.skip("Factory function not yet implemented")
+        from app.coordination.unified_idle_shutdown_daemon import (
+            create_vast_idle_daemon,
+        )
+        assert callable(create_vast_idle_daemon)
 
     def test_create_runpod_idle_daemon_import(self):
         """Test runpod factory can be imported."""
-        try:
-            from app.coordination.unified_idle_shutdown_daemon import (
-                create_runpod_idle_daemon,
-            )
-            assert callable(create_runpod_idle_daemon)
-        except ImportError:
-            pytest.skip("Factory function not yet implemented")
+        from app.coordination.unified_idle_shutdown_daemon import (
+            create_runpod_idle_daemon,
+        )
+        assert callable(create_runpod_idle_daemon)
 
 
 # =============================================================================

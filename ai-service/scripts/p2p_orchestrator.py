@@ -3986,8 +3986,12 @@ class P2POrchestrator(
                 # Only force an election when we have no known leader; otherwise we
                 # may already be following a healthy leader and shouldn't flap.
                 if not self.leader_id:
-                    with contextlib.suppress(RuntimeError):
-                        asyncio.get_running_loop().create_task(self._start_election())
+                    # CRITICAL: Check quorum before starting election to prevent quorum bypass
+                    if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+                        logger.warning("Skipping election: no voter quorum available")
+                    else:
+                        with contextlib.suppress(RuntimeError):
+                            asyncio.get_running_loop().create_task(self._start_election())
             return False
         # Consistency: we should never claim leader_id=self while being a follower/candidate.
         if self.role != NodeRole.LEADER:

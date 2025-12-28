@@ -131,6 +131,50 @@ class StateManager:
         finally:
             conn.close()
 
+    def _invalidate_stale_lease(
+        self, leader_state: PersistedLeaderState, node_id: str
+    ) -> None:
+        """Invalidate stale leader lease on startup.
+
+        P0.5 Dec 2025: After restart, node may read stale lease from state file
+        and think it's still leader. This forces re-election on startup.
+
+        Args:
+            leader_state: The loaded leader state to potentially invalidate
+            node_id: This node's ID
+
+        Behavior:
+            - If this node was the leader (leader_id == node_id), invalidate
+            - If the lease has expired, invalidate
+            - Otherwise, preserve state (may be follower with valid leader info)
+        """
+        now = time.time()
+        was_leader = leader_state.leader_id == node_id
+        lease_expired = leader_state.leader_lease_expires < now
+
+        if was_leader or lease_expired:
+            # Force re-election - don't trust old lease after restart
+            old_leader = leader_state.leader_id
+            old_expiry = leader_state.leader_lease_expires
+
+            leader_state.leader_id = ""
+            leader_state.leader_lease_id = ""
+            leader_state.leader_lease_expires = 0.0
+            leader_state.last_lease_renewal = 0.0
+            leader_state.role = "follower"
+
+            if was_leader:
+                logger.warning(
+                    f"P0.5: Invalidated stale leader claim on restart. "
+                    f"Was leader, forcing re-election."
+                )
+            elif lease_expired:
+                logger.info(
+                    f"P0.5: Invalidated expired leader lease on startup. "
+                    f"Old leader: {old_leader}, expired at: {old_expiry:.0f}, "
+                    f"now: {now:.0f}"
+                )
+
     def init_database(self) -> None:
         """Initialize SQLite database schema for state persistence.
 
@@ -358,6 +402,11 @@ class StateManager:
 
                 if raw_config_source := state_rows.get("voter_config_source"):
                     state.leader_state.voter_config_source = str(raw_config_source)
+
+                # P0.5 Dec 2025: Invalidate stale leader lease on restart
+                # Without this, node may think it's still leader after restart
+                # even if a new leader was elected during downtime
+                self._invalidate_stale_lease(state.leader_state, node_id)
 
                 logger.info(f"Loaded state: {len(state.peers)} peers, {len(state.jobs)} jobs")
 

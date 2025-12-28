@@ -74,6 +74,12 @@ from app.coordination import daemon_runners
 
 logger = logging.getLogger(__name__)
 
+# Restart count persistence (Dec 2025)
+# Persists restart counts to disk so they survive daemon manager restarts
+RESTART_STATE_FILE = Path("/tmp/ringrift_daemon_restarts.json")
+RESTART_COUNTS_EXPIRY_SECONDS = 86400  # 24 hours - counts older than this are reset
+MAX_RESTARTS_PER_HOUR = 10  # If exceeded, daemon is permanently failed
+
 
 # Lazy import for daemon lifecycle events to avoid circular imports
 def _get_daemon_event_emitters():

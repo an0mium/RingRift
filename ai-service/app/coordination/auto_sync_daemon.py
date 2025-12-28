@@ -94,6 +94,13 @@ from app.coordination.protocols import (
 )
 from app.coordination.sync_integrity import check_sqlite_integrity
 from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
+from app.coordination.disk_space_reservation import (
+    DiskSpaceReservation,
+    DiskSpaceError,
+    cleanup_stale_reservations,
+    disk_space_reservation,
+    get_effective_available_space,
+)
 from app.core.async_context import fire_and_forget, safe_create_task
 
 # Circuit breaker for fault-tolerant sync operations (December 2025)
