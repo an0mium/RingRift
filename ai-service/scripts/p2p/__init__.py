@@ -121,6 +121,9 @@ from .gossip_protocol import GossipProtocolMixin
 # Backward-compat alias: GossipMetricsMixin is now part of GossipProtocolMixin
 GossipMetricsMixin = GossipProtocolMixin  # Deprecated: use GossipProtocolMixin directly
 
+# Re-export event emission mixin (Dec 28, 2025 - Phase 8)
+from .event_emission_mixin import EventEmissionMixin
+
 # Re-export client utilities
 from .client import (
     P2PClient,

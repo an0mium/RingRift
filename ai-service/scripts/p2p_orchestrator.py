@@ -1600,6 +1600,7 @@ from scripts.p2p.managers import (
 from scripts.p2p.managers.state_manager import PersistedLeaderState
 from scripts.p2p.metrics_manager import MetricsManager
 from scripts.p2p.resource_detector import ResourceDetector, ResourceDetectorMixin
+from scripts.p2p.event_emission_mixin import EventEmissionMixin
 
 # Unified resource checking utilities (80% max utilization)
 # Includes graceful degradation for dynamic workload management
@@ -2115,6 +2116,7 @@ class P2POrchestrator(
     SwimHandlersMixin,    # /swim/* HTTP handlers
     RaftHandlersMixin,    # /raft/* HTTP handlers
     ResourceDetectorMixin,  # Resource detection delegation (Dec 28, 2025)
+    EventEmissionMixin,     # Event emission consolidation (Dec 28, 2025 - Phase 8)
 ):
     """Main P2P orchestrator class that runs on each node.
 
