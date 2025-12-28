@@ -859,13 +859,34 @@ class StateManager:
     # Health Check (December 2025)
     # =========================================================================
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self):
         """Check health status of StateManager.
 
         Returns:
-            Dict with status, operations metrics, and error info
+            HealthCheckResult with status, operations metrics, and error info
         """
-        status = "healthy"
+        # Import HealthCheckResult with fallback
+        try:
+            from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+        except ImportError:
+            # Fallback for when protocols module is unavailable
+            from dataclasses import dataclass as _dc, field as _field
+
+            @_dc
+            class HealthCheckResult:
+                healthy: bool
+                status: str = "running"
+                message: str = ""
+                timestamp: float = _field(default_factory=time.time)
+                details: dict = _field(default_factory=dict)
+
+            class CoordinatorStatus:
+                RUNNING = "running"
+                DEGRADED = "degraded"
+                ERROR = "error"
+
+        status = CoordinatorStatus.RUNNING
+        is_healthy = True
         errors_count = 0
         last_error: str | None = None
         peer_count = 0
@@ -880,23 +901,28 @@ class StateManager:
                 cursor.execute("SELECT COUNT(*) FROM jobs WHERE status = 'running'")
                 job_count = cursor.fetchone()[0]
         except sqlite3.Error as e:
-            status = "unhealthy"
+            status = CoordinatorStatus.ERROR
+            is_healthy = False
             errors_count = 1
             last_error = f"Database connection failed: {e}"
 
         # Check if database file exists
         if not self.db_path.exists():
-            status = "unhealthy"
+            status = CoordinatorStatus.ERROR
+            is_healthy = False
             errors_count += 1
             last_error = f"Database file not found: {self.db_path}"
 
-        return {
-            "status": status,
-            "operations_count": peer_count + job_count,
-            "errors_count": errors_count,
-            "last_error": last_error,
-            "peer_count": peer_count,
-            "job_count": job_count,
-            "cluster_epoch": self._cluster_epoch,
-            "db_path": str(self.db_path),
-        }
+        return HealthCheckResult(
+            healthy=is_healthy,
+            status=status if isinstance(status, str) else status,
+            message=last_error or "StateManager healthy",
+            details={
+                "operations_count": peer_count + job_count,
+                "errors_count": errors_count,
+                "peer_count": peer_count,
+                "job_count": job_count,
+                "cluster_epoch": self._cluster_epoch,
+                "db_path": str(self.db_path),
+            },
+        )
