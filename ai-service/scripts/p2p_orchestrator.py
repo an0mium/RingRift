@@ -4044,8 +4044,9 @@ class P2POrchestrator(
             self._release_voter_grant_if_self()
             self._save_state()
             _emit_p2p_leader_lost_sync(old_leader_id, "quorum_lost")
-            with contextlib.suppress(RuntimeError):
-                asyncio.get_running_loop().create_task(self._start_election())
+            # NOTE: Don't start election here - we just lost quorum, so election would fail anyway
+            # Wait for quorum to be restored before attempting election
+            logger.warning("Skipping election after quorum loss: no voter quorum available")
             return False
         return True
 

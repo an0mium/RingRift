@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers  # P1.1 Dec 2025: For RotatingFileHandler
 import os
 import sys
 from datetime import datetime
@@ -253,7 +254,7 @@ def setup_logging(
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-    # File handler
+    # File handler with rotation (P1.1 Dec 2025)
     if log_file or log_dir:
         if log_file:
             file_path = Path(log_file)
@@ -263,7 +264,15 @@ def setup_logging(
             file_path = log_dir_path / f"{logger_name}_{date_str}.log"
 
         ensure_parent_dir(file_path)
-        file_handler = logging.FileHandler(file_path)
+
+        # P1.1 Dec 2025: Use RotatingFileHandler to prevent unbounded log growth
+        # maxBytes: 500MB per file, backupCount: 5 rotated files (2.5GB max total)
+        file_handler = logging.handlers.RotatingFileHandler(
+            file_path,
+            maxBytes=500 * 1024 * 1024,  # 500 MB
+            backupCount=5,
+            encoding="utf-8",
+        )
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)

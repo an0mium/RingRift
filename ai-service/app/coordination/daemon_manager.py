@@ -195,6 +195,234 @@ class DaemonManager:
                 cls._instance._sync_shutdown()
         cls._instance = None
 
+    # =========================================================================
+    # Restart Count Persistence (Dec 2025)
+    # =========================================================================
+
+    def _load_restart_counts(self) -> None:
+        """Load persisted restart counts from disk.
+
+        December 2025: Added to prevent infinite restart loops after daemon manager
+        process restarts. Counts older than 24 hours are discarded to allow recovery
+        after transient failures.
+
+        Data structure:
+            {
+                "timestamp": <unix_time>,
+                "counts": {"daemon_name": <count>, ...},
+                "restart_timestamps": {"daemon_name": [<ts1>, <ts2>, ...], ...},
+                "permanently_failed": ["daemon1", "daemon2", ...]
+            }
+        """
+        try:
+            if not RESTART_STATE_FILE.exists():
+                logger.debug("[DaemonManager] No persisted restart counts found")
+                return
+
+            with open(RESTART_STATE_FILE, "r") as f:
+                data = json.load(f)
+
+            # Check if data is expired (older than 24 hours)
+            saved_timestamp = data.get("timestamp", 0)
+            if saved_timestamp < time.time() - RESTART_COUNTS_EXPIRY_SECONDS:
+                logger.info(
+                    "[DaemonManager] Persisted restart counts expired (>24h), starting fresh"
+                )
+                RESTART_STATE_FILE.unlink(missing_ok=True)
+                return
+
+            # Load counts
+            self._persisted_restart_counts = data.get("counts", {})
+
+            # Load restart timestamps (for hourly limit tracking)
+            raw_timestamps = data.get("restart_timestamps", {})
+            current_time = time.time()
+            for daemon_name, timestamps in raw_timestamps.items():
+                # Only keep timestamps from the last hour
+                recent_timestamps = [
+                    ts for ts in timestamps
+                    if ts > current_time - 3600
+                ]
+                if recent_timestamps:
+                    self._restart_timestamps[daemon_name] = recent_timestamps
+
+            # Load permanently failed daemons
+            self._permanently_failed = set(data.get("permanently_failed", []))
+
+            logger.info(
+                f"[DaemonManager] Loaded restart counts: "
+                f"{len(self._persisted_restart_counts)} daemons tracked, "
+                f"{len(self._permanently_failed)} permanently failed"
+            )
+
+            # Log any permanently failed daemons
+            if self._permanently_failed:
+                logger.warning(
+                    f"[DaemonManager] Permanently failed daemons (require manual intervention): "
+                    f"{list(self._permanently_failed)}"
+                )
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"[DaemonManager] Failed to parse restart counts file: {e}")
+            RESTART_STATE_FILE.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning(f"[DaemonManager] Failed to load restart counts: {e}")
+
+    def _save_restart_counts(self) -> None:
+        """Persist restart counts to disk.
+
+        December 2025: Saves current restart counts and timestamps so they
+        survive daemon manager restarts. This prevents infinite restart loops
+        for daemons that consistently fail.
+        """
+        try:
+            # Collect current counts from daemon info
+            counts = {}
+            for daemon_type, info in self._daemons.items():
+                if info.restart_count > 0:
+                    counts[daemon_type.value] = info.restart_count
+
+            # Merge with persisted counts (for daemons not yet registered)
+            for daemon_name, count in self._persisted_restart_counts.items():
+                if daemon_name not in counts and count > 0:
+                    counts[daemon_name] = count
+
+            data = {
+                "timestamp": time.time(),
+                "counts": counts,
+                "restart_timestamps": self._restart_timestamps,
+                "permanently_failed": list(self._permanently_failed),
+            }
+
+            with open(RESTART_STATE_FILE, "w") as f:
+                json.dump(data, f, indent=2)
+
+            logger.debug(
+                f"[DaemonManager] Saved restart counts: {len(counts)} daemons"
+            )
+
+        except OSError as e:
+            logger.warning(f"[DaemonManager] Failed to save restart counts: {e}")
+
+    def record_restart(self, daemon_type: DaemonType) -> bool:
+        """Record a daemon restart and check if it should be permanently failed.
+
+        December 2025: Tracks restart timestamps to detect daemons that are
+        failing repeatedly within a short time window. If a daemon restarts
+        more than MAX_RESTARTS_PER_HOUR times in an hour, it is marked as
+        permanently failed and requires manual intervention.
+
+        Args:
+            daemon_type: Type of daemon being restarted
+
+        Returns:
+            True if the daemon should be allowed to restart,
+            False if it has exceeded the hourly limit and should be marked permanently failed
+        """
+        daemon_name = daemon_type.value
+        current_time = time.time()
+
+        # Check if already permanently failed
+        if daemon_name in self._permanently_failed:
+            logger.error(
+                f"[DaemonManager] {daemon_name} is permanently failed, not restarting"
+            )
+            return False
+
+        # Get or create timestamp list for this daemon
+        if daemon_name not in self._restart_timestamps:
+            self._restart_timestamps[daemon_name] = []
+
+        # Add current restart timestamp
+        self._restart_timestamps[daemon_name].append(current_time)
+
+        # Remove timestamps older than 1 hour
+        self._restart_timestamps[daemon_name] = [
+            ts for ts in self._restart_timestamps[daemon_name]
+            if ts > current_time - 3600
+        ]
+
+        # Check if hourly limit exceeded
+        hourly_restarts = len(self._restart_timestamps[daemon_name])
+        if hourly_restarts > MAX_RESTARTS_PER_HOUR:
+            logger.error(
+                f"[DaemonManager] {daemon_name} exceeded hourly restart limit "
+                f"({hourly_restarts} > {MAX_RESTARTS_PER_HOUR}), marking permanently failed"
+            )
+            self._permanently_failed.add(daemon_name)
+            self._save_restart_counts()
+
+            # Emit DAEMON_PERMANENTLY_FAILED event
+            self._emit_permanently_failed_event(daemon_type)
+
+            return False
+
+        # Save updated state
+        self._save_restart_counts()
+        return True
+
+    def _emit_permanently_failed_event(self, daemon_type: DaemonType) -> None:
+        """Emit DAEMON_PERMANENTLY_FAILED event for monitoring/alerting.
+
+        December 2025: Notifies external systems when a daemon has exceeded
+        its restart limit and requires manual intervention.
+        """
+        try:
+            from app.distributed.data_events import emit_daemon_permanently_failed
+
+            import socket
+            emit_daemon_permanently_failed(
+                daemon_name=daemon_type.value,
+                hostname=socket.gethostname(),
+                restart_count=len(self._restart_timestamps.get(daemon_type.value, [])),
+                source="DaemonManager",
+            )
+            logger.info(f"Emitted DAEMON_PERMANENTLY_FAILED for {daemon_type.value}")
+        except ImportError:
+            logger.debug("emit_daemon_permanently_failed not available")
+        except Exception as e:
+            logger.debug(f"Failed to emit DAEMON_PERMANENTLY_FAILED: {e}")
+
+    def is_permanently_failed(self, daemon_type: DaemonType) -> bool:
+        """Check if a daemon is permanently failed.
+
+        Args:
+            daemon_type: Type of daemon to check
+
+        Returns:
+            True if the daemon has exceeded its hourly restart limit
+        """
+        return daemon_type.value in self._permanently_failed
+
+    def clear_permanently_failed(self, daemon_type: DaemonType) -> None:
+        """Clear permanent failure status for a daemon.
+
+        December 2025: Allows manual intervention to reset a daemon's status.
+        This is typically called after the underlying issue is fixed.
+
+        Args:
+            daemon_type: Type of daemon to clear
+        """
+        daemon_name = daemon_type.value
+        if daemon_name in self._permanently_failed:
+            self._permanently_failed.discard(daemon_name)
+            self._restart_timestamps.pop(daemon_name, None)
+            if daemon_name in self._persisted_restart_counts:
+                del self._persisted_restart_counts[daemon_name]
+
+            # Reset the daemon's restart count in DaemonInfo
+            if daemon_type in self._daemons:
+                self._daemons[daemon_type].restart_count = 0
+
+            self._save_restart_counts()
+            logger.info(
+                f"[DaemonManager] Cleared permanent failure status for {daemon_name}"
+            )
+
+    # =========================================================================
+    # Factory Registration
+    # =========================================================================
+
     def _register_default_factories(self) -> None:
         """Register default daemon factories from the declarative registry.
 

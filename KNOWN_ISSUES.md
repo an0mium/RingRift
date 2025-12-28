@@ -5,7 +5,7 @@
 > - Canonical list of current, code-verified issues and gaps.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `docs/rules/COMPLETE_RULES.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** December 26, 2025
+**Last Updated:** December 28, 2025
 **Status:** Code-verified assessment based on actual implementation
 **Related Documents:** [TODO.md](./TODO.md) · [STRATEGIC_ROADMAP.md](docs/planning/STRATEGIC_ROADMAP.md) · [docs/rules/PARITY_SEED_TRIAGE.md](docs/rules/PARITY_SEED_TRIAGE.md)
 
@@ -519,6 +519,45 @@ Following PASS24.1, all four k6 load scenarios run against the nginx-fronted sta
   - Tracking / references:
     - [`tests/load/README.md`](tests/load/README.md) – Socket.IO v4 protocol implementation details.
     - [`GAME_PERFORMANCE.md`](docs/runbooks/GAME_PERFORMANCE.md) – Updated WebSocket-stress baseline.
+
+### P1.X – Square8 Selfplay Data Has Parity Divergence (~40% Failure Rate)
+
+**Component(s):** `ai-service/data/games/canonical_square8_2p.db`, Python `game_engine.py`, selfplay pipeline
+**Severity:** P1 (Affects AI training data quality)
+**Status:** Active – data quality issue, parity gates working correctly
+**Discovered:** 2025-12-28 (parity validation run locally)
+
+**Root cause:**
+Selfplay games in `canonical_square8_2p.db` were generated with older Python engine code that has different behavior than TypeScript for certain game mechanics:
+
+- `overtaking_capture` moves fail TS replay validation
+- `continue_capture_segment` moves diverge at chain capture handling
+- `forced_elimination` / `territory_processing` phase transitions differ
+- Games with these mechanics show parity divergence at k=2 or later moves
+
+**Validation results (Dec 28, 2025):**
+
+| Database   | Sample | Pass Rate | Status                |
+| ---------- | ------ | --------- | --------------------- |
+| hex8_2p    | 30/30  | 100%      | ✅ Good data          |
+| square8_2p | 12/20  | 60%       | ⚠️ Needs regeneration |
+
+**Workaround:**
+
+1. Use `RINGRIFT_ALLOW_PENDING_GATE=true` to train on unvalidated data (accepts ~40% divergent samples)
+2. Filter exports to `parity_status = 'passed'` games only (reduces volume)
+3. Focus training on hex8 configs (100% parity verified)
+
+**Fix:**
+Regenerate square8 selfplay games using the latest Python engine with aligned capture/elimination mechanics. The parity gate infrastructure is working correctly – it's properly identifying games with engine divergence.
+
+**References:**
+
+- Parity validation script: `scripts/tag_games_parity_status.py`
+- Parity failure bundles: `/parity_failures/canonical_square8_2p__*.json`
+- Related: P0.1 (Forced Elimination Choice Divergence), P0.2 (Chain Capture Edge Cases)
+
+---
 
 ## These issues are intentionally scoped as **application-/protocol-level** gaps; **HTTP/WebSocket availability under load is considered acceptable after PASS24.1**. Future Code/Debug work should focus on aligning k6 scenario contracts and message formats with production behaviour rather than reworking infra routing.
 
