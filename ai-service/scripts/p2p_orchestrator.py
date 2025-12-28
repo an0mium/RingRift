@@ -24,6 +24,32 @@ Usage:
     python scripts/p2p_orchestrator.py --node-id vast-3090 --peers <peer-ip>:8770,<peer-ip>:8770
 """
 
+# Load .env.local BEFORE any imports (for SWIM/Raft feature flags)
+# These must be loaded before app.p2p.constants imports
+import os as _os
+from pathlib import Path as _Path
+
+def _load_env_local() -> None:
+    """Load .env.local from script directory or ai-service root."""
+    for base in [_Path(__file__).parent.parent, _Path.cwd()]:
+        env_file = base / ".env.local"
+        if env_file.exists():
+            try:
+                with open(env_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            key, _, value = line.partition("=")
+                            key = key.strip()
+                            value = value.strip().strip('"').strip("'")
+                            if key not in _os.environ:  # Don't override existing
+                                _os.environ[key] = value
+                break
+            except Exception:
+                pass
+
+_load_env_local()
+
 from __future__ import annotations
 
 import argparse

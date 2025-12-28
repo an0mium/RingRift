@@ -1209,6 +1209,8 @@ class TestEmitQualityPenaltyApplied:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1284,6 +1286,8 @@ class TestEmitTaskSpawned:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1318,6 +1322,8 @@ class TestEmitTaskCancelled:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1352,6 +1358,8 @@ class TestEmitTaskHeartbeat:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1386,6 +1394,8 @@ class TestEmitTaskFailed:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1421,6 +1431,8 @@ class TestEmitTaskAbandoned:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1453,6 +1465,8 @@ class TestEmitTaskOrphaned:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1588,6 +1602,8 @@ class TestEmitHyperparameterUpdated:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1624,6 +1640,8 @@ class TestEmitRegressionDetected:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1634,7 +1652,8 @@ class TestEmitRegressionDetected:
                 severity="moderate",
             )
             assert captured_payload is not None
-            assert captured_payload["regression_amount"] == 0.15
+            # Use approximate comparison for floating point
+            assert abs(captured_payload["regression_amount"] - 0.15) < 1e-10
 
 
 # =============================================================================
@@ -1679,6 +1698,8 @@ class TestEmitBackpressureReleased:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1751,6 +1772,8 @@ class TestEmitHostOnline:
         with patch(
             "app.coordination.event_emitters.HAS_DATA_EVENTS", True
         ), patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1778,6 +1801,8 @@ class TestEmitHostOffline:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1807,6 +1832,8 @@ class TestEmitNodeRecovered:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1838,6 +1865,8 @@ class TestEmitNodeActivated:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1927,6 +1956,8 @@ class TestEmitCoordinatorHeartbeat:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1960,6 +1991,8 @@ class TestEmitCoordinatorShutdown:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -1998,6 +2031,8 @@ class TestEmitHandlerFailed:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2031,6 +2066,8 @@ class TestEmitHandlerTimeout:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2066,6 +2103,8 @@ class TestEmitNodeUnhealthy:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2098,6 +2137,8 @@ class TestEmitHealthCheckPassed:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2128,6 +2169,8 @@ class TestEmitHealthCheckFailed:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2159,6 +2202,8 @@ class TestEmitP2pClusterHealthy:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2190,6 +2235,8 @@ class TestEmitP2pClusterUnhealthy:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2221,6 +2268,8 @@ class TestEmitSplitBrainDetected:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2254,6 +2303,8 @@ class TestEmitP2pNodeDead:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2289,6 +2340,8 @@ class TestEmitRepairCompleted:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2324,6 +2377,8 @@ class TestEmitRepairFailed:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2384,6 +2439,8 @@ class TestEmitCurriculumRebalanced:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2417,6 +2474,8 @@ class TestEmitTrainingTriggered:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2457,6 +2516,8 @@ class TestEmitModelCorrupted:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2487,6 +2548,8 @@ class TestEmitTrainingRollbackNeeded:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2519,6 +2582,8 @@ class TestEmitTrainingRollbackCompleted:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):
@@ -2556,6 +2621,8 @@ class TestEmitNewGames:
             return True
 
         with patch(
+            "app.coordination.event_emitters.DataEventType", MockDataEventType
+        ), patch(
             "app.coordination.event_emitters._emit_data_event",
             side_effect=capture_emit,
         ):

@@ -772,6 +772,26 @@ def merge_databases(
                         f"{stats.merged} merged, {stats.failed_validation} failed"
                     )
 
+        # RR-FIX-2025-12-28: Final validation to catch any orphan games
+        # (games that were inserted but somehow have no moves in game_moves)
+        if target_conn and not dry_run:
+            orphan_check = target_conn.execute("""
+                SELECT g.game_id FROM games g
+                LEFT JOIN game_moves m ON g.game_id = m.game_id
+                WHERE g.total_moves > 0
+                GROUP BY g.game_id
+                HAVING COUNT(m.game_id) = 0
+                LIMIT 100
+            """)
+            orphan_games = [row[0] for row in orphan_check.fetchall()]
+            if orphan_games:
+                logger.error(
+                    f"Found {len(orphan_games)} orphan games with claimed moves but no actual moves - removing"
+                )
+                for orphan_id in orphan_games:
+                    target_conn.execute("DELETE FROM games WHERE game_id = ?", (orphan_id,))
+                stats.errors += len(orphan_games)
+
         # Commit
         if target_conn:
             target_conn.commit()

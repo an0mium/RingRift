@@ -510,6 +510,26 @@ def merge_games(
             except sqlite3.Error as e:
                 logger.debug(f"  Could not copy {table_name}: {e}")
 
+        # RR-FIX-2025-12-28: Validate all merged games have move data before commit
+        # This prevents orphan games (games without moves) from being committed
+        orphan_check = dest_conn.execute("""
+            SELECT g.game_id FROM games g
+            LEFT JOIN game_moves m ON g.game_id = m.game_id
+            WHERE g.game_id IN ({})
+            GROUP BY g.game_id
+            HAVING COUNT(m.game_id) = 0
+        """.format(",".join("?" * len(game_ids_to_merge))), tuple(game_ids_to_merge))
+        orphan_games = [row[0] for row in orphan_check.fetchall()]
+
+        if orphan_games:
+            logger.warning(
+                f"  Found {len(orphan_games)} games without moves - removing before commit"
+            )
+            for orphan_id in orphan_games:
+                dest_conn.execute("DELETE FROM games WHERE game_id = ?", (orphan_id,))
+                stats.games_merged -= 1
+            stats.errors.append(f"Removed {len(orphan_games)} orphan games (no moves)")
+
         dest_conn.commit()
         dest_conn.close()
         src_conn.close()

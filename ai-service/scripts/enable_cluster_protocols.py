@@ -196,11 +196,14 @@ async def enable_on_node(
     # Optionally restart P2P
     p2p_restarted = False
     if restart_p2p:
-        # Find and restart P2P orchestrator
+        ringrift_path = getattr(node, 'ringrift_path', '~/ringrift/ai-service')
+        # Find and restart P2P orchestrator, exporting SWIM/Raft vars directly
         restart_cmd = (
-            "pkill -f 'p2p_orchestrator' 2>/dev/null || true && "
-            "sleep 1 && "
-            f"cd {getattr(node, 'ringrift_path', '~/ringrift/ai-service')} && "
+            "pkill -f 'p2p_orchestrator' 2>/dev/null || true; "
+            "sleep 2; "
+            f"cd {ringrift_path} && "
+            "export RINGRIFT_SWIM_ENABLED=true RINGRIFT_MEMBERSHIP_MODE=hybrid "
+            "RINGRIFT_RAFT_ENABLED=true RINGRIFT_CONSENSUS_MODE=hybrid && "
             "nohup python scripts/p2p_orchestrator.py > logs/p2p.log 2>&1 &"
         )
 
