@@ -21537,7 +21537,7 @@ print(json.dumps({{
                     self.leader_lease_expires = 0.0
                     self.last_lease_renewal = 0.0
                     self.role = NodeRole.FOLLOWER
-                    asyncio.create_task(_emit_p2p_leader_lost(old_leader_id, reason))
+                    asyncio.create_task(self._emit_leader_lost(old_leader_id, reason))
                     # CRITICAL: Check quorum before starting election to prevent quorum bypass
                     if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
                         logger.warning(f"Skipping election after leader {reason}: no voter quorum available")
@@ -21684,7 +21684,7 @@ print(json.dumps({{
                     self.leader_lease_expires = 0.0
                     self.last_lease_renewal = 0.0
                     self.role = NodeRole.FOLLOWER
-                    asyncio.create_task(_emit_p2p_leader_lost(old_leader_id, reason))
+                    asyncio.create_task(self._emit_leader_lost(old_leader_id, reason))
                     # CRITICAL: Check quorum before starting election to prevent quorum bypass
                     if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
                         logger.warning(f"Skipping election after leader {reason} (sync): no voter quorum available")
@@ -21831,7 +21831,7 @@ print(json.dumps({{
 
         # CRITICAL: Emit LEADER_ELECTED event (Dec 2025 fix)
         # This enables LeadershipCoordinator and other components to track leadership changes
-        asyncio.create_task(_emit_p2p_leader_elected(self.node_id, getattr(self, "cluster_epoch", 0)))
+        asyncio.create_task(self._emit_leader_elected(self.node_id, getattr(self, "cluster_epoch", 0)))
 
         # Lease-based leadership (voter-backed when enabled).
         self.leader_lease_id = lease_id
@@ -24557,7 +24557,7 @@ print(json.dumps({{
                 )
                 # December 2025: Emit SPLIT_BRAIN_DETECTED event
                 leaders_detected = [p.node_id for p in other_leaders] + [self.node_id]
-                await _emit_p2p_split_brain_detected(
+                await self._emit_split_brain_detected(
                     leaders_seen=leaders_detected,
                     voter_count=len(voter_ids),
                     resolution_action="step_down_non_voter",
@@ -24606,7 +24606,7 @@ print(json.dumps({{
             logger.info(f"Stepping down in favor of higher-priority leader: {highest_leader.node_id}")
             # December 2025: Emit SPLIT_BRAIN_DETECTED event
             leaders_detected = [p.node_id for p in other_leaders] + [self.node_id]
-            await _emit_p2p_split_brain_detected(
+            await self._emit_split_brain_detected(
                 leaders_seen=leaders_detected,
                 voter_count=len(voter_ids),
                 resolution_action="step_down_bully",
@@ -24625,7 +24625,7 @@ print(json.dumps({{
 
         # Emit SPLIT_BRAIN_DETECTED event for this case (asserting leadership)
         leaders_detected = [p.node_id for p in other_leaders] + [self.node_id]
-        await _emit_p2p_split_brain_detected(
+        await self._emit_split_brain_detected(
             leaders_seen=leaders_detected,
             voter_count=len(voter_ids),
             resolution_action="assert_leadership",
