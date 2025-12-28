@@ -4003,8 +4003,12 @@ class P2POrchestrator(
             self.last_lease_renewal = 0.0
             self._release_voter_grant_if_self()
             self._save_state()
-            with contextlib.suppress(RuntimeError):
-                asyncio.get_running_loop().create_task(self._start_election())
+            # CRITICAL: Check quorum before starting election to prevent quorum bypass
+            if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+                logger.warning("Skipping election after inconsistent state: no voter quorum available")
+            else:
+                with contextlib.suppress(RuntimeError):
+                    asyncio.get_running_loop().create_task(self._start_election())
             return False
 
         # LEARNED LESSONS - Lease-based leadership prevents split-brain
@@ -4021,8 +4025,12 @@ class P2POrchestrator(
             self._release_voter_grant_if_self()
             self._save_state()
             _emit_p2p_leader_lost_sync(old_leader_id, "lease_expired")
-            with contextlib.suppress(RuntimeError):
-                asyncio.get_running_loop().create_task(self._start_election())
+            # CRITICAL: Check quorum before starting election to prevent quorum bypass
+            if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+                logger.warning("Skipping election after lease expired: no voter quorum available")
+            else:
+                with contextlib.suppress(RuntimeError):
+                    asyncio.get_running_loop().create_task(self._start_election())
             return False
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
             logger.info("Leadership without voter quorum, stepping down")

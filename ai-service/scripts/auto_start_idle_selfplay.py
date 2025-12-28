@@ -335,8 +335,12 @@ def start_selfplay_on_node(node: NodeInfo, configs: list[tuple[str, int]] = None
     return started
 
 
-def run_once(leader_url: str = "http://localhost:8770") -> int:
+def run_once(leader_url: str = "http://localhost:8770", cleanup: bool = False) -> int:
     """Run a single check and start selfplay on idle nodes.
+
+    Args:
+        leader_url: P2P leader URL for cluster status
+        cleanup: If True, also clean up zombie nodes before starting selfplay
 
     Returns the number of jobs started.
     """
@@ -346,6 +350,15 @@ def run_once(leader_url: str = "http://localhost:8770") -> int:
     if not nodes:
         logger.warning("No nodes found in cluster")
         return 0
+
+    # Optional: Clean up zombie nodes first
+    if cleanup:
+        cleaned = cleanup_zombies(nodes, leader_url)
+        if cleaned > 0:
+            # Re-fetch cluster status after cleanup
+            logger.info(f"Cleaned up {cleaned} zombie nodes, refreshing status...")
+            time.sleep(2)  # Brief pause for P2P to update
+            nodes = get_cluster_status(leader_url)
 
     idle_nodes = get_idle_nodes(nodes)
     if not idle_nodes:
@@ -367,13 +380,28 @@ def run_once(leader_url: str = "http://localhost:8770") -> int:
     return total_started
 
 
-def run_daemon(leader_url: str = "http://localhost:8770", interval: int = 60):
+def run_cleanup_only(leader_url: str = "http://localhost:8770") -> int:
+    """Run zombie cleanup only (no selfplay start).
+
+    Returns the number of nodes cleaned up.
+    """
+    logger.info("Running zombie cleanup...")
+
+    nodes = get_cluster_status(leader_url)
+    if not nodes:
+        logger.warning("No nodes found in cluster")
+        return 0
+
+    return cleanup_zombies(nodes, leader_url)
+
+
+def run_daemon(leader_url: str = "http://localhost:8770", interval: int = 60, cleanup: bool = False):
     """Run continuously, checking for idle nodes periodically."""
-    logger.info(f"Starting daemon mode (interval={interval}s)")
+    logger.info(f"Starting daemon mode (interval={interval}s, cleanup={cleanup})")
 
     while True:
         try:
-            started = run_once(leader_url)
+            started = run_once(leader_url, cleanup=cleanup)
             logger.info(f"Cycle complete: {started} jobs started")
         except Exception as e:
             logger.error(f"Cycle failed: {e}")
@@ -391,14 +419,23 @@ def main():
                        help="Run continuously")
     parser.add_argument("--interval", type=int, default=60,
                        help="Check interval in seconds (daemon mode)")
+    parser.add_argument("--cleanup-zombies", action="store_true",
+                       help="Also clean up zombie processes (nodes with jobs but 0%% GPU)")
+    parser.add_argument("--cleanup-only", action="store_true",
+                       help="Only clean up zombies, don't start selfplay")
 
     args = parser.parse_args()
 
+    if args.cleanup_only:
+        cleaned = run_cleanup_only(args.leader_url)
+        logger.info(f"Cleanup complete: {cleaned} nodes cleaned")
+        sys.exit(0)
+
     if args.daemon:
-        run_daemon(args.leader_url, args.interval)
+        run_daemon(args.leader_url, args.interval, cleanup=args.cleanup_zombies)
     else:
         # Default to single run
-        started = run_once(args.leader_url)
+        started = run_once(args.leader_url, cleanup=args.cleanup_zombies)
         sys.exit(0 if started >= 0 else 1)
 
 

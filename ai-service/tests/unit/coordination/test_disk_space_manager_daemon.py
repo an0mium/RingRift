@@ -924,8 +924,8 @@ class TestSyncAwareCleanup:
         """Test that manifest is lazy-loaded."""
         assert daemon_with_sync._manifest_initialized is False
 
-        # First call should initialize
-        with patch("app.coordination.disk_space_manager_daemon.ClusterManifest") as mock_cm:
+        # First call should initialize - patch where ClusterManifest is imported from
+        with patch("app.distributed.cluster_manifest.ClusterManifest") as mock_cm:
             mock_instance = MagicMock()
             mock_cm.get_instance.return_value = mock_instance
 

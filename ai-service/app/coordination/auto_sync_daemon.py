@@ -1081,6 +1081,14 @@ class AutoSyncDaemon:
         self._start_time = time.time()
         logger.info(f"Starting AutoSyncDaemon on {self.node_id}")
 
+        # December 2025: Clean up stale disk space reservations from crashed processes
+        try:
+            cleaned = cleanup_stale_reservations()
+            if cleaned > 0:
+                logger.info(f"[AutoSyncDaemon] Cleaned {cleaned} stale disk space reservations")
+        except OSError as e:
+            logger.warning(f"[AutoSyncDaemon] Failed to clean stale reservations: {e}")
+
         # December 2025: Setup termination handlers for ephemeral mode
         if self._is_ephemeral:
             self._setup_termination_handlers()

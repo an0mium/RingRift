@@ -143,6 +143,15 @@ class DaemonManager:
         # daemons are started individually (not via start_all())
         self._coordination_wired = False
 
+        # Dec 2025: Restart count persistence
+        # Load persisted restart counts from disk to prevent infinite restart loops
+        # after daemon manager restarts. Tracks hourly restart timestamps for
+        # detecting permanently failing daemons.
+        self._persisted_restart_counts: dict[str, int] = {}
+        self._restart_timestamps: dict[str, list[float]] = {}  # Daemon -> list of restart times
+        self._permanently_failed: set[str] = set()  # Daemons that exceeded hourly limit
+        self._load_restart_counts()
+
         # Register cleanup
         atexit.register(self._sync_shutdown)
 
