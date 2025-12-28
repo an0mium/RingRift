@@ -335,8 +335,8 @@ def get_p2p_port() -> int:
     Environment:
         RINGRIFT_P2P_PORT: Override the default port
     """
-    import os
-    return int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
+    from app.config.ports import P2P_DEFAULT_PORT
+    return P2P_DEFAULT_PORT
 
 
 def get_host_bandwidth_limit(host_name: str, config_path: str | Path | None = None) -> int:

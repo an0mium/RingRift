@@ -32,12 +32,16 @@ class TestAutoPromotionConfig:
         """Default configuration has expected values."""
         config = AutoPromotionConfig()
         assert config.enabled is True
-        assert config.min_games_vs_random == 20
-        assert config.min_games_vs_heuristic == 20
+        # Dec 27, 2025: increased from 20 to 50 for more rigorous evaluation
+        assert config.min_games_vs_random == 50
+        assert config.min_games_vs_heuristic == 50
         assert config.promotion_cooldown_seconds == 300.0
         assert config.require_both_baselines is True
-        assert config.consecutive_passes_required == 1
+        # Dec 27, 2025: increased from 1 to 2 to reduce false positives
+        assert config.consecutive_passes_required == 2
         assert config.dry_run is False
+        # Dec 27, 2025: new field for minimum Elo improvement
+        assert config.min_elo_improvement == 25.0
 
     def test_custom_values(self):
         """Configuration accepts custom values."""
@@ -273,6 +277,7 @@ class TestPromotionLogic:
             min_games_vs_random=5,
             min_games_vs_heuristic=5,
             consecutive_passes_required=1,
+            min_elo_improvement=0.0,  # Dec 28: Disable Elo check for threshold tests
         )
         return AutoPromotionDaemon(config=config)
 
@@ -307,9 +312,10 @@ class TestPromotionLogic:
 
         daemon._promote_model = AsyncMock()
 
+        # Dec 28, 2025: Mock should_promote_model (two-tier promotion system)
         with patch(
-            "app.config.thresholds.get_promotion_thresholds",
-            return_value={"vs_random": 0.85, "vs_heuristic": 0.60},
+            "app.config.thresholds.should_promote_model",
+            return_value=(True, "Meets aspirational thresholds"),
         ):
             await daemon._check_promotion(candidate)
             daemon._promote_model.assert_called_once_with(candidate)
@@ -326,9 +332,10 @@ class TestPromotionLogic:
 
         daemon._promote_model = AsyncMock()
 
+        # Dec 28, 2025: Mock should_promote_model (two-tier promotion system)
         with patch(
-            "app.config.thresholds.get_promotion_thresholds",
-            return_value={"vs_random": 0.85, "vs_heuristic": 0.60},
+            "app.config.thresholds.should_promote_model",
+            return_value=(False, "Below minimum thresholds"),
         ):
             await daemon._check_promotion(candidate)
             daemon._promote_model.assert_not_called()
@@ -369,6 +376,7 @@ class TestCooldown:
             promotion_cooldown_seconds=300.0,
             min_games_vs_random=1,
             min_games_vs_heuristic=1,
+            consecutive_passes_required=1,
         )
         daemon = AutoPromotionDaemon(config=config)
 
@@ -382,9 +390,10 @@ class TestCooldown:
 
         daemon._promote_model = AsyncMock()
 
+        # Dec 28, 2025: Mock should_promote_model (two-tier promotion system)
         with patch(
-            "app.config.thresholds.get_promotion_thresholds",
-            return_value={"vs_random": 0.85, "vs_heuristic": 0.60},
+            "app.config.thresholds.should_promote_model",
+            return_value=(True, "Meets aspirational thresholds"),
         ):
             await daemon._check_promotion(candidate)
             daemon._promote_model.assert_not_called()
@@ -396,6 +405,8 @@ class TestCooldown:
             promotion_cooldown_seconds=60.0,
             min_games_vs_random=1,
             min_games_vs_heuristic=1,
+            consecutive_passes_required=1,
+            min_elo_improvement=0.0,  # Dec 28: Disable Elo check for cooldown tests
         )
         daemon = AutoPromotionDaemon(config=config)
 
@@ -409,9 +420,10 @@ class TestCooldown:
 
         daemon._promote_model = AsyncMock()
 
+        # Dec 28, 2025: Mock should_promote_model (two-tier promotion system)
         with patch(
-            "app.config.thresholds.get_promotion_thresholds",
-            return_value={"vs_random": 0.85, "vs_heuristic": 0.60},
+            "app.config.thresholds.should_promote_model",
+            return_value=(True, "Meets aspirational thresholds"),
         ):
             await daemon._check_promotion(candidate)
             daemon._promote_model.assert_called_once()

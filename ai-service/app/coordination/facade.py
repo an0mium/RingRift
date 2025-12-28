@@ -168,6 +168,9 @@ class CoordinationFacade:
             # Network/connectivity issues - retryable
             logger.error(f"Network error spawning task on {node_id}: {e}")
             return None
+        except (SystemExit, KeyboardInterrupt):
+            # Signal exceptions must propagate (Dec 2025)
+            raise
         except Exception as e:
             # Unexpected error - log with traceback for debugging
             logger.error(f"Unexpected error spawning task {task_type} on {node_id}: {e}", exc_info=True)
@@ -291,6 +294,9 @@ class CoordinationFacade:
             # Missing training data or model
             logger.error(f"Missing training resources for {board_type}_{num_players}p: {e}")
             return None
+        except (SystemExit, KeyboardInterrupt):
+            # Signal exceptions must propagate (Dec 2025)
+            raise
         except Exception as e:
             logger.error(f"Failed to start training for {board_type}_{num_players}p: {e}", exc_info=True)
             return None

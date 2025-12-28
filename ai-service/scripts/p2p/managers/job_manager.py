@@ -19,7 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from app.config.coordination_defaults import DaemonHealthDefaults, OperationTimeouts
+from app.config.coordination_defaults import (
+    DaemonHealthDefaults,
+    JobDefaults,
+    OperationTimeouts,
+    SSHDefaults,
+)
 
 # Import mixin for consolidated event handling (Dec 28, 2025)
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
@@ -588,7 +593,8 @@ class JobManager(EventSubscriptionMixin):
                 engine_mode=effective_mode,
             )
 
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=7200)  # 2 hour max
+            # Dec 28, 2025: Use centralized JobDefaults.SELFPLAY_TIMEOUT (7200s = 2 hours)
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=JobDefaults.SELFPLAY_TIMEOUT)
 
             # December 28, 2025: Unregister process after successful completion
             self._unregister_process(job_id)
@@ -744,7 +750,8 @@ class JobManager(EventSubscriptionMixin):
             logger.warning("aiohttp not available for distributed dispatch")
             return results
 
-        timeout = ClientTimeout(total=30)
+        # Dec 28, 2025: Use centralized JobDefaults.HEALTH_CHECK_TIMEOUT (30s)
+        timeout = ClientTimeout(total=JobDefaults.HEALTH_CHECK_TIMEOUT)
 
         async with get_client_session(timeout) as session:
             for i, worker in enumerate(workers):

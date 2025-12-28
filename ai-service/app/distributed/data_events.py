@@ -310,6 +310,10 @@ class DataEventType(Enum):
     SPLIT_BRAIN_DETECTED = "split_brain_detected"  # Multiple leaders detected in cluster
     SPLIT_BRAIN_RESOLVED = "split_brain_resolved"  # Split-brain resolved (non-canonical leaders demoted)
 
+    # P2P State persistence events (December 2025)
+    STATE_PERSISTED = "state_persisted"  # P2P state saved to database
+    EPOCH_ADVANCED = "epoch_advanced"  # Cluster epoch incremented (leader change)
+
     # Encoding/Processing events (December 2025)
 
     # Error Recovery & Resilience events (December 2025)

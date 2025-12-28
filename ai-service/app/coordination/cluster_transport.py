@@ -216,6 +216,13 @@ class TransportResult:
 # Use canonical circuit breaker from distributed module
 from app.distributed.circuit_breaker import CircuitBreaker
 
+# Import HealthCheckResult for DaemonManager integration
+try:
+    from app.coordination.protocols import HealthCheckResult
+except ImportError:
+    # Fallback if protocols not available
+    HealthCheckResult = None  # type: ignore
+
 
 class ClusterTransport:
     """Unified transport layer for cluster communication.
@@ -759,6 +766,56 @@ class ClusterTransport:
             }
             for target, status in all_states.items()
         }
+
+    def health_check(self) -> "HealthCheckResult":
+        """Return health status for DaemonManager integration.
+
+        December 2025: Added for unified health monitoring across all
+        coordination components.
+
+        Returns:
+            HealthCheckResult with transport layer status.
+        """
+        if HealthCheckResult is None:
+            # Fallback when protocols not importable
+            return {"healthy": True, "status": "unknown", "details": {}}  # type: ignore
+
+        all_states = self._circuit_breaker.get_all_states()
+        total_circuits = len(all_states)
+        open_circuits = sum(
+            1 for s in all_states.values()
+            if s.state.value == "open"
+        )
+        half_open_circuits = sum(
+            1 for s in all_states.values()
+            if s.state.value == "half_open"
+        )
+
+        # Determine health status based on circuit breaker states
+        if total_circuits == 0:
+            status = "healthy"
+            healthy = True
+        elif open_circuits > total_circuits * 0.5:
+            status = "unhealthy"
+            healthy = False
+        elif open_circuits > 0 or half_open_circuits > 0:
+            status = "degraded"
+            healthy = True
+        else:
+            status = "healthy"
+            healthy = True
+
+        return HealthCheckResult(
+            healthy=healthy,
+            status=status,
+            details={
+                "total_circuits": total_circuits,
+                "open_circuits": open_circuits,
+                "half_open_circuits": half_open_circuits,
+                "closed_circuits": total_circuits - open_circuits - half_open_circuits,
+                "p2p_url": self.p2p_url,
+            },
+        )
 
 
 # Singleton instance for convenience

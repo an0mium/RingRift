@@ -5517,11 +5517,17 @@ class P2POrchestrator(
         memory_gb = self._detect_memory()
 
         # Detect capabilities based on hardware
-        capabilities = ["selfplay"]
-        if has_gpu:
-            capabilities.extend(["training", "cmaes"])
-        if memory_gb >= 64:
-            capabilities.append("large_boards")
+        # Dec 2025: RINGRIFT_IS_COORDINATOR=true restricts to coordinator-only
+        is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
+        if is_coordinator:
+            capabilities = []  # Coordinator nodes don't run compute tasks
+            logger.info("[P2P] Coordinator-only mode: no selfplay/training/cmaes capabilities")
+        else:
+            capabilities = ["selfplay"]
+            if has_gpu:
+                capabilities.extend(["training", "cmaes"])
+            if memory_gb >= 64:
+                capabilities.append("large_boards")
 
         info = NodeInfo(
             node_id=self.node_id,

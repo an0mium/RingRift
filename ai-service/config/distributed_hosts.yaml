@@ -184,6 +184,9 @@ hosts:
     selfplay_enabled: false
     training_enabled: true
     p2p_enabled: true
+    # Dec 28, 2025: Lambda Labs blocks inbound P2P, use relay mode
+    nat_blocked: true
+    force_relay_mode: true
 
   lambda-gh200-2:
     ssh_host: 192.222.57.140
@@ -201,6 +204,9 @@ hosts:
     selfplay_enabled: false
     training_enabled: true
     p2p_enabled: true
+    # Dec 28, 2025: Lambda Labs blocks inbound P2P, use relay mode
+    nat_blocked: true
+    force_relay_mode: true
 
   lambda-gh200-3:
     ssh_host: 192.222.51.29
@@ -218,6 +224,9 @@ hosts:
     selfplay_enabled: false
     training_enabled: true
     p2p_enabled: true
+    # Dec 28, 2025: Lambda Labs blocks inbound P2P, use relay mode
+    nat_blocked: true
+    force_relay_mode: true
 
   lambda-gh200-4:
     ssh_host: 192.222.57.184
@@ -235,6 +244,9 @@ hosts:
     selfplay_enabled: false
     training_enabled: true
     p2p_enabled: true
+    # Dec 28, 2025: Lambda Labs blocks inbound P2P, use relay mode
+    nat_blocked: true
+    force_relay_mode: true
 
   lambda-gh200-5:
     ssh_host: 192.222.58.171
@@ -252,6 +264,9 @@ hosts:
     selfplay_enabled: false
     training_enabled: true
     p2p_enabled: true
+    # Dec 28, 2025: Lambda Labs blocks inbound P2P, use relay mode
+    nat_blocked: true
+    force_relay_mode: true
 
   lambda-gh200-training:
     ssh_host: 192.222.51.195
@@ -269,6 +284,9 @@ hosts:
     selfplay_enabled: false
     training_enabled: true
     p2p_enabled: true
+    # Dec 28, 2025: Lambda Labs blocks inbound P2P, use relay mode
+    nat_blocked: true
+    force_relay_mode: true
 
   # ============================================================
   # VAST.AI NODES (12 running)

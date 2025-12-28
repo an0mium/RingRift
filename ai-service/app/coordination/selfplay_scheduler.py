@@ -1391,6 +1391,7 @@ class SelfplayScheduler:
                         "reason": "regression_detected",
                         "severity": severity,
                         "new_exploration_boost": boost_factor,
+                        "source": "selfplay_scheduler",  # Loop guard identifier
                     })
                 except ImportError:
                     pass  # Event system not available
@@ -1403,9 +1404,19 @@ class SelfplayScheduler:
 
         Phase 4A.1 (December 2025): Updates priority weights when curriculum
         feedback adjusts config priorities based on training progress.
+
+        December 2025 Guard: Skip events originated by SelfplayScheduler itself
+        to prevent echo loops in the event system.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
+
+            # Loop guard: Skip events we emitted (prevents echo loops)
+            source = payload.get("source", "")
+            if source == "selfplay_scheduler":
+                logger.debug("[SelfplayScheduler] Skipping self-originated CURRICULUM_REBALANCED")
+                return
+
             config_key = payload.get("config_key", "")
             new_weight = payload.get("weight", 1.0)
             reason = payload.get("reason", "")

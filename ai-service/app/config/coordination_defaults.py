@@ -2035,6 +2035,38 @@ def get_all_defaults() -> dict:
             "check_timeout": HealthCheckOrchestratorDefaults.CHECK_TIMEOUT,
             "max_concurrent": HealthCheckOrchestratorDefaults.MAX_CONCURRENT,
         },
+        # December 28, 2025: SSH defaults
+        "ssh": {
+            "command_timeout": SSHDefaults.COMMAND_TIMEOUT,
+            "long_command_timeout": SSHDefaults.LONG_COMMAND_TIMEOUT,
+            "scp_timeout": SSHDefaults.SCP_TIMEOUT,
+            "connect_timeout": SSHDefaults.CONNECT_TIMEOUT,
+            "rsync_timeout": SSHDefaults.RSYNC_TIMEOUT,
+            "health_check_timeout": SSHDefaults.HEALTH_CHECK_TIMEOUT,
+            "max_retries": SSHDefaults.MAX_RETRIES,
+        },
+        # December 28, 2025: Job defaults
+        "job": {
+            "selfplay_timeout": JobDefaults.SELFPLAY_TIMEOUT,
+            "training_timeout": JobDefaults.TRAINING_TIMEOUT,
+            "job_status_timeout": JobDefaults.JOB_STATUS_TIMEOUT,
+            "health_check_timeout": JobDefaults.HEALTH_CHECK_TIMEOUT,
+            "tournament_timeout": JobDefaults.TOURNAMENT_TIMEOUT,
+            "gauntlet_timeout": JobDefaults.GAUNTLET_TIMEOUT,
+            "export_timeout": JobDefaults.EXPORT_TIMEOUT,
+            "model_sync_timeout": JobDefaults.MODEL_SYNC_TIMEOUT,
+        },
+        # December 28, 2025: Peer defaults
+        "peer": {
+            "heartbeat_interval": PeerDefaults.HEARTBEAT_INTERVAL,
+            "peer_timeout": PeerDefaults.PEER_TIMEOUT,
+            "gossip_interval": PeerDefaults.GOSSIP_INTERVAL,
+            "manifest_timeout": PeerDefaults.MANIFEST_TIMEOUT,
+            "election_timeout": PeerDefaults.ELECTION_TIMEOUT,
+            "bootstrap_interval": PeerDefaults.BOOTSTRAP_INTERVAL,
+            "suspect_timeout": PeerDefaults.SUSPECT_TIMEOUT,
+            "retry_dead_node_interval": PeerDefaults.RETRY_DEAD_NODE_INTERVAL,
+        },
     }
 
 
@@ -2058,6 +2090,7 @@ __all__ = [
     "HeartbeatDefaults",
     "IdleThresholdDefaults",  # December 27, 2025
     "InventoryDefaults",  # December 27, 2025
+    "JobDefaults",  # December 28, 2025
     "JobReaperDefaults",
     "JobTimeoutDefaults",
     "LockDefaults",
@@ -2068,6 +2101,7 @@ __all__ = [
     "OptimizationDefaults",
     "OrphanDetectionDefaults",
     "P2PDefaults",
+    "PeerDefaults",  # December 28, 2025
     "PIDDefaults",
     "ProviderDefaults",  # December 27, 2025
     "QueueDefaults",
@@ -2079,6 +2113,7 @@ __all__ = [
     "SchedulerDefaults",
     "SelfplayAllocationDefaults",
     "SQLiteDefaults",
+    "SSHDefaults",  # December 28, 2025
     "SyncCoordinatorDefaults",
     "SyncDefaults",
     "SyncIntegrityDefaults",
@@ -2094,6 +2129,8 @@ __all__ = [
     "get_circuit_breaker_configs",
     "get_job_timeout",
     "get_p2p_port",
+    "get_peer_timeout",  # December 28, 2025
     "get_sqlite_timeout",
+    "get_ssh_timeout",  # December 28, 2025
     "get_timeout",
 ]

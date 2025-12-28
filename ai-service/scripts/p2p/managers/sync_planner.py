@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from app.config.coordination_defaults import SQLiteDefaults
+from app.config.coordination_defaults import PeerDefaults, SQLiteDefaults
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
 if TYPE_CHECKING:
@@ -108,12 +108,19 @@ MAX_DISK_USAGE_PERCENT = 90.0
 
 @dataclass
 class SyncPlannerConfig:
-    """Configuration for the SyncPlanner."""
+    """Configuration for the SyncPlanner.
 
-    manifest_cache_age_seconds: int = 300  # 5 minutes
-    manifest_collection_interval: int = 60  # 1 minute
+    December 28, 2025: Now uses centralized PeerDefaults for timeout values.
+    """
+
+    # Dec 28, 2025: Use centralized PeerDefaults.MANIFEST_TIMEOUT (300s = 5 minutes)
+    manifest_cache_age_seconds: int = int(PeerDefaults.MANIFEST_TIMEOUT)
+    # Dec 28, 2025: Use centralized PeerDefaults.BOOTSTRAP_INTERVAL (60s = 1 minute)
+    manifest_collection_interval: int = int(PeerDefaults.BOOTSTRAP_INTERVAL)
     max_files_per_sync_job: int = 50
-    sync_mtime_tolerance_seconds: int = 60  # Clock skew tolerance
+    # Dec 28, 2025: Use centralized PeerDefaults.SUSPECT_TIMEOUT (30s)
+    # Doubled to 60s for clock skew tolerance
+    sync_mtime_tolerance_seconds: int = int(PeerDefaults.SUSPECT_TIMEOUT * 2)
 
 
 @dataclass

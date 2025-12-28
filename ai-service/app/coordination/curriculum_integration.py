@@ -294,10 +294,14 @@ class MomentumToCurriculumBridge:
         - Track which configs are currently prioritized by the scheduler
         - Adjust curriculum weights to align with scheduler allocation
         - Detect allocation imbalances that may need curriculum correction
+
+        Note: This handler only tracks allocation patterns, it does NOT emit
+        CURRICULUM_REBALANCED events, so there is no loop risk.
         """
         try:
             payload = event.payload if hasattr(event, 'payload') else {}
 
+            # Note: Loop guard not needed here since this handler doesn't emit events
             trigger = payload.get("trigger", "")
             total_games = payload.get("total_games", 0)
             configs_allocated = payload.get("configs_allocated", [])
@@ -779,6 +783,30 @@ class PFSPWeaknessWatcher:
         """Get list of mastered matchups."""
         return list(self._mastered_matchups)
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check watcher health for DaemonManager integration.
+
+        December 2025: Added for unified health monitoring.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="PFSPWeaknessWatcher not running",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {len(self._mastered_matchups)} mastered matchups",
+            details={
+                "mastered_count": len(self._mastered_matchups),
+                "thread_alive": self._check_thread.is_alive() if self._check_thread else False,
+            },
+        )
+
 
 # =============================================================================
 # 2.5. QUALITY_PENALTY_APPLIED → Curriculum Weight Reduction
@@ -966,6 +994,24 @@ class PromotionFailedToCurriculumWatcher:
         """Get current failure counts."""
         return dict(self._failure_counts)
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check watcher health for DaemonManager integration."""
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        if not self._subscribed:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="PromotionFailedToCurriculumWatcher not subscribed",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {len(self._failure_counts)} configs with failures",
+            details={"failure_counts": dict(self._failure_counts)},
+        )
+
 
 # =============================================================================
 # 2.4.1. REGRESSION_CRITICAL → Curriculum Weight Boost (December 27, 2025)
@@ -1152,6 +1198,24 @@ class RegressionCriticalToCurriculumWatcher:
         """Get current regression counts."""
         return dict(self._regression_counts)
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check watcher health for DaemonManager integration."""
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        if not self._subscribed:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="RegressionCriticalToCurriculumWatcher not subscribed",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {len(self._regression_counts)} configs with regressions",
+            details={"regression_counts": dict(self._regression_counts)},
+        )
+
 
 # =============================================================================
 # 2.5. QUALITY_PENALTY_APPLIED → Curriculum Weight Reduction
@@ -1336,6 +1400,24 @@ class QualityPenaltyToCurriculumWatcher:
         if config_key in self._penalty_weights:
             del self._penalty_weights[config_key]
             logger.info(f"[QualityPenaltyToCurriculumWatcher] Reset penalty weight for {config_key}")
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check watcher health for DaemonManager integration."""
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        if not self._subscribed:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="QualityPenaltyToCurriculumWatcher not subscribed",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {len(self._penalty_weights)} configs with penalties",
+            details={"penalty_weights": dict(self._penalty_weights)},
+        )
 
 
 # =============================================================================
@@ -1530,6 +1612,24 @@ class QualityToTemperatureWatcher:
     def get_all_boosts(self) -> dict[str, float]:
         """Get all current exploration boosts."""
         return dict(self._quality_boosts)
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check watcher health for DaemonManager integration."""
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        if not self._subscribed:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="QualityToTemperatureWatcher not subscribed",
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"Tracking {len(self._quality_boosts)} configs with boosts",
+            details={"quality_boosts": dict(self._quality_boosts)},
+        )
 
 
 # =============================================================================

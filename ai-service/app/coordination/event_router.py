@@ -756,7 +756,18 @@ class UnifiedEventRouter:
                             f"[EventRouter] Handler timeout for {event.event_type}: "
                             f"{callback_name} exceeded {DEFAULT_HANDLER_TIMEOUT_SECONDS}s"
                         )
-            except Exception as e:  # noqa: BLE001
+            except (SystemExit, KeyboardInterrupt):
+                # Signal exceptions must propagate for graceful shutdown (Dec 2025)
+                raise
+            except asyncio.CancelledError:
+                # Task cancellation must propagate
+                raise
+            except RecursionError as e:
+                # Recursion in event handlers indicates infinite loop
+                callback_name = getattr(callback, "__name__", str(callback))
+                logger.critical(f"[EventRouter] Recursion in handler {callback_name}: {e}")
+                raise
+            except Exception as e:  # noqa: BLE001 - only runtime errors reach here
                 callback_name = getattr(callback, "__name__", str(callback))
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
                 # Capture to DLQ for retry/analysis (December 2025)
@@ -851,7 +862,10 @@ class UnifiedEventRouter:
                         """Run async callback in a new thread with its own event loop."""
                         try:
                             asyncio.run(coro)
-                        except Exception as e:  # noqa: BLE001
+                        except (SystemExit, KeyboardInterrupt):
+                            # Signal exceptions propagate even in thread pool (Dec 2025)
+                            raise
+                        except Exception as e:  # noqa: BLE001 - only runtime errors reach here
                             logger.error(f"[EventRouter] Async callback failed: {e}")
 
                     # Use thread pool (initialized in __init__)
@@ -860,7 +874,15 @@ class UnifiedEventRouter:
                         f"[EventRouter] Dispatched async callback {callback.__name__} "
                         f"for {event.event_type} to thread pool"
                     )
-            except Exception as e:  # noqa: BLE001
+            except (SystemExit, KeyboardInterrupt):
+                # Signal exceptions must propagate for graceful shutdown (Dec 2025)
+                raise
+            except RecursionError as e:
+                # Recursion in event handlers indicates infinite loop
+                callback_name = getattr(callback, "__name__", str(callback))
+                logger.critical(f"[EventRouter] Recursion in sync handler {callback_name}: {e}")
+                raise
+            except Exception as e:  # noqa: BLE001 - only runtime errors reach here
                 callback_name = getattr(callback, "__name__", str(callback))
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
                 # Capture to DLQ for retry/analysis (December 2025)

@@ -2,6 +2,10 @@
 
 Extracted from p2p_orchestrator.py for better modularity.
 Handles database initialization, state loading/saving, and cluster epoch tracking.
+
+Events emitted:
+- STATE_PERSISTED: When state is saved to database
+- EPOCH_ADVANCED: When cluster epoch is incremented (leader change)
 """
 
 from __future__ import annotations
@@ -17,6 +21,40 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.config.coordination_defaults import SQLiteDefaults
+
+# Event emission helper (optional dependency)
+_event_bus = None
+
+
+def _get_event_bus():
+    """Lazy-load event bus to avoid circular imports."""
+    global _event_bus
+    if _event_bus is None:
+        try:
+            from app.coordination.event_router import get_event_bus
+            _event_bus = get_event_bus()
+        except ImportError:
+            _event_bus = False  # Mark as unavailable
+    return _event_bus if _event_bus else None
+
+
+def _safe_emit_event(event_type: str, payload: dict) -> bool:
+    """Safely emit an event, returning False if unavailable."""
+    bus = _get_event_bus()
+    if bus is None:
+        return False
+    try:
+        from app.distributed.data_events import DataEventType, DataEvent
+        event = DataEvent(
+            event_type=DataEventType(event_type),
+            payload=payload,
+            source="StateManager",
+        )
+        bus.publish(event)
+        return True
+    except Exception as e:
+        logger.debug(f"Failed to emit {event_type} event: {e}")
+        return False
 
 if TYPE_CHECKING:
     from ..models import ClusterJob, NodeInfo
@@ -476,6 +514,14 @@ class StateManager:
                 )
 
                 conn.commit()
+
+                # Emit STATE_PERSISTED event (Dec 2025)
+                _safe_emit_event("state_persisted", {
+                    "peer_count": len(peers) - (1 if node_id in peers else 0),
+                    "job_count": len(jobs),
+                    "leader_id": leader_state.leader_id,
+                    "cluster_epoch": self._cluster_epoch,
+                })
         except sqlite3.Error as e:
             logger.error(f"Failed to save state: {e}")
 

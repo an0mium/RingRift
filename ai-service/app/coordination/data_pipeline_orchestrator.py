@@ -1017,6 +1017,13 @@ class DataPipelineOrchestrator:
                 self._on_s3_backup_completed,
             )
 
+            # December 2025: Subscribe to sync integrity events for repair triggering
+            if hasattr(DataEventType, 'SYNC_CHECKSUM_FAILED'):
+                router.subscribe(
+                    DataEventType.SYNC_CHECKSUM_FAILED.value,
+                    self._on_sync_checksum_failed,
+                )
+
             logger.info("[DataPipelineOrchestrator] Subscribed to data events")
             return True
 
@@ -1534,6 +1541,44 @@ class DataPipelineOrchestrator:
             self._repair_failure_count += 1
         else:
             self._repair_failure_count = 1
+
+    async def _on_sync_checksum_failed(self, event: Any) -> None:
+        """Handle SYNC_CHECKSUM_FAILED - trigger repair for corrupted data.
+
+        December 2025: When sync checksum validation fails, queue the affected
+        data for re-sync via the replication daemon.
+        """
+        payload = getattr(event, "payload", {}) or {}
+        file_path = payload.get("file_path", "unknown")
+        expected = payload.get("expected_checksum", "")[:12]
+        actual = payload.get("actual_checksum", "")[:12]
+        source_node = payload.get("source_node", "unknown")
+
+        logger.warning(
+            f"[DataPipelineOrchestrator] Sync checksum failed: {file_path} "
+            f"from {source_node} (expected={expected}..., got={actual}...)"
+        )
+
+        # Try to trigger repair via unified replication daemon
+        try:
+            from app.coordination.unified_replication_daemon import (
+                get_unified_replication_daemon,
+            )
+
+            daemon = get_unified_replication_daemon()
+            if daemon and daemon.is_running():
+                # Queue file for re-sync (extract game_id from path if possible)
+                game_id = payload.get("game_id")
+                if game_id:
+                    await daemon.trigger_repair([game_id])
+                    logger.info(
+                        f"[DataPipelineOrchestrator] Queued game {game_id} for repair "
+                        f"after checksum failure"
+                    )
+        except ImportError:
+            logger.debug("[DataPipelineOrchestrator] Replication daemon not available")
+        except Exception as e:
+            logger.debug(f"[DataPipelineOrchestrator] Failed to trigger repair: {e}")
 
     async def _on_quality_score_updated(self, event: Any) -> None:
         """Handle QUALITY_SCORE_UPDATED - track per-game quality changes.

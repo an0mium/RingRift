@@ -744,8 +744,12 @@ class RingRiftEnv:
 
     @cached_property
     def p2p_port(self) -> int:
-        """P2P orchestrator port (default 8770)."""
-        return int(os.environ.get("RINGRIFT_P2P_PORT", "8770"))
+        """P2P orchestrator port (default 8770).
+
+        Uses centralized P2P_DEFAULT_PORT from app/config/ports.py.
+        """
+        from app.config.ports import P2P_DEFAULT_PORT
+        return P2P_DEFAULT_PORT
 
     @cached_property
     def p2p_seeds(self) -> list[str]:
