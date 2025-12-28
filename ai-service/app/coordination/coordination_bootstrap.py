@@ -722,13 +722,24 @@ def _validate_critical_imports() -> dict[str, Any]:
 
 
 def _register_coordinators() -> bool:
-    """Register all coordinators with OrchestratorRegistry."""
+    """Register all coordinators with OrchestratorRegistry for health monitoring.
+
+    Calls auto_register_known_coordinators() which discovers and registers
+    coordinator singletons (TrainingCoordinator, EloService, etc.) so they
+    can be tracked by the cross-coordinator health monitoring system.
+    """
     try:
         from app.coordination.orchestrator_registry import auto_register_known_coordinators
 
-        count = auto_register_known_coordinators()
-        logger.info(f"[Bootstrap] Registered {count} coordinators with registry")
-        return True
+        results = auto_register_known_coordinators()
+        # results is dict[str, bool] mapping coordinator name to registration success
+        registered_count = sum(1 for v in results.values() if v)
+        total_count = len(results)
+        logger.info(
+            f"[Bootstrap] Auto-registered {registered_count}/{total_count} "
+            "known coordinators for health monitoring"
+        )
+        return registered_count > 0
 
     except ImportError:
         logger.warning("[Bootstrap] OrchestratorRegistry not available")

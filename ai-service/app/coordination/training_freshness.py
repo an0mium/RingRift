@@ -97,6 +97,10 @@ class FreshnessConfig:
     check_databases: bool = True
     check_npz_files: bool = True
     min_games_required: int = 1000  # Minimum games for valid training data
+    # P1.6 Dec 2025: Use content-based age instead of file mtime
+    # For databases, this checks the newest game's created_at timestamp
+    # For NPZ files, this checks embedded export metadata if available
+    validate_content_age: bool = True
 
 
 @dataclass
