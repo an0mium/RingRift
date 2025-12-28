@@ -1280,6 +1280,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.DATA_CLEANUP.name: create_data_cleanup,
         DaemonType.DISK_SPACE_MANAGER.name: create_disk_space_manager,
         DaemonType.COORDINATOR_DISK_MANAGER.name: create_coordinator_disk_manager,
+        DaemonType.SYNC_PUSH.name: create_sync_push,
         DaemonType.S3_BACKUP.name: create_s3_backup,
         DaemonType.DISTILLATION.name: create_distillation,
         DaemonType.EXTERNAL_DRIVE_SYNC.name: create_external_drive_sync,

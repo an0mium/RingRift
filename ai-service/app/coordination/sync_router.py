@@ -227,6 +227,10 @@ class SyncRouter:
                 can_receive_npz = policy.receive_npz
                 is_priority = host_name in priority_hosts
 
+            # Dec 2025: Determine selfplay and GPU capabilities from role/gpu config
+            is_selfplay = "selfplay" in role or role == "selfplay"
+            has_gpu = bool(gpu)  # Non-empty gpu string means GPU available
+
             cap = NodeSyncCapability(
                 node_id=host_name,
                 can_receive_games=can_receive_games,
@@ -237,6 +241,8 @@ class SyncRouter:
                 is_ephemeral=is_ephemeral,
                 shares_nfs=shares_nfs,
                 provider=provider,
+                selfplay_enabled=is_selfplay,
+                has_gpu=has_gpu,
             )
 
             self._node_capabilities[host_name] = cap
