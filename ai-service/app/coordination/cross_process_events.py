@@ -191,12 +191,19 @@ class CrossProcessEventQueue:
                 return False
             raise
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection with retry on BUSY errors."""
+    def _get_connection(self, _from_init: bool = False) -> sqlite3.Connection:
+        """Get thread-local database connection with retry on BUSY errors.
+
+        Args:
+            _from_init: Internal flag to skip _ensure_db() when called from _init_db().
+                        This prevents circular recursion: _ensure_db -> _init_db -> _get_connection -> _ensure_db.
+        """
         import random
 
         # Ensure database is initialized (lazy init)
-        self._ensure_db()
+        # Skip when called from _init_db to prevent recursion (December 2025 fix)
+        if not _from_init:
+            self._ensure_db()
 
         if not hasattr(self._local, "conn") or self._local.conn is None:
             # Retry with jitter to prevent thundering herd
@@ -231,7 +238,8 @@ class CrossProcessEventQueue:
 
     def _init_db(self) -> None:
         """Initialize database schema."""
-        conn = self._get_connection()
+        # Pass _from_init=True to break circular dependency (December 2025 fix)
+        conn = self._get_connection(_from_init=True)
         conn.executescript('''
             -- Events table
             CREATE TABLE IF NOT EXISTS events (

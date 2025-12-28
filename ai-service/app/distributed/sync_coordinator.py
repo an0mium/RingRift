@@ -863,17 +863,24 @@ class SyncCoordinator:
                             max_age_hours=max_age_hours,
                             prefer_torrent=True,  # Prefer BitTorrent
                         )
-                        if result.success or result.files_synced > 0:
-                            stats.files_synced = result.files_synced
-                            stats.bytes_transferred = result.bytes_transferred
+                        # Dec 28, 2025: Only return on complete success
+                        # Continue to fallback if partial sync (files synced but errors)
+                        stats.files_synced += result.files_synced
+                        stats.bytes_transferred += result.bytes_transferred
+                        stats.errors.extend(result.errors)
+                        if result.success:
                             stats.transport_used = "bittorrent"
                             stats.duration_seconds = time.time() - start_time
-                            stats.errors.extend(result.errors)
                             logger.info(
                                 f"Training data sync complete: {stats.files_synced} files, "
                                 f"{stats.bytes_transferred / (1024*1024):.1f}MB via BitTorrent"
                             )
                             return stats
+                        elif result.files_synced > 0:
+                            logger.warning(
+                                f"Partial BitTorrent sync: {result.files_synced} files, "
+                                f"errors: {result.errors}, trying fallback"
+                            )
                 except (OSError, asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
                     stats.errors.append(f"BitTorrent sync failed: {e}")
                     logger.warning(f"BitTorrent training sync failed, trying fallback: {e}")
@@ -887,26 +894,33 @@ class SyncCoordinator:
                             self._provider.training_dir,
                             max_age_hours=max_age_hours,
                         )
-                        stats.files_synced = result.files_synced
-                        stats.bytes_transferred = result.bytes_transferred
-                        stats.transport_used = "aria2"
-                        stats.duration_seconds = time.time() - start_time
+                        # Dec 28, 2025: Accumulate files across transports
+                        stats.files_synced += result.files_synced
+                        stats.bytes_transferred += result.bytes_transferred
                         stats.errors.extend(result.errors)
                         record_sync_coordinator_op(
                             "training",
                             "aria2",
                             result.files_synced,
                             result.bytes_transferred,
-                            stats.duration_seconds,
+                            time.time() - start_time,
                             success=result.success,
                             error_type="aria2_error" if result.errors else None,
                         )
-                        if result.success or result.files_synced > 0:
+                        # Dec 28, 2025: Only return on complete success
+                        if result.success:
+                            stats.transport_used = "aria2"
+                            stats.duration_seconds = time.time() - start_time
                             logger.info(
                                 f"Training data sync complete: {stats.files_synced} files, "
                                 f"{stats.bytes_transferred / (1024*1024):.1f}MB via aria2"
                             )
                             return stats
+                        elif result.files_synced > 0:
+                            logger.warning(
+                                f"Partial aria2 sync: {result.files_synced} files, "
+                                f"errors: {result.errors}, trying fallback"
+                            )
                     except (OSError, asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
                         stats.errors.append(f"aria2 sync failed: {e}")
                         logger.warning(f"aria2 training sync failed, trying fallback: {e}")
@@ -926,22 +940,28 @@ class SyncCoordinator:
                     "data/training",
                     ["*.npz", "*.h5"],
                 )
-                stats.files_synced = files
-                stats.bytes_transferred = bytes_sent
-                stats.transport_used = "ssh"
+                # Dec 28, 2025: Accumulate files across transports
+                stats.files_synced += files
+                stats.bytes_transferred += bytes_sent
                 stats.errors.extend(errors)
-                stats.duration_seconds = time.time() - start_time
                 record_sync_coordinator_op(
                     "training",
                     "ssh",
                     files,
                     bytes_sent,
-                    stats.duration_seconds,
+                    time.time() - start_time,
                     success=len(errors) == 0,
                     error_type="rsync_error" if errors else None,
                 )
-                if files > 0 or not errors:
+                # Dec 28, 2025: Only return on complete success (files synced AND no errors)
+                if files > 0 and not errors:
+                    stats.transport_used = "ssh"
+                    stats.duration_seconds = time.time() - start_time
                     return stats
+                elif files > 0 and errors:
+                    logger.warning(
+                        f"Partial SSH sync: {files} files, errors: {errors}, trying fallback"
+                    )
 
             if transport == "p2p" and self._config.enable_p2p:
                 files_npz, bytes_npz, errors_npz = await self._sync_with_p2p(
@@ -955,24 +975,37 @@ class SyncCoordinator:
                 files = files_npz + files_h5
                 bytes_sent = bytes_npz + bytes_h5
                 errors = errors_npz + errors_h5
-                stats.files_synced = files
-                stats.bytes_transferred = bytes_sent
-                stats.transport_used = "p2p"
+                # Dec 28, 2025: Accumulate files across transports
+                stats.files_synced += files
+                stats.bytes_transferred += bytes_sent
                 stats.errors.extend(errors)
-                stats.duration_seconds = time.time() - start_time
                 record_sync_coordinator_op(
                     "training",
                     "p2p",
                     files,
                     bytes_sent,
-                    stats.duration_seconds,
+                    time.time() - start_time,
                     success=len(errors) == 0,
                     error_type="p2p_error" if errors else None,
                 )
-                if files > 0 or not errors:
+                # Dec 28, 2025: Only return on complete success (files synced AND no errors)
+                if files > 0 and not errors:
+                    stats.transport_used = "p2p"
+                    stats.duration_seconds = time.time() - start_time
                     return stats
+                elif files > 0 and errors:
+                    logger.warning(
+                        f"Partial P2P sync: {files} files, errors: {errors}, trying fallback"
+                    )
 
+        # Dec 28, 2025: Report combined results from fallback chain
         stats.duration_seconds = time.time() - start_time
+        if stats.files_synced > 0:
+            stats.transport_used = "multi_fallback"
+            logger.info(
+                f"Training data sync completed via fallback: {stats.files_synced} files, "
+                f"{stats.bytes_transferred / (1024*1024):.1f}MB (errors: {len(stats.errors)})"
+            )
         return stats
 
     async def sync_models(
@@ -1022,26 +1055,33 @@ class SyncCoordinator:
                             self._provider.models_dir,
                             patterns=patterns,
                         )
-                        stats.files_synced = result.files_synced
-                        stats.bytes_transferred = result.bytes_transferred
-                        stats.transport_used = "aria2"
-                        stats.duration_seconds = time.time() - start_time
+                        # Dec 28, 2025: Accumulate files across transports
+                        stats.files_synced += result.files_synced
+                        stats.bytes_transferred += result.bytes_transferred
                         stats.errors.extend(result.errors)
                         record_sync_coordinator_op(
                             "models",
                             "aria2",
                             result.files_synced,
                             result.bytes_transferred,
-                            stats.duration_seconds,
+                            time.time() - start_time,
                             success=result.success,
                             error_type="aria2_error" if result.errors else None,
                         )
-                        if result.success or result.files_synced > 0:
+                        # Dec 28, 2025: Only return on complete success
+                        if result.success:
+                            stats.transport_used = "aria2"
+                            stats.duration_seconds = time.time() - start_time
                             logger.info(
                                 f"Model sync complete: {stats.files_synced} models, "
                                 f"{stats.bytes_transferred / (1024*1024):.1f}MB"
                             )
                             return stats
+                        elif result.files_synced > 0:
+                            logger.warning(
+                                f"Partial aria2 model sync: {result.files_synced} files, "
+                                f"errors: {result.errors}, trying fallback"
+                            )
                     except (OSError, asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
                         stats.errors.append(f"aria2 model sync failed: {e}")
                         logger.warning(f"aria2 model sync failed: {e}")
@@ -1066,22 +1106,28 @@ class SyncCoordinator:
                     "models",
                     include_patterns,
                 )
-                stats.files_synced = files
-                stats.bytes_transferred = bytes_sent
-                stats.transport_used = "ssh"
+                # Dec 28, 2025: Accumulate files across transports
+                stats.files_synced += files
+                stats.bytes_transferred += bytes_sent
                 stats.errors.extend(errors)
-                stats.duration_seconds = time.time() - start_time
                 record_sync_coordinator_op(
                     "models",
                     "ssh",
                     files,
                     bytes_sent,
-                    stats.duration_seconds,
+                    time.time() - start_time,
                     success=len(errors) == 0,
                     error_type="rsync_error" if errors else None,
                 )
-                if files > 0 or not errors:
+                # Dec 28, 2025: Only return on complete success
+                if files > 0 and not errors:
+                    stats.transport_used = "ssh"
+                    stats.duration_seconds = time.time() - start_time
                     return stats
+                elif files > 0 and errors:
+                    logger.warning(
+                        f"Partial SSH model sync: {files} files, errors: {errors}, trying fallback"
+                    )
 
             if transport == "p2p" and self._config.enable_p2p:
                 patterns = ["models/*.pth", "models/*.onnx"]
@@ -1100,24 +1146,38 @@ class SyncCoordinator:
                     total_files += files
                     total_bytes += bytes_sent
                     total_errors.extend(errors)
-                stats.files_synced = total_files
-                stats.bytes_transferred = total_bytes
-                stats.transport_used = "p2p"
+                # Dec 28, 2025: Accumulate files across transports
+                stats.files_synced += total_files
+                stats.bytes_transferred += total_bytes
                 stats.errors.extend(total_errors)
-                stats.duration_seconds = time.time() - start_time
                 record_sync_coordinator_op(
                     "models",
                     "p2p",
                     total_files,
                     total_bytes,
-                    stats.duration_seconds,
+                    time.time() - start_time,
                     success=len(total_errors) == 0,
                     error_type="p2p_error" if total_errors else None,
                 )
-                if total_files > 0 or not total_errors:
+                # Dec 28, 2025: Only return on complete success
+                if total_files > 0 and not total_errors:
+                    stats.transport_used = "p2p"
+                    stats.duration_seconds = time.time() - start_time
                     return stats
+                elif total_files > 0 and total_errors:
+                    logger.warning(
+                        f"Partial P2P model sync: {total_files} files, "
+                        f"errors: {total_errors}, trying fallback"
+                    )
 
+        # Dec 28, 2025: Report combined results from fallback chain
         stats.duration_seconds = time.time() - start_time
+        if stats.files_synced > 0:
+            stats.transport_used = "multi_fallback"
+            logger.info(
+                f"Model sync completed via fallback: {stats.files_synced} files, "
+                f"{stats.bytes_transferred / (1024*1024):.1f}MB (errors: {len(stats.errors)})"
+            )
         return stats
 
     async def sync_games(
@@ -1163,26 +1223,33 @@ class SyncCoordinator:
                             sources,
                             local_games_dir,
                         )
-                        stats.files_synced = result.files_synced
-                        stats.bytes_transferred = result.bytes_transferred
-                        stats.transport_used = "aria2"
-                        stats.duration_seconds = time.time() - start_time
+                        # Dec 28, 2025: Accumulate files across transports
+                        stats.files_synced += result.files_synced
+                        stats.bytes_transferred += result.bytes_transferred
                         stats.errors.extend(result.errors)
                         record_sync_coordinator_op(
                             "games",
                             "aria2",
                             result.files_synced,
                             result.bytes_transferred,
-                            stats.duration_seconds,
+                            time.time() - start_time,
                             success=result.success,
                             error_type="aria2_error" if result.errors else None,
                         )
-                        if result.success or result.files_synced > 0:
+                        # Dec 28, 2025: Only return on complete success
+                        if result.success:
+                            stats.transport_used = "aria2"
+                            stats.duration_seconds = time.time() - start_time
                             logger.info(
                                 f"Game sync complete: {stats.files_synced} databases, "
                                 f"{stats.bytes_transferred / (1024*1024):.1f}MB"
                             )
                             return stats
+                        elif result.files_synced > 0:
+                            logger.warning(
+                                f"Partial aria2 game sync: {result.files_synced} files, "
+                                f"errors: {result.errors}, trying fallback"
+                            )
                     except (OSError, asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
                         stats.errors.append(f"aria2 game sync failed: {e}")
                         logger.warning(f"aria2 game sync failed: {e}")
@@ -1203,46 +1270,65 @@ class SyncCoordinator:
                     "data/games",
                     include_patterns,
                 )
-                stats.files_synced = files
-                stats.bytes_transferred = bytes_sent
-                stats.transport_used = "ssh"
+                # Dec 28, 2025: Accumulate files across transports
+                stats.files_synced += files
+                stats.bytes_transferred += bytes_sent
                 stats.errors.extend(errors)
-                stats.duration_seconds = time.time() - start_time
                 record_sync_coordinator_op(
                     "games",
                     "ssh",
                     files,
                     bytes_sent,
-                    stats.duration_seconds,
+                    time.time() - start_time,
                     success=len(errors) == 0,
                     error_type="rsync_error" if errors else None,
                 )
-                if files > 0 or not errors:
+                # Dec 28, 2025: Only return on complete success
+                if files > 0 and not errors:
+                    stats.transport_used = "ssh"
+                    stats.duration_seconds = time.time() - start_time
                     return stats
+                elif files > 0 and errors:
+                    logger.warning(
+                        f"Partial SSH game sync: {files} files, errors: {errors}, trying fallback"
+                    )
 
             if transport == "p2p" and self._config.enable_p2p:
                 files, bytes_sent, errors = await self._sync_with_p2p(
                     local_games_dir,
                     "data/games/*.db",
                 )
-                stats.files_synced = files
-                stats.bytes_transferred = bytes_sent
-                stats.transport_used = "p2p"
+                # Dec 28, 2025: Accumulate files across transports
+                stats.files_synced += files
+                stats.bytes_transferred += bytes_sent
                 stats.errors.extend(errors)
-                stats.duration_seconds = time.time() - start_time
                 record_sync_coordinator_op(
                     "games",
                     "p2p",
                     files,
                     bytes_sent,
-                    stats.duration_seconds,
+                    time.time() - start_time,
                     success=len(errors) == 0,
                     error_type="p2p_error" if errors else None,
                 )
-                if files > 0 or not errors:
+                # Dec 28, 2025: Only return on complete success
+                if files > 0 and not errors:
+                    stats.transport_used = "p2p"
+                    stats.duration_seconds = time.time() - start_time
                     return stats
+                elif files > 0 and errors:
+                    logger.warning(
+                        f"Partial P2P game sync: {files} files, errors: {errors}, trying fallback"
+                    )
 
+        # Dec 28, 2025: Report combined results from fallback chain
         stats.duration_seconds = time.time() - start_time
+        if stats.files_synced > 0:
+            stats.transport_used = "multi_fallback"
+            logger.info(
+                f"Game sync completed via fallback: {stats.files_synced} files, "
+                f"{stats.bytes_transferred / (1024*1024):.1f}MB (errors: {len(stats.errors)})"
+            )
         return stats
 
     async def sync_high_quality_games(

@@ -53,6 +53,9 @@ from typing import Any
 from app.config.ports import DATA_SERVER_PORT
 from app.core.async_context import fire_and_forget, safe_create_task
 
+# Singleton mixin for thread-safe singleton pattern (Dec 2025)
+from app.coordination.singleton_mixin import SingletonMixin
+
 # Daemon types extracted to dedicated module (Dec 2025)
 from app.coordination.daemon_types import (
     CRITICAL_DAEMONS,
@@ -102,14 +105,16 @@ def _get_daemon_event_emitters():
 # The legacy re-export was removed Dec 2025 as it was unused dead code.
 
 
-class DaemonManager:
+class DaemonManager(SingletonMixin["DaemonManager"]):
     """Unified manager for all background daemons and services.
 
     Provides centralized lifecycle management, health monitoring, and
     coordinated shutdown for all background services.
-    """
 
-    _instance: DaemonManager | None = None
+    December 2025: Now uses SingletonMixin for thread-safe singleton pattern.
+    Use get_instance() for singleton access. The reset_instance() method
+    includes async shutdown for proper cleanup.
+    """
 
     def __init__(self, config: DaemonManagerConfig | None = None):
         """Initialize the DaemonManager.
@@ -176,25 +181,24 @@ class DaemonManager:
         register_mark_ready_callback(self._handle_daemon_ready)
 
     @classmethod
-    def get_instance(cls, config: DaemonManagerConfig | None = None) -> DaemonManager:
-        """Get or create the singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls(config)
-        return cls._instance
-
-    @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton (for testing)."""
-        if cls._instance is not None:
+        """Reset the singleton (for testing).
+
+        Overrides SingletonMixin.reset_instance() to ensure proper async shutdown
+        of the daemon manager before clearing the singleton reference.
+        """
+        if cls.has_instance():
+            instance = cls.get_instance()
             try:
                 loop = asyncio.get_running_loop()
                 fire_and_forget(
-                    cls._instance.shutdown(),
+                    instance.shutdown(),
                     name="daemon_manager_reset_shutdown",
                 )
             except RuntimeError:
-                cls._instance._sync_shutdown()
-        cls._instance = None
+                instance._sync_shutdown()
+        # Call parent to clear the singleton reference
+        super().reset_instance()
 
     # =========================================================================
     # Restart Count Persistence (Dec 2025)
@@ -2645,8 +2649,9 @@ async def start_profile(profile: str) -> dict[DaemonType, bool]:
     return await manager.start_all(daemon_types)
 
 
-# Singleton accessor
-_daemon_manager: DaemonManager | None = None
+# Module-level singleton accessors (delegate to SingletonMixin methods)
+# December 2025: These now delegate to DaemonManager.get_instance() and reset_instance()
+# instead of maintaining a separate module-level cache.
 
 
 def get_daemon_manager(config: DaemonManagerConfig | None = None) -> DaemonManager:
@@ -2658,18 +2663,12 @@ def get_daemon_manager(config: DaemonManagerConfig | None = None) -> DaemonManag
     Returns:
         DaemonManager instance
     """
-    global _daemon_manager
-    if _daemon_manager is None:
-        _daemon_manager = DaemonManager(config)
-    return _daemon_manager
+    return DaemonManager.get_instance(config=config)
 
 
 def reset_daemon_manager() -> None:
     """Reset the singleton (for testing)."""
-    global _daemon_manager
-    if _daemon_manager is not None:
-        DaemonManager.reset_instance()
-    _daemon_manager = None
+    DaemonManager.reset_instance()
 
 
 # Signal handlers for graceful shutdown

@@ -73,6 +73,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -80,6 +81,71 @@ from typing import Any, Optional
 
 import numpy as np
 import sqlite3
+
+
+# Dec 28, 2025: Disk space reservation to prevent partial writes
+DISK_SPACE_SAFETY_MARGIN_MB = 500  # Keep 500MB free after write
+NPZ_COMPRESSION_RATIO = 0.25  # Estimated compression ratio (actual ~0.2-0.3)
+
+
+def _estimate_npz_size(save_kwargs: dict) -> int:
+    """Estimate the compressed NPZ file size in bytes.
+
+    Args:
+        save_kwargs: Dictionary of arrays to save
+
+    Returns:
+        Estimated file size in bytes
+    """
+    total_bytes = 0
+    for key, arr in save_kwargs.items():
+        if isinstance(arr, np.ndarray):
+            total_bytes += arr.nbytes
+    # Apply compression ratio estimate
+    return int(total_bytes * NPZ_COMPRESSION_RATIO)
+
+
+def _check_disk_space_for_export(output_path: str, save_kwargs: dict) -> tuple[bool, str]:
+    """Check if there's enough disk space for NPZ export.
+
+    Args:
+        output_path: Path where NPZ will be written
+        save_kwargs: Dictionary of arrays to save
+
+    Returns:
+        Tuple of (has_space, message)
+    """
+    try:
+        # Get destination directory
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        if not output_dir:
+            output_dir = os.getcwd()
+
+        # Ensure directory exists for disk_usage check
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Check available space
+        usage = shutil.disk_usage(output_dir)
+        available_mb = usage.free / (1024 * 1024)
+
+        # Estimate required space
+        estimated_bytes = _estimate_npz_size(save_kwargs)
+        estimated_mb = estimated_bytes / (1024 * 1024)
+        required_mb = estimated_mb + DISK_SPACE_SAFETY_MARGIN_MB
+
+        if available_mb < required_mb:
+            return False, (
+                f"Insufficient disk space for export: "
+                f"need {required_mb:.1f}MB (estimated {estimated_mb:.1f}MB + "
+                f"{DISK_SPACE_SAFETY_MARGIN_MB}MB safety margin), "
+                f"available {available_mb:.1f}MB at {output_dir}"
+            )
+
+        return True, f"Disk space OK: {available_mb:.1f}MB available, need ~{required_mb:.1f}MB"
+
+    except OSError as e:
+        # If we can't check, log warning but don't block
+        return True, f"Could not check disk space: {e}"
 
 logger = logging.getLogger(__name__)
 
@@ -1078,6 +1144,16 @@ def export_replay_dataset_multi(
 
     # Add data checksums for integrity verification (December 2025)
     save_kwargs = embed_checksums_in_save_kwargs(save_kwargs)
+
+    # Dec 28, 2025: Check disk space before writing to prevent partial/corrupted files
+    has_space, space_msg = _check_disk_space_for_export(output_path, save_kwargs)
+    if not has_space:
+        raise IOError(
+            f"[DISK SPACE ERROR] {space_msg}\n"
+            f"Export aborted to prevent partial/corrupted NPZ file.\n"
+            f"Free up disk space and retry."
+        )
+    print(f"[Disk Space] {space_msg}")
 
     np.savez_compressed(output_path, **save_kwargs)
 

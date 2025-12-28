@@ -532,6 +532,9 @@ class UnifiedHealthManager(CoordinatorBase):
             router.subscribe(DataEventType.DAEMON_STARTED, self._on_daemon_started)
             router.subscribe(DataEventType.DAEMON_STOPPED, self._on_daemon_stopped)
 
+            # Daemon watchdog alerts (December 2025 - wires watchdog → health manager)
+            router.subscribe(DataEventType.DAEMON_STATUS_CHANGED, self._on_daemon_status_changed)
+
             self._subscribed = True
             logger.info("[UnifiedHealthManager] Subscribed to health events via event router")
             return True
@@ -1280,6 +1283,99 @@ class UnifiedHealthManager(CoordinatorBase):
         else:
             logger.info(
                 f"[UnifiedHealthManager] Daemon stopped: {daemon_name} on {hostname} ({reason})"
+            )
+
+    async def _on_daemon_status_changed(self, event) -> None:
+        """Handle DAEMON_STATUS_CHANGED event from DaemonWatchdog (December 2025).
+
+        Processes watchdog alerts for daemon health issues:
+        - daemon_stuck: Task done but state RUNNING
+        - daemon_crashed: Unexpected failure
+        - daemon_import_failed: Import error, needs manual fix
+        - daemon_restart_exhausted: Max restarts exceeded
+        - daemon_auto_restarted: Successfully auto-restarted
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        alert_type = payload.get("alert_type", "unknown")
+        daemon_name = payload.get("daemon_name", "unknown")
+        hostname = payload.get("hostname", "unknown")
+        daemon_key = f"{daemon_name}@{hostname}"
+
+        # Get or create daemon state
+        if daemon_key not in self._daemon_states:
+            self._daemon_states[daemon_key] = DaemonHealthState(
+                daemon_name=daemon_name,
+                hostname=hostname,
+            )
+
+        state = self._daemon_states[daemon_key]
+
+        # Handle different alert types with appropriate severity
+        if alert_type in ("daemon_crashed", "daemon_restart_exhausted", "daemon_import_failed"):
+            # Critical issues - record as errors
+            severity = ErrorSeverity.CRITICAL if alert_type == "daemon_restart_exhausted" else ErrorSeverity.ERROR
+            state.is_running = False
+            state.consecutive_failures += 1
+            state.last_error = f"{alert_type}: {payload.get('message', '')}"
+
+            logger.error(
+                f"[UnifiedHealthManager] Watchdog alert: {alert_type} for {daemon_name} on {hostname}"
+            )
+
+            error = ErrorRecord(
+                error_id=f"watchdog_{int(time.time() * 1000)}",
+                timestamp=time.time(),
+                component=f"daemon:{daemon_name}",
+                error_type=alert_type,
+                message=f"Watchdog detected {alert_type} for {daemon_name}",
+                node_id=hostname,
+                severity=severity,
+                context=payload,
+            )
+            self._record_error(error)
+
+            # Track component failure for health scoring
+            self._on_component_failure(f"daemon:{daemon_name}")
+
+        elif alert_type == "daemon_stuck":
+            # Warning - daemon may need restart
+            state.last_error = f"stuck: {payload.get('message', '')}"
+            logger.warning(
+                f"[UnifiedHealthManager] Watchdog alert: {daemon_name} appears stuck on {hostname}"
+            )
+
+            error = ErrorRecord(
+                error_id=f"watchdog_{int(time.time() * 1000)}",
+                timestamp=time.time(),
+                component=f"daemon:{daemon_name}",
+                error_type="daemon_stuck",
+                message=f"Daemon {daemon_name} appears stuck (task done but state RUNNING)",
+                node_id=hostname,
+                severity=ErrorSeverity.WARNING,
+                context=payload,
+            )
+            self._record_error(error)
+
+        elif alert_type == "daemon_auto_restarted":
+            # Informational - auto-restart succeeded
+            state.restart_count += 1
+            state.is_running = True
+            state.last_error = None
+            state.consecutive_failures = 0
+
+            logger.info(
+                f"[UnifiedHealthManager] Watchdog auto-restarted {daemon_name} on {hostname} "
+                f"(restarts: {state.restart_count})"
+            )
+
+            # Track component recovery for health scoring
+            self._on_component_success(f"daemon:{daemon_name}")
+
+        else:
+            # Unknown alert type - log for debugging
+            logger.debug(
+                f"[UnifiedHealthManager] Unknown watchdog alert: {alert_type} for {daemon_name}"
             )
 
     def get_daemon_states(self) -> dict[str, DaemonHealthState]:

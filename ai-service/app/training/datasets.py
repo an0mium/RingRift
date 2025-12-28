@@ -315,6 +315,43 @@ class RingRiftDataset(Dataset):
                     if "board_size" in available_keys:
                         self.board_size_meta = self.data["board_size"]
 
+                    # Dec 28, 2025: Validate board_type metadata matches constructor arg
+                    # This prevents cross-config contamination (training hex8 with square8 data)
+                    if self.board_type_meta is not None:
+                        # Extract board_type string from metadata (may be 0-d array)
+                        meta_raw = self.board_type_meta
+                        if hasattr(meta_raw, 'item'):
+                            meta_board_type_str = str(meta_raw.item())
+                        elif hasattr(meta_raw, '__iter__') and len(meta_raw) > 0:
+                            meta_board_type_str = str(meta_raw.flat[0])
+                        else:
+                            meta_board_type_str = str(meta_raw)
+
+                        # Normalize to lowercase for comparison
+                        meta_board_type_str = meta_board_type_str.lower().strip()
+                        expected_board_type_str = (
+                            board_type.name.lower() if hasattr(board_type, 'name')
+                            else str(board_type).lower()
+                        )
+
+                        if meta_board_type_str != expected_board_type_str:
+                            raise ValueError(
+                                f"========================================\n"
+                                f"CROSS-CONFIG CONTAMINATION DETECTED\n"
+                                f"========================================\n"
+                                f"File: {data_path}\n"
+                                f"NPZ board_type metadata: '{meta_board_type_str}'\n"
+                                f"Expected board_type: '{expected_board_type_str}'\n"
+                                f"\n"
+                                f"This data was exported for a different board type.\n"
+                                f"Training with this data would produce a garbage model.\n"
+                                f"\n"
+                                f"Either:\n"
+                                f"  1. Use --board-type {meta_board_type_str} to match the data\n"
+                                f"  2. Re-export data with the correct board type\n"
+                                f"========================================"
+                            )
+
                     # Multi-player value targets: optional 'values_mp'
                     # (N, MAX_PLAYERS) and 'num_players' (N,) arrays.
                     if "values_mp" in available_keys and "num_players" in available_keys:

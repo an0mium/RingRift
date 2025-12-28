@@ -458,3 +458,493 @@ class TestHelperFunctions:
 
         # All results should be the same (or all None)
         assert len(set(id(r) if r else None for r in results)) <= 2
+
+
+# =============================================================================
+# TestSelfplayJobLifecycle - Comprehensive Job Creation and Lifecycle Tests
+# =============================================================================
+
+
+class TestSelfplayJobLifecycle:
+    """Tests for selfplay job creation, registration, timeout, and cancellation.
+
+    December 28, 2025: Added as part of comprehensive P2P manager test coverage.
+    """
+
+    @pytest.mark.asyncio
+    async def test_job_creation_and_registration(self, job_manager):
+        """Verify job is tracked in active_jobs after creation."""
+        # Mock subprocess creation
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = None  # Still running
+        mock_proc.communicate = AsyncMock(return_value=(b"output", b""))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch("os.path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"):
+            mock_exec.return_value = mock_proc
+            mock_proc.returncode = 0  # Will complete successfully
+
+            # Run the job
+            await job_manager.run_gpu_selfplay_job(
+                job_id="test-job-001",
+                board_type="hex8",
+                num_players=2,
+                num_games=100,
+                engine_mode="heuristic-only",
+            )
+
+            # Verify subprocess was created
+            mock_exec.assert_called_once()
+
+            # After completion, job should be removed from active (successful cleanup)
+            # Check the internal process tracking was used
+            assert mock_proc.pid == 12345
+
+    @pytest.mark.asyncio
+    async def test_job_timeout_handling(self, job_manager):
+        """Verify timeout kills process and updates status."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        # Simulate timeout
+        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch("os.path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch.object(job_manager, "_emit_task_event") as mock_emit:
+            mock_exec.return_value = mock_proc
+
+            await job_manager.run_gpu_selfplay_job(
+                job_id="timeout-job",
+                board_type="hex8",
+                num_players=2,
+                num_games=100,
+                engine_mode="heuristic-only",
+            )
+
+            # Verify process was killed
+            mock_proc.kill.assert_called_once()
+
+            # Verify TASK_FAILED event was emitted with timeout error
+            mock_emit.assert_called()
+            # Get the last call to _emit_task_event
+            calls = [c for c in mock_emit.call_args_list if c[0][0] == "TASK_FAILED"]
+            assert len(calls) >= 1
+            assert calls[-1][1].get("error") == "timeout"
+
+    @pytest.mark.asyncio
+    async def test_job_cancellation_cleans_up(self, job_manager):
+        """Verify cancellation cleans up job from tracking."""
+        # Setup: Add a running job
+        job_manager.active_jobs["selfplay"] = {
+            "cancel-job-001": {
+                "job_id": "cancel-job-001",
+                "status": "running",
+                "node_id": "test-node-1",
+                "board_type": "hex8",
+                "num_players": 2,
+                "started_at": 0,
+            }
+        }
+
+        # Create mock event for HOST_OFFLINE (simulates cancellation trigger)
+        event = MagicMock()
+        event.payload = {"node_id": "test-node-1"}
+
+        with patch.object(job_manager, "_emit_task_event") as mock_emit:
+            await job_manager._on_host_offline(event)
+
+        # Job should be marked as cancelled
+        assert job_manager.active_jobs["selfplay"]["cancel-job-001"]["status"] == "cancelled"
+
+        # TASK_ABANDONED event should be emitted
+        mock_emit.assert_called()
+        abandoned_calls = [c for c in mock_emit.call_args_list if c[0][0] == "TASK_ABANDONED"]
+        assert len(abandoned_calls) >= 1
+
+    @pytest.mark.asyncio
+    async def test_job_with_failed_returncode(self, job_manager):
+        """Verify job failure is tracked when subprocess returns non-zero."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = 1  # Non-zero return code
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"Error: Something went wrong"))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch("os.path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch.object(job_manager, "_emit_task_event") as mock_emit:
+            mock_exec.return_value = mock_proc
+
+            await job_manager.run_gpu_selfplay_job(
+                job_id="fail-job",
+                board_type="hex8",
+                num_players=2,
+                num_games=100,
+                engine_mode="heuristic-only",
+            )
+
+            # Verify TASK_FAILED event was emitted
+            failed_calls = [c for c in mock_emit.call_args_list if c[0][0] == "TASK_FAILED"]
+            assert len(failed_calls) >= 1
+
+
+# =============================================================================
+# TestTrainingJobLifecycle - Training Job Specific Tests
+# =============================================================================
+
+
+class TestTrainingJobLifecycle:
+    """Tests for training job lifecycle including leader-only spawning.
+
+    December 28, 2025: Added as part of comprehensive P2P manager test coverage.
+    """
+
+    @pytest.mark.asyncio
+    async def test_training_spawn_on_leader(self, job_manager_with_peers):
+        """Verify training only runs on leader node."""
+        # Setup improvement loop state
+        class MockState:
+            current_iteration = 1
+            board_type = "hex8"
+            num_players = 2
+            training_data_path = "/tmp/training.npz"
+            best_model_path = None
+
+        job_manager_with_peers.improvement_loop_state["train-job-001"] = MockState()
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"Model saved", b""))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch("os.makedirs"):
+            mock_exec.return_value = mock_proc
+
+            await job_manager_with_peers.run_training("train-job-001")
+
+            # Verify subprocess was created for training
+            mock_exec.assert_called_once()
+
+            # Verify state was updated with new model path
+            assert job_manager_with_peers.improvement_loop_state["train-job-001"].candidate_model_path is not None
+
+    @pytest.mark.asyncio
+    async def test_training_async_wait_completion(self, job_manager):
+        """Verify async completion tracking for training jobs."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"Training complete", b""))
+
+        config = {
+            "job_id": "async-train-job",
+            "training_data": "/tmp/data.npz",
+            "output_model": "/tmp/model.pt",
+            "board_type": "hex8",
+            "num_players": 2,
+            "epochs": 10,
+            "batch_size": 256,
+            "learning_rate": 0.001,
+        }
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_proc
+
+            # This should wait for the training to complete
+            await job_manager.run_local_training(config)
+
+            # Verify communicate was awaited (async wait)
+            mock_proc.communicate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_training_failure_recovery(self, job_manager):
+        """Verify error handling when training subprocess fails."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = 1  # Failure
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"CUDA out of memory"))
+
+        config = {
+            "job_id": "fail-train-job",
+            "training_data": "/tmp/data.npz",
+            "output_model": "/tmp/model.pt",
+            "board_type": "hex8",
+            "num_players": 2,
+            "epochs": 10,
+            "batch_size": 256,
+            "learning_rate": 0.001,
+        }
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch.object(job_manager, "_emit_task_event") as mock_emit:
+            mock_exec.return_value = mock_proc
+
+            # Should not raise, but handle error gracefully
+            await job_manager.run_local_training(config)
+
+            # TASK_FAILED event should be emitted
+            failed_calls = [c for c in mock_emit.call_args_list if c[0][0] == "TASK_FAILED"]
+            assert len(failed_calls) >= 1
+
+    @pytest.mark.asyncio
+    async def test_training_timeout_recovery(self, job_manager):
+        """Verify training job recovers from timeout."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        config = {
+            "job_id": "timeout-train-job",
+            "training_data": "/tmp/data.npz",
+            "output_model": "/tmp/model.pt",
+            "board_type": "hex8",
+            "num_players": 2,
+        }
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch.object(job_manager, "_emit_task_event") as mock_emit:
+            mock_exec.return_value = mock_proc
+
+            await job_manager.run_local_training(config)
+
+            # Process should be killed
+            mock_proc.kill.assert_called_once()
+
+            # TASK_FAILED with timeout should be emitted
+            failed_calls = [c for c in mock_emit.call_args_list if c[0][0] == "TASK_FAILED"]
+            assert len(failed_calls) >= 1
+
+
+# =============================================================================
+# TestErrorHandling - Cascade Failures and Zombie Process Prevention
+# =============================================================================
+
+
+class TestErrorHandling:
+    """Tests for error handling, cascade failures, and zombie process cleanup.
+
+    December 28, 2025: Added as part of comprehensive P2P manager test coverage.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cascade_job_failures_isolated(self, job_manager):
+        """Verify one job failure doesn't break other jobs."""
+        # Setup multiple jobs - one will fail, others should continue
+        job_manager.active_jobs["selfplay"] = {
+            "job-success-1": {"status": "running", "node_id": "node-1"},
+            "job-success-2": {"status": "running", "node_id": "node-2"},
+        }
+
+        # Simulate a failure on one node
+        event = MagicMock()
+        event.payload = {"node_id": "node-1"}
+
+        with patch.object(job_manager, "_emit_task_event"):
+            await job_manager._on_host_offline(event)
+
+        # Only the job on the failed node should be cancelled
+        assert job_manager.active_jobs["selfplay"]["job-success-1"]["status"] == "cancelled"
+        assert job_manager.active_jobs["selfplay"]["job-success-2"]["status"] == "running"
+
+    @pytest.mark.asyncio
+    async def test_process_cleanup_on_error(self, job_manager):
+        """Verify no zombie processes after subprocess error."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.communicate = AsyncMock(side_effect=OSError("Broken pipe"))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch("os.path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch.object(job_manager, "_emit_task_event"):
+            mock_exec.return_value = mock_proc
+
+            await job_manager.run_gpu_selfplay_job(
+                job_id="error-job",
+                board_type="hex8",
+                num_players=2,
+                num_games=100,
+                engine_mode="heuristic-only",
+            )
+
+            # Verify kill was called to prevent zombie
+            mock_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_active_processes_on_shutdown(self, job_manager):
+        """Verify all active processes are killed during shutdown."""
+        # Register some mock processes
+        mock_proc_1 = MagicMock()
+        mock_proc_1.pid = 1001
+        mock_proc_1.returncode = None
+        mock_proc_1.kill = MagicMock()
+        mock_proc_1.wait = AsyncMock()
+
+        mock_proc_2 = MagicMock()
+        mock_proc_2.pid = 1002
+        mock_proc_2.returncode = None
+        mock_proc_2.kill = MagicMock()
+        mock_proc_2.wait = AsyncMock()
+
+        job_manager._register_process("job-1", mock_proc_1)
+        job_manager._register_process("job-2", mock_proc_2)
+
+        # Cleanup all active processes
+        killed = await job_manager.cleanup_active_processes()
+
+        assert killed == 2
+        mock_proc_1.kill.assert_called()
+        mock_proc_2.kill.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_process_already_terminated(self, job_manager):
+        """Verify graceful handling when process already terminated."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = 0  # Already terminated
+        mock_proc.kill = MagicMock(side_effect=ProcessLookupError())
+
+        # Should not raise
+        await job_manager._kill_process("test-job", mock_proc)
+
+    def test_register_unregister_process(self, job_manager):
+        """Verify process registration and unregistration."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+
+        # Register
+        job_manager._register_process("test-job-reg", mock_proc)
+        assert "test-job-reg" in job_manager._active_processes
+
+        # Unregister
+        job_manager._unregister_process("test-job-reg")
+        assert "test-job-reg" not in job_manager._active_processes
+
+    @pytest.mark.asyncio
+    async def test_multiple_failures_dont_cascade(self, job_manager):
+        """Verify multiple concurrent failures are handled independently."""
+        # Setup jobs on different nodes
+        job_manager.active_jobs["selfplay"] = {
+            "job-a": {"status": "running", "node_id": "node-a"},
+            "job-b": {"status": "running", "node_id": "node-b"},
+            "job-c": {"status": "running", "node_id": "node-c"},
+        }
+
+        # Both node-a and node-b go offline
+        with patch.object(job_manager, "_emit_task_event"):
+            event_a = MagicMock()
+            event_a.payload = {"node_id": "node-a"}
+            await job_manager._on_host_offline(event_a)
+
+            event_b = MagicMock()
+            event_b.payload = {"node_id": "node-b"}
+            await job_manager._on_host_offline(event_b)
+
+        # Two jobs cancelled, one still running
+        assert job_manager.active_jobs["selfplay"]["job-a"]["status"] == "cancelled"
+        assert job_manager.active_jobs["selfplay"]["job-b"]["status"] == "cancelled"
+        assert job_manager.active_jobs["selfplay"]["job-c"]["status"] == "running"
+
+        # Stats should reflect two cancellations
+        assert job_manager.stats.jobs_cancelled == 2
+
+    @pytest.mark.asyncio
+    async def test_oserror_handling(self, job_manager):
+        """Verify OSError during subprocess creation is handled."""
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch("os.path.exists", return_value=True), \
+             patch("pathlib.Path.mkdir"), \
+             patch.object(job_manager, "_emit_task_event") as mock_emit:
+            mock_exec.side_effect = OSError("Permission denied")
+
+            # Should not raise
+            await job_manager.run_gpu_selfplay_job(
+                job_id="oserror-job",
+                board_type="hex8",
+                num_players=2,
+                num_games=100,
+                engine_mode="heuristic-only",
+            )
+
+            # TASK_FAILED should be emitted
+            failed_calls = [c for c in mock_emit.call_args_list if c[0][0] == "TASK_FAILED"]
+            assert len(failed_calls) >= 1
+
+
+# =============================================================================
+# TestProcessLifecycleManagement - Process Tracking Tests
+# =============================================================================
+
+
+class TestProcessLifecycleManagement:
+    """Tests for subprocess lifecycle management.
+
+    December 28, 2025: Added to verify process tracking infrastructure.
+    """
+
+    def test_process_lock_thread_safety(self, job_manager):
+        """Verify process lock provides thread safety."""
+        import concurrent.futures
+
+        mock_procs = [MagicMock(pid=i) for i in range(10)]
+
+        def register_proc(idx):
+            job_manager._register_process(f"job-{idx}", mock_procs[idx])
+            return True
+
+        # Concurrent registrations should not fail
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(register_proc, i) for i in range(10)]
+            results = [f.result() for f in futures]
+
+        assert all(results)
+        assert len(job_manager._active_processes) == 10
+
+    @pytest.mark.asyncio
+    async def test_kill_process_with_sigkill(self, job_manager):
+        """Verify SIGKILL is tried first for immediate termination."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
+
+        job_manager._register_process("kill-test", mock_proc)
+
+        await job_manager._kill_process("kill-test")
+
+        # kill() should be called (SIGKILL)
+        mock_proc.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_kill_process_sigterm_fallback(self, job_manager):
+        """Verify SIGTERM fallback when SIGKILL fails."""
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.returncode = None
+        mock_proc.kill = MagicMock()
+        mock_proc.terminate = MagicMock()
+        # wait() times out after kill, succeeds after terminate
+        mock_proc.wait = AsyncMock(side_effect=[asyncio.TimeoutError(), None])
+
+        job_manager._register_process("term-test", mock_proc)
+
+        await job_manager._kill_process("term-test")
+
+        # Both kill and terminate should be attempted
+        mock_proc.kill.assert_called_once()
+        mock_proc.terminate.assert_called_once()

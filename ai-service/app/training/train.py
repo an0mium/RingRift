@@ -501,10 +501,13 @@ def _validate_training_compatibility(
 
     if model_board_type is not None and dataset_board_type is not None:
         if model_board_type != dataset_board_type:
-            logger.warning(
-                f"Board type mismatch: model expects {model_board_type}, "
-                f"dataset contains {dataset_board_type}. "
-                f"This may cause encoding issues."
+            # Dec 28, 2025: Changed from warning to error to prevent cross-config contamination
+            # Training hex8 model with square8 data (or vice versa) produces garbage models
+            raise ValueError(
+                f"[CROSS-CONFIG CONTAMINATION] Board type mismatch: "
+                f"model expects '{model_board_type}', dataset contains '{dataset_board_type}'. "
+                f"This would produce a garbage model. "
+                f"Use --board-type to specify the correct board type, or regenerate training data."
             )
 
     # 3. Sample validation - check first few samples
@@ -5329,6 +5332,10 @@ def train_model(
                             "config": f"{config.board_type.value}_{num_players}p",
                             "checkpoint_path": str(final_checkpoint_path),
                             "trigger_evaluation": True,  # Trigger automatic evaluation
+                            # model_path for FeedbackLoopController (Dec 2025 integration fix)
+                            "model_path": str(save_path),
+                            # policy_accuracy for evaluation trigger threshold check
+                            "policy_accuracy": float(avg_policy_accuracy),
                         }
                         # Add reanalysis and distillation stats to event payload
                         if enhancements_manager is not None:
@@ -5427,6 +5434,10 @@ def train_model(
                         "duration_seconds": _training_duration,
                         "hardened_emit": True,  # Flag indicating this came from finally block
                         "trigger_evaluation": True,  # Trigger automatic evaluation
+                        # model_path for FeedbackLoopController (Dec 2025 integration fix)
+                        "model_path": str(save_path),
+                        # policy_accuracy for evaluation trigger threshold check
+                        "policy_accuracy": float(avg_policy_accuracy) if 'avg_policy_accuracy' in dir() else 0.0,
                     }
                     # Include checkpoint_path if available (for auto-evaluation)
                     if _final_checkpoint_path:
