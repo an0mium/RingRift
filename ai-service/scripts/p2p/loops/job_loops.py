@@ -323,6 +323,45 @@ class IdleDetectionLoop(BaseLoop):
                     del self._idle_since[node_id]
                     logger.debug(f"[IdleDetection] Node {node_id} became active (GPU: {gpu_util}%)")
 
+            # Zombie detection: node has jobs but GPU is nearly idle (stuck processes)
+            is_zombie = (
+                selfplay_jobs > 0
+                and gpu_util < self.config.zombie_gpu_threshold_percent
+            )
+
+            if is_zombie:
+                if node_id not in self._zombie_since:
+                    self._zombie_since[node_id] = now
+                    logger.warning(
+                        f"[ZombieDetection] Node {node_id} may have zombie processes "
+                        f"(jobs: {selfplay_jobs}, GPU: {gpu_util}%)"
+                    )
+
+                zombie_duration = now - self._zombie_since[node_id]
+                if zombie_duration >= self.config.zombie_duration_threshold_seconds:
+                    peer = metrics["peer"]
+                    if self._on_zombie_detected:
+                        try:
+                            await self._on_zombie_detected(peer, zombie_duration)
+                            self._zombie_detected_count += 1
+                            logger.warning(
+                                f"[ZombieDetection] Triggered zombie handler on {node_id} "
+                                f"(zombie for {zombie_duration:.0f}s, jobs: {selfplay_jobs})"
+                            )
+                            # Don't remove from tracking - keep monitoring until state changes
+                        except Exception as e:
+                            logger.warning(f"[ZombieDetection] Callback failed for {node_id}: {e}")
+                    else:
+                        logger.warning(
+                            f"[ZombieDetection] Node {node_id} has zombie processes for {zombie_duration:.0f}s "
+                            f"(jobs: {selfplay_jobs}, GPU: {gpu_util}%) - no callback configured"
+                        )
+            else:
+                # Node is not a zombie, remove from tracking
+                if node_id in self._zombie_since:
+                    del self._zombie_since[node_id]
+                    logger.info(f"[ZombieDetection] Node {node_id} recovered from zombie state")
+
     def get_idle_nodes(self) -> dict[str, float]:
         """Get currently tracked idle nodes and their idle duration."""
         now = time.time()
@@ -331,13 +370,24 @@ class IdleDetectionLoop(BaseLoop):
             for node_id, idle_since in self._idle_since.items()
         }
 
+    def get_zombie_nodes(self) -> dict[str, float]:
+        """Get currently tracked zombie nodes and their zombie duration."""
+        now = time.time()
+        return {
+            node_id: now - zombie_since
+            for node_id, zombie_since in self._zombie_since.items()
+        }
+
     def get_detection_stats(self) -> dict[str, Any]:
         """Get detection statistics."""
         return {
             "currently_idle": len(self._idle_since),
+            "currently_zombie": len(self._zombie_since),
             "total_detections": self._detected_count,
+            "total_zombie_detections": self._zombie_detected_count,
             "skipped_not_leader": self._skipped_not_leader,
             "idle_nodes": list(self._idle_since.keys()),
+            "zombie_nodes": list(self._zombie_since.keys()),
             **self.stats.to_dict(),
         }
 

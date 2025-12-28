@@ -131,6 +131,9 @@ class ReaperStats(JobDaemonStats):
 class JobReaperDaemon:
     """Background daemon that enforces job timeouts and reassigns work."""
 
+    # P0.4 Dec 2025: Blacklist persistence path
+    _BLACKLIST_DB_PATH = Path("data/coordination/.blacklist.db")
+
     def __init__(
         self,
         work_queue: "WorkQueue",
@@ -144,6 +147,10 @@ class JobReaperDaemon:
         self.running = False
         self.blacklisted_nodes: dict[str, BlacklistedNode] = {}
         self.stats = ReaperStats()
+
+        # P0.4 Dec 2025: Initialize SQLite persistence for blacklist
+        self._init_blacklist_db()
+        self._load_blacklist_from_db()
 
         # Job type specific timeouts (in seconds)
         # Dec 2025: Increased gpu_selfplay from 1hr to 2hr - jobs taking 1.5+ hours were killed prematurely
@@ -162,6 +169,92 @@ class JobReaperDaemon:
     def get_timeout_for_job(self, job_type: str) -> float:
         """Get the timeout for a specific job type."""
         return self.job_timeouts.get(job_type.lower(), DEFAULT_JOB_TIMEOUT)
+
+    # =========================================================================
+    # P0.4 Dec 2025: Blacklist Persistence
+    # =========================================================================
+
+    def _init_blacklist_db(self) -> None:
+        """Initialize SQLite table for blacklist persistence.
+
+        P0.4 Dec 2025: Prevents failed nodes from immediately getting new jobs
+        after job_reaper restart.
+        """
+        try:
+            self._BLACKLIST_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(self._BLACKLIST_DB_PATH) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS blacklisted_nodes (
+                        node_id TEXT PRIMARY KEY,
+                        reason TEXT NOT NULL,
+                        blacklisted_at REAL NOT NULL,
+                        expires_at REAL NOT NULL,
+                        failure_count INTEGER DEFAULT 1
+                    )
+                """)
+                # Clean up expired entries on startup
+                conn.execute(
+                    "DELETE FROM blacklisted_nodes WHERE expires_at < ?",
+                    (time.time(),)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to initialize blacklist DB: {e}")
+
+    def _load_blacklist_from_db(self) -> None:
+        """Load non-expired blacklist entries from SQLite."""
+        try:
+            with sqlite3.connect(self._BLACKLIST_DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT * FROM blacklisted_nodes WHERE expires_at > ?",
+                    (time.time(),)
+                ).fetchall()
+
+                for row in rows:
+                    self.blacklisted_nodes[row["node_id"]] = BlacklistedNode(
+                        node_id=row["node_id"],
+                        reason=row["reason"],
+                        blacklisted_at=row["blacklisted_at"],
+                        expires_at=row["expires_at"],
+                        failure_count=row["failure_count"],
+                    )
+
+                if rows:
+                    logger.info(f"Loaded {len(rows)} blacklisted nodes from persistence")
+        except Exception as e:
+            logger.warning(f"Failed to load blacklist from DB: {e}")
+
+    def _persist_blacklist_entry(self, bl: BlacklistedNode) -> None:
+        """Persist a single blacklist entry to SQLite."""
+        try:
+            with sqlite3.connect(self._BLACKLIST_DB_PATH) as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO blacklisted_nodes
+                    (node_id, reason, blacklisted_at, expires_at, failure_count)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    bl.node_id,
+                    bl.reason,
+                    bl.blacklisted_at,
+                    bl.expires_at,
+                    bl.failure_count,
+                ))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to persist blacklist entry: {e}")
+
+    def _remove_blacklist_entry(self, node_id: str) -> None:
+        """Remove a blacklist entry from SQLite."""
+        try:
+            with sqlite3.connect(self._BLACKLIST_DB_PATH) as conn:
+                conn.execute(
+                    "DELETE FROM blacklisted_nodes WHERE node_id = ?",
+                    (node_id,)
+                )
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"Failed to remove blacklist entry: {e}")
 
     def is_node_blacklisted(self, node_id: str) -> bool:
         """Check if a node is currently blacklisted."""

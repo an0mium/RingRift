@@ -1503,6 +1503,80 @@ def create_npz_distribution_daemon() -> UnifiedDistributionDaemon:
 # =============================================================================
 
 
+def _is_valid_model_file(path: str | Path) -> bool:
+    """Check if a model file exists and appears to be valid.
+
+    Validates that:
+    1. File exists
+    2. File is at least 1MB (smaller files are likely corrupted)
+    3. File starts with PK header (zip/pth format)
+
+    Args:
+        path: Path to the model file
+
+    Returns:
+        True if file exists and appears valid, False otherwise
+    """
+    path = Path(path) if isinstance(path, str) else path
+
+    if not path.exists():
+        return False
+
+    try:
+        size = path.stat().st_size
+        if size < 1_000_000:  # < 1MB likely corrupted or incomplete
+            logger.debug(f"[ModelValidation] File too small: {path} ({size} bytes)")
+            return False
+
+        # Check for zip/pth magic bytes (PyTorch saves as zip archives)
+        with open(path, "rb") as f:
+            magic = f.read(8)
+            if magic[:4] != b"PK\x03\x04":  # ZIP file magic number
+                logger.debug(f"[ModelValidation] Invalid magic bytes: {path}")
+                return False
+
+        return True
+    except (OSError, IOError) as e:
+        logger.debug(f"[ModelValidation] Error checking file {path}: {e}")
+        return False
+
+
+async def _emit_distribution_failed_event(
+    model_name: str,
+    expected_path: str | Path,
+    timeout_seconds: float,
+    reason: str = "timeout",
+) -> None:
+    """Emit MODEL_DISTRIBUTION_FAILED event.
+
+    Args:
+        model_name: Name of the model that failed to distribute
+        expected_path: Expected path where model should be
+        timeout_seconds: How long we waited before giving up
+        reason: Reason for the failure
+    """
+    try:
+        from app.coordination.event_router import emit
+
+        await emit(
+            event_type="MODEL_DISTRIBUTION_FAILED",
+            data={
+                "model_name": model_name,
+                "expected_path": str(expected_path),
+                "timeout_seconds": timeout_seconds,
+                "reason": reason,
+                "timestamp": time.time(),
+                "node_id": os.environ.get("RINGRIFT_NODE_ID", "unknown"),
+            },
+        )
+        logger.warning(
+            f"[ModelDistribution] Emitted MODEL_DISTRIBUTION_FAILED: {model_name} "
+            f"(reason: {reason})"
+        )
+    except (ImportError, RuntimeError, TypeError) as e:
+        logger.debug(f"[ModelDistribution] Failed to emit failure event: {e}")
+
+
 async def wait_for_model_distribution(
     board_type: str,
     num_players: int,

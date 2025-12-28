@@ -365,6 +365,35 @@ class DataQualityError(TrainingError):
     code = ErrorCode.DATA_QUALITY_LOW
 
 
+class InvalidGameError(DataQualityError):
+    """Game data integrity violation.
+
+    Raised when a game cannot be stored or finalized due to data integrity
+    issues, such as missing move data. This is a critical safeguard to
+    prevent useless games from polluting training databases.
+
+    Attributes:
+        game_id: The ID of the invalid game
+        move_count: Number of moves in the game
+    """
+
+    def __init__(
+        self,
+        message: str,
+        game_id: str | None = None,
+        move_count: int | None = None,
+        **kwargs: Any,
+    ):
+        details = kwargs.pop("details", {}) or {}
+        if game_id:
+            details["game_id"] = game_id
+        if move_count is not None:
+            details["move_count"] = move_count
+        super().__init__(message, details=details, **kwargs)
+        self.game_id = game_id
+        self.move_count = move_count
+
+
 class ModelLoadError(TrainingError):
     """Failed to load model checkpoint."""
     code = ErrorCode.MODEL_LOAD_FAILED
@@ -548,6 +577,7 @@ __all__ = [
     # Training
     "TrainingError",
     "DataQualityError",
+    "InvalidGameError",
     "ModelLoadError",
     "CheckpointCorruptError",
     "ConvergenceError",
