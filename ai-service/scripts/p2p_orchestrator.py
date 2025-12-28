@@ -3437,7 +3437,7 @@ class P2POrchestrator(
     def _validate_manager_health(self) -> dict[str, Any]:
         """Validate health of all P2P managers at startup.
 
-        December 27, 2025: Checks that all 6 managers initialized correctly and
+        December 28, 2025: Checks that all 7 managers initialized correctly and
         are healthy. This catches initialization issues early rather than
         at first use, improving debuggability.
 
@@ -3448,6 +3448,7 @@ class P2POrchestrator(
         - selfplay_scheduler: Priority-based config selection
         - job_manager: Job spawning and lifecycle management
         - training_coordinator: Training dispatch and model promotion
+        - loop_manager: Background loop orchestration (Dec 2025)
 
         Returns:
             dict with manager health status and overall healthy flag
@@ -3459,6 +3460,8 @@ class P2POrchestrator(
             ("selfplay_scheduler", self.selfplay_scheduler),
             ("job_manager", self.job_manager),
             ("training_coordinator", self.training_coordinator),
+            # December 2025: Include LoopManager in health validation
+            ("loop_manager", self._get_loop_manager()),
         ]
 
         status = {

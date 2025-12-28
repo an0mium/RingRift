@@ -436,6 +436,12 @@ def needs_export(
     feature_version: int | None = None,
     policy_encoding: str | None = None,
     force: bool = False,
+    # Quality filtering parameters (December 28, 2025)
+    min_quality: float | None = None,
+    require_completed: bool | None = None,
+    encoder_version: str | None = None,
+    include_heuristics: bool | None = None,
+    full_heuristics: bool | None = None,
 ) -> bool:
     """Check if export is needed using the default cache."""
     return get_export_cache().needs_export(
@@ -447,6 +453,11 @@ def needs_export(
         feature_version=feature_version,
         policy_encoding=policy_encoding,
         force=force,
+        min_quality=min_quality,
+        require_completed=require_completed,
+        encoder_version=encoder_version,
+        include_heuristics=include_heuristics,
+        full_heuristics=full_heuristics,
     )
 
 
@@ -460,6 +471,12 @@ def record_export(
     policy_encoding: str | None = None,
     samples_exported: int = 0,
     games_exported: int = 0,
+    # Quality filtering parameters (December 28, 2025)
+    min_quality: float | None = None,
+    require_completed: bool | None = None,
+    encoder_version: str | None = None,
+    include_heuristics: bool | None = None,
+    full_heuristics: bool | None = None,
 ) -> None:
     """Record an export using the default cache."""
     get_export_cache().record_export(
@@ -472,4 +489,9 @@ def record_export(
         policy_encoding=policy_encoding,
         samples_exported=samples_exported,
         games_exported=games_exported,
+        min_quality=min_quality,
+        require_completed=require_completed,
+        encoder_version=encoder_version,
+        include_heuristics=include_heuristics,
+        full_heuristics=full_heuristics,
     )
