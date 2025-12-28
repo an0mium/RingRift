@@ -488,6 +488,60 @@ class DeadLetterQueue:
             "session_abandoned": self._events_abandoned,
         }
 
+    def health_check(self) -> HealthCheckResult:
+        """Return health check result for DaemonManager integration.
+
+        December 2025: Added for unified health monitoring across coordinators.
+        """
+        try:
+            stats = self.get_stats()
+            details = {
+                "queue_size": stats["pending"],
+                "dead_letters_count": stats["total"],
+                "reprocessed_count": stats["session_recovered"],
+                "abandoned_count": stats["session_abandoned"],
+                "captured_count": stats["session_captured"],
+                "by_event_type": stats["by_event_type"],
+            }
+
+            # Check if queue is healthy (not too many pending items)
+            pending = stats["pending"]
+            if pending > 1000:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.DEGRADED,
+                    message=f"DeadLetterQueue has high pending count: {pending}",
+                    details=details,
+                )
+
+            # Check abandonment rate
+            total_processed = stats["session_recovered"] + stats["session_abandoned"]
+            if total_processed > 0:
+                abandon_rate = stats["session_abandoned"] / total_processed
+                if abandon_rate > 0.5:
+                    return HealthCheckResult(
+                        healthy=False,
+                        status=CoordinatorStatus.DEGRADED,
+                        message=f"DeadLetterQueue has high abandonment rate: {abandon_rate:.1%}",
+                        details=details,
+                    )
+
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"DeadLetterQueue healthy ({pending} pending, {stats['session_recovered']} recovered)",
+                details=details,
+            )
+
+        except Exception as e:
+            logger.warning(f"[DeadLetterQueue] health_check error: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
+            )
+
 
 # Global instance
 _dead_letter_queue: DeadLetterQueue | None = None

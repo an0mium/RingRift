@@ -168,6 +168,7 @@ class DaemonManager:
             update_daemon_state=self._update_daemon_state,
             running_flag_getter=lambda: self._running,
             running_flag_setter=lambda v: setattr(self, "_running", v),
+            record_restart=self.record_restart,  # Dec 2025: Restart count persistence
         )
 
         # Register callback for mark_daemon_ready() to break circular dependency (Dec 2025)

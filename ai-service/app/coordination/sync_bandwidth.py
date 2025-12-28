@@ -36,8 +36,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -46,6 +48,12 @@ from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Dec 2025: Import WAL sync utilities for database sync operations
+from app.coordination.wal_sync_utils import (
+    checkpoint_database,
+    get_rsync_include_args_for_db,
+)
 
 
 # December 2025: Provider-specific bandwidth hints (KB/s)
@@ -724,6 +732,35 @@ class BatchRsync:
                 files_from_path = f.name
 
             try:
+                # Dec 2025: Checkpoint WAL for database files before sync
+                # This ensures all transactions are in the main .db file
+                for filename in files:
+                    if filename.endswith('.db'):
+                        db_path = Path(source_dir) / filename
+                        if db_path.exists():
+                            checkpoint_database(str(db_path))
+
+                # Dec 2025: Expand file list to include WAL files for databases
+                # Without this, WAL transactions may be lost during sync
+                expanded_files = []
+                for filename in files:
+                    expanded_files.append(filename)
+                    if filename.endswith('.db'):
+                        # Add WAL companion files if they exist
+                        wal_file = filename + "-wal"
+                        shm_file = filename + "-shm"
+                        db_path = Path(source_dir)
+                        if (db_path / wal_file).exists():
+                            expanded_files.append(wal_file)
+                        if (db_path / shm_file).exists():
+                            expanded_files.append(shm_file)
+
+                # Rewrite the files-from with expanded list
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                    for filename in expanded_files:
+                        f.write(filename + '\n')
+                    files_from_path = f.name
+
                 # Build rsync command with --files-from
                 cmd = [
                     self.rsync_path,

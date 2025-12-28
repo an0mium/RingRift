@@ -20623,7 +20623,11 @@ print(json.dumps({{
 
                         # If still no leader, start election
                         if not self.leader_id:
-                            await self._start_election()
+                            # CRITICAL: Check quorum before starting election to prevent quorum bypass
+                            if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+                                logger.warning("Skipping election after bootstrap: no voter quorum available")
+                            else:
+                                await self._start_election()
                     else:
                         # Fallback: try Tailscale peer discovery
                         logger.info("Bootstrap from seeds failed, trying Tailscale discovery...")
@@ -28431,7 +28435,11 @@ print(json.dumps({{
         # If no leader known, start election after short delay
         await asyncio.sleep(5)
         if not self.leader_id and not self._maybe_adopt_leader_from_peers():
-            await self._start_election()
+            # CRITICAL: Check quorum before starting election to prevent quorum bypass
+            if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
+                logger.warning("Skipping startup election: no voter quorum available")
+            else:
+                await self._start_election()
 
         # Run forever
         # December 2025: Added return_exceptions=True to prevent task exceptions from crashing orchestrator

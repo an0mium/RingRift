@@ -233,6 +233,7 @@ class DataEventType(Enum):
     DAEMON_STARTED = "daemon_started"
     DAEMON_STOPPED = "daemon_stopped"
     DAEMON_STATUS_CHANGED = "daemon_status_changed"  # Watchdog alerts (stuck, crashed, restarted)
+    DAEMON_PERMANENTLY_FAILED = "daemon_permanently_failed"  # Dec 2025: Exceeded hourly restart limit
     HOST_ONLINE = "host_online"
     HOST_OFFLINE = "host_offline"
     ERROR = "error"

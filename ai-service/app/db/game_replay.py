@@ -733,6 +733,33 @@ class GameReplayDB:
         finally:
             conn.close()
 
+    def checkpoint_wal(self) -> tuple[int, int]:
+        """Perform WAL checkpoint to prevent unbounded WAL growth.
+
+        P1.2 Dec 2025: SQLite WAL files accumulate until checkpoint runs.
+        This method forces a TRUNCATE checkpoint to reclaim space.
+
+        Returns:
+            Tuple of (pages_before_checkpoint, pages_after_checkpoint)
+        """
+        if self._journal_mode != "WAL":
+            return (0, 0)
+
+        try:
+            with self._get_conn() as conn:
+                # TRUNCATE mode: checkpoint and truncate WAL file to zero bytes
+                result = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                if result:
+                    # Returns: (busy, log_frames, checkpointed_frames)
+                    logger.debug(
+                        f"WAL checkpoint: busy={result[0]}, "
+                        f"log_frames={result[1]}, checkpointed={result[2]}"
+                    )
+                    return (result[1], result[1] - result[2])
+        except sqlite3.Error as e:
+            logger.warning(f"WAL checkpoint failed: {e}")
+        return (0, 0)
+
     def _init_schema(self) -> None:
         """Initialize database schema with migration support."""
         with self._get_conn() as conn:

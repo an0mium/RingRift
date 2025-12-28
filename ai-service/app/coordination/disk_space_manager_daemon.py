@@ -338,6 +338,10 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
         if self._current_status.needs_cleanup and self.config.enable_cleanup:
             await self._perform_cleanup(self._current_status)
 
+        # P1.2 Dec 2025: Periodic WAL checkpoint for SQLite databases
+        # WAL files accumulate until checkpoint - run every cycle (5 min)
+        self._checkpoint_databases()
+
     async def _emit_status_events(self, status: DiskStatus) -> None:
         """Emit disk status events."""
         try:

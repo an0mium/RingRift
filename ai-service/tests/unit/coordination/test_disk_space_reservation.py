@@ -166,29 +166,31 @@ class TestDiskSpaceReservation:
 
     def test_existing_reservations_reduce_available_space(self, temp_dir, reservation_dir):
         """Test that existing reservations reduce available space."""
-        # Create first reservation
-        res1 = DiskSpaceReservation(
-            target_dir=temp_dir,
-            estimated_bytes=50 * 1024 * 1024 * 1024,  # 50GB
-            reservation_dir=reservation_dir,
-        )
-
         # Mock disk_usage to return 100GB free
         mock_usage = mock.Mock()
         mock_usage.free = 100 * 1024 * 1024 * 1024  # 100GB
 
         with mock.patch("shutil.disk_usage", return_value=mock_usage):
+            # Create first reservation (50GB + 10% margin = 55GB)
+            res1 = DiskSpaceReservation(
+                target_dir=temp_dir,
+                estimated_bytes=50 * 1024 * 1024 * 1024,  # 50GB
+                reservation_dir=reservation_dir,
+            )
             assert res1.acquire()
 
             # Create second reservation that would exceed available space
             # after accounting for first reservation
+            # First reservation reserves 55GB (50GB + 10%)
+            # Second wants 55GB (50GB + 10%)
+            # Total: 110GB > 100GB free
             res2 = DiskSpaceReservation(
                 target_dir=temp_dir,
-                estimated_bytes=60 * 1024 * 1024 * 1024,  # 60GB
+                estimated_bytes=50 * 1024 * 1024 * 1024,  # 50GB
                 reservation_dir=reservation_dir,
             )
 
-            # Should fail because 50GB reserved + 60GB needed > 100GB free
+            # Should fail because ~55GB reserved + ~55GB needed > 100GB free
             assert not res2.acquire()
 
             res1.release()
