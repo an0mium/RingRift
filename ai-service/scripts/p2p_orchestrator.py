@@ -5380,19 +5380,8 @@ class P2POrchestrator(
 
     # NOTE: _collect_local_data_manifest_legacy() removed Dec 27, 2025
     # (150 LOC dead code - was never called, SyncPlanner.collect_local_manifest used instead)
-
-    def _compute_file_hash(self, file_path: Path, chunk_size: int = 8192) -> str:
-        """Compute MD5 hash of a file for verification."""
-        import hashlib
-        md5 = hashlib.md5()
-        try:
-            with open(file_path, 'rb') as f:
-                while chunk := f.read(chunk_size):
-                    md5.update(chunk)
-            return md5.hexdigest()
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"hashing file {file_path}: {e}")
-            return ""
+    # NOTE: _compute_file_hash() removed Dec 28, 2025
+    # (12 LOC dead code - zero callers, orphaned legacy method)
 
     def _request_peer_manifest_sync(self, peer_id: str) -> NodeDataManifest | None:
         """Synchronous wrapper for requesting peer manifest.

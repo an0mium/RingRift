@@ -38,10 +38,11 @@ Used by:
 - `node_recovery.py` for auto-recovery
 - `unified_idle_shutdown_daemon.py` for cost optimization across all providers
 
-## Deprecated (December 2025)
+## Status Updates (December 2025)
 
-**Lambda Account Status**: Lambda Labs account terminated December 2025.
-The `lambda_manager.py` module remains for reference but Lambda nodes are no longer available.
+**Lambda Account Status**: Lambda Labs account restored December 28, 2025.
+6 GH200 nodes (96GB each) are now available for training workloads. The `lambda_manager.py`
+module is active again for Lambda node management.
 
 **Idle Daemon Consolidation**: `lambda_idle_daemon.py` and `vast_idle_daemon.py` have been
 consolidated into `unified_idle_shutdown_daemon.py` which provides provider-agnostic idle detection
