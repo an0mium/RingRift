@@ -1026,12 +1026,17 @@ class TrainingTriggerDaemon(HandlerBase):
             logger.debug(f"[TrainingTriggerDaemon] Could not boost selfplay: {e}")
 
     async def _signal_curriculum_advancement(self, config_key: str) -> None:
-        """Signal that curriculum should advance for a stagnant configuration."""
+        """Signal that curriculum should advance for a stagnant configuration.
+
+        Dec 29, 2025: Now emits DataEventType.CURRICULUM_ADVANCEMENT_NEEDED
+        which is handled by MomentumToCurriculumBridge._on_curriculum_advancement_needed().
+        """
         try:
             from app.coordination.event_router import publish
+            from app.distributed.data_events import DataEventType
 
             await publish(
-                event_type="CURRICULUM_ADVANCEMENT_NEEDED",
+                event_type=DataEventType.CURRICULUM_ADVANCEMENT_NEEDED,
                 payload={
                     "config_key": config_key,
                     "reason": "elo_plateau",
@@ -1042,7 +1047,10 @@ class TrainingTriggerDaemon(HandlerBase):
             logger.info(
                 f"[TrainingTriggerDaemon] Signaled curriculum advancement for {config_key}"
             )
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError) as e:
+            # ImportError: event modules not available
+            # AttributeError: DataEventType enum missing
+            # RuntimeError: publish operation failed
             logger.debug(f"[TrainingTriggerDaemon] Could not signal curriculum: {e}")
 
     async def _record_to_feedback_accelerator(

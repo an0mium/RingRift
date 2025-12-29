@@ -123,6 +123,15 @@ class CrossProcessEvent:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> CrossProcessEvent:
+        """Create a CrossProcessEvent from a SQLite row.
+
+        Args:
+            row: SQLite Row object with event_id, event_type, payload, source,
+                 created_at, and hostname columns.
+
+        Returns:
+            CrossProcessEvent instance reconstructed from the database row.
+        """
         return cls(
             event_id=row["event_id"],
             event_type=row["event_type"],

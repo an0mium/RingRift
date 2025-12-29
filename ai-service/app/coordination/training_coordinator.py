@@ -406,7 +406,11 @@ class TrainingCoordinator:
             if hasattr(DataEventType, 'MODEL_PROMOTED'):
                 bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_model_promoted)
 
-            logger.info("[TrainingCoordinator] Subscribed to cluster health, regression, rollback, quality, sync, and pipeline events")
+            # Dec 2025: Subscribe to adaptive params for real-time training adjustments
+            if hasattr(DataEventType, 'ADAPTIVE_PARAMS_CHANGED'):
+                bus.subscribe(DataEventType.ADAPTIVE_PARAMS_CHANGED, self._on_adaptive_params_changed)
+
+            logger.info("[TrainingCoordinator] Subscribed to cluster health, regression, rollback, quality, sync, pipeline, and adaptive params events")
         except Exception as e:
             logger.warning(f"[TrainingCoordinator] Failed to subscribe to cluster events: {e}")
         finally:

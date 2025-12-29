@@ -372,8 +372,15 @@ class TrainingHealthMonitor(BaseHealthMonitor):
         config_key: str | None,
         message: str,
     ) -> None:
-        """Create or update an alert."""
-        if alert_id not in self._alerts or self._alerts[alert_id].resolved_at is not None:
+        """Create or update an alert.
+
+        If the alert already exists and is not resolved, escalates severity
+        if the new severity is higher (CRITICAL > WARNING > INFO).
+        """
+        existing = self._alerts.get(alert_id)
+
+        if existing is None or existing.resolved_at is not None:
+            # Create new alert
             self._alerts[alert_id] = Alert(
                 id=alert_id,
                 severity=severity,
@@ -382,6 +389,16 @@ class TrainingHealthMonitor(BaseHealthMonitor):
                 created_at=time.time(),
             )
             logger.warning(f"Alert created: {message}")
+        elif severity == AlertSeverity.CRITICAL and existing.severity != AlertSeverity.CRITICAL:
+            # Escalate existing alert to CRITICAL
+            self._alerts[alert_id] = Alert(
+                id=alert_id,
+                severity=severity,
+                config_key=config_key,
+                message=message,
+                created_at=existing.created_at,  # Keep original creation time
+            )
+            logger.warning(f"Alert escalated to CRITICAL: {message}")
 
     def _resolve_alert(self, alert_id: str) -> None:
         """Resolve an alert."""

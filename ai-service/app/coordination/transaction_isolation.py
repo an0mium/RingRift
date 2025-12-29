@@ -651,6 +651,16 @@ class TransactionIsolation(SingletonMixin):
                 dest_path: str,
                 source_path: str | None = None,
             ) -> int:
+                """Add a file operation to the transaction.
+
+                Args:
+                    operation_type: Type of operation (copy, move, delete)
+                    dest_path: Destination file path
+                    source_path: Source file path (for copy/move)
+
+                Returns:
+                    Operation ID for tracking and completion
+                """
                 op_id = ctx_self.isolation.add_operation(
                     ctx_self.transaction_id,
                     operation_type,
@@ -665,6 +675,12 @@ class TransactionIsolation(SingletonMixin):
                 operation_id: int,
                 checksum_after: str | None = None,
             ) -> None:
+                """Mark an operation as completed within this transaction.
+
+                Args:
+                    operation_id: ID of the operation to complete
+                    checksum_after: Optional checksum of destination after operation
+                """
                 ctx_self.isolation.complete_operation(
                     ctx_self.transaction_id,
                     operation_id,

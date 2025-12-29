@@ -131,6 +131,7 @@ class DataEventType(Enum):
     # Curriculum events
     CURRICULUM_REBALANCED = "curriculum_rebalanced"
     CURRICULUM_ADVANCED = "curriculum_advanced"  # Move to harder curriculum tier
+    CURRICULUM_ADVANCEMENT_NEEDED = "curriculum_advancement_needed"  # Dec 29, 2025: Signal to advance curriculum (from stagnant Elo)
     WEIGHT_UPDATED = "weight_updated"
     ELO_SIGNIFICANT_CHANGE = "elo_significant_change"  # Triggers curriculum rebalance
 
