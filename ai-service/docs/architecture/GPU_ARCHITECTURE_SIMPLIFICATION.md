@@ -63,9 +63,11 @@ Benchmark run on 2025-12-11 with PyTorch 2.6.0 on Apple Silicon (MPS).
 
 1. **CUDA break-even**: ~10 positions (GPU faster even for small batches)
 2. **MPS break-even**: ~200-250 positions (significant overhead)
-3. **Peak speedup**: 6.56x on CUDA at batch 500
+3. **Peak speedup**: Hardware-dependent (A10: 6.5x, RTX 5090: 57x, H100: 15-30x)
 4. **Sweet spot**: Batch 200-500 for best speedup-to-overhead ratio
 5. **CPU throughput**: ~21,000 evals/sec on M-series, slower on legacy Lambda (x86_64)
+
+**Note**: The above A10 benchmark (6.56x) represents a legacy datacenter GPU. Modern GPUs show dramatically better results - RTX 5090 achieves 57x speedup at batch 200.
 
 ### 1.4 Implications for Use Cases
 

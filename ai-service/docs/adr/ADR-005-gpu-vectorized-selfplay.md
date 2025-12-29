@@ -47,7 +47,7 @@ gpu_parallel_games.py     # Main orchestrator (2,089 lines)
 
 ### Positive
 
-- **6.56x speedup** vs CPU at batch size 500 (production-ready)
+- **6-57x speedup** vs CPU depending on GPU (A10: 6.5x, RTX 5090: 57x, H100: 15-30x)
 - **100% parity** verified against TypeScript (10K seeds tested)
 - **Scales with batch size**: Larger batches = more GPU utilization
 - **Enables Gumbel MCTS**: Neural network evaluation amortized across batch
@@ -59,14 +59,16 @@ gpu_parallel_games.py     # Main orchestrator (2,089 lines)
 - **Memory pressure**: 512 games × game state tensors = significant VRAM
 - **Diminishing returns**: Beyond batch 512, CPU overhead dominates
 
-### Performance Profile
+### Performance Profile (Hardware-Dependent)
 
-| Batch Size | Speedup vs CPU | Games/Hour (H100) |
-| ---------- | -------------- | ----------------- |
-| 64         | 2.1x           | ~3,000            |
-| 128        | 3.4x           | ~5,500            |
-| 256        | 4.8x           | ~8,000            |
-| 512        | 6.5x           | ~11,000           |
+| GPU Type | Batch Size | Speedup vs CPU | Games/Hour |
+| -------- | ---------- | -------------- | ---------- |
+| A10      | 500        | 6.5x           | ~11,000    |
+| RTX 5090 | 200        | 57x            | ~95,000    |
+| H100     | 512        | 15-30x         | ~50,000    |
+| A100     | 512        | 12-20x         | ~35,000    |
+
+Note: Speedup varies significantly with GPU architecture. Modern GPUs (RTX 50xx, H100) show dramatically better results than older datacenter GPUs (A10).
 
 ## Implementation Notes
 

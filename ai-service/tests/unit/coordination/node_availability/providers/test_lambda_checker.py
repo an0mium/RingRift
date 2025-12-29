@@ -192,11 +192,11 @@ class TestLambdaCheckerGetInstanceStates:
             ]
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+        mock_session.get = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             instances = await checker.get_instance_states()
@@ -217,11 +217,11 @@ class TestLambdaCheckerGetInstanceStates:
         """Test handles API errors gracefully."""
         checker = LambdaChecker(api_key="test-key")
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 500
         mock_response.text = AsyncMock(return_value="Internal Server Error")
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+        mock_session.get = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             instances = await checker.get_instance_states()
@@ -324,11 +324,11 @@ class TestLambdaCheckerTerminatedInstances:
             ]
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.get.return_value.__aenter__.return_value = mock_response
+        mock_session.get = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         config_hosts = {
             "lambda-gh200-1": {"ssh_host": "192.168.1.100", "status": "ready"},

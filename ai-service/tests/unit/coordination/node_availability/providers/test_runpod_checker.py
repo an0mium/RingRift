@@ -181,11 +181,11 @@ class TestRunPodCheckerApiAvailability:
         """Test API available when request succeeds."""
         checker = RunPodChecker(api_key="test-key")
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={"data": {"myself": {"id": "123"}}})
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             result = await checker.check_api_availability()
@@ -197,11 +197,11 @@ class TestRunPodCheckerApiAvailability:
         """Test API not available when response has errors."""
         checker = RunPodChecker(api_key="test-key")
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value={"errors": [{"message": "Auth failed"}]})
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             result = await checker.check_api_availability()
@@ -213,10 +213,10 @@ class TestRunPodCheckerApiAvailability:
         """Test API not available when status is not 200."""
         checker = RunPodChecker(api_key="test-key")
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 401
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             result = await checker.check_api_availability()
@@ -288,11 +288,11 @@ class TestRunPodCheckerGetInstanceStates:
             }
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             instances = await checker.get_instance_states()
@@ -316,11 +316,11 @@ class TestRunPodCheckerGetInstanceStates:
         """Test handles API errors gracefully."""
         checker = RunPodChecker(api_key="test-key")
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 500
         mock_response.text = AsyncMock(return_value="Internal Server Error")
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             instances = await checker.get_instance_states()
@@ -337,11 +337,11 @@ class TestRunPodCheckerGetInstanceStates:
             "errors": [{"message": "Unauthorized"}]
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             instances = await checker.get_instance_states()
@@ -370,11 +370,11 @@ class TestRunPodCheckerGetInstanceStates:
             }
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         with patch.object(checker, "_get_session", return_value=mock_session):
             instances = await checker.get_instance_states()
@@ -553,11 +553,11 @@ class TestRunPodCheckerTerminatedInstances:
             }
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         config_hosts = {
             "runpod-h100": {"ssh_host": "192.168.1.100", "status": "ready"},
@@ -599,11 +599,11 @@ class TestRunPodCheckerTerminatedInstances:
             }
         }
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(return_value=mock_response_data)
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         config_hosts = {
             "runpod-h100": {"ssh_host": "192.168.1.100", "status": "ready"},  # IP matches
@@ -621,11 +621,11 @@ class TestRunPodCheckerTerminatedInstances:
         """Test handles API failure gracefully."""
         checker = RunPodChecker(api_key="test-key")
 
-        mock_session = AsyncMock()
+        mock_session = MagicMock()
         mock_response = AsyncMock()
         mock_response.status = 500
         mock_response.text = AsyncMock(return_value="Error")
-        mock_session.post.return_value.__aenter__.return_value = mock_response
+        mock_session.post = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_response)))
 
         config_hosts = {
             "runpod-h100": {"status": "ready"},

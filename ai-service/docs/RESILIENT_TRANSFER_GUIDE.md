@@ -210,14 +210,14 @@ PROVIDER_BANDWIDTH_HINTS = {
 }
 ```
 
-The `cluster_data_sync.py` daemon automatically applies per-provider limits:
+The AutoSyncDaemon broadcast strategy (`auto_sync_daemon.py` + `sync_push_mixin.py`) automatically applies per-provider limits:
 
 ```python
-from app.coordination.cluster_data_sync import get_bandwidth_for_node
+from app.coordination.auto_sync_daemon import get_cluster_data_sync_daemon
 
-# Automatically detects provider from node_id
-node = EligibleSyncNode(node_id="nebius-h100-1", host="10.0.0.1", ...)
-bandwidth = get_bandwidth_for_node(node)  # Returns 50000 for Nebius
+# Broadcast strategy daemon exposes get_bandwidth_for_node()
+daemon = get_cluster_data_sync_daemon()
+bandwidth = daemon.get_bandwidth_for_node("nebius-h100-1", provider="nebius")  # 50000 for Nebius
 ```
 
 ## Quarantine Mechanism
@@ -364,20 +364,20 @@ if not health.healthy:
 
 ## Related Files
 
-| File                                            | Purpose                            |
-| ----------------------------------------------- | ---------------------------------- |
-| `app/distributed/sync_utils.py`                 | Verified rsync functions           |
-| `app/coordination/npz_validation.py`            | NPZ structure validation           |
-| `app/distributed/aria2_transport.py`            | BitTorrent + HTTP transport        |
-| `app/distributed/resilient_transfer.py`         | Unified transfer abstraction       |
-| `app/coordination/model_distribution_daemon.py` | Model distribution with BT         |
-| `app/coordination/sync_bandwidth.py`            | Provider bandwidth hints           |
-| `app/coordination/cluster_data_sync.py`         | Cluster data sync daemon           |
-| `app/coordination/sync_integrity.py`            | Integrity verification utilities   |
-| `scripts/cluster_file_sync.py`                  | CLI file sync with verification    |
-| `scripts/auto_deploy_models.py`                 | Model deployment with verification |
-| `scripts/auto_promote.py`                       | Model promotion with verification  |
-| `scripts/export_replay_dataset.py`              | NPZ export with validation         |
+| File                                              | Purpose                            |
+| ------------------------------------------------- | ---------------------------------- |
+| `app/distributed/sync_utils.py`                   | Verified rsync functions           |
+| `app/coordination/npz_validation.py`              | NPZ structure validation           |
+| `app/distributed/aria2_transport.py`              | BitTorrent + HTTP transport        |
+| `app/distributed/resilient_transfer.py`           | Unified transfer abstraction       |
+| `app/coordination/unified_distribution_daemon.py` | Model distribution with BT         |
+| `app/coordination/sync_bandwidth.py`              | Provider bandwidth hints           |
+| `app/coordination/auto_sync_daemon.py`            | Cluster data sync (broadcast)      |
+| `app/coordination/sync_integrity.py`              | Integrity verification utilities   |
+| `scripts/cluster_file_sync.py`                    | CLI file sync with verification    |
+| `scripts/auto_deploy_models.py`                   | Model deployment with verification |
+| `scripts/auto_promote.py`                         | Model promotion with verification  |
+| `scripts/export_replay_dataset.py`                | NPZ export with validation         |
 
 ## Changelog
 
@@ -388,7 +388,7 @@ if not health.healthy:
 - Created resilient_transfer.py unified abstraction
 - Added BitTorrent preference for large files (>50MB)
 - Updated model_distribution_daemon with BitTorrent support
-- Added per-provider bandwidth limits to cluster_data_sync.py
+- Added per-provider bandwidth limits to sync_push_mixin.py (AutoSyncDaemon broadcast strategy)
 - Updated auto_deploy_models.py and auto_promote.py to use verified rsync
 - Added NPZ validation after export in export_replay_dataset.py
 - Added checksum verification to cluster_file_sync.py

@@ -37,14 +37,14 @@
 
 ### Sync Components (All Implemented)
 
-| Component                    | Purpose                             | Status                   |
-| ---------------------------- | ----------------------------------- | ------------------------ |
-| `auto_sync_daemon.py`        | P2P gossip sync                     | Code exists, not running |
-| `cluster_data_sync.py`       | Push to cluster nodes               | Code exists, not running |
-| `ephemeral_sync.py`          | Aggressive Vast.ai sync             | Code exists, not running |
-| `s3_backup_daemon.py`        | S3 model backup                     | Code exists, not running |
-| `unified_data_sync.py`       | External drive sync (RingRift-Data) | Active service           |
-| `npz_distribution_daemon.py` | Training data distribution          | Code exists, not running |
+| Component                        | Purpose                             | Status                   |
+| -------------------------------- | ----------------------------------- | ------------------------ |
+| `auto_sync_daemon.py`            | P2P gossip sync (HYBRID)            | Code exists, not running |
+| `auto_sync_daemon.py`            | Push to cluster nodes (BROADCAST)   | Code exists, not running |
+| `auto_sync_daemon.py`            | Aggressive Vast.ai sync (EPHEMERAL) | Code exists, not running |
+| `s3_backup_daemon.py`            | S3 model backup                     | Code exists, not running |
+| `unified_data_sync.py`           | External drive sync (RingRift-Data) | Active service           |
+| `unified_distribution_daemon.py` | Training data distribution          | Code exists, not running |
 
 ### Data Flow Paths
 

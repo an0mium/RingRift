@@ -11,27 +11,27 @@ This document consolidates all deprecated modules across the RingRift AI service
 
 ### Coordination Layer (`app/coordination/`)
 
-| Deprecated Module                    | Replacement                                         | Status    | Removal |
-| ------------------------------------ | --------------------------------------------------- | --------- | ------- |
-| `auto_evaluation_daemon.py`          | `evaluation_daemon.py` + `auto_promotion_daemon.py` | Archived  | Q2 2026 |
-| `cluster_data_sync.py`               | `AutoSyncDaemon(strategy="broadcast")`              | Warning   | Q2 2026 |
-| `cross_process_events.py`            | `event_router.py`                                   | Warning   | Q2 2026 |
-| `ephemeral_sync.py`                  | `AutoSyncDaemon(strategy="ephemeral")`              | Warning   | Q2 2026 |
-| `event_emitters.py`                  | `event_router.py`                                   | Warning   | Q2 2026 |
-| `health_check_orchestrator.py` (old) | `cluster/health.py` → `UnifiedHealthManager`        | Warning   | Q2 2026 |
-| `lambda_idle_daemon.py`              | `unified_idle_shutdown_daemon.py`                   | Archived  | Q2 2026 |
-| `model_distribution_daemon.py`       | `unified_distribution_daemon.py`                    | Archived  | Q2 2026 |
-| `node_health_monitor.py`             | `health_check_orchestrator.py`                      | Archived  | Q2 2026 |
-| `npz_distribution_daemon.py`         | `unified_distribution_daemon.py`                    | Archived  | Q2 2026 |
-| `queue_populator.py` (original)      | `unified_queue_populator.py`                        | Re-export | Q2 2026 |
-| `queue_populator_daemon.py`          | `unified_queue_populator.py`                        | Archived  | Q2 2026 |
-| `replication_monitor.py`             | `unified_replication_daemon.py`                     | Archived  | Q2 2026 |
-| `replication_repair_daemon.py`       | `unified_replication_daemon.py`                     | Archived  | Q2 2026 |
-| `sync_coordination_core.py`          | `auto_sync_daemon.py` + `sync_router.py`            | Archived  | Q2 2026 |
-| `sync_coordinator.py`                | `auto_sync_daemon.py` + `sync_facade.py`            | Archived  | Q2 2026 |
-| `system_health_monitor.py`           | `unified_health_manager.py`                         | Warning   | Q2 2026 |
-| `unified_event_coordinator.py`       | `event_router.py`                                   | Archived  | Q2 2026 |
-| `vast_idle_daemon.py`                | `unified_idle_shutdown_daemon.py`                   | Archived  | Q2 2026 |
+| Deprecated Module                    | Replacement                                         | Status    | Removal  |
+| ------------------------------------ | --------------------------------------------------- | --------- | -------- |
+| `auto_evaluation_daemon.py`          | `evaluation_daemon.py` + `auto_promotion_daemon.py` | Archived  | Q2 2026  |
+| `cluster_data_sync.py`               | `AutoSyncDaemon(strategy="broadcast")`              | Removed   | Dec 2025 |
+| `cross_process_events.py`            | `event_router.py`                                   | Warning   | Q2 2026  |
+| `ephemeral_sync.py`                  | `AutoSyncDaemon(strategy="ephemeral")`              | Removed   | Dec 2025 |
+| `event_emitters.py`                  | `event_router.py`                                   | Warning   | Q2 2026  |
+| `health_check_orchestrator.py` (old) | `cluster/health.py` → `UnifiedHealthManager`        | Warning   | Q2 2026  |
+| `lambda_idle_daemon.py`              | `unified_idle_shutdown_daemon.py`                   | Archived  | Q2 2026  |
+| `model_distribution_daemon.py`       | `unified_distribution_daemon.py`                    | Archived  | Q2 2026  |
+| `node_health_monitor.py`             | `health_check_orchestrator.py`                      | Removed   | Dec 2025 |
+| `npz_distribution_daemon.py`         | `unified_distribution_daemon.py`                    | Archived  | Q2 2026  |
+| `queue_populator.py` (original)      | `unified_queue_populator.py`                        | Re-export | Q2 2026  |
+| `queue_populator_daemon.py`          | `unified_queue_populator.py`                        | Archived  | Q2 2026  |
+| `replication_monitor.py`             | `unified_replication_daemon.py`                     | Archived  | Q2 2026  |
+| `replication_repair_daemon.py`       | `unified_replication_daemon.py`                     | Archived  | Q2 2026  |
+| `sync_coordination_core.py`          | `auto_sync_daemon.py` + `sync_router.py`            | Removed   | Dec 2025 |
+| `sync_coordinator.py`                | `auto_sync_daemon.py` + `sync_facade.py`            | Warning   | Q2 2026  |
+| `system_health_monitor.py`           | `unified_health_manager.py`                         | Removed   | Dec 2025 |
+| `unified_event_coordinator.py`       | `event_router.py`                                   | Archived  | Q2 2026  |
+| `vast_idle_daemon.py`                | `unified_idle_shutdown_daemon.py`                   | Archived  | Q2 2026  |
 
 ### Distributed Layer (`app/distributed/`)
 

@@ -9,13 +9,13 @@
 
 ### Coordination Module Deprecations (December 2025)
 
-| Module                                      | Status     | Deprecation Date | Target Removal | Replacement                            |
-| ------------------------------------------- | ---------- | ---------------- | -------------- | -------------------------------------- |
-| `app/coordination/node_health_monitor.py`   | Deprecated | Dec 2025         | Q2 2026        | `health_check_orchestrator.py`         |
-| `app/coordination/sync_coordinator.py`      | Deprecated | Dec 2025         | Q2 2026        | `auto_sync_daemon.py`                  |
-| `app/coordination/system_health_monitor.py` | Deprecated | Dec 2025         | Q2 2026        | `unified_health_manager.py`            |
-| `app/coordination/cluster_data_sync.py`     | Deprecated | Dec 2025         | Q2 2026        | `AutoSyncDaemon(strategy="broadcast")` |
-| `app/coordination/ephemeral_sync.py`        | Deprecated | Dec 2025         | Q2 2026        | `AutoSyncDaemon(strategy="ephemeral")` |
+| Module                                      | Status             | Deprecation Date | Target Removal   | Replacement                                                   |
+| ------------------------------------------- | ------------------ | ---------------- | ---------------- | ------------------------------------------------------------- |
+| `app/coordination/node_health_monitor.py`   | Archived (removed) | Dec 2025         | Removed Dec 2025 | `health_check_orchestrator.py`                                |
+| `app/coordination/sync_coordinator.py`      | Deprecated         | Dec 2025         | Q2 2026          | `auto_sync_daemon.py` + `app/distributed/sync_coordinator.py` |
+| `app/coordination/system_health_monitor.py` | Archived (removed) | Dec 2025         | Removed Dec 2025 | `unified_health_manager.py`                                   |
+| `app/coordination/cluster_data_sync.py`     | Archived (removed) | Dec 2025         | Removed Dec 2025 | `AutoSyncDaemon(strategy="broadcast")`                        |
+| `app/coordination/ephemeral_sync.py`        | Archived (removed) | Dec 2025         | Removed Dec 2025 | `AutoSyncDaemon(strategy="ephemeral")`                        |
 
 ### Training Module Deprecations (December 2025)
 

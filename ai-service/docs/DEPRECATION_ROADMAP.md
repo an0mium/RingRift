@@ -23,16 +23,16 @@ This document tracks all deprecated modules, functions, and exports scheduled fo
 
 ### Coordination Modules
 
-| Module                                       | Replacement                            | Status     | Notes                                                |
-| -------------------------------------------- | -------------------------------------- | ---------- | ---------------------------------------------------- |
-| `app/coordination/sync_coordinator.py`       | `app/coordination/sync_scheduler.py`   | DEPRECATED | No active callers                                    |
-| `app/coordination/cluster_data_sync.py`      | `AutoSyncDaemon(strategy="broadcast")` | DEPRECATED | Has callers in daemon_manager.py                     |
-| `app/coordination/ephemeral_sync.py`         | `AutoSyncDaemon(strategy="ephemeral")` | DEPRECATED | Has callers in daemon_manager.py, selfplay_runner.py |
-| `app/coordination/system_health_monitor.py`  | `unified_health_manager.py`            | DEPRECATED | Has callers in daemon_manager.py                     |
-| `app/coordination/node_health_monitor.py`    | `health_check_orchestrator.py`         | DEPRECATED | No active callers                                    |
-| `app/coordination/queue_populator.py`        | `unified_queue_populator.py`           | DEPRECATED | Re-export wrapper with deprecation warning           |
-| `app/coordination/resources/*`               | Direct imports from source modules     | ARCHIVED   | Moved to archive Dec 2025                            |
-| `app/coordination/auto_evaluation_daemon.py` | `evaluation_daemon.py`                 | ARCHIVED   | Moved to archive Dec 2025                            |
+| Module                                       | Replacement                                                   | Status     | Notes                                                                |
+| -------------------------------------------- | ------------------------------------------------------------- | ---------- | -------------------------------------------------------------------- |
+| `app/coordination/sync_coordinator.py`       | `auto_sync_daemon.py` + `app/distributed/sync_coordinator.py` | DEPRECATED | Scheduling → AutoSyncDaemon, execution → distributed SyncCoordinator |
+| `app/coordination/cluster_data_sync.py`      | `AutoSyncDaemon(strategy="broadcast")`                        | ARCHIVED   | Module removed; legacy daemon type only                              |
+| `app/coordination/ephemeral_sync.py`         | `AutoSyncDaemon(strategy="ephemeral")`                        | ARCHIVED   | Module removed; legacy daemon type only                              |
+| `app/coordination/system_health_monitor.py`  | `unified_health_manager.py`                                   | ARCHIVED   | Module removed; health facade aliases remain                         |
+| `app/coordination/node_health_monitor.py`    | `health_check_orchestrator.py`                                | ARCHIVED   | Module removed; health facade aliases remain                         |
+| `app/coordination/queue_populator.py`        | `unified_queue_populator.py`                                  | DEPRECATED | Re-export wrapper with deprecation warning                           |
+| `app/coordination/resources/*`               | Direct imports from source modules                            | ARCHIVED   | Moved to archive Dec 2025                                            |
+| `app/coordination/auto_evaluation_daemon.py` | `evaluation_daemon.py`                                        | ARCHIVED   | Moved to archive Dec 2025                                            |
 
 ### Daemon Types
 
