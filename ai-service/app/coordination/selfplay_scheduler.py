@@ -105,6 +105,9 @@ from app.coordination.priority_calculator import (
     VOI_SAMPLE_COST_BY_BOARD,
 )
 
+# December 2025: NodeCapability extracted to node_allocator.py
+from app.coordination.node_allocator import NodeCapability
+
 # December 2025: Budget calculation extracted to budget_calculator.py
 from app.coordination.budget_calculator import (
     get_adaptive_budget_for_elo as _get_budget_for_elo,

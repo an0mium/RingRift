@@ -1131,3 +1131,604 @@ class TestTournamentResultSaving:
 
         assert saved_data["tournament_id"] == result.tournament_id
         assert len(saved_data["participants"]) == 2
+
+
+# =============================================================================
+# Additional Tests for Edge Cases and Error Conditions
+# =============================================================================
+
+
+class TestBinomialCoefficientAdvanced:
+    """Additional tests for binomial coefficient edge cases."""
+
+    def test_large_values(self):
+        """Test binomial coefficient with larger values."""
+        # C(20, 10) = 184756
+        assert _binomial_coefficient(20, 10) == 184756
+        # C(15, 5) = 3003
+        assert _binomial_coefficient(15, 5) == 3003
+
+    def test_pascal_identity(self):
+        """Test Pascal's identity: C(n,k) = C(n-1,k-1) + C(n-1,k)."""
+        for n in range(5, 15):
+            for k in range(1, n):
+                assert _binomial_coefficient(n, k) == (
+                    _binomial_coefficient(n - 1, k - 1) +
+                    _binomial_coefficient(n - 1, k)
+                )
+
+
+class TestBinomialPValueAdvanced:
+    """Additional tests for binomial p-value edge cases."""
+
+    def test_single_trial_win(self):
+        """Test p-value with single trial that is a win."""
+        # 1 win in 1 trial under p=0.5 gives p=0.5
+        p_value = calculate_binomial_p_value(1, 1, 0.5)
+        assert abs(p_value - 0.5) < 0.001
+
+    def test_single_trial_loss(self):
+        """Test p-value with single trial that is a loss."""
+        # 0 wins in 1 trial under p=0.5 gives p=1.0
+        p_value = calculate_binomial_p_value(0, 1, 0.5)
+        assert p_value == 1.0
+
+    def test_extreme_null_probability(self):
+        """Test p-value with extreme null probabilities."""
+        # 5 wins out of 10 with p=0.1 (very unlikely)
+        p_value = calculate_binomial_p_value(5, 10, 0.1)
+        assert p_value < 0.001
+
+        # 5 wins out of 10 with p=0.9 (expected to have more)
+        p_value = calculate_binomial_p_value(5, 10, 0.9)
+        assert p_value > 0.95
+
+
+class TestEloChangeAdvanced:
+    """Additional tests for Elo change calculations."""
+
+    def test_extreme_rating_difference(self):
+        """Test Elo change with extreme rating difference."""
+        # Very large rating difference
+        new_a, new_b = calculate_elo_change(2000.0, 1000.0, 0.0, k_factor=32.0)
+        # Lower rated upset - large gain
+        assert new_b > 1000.0 + 30  # Huge gain for 1000-point upset
+
+    def test_zero_k_factor(self):
+        """Test Elo change with zero k-factor (no rating change)."""
+        new_a, new_b = calculate_elo_change(1500.0, 1500.0, 1.0, k_factor=0.0)
+        assert new_a == 1500.0
+        assert new_b == 1500.0
+
+    def test_small_k_factor(self):
+        """Test Elo change with small k-factor."""
+        new_a, new_b = calculate_elo_change(1500.0, 1500.0, 1.0, k_factor=1.0)
+        # Changes should be very small (0.5 each)
+        assert abs(new_a - 1500.5) < 0.01
+        assert abs(new_b - 1499.5) < 0.01
+
+
+class TestExpectedScoreAdvanced:
+    """Additional tests for expected score calculations."""
+
+    def test_very_large_difference(self):
+        """Test expected score with 1000+ point difference."""
+        # 1000 point difference
+        exp = expected_score(2500.0, 1500.0)
+        assert exp > 0.99
+
+        exp = expected_score(1500.0, 2500.0)
+        assert exp < 0.01
+
+    def test_moderate_difference(self):
+        """Test expected score with moderate rating difference."""
+        # 100 point difference
+        exp = expected_score(1600.0, 1500.0)
+        assert 0.6 < exp < 0.7  # About 64%
+
+
+class TestRegisteredModelAdvanced:
+    """Additional tests for RegisteredModel edge cases."""
+
+    def test_serialization_roundtrip(self, sample_metadata):
+        """Test complete serialization roundtrip."""
+        original = RegisteredModel(
+            model_id="roundtrip_test",
+            model_path="/path/to/model.pth",
+            metadata=sample_metadata,
+            elo_rating=1623.5,
+            registered_at="2025-12-29T10:30:00+00:00",
+            is_champion=True,
+            games_played=150,
+            wins=90,
+            losses=50,
+            draws=10,
+        )
+
+        # Convert to dict and back
+        data = original.to_dict()
+        restored = RegisteredModel.from_dict(data)
+
+        assert restored.model_id == original.model_id
+        assert restored.model_path == original.model_path
+        assert restored.elo_rating == original.elo_rating
+        assert restored.is_champion == original.is_champion
+        assert restored.games_played == original.games_played
+        assert restored.wins == original.wins
+        assert restored.losses == original.losses
+        assert restored.draws == original.draws
+
+    def test_win_rate_all_draws(self, sample_metadata):
+        """Test win rate when all games are draws."""
+        model = RegisteredModel(
+            model_id="draws_test",
+            model_path="/path",
+            metadata=sample_metadata,
+            games_played=100,
+            wins=0,
+            losses=0,
+            draws=100,
+        )
+        assert model.win_rate == 0.0
+
+
+class TestMatchResultAdvanced:
+    """Additional tests for MatchResult edge cases."""
+
+    def test_custom_played_at(self):
+        """Test MatchResult with custom played_at time."""
+        custom_time = "2025-01-01T12:30:00+00:00"
+        result = MatchResult(
+            model_a_id="a",
+            model_b_id="b",
+            winner_id="a",
+            victory_reason="territory",
+            game_number=5,
+            played_at=custom_time,
+        )
+        assert result.played_at == custom_time
+
+
+class TestTournamentResultAdvanced:
+    """Additional tests for TournamentResult edge cases."""
+
+    def test_empty_matches(self):
+        """Test TournamentResult with no matches."""
+        result = TournamentResult(
+            tournament_id="empty_001",
+            participants=["a", "b"],
+            matches=[],
+            final_elo_ratings={"a": 1500.0, "b": 1500.0},
+            final_standings=[("a", 1500.0), ("b", 1500.0)],
+            started_at="2025-12-29T10:00:00+00:00",
+        )
+        data = result.to_dict()
+        assert len(data["matches"]) == 0
+
+    def test_many_participants(self):
+        """Test TournamentResult with many participants."""
+        participants = [f"model_{i}" for i in range(10)]
+        result = TournamentResult(
+            tournament_id="many_participants",
+            participants=participants,
+            matches=[],
+            final_elo_ratings={p: 1500.0 + i * 10 for i, p in enumerate(participants)},
+            final_standings=[(p, 1500.0 + (9 - i) * 10) for i, p in enumerate(participants)],
+            started_at="2025-12-29T10:00:00+00:00",
+        )
+        assert len(result.participants) == 10
+
+
+class TestChallengerResultAdvanced:
+    """Additional tests for ChallengerResult edge cases."""
+
+    def test_all_draws_challenge(self):
+        """Test ChallengerResult when all games are draws."""
+        result = ChallengerResult(
+            challenger_id="challenger",
+            champion_id="champion",
+            challenger_wins=0,
+            champion_wins=0,
+            draws=50,
+            total_games=50,
+            challenger_win_rate=0.5,  # Convention for all draws
+            champion_win_rate=0.5,
+            statistical_p_value=1.0,
+            is_statistically_significant=False,
+            challenger_final_elo=1500.0,
+            champion_final_elo=1500.0,
+            should_promote=False,
+        )
+        assert result.draws == 50
+        assert not result.should_promote
+
+
+class TestAutoTournamentPipelineAdvanced:
+    """Additional advanced tests for AutoTournamentPipeline."""
+
+    def test_register_model_relative_path(self, temp_dirs, sample_metadata):
+        """Test registering model with relative path."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        # Create model in models_dir
+        model_name = "relative_model.pth"
+        model_path = os.path.join(models_dir, model_name)
+        with open(model_path, "wb") as f:
+            f.write(b"model data")
+
+        # Register with relative path (just filename)
+        model_id = pipeline.register_model(model_name, metadata=sample_metadata)
+
+        assert model_id in pipeline._models
+        assert pipeline._models[model_id].model_path == model_path
+
+    def test_corrupted_registry_graceful_handling(self, temp_dirs):
+        """Test graceful handling of corrupted registry."""
+        models_dir, results_dir = temp_dirs
+        registry_file = os.path.join(results_dir, "model_registry.json")
+
+        # Write invalid JSON
+        with open(registry_file, "w") as f:
+            f.write("{ invalid json }")
+
+        # Should not raise, just log warning
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+        assert len(pipeline._models) == 0
+
+    def test_registry_with_malformed_model_data(self, temp_dirs, sample_metadata):
+        """Test handling of registry with malformed model data."""
+        models_dir, results_dir = temp_dirs
+        registry_file = os.path.join(results_dir, "model_registry.json")
+
+        # Write registry with partial/malformed data
+        with open(registry_file, "w") as f:
+            json.dump({
+                "models": {
+                    "bad_model": {
+                        "model_id": "bad_model",
+                        # Missing required fields
+                    }
+                }
+            }, f)
+
+        # Should handle gracefully
+        with pytest.raises(Exception):  # Will raise due to missing fields
+            AutoTournamentPipeline(models_dir, results_dir)
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_tournament_with_many_games(
+        self, mock_tournament_class, temp_dirs,
+        mock_model_file, mock_model_file_2,
+        sample_metadata, sample_metadata_2
+    ):
+        """Test tournament with many games per match."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        pipeline.register_model(mock_model_file, metadata=sample_metadata)
+        pipeline.register_model(mock_model_file_2, metadata=sample_metadata_2)
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1550.0, "B": 1450.0}
+        mock_tournament.victory_reasons = {"territory": 40, "rings": 55, "unknown": 5}
+        mock_tournament.run.return_value = {"A": 60, "B": 35, "Draw": 5}
+        mock_tournament_class.return_value = mock_tournament
+
+        result = pipeline.run_tournament(games_per_match=100)
+
+        assert len(result.matches) == 100
+        assert result.victory_reasons["territory"] == 40
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_tournament_updates_statistics(
+        self, mock_tournament_class, temp_dirs,
+        mock_model_file, mock_model_file_2,
+        sample_metadata, sample_metadata_2
+    ):
+        """Test that tournament updates game statistics."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        model_id_1 = pipeline.register_model(mock_model_file, metadata=sample_metadata)
+        model_id_2 = pipeline.register_model(mock_model_file_2, metadata=sample_metadata_2)
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1520.0, "B": 1480.0}
+        mock_tournament.victory_reasons = {}
+        mock_tournament.run.return_value = {"A": 6, "B": 3, "Draw": 1}
+        mock_tournament_class.return_value = mock_tournament
+
+        pipeline.run_tournament(games_per_match=10)
+
+        # Check statistics were updated
+        model_1 = pipeline._models[model_id_1]
+        model_2 = pipeline._models[model_id_2]
+
+        assert model_1.games_played == 10
+        assert model_2.games_played == 10
+        # Note: wins/losses depend on which model is "A" vs "B"
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_evaluate_challenger_updates_statistics(
+        self, mock_tournament_class, temp_dirs,
+        mock_model_file, mock_model_file_2,
+        sample_metadata, sample_metadata_2
+    ):
+        """Test challenger evaluation updates statistics."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        champion_id = pipeline.register_model(mock_model_file, metadata=sample_metadata)
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1510.0, "B": 1490.0}
+        mock_tournament.victory_reasons = {}
+        mock_tournament.run.return_value = {"A": 5, "B": 4, "Draw": 1}
+        mock_tournament_class.return_value = mock_tournament
+
+        result = pipeline.evaluate_challenger(
+            mock_model_file_2,
+            games=10,
+            challenger_metadata=sample_metadata_2,
+        )
+
+        # Champion should have updated statistics
+        champion = pipeline._models[champion_id]
+        assert champion.games_played == 10
+
+    def test_report_with_tournament_history(
+        self, temp_dirs, mock_model_file, mock_model_file_2,
+        sample_metadata, sample_metadata_2
+    ):
+        """Test report includes tournament history."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        model_id_1 = pipeline.register_model(mock_model_file, metadata=sample_metadata)
+        model_id_2 = pipeline.register_model(mock_model_file_2, metadata=sample_metadata_2)
+
+        # Add tournament history manually
+        pipeline._tournament_history.append(
+            TournamentResult(
+                tournament_id="history_tournament_001",
+                participants=[model_id_1, model_id_2],
+                matches=[],
+                final_elo_ratings={model_id_1: 1520.0, model_id_2: 1480.0},
+                final_standings=[(model_id_1, 1520.0), (model_id_2, 1480.0)],
+                started_at="2025-12-28T10:00:00+00:00",
+                finished_at="2025-12-28T11:00:00+00:00",
+                victory_reasons={"territory": 5, "rings": 3},
+            )
+        )
+
+        report = pipeline.generate_report()
+
+        assert "## Tournament History" in report
+        assert "history_tournament_001" in report
+
+    def test_report_victory_types_aggregation(
+        self, temp_dirs, mock_model_file, sample_metadata
+    ):
+        """Test report aggregates victory types from all tournaments."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        pipeline.register_model(mock_model_file, metadata=sample_metadata)
+
+        # Add multiple tournaments with victory reasons
+        for i in range(3):
+            pipeline._tournament_history.append(
+                TournamentResult(
+                    tournament_id=f"agg_tournament_{i}",
+                    participants=["a"],
+                    matches=[],
+                    final_elo_ratings={"a": 1500.0},
+                    final_standings=[("a", 1500.0)],
+                    started_at="2025-12-28T10:00:00+00:00",
+                    victory_reasons={"territory": 10, "ring_elimination": 5},
+                )
+            )
+
+        report = pipeline.generate_report()
+
+        assert "## Victory Types" in report
+
+    def test_save_report_auto_filename(
+        self, temp_dirs, mock_model_file, sample_metadata
+    ):
+        """Test save_report generates timestamped filename."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        pipeline.register_model(mock_model_file, metadata=sample_metadata)
+
+        # Save without filename
+        report_path = pipeline.save_report()
+
+        assert os.path.exists(report_path)
+        assert report_path.endswith(".md")
+        assert "report_" in os.path.basename(report_path)
+
+
+class TestAutoTournamentPipelineSpecificParticipants:
+    """Tests for tournament with specific participant list."""
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_tournament_with_subset_of_models(
+        self, mock_tournament_class, temp_dirs,
+        sample_metadata
+    ):
+        """Test running tournament with only some registered models."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        # Create 4 models
+        model_ids = []
+        for i in range(4):
+            path = os.path.join(models_dir, f"model_{i}.pth")
+            with open(path, "wb") as f:
+                f.write(f"model {i}".encode())
+            meta = ModelMetadata(
+                model_class="TestNet",
+                architecture_version="1.0.0",
+                checksum=f"checksum{i}" * 8,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            model_ids.append(pipeline.register_model(path, metadata=meta))
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1510.0, "B": 1490.0}
+        mock_tournament.victory_reasons = {}
+        mock_tournament.run.return_value = {"A": 3, "B": 2, "Draw": 0}
+        mock_tournament_class.return_value = mock_tournament
+
+        # Run tournament with only first 2 models
+        result = pipeline.run_tournament(
+            participants=[model_ids[0], model_ids[1]],
+            games_per_match=5,
+        )
+
+        assert len(result.participants) == 2
+        assert model_ids[0] in result.participants
+        assert model_ids[1] in result.participants
+        assert model_ids[2] not in result.participants
+        assert model_ids[3] not in result.participants
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_tournament_filters_invalid_participants(
+        self, mock_tournament_class, temp_dirs, sample_metadata
+    ):
+        """Test that invalid participant IDs are filtered out."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        # Create 2 models
+        path1 = os.path.join(models_dir, "model_1.pth")
+        path2 = os.path.join(models_dir, "model_2.pth")
+        for path in [path1, path2]:
+            with open(path, "wb") as f:
+                f.write(b"model")
+
+        meta1 = ModelMetadata(
+            model_class="TestNet",
+            architecture_version="1.0.0",
+            checksum="checksum1" * 8,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        meta2 = ModelMetadata(
+            model_class="TestNet",
+            architecture_version="1.0.0",
+            checksum="checksum2" * 8,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        id1 = pipeline.register_model(path1, metadata=meta1)
+        id2 = pipeline.register_model(path2, metadata=meta2)
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1510.0, "B": 1490.0}
+        mock_tournament.victory_reasons = {}
+        mock_tournament.run.return_value = {"A": 3, "B": 2, "Draw": 0}
+        mock_tournament_class.return_value = mock_tournament
+
+        # Include an invalid participant ID
+        result = pipeline.run_tournament(
+            participants=[id1, id2, "nonexistent_model"],
+            games_per_match=5,
+        )
+
+        # Should only include valid participants
+        assert len(result.participants) == 2
+        assert "nonexistent_model" not in result.participants
+
+
+class TestAutoTournamentPipelineConstants:
+    """Tests for pipeline constants and thresholds."""
+
+    def test_default_constants(self, temp_dirs):
+        """Test that default constants are set correctly."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        # Check that constants are defined
+        assert hasattr(pipeline, "WIN_RATE_THRESHOLD")
+        assert hasattr(pipeline, "PROMOTION_SIGNIFICANCE_LEVEL")
+        assert hasattr(pipeline, "DEFAULT_ELO")
+        assert hasattr(pipeline, "ELO_K")
+
+        # Check reasonable values
+        assert 0.5 <= pipeline.WIN_RATE_THRESHOLD <= 0.7
+        assert 0.01 <= pipeline.PROMOTION_SIGNIFICANCE_LEVEL <= 0.1
+        assert pipeline.DEFAULT_ELO == 1500.0
+        assert pipeline.ELO_K == 32.0
+
+
+class TestChallengerEvaluationEdgeCases:
+    """Edge case tests for challenger evaluation."""
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_challenger_with_all_draws_decision(
+        self, mock_tournament_class, temp_dirs,
+        mock_model_file, mock_model_file_2,
+        sample_metadata, sample_metadata_2
+    ):
+        """Test challenger evaluation when all games are draws."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        pipeline.register_model(mock_model_file, metadata=sample_metadata)
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1500.0, "B": 1500.0}
+        mock_tournament.victory_reasons = {}
+        mock_tournament.run.return_value = {"A": 0, "B": 0, "Draw": 50}
+        mock_tournament_class.return_value = mock_tournament
+
+        result = pipeline.evaluate_challenger(
+            mock_model_file_2,
+            games=50,
+            challenger_metadata=sample_metadata_2,
+        )
+
+        # All draws means 50% win rate convention
+        assert result.challenger_win_rate == 0.5
+        assert result.champion_win_rate == 0.5
+        # Should not promote without decisive wins
+        assert not result.should_promote
+
+    @patch("app.training.auto_tournament.Tournament")
+    def test_challenger_saves_result_to_file(
+        self, mock_tournament_class, temp_dirs,
+        mock_model_file, mock_model_file_2,
+        sample_metadata, sample_metadata_2
+    ):
+        """Test that challenger evaluation saves result to file."""
+        models_dir, results_dir = temp_dirs
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+
+        pipeline.register_model(mock_model_file, metadata=sample_metadata)
+
+        mock_tournament = MagicMock()
+        mock_tournament.ratings = {"A": 1520.0, "B": 1480.0}
+        mock_tournament.victory_reasons = {}
+        mock_tournament.run.return_value = {"A": 30, "B": 20, "Draw": 0}
+        mock_tournament_class.return_value = mock_tournament
+
+        result = pipeline.evaluate_challenger(
+            mock_model_file_2,
+            games=50,
+            challenger_metadata=sample_metadata_2,
+        )
+
+        # Check that result file was created
+        result_files = [f for f in os.listdir(results_dir) if f.startswith("challenge_")]
+        assert len(result_files) >= 1
+
+        # Verify file content
+        result_path = os.path.join(results_dir, result_files[0])
+        with open(result_path) as f:
+            saved_data = json.load(f)
+
+        assert saved_data["challenger_wins"] == 30
+        assert saved_data["champion_wins"] == 20
