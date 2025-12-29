@@ -125,8 +125,10 @@ def get_health_manager():
     global _health_manager
     if _health_manager is None:
         try:
-            from app.coordination.unified_health_manager import UnifiedHealthManager
-            _health_manager = UnifiedHealthManager.get_instance()
+            from app.coordination.unified_health_manager import (
+                get_health_manager as _get_uhm,
+            )
+            _health_manager = _get_uhm()
         except ImportError:
             _health_manager = None
     return _health_manager
