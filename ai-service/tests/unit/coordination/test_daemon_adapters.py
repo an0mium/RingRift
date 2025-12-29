@@ -113,9 +113,10 @@ class TestDaemonAdapterBase:
         adapter = DistillationDaemonAdapter()
         result = adapter.health_check()
 
-        # Stopped adapters are considered healthy (not unhealthy)
-        assert result.healthy is False  # Not running means not healthy
-        assert "stopped" in result.status.value.lower() or "error" in result.status.value.lower()
+        # Stopped adapters are considered healthy (valid stopped state, not error)
+        # This matches test_get_status_not_running which expects healthy=True
+        assert result.healthy is True  # Stopped is a valid state, not an error
+        assert "stopped" in result.status.value.lower() or "not running" in result.message.lower()
 
 
 class TestDistillationDaemonAdapter:
