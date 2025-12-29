@@ -114,8 +114,12 @@ class CoordinatorConfig:
 
 
 @dataclass
-class CoordinatorStats:
-    """Statistics about the coordinator's operations."""
+class DataCoordinatorStats:
+    """Statistics about the DataCoordinator's operations.
+
+    Note: This is distinct from app.coordination.coordinator_base.CoordinatorStats
+    which provides generic coordinator stats. This class has data-specific fields.
+    """
     total_games_loaded: int = 0
     high_quality_games_loaded: int = 0
     games_synced: int = 0
@@ -158,7 +162,7 @@ class TrainingDataCoordinator(SingletonMixin):
         """
         self._config = config or CoordinatorConfig()
         self._selfplay_dir = selfplay_dir or DEFAULT_SELFPLAY_DIR
-        self._stats = CoordinatorStats()
+        self._stats = DataCoordinatorStats()
 
         # Lazy-loaded components
         self._quality_bridge = None

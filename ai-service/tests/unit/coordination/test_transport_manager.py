@@ -941,11 +941,14 @@ class TestVerifyChecksum:
         mock_process = AsyncMock()
         mock_process.returncode = 0
         mock_process.communicate = AsyncMock(
-            return_value=(b"abc123def456  /data/file.db\n", b"")
+            return_value=(b"abc123def456\n", b"")
         )
 
         with patch.object(manager, "_get_ssh_target", return_value="ubuntu@10.0.0.1"):
-            with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            with patch(
+                "app.coordination.transport_manager.asyncio.create_subprocess_exec",
+                return_value=mock_process,
+            ):
                 result = await manager._verify_checksum(
                     "node-1", "/data/file.db", "abc123def456"
                 )
@@ -960,11 +963,14 @@ class TestVerifyChecksum:
         mock_process = AsyncMock()
         mock_process.returncode = 0
         mock_process.communicate = AsyncMock(
-            return_value=(b"different_hash  /data/file.db\n", b"")
+            return_value=(b"different_hash\n", b"")
         )
 
         with patch.object(manager, "_get_ssh_target", return_value="ubuntu@10.0.0.1"):
-            with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            with patch(
+                "app.coordination.transport_manager.asyncio.create_subprocess_exec",
+                return_value=mock_process,
+            ):
                 result = await manager._verify_checksum(
                     "node-1", "/data/file.db", "expected_hash"
                 )

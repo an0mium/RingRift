@@ -116,19 +116,29 @@ class GNNAI(BaseAI):
 
         ckpt = _load_checkpoint(model_path, self.device)
 
+        # Extract action_space_size with fallback chain:
+        # 1. Top-level action_space_size (GNN format)
+        # 2. Nested _versioning_metadata.config.policy_size (RingRiftCNN_v4 format)
+        # 3. Default 4132 (hex8 action space)
+        action_space = ckpt.get("action_space_size")
+        if action_space is None:
+            versioning = ckpt.get("_versioning_metadata", {})
+            config = versioning.get("config", {})
+            action_space = config.get("policy_size", self.action_space_size)
+
         self.model = GNNPolicyNet(
             node_feature_dim=32,
             hidden_dim=ckpt.get("hidden_dim", 128),
             num_layers=ckpt.get("num_layers", 6),
             conv_type=ckpt.get("conv_type", "sage"),
-            action_space_size=ckpt["action_space_size"],
+            action_space_size=action_space,
             global_feature_dim=20,
         )
         self.model.load_state_dict(ckpt["model_state_dict"])
         self.model.to(self.device)
         self.model.eval()
 
-        self.action_space_size = ckpt["action_space_size"]
+        self.action_space_size = action_space
         self.board_type = ckpt.get("board_type", "hex8")
 
         logger.info(

@@ -233,6 +233,8 @@ def _load_loop_classes():
             HealthAggregationLoop,
             JobReaperLoop,
             IdleDetectionLoop,
+            UdpDiscoveryLoop,
+            SplitBrainDetectionLoop,
         )
         _loop_classes_loaded = True
         return True
@@ -2423,6 +2425,161 @@ class P2POrchestrator(
                 logger.info("[P2P] HealthAggregationLoop registered (important for scheduling)")
             except (ImportError, TypeError) as e:
                 logger.debug(f"HealthAggregationLoop: not available: {e}")
+
+            # IpDiscoveryLoop - December 28, 2025
+            # Discovers and updates node IP addresses for dynamic cloud instances
+            try:
+                from scripts.p2p.loops import IpDiscoveryLoop
+
+                def _get_nodes_for_ip_discovery() -> dict[str, dict[str, Any]]:
+                    """Get node info dict for IP discovery."""
+                    with self.peers_lock:
+                        return {
+                            p.node_id: {
+                                "ip": p.host or p.ip,
+                                "tailscale_ip": getattr(p, "tailscale_ip", None),
+                                "public_ip": getattr(p, "public_ip", None),
+                                "hostname": getattr(p, "hostname", None),
+                            }
+                            for p in self.peers.values()
+                        }
+
+                async def _update_node_ip_for_discovery(node_id: str, new_ip: str) -> None:
+                    """Update a node's IP address."""
+                    with self.peers_lock:
+                        if node_id in self.peers:
+                            peer = self.peers[node_id]
+                            peer.host = new_ip
+                            peer.ip = new_ip
+                            logger.info(f"[IpDiscovery] Updated {node_id} IP to {new_ip}")
+
+                ip_discovery = IpDiscoveryLoop(
+                    get_nodes=_get_nodes_for_ip_discovery,
+                    update_node_ip=_update_node_ip_for_discovery,
+                )
+                manager.register(ip_discovery)
+                logger.info("[P2P] IpDiscoveryLoop registered (handles dynamic IPs)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"IpDiscoveryLoop: not available: {e}")
+
+            # TailscaleRecoveryLoop - December 28, 2025
+            # Monitors and recovers Tailscale connections
+            try:
+                from scripts.p2p.loops import TailscaleRecoveryLoop
+
+                def _get_tailscale_status_for_recovery() -> dict[str, Any]:
+                    """Get Tailscale status for all nodes."""
+                    result = {}
+                    with self.peers_lock:
+                        for p in self.peers.values():
+                            result[p.node_id] = {
+                                "tailscale_state": getattr(p, "tailscale_state", "unknown"),
+                                "tailscale_online": getattr(p, "tailscale_online", True),
+                            }
+                    return result
+
+                async def _run_ssh_for_tailscale_recovery(node_id: str, cmd: str) -> Any:
+                    """Run SSH command for Tailscale recovery."""
+                    try:
+                        peer = self.peers.get(node_id)
+                        if not peer:
+                            return type("Result", (), {"returncode": 1, "stdout": "", "stderr": "peer not found"})()
+                        host = peer.host or peer.ip
+                        proc = await asyncio.create_subprocess_exec(
+                            "ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+                            f"root@{host}", cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+                        return type("Result", (), {"returncode": proc.returncode, "stdout": stdout.decode(), "stderr": stderr.decode()})()
+                    except (asyncio.TimeoutError, OSError) as e:
+                        return type("Result", (), {"returncode": 1, "stdout": "", "stderr": str(e)})()
+
+                tailscale_recovery = TailscaleRecoveryLoop(
+                    get_tailscale_status=_get_tailscale_status_for_recovery,
+                    run_ssh_command=_run_ssh_for_tailscale_recovery,
+                )
+                manager.register(tailscale_recovery)
+                logger.info("[P2P] TailscaleRecoveryLoop registered (handles Tailscale failures)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"TailscaleRecoveryLoop: not available: {e}")
+
+            # UdpDiscoveryLoop - December 28, 2025
+            # LAN peer discovery via UDP broadcast (useful for network partition recovery)
+            try:
+                from scripts.p2p.loops import UdpDiscoveryLoop
+
+                def _get_known_peer_addrs_for_udp() -> list[str]:
+                    """Get list of known peer addresses."""
+                    with self.peers_lock:
+                        return [
+                            f"{p.host or p.ip}:{p.port or DEFAULT_PORT}"
+                            for p in self.peers.values()
+                            if p.host or p.ip
+                        ]
+
+                def _add_peer_from_udp_discovery(peer_addr: str) -> None:
+                    """Add a peer discovered via UDP."""
+                    try:
+                        host, port_str = peer_addr.rsplit(":", 1)
+                        port = int(port_str)
+                        asyncio.create_task(
+                            self._send_heartbeat_to_peer(host, port),
+                            name=f"udp_discover_{peer_addr}",
+                        )
+                    except ValueError:
+                        logger.debug(f"[UdpDiscovery] Invalid peer address: {peer_addr}")
+
+                udp_discovery = UdpDiscoveryLoop(
+                    get_node_id=lambda: self.node_id,
+                    get_host=lambda: self.host or "0.0.0.0",
+                    get_port=lambda: self.port,
+                    get_known_peers=_get_known_peer_addrs_for_udp,
+                    add_peer=_add_peer_from_udp_discovery,
+                )
+                manager.register(udp_discovery)
+                logger.info("[P2P] UdpDiscoveryLoop registered (LAN peer discovery)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"UdpDiscoveryLoop: not available: {e}")
+
+            # SplitBrainDetectionLoop - December 28, 2025
+            # Detects multiple leaders (network partition) and emits alerts
+            try:
+                from scripts.p2p.loops import SplitBrainDetectionLoop
+
+                def _get_peer_endpoint_for_split_brain(peer_id: str) -> str | None:
+                    """Get HTTP endpoint for a peer."""
+                    peer = self.peers.get(peer_id)
+                    if not peer:
+                        return None
+                    host = peer.host or peer.ip
+                    port = peer.port or DEFAULT_PORT
+                    return f"http://{host}:{port}"
+
+                async def _on_split_brain_detected_callback(leaders: list[str], epoch: int) -> None:
+                    """Handle split-brain detection."""
+                    logger.critical(
+                        f"[SplitBrain] DETECTED: {len(leaders)} leaders in cluster: {leaders} "
+                        f"(epoch={epoch})"
+                    )
+                    await self._emit_split_brain_detected(
+                        leaders=leaders,
+                        epoch=epoch,
+                        source="SplitBrainDetectionLoop",
+                    )
+
+                split_brain_detection = SplitBrainDetectionLoop(
+                    get_peers=lambda: dict(self.peers) if self.peers else {},
+                    get_peer_endpoint=_get_peer_endpoint_for_split_brain,
+                    get_own_leader_id=lambda: self.leader_id,
+                    get_cluster_epoch=lambda: getattr(self, "cluster_epoch", 0),
+                    on_split_brain_detected=_on_split_brain_detected_callback,
+                )
+                manager.register(split_brain_detection)
+                logger.info("[P2P] SplitBrainDetectionLoop registered (partition detection)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"SplitBrainDetectionLoop: not available: {e}")
 
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")

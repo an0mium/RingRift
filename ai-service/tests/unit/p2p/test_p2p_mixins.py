@@ -970,7 +970,7 @@ class TestConsensusMixinInit:
 
         mixin = TestMixin()
         mixin.node_id = "self"
-        mixin.role = MockNodeRole.FOLLOWER
+        mixin.role = NodeRoleEnum.FOLLOWER
         mixin.voter_node_ids = []
         mixin.peers = {}
         mixin.peers_lock = threading.RLock()
@@ -1020,7 +1020,7 @@ class TestConsensusMixinHealthCheck:
 
         mixin = TestMixin()
         mixin.node_id = "self"
-        mixin.role = MockNodeRole.FOLLOWER
+        mixin.role = NodeRoleEnum.FOLLOWER
         mixin.voter_node_ids = []
         mixin.peers = {}
         mixin.peers_lock = threading.RLock()

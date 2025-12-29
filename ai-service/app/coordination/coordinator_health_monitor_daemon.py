@@ -4,6 +4,9 @@ December 2025: Created to address critical gap in event coordination.
 Previously, COORDINATOR_HEALTHY and COORDINATOR_UNHEALTHY events were emitted
 but had NO subscribers - making coordinator health visibility impossible.
 
+December 2025 (Phase 5): Migrated to MonitorBase to reduce ~150 LOC of duplicated
+lifecycle/subscription code.
+
 This daemon subscribes to all COORDINATOR_* events and provides:
 1. Coordinator health tracking (healthy/unhealthy/degraded)
 2. Heartbeat freshness monitoring
@@ -25,13 +28,16 @@ Usage:
         get_coordinator_health_monitor,
     )
 
-    # Start monitoring
-    monitor = get_coordinator_health_monitor()
+    # Start monitoring (async version)
+    monitor = await get_coordinator_health_monitor()
     await monitor.start()
+
+    # Or sync version
+    monitor = get_coordinator_health_monitor_sync()
 
     # Get coordinator health summary
     summary = monitor.get_health_summary()
-    print(f"Healthy: {summary['healthy_count']}/{summary['total_count']}")
+    print(f"Healthy: {summary.healthy_count}/{summary.total_count}")
 """
 
 from __future__ import annotations
@@ -40,8 +46,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,9 @@ HEARTBEAT_STALE_THRESHOLD_SECONDS = CoordinatorHealthDefaults.HEARTBEAT_STALE_TH
 DEGRADED_COOLDOWN_SECONDS = CoordinatorHealthDefaults.DEGRADED_COOLDOWN
 INIT_FAILURE_MAX_RETRIES = CoordinatorHealthDefaults.INIT_FAILURE_MAX_RETRIES
 
+# December 2025 (Phase 5): Use MonitorBase for unified lifecycle
+from app.coordination.monitor_base import MonitorBase, MonitorConfig
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
 # December 2025: Import CoordinatorHealthState from canonical source
 from app.coordination.types import CoordinatorHealthState
@@ -60,6 +68,31 @@ from app.coordination.types import CoordinatorHealthState
 # Canonical values: UNKNOWN, HEALTHY, UNHEALTHY, DEGRADED, SHUTDOWN, INIT_FAILED
 # Backward-compat alias:
 CoordinatorState = CoordinatorHealthState
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+
+@dataclass(kw_only=True)
+class CoordinatorHealthMonitorConfig(MonitorConfig):
+    """Configuration for CoordinatorHealthMonitorDaemon.
+
+    Extends MonitorConfig with coordinator-specific settings.
+    """
+
+    # Coordinator health thresholds
+    heartbeat_stale_threshold_seconds: float = HEARTBEAT_STALE_THRESHOLD_SECONDS
+    degraded_cooldown_seconds: float = DEGRADED_COOLDOWN_SECONDS
+    init_failure_max_retries: int = INIT_FAILURE_MAX_RETRIES
+
+    # Cluster health threshold (>20% unhealthy = cluster unhealthy)
+    cluster_unhealthy_threshold_pct: float = 20.0
+
+    # Override base config defaults
+    check_interval_seconds: float = 60.0  # Check every minute
+    stale_threshold_seconds: float = 1800.0  # 30 minutes
 
 
 @dataclass
@@ -98,8 +131,10 @@ class CoordinatorHealthSummary:
     cluster_health_pct: float = 100.0
 
 
-class CoordinatorHealthMonitorDaemon:
+class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]):
     """Daemon that monitors coordinator health events.
+
+    December 2025 (Phase 5): Now inherits from MonitorBase for unified lifecycle.
 
     Subscribes to all COORDINATOR_* events and tracks:
     - Coordinator health states (healthy/unhealthy/degraded)
@@ -109,10 +144,9 @@ class CoordinatorHealthMonitorDaemon:
     - Cluster-wide health summary
     """
 
-    def __init__(self):
+    def __init__(self, config: CoordinatorHealthMonitorConfig | None = None):
         """Initialize the coordinator health monitor."""
-        self._running = False
-        self._subscribed = False
+        super().__init__(config)
 
         # Coordinator tracking
         self._coordinators: dict[str, CoordinatorInfo] = {}
@@ -128,87 +162,43 @@ class CoordinatorHealthMonitorDaemon:
         # Lock for thread safety
         self._lock = asyncio.Lock()
 
-    async def start(self) -> bool:
-        """Start the monitor daemon."""
-        if self._running:
-            return True
+    # =========================================================================
+    # MonitorBase Abstract Methods
+    # =========================================================================
 
-        self._running = True
-        success = await self._subscribe_to_events()
+    def _get_daemon_name(self) -> str:
+        """Return daemon name for logging."""
+        return "CoordinatorHealthMonitor"
 
-        if success:
-            logger.info("[CoordinatorHealthMonitor] Started - monitoring COORDINATOR_* events")
+    def _get_default_config(self) -> CoordinatorHealthMonitorConfig:
+        """Return default configuration."""
+        return CoordinatorHealthMonitorConfig()
 
-            # Start background monitoring loop
-            asyncio.create_task(self._monitoring_loop())
-        else:
-            logger.warning("[CoordinatorHealthMonitor] Started without event subscriptions")
-
-        return success
-
-    async def stop(self) -> None:
-        """Stop the monitor daemon."""
-        self._running = False
-        await self._unsubscribe_from_events()
-        logger.info("[CoordinatorHealthMonitor] Stopped")
-
-    async def _subscribe_to_events(self) -> bool:
-        """Subscribe to all COORDINATOR_* events."""
-        if self._subscribed:
-            return True
-
+    def _get_event_subscriptions(self) -> dict[str, Callable]:
+        """Return event handlers to subscribe to."""
         try:
             from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_router
 
-            # December 27, 2025: Guard against DataEventType being None
             if DataEventType is None:
                 logger.warning("[CoordinatorHealthMonitor] DataEventType not available")
-                return False
+                return {}
 
-            router = get_router()
-
-            # Subscribe to all coordinator events
-            router.subscribe(DataEventType.COORDINATOR_HEALTHY.value, self._on_coordinator_healthy)
-            router.subscribe(DataEventType.COORDINATOR_UNHEALTHY.value, self._on_coordinator_unhealthy)
-            router.subscribe(DataEventType.COORDINATOR_HEALTH_DEGRADED.value, self._on_coordinator_degraded)
-            router.subscribe(DataEventType.COORDINATOR_SHUTDOWN.value, self._on_coordinator_shutdown)
-            router.subscribe(DataEventType.COORDINATOR_INIT_FAILED.value, self._on_coordinator_init_failed)
-            router.subscribe(DataEventType.COORDINATOR_HEARTBEAT.value, self._on_coordinator_heartbeat)
-
-            self._subscribed = True
-            logger.info("[CoordinatorHealthMonitor] Subscribed to 6 COORDINATOR_* events")
-            return True
-
+            return {
+                DataEventType.COORDINATOR_HEALTHY.value: self._on_coordinator_healthy,
+                DataEventType.COORDINATOR_UNHEALTHY.value: self._on_coordinator_unhealthy,
+                DataEventType.COORDINATOR_HEALTH_DEGRADED.value: self._on_coordinator_degraded,
+                DataEventType.COORDINATOR_SHUTDOWN.value: self._on_coordinator_shutdown,
+                DataEventType.COORDINATOR_INIT_FAILED.value: self._on_coordinator_init_failed,
+                DataEventType.COORDINATOR_HEARTBEAT.value: self._on_coordinator_heartbeat,
+            }
         except ImportError as e:
             logger.warning(f"[CoordinatorHealthMonitor] data_events not available: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"[CoordinatorHealthMonitor] Failed to subscribe: {e}")
-            return False
+            return {}
 
-    async def _unsubscribe_from_events(self) -> None:
-        """Unsubscribe from all events."""
-        if not self._subscribed:
-            return
-
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import get_router
-
-            router = get_router()
-
-            router.unsubscribe(DataEventType.COORDINATOR_HEALTHY.value, self._on_coordinator_healthy)
-            router.unsubscribe(DataEventType.COORDINATOR_UNHEALTHY.value, self._on_coordinator_unhealthy)
-            router.unsubscribe(DataEventType.COORDINATOR_HEALTH_DEGRADED.value, self._on_coordinator_degraded)
-            router.unsubscribe(DataEventType.COORDINATOR_SHUTDOWN.value, self._on_coordinator_shutdown)
-            router.unsubscribe(DataEventType.COORDINATOR_INIT_FAILED.value, self._on_coordinator_init_failed)
-            router.unsubscribe(DataEventType.COORDINATOR_HEARTBEAT.value, self._on_coordinator_heartbeat)
-
-            self._subscribed = False
-
-        except Exception as e:
-            logger.warning(f"[CoordinatorHealthMonitor] Error unsubscribing: {e}")
+    async def _run_cycle(self) -> None:
+        """Execute one monitoring cycle - check for stale heartbeats."""
+        await self._check_stale_heartbeats()
+        self.record_cycle()
 
     def _get_or_create_coordinator(self, name: str) -> CoordinatorInfo:
         """Get or create coordinator info."""

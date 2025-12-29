@@ -96,6 +96,8 @@ from .resilience_loops import (
     PredictiveMonitoringLoop,
     SelfHealingConfig,
     SelfHealingLoop,
+    SplitBrainDetectionConfig,
+    SplitBrainDetectionLoop,
 )
 from .training_sync_loop import TrainingSyncLoop
 from .validation_loop import (
@@ -158,6 +160,8 @@ __all__ = [
     "PredictiveMonitoringLoop",
     "SelfHealingConfig",
     "SelfHealingLoop",
+    "SplitBrainDetectionConfig",
+    "SplitBrainDetectionLoop",
     # Validation
     "ValidationConfig",
     "ValidationLoop",
