@@ -188,6 +188,14 @@ Provides circuit breakers and backpressure mechanisms:
 - Spawn rate tracking: Limits new process creation rate
 - Resource thresholds: Enforces shared limits (see `LIMITS`)
 
+### `app/coordination/load_forecaster.py`
+
+Predicts near-term cluster load and throughput to inform scheduling windows:
+
+- `LoadPrediction` for projected utilization
+- `ThroughputForecast` for expected completions/failures
+- `SchedulingWindow` for low-load windows and confidence
+
 ### `app/config/config_validator.py`
 
 Validates configuration files and ensures resource limits are consistent:

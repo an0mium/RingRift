@@ -162,7 +162,13 @@ class RunPodChecker(StateChecker):
                     return False
                 data = await resp.json()
                 return "errors" not in data
-        except Exception as e:
+        except asyncio.TimeoutError:
+            logger.warning("RunPod API check timed out")
+            return False
+        except aiohttp.ClientError as e:
+            logger.warning(f"RunPod API network error: {e}")
+            return False
+        except (OSError, RuntimeError) as e:
             logger.warning(f"RunPod API check failed: {e}")
             return False
 
@@ -242,7 +248,19 @@ class RunPodChecker(StateChecker):
                 logger.debug(f"Found {len(instances)} RunPod pods")
                 return instances
 
-        except Exception as e:
+        except asyncio.TimeoutError:
+            self._last_error = "Request timed out"
+            logger.error("RunPod API request timed out")
+            return []
+        except aiohttp.ClientError as e:
+            self._last_error = f"Network error: {e}"
+            logger.error(f"RunPod API network error: {e}")
+            return []
+        except (KeyError, ValueError, TypeError) as e:
+            self._last_error = f"Data parse error: {e}"
+            logger.error(f"Error parsing RunPod response: {e}")
+            return []
+        except (OSError, RuntimeError) as e:
             self._last_error = str(e)
             logger.error(f"Error querying RunPod pods: {e}")
             return []

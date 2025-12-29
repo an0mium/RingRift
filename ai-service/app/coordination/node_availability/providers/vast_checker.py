@@ -97,8 +97,14 @@ class VastChecker(StateChecker):
         except FileNotFoundError:
             logger.warning("vastai CLI not found")
             return False
-        except Exception as e:
-            logger.warning(f"Failed to check vastai CLI: {e}")
+        except asyncio.TimeoutError:
+            logger.warning("vastai CLI check timed out")
+            return False
+        except OSError as e:
+            logger.warning(f"vastai CLI OS error: {e}")
+            return False
+        except (ValueError, RuntimeError) as e:
+            logger.warning(f"vastai CLI unexpected error: {e}")
             return False
 
     async def get_instance_states(self) -> list[InstanceInfo]:
@@ -165,9 +171,17 @@ class VastChecker(StateChecker):
             self._last_error = f"JSON parse error: {e}"
             logger.error(f"Failed to parse vastai output: {e}")
             return []
-        except Exception as e:
-            self._last_error = str(e)
-            logger.error(f"Error querying Vast.ai instances: {e}")
+        except asyncio.TimeoutError:
+            self._last_error = "Command timed out"
+            logger.error("vastai show instances timed out")
+            return []
+        except OSError as e:
+            self._last_error = f"OS error: {e}"
+            logger.error(f"OS error querying Vast.ai: {e}")
+            return []
+        except (KeyError, ValueError, TypeError) as e:
+            self._last_error = f"Data parse error: {e}"
+            logger.error(f"Error parsing Vast.ai response: {e}")
             return []
 
     def correlate_with_config(

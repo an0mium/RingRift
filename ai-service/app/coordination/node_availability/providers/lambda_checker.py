@@ -112,9 +112,16 @@ class LambdaChecker(StateChecker):
             return False
 
         try:
+            import aiohttp
             async with session.get(f"{LAMBDA_API_BASE}/instances") as resp:
                 return resp.status == 200
-        except Exception as e:
+        except asyncio.TimeoutError:
+            logger.warning("Lambda API check timed out")
+            return False
+        except aiohttp.ClientError as e:
+            logger.warning(f"Lambda API network error: {e}")
+            return False
+        except (OSError, RuntimeError) as e:
             logger.warning(f"Lambda API check failed: {e}")
             return False
 
@@ -168,7 +175,19 @@ class LambdaChecker(StateChecker):
                 logger.debug(f"Found {len(instances)} Lambda Labs instances")
                 return instances
 
-        except Exception as e:
+        except asyncio.TimeoutError:
+            self._last_error = "Request timed out"
+            logger.error("Lambda Labs API request timed out")
+            return []
+        except aiohttp.ClientError as e:
+            self._last_error = f"Network error: {e}"
+            logger.error(f"Lambda Labs API network error: {e}")
+            return []
+        except (KeyError, ValueError, TypeError) as e:
+            self._last_error = f"Data parse error: {e}"
+            logger.error(f"Error parsing Lambda Labs response: {e}")
+            return []
+        except (OSError, RuntimeError) as e:
             self._last_error = str(e)
             logger.error(f"Error querying Lambda Labs instances: {e}")
             return []
