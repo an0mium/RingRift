@@ -174,7 +174,12 @@ class TournamentHandlersMixin(BaseP2PHandler):
             return self.error_response(str(e), status=500)
 
     async def handle_tournament_match(self, request: web.Request) -> web.Response:
-        """Request a tournament match to be played by a worker."""
+        """Execute a tournament match and return results synchronously.
+
+        Dec 28, 2025: Fixed to run match synchronously and return results in
+        response. The coordinator waits for results, so fire-and-forget was
+        causing 0 completed matches.
+        """
         try:
             data = await request.json()
             job_id = data.get("job_id")
@@ -185,15 +190,18 @@ class TournamentHandlersMixin(BaseP2PHandler):
 
             logger.info(f"Received tournament match request: {match_info}")
 
-            # Start match in background
-            asyncio.create_task(self._play_tournament_match(job_id, match_info))
+            # Run match synchronously and return result
+            # The coordinator expects results in the response
+            result = await self._play_tournament_match(job_id, match_info)
 
             return self.json_response({
                 "success": True,
                 "job_id": job_id,
-                "status": "match_started",
+                "status": "match_completed",
+                "results": [result] if result else [],
             })
         except Exception as e:
+            logger.error(f"Tournament match error: {e}")
             return self.error_response(str(e), status=500)
 
     async def handle_tournament_status(self, request: web.Request) -> web.Response:

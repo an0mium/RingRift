@@ -637,13 +637,15 @@ def play_single_game(
     state = create_initial_state(board_type, num_players)
 
     # Build player->AI mapping for multiplayer support
+    # NOTE: Players are 0-indexed (0, 1, 2, ...) not 1-indexed!
     player_ais: dict[int, Any] = {candidate_player: candidate_ai}
     if opponent_ais is not None:
         # Use provided AIs for each opponent player
         player_ais.update(opponent_ais)
     else:
         # For 2-player games, use the single opponent_ai for the other player
-        for p in range(1, num_players + 1):
+        # Players are 0-indexed: range(num_players) gives [0, 1] for 2-player
+        for p in range(num_players):
             if p != candidate_player:
                 player_ais[p] = opponent_ai
 
@@ -795,7 +797,8 @@ def _evaluate_single_opponent(
 
     for game_num in range(games_per_opponent):
         # Rotate which player the candidate plays as
-        candidate_player = (game_num % num_players) + 1
+        # NOTE: Players are 0-indexed (0, 1, ..., num_players-1)
+        candidate_player = game_num % num_players
 
         # Derive unique seed per game for varied behavior
         game_seed = random.randint(0, 0xFFFFFFFF)
@@ -811,8 +814,9 @@ def _evaluate_single_opponent(
             )
 
             # Create baseline AIs for all other players
+            # NOTE: Players are 0-indexed (0, 1, ..., num_players-1)
             opponent_ais: dict[int, Any] = {}
-            for p in range(1, num_players + 1):
+            for p in range(num_players):
                 if p != candidate_player:
                     opponent_ais[p] = create_baseline_ai(
                         baseline, p, board_type,
@@ -820,7 +824,7 @@ def _evaluate_single_opponent(
                     )
 
             # For backwards compatibility, also pass opponent_ai (player after candidate)
-            first_opponent = (candidate_player % num_players) + 1
+            first_opponent = (candidate_player + 1) % num_players
             opponent_ai = opponent_ais.get(first_opponent, list(opponent_ais.values())[0])
 
             game_result = play_single_game(

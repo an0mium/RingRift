@@ -36,6 +36,7 @@ December 2025: Added move data validation (games without moves are rejected).
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sqlite3
@@ -491,6 +492,12 @@ def merge_games(
                 col_list = ", ".join(table_cols)
 
                 # Copy rows for merged games
+                # RR-FIX-2025-12-28: Validate move positions during consolidation
+                # to prevent copying corrupt game data
+                move_json_col_idx = None
+                if table_name == "game_moves" and "move_json" in table_cols:
+                    move_json_col_idx = table_cols.index("move_json")
+
                 for game_id in game_ids_to_merge:
                     cursor = src_conn.execute(
                         f"SELECT * FROM {table_name} WHERE game_id = ?",
@@ -499,6 +506,63 @@ def merge_games(
                     rows = cursor.fetchall()
 
                     for row in rows:
+                        # Validate move positions if this is game_moves table
+                        if move_json_col_idx is not None:
+                            try:
+                                move_json = row[move_json_col_idx]
+                                if move_json:
+                                    move_data = json.loads(move_json)
+                                    move_type = move_data.get("type")
+                                    to_pos = move_data.get("to")
+                                    from_pos = move_data.get("from")
+                                    capture_target = move_data.get("captureTarget")
+
+                                    # Check position requirements by move type
+                                    # place_ring requires 'to'
+                                    if move_type == "place_ring" and to_pos is None:
+                                        logger.debug(
+                                            f"  Skipping game {game_id}: place_ring with to=null"
+                                        )
+                                        # Remove this game from merged list
+                                        if game_id in game_ids_to_merge:
+                                            stats.games_merged -= 1
+                                            stats.games_invalid += 1
+                                        break  # Skip all moves for this game
+
+                                    # move_stack requires 'from' and 'to'
+                                    if move_type in ("move_stack", "move_ring", "build_stack"):
+                                        if from_pos is None or to_pos is None:
+                                            logger.debug(
+                                                f"  Skipping game {game_id}: {move_type} with null positions"
+                                            )
+                                            if game_id in game_ids_to_merge:
+                                                stats.games_merged -= 1
+                                                stats.games_invalid += 1
+                                            break
+
+                                    # overtaking_capture requires all three
+                                    if move_type == "overtaking_capture":
+                                        if from_pos is None or to_pos is None or capture_target is None:
+                                            logger.debug(
+                                                f"  Skipping game {game_id}: overtaking_capture with null positions"
+                                            )
+                                            if game_id in game_ids_to_merge:
+                                                stats.games_merged -= 1
+                                                stats.games_invalid += 1
+                                            break
+
+                                    # continue_capture_segment requires 'to'
+                                    if move_type == "continue_capture_segment" and to_pos is None:
+                                        logger.debug(
+                                            f"  Skipping game {game_id}: continue_capture_segment with to=null"
+                                        )
+                                        if game_id in game_ids_to_merge:
+                                            stats.games_merged -= 1
+                                            stats.games_invalid += 1
+                                        break
+                            except (json.JSONDecodeError, KeyError, TypeError):
+                                pass  # Invalid JSON, skip validation
+
                         try:
                             dest_conn.execute(
                                 f"INSERT OR IGNORE INTO {table_name} ({col_list}) VALUES ({placeholders})",

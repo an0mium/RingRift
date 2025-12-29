@@ -318,13 +318,63 @@ class Provisioner(BaseDaemon):
 
     async def _register_new_nodes(self, instances: list[Instance]) -> None:
         """Register newly provisioned nodes in cluster configuration."""
+        from app.config.cluster_config import add_or_update_node
+
         for instance in instances:
             logger.info(
                 f"Registering new node: id={instance.id}, ip={instance.ip_address}, "
                 f"gpu={instance.gpu_type.value}"
             )
-            # TODO: Update distributed_hosts.yaml dynamically
-            # For now, nodes will be discovered via P2P when they come online
+            # Build node config based on instance info
+            node_config = {
+                "status": "setup",  # Will become 'ready' when P2P connects
+                "ssh_host": instance.ip_address,
+                "ssh_user": "root",  # Most cloud providers use root
+                "gpu": instance.gpu_type.value if instance.gpu_type else "",
+                "gpu_vram_gb": self._get_gpu_vram(instance.gpu_type),
+                "cuda_capable": instance.gpu_type is not None,
+                "selfplay_enabled": True,
+                "training_enabled": self._get_gpu_vram(instance.gpu_type) >= 48,
+                "role": "gpu-worker" if instance.gpu_type else "worker",
+            }
+
+            # Generate node name from instance ID
+            node_name = self._generate_node_name(instance)
+
+            if add_or_update_node(node_name, node_config):
+                logger.info(f"Added node {node_name} to cluster config")
+            else:
+                logger.warning(f"Failed to add node {node_name} to cluster config")
+
+    def _generate_node_name(self, instance: "Instance") -> str:
+        """Generate a node name from instance info."""
+        # Use provider-based naming convention
+        provider = self.config.preferred_provider
+        if hasattr(instance, "id") and instance.id:
+            # Truncate ID if too long
+            short_id = instance.id[:8] if len(instance.id) > 8 else instance.id
+            return f"{provider}-{short_id}"
+        return f"{provider}-{id(instance)}"
+
+    def _get_gpu_vram(self, gpu_type: "GPUType | None") -> int:
+        """Get VRAM in GB for a GPU type."""
+        if gpu_type is None:
+            return 0
+        # Map GPU types to VRAM (approximations)
+        vram_map = {
+            "GH200_96GB": 96,
+            "H100_80GB": 80,
+            "H100_SXM": 80,
+            "A100_80GB": 80,
+            "A100_40GB": 40,
+            "L40S": 48,
+            "L40": 48,
+            "RTX_4090": 24,
+            "RTX_3090": 24,
+            "RTX_5090": 32,
+            "A40": 48,
+        }
+        return vram_map.get(str(gpu_type.value), 24)
 
     async def _emit_nodes_provisioned(self, result: ProvisionResult) -> None:
         """Emit NODE_PROVISIONED events."""

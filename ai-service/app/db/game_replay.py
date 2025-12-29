@@ -318,7 +318,22 @@ def _deserialize_state(json_str: str) -> GameState:
 
 
 def _serialize_move(move: Move) -> str:
-    """Serialize Move to JSON string."""
+    """Serialize Move to JSON string.
+
+    Validates that the move has all required position fields for its type
+    before serialization, preventing silent data corruption.
+
+    Raises:
+        MovePositionError: If move is missing required position fields.
+    """
+    from app.rules.move_validation import MovePositionError, validate_move_positions
+
+    valid, error = validate_move_positions(move)
+    if not valid:
+        raise MovePositionError(
+            f"Cannot serialize move {move.id} (type={move.type.value}): {error}",
+            move_type=move.type.value,
+        )
     return move.model_dump_json(by_alias=True)
 
 

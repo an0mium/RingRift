@@ -35,26 +35,50 @@ from scripts.lib.logging_config import setup_script_logging
 logger = setup_script_logging("cleanup_corrupt_games")
 
 
-def is_move_corrupted(move) -> bool:
-    """Check if a move has corrupted data.
+from enum import Enum
 
-    Corruption patterns:
-    - move_stack with from_pos=None (legacy corruption)
-    - place_ring with to=None (Dec 2025 bug: phase extracted from post-move state)
+# Move type position requirements - defines which position fields are required
+# for each move type. Move types not listed here don't require positions
+# (e.g., swap_sides, forced_elimination, skip_placement, process_line).
+POSITION_REQUIREMENTS = {
+    "place_ring": {"to"},
+    "move_stack": {"from_pos", "to"},
+    "move_ring": {"from_pos", "to"},  # Legacy alias
+    "build_stack": {"from_pos", "to"},  # Legacy alias
+    "overtaking_capture": {"from_pos", "to", "capture_target"},
+    "continue_capture_segment": {"to"},
+}
+
+
+def is_move_corrupted(move) -> bool:
+    """Check if a move has corrupted data (missing required position fields).
+
+    Corruption patterns covered:
+    - place_ring with to=None
+    - move_stack with from_pos=None or to=None
+    - overtaking_capture with missing positions or capture_target
+    - Any move type missing its required position fields
 
     Returns:
         True if move is corrupted, False otherwise.
     """
     move_type = getattr(move, "type", None)
 
-    # Legacy corruption: move_stack with no from_pos
-    if move_type == "move_stack" and getattr(move, "from_pos", None) is None:
+    # Handle enum types
+    if isinstance(move_type, Enum):
+        move_type = move_type.value
+
+    # Get required fields for this move type
+    required = POSITION_REQUIREMENTS.get(move_type, set())
+
+    # Check each required field
+    if "to" in required and getattr(move, "to", None) is None:
         return True
 
-    # Dec 2025 bug: place_ring with no to position
-    # Root cause: Phase was extracted from post-move state instead of pre-move state,
-    # causing terminal game moves (game_over phase) to serialize incorrectly.
-    if move_type == "place_ring" and getattr(move, "to", None) is None:
+    if "from_pos" in required and getattr(move, "from_pos", None) is None:
+        return True
+
+    if "capture_target" in required and getattr(move, "capture_target", None) is None:
         return True
 
     return False

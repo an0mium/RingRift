@@ -9781,14 +9781,23 @@ print(wins / total)
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to send match to worker {worker_id}: {e}")
 
-    async def _play_tournament_match(self, job_id: str, match_info: dict):
-        """Play a tournament match locally using subprocess selfplay."""
+    async def _play_tournament_match(self, job_id: str, match_info: dict) -> dict | None:
+        """Play a tournament match locally using subprocess selfplay.
+
+        Dec 28, 2025: Fixed to accept both field name conventions:
+        - agent1/agent2 (from tournament handler)
+        - player1_model/player2_model (from JobManager)
+
+        Returns:
+            Match result dict or None on error
+        """
         try:
             import json as json_module
             import sys
 
-            agent1 = match_info["agent1"]
-            agent2 = match_info["agent2"]
+            # Support both naming conventions
+            agent1 = match_info.get("agent1") or match_info.get("player1_model")
+            agent2 = match_info.get("agent2") or match_info.get("player2_model")
             game_num = match_info.get("game_num", 0)
             board_type = match_info.get("board_type", "square8")
             num_players = match_info.get("num_players", 2)
@@ -9928,10 +9937,15 @@ print(json.dumps(result))
                     state.completed_matches += 1
                     state.last_update = time.time()
 
+            # Dec 28, 2025: Return result for synchronous handler usage
+            return result
+
         except asyncio.TimeoutError:
             logger.info(f"Tournament match timed out: {match_info}")
+            return None
         except Exception as e:  # noqa: BLE001
             logger.info(f"Tournament match error: {e}")
+            return None
 
     # NOTE: _calculate_tournament_ratings removed Dec 27, 2025 (dead code, never called)
     # Elo rating calculation is now handled in JobManager.run_distributed_tournament()
@@ -24647,13 +24661,19 @@ print(json.dumps({{
                 logger.warning("HTTP server cleanup timed out after 30s")
 
 
-def _acquire_singleton_lock(kill_duplicates: bool = False) -> bool:
+def _acquire_singleton_lock(
+    kill_duplicates: bool = False,
+    force_takeover: bool = False,
+) -> bool:
     """Acquire singleton lock to prevent duplicate P2P orchestrator instances.
 
     Uses atomic file locking (fcntl) which is more reliable than PID file checks.
+    Automatically handles stale locks from crashed processes.
 
     Args:
-        kill_duplicates: If True, kill any duplicate processes before acquiring lock
+        kill_duplicates: If True, kill any duplicate P2P processes before acquiring
+        force_takeover: If True, force-kill any lock holder (even if not P2P).
+                        Use when lock is held by a recycled PID.
 
     Returns:
         True if lock acquired successfully
@@ -24678,16 +24698,67 @@ def _acquire_singleton_lock(kill_duplicates: bool = False) -> bool:
             # Wait a moment for locks to release
             time.sleep(0.5)
 
-    _P2P_LOCK = SingletonLock("p2p_orchestrator", lock_dir=lock_dir)
+    # Create lock with auto-cleanup of stale locks (from dead processes)
+    _P2P_LOCK = SingletonLock(
+        "p2p_orchestrator",
+        lock_dir=lock_dir,
+        auto_cleanup_stale=True,  # Automatically handle dead process locks
+    )
+
     if not _P2P_LOCK.acquire():
-        holder_pid = _P2P_LOCK.get_holder_pid()
-        if holder_pid:
-            logger.error(
-                f"[P2P] Another instance is already running (PID {holder_pid}). "
-                f"Use --kill-duplicates to automatically terminate it."
+        # Lock acquisition failed - provide detailed diagnostics
+        status = _P2P_LOCK.get_lock_status()
+        holder_pid = status.get("holder_pid")
+        holder_alive = status.get("holder_alive", False)
+        holder_command = status.get("holder_command", "")
+        is_stale = status.get("is_stale", False)
+
+        if is_stale:
+            # This shouldn't happen with auto_cleanup_stale=True, but handle it
+            logger.warning(
+                f"[P2P] Stale lock detected (dead PID {holder_pid}). "
+                f"Attempting force cleanup..."
             )
+            if _P2P_LOCK.force_release():
+                # Retry acquisition after cleanup
+                if _P2P_LOCK.acquire():
+                    logger.info(f"[P2P] Acquired lock after stale cleanup (PID {os.getpid()})")
+                    return True
+            logger.error("[P2P] Failed to clean up stale lock")
+            return False
+
+        if holder_pid and holder_alive:
+            # Another live process is holding the lock
+            is_p2p = _P2P_LOCK.is_holder_expected_process("p2p_orchestrator")
+            if is_p2p:
+                logger.error(
+                    f"[P2P] Another P2P orchestrator is already running (PID {holder_pid}). "
+                    f"Use --kill-duplicates to automatically terminate it."
+                )
+            else:
+                # PID reuse - different process now holds the lock file
+                # This happens when the old P2P crashed and the PID was reused
+                if force_takeover:
+                    logger.warning(
+                        f"[P2P] Lock held by unexpected process (PID {holder_pid}: {holder_command[:80] if holder_command else 'unknown'}). "
+                        f"Force takeover requested - killing holder."
+                    )
+                    if _P2P_LOCK.force_release(kill_holder=True):
+                        if _P2P_LOCK.acquire():
+                            logger.info(f"[P2P] Acquired lock after force takeover (PID {os.getpid()})")
+                            return True
+                    logger.error("[P2P] Force takeover failed")
+                else:
+                    logger.warning(
+                        f"[P2P] Lock held by unexpected process (PID {holder_pid}: {holder_command[:80] if holder_command else 'unknown'}). "
+                        f"This may indicate PID reuse after a crash. "
+                        f"Use --force-takeover to automatically recover."
+                    )
         else:
-            logger.error("[P2P] Another instance is already running")
+            logger.error(
+                "[P2P] Failed to acquire lock (unknown reason). "
+                f"Lock status: {status}"
+            )
         return False
 
     logger.info(f"[P2P] Acquired singleton lock (PID {os.getpid()})")
@@ -24704,12 +24775,16 @@ def _release_singleton_lock() -> None:
 
 
 def main():
-    # Parse args early to check for kill-duplicates flag
+    # Parse lock-related args early (before full argparse)
     import sys
     kill_duplicates = "--kill-duplicates" in sys.argv
+    force_takeover = "--force-takeover" in sys.argv
 
-    # Acquire singleton lock (December 2025: improved atomic locking)
-    if not _acquire_singleton_lock(kill_duplicates=kill_duplicates):
+    # Acquire singleton lock (December 2025: improved atomic locking with stale cleanup)
+    if not _acquire_singleton_lock(
+        kill_duplicates=kill_duplicates,
+        force_takeover=force_takeover,
+    ):
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="P2P Orchestrator for RingRift cluster")
@@ -24740,6 +24815,8 @@ def main():
                         help="Running under cluster_supervisor.py - disable self-restart logic")
     parser.add_argument("--kill-duplicates", action="store_true",
                         help="Kill any existing P2P orchestrator processes before starting")
+    parser.add_argument("--force-takeover", action="store_true",
+                        help="Force acquire lock even if held by another process (use when PID was recycled after crash)")
 
     args = parser.parse_args()
 

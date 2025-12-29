@@ -1045,3 +1045,224 @@ def get_training_nodes(
             result.append(node)
 
     return result
+
+
+# =============================================================================
+# Dynamic Config Updates (December 2025)
+# For availability submodule: auto-provisioning and recovery
+# =============================================================================
+
+
+def add_or_update_node(
+    node_name: str,
+    node_config: dict[str, Any],
+    config_path: str | Path | None = None,
+) -> bool:
+    """Add or update a node in the cluster configuration.
+
+    December 2025: Added for availability submodule to dynamically register
+    newly provisioned or recreated instances.
+
+    Args:
+        node_name: Name of the node to add/update.
+        node_config: Dictionary with node configuration (ssh_host, gpu, etc.).
+        config_path: Optional config file path.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        import yaml
+    except ImportError:
+        logger.error("PyYAML not installed - cannot update cluster config")
+        return False
+
+    if config_path is None:
+        config_path = _get_config_path()
+    else:
+        config_path = Path(config_path)
+
+    if not config_path.exists():
+        logger.error(f"Cluster config not found: {config_path}")
+        return False
+
+    try:
+        # Load existing config
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+        # Ensure hosts section exists
+        if "hosts" not in data:
+            data["hosts"] = {}
+
+        # Add or update the node
+        if node_name in data["hosts"]:
+            # Merge with existing config (preserve fields not in node_config)
+            data["hosts"][node_name].update(node_config)
+            logger.info(f"Updated node config: {node_name}")
+        else:
+            # Add new node
+            data["hosts"][node_name] = node_config
+            logger.info(f"Added new node to config: {node_name}")
+
+        # Write back to file
+        with open(config_path, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+        # Clear cache to reload updated config
+        clear_cluster_config_cache()
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to update cluster config: {e}")
+        return False
+
+
+def update_node_status(
+    node_name: str,
+    status: str,
+    config_path: str | Path | None = None,
+    **extra_fields: Any,
+) -> bool:
+    """Update a node's status in the cluster configuration.
+
+    December 2025: Convenience function for quick status changes.
+
+    Args:
+        node_name: Name of the node to update.
+        status: New status (ready, offline, terminated, retired, setup).
+        config_path: Optional config file path.
+        **extra_fields: Additional fields to update (e.g., ssh_host, tailscale_ip).
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    update = {"status": status}
+    update.update(extra_fields)
+    return add_or_update_node(node_name, update, config_path)
+
+
+def remove_node(
+    node_name: str,
+    config_path: str | Path | None = None,
+) -> bool:
+    """Remove a node from the cluster configuration.
+
+    December 2025: Added for cleanup of terminated instances.
+
+    Args:
+        node_name: Name of the node to remove.
+        config_path: Optional config file path.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        import yaml
+    except ImportError:
+        logger.error("PyYAML not installed - cannot update cluster config")
+        return False
+
+    if config_path is None:
+        config_path = _get_config_path()
+    else:
+        config_path = Path(config_path)
+
+    if not config_path.exists():
+        logger.error(f"Cluster config not found: {config_path}")
+        return False
+
+    try:
+        # Load existing config
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+        if "hosts" not in data or node_name not in data["hosts"]:
+            logger.warning(f"Node not found in config: {node_name}")
+            return True  # Already removed
+
+        # Remove the node
+        del data["hosts"][node_name]
+        logger.info(f"Removed node from config: {node_name}")
+
+        # Write back to file
+        with open(config_path, "w") as f:
+            yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+        # Clear cache to reload updated config
+        clear_cluster_config_cache()
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to remove node from config: {e}")
+        return False
+
+
+def cluster_node_to_dict(node: ClusterNode) -> dict[str, Any]:
+    """Convert a ClusterNode to a dictionary for YAML serialization.
+
+    December 2025: Added for availability submodule.
+
+    Args:
+        node: ClusterNode object to convert.
+
+    Returns:
+        Dictionary suitable for adding to cluster config.
+    """
+    result: dict[str, Any] = {
+        "status": node.status,
+    }
+
+    # Only include non-default values
+    if node.tailscale_ip:
+        result["tailscale_ip"] = node.tailscale_ip
+    if node.ssh_host:
+        result["ssh_host"] = node.ssh_host
+    if node.ssh_user != "ubuntu":
+        result["ssh_user"] = node.ssh_user
+    if node.ssh_key:
+        result["ssh_key"] = node.ssh_key
+    if node.ssh_port != 22:
+        result["ssh_port"] = node.ssh_port
+    if node.ringrift_path != "~/ringrift/ai-service":
+        result["ringrift_path"] = node.ringrift_path
+    if node.role != "unknown":
+        result["role"] = node.role
+    if node.memory_gb:
+        result["memory_gb"] = node.memory_gb
+    if node.cpus:
+        result["cpus"] = node.cpus
+    if node.gpu:
+        result["gpu"] = node.gpu
+    if node.gpu_vram_gb:
+        result["gpu_vram_gb"] = node.gpu_vram_gb
+    if node.bandwidth_mbps:
+        result["bandwidth_mbps"] = node.bandwidth_mbps
+    if node.cuda_capable:
+        result["cuda_capable"] = node.cuda_capable
+    if not node.selfplay_enabled:
+        result["selfplay_enabled"] = node.selfplay_enabled
+    if node.training_enabled:
+        result["training_enabled"] = node.training_enabled
+    if node.preferred_workloads:
+        result["preferred_workloads"] = node.preferred_workloads
+    if node.excluded_workloads:
+        result["excluded_workloads"] = node.excluded_workloads
+    if node.data_server_port != 8766:
+        result["data_server_port"] = node.data_server_port
+    if node.data_server_url:
+        result["data_server_url"] = node.data_server_url
+    if node.is_coordinator:
+        result["is_coordinator"] = node.is_coordinator
+    if node.use_external_storage:
+        result["use_external_storage"] = node.use_external_storage
+    if node.external_storage_path:
+        result["external_storage_path"] = node.external_storage_path
+    if node.skip_sync_receive:
+        result["skip_sync_receive"] = node.skip_sync_receive
+    if node.storage_paths:
+        result["storage_paths"] = node.storage_paths
+
+    return result

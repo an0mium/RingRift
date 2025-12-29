@@ -269,6 +269,130 @@ class SingletonLock:
             pass
         return None
 
+    def is_holder_alive(self) -> bool:
+        """Check if the current lock holder process is still running.
+
+        Returns:
+            True if holder exists and is running, False otherwise
+        """
+        holder_pid = self.get_holder_pid()
+        if holder_pid is None:
+            return False
+        return self._is_holder_alive(holder_pid)
+
+    def get_holder_command(self) -> str | None:
+        """Get the command line of the lock holder process.
+
+        Returns:
+            Command line string, or None if not available
+        """
+        holder_pid = self.get_holder_pid()
+        if holder_pid is None:
+            return None
+
+        try:
+            # Try Linux /proc first
+            cmdline_path = Path(f"/proc/{holder_pid}/cmdline")
+            if cmdline_path.exists():
+                cmdline = cmdline_path.read_bytes().decode("utf-8", errors="replace")
+                return cmdline.replace("\x00", " ").strip()
+        except (OSError, PermissionError):
+            pass
+
+        try:
+            # Fall back to ps
+            result = subprocess.run(
+                ["ps", "-p", str(holder_pid), "-o", "args="],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired):
+            pass
+
+        return None
+
+    def is_holder_expected_process(self, expected_pattern: str) -> bool:
+        """Check if the lock holder is running the expected command.
+
+        Args:
+            expected_pattern: Substring to match in holder's command line
+
+        Returns:
+            True if holder command contains expected_pattern
+        """
+        command = self.get_holder_command()
+        if command is None:
+            return False
+        return expected_pattern in command
+
+    def force_release(self, kill_holder: bool = False, signal_num: int = signal.SIGTERM) -> bool:
+        """Force release a lock, optionally killing the holder.
+
+        WARNING: Use with caution. This can cause issues if the holder is
+        legitimately running.
+
+        Args:
+            kill_holder: If True, send signal to holder process
+            signal_num: Signal to send if kill_holder is True
+
+        Returns:
+            True if lock was released/cleaned up
+        """
+        holder_pid = self.get_holder_pid()
+
+        if kill_holder and holder_pid and self._is_holder_alive(holder_pid):
+            logger.warning(f"[SingletonLock] Force-killing holder PID {holder_pid}")
+            try:
+                os.kill(holder_pid, signal_num)
+                # Wait a bit for process to die
+                for _ in range(30):  # 3 seconds max
+                    time.sleep(0.1)
+                    if not self._is_holder_alive(holder_pid):
+                        break
+                else:
+                    # Try SIGKILL if still alive
+                    try:
+                        os.kill(holder_pid, signal.SIGKILL)
+                        time.sleep(0.5)
+                    except ProcessLookupError:
+                        pass
+            except (ProcessLookupError, PermissionError) as e:
+                logger.warning(f"[SingletonLock] Could not kill holder: {e}")
+
+        # Remove the lock file
+        try:
+            self.lock_path.unlink(missing_ok=True)
+            logger.info(f"[SingletonLock] Force-released lock for '{self.name}'")
+            return True
+        except OSError as e:
+            logger.error(f"[SingletonLock] Failed to force-release: {e}")
+            return False
+
+    def get_lock_status(self) -> dict:
+        """Get detailed status of this lock.
+
+        Returns:
+            Dict with lock status information
+        """
+        holder_pid = self.get_holder_pid()
+        holder_alive = self._is_holder_alive(holder_pid) if holder_pid else False
+        holder_command = self.get_holder_command() if holder_pid and holder_alive else None
+
+        return {
+            "name": self.name,
+            "lock_path": str(self.lock_path),
+            "lock_exists": self.lock_path.exists(),
+            "holder_pid": holder_pid,
+            "holder_alive": holder_alive,
+            "holder_command": holder_command,
+            "is_stale": holder_pid is not None and not holder_alive,
+            "acquired_by_us": self._acquired,
+            "our_pid": os.getpid(),
+        }
+
     def __enter__(self) -> SingletonLock:
         self.acquire()
         return self

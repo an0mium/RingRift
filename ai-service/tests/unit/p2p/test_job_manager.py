@@ -198,11 +198,11 @@ class TestSelfplayJobExecution:
                 jobs_lock=threading.Lock(),
             )
 
-            # Create both mock scripts
+            # Create mock scripts - Dec 2025: search modes use generate_gumbel_selfplay.py
             ai_service = Path(tmpdir) / "ai-service" / "scripts"
             ai_service.mkdir(parents=True)
             (ai_service / "run_gpu_selfplay.py").write_text("# gpu mock")
-            (ai_service / "run_hybrid_selfplay.py").write_text("# hybrid mock")
+            (ai_service / "generate_gumbel_selfplay.py").write_text("# gumbel mock")
 
             # Mock GPU availability to prevent fallback to heuristic-only
             mock_torch = MagicMock()
@@ -224,10 +224,10 @@ class TestSelfplayJobExecution:
                     engine_mode="gumbel-mcts",  # This is a search mode
                 )
 
-                # Check that hybrid script was used
+                # Check that gumbel selfplay script was used (Dec 2025: replaced run_hybrid_selfplay.py)
                 call_args = mock_exec.call_args[0]
                 script_path = str(call_args[1])
-                assert "run_hybrid_selfplay.py" in script_path
+                assert "generate_gumbel_selfplay.py" in script_path
 
 
 class TestDistributedSelfplay:

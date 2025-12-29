@@ -497,7 +497,21 @@ class RecoveryEngine(BaseDaemon):
                     f"Recreated instance {node.name}: "
                     f"new_id={new_instance.id}, ip={new_instance.ip_address}"
                 )
-                # TODO: Update cluster config with new instance info
+                # Update cluster config with new instance info
+                from app.config.cluster_config import update_node_status
+
+                config_updated = update_node_status(
+                    node.name,
+                    status="ready",
+                    ssh_host=new_instance.ip_address,
+                    # Preserve GPU info from original node
+                    gpu=node.gpu if node.gpu else str(new_instance.gpu_type.value),
+                    gpu_vram_gb=node.gpu_vram_gb if node.gpu_vram_gb else 0,
+                )
+                if not config_updated:
+                    logger.warning(
+                        f"Failed to update config for recreated instance {node.name}"
+                    )
                 return True, None
             else:
                 return False, "Failed to create new instance"

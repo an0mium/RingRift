@@ -104,6 +104,23 @@ class MockDistributedTournamentState:
 # =============================================================================
 
 
+class MockJobManager:
+    """Mock job manager for tournament tests."""
+
+    def __init__(self, run_tournament_callback: callable | None = None):
+        self._run_tournament_callback = run_tournament_callback
+        self.run_tournament_calls: list[str] = []
+        # Reference to parent handler's state dict for tracking
+        self.distributed_tournament_state: dict = {}
+
+    async def run_distributed_tournament(self, job_id: str) -> None:
+        """Mock tournament execution via job_manager."""
+        self.run_tournament_calls.append(job_id)
+        if self._run_tournament_callback:
+            await self._run_tournament_callback(job_id)
+        await asyncio.sleep(0.01)
+
+
 class TournamentHandlersTestClass(TournamentHandlersMixin):
     """Test class that uses the tournament handlers mixin."""
 
@@ -123,6 +140,14 @@ class TournamentHandlersTestClass(TournamentHandlersMixin):
         self._propose_tournament_calls = []
         self._run_tournament_tasks = []
         self._play_match_tasks = []
+
+        # Create mock job_manager with callback to track tournament tasks
+        async def _track_tournament(job_id: str) -> None:
+            self._run_tournament_tasks.append(job_id)
+
+        self.job_manager = MockJobManager(run_tournament_callback=_track_tournament)
+        # Share state dict reference so handler storage is visible to job_manager
+        self.job_manager.distributed_tournament_state = self.distributed_tournament_state
 
     def _propose_tournament(
         self,
@@ -381,7 +406,12 @@ class TestHandleTournamentStartLeader:
 
 
 class TestHandleTournamentStartNonLeader:
-    """Tests for handle_tournament_start when node is not leader."""
+    """Tests for handle_tournament_start when node is not leader.
+
+    Dec 2025: Updated to match current HTTP-forwarding implementation.
+    Non-leaders either forward requests to the known leader, or return
+    an error if no leader is known.
+    """
 
     @pytest.fixture
     def handler(self):
@@ -391,8 +421,8 @@ class TestHandleTournamentStartNonLeader:
         )
 
     @pytest.mark.asyncio
-    async def test_non_leader_creates_proposal(self, handler):
-        """Non-leader creates proposal instead of starting directly."""
+    async def test_non_leader_without_leader_returns_error(self, handler):
+        """Non-leader without known leader returns error response."""
         with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             request = MockRequest(
                 json_data={
@@ -405,61 +435,66 @@ class TestHandleTournamentStartNonLeader:
 
             response = await handler.handle_tournament_start(request)
 
+            assert response.status == 400
             body = json.loads(response.body)
-            assert body["success"] is True
-            assert body["mode"] == "proposal"
-            assert "proposal_id" in body
-            assert "awaiting gossip consensus" in body["status"]
+            assert "error" in body
+            assert "not the leader" in body["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_proposal_includes_agents(self, handler):
-        """Proposal response includes agent list."""
+    async def test_non_leader_with_leader_attempts_forward(self, handler):
+        """Non-leader with known leader attempts to forward.
+
+        Note: The handler imports aiohttp inline (inside the method), which makes
+        it difficult to mock. This test verifies that:
+        1. When leader is known but forward fails, error response is returned
+        2. The handler gracefully handles the failure
+
+        Since the inline import can't be easily patched, this test relies on the
+        handler's fallback error response when forwarding fails.
+        """
+        # Set up a known leader
+        handler.leader_id = "leader-node"
+        mock_peer = MagicMock()
+        mock_peer.url = "http://leader-node:8770"
+        handler.peers["leader-node"] = mock_peer
+
         with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             request = MockRequest(
                 json_data={
-                    "agent_ids": ["model1", "model2", "model3"],
+                    "agent_ids": ["agent1", "agent2"],
                 }
             )
 
+            # The forward will fail (no mock for aiohttp), so we get error response
             response = await handler.handle_tournament_start(request)
 
+            # Handler should gracefully fall back to error response
+            assert response.status == 400
             body = json.loads(response.body)
-            assert body["agents"] == ["model1", "model2", "model3"]
+            assert "error" in body
+            assert "not the leader" in body["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_non_leader_too_few_agents_returns_400(self, handler):
-        """Non-leader with too few agents returns 400."""
+    async def test_non_leader_no_leader_url_returns_error(self, handler):
+        """Non-leader returns error if leader has no URL."""
+        # Set up a known leader without URL
+        handler.leader_id = "leader-node"
+        mock_peer = MagicMock()
+        mock_peer.url = None
+        handler.peers["leader-node"] = mock_peer
+
         with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             request = MockRequest(
                 json_data={
-                    "agent_ids": ["only_one"],
+                    "agent_ids": ["agent1", "agent2"],
                 }
             )
 
             response = await handler.handle_tournament_start(request)
 
             assert response.status == 400
-
-    @pytest.mark.asyncio
-    async def test_proposal_calls_method(self, handler):
-        """Proposal creation calls _propose_tournament."""
-        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
-            request = MockRequest(
-                json_data={
-                    "board_type": "hexagonal",
-                    "num_players": 4,
-                    "agent_ids": ["a", "b"],
-                    "games_per_pairing": 3,
-                }
-            )
-
-            await handler.handle_tournament_start(request)
-
-            assert len(handler._propose_tournament_calls) == 1
-            proposal = handler._propose_tournament_calls[0]
-            assert proposal["board_type"] == "hexagonal"
-            assert proposal["num_players"] == 4
-            assert proposal["games_per_pairing"] == 3
+            body = json.loads(response.body)
+            assert "error" in body
 
 
 # =============================================================================

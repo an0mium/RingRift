@@ -1091,6 +1091,8 @@ class UnifiedQueuePopulatorDaemon:
                 num_players = payload.get("num_players")
                 if board_type and num_players:
                     self._populator.increment_training(board_type, num_players)
+                    # CRITICAL: Replenish queue after training completes
+                    self._populator.populate()
 
             def _on_new_games(event: Any) -> None:
                 payload = _extract_payload(event)
@@ -1112,6 +1114,8 @@ class UnifiedQueuePopulatorDaemon:
                         target.pending_selfplay_count -= 1
                     if games:
                         self._populator.increment_games(board_type, num_players, games)
+                # Replenish queue when selfplay slot becomes available
+                self._populator.populate()
 
             def _on_training_blocked(event: Any) -> None:
                 """Handle TRAINING_BLOCKED_BY_QUALITY - queue extra selfplay."""
@@ -1170,6 +1174,8 @@ class UnifiedQueuePopulatorDaemon:
                             f"[QueuePopulator] Work failed for {config_key} ({reason}), "
                             f"pending: {target.pending_selfplay_count}"
                         )
+                # Replace failed work immediately
+                self._populator.populate()
 
             def _on_work_timeout(event: Any) -> None:
                 """Handle WORK_TIMEOUT - decrement pending count for timed out work."""
@@ -1191,6 +1197,8 @@ class UnifiedQueuePopulatorDaemon:
                             f"[QueuePopulator] Work timed out for {config_key} on {node_id}, "
                             f"pending: {target.pending_selfplay_count}"
                         )
+                # Replace timed out work immediately
+                self._populator.populate()
 
             def _on_task_abandoned(event: Any) -> None:
                 """Handle TASK_ABANDONED - decrement pending count for abandoned tasks.

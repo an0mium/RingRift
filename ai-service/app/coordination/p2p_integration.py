@@ -392,6 +392,89 @@ async def cancel_p2p_job(job_id: str) -> P2PJobResult:
         return P2PJobResult(success=False, job_id=job_id, error=str(e))
 
 
+async def dispatch_selfplay_direct(
+    target_node: str,
+    host: str,
+    port: int,
+    board_type: str,
+    num_players: int,
+    num_games: int,
+    engine_mode: str = "gumbel-mcts",
+    engine_extra_args: dict[str, Any] | None = None,
+    timeout: float = 30.0,
+) -> P2PJobResult:
+    """Dispatch selfplay directly to a node's /selfplay/start endpoint.
+
+    This bypasses the work queue for immediate execution on idle nodes.
+    Used by IdleResourceDaemon for responsive selfplay spawning.
+
+    December 2025: Added to fix autonomous selfplay dispatch. The work queue
+    model (submit_job -> /work/add) doesn't work well because WorkerPullLoop
+    only pulls when nodes are idle (training_jobs == 0), but training nodes
+    are always busy.
+
+    Args:
+        target_node: Node ID for logging/tracking
+        host: Node HTTP host
+        port: Node HTTP port (default P2P port is 8770)
+        board_type: Board type (e.g., "hex8", "square8")
+        num_players: Number of players (2, 3, or 4)
+        num_games: Number of games to run
+        engine_mode: Engine mode (e.g., "gumbel-mcts", "heuristic-only")
+        engine_extra_args: Optional extra arguments for engine
+        timeout: Request timeout in seconds
+
+    Returns:
+        P2PJobResult with success status and job_id
+    """
+    if not HAS_AIOHTTP:
+        return P2PJobResult(success=False, error="aiohttp not available")
+
+    url = f"http://{host}:{port}/selfplay/start"
+    payload = {
+        "board_type": board_type,
+        "num_players": num_players,
+        "num_games": num_games,
+        "engine_mode": engine_mode,
+    }
+    if engine_extra_args:
+        payload["engine_extra_args"] = engine_extra_args
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as resp:
+                result = await resp.json()
+                if result.get("success"):
+                    logger.debug(
+                        f"[dispatch_selfplay_direct] Started selfplay on {target_node}: "
+                        f"{board_type}_{num_players}p, {num_games} games, job_id={result.get('job_id')}"
+                    )
+                    return P2PJobResult(
+                        success=True,
+                        job_id=result.get("job_id", ""),
+                        details=result,
+                    )
+                else:
+                    return P2PJobResult(
+                        success=False,
+                        error=result.get("error", "Unknown error"),
+                        details=result,
+                    )
+    except asyncio.TimeoutError:
+        logger.debug(f"[dispatch_selfplay_direct] Timeout dispatching to {target_node}")
+        return P2PJobResult(success=False, error=f"Timeout connecting to {target_node}")
+    except aiohttp.ClientError as e:
+        logger.debug(f"[dispatch_selfplay_direct] HTTP error for {target_node}: {e}")
+        return P2PJobResult(success=False, error=f"HTTP error: {e}")
+    except (OSError, RuntimeError) as e:
+        logger.debug(f"[dispatch_selfplay_direct] Error for {target_node}: {e}")
+        return P2PJobResult(success=False, error=str(e))
+
+
 async def get_p2p_job_status(job_id: str) -> dict[str, Any] | None:
     """Get status of a specific job in the P2P cluster.
 
