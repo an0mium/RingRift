@@ -233,16 +233,17 @@ P2P networking modules.
 
 Resource allocation and optimization.
 
-| Module                               | LOC  | Status | Purpose                     |
-| ------------------------------------ | ---- | ------ | --------------------------- |
-| `resource_monitoring_coordinator.py` | ~400 | Active | Resource monitoring         |
-| `unified_resource_coordinator.py`    | ~500 | Active | Unified resource management |
-| `resource_optimizer.py`              | ~300 | Active | Resource optimization       |
-| `resource_targets.py`                | ~400 | Active | Resource target management  |
-| `adaptive_resource_manager.py`       | ~500 | Active | Dynamic resource scaling    |
-| `utilization_optimizer.py`           | ~400 | Active | Optimize cluster workloads  |
-| `node_policies.py`                   | ~200 | Active | Node allocation policies    |
-| `host_health_policy.py`              | ~150 | Active | Host health policies        |
+| Module                               | LOC  | Status | Purpose                                      |
+| ------------------------------------ | ---- | ------ | -------------------------------------------- |
+| `resource_monitoring_coordinator.py` | ~400 | Active | Resource monitoring                          |
+| `unified_resource_coordinator.py`    | ~500 | Active | Unified resource management                  |
+| `resource_optimizer.py`              | ~300 | Active | Resource optimization                        |
+| `resource_targets.py`                | ~400 | Active | Resource target management                   |
+| `adaptive_resource_manager.py`       | ~500 | Active | Dynamic resource scaling                     |
+| `load_forecaster.py`                 | ~784 | Active | Cluster load prediction + scheduling windows |
+| `utilization_optimizer.py`           | ~400 | Active | Optimize cluster workloads                   |
+| `node_policies.py`                   | ~200 | Active | Node allocation policies                     |
+| `host_health_policy.py`              | ~150 | Active | Host health policies                         |
 
 ### Coordinator Infrastructure
 
