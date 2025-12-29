@@ -1685,6 +1685,13 @@ class P2POrchestrator(
         self.voter_grant_lease_id: str = ""
         self.voter_grant_expires: float = 0.0
 
+        # Phase 15.1.1: Fenced lease tokens with monotonic epoch
+        # These prevent split-brain during network partitions by ensuring
+        # only one leader per epoch can issue commands.
+        self._lease_epoch: int = 0  # Monotonic, never decreases
+        self._fence_token: str = ""  # Unique per lease grant: node_id:epoch:timestamp
+        self._last_seen_epoch: int = 0  # Highest epoch seen from any leader
+
         # Job completion tracking for auto-restart
         self.completed_jobs: dict[str, float] = {}  # node_id -> last job completion time
         self.jobs_started_at: dict[str, dict[str, float]] = {}  # node_id -> {job_id: start_time}
@@ -2716,14 +2723,29 @@ class P2POrchestrator(
 
         Returns dict of job_id -> last_heartbeat_time.
         Jobs without recent heartbeats may be considered abandoned.
+
+        Phase 15.1.9 (Dec 29, 2025): Updated to use JobManager.get_job_heartbeats()
+        for actual heartbeat tracking instead of just job start times.
         """
-        # Use jobs_started_at as a proxy for heartbeats
-        # In the future, this could be replaced with actual heartbeat tracking
         result: dict[str, float] = {}
+
+        # Phase 15.1.9: Get actual heartbeats from JobManager
+        if hasattr(self, "job_manager") and self.job_manager is not None:
+            try:
+                job_heartbeats = self.job_manager.get_job_heartbeats()
+                result.update(job_heartbeats)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Failed to get heartbeats from JobManager: {e}")
+
+        # Fallback: Also include jobs_started_at for jobs without heartbeat tracking
+        # This ensures older jobs (started before heartbeat tracking) are still monitored
         if hasattr(self, "jobs_started_at"):
             for _node_id, jobs in self.jobs_started_at.items():
                 for job_id, start_time in jobs.items():
-                    result[job_id] = start_time
+                    # Only add if not already in result from heartbeat tracking
+                    if job_id not in result:
+                        result[job_id] = start_time
+
         return result
 
     # =========================================================================
@@ -4474,6 +4496,8 @@ class P2POrchestrator(
                     "leader_id": self.node_id,
                     "lease_id": lease_id,
                     "lease_duration": duration,
+                    # Phase 15.1.1: Include epoch for split-brain protection
+                    "lease_epoch": self._lease_epoch + 1,  # Proposed new epoch
                 }
 
                 # Use Tailscale-exclusive URLs for voter communication to avoid NAT issues
@@ -4510,6 +4534,118 @@ class P2POrchestrator(
         effective_ttl = min(lease_ttls) if lease_ttls else float(duration)
         effective_ttl = max(10.0, min(float(duration), float(effective_ttl)))
         return now + float(effective_ttl)
+
+    # =========================================================================
+    # Phase 15.1.1: Fence Token Helpers (December 29, 2025)
+    # =========================================================================
+
+    def get_fence_token(self) -> str:
+        """Get the current fence token for including in leader operations.
+
+        Phase 15.1.1: Fence tokens provide split-brain protection by ensuring
+        workers can reject commands from stale leaders.
+
+        Returns:
+            Current fence token or empty string if not leader
+        """
+        if self.role != NodeRole.LEADER:
+            return ""
+        return self._fence_token
+
+    def get_lease_epoch(self) -> int:
+        """Get the current lease epoch.
+
+        Phase 15.1.1: The epoch is monotonically increasing and helps
+        resolve split-brain by allowing workers to compare epochs.
+
+        Returns:
+            Current lease epoch (0 if never been leader)
+        """
+        return self._lease_epoch
+
+    def validate_fence_token(self, token: str) -> tuple[bool, str]:
+        """Validate an incoming fence token from a claimed leader.
+
+        Phase 15.1.1: Workers use this to reject commands from stale leaders.
+        A token is valid if:
+        1. It's from the current known leader
+        2. Its epoch is >= our known epoch
+
+        Args:
+            token: Fence token to validate (format: node_id:epoch:timestamp)
+
+        Returns:
+            (valid, reason) tuple
+        """
+        if not token:
+            return False, "empty_fence_token"
+
+        try:
+            parts = token.split(":")
+            if len(parts) != 3:
+                return False, "malformed_token"
+
+            token_node_id = parts[0]
+            token_epoch = int(parts[1])
+
+            # Check if token is from known leader
+            if self.leader_id and token_node_id != self.leader_id:
+                return False, f"token_from_unknown_leader:{token_node_id}"
+
+            # Check epoch - reject if lower than what we've seen
+            if hasattr(self, "_last_seen_epoch"):
+                if token_epoch < self._last_seen_epoch:
+                    return False, f"stale_epoch:{token_epoch}<{self._last_seen_epoch}"
+                self._last_seen_epoch = max(self._last_seen_epoch, token_epoch)
+            else:
+                self._last_seen_epoch = token_epoch
+
+            return True, "valid"
+
+        except (ValueError, IndexError) as e:
+            return False, f"parse_error:{e}"
+
+    def update_fence_token_from_leader(self, token: str, leader_id: str) -> bool:
+        """Update internal fence token state when receiving leader announcement.
+
+        Phase 15.1.1: Called when a follower receives a coordinator announcement
+        to update the last seen epoch for fence token validation.
+
+        Args:
+            token: Fence token from leader
+            leader_id: Leader node ID
+
+        Returns:
+            True if update was successful
+        """
+        if not token:
+            return False
+
+        try:
+            parts = token.split(":")
+            if len(parts) != 3:
+                return False
+
+            token_epoch = int(parts[1])
+
+            # Update last seen epoch (but never decrease)
+            if hasattr(self, "_last_seen_epoch"):
+                if token_epoch >= self._last_seen_epoch:
+                    self._last_seen_epoch = token_epoch
+                    return True
+                else:
+                    # Reject older epoch
+                    logger.warning(
+                        f"Rejecting fence token with stale epoch {token_epoch} "
+                        f"(current: {self._last_seen_epoch}) from {leader_id}"
+                    )
+                    return False
+            else:
+                self._last_seen_epoch = token_epoch
+                return True
+
+        except (ValueError, IndexError):
+            return False
 
     async def _determine_leased_leader_from_voters(self) -> str | None:
         """Return the current lease-holder as reported by a quorum of voters.
@@ -18618,6 +18754,13 @@ print(json.dumps({{
         # This helps resolve split-brain when partitions merge
         self._increment_cluster_epoch()
 
+        # Phase 15.1.1: Increment lease epoch and create fence token
+        # This provides split-brain protection by ensuring each leadership
+        # term has a unique, monotonically increasing epoch
+        self._lease_epoch += 1
+        self._fence_token = f"{self.node_id}:{self._lease_epoch}:{time.time()}"
+        logger.info(f"Leader lease fencing: epoch={self._lease_epoch}, token={self._fence_token}")
+
         # CRITICAL: Emit LEADER_ELECTED event (Dec 2025 fix)
         # This enables LeadershipCoordinator and other components to track leadership changes
         asyncio.create_task(self._emit_leader_elected(self.node_id, getattr(self, "cluster_epoch", 0)))
@@ -18642,6 +18785,9 @@ print(json.dumps({{
                             "lease_id": self.leader_lease_id,
                             "lease_expires": self.leader_lease_expires,
                             "voter_node_ids": list(getattr(self, "voter_node_ids", []) or []),
+                            # Phase 15.1.1: Include epoch and fence token for split-brain protection
+                            "lease_epoch": self._lease_epoch,
+                            "fence_token": self._fence_token,
                         }, headers=self._auth_headers())
                     except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, IndexError, AttributeError):
                         pass  # Network errors expected during leader announcements

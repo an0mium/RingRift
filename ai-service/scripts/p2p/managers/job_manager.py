@@ -1333,6 +1333,8 @@ class JobManager(EventSubscriptionMixin):
         except asyncio.TimeoutError:
             # December 28, 2025: Use centralized process cleanup
             await self._kill_process(job_id, proc)
+            # Phase 15.1.9: Unregister from heartbeat tracking on timeout
+            self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "timeout"
@@ -1345,6 +1347,8 @@ class JobManager(EventSubscriptionMixin):
             # ValueError: Invalid arguments to subprocess
             # RuntimeError: Subprocess state errors
             await self._kill_process(job_id, proc)
+            # Phase 15.1.9: Unregister from heartbeat tracking on error
+            self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
@@ -1354,6 +1358,8 @@ class JobManager(EventSubscriptionMixin):
         except Exception:
             # Catch-all for truly unexpected errors - log with traceback and re-raise
             await self._kill_process(job_id, proc)
+            # Phase 15.1.9: Unregister from heartbeat tracking on unexpected error
+            self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "error"

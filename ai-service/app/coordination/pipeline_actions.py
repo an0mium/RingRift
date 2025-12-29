@@ -58,6 +58,135 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Phase 4.3 Dec 29, 2025: Per-config Circuit Breaker
+# Prevents failed configs from retrying infinitely and starving others
+# =============================================================================
+
+@dataclass
+class CircuitState:
+    """Circuit breaker state for a config.
+
+    Tracks consecutive failures and opens circuit after threshold.
+    Open circuit prevents new actions for that config until backoff expires.
+    """
+
+    failures: int = 0
+    last_failure_time: float = 0.0
+    open_until: float = 0.0  # Unix timestamp when circuit can close
+    total_failures: int = 0  # Lifetime failures for metrics
+
+    @property
+    def is_open(self) -> bool:
+        """Check if circuit is currently open (blocking actions)."""
+        return time.time() < self.open_until
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for status reporting."""
+        return {
+            "failures": self.failures,
+            "total_failures": self.total_failures,
+            "is_open": self.is_open,
+            "open_until": self.open_until,
+            "remaining_seconds": max(0, self.open_until - time.time()),
+        }
+
+
+# Per-config circuit breaker states
+_circuit_states: dict[str, CircuitState] = {}
+
+# Circuit breaker configuration
+CIRCUIT_FAILURE_THRESHOLD = int(os.environ.get("RINGRIFT_CIRCUIT_FAILURE_THRESHOLD", "5"))
+CIRCUIT_BACKOFF_SECONDS = float(os.environ.get("RINGRIFT_CIRCUIT_BACKOFF_SECONDS", "300"))  # 5 min
+
+
+def _get_circuit_state(config_key: str) -> CircuitState:
+    """Get or create circuit state for a config."""
+    if config_key not in _circuit_states:
+        _circuit_states[config_key] = CircuitState()
+    return _circuit_states[config_key]
+
+
+def check_circuit(config_key: str) -> bool:
+    """Check if actions are allowed for this config.
+
+    Args:
+        config_key: Config key like "hex8_2p"
+
+    Returns:
+        True if circuit is closed (actions allowed), False if open (blocked)
+    """
+    state = _get_circuit_state(config_key)
+    if state.is_open:
+        logger.warning(
+            f"[PipelineActions] Circuit open for {config_key}, "
+            f"{state.open_until - time.time():.0f}s remaining"
+        )
+        return False
+    return True
+
+
+def record_action_success(config_key: str) -> None:
+    """Record a successful action - resets failure count.
+
+    Args:
+        config_key: Config key like "hex8_2p"
+    """
+    state = _get_circuit_state(config_key)
+    if state.failures > 0:
+        logger.info(
+            f"[PipelineActions] Circuit recovered for {config_key} "
+            f"after {state.failures} failures"
+        )
+    state.failures = 0
+    state.open_until = 0.0
+
+
+def record_action_failure(config_key: str, error: str | None = None) -> None:
+    """Record a failed action - may open circuit.
+
+    Args:
+        config_key: Config key like "hex8_2p"
+        error: Optional error message for logging
+    """
+    state = _get_circuit_state(config_key)
+    state.failures += 1
+    state.total_failures += 1
+    state.last_failure_time = time.time()
+
+    if state.failures >= CIRCUIT_FAILURE_THRESHOLD:
+        # Open circuit with exponential backoff
+        backoff_multiplier = min(2 ** (state.failures - CIRCUIT_FAILURE_THRESHOLD), 8)
+        backoff = CIRCUIT_BACKOFF_SECONDS * backoff_multiplier
+        state.open_until = time.time() + backoff
+
+        logger.error(
+            f"[PipelineActions] Circuit OPENED for {config_key} after "
+            f"{state.failures} consecutive failures. Backoff: {backoff:.0f}s. "
+            f"Error: {error or 'Unknown'}"
+        )
+
+
+def get_circuit_status() -> dict[str, dict[str, Any]]:
+    """Get status of all circuit breakers for monitoring."""
+    return {key: state.to_dict() for key, state in _circuit_states.items()}
+
+
+def reset_circuit(config_key: str) -> None:
+    """Manually reset circuit for a config (for admin use).
+
+    Args:
+        config_key: Config key like "hex8_2p"
+    """
+    if config_key in _circuit_states:
+        old_state = _circuit_states[config_key]
+        logger.info(
+            f"[PipelineActions] Circuit manually reset for {config_key} "
+            f"(was: {old_state.failures} failures, open={old_state.is_open})"
+        )
+        _circuit_states[config_key] = CircuitState()
+
+
 class ActionPriority(Enum):
     """Priority levels for pipeline actions."""
 
@@ -654,6 +783,17 @@ async def trigger_training(
     last_error = None
     config_key = f"{board_type}_{num_players}p"
 
+    # Phase 4.3 Dec 29, 2025: Check circuit breaker before starting
+    if not check_circuit(config_key):
+        return StageCompletionResult(
+            success=False,
+            stage="training",
+            iteration=iteration,
+            duration_seconds=0.0,
+            error=f"Circuit open for {config_key} - too many recent failures",
+            metadata={"circuit_blocked": True, "config_key": config_key},
+        )
+
     # Emit training triggered event (December 2025)
     if HAS_EVENT_EMITTERS:
         try:
@@ -763,6 +903,7 @@ async def trigger_training(
                     f"[PipelineActions] Training completed in {attempt_duration:.1f}s: "
                     f"val_loss={val_loss:.4f}, policy_acc={policy_accuracy:.1f}%"
                 )
+                record_action_success(config_key)  # Phase 4.3: Reset circuit on success
                 await _emit_training_complete(result)
                 return result
             else:
@@ -775,6 +916,7 @@ async def trigger_training(
                     continue
                 # Last attempt - emit failure and return
                 logger.error(f"[PipelineActions] All {max_retries} training attempts failed")
+                record_action_failure(config_key, last_error)  # Phase 4.3: Track failure
                 await _emit_training_failed(result)
                 return result
 
@@ -788,6 +930,7 @@ async def trigger_training(
     # All retries exhausted with exceptions
     duration = time.time() - start_time
     logger.error(f"[PipelineActions] All {max_retries} training attempts failed with errors")
+    record_action_failure(config_key, last_error)  # Phase 4.3: Track failure
     result = StageCompletionResult(
         success=False,
         stage="training",
@@ -834,6 +977,18 @@ async def trigger_evaluation(
     start_time = time.time()
     baselines = baselines or ["random", "heuristic"]
     last_error = None
+    config_key = f"{board_type}_{num_players}p"
+
+    # Phase 4.3 Dec 29, 2025: Check circuit breaker before starting
+    if not check_circuit(config_key):
+        return StageCompletionResult(
+            success=False,
+            stage="evaluation",
+            iteration=iteration,
+            duration_seconds=0.0,
+            error=f"Circuit open for {config_key} - too many recent failures",
+            metadata={"circuit_blocked": True, "config_key": config_key},
+        )
 
     for attempt in range(max_retries):
         # Increase games on retry to reduce variance
@@ -920,6 +1075,7 @@ async def trigger_evaluation(
                     f"[PipelineActions] Evaluation completed in {attempt_duration:.1f}s: "
                     f"win_rates={win_rates}, elo_delta={elo_delta:+.0f}"
                 )
+                record_action_success(config_key)  # Phase 4.3: Reset circuit on success
                 await _emit_evaluation_complete(result)
                 return result
             else:
@@ -932,6 +1088,7 @@ async def trigger_evaluation(
                     continue
                 # Last attempt - return failure result
                 logger.error(f"[PipelineActions] All {max_retries} evaluation attempts failed")
+                record_action_failure(config_key, last_error)  # Phase 4.3: Track failure
                 return result
 
         except Exception as e:
@@ -944,6 +1101,7 @@ async def trigger_evaluation(
     # All retries exhausted with exceptions
     duration = time.time() - start_time
     logger.error(f"[PipelineActions] All {max_retries} evaluation attempts failed with errors")
+    record_action_failure(config_key, last_error)  # Phase 4.3: Track failure
     return StageCompletionResult(
         success=False,
         stage="evaluation",
@@ -1210,12 +1368,22 @@ async def _emit_promotion_complete(result: StageCompletionResult) -> None:
 
 
 __all__ = [
+    # Config and result types
     "ActionConfig",
     "ActionPriority",
     "StageCompletionResult",
+    # Pipeline action triggers
     "trigger_data_sync",
     "trigger_evaluation",
+    "trigger_npz_combination",
     "trigger_npz_export",
     "trigger_promotion",
     "trigger_training",
+    # Circuit breaker (Phase 4.3 Dec 29, 2025)
+    "CircuitState",
+    "check_circuit",
+    "get_circuit_status",
+    "record_action_failure",
+    "record_action_success",
+    "reset_circuit",
 ]

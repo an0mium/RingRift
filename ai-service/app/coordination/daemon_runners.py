@@ -582,7 +582,7 @@ async def create_selfplay_coordinator() -> None:
         # Get singleton and wire up event subscriptions
         scheduler = get_selfplay_scheduler()
         logger.info(
-            f"[SelfplayCoordinator] Initialized scheduler with {len(scheduler._states)} configs"
+            f"[SelfplayCoordinator] Initialized scheduler with {len(scheduler._config_priorities)} configs"
         )
         # SelfplayScheduler doesn't have a lifecycle - it's used by other daemons
         # Keep running indefinitely

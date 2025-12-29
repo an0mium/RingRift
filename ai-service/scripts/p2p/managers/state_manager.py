@@ -140,6 +140,12 @@ class PersistedLeaderState:
     voter_node_ids: list[str] = field(default_factory=list)
     voter_config_source: str = ""
 
+    # Phase 15.1.1 (Dec 2025): Fenced lease tokens for split-brain protection
+    # These must be persisted to prevent stale leaders after restart
+    lease_epoch: int = 0  # Monotonic epoch, never decreases
+    fence_token: str = ""  # Current fence token: node_id:epoch:timestamp
+    last_seen_epoch: int = 0  # Highest epoch seen from any leader
+
 
 @dataclass
 class PersistedState:

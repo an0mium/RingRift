@@ -106,7 +106,8 @@ class QueuePopulatorConfig:
     max_pending_items: int = 50
 
     # Check/scan interval (reduced from 60s for faster job allocation)
-    check_interval_seconds: int = 15
+    # December 29, 2025: Reduced from 15s to 10s for faster response to events
+    check_interval_seconds: int = 10
 
     # === Elo Targets ===
     target_elo: float = 2000.0
@@ -1165,6 +1166,9 @@ class UnifiedQueuePopulatorDaemon:
                 count = payload.get("count", 1)
                 if board_type and num_players:
                     self._populator.increment_games(board_type, num_players, count)
+                    # December 29, 2025: Trigger population when new games available
+                    # This ensures the queue stays filled as data becomes available
+                    self._populator.populate()
 
             def _on_selfplay_complete(event: Any) -> None:
                 payload = _extract_payload(event)
@@ -1299,6 +1303,17 @@ class UnifiedQueuePopulatorDaemon:
                             f"pending: {target.pending_selfplay_count}"
                         )
 
+            def _on_selfplay_target_updated(event: Any) -> None:
+                """Handle SELFPLAY_TARGET_UPDATED - repopulate queue when targets change."""
+                payload = _extract_payload(event)
+                config_key = payload.get("config_key", "")
+                new_target = payload.get("target_games") or payload.get("games_target")
+                logger.info(
+                    f"[QueuePopulator] Selfplay target updated for {config_key}: {new_target}"
+                )
+                # December 29, 2025: Repopulate queue when targets change
+                self._populator.populate()
+
             router.subscribe(DataEventType.ELO_UPDATED.value, _on_elo_updated)
             router.subscribe(DataEventType.TRAINING_COMPLETED.value, _on_training_completed)
             router.subscribe(DataEventType.NEW_GAMES_AVAILABLE.value, _on_new_games)
@@ -1306,6 +1321,10 @@ class UnifiedQueuePopulatorDaemon:
 
             if hasattr(DataEventType, 'SELFPLAY_COMPLETE'):
                 router.subscribe(DataEventType.SELFPLAY_COMPLETE.value, _on_selfplay_complete)
+
+            # December 29, 2025: Wire SELFPLAY_TARGET_UPDATED to adjust queue when targets change
+            if hasattr(DataEventType, 'SELFPLAY_TARGET_UPDATED'):
+                router.subscribe(DataEventType.SELFPLAY_TARGET_UPDATED.value, _on_selfplay_target_updated)
 
             # Wire WORK_FAILED, WORK_TIMEOUT, TASK_ABANDONED for accurate pending count tracking
             if hasattr(DataEventType, 'WORK_FAILED'):

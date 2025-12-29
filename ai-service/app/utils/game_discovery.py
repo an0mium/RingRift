@@ -426,6 +426,34 @@ class GameDiscovery:
 
         return board_type, num_players
 
+    def _validate_schema(self, conn: sqlite3.Connection) -> bool:
+        """Validate database has required schema for game queries.
+
+        Phase 5.3 Dec 29, 2025: Added to prevent silent 0-game returns
+        when databases have incompatible schema.
+
+        Args:
+            conn: Open SQLite connection
+
+        Returns:
+            True if schema is valid, False otherwise
+        """
+        try:
+            # Check if games table exists
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='games'"
+            )
+            if not cursor.fetchone():
+                return False
+
+            # Check required columns exist
+            cursor = conn.execute("PRAGMA table_info(games)")
+            columns = {row[1] for row in cursor.fetchall()}
+            required = {"winner", "board_type", "num_players"}
+            return required.issubset(columns)
+        except sqlite3.Error:
+            return False
+
     def _count_games_in_db(
         self, db_path: Path, board_type: str, num_players: int
     ) -> int:
@@ -439,6 +467,11 @@ class GameDiscovery:
 
         try:
             with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0) as conn:
+                # Phase 5.3: Validate schema before querying
+                if not self._validate_schema(conn):
+                    logger.debug(f"Schema validation failed for {db_path}")
+                    return 0
+
                 cursor = conn.execute(
                     f"SELECT COUNT(*) FROM games WHERE winner IS NOT NULL "
                     f"AND board_type IN ({placeholders}) AND num_players = ?",
@@ -456,6 +489,11 @@ class GameDiscovery:
 
         try:
             with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0) as conn:
+                # Phase 5.3: Validate schema before querying
+                if not self._validate_schema(conn):
+                    logger.debug(f"Schema validation failed for {db_path}")
+                    return 0
+
                 cursor = conn.execute(
                     "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL"
                 )
@@ -476,6 +514,11 @@ class GameDiscovery:
 
         try:
             with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0) as conn:
+                # Phase 5.3: Validate schema before querying
+                if not self._validate_schema(conn):
+                    logger.debug(f"Schema validation failed for {db_path}")
+                    return {}
+
                 cursor = conn.execute(
                     "SELECT board_type, num_players, COUNT(*) "
                     "FROM games WHERE winner IS NOT NULL "

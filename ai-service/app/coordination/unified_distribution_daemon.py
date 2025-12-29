@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -72,6 +73,15 @@ except ImportError:
     get_delivery_retry_queue = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# December 29, 2025: Circuit breaker integration for distribution reliability
+try:
+    from app.distributed.circuit_breaker import CircuitBreakerRegistry, CircuitState
+    CIRCUIT_BREAKER_AVAILABLE = True
+except ImportError:
+    CIRCUIT_BREAKER_AVAILABLE = False
+    CircuitBreakerRegistry = None  # type: ignore
+    CircuitState = None  # type: ignore
 
 # Add parent to path for imports
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -729,6 +739,23 @@ class UnifiedDistributionDaemon:
                 node_id = target if isinstance(target, str) else target.get("node_id", node_host)
                 start_time = time.time()
 
+                # December 29, 2025: Circuit breaker check - skip nodes that are failing
+                if CIRCUIT_BREAKER_AVAILABLE and CircuitBreakerRegistry:
+                    try:
+                        registry = CircuitBreakerRegistry.get_instance()
+                        breaker = registry.get_breaker(f"distribution:{node_id}")
+                        if not breaker.can_execute(f"distribution:{node_id}"):
+                            logger.debug(
+                                f"Skipping distribution to {node_id}: circuit breaker open"
+                            )
+                            self._record_delivery(
+                                node_id, node_host, str(file_path), data_type,
+                                False, False, 0.0, "skipped", "Circuit breaker open"
+                            )
+                            continue
+                    except Exception as cb_err:
+                        logger.debug(f"Circuit breaker check failed: {cb_err}")
+
                 # Try BitTorrent for large files
                 if use_bittorrent and await self._distribute_via_bittorrent(file_path, target):
                     success_count += 1
@@ -736,6 +763,7 @@ class UnifiedDistributionDaemon:
                         node_id, node_host, str(file_path), data_type,
                         True, True, time.time() - start_time, "bittorrent"
                     )
+                    self._record_circuit_breaker_success(node_id)
                     continue
 
                 # Try HTTP
@@ -754,6 +782,7 @@ class UnifiedDistributionDaemon:
                             node_id, node_host, str(file_path), data_type,
                             True, checksum_ok, time.time() - start_time, "http"
                         )
+                        self._record_circuit_breaker_success(node_id)
                         continue
 
                 # Fallback to rsync
@@ -771,6 +800,7 @@ class UnifiedDistributionDaemon:
                             node_id, node_host, str(file_path), data_type,
                             True, checksum_ok, time.time() - start_time, "rsync"
                         )
+                        self._record_circuit_breaker_success(node_id)
                         continue
 
                 # All methods failed
@@ -778,6 +808,15 @@ class UnifiedDistributionDaemon:
                     node_id, node_host, str(file_path), data_type,
                     False, False, time.time() - start_time, "none", "All transport methods failed"
                 )
+
+                # December 29, 2025: Record failure in circuit breaker
+                if CIRCUIT_BREAKER_AVAILABLE and CircuitBreakerRegistry:
+                    try:
+                        registry = CircuitBreakerRegistry.get_instance()
+                        breaker = registry.get_breaker(f"distribution:{node_id}")
+                        breaker.record_failure(f"distribution:{node_id}")
+                    except Exception as cb_err:
+                        logger.debug(f"Circuit breaker failure recording failed: {cb_err}")
 
         return success_count > total_count * 0.5
 
@@ -880,7 +919,7 @@ class UnifiedDistributionDaemon:
             logger.debug(f"rsync to {host} failed: {stderr.decode()[:100]}")
             return False
 
-        except (OSError, asyncio.TimeoutError, asyncio.SubprocessError) as e:
+        except (OSError, asyncio.TimeoutError, subprocess.SubprocessError) as e:
             logger.debug(f"rsync to {host} failed: {e}")
             return False
 
@@ -1042,7 +1081,7 @@ class UnifiedDistributionDaemon:
                         _remote_path_cache[host] = path_pattern
                     return path_pattern
 
-            except (OSError, asyncio.TimeoutError, asyncio.SubprocessError) as e:
+            except (OSError, asyncio.TimeoutError, subprocess.SubprocessError) as e:
                 logger.debug(
                     f"[UnifiedDistributionDaemon] Path probe failed for "
                     f"{host}:{path_pattern}: {e}"
@@ -1175,7 +1214,7 @@ class UnifiedDistributionDaemon:
                 self._checksum_failures += 1
             return False
 
-        except (OSError, asyncio.TimeoutError, asyncio.SubprocessError) as e:
+        except (OSError, asyncio.TimeoutError, subprocess.SubprocessError) as e:
             logger.debug(f"Checksum verification failed on {host}: {e}")
             return False
 
@@ -1367,6 +1406,21 @@ class UnifiedDistributionDaemon:
                 f"Failed to create symlinks on {len(failed_nodes)} nodes: "
                 f"{failed_nodes[:3]}{'...' if len(failed_nodes) > 3 else ''}"
             )
+
+    def _record_circuit_breaker_success(self, node_id: str) -> None:
+        """Record successful distribution in circuit breaker (December 29, 2025).
+
+        This resets the failure count for the node, allowing it to be
+        used for future distributions even after previous failures.
+        """
+        if not CIRCUIT_BREAKER_AVAILABLE or not CircuitBreakerRegistry:
+            return
+        try:
+            registry = CircuitBreakerRegistry.get_instance()
+            breaker = registry.get_breaker(f"distribution:{node_id}")
+            breaker.record_success(f"distribution:{node_id}")
+        except Exception as e:
+            logger.debug(f"Circuit breaker success recording failed for {node_id}: {e}")
 
     def _record_delivery(
         self,

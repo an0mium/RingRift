@@ -507,10 +507,13 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
 # =============================================================================
 
 
-async def get_coordinator_health_monitor() -> CoordinatorHealthMonitorDaemon:
+def get_coordinator_health_monitor() -> CoordinatorHealthMonitorDaemon:
     """Get or create the singleton CoordinatorHealthMonitorDaemon instance.
 
     Now uses MonitorBase.get_instance() internally.
+
+    December 29, 2025: Removed async as get_instance() is synchronous and
+    callers were not awaiting this function, causing coroutine errors.
     """
     return CoordinatorHealthMonitorDaemon.get_instance()
 

@@ -602,6 +602,24 @@ class JobReaperDaemon:
                 # Reassign failed work
                 await self._reassign_failed_work()
 
+                # December 29, 2025: Clean up orphaned work items (stale pending + claimed)
+                # Jobs claimed >24h without progress are likely from crashed nodes
+                try:
+                    cleanup_result = self.work_queue.cleanup_stale_items(
+                        max_pending_age_hours=24.0,  # Remove pending items older than 24h
+                        max_claimed_age_hours=4.0,   # Reset claimed items older than 4h
+                    )
+                    if cleanup_result.get("removed_stale_pending", 0) > 0:
+                        logger.info(
+                            f"Cleaned up {cleanup_result['removed_stale_pending']} stale pending items"
+                        )
+                    if cleanup_result.get("reset_stale_claimed", 0) > 0:
+                        logger.info(
+                            f"Reset {cleanup_result['reset_stale_claimed']} stale claimed items"
+                        )
+                except Exception as cleanup_err:
+                    logger.debug(f"Stale item cleanup failed: {cleanup_err}")
+
             except Exception as e:
                 logger.error(f"Error in reaper loop: {e}")
                 self.stats.record_failure(e)

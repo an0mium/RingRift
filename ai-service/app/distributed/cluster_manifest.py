@@ -2032,6 +2032,44 @@ class ClusterManifest:
         """
         return self.find_databases_for_config()
 
+    def get_game_locations(self) -> dict[str, Any]:
+        """Get game locations grouped by game_id.
+
+        December 29, 2025: Added to support UnifiedReplicationDaemon which needs
+        game locations in a format mapping game_id -> {locations: [node_ids]}.
+
+        Returns:
+            Dict mapping game_id to location info:
+            {
+                "game_id_1": {"locations": ["node1", "node2"], "db_paths": ["path1", "path2"]},
+                "game_id_2": {"locations": ["node3"], "db_paths": ["path3"]},
+                ...
+            }
+        """
+        result: dict[str, Any] = {}
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT game_id, node_id, db_path, board_type, num_players
+                FROM game_locations
+                ORDER BY game_id
+            """)
+
+            for row in cursor:
+                game_id, node_id, db_path, board_type, num_players = row
+                if game_id not in result:
+                    result[game_id] = {
+                        "locations": [],
+                        "db_paths": [],
+                        "board_type": board_type,
+                        "num_players": num_players,
+                    }
+                result[game_id]["locations"].append(node_id)
+                result[game_id]["db_paths"].append(db_path)
+
+        return result
+
     # =========================================================================
     # Node Capacity & Inventory
     # =========================================================================

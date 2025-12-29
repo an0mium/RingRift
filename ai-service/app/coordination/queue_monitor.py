@@ -566,6 +566,55 @@ class QueueMonitor:
                 message=f"Health check error: {e}",
             )
 
+    async def start(self) -> None:
+        """Start the queue monitor daemon loop.
+
+        December 29, 2025: Added to make QueueMonitor compatible with daemon_runners.py
+        pattern. Runs a maintenance loop that cleans up old metrics periodically.
+        """
+        import asyncio
+
+        logger.info("[QueueMonitor] Starting queue monitor daemon")
+        self._running = True
+        self._cleanup_interval = 3600  # 1 hour
+
+        try:
+            while self._running:
+                try:
+                    # Cleanup old metrics (older than 7 days)
+                    self._cleanup_old_metrics()
+                except (sqlite3.Error, OSError) as e:
+                    logger.warning(f"[QueueMonitor] Cleanup error: {e}")
+
+                # Sleep for cleanup interval
+                await asyncio.sleep(self._cleanup_interval)
+        except asyncio.CancelledError:
+            logger.info("[QueueMonitor] Queue monitor stopped by cancellation")
+        finally:
+            self._running = False
+            logger.info("[QueueMonitor] Queue monitor daemon stopped")
+
+    async def stop(self) -> None:
+        """Stop the queue monitor daemon loop."""
+        logger.info("[QueueMonitor] Stopping queue monitor daemon")
+        self._running = False
+
+    def _cleanup_old_metrics(self, max_age_days: int = 7) -> None:
+        """Remove metrics older than max_age_days.
+
+        Args:
+            max_age_days: Maximum age of metrics to keep (default: 7 days)
+        """
+        import time
+        cutoff = time.time() - (max_age_days * 24 * 3600)
+        conn = self._get_connection()
+        try:
+            conn.execute("DELETE FROM queue_metrics WHERE timestamp < ?", (cutoff,))
+            conn.commit()
+            logger.debug(f"[QueueMonitor] Cleaned metrics older than {max_age_days} days")
+        except sqlite3.Error as e:
+            logger.warning(f"[QueueMonitor] Failed to cleanup old metrics: {e}")
+
     def close(self) -> None:
         """Close database connection."""
         if hasattr(self._local, "conn") and self._local.conn:

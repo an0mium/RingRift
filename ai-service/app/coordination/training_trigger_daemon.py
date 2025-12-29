@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -63,6 +64,12 @@ class TrainingTriggerConfig:
     enforce_freshness_with_sync: bool = True  # If True, trigger sync instead of just rejecting
     freshness_sync_timeout_seconds: float = field(
         default_factory=lambda: SyncDefaults.SYNC_TIMEOUT  # Wait up to 5 min for sync
+    )
+    # December 29, 2025: Strict mode - fail immediately if data is stale (no sync attempt)
+    # Useful for high-quality training where only fresh data should be used
+    strict_freshness_mode: bool = field(
+        default_factory=lambda: os.environ.get("RINGRIFT_STRICT_DATA_FRESHNESS", "").lower()
+        in ("true", "1", "yes")
     )
     # Minimum samples to trigger training
     min_samples_threshold: int = 10000
@@ -650,7 +657,10 @@ class TrainingTriggerDaemon(HandlerBase):
         # 3. Check data freshness (December 2025: use training_freshness for sync)
         data_age_hours = (time.time() - state.last_npz_update) / 3600
         if data_age_hours > self.config.max_data_age_hours:
-            if self.config.enforce_freshness_with_sync:
+            # December 29, 2025: Strict mode - fail immediately without sync attempt
+            if self.config.strict_freshness_mode:
+                return False, f"data too old ({data_age_hours:.1f}h) [strict mode - no sync]"
+            elif self.config.enforce_freshness_with_sync:
                 # Try to sync and wait for fresh data
                 fresh = await self._ensure_fresh_data(state.board_type, state.num_players)
                 if not fresh:

@@ -124,7 +124,7 @@ class EvaluationDaemon(BaseEventHandler):
         super().__init__("EvaluationDaemon", handler_config)
 
         self.config = config or EvaluationConfig()
-        self.stats = EvaluationStats()
+        self._eval_stats = EvaluationStats()  # Use _eval_stats to avoid conflict with parent stats property
         self._evaluation_queue: asyncio.Queue = asyncio.Queue()
         self._active_evaluations: set[str] = set()
 
@@ -190,12 +190,20 @@ class EvaluationDaemon(BaseEventHandler):
 
         logger.info(
             f"[EvaluationDaemon] Stopped. "
-            f"Evaluations: {self.stats.evaluations_completed}/{self.stats.evaluations_triggered}"
+            f"Evaluations: {self._eval_stats.evaluations_completed}/{self._eval_stats.evaluations_triggered}"
         )
 
     def is_running(self) -> bool:
         """Check if daemon is running."""
         return self._running
+
+    async def _run_cycle(self) -> None:
+        """No-op: EvaluationDaemon is purely event-driven via queue worker.
+
+        December 29, 2025: Added to satisfy BaseEventHandler abstract requirement.
+        The actual work is done by _evaluation_worker() processing the queue.
+        """
+        pass
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status for DaemonManager health monitoring.
@@ -214,13 +222,13 @@ class EvaluationDaemon(BaseEventHandler):
             "queue_size": self._evaluation_queue.qsize(),
             "active_evaluations": list(self._active_evaluations),
             "stats": {
-                "evaluations_triggered": self.stats.evaluations_triggered,
-                "evaluations_completed": self.stats.evaluations_completed,
-                "evaluations_failed": self.stats.evaluations_failed,
-                "games_played": self.stats.games_played,
-                "models_evaluated": self.stats.models_evaluated,
-                "promotions_triggered": self.stats.promotions_triggered,
-                "last_evaluation_time": self.stats.last_evaluation_time,
+                "evaluations_triggered": self._eval_stats.evaluations_triggered,
+                "evaluations_completed": self._eval_stats.evaluations_completed,
+                "evaluations_failed": self._eval_stats.evaluations_failed,
+                "games_played": self._eval_stats.games_played,
+                "models_evaluated": self._eval_stats.models_evaluated,
+                "promotions_triggered": self._eval_stats.promotions_triggered,
+                "last_evaluation_time": self._eval_stats.last_evaluation_time,
             },
             "dedup_stats": dict(self._dedup_stats),
             "config": {
@@ -334,7 +342,7 @@ class EvaluationDaemon(BaseEventHandler):
                 "timestamp": time.time(),
             })
 
-            self.stats.evaluations_triggered += 1
+            self._eval_stats.evaluations_triggered += 1
             logger.info(
                 f"[EvaluationDaemon] Queued evaluation for {model_path} "
                 f"({board_type}_{num_players}p)"
@@ -401,8 +409,8 @@ class EvaluationDaemon(BaseEventHandler):
             )
 
             elapsed = time.time() - start_time
-            self.stats.evaluations_completed += 1
-            self.stats.last_evaluation_time = elapsed
+            self._eval_stats.evaluations_completed += 1
+            self._eval_stats.last_evaluation_time = elapsed
             self._update_average_time(elapsed)
 
             # Count games played
@@ -410,7 +418,7 @@ class EvaluationDaemon(BaseEventHandler):
                 opp.get("games_played", 0)
                 for opp in result.get("opponent_results", {}).values()
             )
-            self.stats.total_games_played += total_games
+            self._eval_stats.total_games_played += total_games
 
             # Emit evaluation completed event
             await self._emit_evaluation_completed(
@@ -430,12 +438,12 @@ class EvaluationDaemon(BaseEventHandler):
             )
 
         except asyncio.TimeoutError:
-            self.stats.evaluations_failed += 1
+            self._eval_stats.evaluations_failed += 1
             logger.error(f"[EvaluationDaemon] Evaluation timed out: {model_path}")
             # Emit EVALUATION_FAILED event (Dec 2025 - critical gap fix)
             await self._emit_evaluation_failed(model_path, board_type, num_players, "timeout")
         except Exception as e:  # noqa: BLE001
-            self.stats.evaluations_failed += 1
+            self._eval_stats.evaluations_failed += 1
             logger.error(f"[EvaluationDaemon] Evaluation failed: {model_path}: {e}")
             # Emit EVALUATION_FAILED event (Dec 2025 - critical gap fix)
             await self._emit_evaluation_failed(model_path, board_type, num_players, str(e))
@@ -545,28 +553,28 @@ class EvaluationDaemon(BaseEventHandler):
 
     def _update_average_time(self, elapsed: float) -> None:
         """Update running average of evaluation time."""
-        n = self.stats.evaluations_completed
+        n = self._eval_stats.evaluations_completed
         if n == 1:
-            self.stats.average_evaluation_time = elapsed
+            self._eval_stats.average_evaluation_time = elapsed
         else:
             # Exponential moving average
             alpha = 0.2
-            self.stats.average_evaluation_time = (
+            self._eval_stats.average_evaluation_time = (
                 alpha * elapsed +
-                (1 - alpha) * self.stats.average_evaluation_time
+                (1 - alpha) * self._eval_stats.average_evaluation_time
             )
 
     def get_stats(self) -> dict:
         """Get daemon statistics."""
         return {
             "running": self._running,
-            "evaluations_triggered": self.stats.evaluations_triggered,
-            "evaluations_completed": self.stats.evaluations_completed,
-            "evaluations_failed": self.stats.evaluations_failed,
+            "evaluations_triggered": self._eval_stats.evaluations_triggered,
+            "evaluations_completed": self._eval_stats.evaluations_completed,
+            "evaluations_failed": self._eval_stats.evaluations_failed,
             "evaluations_pending": self._evaluation_queue.qsize(),
             "active_evaluations": len(self._active_evaluations),
-            "total_games_played": self.stats.total_games_played,
-            "average_evaluation_time": round(self.stats.average_evaluation_time, 1),
+            "total_games_played": self._eval_stats.total_games_played,
+            "average_evaluation_time": round(self._eval_stats.average_evaluation_time, 1),
             # December 2025: Deduplication stats
             "dedup_cooldown_skips": self._dedup_stats["cooldown_skips"],
             "dedup_content_hash_skips": self._dedup_stats["content_hash_skips"],
@@ -593,8 +601,8 @@ class EvaluationDaemon(BaseEventHandler):
             return base_result
 
         # Additional evaluation-specific checks
-        total = self.stats.evaluations_triggered
-        failed = self.stats.evaluations_failed
+        total = self._eval_stats.evaluations_triggered
+        failed = self._eval_stats.evaluations_failed
         if total > 5 and failed / total > 0.5:
             return HealthCheckResult(
                 healthy=False,
@@ -607,7 +615,7 @@ class EvaluationDaemon(BaseEventHandler):
         return HealthCheckResult(
             healthy=True,
             status=base_result.status,
-            message=f"Evaluation daemon running ({self.stats.evaluations_completed} completed)",
+            message=f"Evaluation daemon running ({self._eval_stats.evaluations_completed} completed)",
             details=self.get_stats(),
         )
 

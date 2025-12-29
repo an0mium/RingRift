@@ -209,6 +209,13 @@ class DataCatalog:
         else:
             self.sync_dir = sync_dir
 
+        # Phase 5.2 Dec 29, 2025: Ensure sync directory exists
+        # Previously discovery failed silently if directory was missing
+        try:
+            self.sync_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.warning(f"[DataCatalog] Could not create sync_dir {self.sync_dir}: {e}")
+
         self.manifest_path = manifest_path or DEFAULT_MANIFEST_PATH
 
         if local_game_dirs is None:

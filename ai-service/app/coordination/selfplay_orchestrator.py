@@ -487,25 +487,53 @@ class SelfplayOrchestrator:
             logger.warning(f"[SelfplayOrchestrator] Failed to emit selfplay event: {e}")
             return False
 
-    async def _on_selfplay_stage_complete(self, result) -> None:
-        """Handle SELFPLAY_COMPLETE stage event."""
+    async def _on_selfplay_stage_complete(self, event) -> None:
+        """Handle SELFPLAY_COMPLETE stage event.
+
+        Dec 29, 2025: Fixed to handle RouterEvent payload structure.
+        """
+        # Extract from payload if RouterEvent, otherwise try direct access
+        if hasattr(event, "payload"):
+            success = event.payload.get("success", False)
+            games = event.payload.get("games_generated", 0)
+        else:
+            success = getattr(event, "success", False)
+            games = getattr(event, "games_generated", 0)
         logger.debug(
             "[SelfplayOrchestrator] Stage event: SELFPLAY_COMPLETE "
-            f"success={result.success}, games={result.games_generated}"
+            f"success={success}, games={games}"
         )
 
-    async def _on_gpu_selfplay_stage_complete(self, result) -> None:
-        """Handle GPU_SELFPLAY_COMPLETE stage event."""
+    async def _on_gpu_selfplay_stage_complete(self, event) -> None:
+        """Handle GPU_SELFPLAY_COMPLETE stage event.
+
+        Dec 29, 2025: Fixed to handle RouterEvent payload structure.
+        """
+        if hasattr(event, "payload"):
+            success = event.payload.get("success", False)
+            games = event.payload.get("games_generated", 0)
+        else:
+            success = getattr(event, "success", False)
+            games = getattr(event, "games_generated", 0)
         logger.debug(
             "[SelfplayOrchestrator] Stage event: GPU_SELFPLAY_COMPLETE "
-            f"success={result.success}, games={result.games_generated}"
+            f"success={success}, games={games}"
         )
 
-    async def _on_canonical_selfplay_stage_complete(self, result) -> None:
-        """Handle CANONICAL_SELFPLAY_COMPLETE stage event."""
+    async def _on_canonical_selfplay_stage_complete(self, event) -> None:
+        """Handle CANONICAL_SELFPLAY_COMPLETE stage event.
+
+        Dec 29, 2025: Fixed to handle RouterEvent payload structure.
+        """
+        if hasattr(event, "payload"):
+            success = event.payload.get("success", False)
+            games = event.payload.get("games_generated", 0)
+        else:
+            success = getattr(event, "success", False)
+            games = getattr(event, "games_generated", 0)
         logger.debug(
             "[SelfplayOrchestrator] Stage event: CANONICAL_SELFPLAY_COMPLETE "
-            f"success={result.success}, games={result.games_generated}"
+            f"success={success}, games={games}"
         )
 
     # =========================================================================

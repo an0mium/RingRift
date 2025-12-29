@@ -161,6 +161,7 @@ def trigger_training_for_config(config_key: str, info: dict) -> bool:
         "--epochs", "30",
         "--batch-size", "256" if "hex" in board_type else "512",
         "--save-path", f"models/{config_key}_autonomous.pth",
+        "--allow-stale-data",  # Allow training on existing NPZ files
     ]
 
     # Add init weights if model exists

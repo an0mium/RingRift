@@ -482,12 +482,25 @@ async def _emit_stage_event(
     """
     # Try unified router first if enabled
     if USE_UNIFIED_ROUTER and HAS_EVENT_ROUTER:
-        payload = {
-            "event": event.value if hasattr(event, 'value') else str(event),
-            "success": result.success if hasattr(result, 'success') else True,
-            "config": result.config if hasattr(result, 'config') else "",
-            "metrics": result.metrics if hasattr(result, 'metrics') else {},
-        }
+        # December 29, 2025: Fixed payload construction to use result.to_dict()
+        # and add derived fields expected by subscribers (config_key, games_added)
+        if hasattr(result, 'to_dict'):
+            payload = result.to_dict()
+        else:
+            # Fallback for old-style results
+            payload = {
+                "event": event.value if hasattr(event, 'value') else str(event),
+                "success": result.success if hasattr(result, 'success') else True,
+            }
+
+        # Add derived fields for backward compatibility with subscribers
+        # Subscribers expect config_key and games_added, but StageCompletionResult
+        # provides board_type, num_players, and games_generated
+        if hasattr(result, 'board_type') and hasattr(result, 'num_players'):
+            payload["config_key"] = f"{result.board_type}_{result.num_players}p"
+        if hasattr(result, 'games_generated'):
+            payload["games_added"] = result.games_generated
+
         if await _emit_via_router(event.value if hasattr(event, 'value') else str(event), payload, "stage_event"):
             return True
 
@@ -545,12 +558,23 @@ async def _emit_stage_event_with_retry(
         try:
             # Try unified router first if enabled
             if USE_UNIFIED_ROUTER and HAS_EVENT_ROUTER:
-                payload = {
-                    "event": event.value if hasattr(event, 'value') else str(event),
-                    "success": result.success if hasattr(result, 'success') else True,
-                    "config": result.config if hasattr(result, 'config') else "",
-                    "metrics": result.metrics if hasattr(result, 'metrics') else {},
-                }
+                # December 29, 2025: Fixed payload construction to use result.to_dict()
+                # and add derived fields expected by subscribers (config_key, games_added)
+                if hasattr(result, 'to_dict'):
+                    payload = result.to_dict()
+                else:
+                    # Fallback for old-style results
+                    payload = {
+                        "event": event.value if hasattr(event, 'value') else str(event),
+                        "success": result.success if hasattr(result, 'success') else True,
+                    }
+
+                # Add derived fields for backward compatibility with subscribers
+                if hasattr(result, 'board_type') and hasattr(result, 'num_players'):
+                    payload["config_key"] = f"{result.board_type}_{result.num_players}p"
+                if hasattr(result, 'games_generated'):
+                    payload["games_added"] = result.games_generated
+
                 if await _emit_via_router(event.value if hasattr(event, 'value') else str(event), payload, "stage_event"):
                     if attempt > 0:
                         logger.info(f"Emitted {event} (after {attempt} retries)")
