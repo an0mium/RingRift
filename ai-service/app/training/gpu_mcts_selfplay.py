@@ -179,10 +179,13 @@ class GPUMCTSSelfplayRunner:
         )
         self._mcts = MultiTreeMCTS(mcts_config)
 
-        # Initialize encoder
+        # Initialize encoder - convert version to string format if needed
+        encoder_version_str = self._encoder_version
+        if isinstance(encoder_version_str, int):
+            encoder_version_str = f"v{encoder_version_str}"
         self._encoder = get_encoder_for_board_type(
             board_type,
-            version=self._encoder_version,
+            version=encoder_version_str,
             feature_version=self._feature_version,
         )
 
