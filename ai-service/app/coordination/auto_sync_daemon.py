@@ -76,6 +76,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import socket
 import sqlite3
 import subprocess
@@ -239,7 +240,14 @@ class AutoSyncDaemon(
         # December 29, 2025: Event-driven sync - wake loop immediately on events
         self._sync_wake_event = asyncio.Event()
         self._last_sync_time: float = 0.0  # For throttling
-        self._min_sync_interval: float = self.config.min_sync_interval_seconds if hasattr(self.config, 'min_sync_interval_seconds') else 5.0
+        # Min sync interval reduced from 5s to 2s for faster data distribution (Dec 2025)
+        # Configurable via env var RINGRIFT_MIN_SYNC_INTERVAL or config
+        _default_interval = float(os.getenv("RINGRIFT_MIN_SYNC_INTERVAL", "2.0"))
+        self._min_sync_interval: float = (
+            self.config.min_sync_interval_seconds
+            if hasattr(self.config, 'min_sync_interval_seconds')
+            else _default_interval
+        )
 
         # Quality extraction for training data prioritization (December 2025)
         self._quality_config: Any = None

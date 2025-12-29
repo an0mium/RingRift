@@ -1556,6 +1556,53 @@ LR_WARMUP_STEPS = 0  # Default: no warmup (set via CLI --warmup-steps)
 # Early stopping patience - epochs without validation improvement
 EARLY_STOPPING_PATIENCE = 20
 
+# December 29, 2025: Phase 9 - Board-specific base patience values
+# Weak models on hard boards stop too early with uniform patience
+EARLY_STOPPING_PATIENCE_BY_BOARD = {
+    "hex8": 5,       # Smallest board, learns fastest
+    "square8": 5,    # Similar to hex8
+    "square19": 10,  # Large board needs more epochs
+    "hexagonal": 12, # Largest board, slowest to learn
+}
+
+
+def get_adaptive_patience(board: str, players: int, elo: float) -> int:
+    """Get early stopping patience adapted to config difficulty.
+
+    December 29, 2025: Phase 9 - Adaptive early stopping patience.
+    Weak models on hard boards stop too early with uniform patience.
+    This function computes patience based on:
+    - Board type (larger boards need more patience)
+    - Player count (multiplayer needs more patience)
+    - Current Elo (weak models need more patience)
+
+    Args:
+        board: Board type (hex8, square8, square19, hexagonal)
+        players: Number of players (2, 3, or 4)
+        elo: Current Elo rating for the config
+
+    Returns:
+        Patience value (epochs without improvement before early stopping)
+    """
+    # Base patience by board type
+    patience = EARLY_STOPPING_PATIENCE_BY_BOARD.get(board, 5)
+
+    # +2 epochs per additional player (multiplayer more complex)
+    patience += (players - 2) * 2
+
+    # Adjust for model strength
+    if elo < 700:
+        # Very weak models need more patience (50% more)
+        patience = int(patience * 1.5)
+    elif elo < 1000:
+        # Weak models need some extra patience (20% more)
+        patience = int(patience * 1.2)
+    # Strong models (>1000 Elo) use base patience
+
+    # Ensure minimum patience
+    return max(patience, 3)
+
+
 # Validation interval - steps between validation checks
 VALIDATION_INTERVAL_STEPS = 500
 
