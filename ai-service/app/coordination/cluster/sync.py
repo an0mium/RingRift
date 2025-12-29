@@ -21,7 +21,8 @@ import warnings
 warnings.warn(
     "app.coordination.cluster.sync is deprecated. "
     "Import directly from app.coordination.sync_coordinator, "
-    "app.coordination.sync_bandwidth, or app.coordination.sync_mutex instead.",
+    "app.coordination.sync_bandwidth, or app.coordination.sync_mutex instead. "
+    "This module will be removed in Q2 2026.",
     DeprecationWarning,
     stacklevel=2,
 )

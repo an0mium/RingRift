@@ -2101,18 +2101,52 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                 if info.instance is not None and hasattr(info.instance, 'health_check'):
                     try:
                         health_check_timeout = 5.0  # seconds
-                        health_result = info.instance.health_check()
+                        health_method = info.instance.health_check
+                        loop = asyncio.get_event_loop()
 
-                        # Handle both sync and async health_check methods
+                        # Check if health_check is a coroutine function (async def)
+                        if asyncio.iscoroutinefunction(health_method):
+                            # Async health check - call and await with timeout
+                            try:
+                                health_result = await asyncio.wait_for(
+                                    health_method(), timeout=health_check_timeout
+                                )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    f"{daemon_type.value} async health_check() timed out "
+                                    f"({health_check_timeout}s)"
+                                )
+                                health_result = {
+                                    "healthy": False,
+                                    "message": f"health_check() timeout ({health_check_timeout}s)",
+                                }
+                        else:
+                            # Sync health check - run in executor with timeout
+                            # This prevents blocking sync calls from hanging the health loop
+                            try:
+                                health_result = await asyncio.wait_for(
+                                    loop.run_in_executor(None, health_method),
+                                    timeout=health_check_timeout
+                                )
+                            except asyncio.TimeoutError:
+                                logger.warning(
+                                    f"{daemon_type.value} sync health_check() timed out "
+                                    f"({health_check_timeout}s)"
+                                )
+                                health_result = {
+                                    "healthy": False,
+                                    "message": f"health_check() timeout ({health_check_timeout}s)",
+                                }
+
+                        # Handle case where sync method returns a coroutine (unusual but possible)
                         if asyncio.iscoroutine(health_result):
-                            # Async health check - use asyncio timeout
                             try:
                                 health_result = await asyncio.wait_for(
                                     health_result, timeout=health_check_timeout
                                 )
                             except asyncio.TimeoutError:
                                 logger.warning(
-                                    f"{daemon_type.value} async health_check() timed out "
+                                    f"{daemon_type.value} returned coroutine timed out "
                                     f"({health_check_timeout}s)"
                                 )
                                 health_result = {
@@ -2134,10 +2168,6 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                                     "healthy": False,
                                     "message": f"health_check() timeout ({health_check_timeout}s)",
                                 }
-                        # Sync health_result is already returned - no additional timeout needed
-                        # since the call has already completed. Timeout protection for truly
-                        # blocking sync calls would require ThreadPoolExecutor which adds
-                        # complexity. Most health_check() methods are fast and non-blocking.
 
                         # Check if result indicates unhealthy state
                         is_healthy = True

@@ -1124,6 +1124,70 @@ class SnapshotCoordinator:
 
         return total_deleted
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the snapshot coordinator.
+
+        Returns:
+            HealthCheckResult indicating coordinator health status.
+
+        December 2025: Added for DaemonManager health monitoring integration.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        try:
+            # Check database connection health
+            conn = self._get_connection()
+
+            # Get snapshot count
+            row = conn.execute("SELECT COUNT(*) FROM system_snapshots").fetchone()
+            snapshot_count = row[0] if row else 0
+
+            # Get latest snapshot age
+            row = conn.execute(
+                "SELECT timestamp FROM system_snapshots ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
+            latest_snapshot_age = (time.time() - row[0]) if row else float('inf')
+
+            # Assess health
+            warnings = []
+
+            # No snapshots is a warning
+            if snapshot_count == 0:
+                warnings.append("No snapshots available")
+
+            # Very old latest snapshot (> 24h) is a warning
+            if snapshot_count > 0 and latest_snapshot_age > 86400:
+                warnings.append(f"Latest snapshot is {latest_snapshot_age / 3600:.1f}h old")
+
+            # Few coordinators registered is a warning
+            coord_count = len(self._coordinators)
+            if coord_count == 0:
+                warnings.append("No coordinators registered")
+
+            is_healthy = len(warnings) == 0
+            status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                status=status,
+                message="; ".join(warnings) if warnings else "SnapshotCoordinator healthy",
+                details={
+                    "snapshot_count": snapshot_count,
+                    "coordinators_registered": coord_count,
+                    "coordinator_names": list(self._coordinators.keys()),
+                    "latest_snapshot_age_seconds": latest_snapshot_age if snapshot_count > 0 else None,
+                    "db_path": str(self._db_path),
+                },
+            )
+        except Exception as e:
+            logger.warning(f"[SnapshotCoordinator] health_check error: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
+            )
+
 
 # =============================================================================
 # Module-level convenience functions

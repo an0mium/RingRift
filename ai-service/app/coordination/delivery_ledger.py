@@ -544,6 +544,59 @@ class DeliveryLedger:
 
         return deleted
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the delivery ledger.
+
+        Returns:
+            HealthCheckResult indicating ledger health status.
+
+        December 2025: Added for DaemonManager health monitoring integration.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        try:
+            # Get overall status to assess health
+            status = self.get_overall_status()
+
+            # Check for warning conditions
+            warnings = []
+            success_rate = status.get("success_rate", 1.0)
+            pending_count = status.get("status_counts", {}).get(DeliveryStatus.PENDING.value, 0)
+            transferring_count = status.get("status_counts", {}).get(DeliveryStatus.TRANSFERRING.value, 0)
+
+            if success_rate < 0.8:
+                warnings.append(f"Low success rate: {success_rate:.1%}")
+
+            # Check for stuck deliveries (pending + transferring)
+            in_progress = pending_count + transferring_count
+            if in_progress > 50:
+                warnings.append(f"High in-progress count: {in_progress}")
+
+            is_healthy = len(warnings) == 0
+            coord_status = CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                status=coord_status,
+                message="; ".join(warnings) if warnings else "DeliveryLedger healthy",
+                details={
+                    "total_deliveries": status.get("total_deliveries", 0),
+                    "verified": status.get("verified", 0),
+                    "failed": status.get("failed", 0),
+                    "success_rate": success_rate,
+                    "unique_nodes": status.get("unique_nodes", 0),
+                    "db_path": str(self.db_path),
+                },
+            )
+        except Exception as e:
+            logger.warning(f"[DeliveryLedger] health_check error: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Health check error: {e}",
+                details={"error": str(e)},
+            )
+
 
 def get_delivery_ledger() -> DeliveryLedger:
     """Get the singleton DeliveryLedger instance.

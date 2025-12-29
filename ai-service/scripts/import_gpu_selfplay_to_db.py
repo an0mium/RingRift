@@ -686,6 +686,16 @@ def import_game(
         "canonical_move_count": len(canonical_moves),
     }
 
+    # CRITICAL: Apply winner from JSONL to final_state before storing
+    # GPU selfplay records winner (tiebreaker or actual) even for max-move games.
+    # The replayed final_state.winner may be None if the game hit max moves without
+    # a canonical victory condition. We override with the JSONL winner to ensure
+    # training data has valid value targets.
+    jsonl_winner = game_record.get("winner")
+    if jsonl_winner is not None and final_state.winner is None:
+        # Update final_state with winner from JSONL (immutable, so create copy)
+        final_state = final_state.model_copy(update={"winner": jsonl_winner})
+
     # Store the game
     try:
         db.store_game(

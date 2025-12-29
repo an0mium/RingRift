@@ -339,20 +339,17 @@ class PeerManagerMixin(P2PMixinBase):
         """Return health status for peer manager mixin (DaemonManager integration).
 
         December 2025: Added for unified health check interface.
-        Wraps peer_health_check() with standard format.
+        Uses base class helper for standardized response format.
 
         Returns:
             dict with healthy status, message, and details
         """
         status = self.peer_health_check()
-        is_healthy = status.get("is_healthy", False)
-        active = status.get("active_peers", 0)
-        cached = status.get("cached_peers", 0)
-        return {
-            "healthy": is_healthy,
-            "message": f"Peer manager healthy ({active} active, {cached} cached)" if is_healthy else "No peers available",
-            "details": status,
-        }
+        return self._health_check_from_status(
+            status,
+            message_template_healthy="Peer manager ({active_peers} active, {cached_peers} cached)",
+            message_template_unhealthy="No peers available",
+        )
 
 
 # Convenience function to get singleton (if P2POrchestrator uses this)

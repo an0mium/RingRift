@@ -20,7 +20,8 @@ import warnings
 warnings.warn(
     "app.coordination.training.orchestrator is deprecated. "
     "Import directly from app.coordination.training_coordinator or "
-    "app.coordination.selfplay_orchestrator instead.",
+    "app.coordination.selfplay_orchestrator instead. "
+    "This module will be removed in Q2 2026.",
     DeprecationWarning,
     stacklevel=2,
 )

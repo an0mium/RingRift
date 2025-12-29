@@ -383,7 +383,7 @@ class LeaderElectionMixin(P2PMixinBase):
         """Return health status for leader election mixin (DaemonManager integration).
 
         December 2025: Added for unified health check interface.
-        Wraps election_health_check() with standard format.
+        Uses base class helper for standardized response format.
 
         Returns:
             dict with healthy status, message, and details
@@ -392,11 +392,8 @@ class LeaderElectionMixin(P2PMixinBase):
         is_healthy = status.get("is_healthy", False)
         role = status.get("role", "unknown")
         leader = status.get("leader_id", "none")
-        return {
-            "healthy": is_healthy,
-            "message": f"Election healthy (role={role}, leader={leader})" if is_healthy else "No quorum",
-            "details": status,
-        }
+        message = f"Election (role={role}, leader={leader})" if is_healthy else "No quorum"
+        return self._build_health_response(is_healthy, message, status)
 
 
 # Convenience functions for external use

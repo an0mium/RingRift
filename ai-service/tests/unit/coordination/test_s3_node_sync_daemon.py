@@ -1,106 +1,130 @@
-"""Tests for S3NodeSyncDaemon.
+"""Tests for S3 Node Sync Daemon.
 
+December 2025: Comprehensive test coverage for S3 backup and sync infrastructure.
 Tests cover:
-- Configuration initialization
-- S3NodeSyncConfig dataclass
-- SyncResult dataclass
-- FileManifest dataclass
+- Configuration loading with environment variables
 - Daemon lifecycle (start/stop)
+- Event handling (TRAINING_COMPLETED, SELFPLAY_COMPLETE, MODEL_PROMOTED)
+- S3 operations (upload, download, head-object, list)
+- Manifest building and parsing
 - Health check reporting
-- Event subscription handling
-- Sync cycle behavior
-
-December 2025: Created as part of S3 infrastructure completion (Phase 6).
+- Error handling and retries
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.coordination.s3_node_sync_daemon import (
-    FileManifest,
-    S3NodeSyncConfig,
-    S3NodeSyncDaemon,
-    SyncResult,
-    get_node_id,
-)
 
+# Test utilities
+@pytest.fixture
+def temp_dirs():
+    """Create temporary directories for testing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        games_dir = Path(tmpdir) / "games"
+        models_dir = Path(tmpdir) / "models"
+        npz_dir = Path(tmpdir) / "training"
 
-# =============================================================================
-# Fixtures
-# =============================================================================
+        games_dir.mkdir()
+        models_dir.mkdir()
+        npz_dir.mkdir()
+
+        yield {
+            "root": Path(tmpdir),
+            "games": games_dir,
+            "models": models_dir,
+            "npz": npz_dir,
+        }
 
 
 @pytest.fixture
-def config():
-    """Create a test configuration."""
-    return S3NodeSyncConfig(
-        s3_bucket="test-bucket",
-        aws_region="us-west-2",
-        sync_interval_seconds=10.0,  # Short for testing
-        push_games=True,
-        push_models=True,
-        push_npz=False,
-    )
+def sample_db_file(temp_dirs):
+    """Create a sample database file."""
+    db_path = temp_dirs["games"] / "canonical_hex8_2p.db"
+    # Create file > 10KB to pass size filter
+    db_path.write_bytes(b"x" * 50000)
+    return db_path
 
 
 @pytest.fixture
-def daemon(config):
-    """Create a test daemon."""
-    with patch("app.coordination.s3_node_sync_daemon.get_node_id", return_value="test-node"):
-        return S3NodeSyncDaemon(config)
+def sample_model_file(temp_dirs):
+    """Create a sample model file."""
+    model_path = temp_dirs["models"] / "canonical_hex8_2p.pth"
+    model_path.write_bytes(b"MODEL_DATA" * 1000)
+    return model_path
+
+
+@pytest.fixture
+def sample_npz_file(temp_dirs):
+    """Create a sample NPZ file."""
+    npz_path = temp_dirs["npz"] / "hex8_2p.npz"
+    npz_path.write_bytes(b"NPZ_DATA" * 1000)
+    return npz_path
 
 
 # =============================================================================
-# get_node_id Tests
+# Test get_node_id()
 # =============================================================================
-
 
 class TestGetNodeId:
-    """Test get_node_id utility function."""
+    """Tests for get_node_id() function."""
 
-    def test_node_id_from_env(self):
-        """Test getting node ID from environment."""
-        with patch.dict("os.environ", {"RINGRIFT_NODE_ID": "custom-node-123"}):
-            # Need to reload to pick up env
-            from importlib import reload
-            import app.coordination.s3_node_sync_daemon as module
-            # Just verify the function exists and uses env
-            result = module.get_node_id()
-            assert result == "custom-node-123"
+    def test_returns_env_var_if_set(self, monkeypatch):
+        """Test returns RINGRIFT_NODE_ID environment variable."""
+        from app.coordination.s3_node_sync_daemon import get_node_id
 
-    def test_node_id_falls_back_to_hostname(self):
-        """Test fallback to hostname when env not set."""
-        with patch.dict("os.environ", {}, clear=True):
-            with patch("socket.gethostname", return_value="my-server"):
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node-123")
+        assert get_node_id() == "test-node-123"
+
+    def test_returns_hostname_if_no_env(self, monkeypatch):
+        """Test returns hostname if RINGRIFT_NODE_ID not set."""
+        from app.coordination.s3_node_sync_daemon import get_node_id
+
+        monkeypatch.delenv("RINGRIFT_NODE_ID", raising=False)
+
+        with patch("socket.gethostname", return_value="my-host"):
+            assert get_node_id() == "my-host"
+
+    def test_strips_common_prefixes(self, monkeypatch):
+        """Test strips common prefixes like ip-, instance-, node-."""
+        from app.coordination.s3_node_sync_daemon import get_node_id
+
+        monkeypatch.delenv("RINGRIFT_NODE_ID", raising=False)
+
+        for prefix in ["ip-", "instance-", "node-"]:
+            with patch("socket.gethostname", return_value=f"{prefix}10-0-0-1"):
                 result = get_node_id()
-                assert result == "my-server"
-
-    def test_node_id_strips_common_prefixes(self):
-        """Test that common prefixes are stripped."""
-        with patch.dict("os.environ", {}, clear=True):
-            with patch("socket.gethostname", return_value="ip-172-16-0-1"):
-                result = get_node_id()
-                assert result == "172-16-0-1"
+                assert not result.startswith(prefix)
+                assert result == "10-0-0-1"
 
 
 # =============================================================================
-# S3NodeSyncConfig Tests
+# Test S3NodeSyncConfig
 # =============================================================================
-
 
 class TestS3NodeSyncConfig:
-    """Test S3NodeSyncConfig dataclass."""
+    """Tests for S3NodeSyncConfig dataclass."""
 
-    def test_default_values(self):
-        """Test default initialization."""
+    def test_default_values(self, monkeypatch):
+        """Test default configuration values."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig
+
+        # Clear relevant env vars
+        for key in ["RINGRIFT_S3_BUCKET", "RINGRIFT_S3_SYNC_INTERVAL"]:
+            monkeypatch.delenv(key, raising=False)
+
         config = S3NodeSyncConfig()
+
         assert config.s3_bucket == "ringrift-models-20251214"
         assert config.aws_region == "us-east-1"
         assert config.sync_interval_seconds == 3600.0
@@ -111,1369 +135,1113 @@ class TestS3NodeSyncConfig:
         assert config.pull_models is True
         assert config.compress_uploads is True
         assert config.retry_count == 3
-        assert config.retry_delay_seconds == 30.0
+        assert config.upload_timeout_seconds == 600.0
+        assert config.download_timeout_seconds == 300.0
 
-    def test_custom_values(self):
-        """Test initialization with custom values."""
-        config = S3NodeSyncConfig(
-            s3_bucket="custom-bucket",
-            aws_region="eu-central-1",
-            sync_interval_seconds=300.0,
-            push_games=False,
-            push_models=True,
-            bandwidth_limit_kbps=1000,
-        )
-        assert config.s3_bucket == "custom-bucket"
-        assert config.aws_region == "eu-central-1"
-        assert config.sync_interval_seconds == 300.0
+    def test_env_var_overrides(self, monkeypatch):
+        """Test configuration can be overridden via environment variables."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig
+
+        monkeypatch.setenv("RINGRIFT_S3_BUCKET", "my-custom-bucket")
+        monkeypatch.setenv("RINGRIFT_S3_SYNC_INTERVAL", "1800")
+        monkeypatch.setenv("RINGRIFT_S3_PUSH_GAMES", "false")
+        monkeypatch.setenv("RINGRIFT_S3_BANDWIDTH_LIMIT", "1000")
+
+        config = S3NodeSyncConfig()
+
+        assert config.s3_bucket == "my-custom-bucket"
+        assert config.sync_interval_seconds == 1800.0
         assert config.push_games is False
-        assert config.push_models is True
         assert config.bandwidth_limit_kbps == 1000
 
-    def test_path_defaults(self):
-        """Test path field defaults."""
+    def test_path_defaults(self, monkeypatch):
+        """Test default paths."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig
+
+        for key in ["RINGRIFT_GAMES_DIR", "RINGRIFT_MODELS_DIR", "RINGRIFT_NPZ_DIR"]:
+            monkeypatch.delenv(key, raising=False)
+
         config = S3NodeSyncConfig()
+
         assert config.games_dir == Path("data/games")
         assert config.models_dir == Path("models")
         assert config.npz_dir == Path("data/training")
 
+    def test_path_env_overrides(self, monkeypatch):
+        """Test path configuration via environment variables."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig
+
+        monkeypatch.setenv("RINGRIFT_GAMES_DIR", "/custom/games")
+        monkeypatch.setenv("RINGRIFT_MODELS_DIR", "/custom/models")
+        monkeypatch.setenv("RINGRIFT_NPZ_DIR", "/custom/npz")
+
+        config = S3NodeSyncConfig()
+
+        assert config.games_dir == Path("/custom/games")
+        assert config.models_dir == Path("/custom/models")
+        assert config.npz_dir == Path("/custom/npz")
+
 
 # =============================================================================
-# SyncResult Tests
+# Test SyncResult
 # =============================================================================
-
 
 class TestSyncResult:
-    """Test SyncResult dataclass."""
-
-    def test_successful_sync(self):
-        """Test successful sync result."""
-        result = SyncResult(
-            success=True,
-            uploaded_files=["file1.db", "file2.db"],
-            downloaded_files=[],
-            duration_seconds=12.5,
-            bytes_transferred=1024000,
-        )
-        assert result.success is True
-        assert len(result.uploaded_files) == 2
-        assert len(result.downloaded_files) == 0
-        assert result.duration_seconds == 12.5
-        assert result.bytes_transferred == 1024000
-        assert len(result.errors) == 0
-
-    def test_failed_sync(self):
-        """Test failed sync result."""
-        result = SyncResult(
-            success=False,
-            uploaded_files=[],
-            downloaded_files=[],
-            errors=["Connection refused", "Timeout"],
-            duration_seconds=60.0,
-        )
-        assert result.success is False
-        assert len(result.errors) == 2
+    """Tests for SyncResult dataclass."""
 
     def test_default_values(self):
-        """Test default values."""
+        """Test default SyncResult values."""
+        from app.coordination.s3_node_sync_daemon import SyncResult
+
         result = SyncResult(success=True)
+
+        assert result.success is True
         assert result.uploaded_files == []
         assert result.downloaded_files == []
         assert result.errors == []
         assert result.duration_seconds == 0.0
         assert result.bytes_transferred == 0
 
+    def test_with_data(self):
+        """Test SyncResult with populated data."""
+        from app.coordination.s3_node_sync_daemon import SyncResult
+
+        result = SyncResult(
+            success=True,
+            uploaded_files=["file1.db", "file2.db"],
+            downloaded_files=["model.pth"],
+            errors=["warning: slow transfer"],
+            duration_seconds=45.5,
+            bytes_transferred=1024000,
+        )
+
+        assert len(result.uploaded_files) == 2
+        assert len(result.downloaded_files) == 1
+        assert len(result.errors) == 1
+        assert result.bytes_transferred == 1024000
+
 
 # =============================================================================
-# FileManifest Tests
+# Test FileManifest
 # =============================================================================
-
 
 class TestFileManifest:
-    """Test FileManifest dataclass."""
+    """Tests for FileManifest dataclass."""
 
-    def test_basic_manifest(self):
-        """Test basic manifest creation."""
-        manifest = FileManifest(
-            node_id="test-node",
-            timestamp=time.time(),
-            files={
-                "data/games/selfplay.db": {
-                    "size": 1024000,
-                    "mtime": 1703123456.0,
-                    "sha256": "abc123",
-                    "type": "database",
-                },
-            },
-        )
+    def test_default_values(self):
+        """Test default FileManifest values."""
+        from app.coordination.s3_node_sync_daemon import FileManifest
+
+        manifest = FileManifest(node_id="test-node", timestamp=time.time())
+
         assert manifest.node_id == "test-node"
-        assert len(manifest.files) == 1
-        assert "data/games/selfplay.db" in manifest.files
-
-    def test_empty_manifest(self):
-        """Test empty manifest."""
-        manifest = FileManifest(node_id="empty-node", timestamp=time.time())
         assert manifest.files == {}
 
+    def test_with_files(self):
+        """Test FileManifest with file entries."""
+        from app.coordination.s3_node_sync_daemon import FileManifest
+
+        manifest = FileManifest(
+            node_id="test-node",
+            timestamp=1234567890.0,
+            files={
+                "games/test.db": {"size": 1000, "mtime": 1234567890.0, "type": "database"},
+                "models/model.pth": {"size": 5000, "mtime": 1234567890.0, "type": "model"},
+            },
+        )
+
+        assert len(manifest.files) == 2
+        assert manifest.files["games/test.db"]["type"] == "database"
+        assert manifest.files["models/model.pth"]["size"] == 5000
+
 
 # =============================================================================
-# S3NodeSyncDaemon Initialization Tests
+# Test S3NodeSyncDaemon - Initialization
 # =============================================================================
-
 
 class TestS3NodeSyncDaemonInit:
-    """Test S3NodeSyncDaemon initialization."""
+    """Tests for S3NodeSyncDaemon initialization."""
 
-    def test_default_config(self):
-        """Test daemon with default config."""
-        with patch("app.coordination.s3_node_sync_daemon.get_node_id", return_value="default-node"):
-            daemon = S3NodeSyncDaemon()
-            assert daemon.config is not None
-            assert daemon.config.s3_bucket == "ringrift-models-20251214"
-            assert daemon.node_id == "default-node"
+    def test_default_initialization(self, monkeypatch):
+        """Test daemon initializes with default config."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
 
-    def test_custom_config(self, config):
-        """Test daemon with custom config."""
-        with patch("app.coordination.s3_node_sync_daemon.get_node_id", return_value="custom-node"):
-            daemon = S3NodeSyncDaemon(config)
-            assert daemon.config.s3_bucket == "test-bucket"
-            assert daemon.config.aws_region == "us-west-2"
-            assert daemon.node_id == "custom-node"
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
 
-    def test_initial_state(self, daemon):
-        """Test initial daemon state."""
+        daemon = S3NodeSyncDaemon()
+
+        assert daemon.node_id == "test-node"
+        assert daemon.config is not None
         assert daemon._running is False
-        assert daemon._start_time == 0.0
-        assert daemon._last_push_time == 0.0
-        assert daemon._last_pull_time == 0.0
         assert daemon._push_count == 0
-        assert daemon._pull_count == 0
-        assert daemon._bytes_uploaded == 0
-        assert daemon._bytes_downloaded == 0
         assert daemon._errors == 0
 
-    def test_name_property(self, daemon):
-        """Test daemon name includes node ID."""
-        assert "test-node" in daemon.name
-        assert "S3NodeSyncDaemon" in daemon.name
+    def test_custom_config(self, monkeypatch):
+        """Test daemon with custom configuration."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
 
-    def test_is_running_property(self, daemon):
-        """Test is_running property."""
-        assert daemon.is_running() is False
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "custom-node")
+
+        config = S3NodeSyncConfig(
+            s3_bucket="custom-bucket",
+            sync_interval_seconds=600.0,
+        )
+        daemon = S3NodeSyncDaemon(config)
+
+        assert daemon.config.s3_bucket == "custom-bucket"
+        assert daemon.config.sync_interval_seconds == 600.0
+
+    def test_name_property(self, monkeypatch):
+        """Test daemon name property includes node_id."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "worker-42")
+
+        daemon = S3NodeSyncDaemon()
+
+        assert daemon.name == "S3NodeSyncDaemon-worker-42"
 
 
 # =============================================================================
-# Health Check Tests
+# Test S3NodeSyncDaemon - Health Check
 # =============================================================================
-
 
 class TestS3NodeSyncDaemonHealthCheck:
-    """Test S3NodeSyncDaemon health check."""
+    """Tests for S3NodeSyncDaemon health check."""
 
-    def test_health_check_when_stopped(self, daemon):
-        """Test health check returns healthy when stopped."""
-        result = daemon.health_check()
-        assert result.healthy is True
-        assert "not running" in result.message.lower()
+    def test_health_check_when_not_running(self, monkeypatch):
+        """Test health check returns stopped status when not running."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
 
-    def test_health_check_when_running_healthy(self, daemon):
-        """Test health check when running and recently synced."""
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
+        health = daemon.health_check()
+
+        assert health.healthy is True  # Not running is OK
+        assert "not running" in health.message.lower()
+
+    def test_health_check_when_running_and_healthy(self, monkeypatch):
+        """Test health check when daemon is running and healthy."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
         daemon._running = True
-        daemon._start_time = time.time()
-        daemon._last_push_time = time.time()  # Just synced
-        result = daemon.health_check()
-        assert result.healthy is True
-        assert "healthy" in result.message.lower()
-
-    def test_health_check_includes_stats(self, daemon):
-        """Test health check includes stats in details."""
-        daemon._running = True
-        daemon._start_time = time.time()
-        daemon._last_push_time = time.time()
+        daemon._last_push_time = time.time() - 60  # Recent push
         daemon._push_count = 5
+        daemon._errors = 0
+
+        health = daemon.health_check()
+
+        assert health.healthy is True
+        assert "pushes" in health.message.lower() or "healthy" in health.message.lower()
+
+    def test_health_check_degraded_when_stale(self, monkeypatch):
+        """Test health check returns degraded when push is stale."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(sync_interval_seconds=3600.0)
+        daemon = S3NodeSyncDaemon(config)
+        daemon._running = True
+        daemon._last_push_time = time.time() - 10000  # Way past 2x interval
+
+        health = daemon.health_check()
+
+        assert health.healthy is False
+        assert "no push" in health.message.lower()
+
+    def test_health_check_includes_details(self, monkeypatch):
+        """Test health check includes relevant details."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
+        daemon._running = True
+        daemon._last_push_time = time.time()
         daemon._bytes_uploaded = 1024000
+        daemon._bytes_downloaded = 512000
 
-        result = daemon.health_check()
-        assert result.healthy is True
-        assert "node_id" in result.details
-        assert "bytes_uploaded" in result.details
-        assert result.details["bytes_uploaded"] == 1024000
+        health = daemon.health_check()
 
-    def test_health_check_degraded_no_recent_push(self, daemon):
-        """Test health check degraded when no recent push."""
-        daemon._running = True
-        daemon._start_time = time.time()
-        # Last push was 3x the interval ago (interval is 10s in test config)
-        daemon._last_push_time = time.time() - 30
-
-        result = daemon.health_check()
-        assert result.healthy is False
-        assert "no push" in result.message.lower()
+        assert health.details is not None
+        assert health.details.get("bytes_uploaded") == 1024000
+        assert health.details.get("bytes_downloaded") == 512000
 
 
 # =============================================================================
-# Event Subscription Tests
+# Test S3NodeSyncDaemon - Manifest Building
 # =============================================================================
 
-
-class TestS3NodeSyncDaemonEventSubscription:
-    """Test S3NodeSyncDaemon event subscription."""
-
-    def test_subscribe_to_events(self, daemon):
-        """Test event subscription during start."""
-        mock_subscribe = MagicMock()
-
-        # Patch at the module where it's imported, not used
-        with patch("app.coordination.event_router.subscribe", mock_subscribe):
-            with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock):
-                daemon._subscribe_to_events()
-
-        # Should subscribe to training, selfplay, and promotion events
-        assert mock_subscribe.call_count >= 3
-
-    def test_subscribe_handles_import_error(self, daemon, caplog):
-        """Test graceful handling of import errors during subscription."""
-        # Mock the import to fail inside _subscribe_to_events
-        original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
-
-        def mock_import(name, *args, **kwargs):
-            if 'event_router' in name:
-                raise ImportError("event_router not found")
-            return original_import(name, *args, **kwargs)
-
-        with patch('builtins.__import__', side_effect=mock_import):
-            # Should not raise
-            daemon._subscribe_to_events()
-
-        # Should log warning (check via the daemon still functioning)
-        # The daemon should continue without crashing
-
-
-# =============================================================================
-# Event Handler Tests
-# =============================================================================
-
-
-class TestS3NodeSyncDaemonEventHandlers:
-    """Test S3NodeSyncDaemon event handlers."""
+class TestS3NodeSyncDaemonManifest:
+    """Tests for manifest building functionality."""
 
     @pytest.mark.asyncio
-    async def test_on_training_completed(self, daemon):
-        """Test handling TRAINING_COMPLETED event."""
-        daemon._running = True
+    async def test_build_local_manifest_empty_dirs(self, temp_dirs, monkeypatch):
+        """Test building manifest with empty directories."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
 
-        with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock) as mock_push:
-            event = {"config_key": "hex8_2p", "model_path": "/models/test.pth"}
-            daemon._on_training_completed(event)
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
 
-            # Should schedule a push
-            await asyncio.sleep(0.1)
+        config = S3NodeSyncConfig(
+            games_dir=temp_dirs["games"],
+            models_dir=temp_dirs["models"],
+            npz_dir=temp_dirs["npz"],
+        )
+        daemon = S3NodeSyncDaemon(config)
+
+        manifest = await daemon._build_local_manifest()
+
+        assert manifest.node_id == "test-node"
+        assert len(manifest.files) == 0
 
     @pytest.mark.asyncio
-    async def test_on_selfplay_complete_large_batch(self, daemon):
-        """Test handling SELFPLAY_COMPLETE with large batch."""
+    async def test_build_local_manifest_with_files(
+        self, temp_dirs, sample_db_file, sample_model_file, sample_npz_file, monkeypatch
+    ):
+        """Test building manifest with actual files."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(
+            games_dir=temp_dirs["games"],
+            models_dir=temp_dirs["models"],
+            npz_dir=temp_dirs["npz"],
+        )
+        daemon = S3NodeSyncDaemon(config)
+
+        manifest = await daemon._build_local_manifest()
+
+        assert len(manifest.files) == 3
+        assert "games/canonical_hex8_2p.db" in manifest.files
+        assert "models/canonical_hex8_2p.pth" in manifest.files
+        assert "training/hex8_2p.npz" in manifest.files
+
+    @pytest.mark.asyncio
+    async def test_manifest_file_metadata(
+        self, temp_dirs, sample_db_file, monkeypatch
+    ):
+        """Test manifest includes correct file metadata."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(
+            games_dir=temp_dirs["games"],
+            models_dir=temp_dirs["models"],
+            npz_dir=temp_dirs["npz"],
+        )
+        daemon = S3NodeSyncDaemon(config)
+
+        manifest = await daemon._build_local_manifest()
+
+        db_entry = manifest.files.get("games/canonical_hex8_2p.db", {})
+        assert db_entry.get("size") == 50000
+        assert db_entry.get("type") == "database"
+        assert "mtime" in db_entry
+
+    @pytest.mark.asyncio
+    async def test_manifest_skips_symlinks(self, temp_dirs, sample_model_file, monkeypatch):
+        """Test manifest skips symlink files."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        # Create a symlink
+        symlink_path = temp_dirs["models"] / "ringrift_best_hex8_2p.pth"
+        symlink_path.symlink_to(sample_model_file)
+
+        config = S3NodeSyncConfig(
+            games_dir=temp_dirs["games"],
+            models_dir=temp_dirs["models"],
+            npz_dir=temp_dirs["npz"],
+        )
+        daemon = S3NodeSyncDaemon(config)
+
+        manifest = await daemon._build_local_manifest()
+
+        # Should only have the actual file, not the symlink
+        model_files = [k for k in manifest.files if "models/" in k]
+        assert len(model_files) == 1
+        assert "canonical_hex8_2p.pth" in model_files[0]
+
+
+# =============================================================================
+# Test S3NodeSyncDaemon - S3 Operations
+# =============================================================================
+
+class TestS3NodeSyncDaemonS3Ops:
+    """Tests for S3 operations (mocked)."""
+
+    @pytest.mark.asyncio
+    async def test_should_upload_returns_true_for_new_file(self, temp_dirs, monkeypatch):
+        """Test _should_upload returns True when file not in S3."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(games_dir=temp_dirs["games"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Create a test file
+        test_file = temp_dirs["games"] / "test.db"
+        test_file.write_bytes(b"test data")
+
+        # Mock S3 head-object to return 404 (file not found)
+        mock_process = AsyncMock()
+        mock_process.returncode = 1  # Non-zero = file not found
+        mock_process.communicate = AsyncMock(return_value=(b"", b"Not found"))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            should = await daemon._should_upload(test_file, "nodes/test/test.db")
+
+        assert should is True
+
+    @pytest.mark.asyncio
+    async def test_should_upload_returns_false_for_same_size(self, temp_dirs, monkeypatch):
+        """Test _should_upload returns False when S3 file has same size."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(games_dir=temp_dirs["games"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Create a test file
+        test_file = temp_dirs["games"] / "test.db"
+        test_file.write_bytes(b"test data")  # 9 bytes
+
+        # Mock S3 head-object to return same size
+        response = json.dumps({"ContentLength": 9})
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(response.encode(), b""))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            should = await daemon._should_upload(test_file, "nodes/test/test.db")
+
+        assert should is False
+
+    @pytest.mark.asyncio
+    async def test_should_upload_returns_true_for_different_size(self, temp_dirs, monkeypatch):
+        """Test _should_upload returns True when S3 file has different size."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(games_dir=temp_dirs["games"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Create a test file
+        test_file = temp_dirs["games"] / "test.db"
+        test_file.write_bytes(b"test data updated")  # Different size
+
+        # Mock S3 head-object to return different size
+        response = json.dumps({"ContentLength": 9})
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(response.encode(), b""))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            should = await daemon._should_upload(test_file, "nodes/test/test.db")
+
+        assert should is True
+
+    @pytest.mark.asyncio
+    async def test_s3_upload_success(self, temp_dirs, monkeypatch):
+        """Test successful S3 upload."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig()
+        daemon = S3NodeSyncDaemon(config)
+
+        # Create a test file
+        test_file = temp_dirs["games"] / "test.db"
+        test_file.write_bytes(b"test data")
+
+        # Mock successful upload
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(b"", b""))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await daemon._s3_upload(str(test_file), "nodes/test/test.db")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_s3_upload_failure(self, temp_dirs, monkeypatch):
+        """Test S3 upload failure handling."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig()
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock failed upload
+        mock_process = AsyncMock()
+        mock_process.returncode = 1
+        mock_process.communicate = AsyncMock(return_value=(b"", b"Access Denied"))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await daemon._s3_upload("/tmp/test.db", "nodes/test/test.db")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_s3_upload_timeout(self, temp_dirs, monkeypatch):
+        """Test S3 upload timeout handling."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(upload_timeout_seconds=0.1)
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock slow upload that times out
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.kill = MagicMock()
+
+        async def slow_communicate():
+            await asyncio.sleep(10)
+            return (b"", b"")
+
+        mock_process.communicate = slow_communicate
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await daemon._s3_upload("/tmp/test.db", "nodes/test/test.db")
+
+        assert result is False
+        mock_process.kill.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_s3_download_success(self, temp_dirs, monkeypatch):
+        """Test successful S3 download."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig()
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock successful download
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(b"", b""))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await daemon._s3_download("consolidated/test.npz", "/tmp/test.npz")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_s3_download_not_found(self, temp_dirs, monkeypatch):
+        """Test S3 download when file not found."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig()
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock 404 response
+        mock_process = AsyncMock()
+        mock_process.returncode = 1
+        mock_process.communicate = AsyncMock(return_value=(b"", b"404 NoSuchKey"))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+            result = await daemon._s3_download("consolidated/missing.npz", "/tmp/missing.npz")
+
+        assert result is False
+
+
+# =============================================================================
+# Test S3NodeSyncDaemon - Push Operations
+# =============================================================================
+
+class TestS3NodeSyncDaemonPush:
+    """Tests for push operations."""
+
+    @pytest.mark.asyncio
+    async def test_push_games_skips_small_files(self, temp_dirs, monkeypatch):
+        """Test push_games skips very small database files."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        # Create a small file (< 10KB)
+        small_db = temp_dirs["games"] / "small.db"
+        small_db.write_bytes(b"tiny")
+
+        config = S3NodeSyncConfig(games_dir=temp_dirs["games"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock S3 operations
+        with patch.object(daemon, "_should_upload", new_callable=AsyncMock) as mock_should:
+            mock_should.return_value = True
+            result = await daemon._push_games()
+
+        # Small file should be skipped, so _should_upload never called
+        assert mock_should.call_count == 0
+        assert len(result.uploaded_files) == 0
+
+    @pytest.mark.asyncio
+    async def test_push_games_uploads_large_files(
+        self, temp_dirs, sample_db_file, monkeypatch
+    ):
+        """Test push_games uploads files above size threshold."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(games_dir=temp_dirs["games"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock S3 operations
+        with patch.object(daemon, "_should_upload", new_callable=AsyncMock) as mock_should:
+            mock_should.return_value = True
+            with patch.object(daemon, "_s3_upload", new_callable=AsyncMock) as mock_upload:
+                mock_upload.return_value = True
+                result = await daemon._push_games()
+
+        assert mock_should.call_count == 1
+        assert mock_upload.call_count == 1
+        assert "canonical_hex8_2p.db" in result.uploaded_files
+
+    @pytest.mark.asyncio
+    async def test_push_models_only_canonical(
+        self, temp_dirs, sample_model_file, monkeypatch
+    ):
+        """Test push_models only uploads canonical models."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        # Create a non-canonical model
+        non_canonical = temp_dirs["models"] / "checkpoint_epoch10.pth"
+        non_canonical.write_bytes(b"checkpoint data")
+
+        config = S3NodeSyncConfig(models_dir=temp_dirs["models"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Mock S3 operations
+        with patch.object(daemon, "_should_upload", new_callable=AsyncMock) as mock_should:
+            mock_should.return_value = True
+            with patch.object(daemon, "_s3_upload", new_callable=AsyncMock) as mock_upload:
+                mock_upload.return_value = True
+                result = await daemon._push_models()
+
+        # Only canonical model should be uploaded
+        assert mock_upload.call_count == 1
+        assert "canonical_hex8_2p.pth" in result.uploaded_files
+        assert "checkpoint_epoch10.pth" not in result.uploaded_files
+
+
+# =============================================================================
+# Test S3NodeSyncDaemon - Pull Operations
+# =============================================================================
+
+class TestS3NodeSyncDaemonPull:
+    """Tests for pull operations."""
+
+    @pytest.mark.asyncio
+    async def test_pull_training_data_success(self, temp_dirs, monkeypatch):
+        """Test pulling training data from S3."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(npz_dir=temp_dirs["npz"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Create the file after "download"
+        async def fake_download(s3_path, local_path):
+            Path(local_path).write_bytes(b"NPZ data")
+            return True
+
+        with patch.object(daemon, "_s3_download", new_callable=AsyncMock) as mock_download:
+            mock_download.side_effect = fake_download
+            result = await daemon.pull_training_data("hex8_2p")
+
+        assert result.success is True
+        assert "hex8_2p.npz" in result.downloaded_files
+
+    @pytest.mark.asyncio
+    async def test_pull_training_data_not_found(self, temp_dirs, monkeypatch):
+        """Test pulling training data when not in S3."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(npz_dir=temp_dirs["npz"])
+        daemon = S3NodeSyncDaemon(config)
+
+        with patch.object(daemon, "_s3_download", new_callable=AsyncMock) as mock_download:
+            mock_download.return_value = False
+            result = await daemon.pull_training_data("missing_config")
+
+        assert len(result.downloaded_files) == 0
+
+    @pytest.mark.asyncio
+    async def test_pull_model_success(self, temp_dirs, monkeypatch):
+        """Test pulling a model from S3."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        config = S3NodeSyncConfig(models_dir=temp_dirs["models"])
+        daemon = S3NodeSyncDaemon(config)
+
+        # Create the file after "download"
+        async def fake_download(s3_path, local_path):
+            Path(local_path).write_bytes(b"MODEL data")
+            return True
+
+        with patch.object(daemon, "_s3_download", new_callable=AsyncMock) as mock_download:
+            mock_download.side_effect = fake_download
+            result = await daemon.pull_model("canonical_hex8_2p.pth")
+
+        assert result.success is True
+        assert "canonical_hex8_2p.pth" in result.downloaded_files
+
+
+# =============================================================================
+# Test S3NodeSyncDaemon - Event Handling
+# =============================================================================
+
+class TestS3NodeSyncDaemonEvents:
+    """Tests for event handling."""
+
+    def test_on_training_completed_triggers_push(self, monkeypatch):
+        """Test TRAINING_COMPLETED event triggers model push."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
         daemon._running = True
 
-        with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock):
-            event = {"games_count": 150, "config_key": "hex8_2p"}
+        event = {"config_key": "hex8_2p", "model_path": "models/canonical_hex8_2p.pth"}
+
+        with patch.object(daemon, "_push_models", new_callable=AsyncMock) as mock_push:
+            # Need to patch asyncio.create_task since we're not in async context
+            with patch("asyncio.create_task") as mock_task:
+                daemon._on_training_completed(event)
+                mock_task.assert_called_once()
+
+    def test_on_selfplay_complete_skips_small_batches(self, monkeypatch):
+        """Test SELFPLAY_COMPLETE skips batches < 100 games."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
+        daemon._running = True
+
+        event = {"config_key": "hex8_2p", "games_count": 50}
+
+        with patch("asyncio.create_task") as mock_task:
             daemon._on_selfplay_complete(event)
-            # Should trigger push for large batch
+            # Should NOT create task for small batch
+            mock_task.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_on_selfplay_complete_small_batch(self, daemon):
-        """Test handling SELFPLAY_COMPLETE with small batch (skipped)."""
+    def test_on_selfplay_complete_triggers_for_large_batches(self, monkeypatch):
+        """Test SELFPLAY_COMPLETE triggers push for >= 100 games."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
         daemon._running = True
 
-        with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock) as mock_push:
-            event = {"games_count": 50, "config_key": "hex8_2p"}
+        event = {"config_key": "hex8_2p", "games_count": 150}
+
+        with patch("asyncio.create_task") as mock_task:
             daemon._on_selfplay_complete(event)
-            # Should NOT trigger push for small batch (<100)
+            mock_task.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_on_model_promoted(self, daemon):
-        """Test handling MODEL_PROMOTED event."""
+    def test_on_model_promoted_triggers_push(self, monkeypatch):
+        """Test MODEL_PROMOTED event triggers high-priority push."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
         daemon._running = True
 
-        with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock):
-            event = {"model_path": "/models/promoted.pth", "config_key": "hex8_2p"}
+        event = {"config_key": "hex8_2p", "model_path": "models/canonical_hex8_2p.pth"}
+
+        with patch("asyncio.create_task") as mock_task:
             daemon._on_model_promoted(event)
-            # Should trigger high-priority push
+            mock_task.assert_called_once()
+
+    def test_event_handlers_increment_errors_on_exception(self, monkeypatch):
+        """Test event handlers increment error count on exception."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
+        daemon._running = True
+        daemon._errors = 0
+
+        # Invalid event that will cause an error
+        event = None
+
+        with patch("asyncio.create_task", side_effect=Exception("test error")):
+            daemon._on_training_completed({"config_key": "test"})
+
+        # Error should be incremented
+        assert daemon._errors == 1
 
 
 # =============================================================================
-# Lifecycle Tests
+# Test S3NodeSyncDaemon - Lifecycle
 # =============================================================================
-
 
 class TestS3NodeSyncDaemonLifecycle:
-    """Test S3NodeSyncDaemon lifecycle."""
+    """Tests for daemon lifecycle."""
 
     @pytest.mark.asyncio
-    async def test_start_sets_running(self, daemon):
-        """Test that start sets running flag and runs initial sync."""
-        async def stop_quickly():
-            await asyncio.sleep(0.1)
-            daemon._running = False
+    async def test_start_sets_running_flag(self, monkeypatch):
+        """Test start() sets running flag."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncConfig, S3NodeSyncDaemon
 
-        with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock) as mock_push:
-            task = asyncio.create_task(daemon.start())
-            await stop_quickly()
-            await asyncio.wait_for(task, timeout=2.0)
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
 
-        # Should have started and run initial push
-        assert daemon._start_time > 0
-        mock_push.assert_called()
+        config = S3NodeSyncConfig(sync_interval_seconds=0.1)
+        daemon = S3NodeSyncDaemon(config)
 
-    @pytest.mark.asyncio
-    async def test_stop_sets_not_running(self, daemon):
-        """Test that stop clears running flag."""
-        daemon._running = True
-
+        # Mock the sync operations
         with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock):
-            await daemon.stop()
+            with patch.object(daemon, "_subscribe_to_events"):
+                # Start in background and stop quickly
+                task = asyncio.create_task(daemon.start())
+                await asyncio.sleep(0.05)
 
-        assert daemon._running is False
+                assert daemon._running is True
+                assert daemon._start_time > 0
+
+                # Stop the daemon
+                daemon._running = False
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     @pytest.mark.asyncio
-    async def test_stop_runs_final_push(self, daemon):
-        """Test that stop runs final push before stopping."""
+    async def test_stop_runs_final_push(self, monkeypatch):
+        """Test stop() runs a final push cycle."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
         daemon._running = True
 
         with patch.object(daemon, "_run_push_cycle", new_callable=AsyncMock) as mock_push:
             await daemon.stop()
             mock_push.assert_called_once()
+            assert daemon._running is False
 
-    @pytest.mark.asyncio
-    async def test_start_idempotent(self, daemon):
-        """Test that start is idempotent."""
+    def test_is_running(self, monkeypatch):
+        """Test is_running() returns correct state."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
+
+        assert daemon.is_running() is False
         daemon._running = True
-        original_time = daemon._start_time = time.time() - 100
-
-        await daemon.start()  # Should return immediately
-
-        # Start time should not change
-        assert daemon._start_time == original_time
+        assert daemon.is_running() is True
 
 
 # =============================================================================
-# Push Cycle Tests
+# Test S3ConsolidationDaemon
 # =============================================================================
-
-
-class TestS3NodeSyncDaemonPushCycle:
-    """Test S3NodeSyncDaemon push cycle behavior."""
-
-    @pytest.mark.asyncio
-    async def test_push_cycle_updates_stats(self, daemon):
-        """Test that push cycle updates statistics."""
-        daemon._running = True
-        daemon._start_time = time.time()
-
-        # Mock _push_games and _push_models to return SyncResult objects
-        games_result = SyncResult(
-            success=True,
-            uploaded_files=["game1.db", "game2.db"],
-            bytes_transferred=1000,
-        )
-        models_result = SyncResult(
-            success=True,
-            uploaded_files=["model1.pth"],
-            bytes_transferred=500,
-        )
-        npz_result = SyncResult(success=True)
-
-        with patch.object(daemon, "_push_games", new_callable=AsyncMock, return_value=games_result):
-            with patch.object(daemon, "_push_models", new_callable=AsyncMock, return_value=models_result):
-                with patch.object(daemon, "_push_npz", new_callable=AsyncMock, return_value=npz_result):
-                    with patch.object(daemon, "_build_local_manifest", new_callable=AsyncMock, return_value=FileManifest(node_id="test", timestamp=time.time())):
-                        with patch.object(daemon, "_upload_manifest", new_callable=AsyncMock):
-                            await daemon._run_push_cycle()
-
-        assert daemon._last_push_time > 0
-        assert daemon._push_count == 1
-
-    @pytest.mark.asyncio
-    async def test_push_cycle_increments_errors(self, daemon):
-        """Test that push cycle increments error count on failure."""
-        daemon._running = True
-        daemon._start_time = time.time()
-        initial_errors = daemon._errors
-
-        with patch.object(daemon, "_push_games", new_callable=AsyncMock, side_effect=Exception("S3 error")):
-            with patch.object(daemon, "_push_models", new_callable=AsyncMock, return_value=(True, 0, 0)):
-                try:
-                    await daemon._run_push_cycle()
-                except Exception:
-                    pass  # May or may not raise depending on implementation
-
-        # Note: Error handling depends on implementation
-        # This test verifies the pattern is testable
-
-
-# =============================================================================
-# Configuration Override Tests
-# =============================================================================
-
-
-class TestS3NodeSyncDaemonConfigOverrides:
-    """Test configuration can be overridden via environment."""
-
-    def test_env_bucket_override(self):
-        """Test S3 bucket can be overridden via environment."""
-        with patch.dict("os.environ", {"RINGRIFT_S3_BUCKET": "env-override-bucket"}):
-            config = S3NodeSyncConfig()
-            assert config.s3_bucket == "env-override-bucket"
-
-    def test_env_sync_interval_override(self):
-        """Test sync interval can be overridden via environment."""
-        with patch.dict("os.environ", {"RINGRIFT_S3_SYNC_INTERVAL": "1800"}):
-            config = S3NodeSyncConfig()
-            assert config.sync_interval_seconds == 1800.0
-
-    def test_env_push_flags(self):
-        """Test push flags can be overridden via environment."""
-        with patch.dict(
-            "os.environ",
-            {"RINGRIFT_S3_PUSH_GAMES": "false", "RINGRIFT_S3_PUSH_MODELS": "false"},
-        ):
-            config = S3NodeSyncConfig()
-            assert config.push_games is False
-            assert config.push_models is False
-
-
-# =============================================================================
-# S3ConsolidationDaemon Tests
-# =============================================================================
-
 
 class TestS3ConsolidationDaemon:
-    """Test S3ConsolidationDaemon class."""
+    """Tests for S3ConsolidationDaemon."""
 
-    @pytest.fixture
-    def consolidation_daemon(self):
-        """Create a test consolidation daemon."""
+    def test_initialization(self):
+        """Test consolidation daemon initialization."""
         from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
 
-        return S3ConsolidationDaemon()
+        daemon = S3ConsolidationDaemon()
 
-    def test_initialization_defaults(self, consolidation_daemon):
-        """Test consolidation daemon initializes with defaults."""
-        assert consolidation_daemon.config is not None
-        assert consolidation_daemon._running is False
-        assert consolidation_daemon._consolidation_interval == 3600.0
-        assert consolidation_daemon._last_consolidation_time == 0.0
-        assert consolidation_daemon._consolidation_errors == 0
+        assert daemon._running is False
+        assert daemon._consolidation_interval == 3600.0
+        assert daemon._consolidation_errors == 0
 
-    def test_initialization_custom_config(self, config):
-        """Test consolidation daemon with custom config."""
+    def test_health_check_not_running(self):
+        """Test health check when not running."""
         from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
 
-        daemon = S3ConsolidationDaemon(config)
-        assert daemon.config.s3_bucket == "test-bucket"
+        daemon = S3ConsolidationDaemon()
+        health = daemon.health_check()
 
-    def test_health_check_stopped(self, consolidation_daemon):
-        """Test health check when stopped."""
-        result = consolidation_daemon.health_check()
-        assert result.healthy is False
-        assert "stopped" in result.message.lower()
+        assert health.healthy is False
+        assert "stopped" in health.message.lower()
 
-    def test_health_check_running_healthy(self, consolidation_daemon):
-        """Test health check when running and healthy."""
-        consolidation_daemon._running = True
-        consolidation_daemon._last_consolidation_time = time.time()
-        consolidation_daemon._consolidation_errors = 0
+    def test_health_check_running(self):
+        """Test health check when running."""
+        from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
 
-        result = consolidation_daemon.health_check()
-        assert result.healthy is True
-        assert "operational" in result.message.lower()
+        daemon = S3ConsolidationDaemon()
+        daemon._running = True
+        daemon._last_consolidation_time = time.time()
 
-    def test_health_check_degraded_stale(self, consolidation_daemon):
-        """Test health check degraded when consolidation is stale."""
-        consolidation_daemon._running = True
-        # Last consolidation was way too long ago (4x the interval)
-        consolidation_daemon._last_consolidation_time = time.time() - (3600 * 4)
-        consolidation_daemon._consolidation_errors = 0
+        health = daemon.health_check()
 
-        result = consolidation_daemon.health_check()
-        assert result.healthy is False
-        assert "stale" in result.message.lower()
+        assert health.healthy is True
+        assert "operational" in health.message.lower()
 
-    def test_health_check_degraded_errors(self, consolidation_daemon):
-        """Test health check degraded when too many errors."""
-        consolidation_daemon._running = True
-        consolidation_daemon._last_consolidation_time = time.time()
-        consolidation_daemon._consolidation_errors = 10  # > 5 is threshold
+    def test_health_check_stale(self):
+        """Test health check when consolidation is stale."""
+        from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
 
-        result = consolidation_daemon.health_check()
-        assert result.healthy is False
-        assert "error" in result.message.lower()
+        daemon = S3ConsolidationDaemon()
+        daemon._running = True
+        daemon._last_consolidation_time = time.time() - 10000  # Very old
 
-    def test_health_check_details(self, consolidation_daemon):
-        """Test health check includes metrics in details."""
-        consolidation_daemon._running = True
-        consolidation_daemon._last_consolidation_time = time.time()
-        consolidation_daemon._nodes_consolidated = 5
-        consolidation_daemon._models_consolidated = 10
-        consolidation_daemon._npz_consolidated = 3
+        health = daemon.health_check()
 
-        result = consolidation_daemon.health_check()
-        assert "nodes_consolidated" in result.details
-        assert result.details["nodes_consolidated"] == 5
-        assert result.details["models_consolidated"] == 10
-        assert result.details["npz_consolidated"] == 3
+        assert health.healthy is False
+        assert "stale" in health.message.lower()
 
-    @pytest.mark.asyncio
-    async def test_start_sets_running(self, consolidation_daemon):
-        """Test that start sets running flag."""
-        async def stop_quickly():
-            await asyncio.sleep(0.1)
-            consolidation_daemon._running = False
+    def test_health_check_excessive_errors(self):
+        """Test health check with excessive errors."""
+        from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
 
-        with patch.object(
-            consolidation_daemon, "_run_consolidation", new_callable=AsyncMock
-        ):
-            task = asyncio.create_task(consolidation_daemon.start())
-            await stop_quickly()
-            try:
-                await asyncio.wait_for(task, timeout=2.0)
-            except asyncio.CancelledError:
-                pass
+        daemon = S3ConsolidationDaemon()
+        daemon._running = True
+        daemon._last_consolidation_time = time.time()
+        daemon._consolidation_errors = 10
 
-        # Was started at some point
-        assert consolidation_daemon._running is False  # Stopped now
+        health = daemon.health_check()
+
+        assert health.healthy is False
+        assert "error" in health.message.lower()
+
+    def test_health_check_includes_metrics(self):
+        """Test health check includes consolidation metrics."""
+        from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
+
+        daemon = S3ConsolidationDaemon()
+        daemon._running = True
+        daemon._last_consolidation_time = time.time()
+        daemon._nodes_consolidated = 5
+        daemon._models_consolidated = 12
+        daemon._npz_consolidated = 8
+
+        health = daemon.health_check()
+
+        assert health.details is not None
+        assert health.details.get("nodes_consolidated") == 5
+        assert health.details.get("models_consolidated") == 12
+        assert health.details.get("npz_consolidated") == 8
+
+
+# =============================================================================
+# Test S3ConsolidationDaemon - Consolidation Operations
+# =============================================================================
+
+class TestS3ConsolidationDaemonOps:
+    """Tests for consolidation operations."""
 
     @pytest.mark.asyncio
-    async def test_stop_clears_running(self, consolidation_daemon):
-        """Test that stop clears running flag."""
-        consolidation_daemon._running = True
-        await consolidation_daemon.stop()
-        assert consolidation_daemon._running is False
+    async def test_consolidate_models_keeps_latest(self):
+        """Test consolidate_models keeps latest version of each model."""
+        from app.coordination.s3_node_sync_daemon import (
+            FileManifest,
+            S3ConsolidationDaemon,
+        )
 
-    @pytest.mark.asyncio
-    async def test_consolidation_updates_timestamp(self, consolidation_daemon):
-        """Test that consolidation updates last time."""
-        consolidation_daemon._running = True
+        daemon = S3ConsolidationDaemon()
 
-        with patch.object(
-            consolidation_daemon, "_consolidate_models", new_callable=AsyncMock
-        ):
-            with patch.object(
-                consolidation_daemon, "_consolidate_npz", new_callable=AsyncMock
-            ):
-                with patch.object(
-                    consolidation_daemon,
-                    "_create_consolidated_manifest",
-                    new_callable=AsyncMock,
-                ):
-                    with patch(
-                        "app.coordination.s3_node_sync_daemon.S3NodeSyncDaemon.list_all_node_data",
-                        new_callable=AsyncMock,
-                        return_value={},
-                    ):
-                        await consolidation_daemon._run_consolidation()
-
-        # Timestamp not updated since manifests was empty
-        # But method ran without error
-
-    @pytest.mark.asyncio
-    async def test_consolidation_calls_consolidators(self, consolidation_daemon):
-        """Test that consolidation calls all consolidator methods."""
-        consolidation_daemon._running = True
-
-        mock_manifests = {
-            "node1": FileManifest(node_id="node1", timestamp=time.time(), files={}),
+        # Create manifests with different versions
+        manifests = {
+            "node-1": FileManifest(
+                node_id="node-1",
+                timestamp=time.time(),
+                files={
+                    "models/canonical_hex8_2p.pth": {
+                        "size": 1000,
+                        "mtime": 1000.0,  # Older
+                        "type": "model",
+                    },
+                },
+            ),
+            "node-2": FileManifest(
+                node_id="node-2",
+                timestamp=time.time(),
+                files={
+                    "models/canonical_hex8_2p.pth": {
+                        "size": 1100,
+                        "mtime": 2000.0,  # Newer
+                        "type": "model",
+                    },
+                },
+            ),
         }
 
-        with patch.object(
-            consolidation_daemon, "_consolidate_models", new_callable=AsyncMock
-        ) as mock_models:
-            with patch.object(
-                consolidation_daemon, "_consolidate_npz", new_callable=AsyncMock
-            ) as mock_npz:
-                with patch.object(
-                    consolidation_daemon,
-                    "_create_consolidated_manifest",
-                    new_callable=AsyncMock,
-                ) as mock_manifest:
-                    with patch(
-                        "app.coordination.s3_node_sync_daemon.S3NodeSyncDaemon.list_all_node_data",
-                        new_callable=AsyncMock,
-                        return_value=mock_manifests,
-                    ):
-                        await consolidation_daemon._run_consolidation()
+        copy_calls = []
 
-        mock_models.assert_called_once()
-        mock_npz.assert_called_once()
-        mock_manifest.assert_called_once()
+        async def track_copy(src, dst):
+            copy_calls.append((src, dst))
+            return True
+
+        with patch.object(daemon, "_s3_copy", new_callable=AsyncMock) as mock_copy:
+            mock_copy.side_effect = track_copy
+            await daemon._consolidate_models(manifests)
+
+        # Should copy from node-2 (newer)
+        assert len(copy_calls) == 1
+        assert "node-2" in copy_calls[0][0]
+
+    @pytest.mark.asyncio
+    async def test_consolidate_npz_keeps_latest(self):
+        """Test consolidate_npz keeps latest version of each NPZ."""
+        from app.coordination.s3_node_sync_daemon import (
+            FileManifest,
+            S3ConsolidationDaemon,
+        )
+
+        daemon = S3ConsolidationDaemon()
+
+        manifests = {
+            "node-1": FileManifest(
+                node_id="node-1",
+                timestamp=time.time(),
+                files={
+                    "training/hex8_2p.npz": {
+                        "size": 5000,
+                        "mtime": 3000.0,  # Newest
+                        "type": "npz",
+                    },
+                },
+            ),
+            "node-2": FileManifest(
+                node_id="node-2",
+                timestamp=time.time(),
+                files={
+                    "training/hex8_2p.npz": {
+                        "size": 4000,
+                        "mtime": 2000.0,  # Older
+                        "type": "npz",
+                    },
+                },
+            ),
+        }
+
+        with patch.object(daemon, "_s3_copy", new_callable=AsyncMock) as mock_copy:
+            mock_copy.return_value = True
+            await daemon._consolidate_npz(manifests)
+
+        # Should copy from node-1 (newer)
+        assert mock_copy.call_count == 1
+        call_args = mock_copy.call_args[0]
+        assert "node-1" in call_args[0]
 
 
 # =============================================================================
-# S3 Operation Tests (_should_upload, _s3_upload, _s3_download)
+# Test Convenience Functions
 # =============================================================================
 
-
-class TestS3Operations:
-    """Test S3 operations (_should_upload, _s3_upload, _s3_download)."""
-
-    @pytest.fixture
-    def daemon(self, config):
-        """Create test daemon."""
-        with patch(
-            "app.coordination.s3_node_sync_daemon.get_node_id", return_value="test-node"
-        ):
-            return S3NodeSyncDaemon(config)
+class TestConvenienceFunctions:
+    """Tests for convenience functions."""
 
     @pytest.mark.asyncio
-    async def test_should_upload_file_not_in_s3(self, daemon, tmp_path):
-        """Test should_upload returns True when file not in S3."""
-        local_file = tmp_path / "test.db"
-        local_file.write_bytes(b"test content" * 100)
+    async def test_ensure_training_data_from_s3_uses_local(self, temp_dirs, monkeypatch):
+        """Test ensure_training_data_from_s3 uses local file if exists."""
+        from app.coordination.s3_node_sync_daemon import ensure_training_data_from_s3
 
-        # Mock aws s3api head-object returning non-zero (not found)
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"Not Found"))
-        mock_process.returncode = 1
+        monkeypatch.setenv("RINGRIFT_NPZ_DIR", str(temp_dirs["npz"]))
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._should_upload(local_file, "nodes/test/file.db")
+        # Create local file
+        local_npz = temp_dirs["npz"] / "hex8_2p.npz"
+        local_npz.write_bytes(b"NPZ data")
+
+        result = await ensure_training_data_from_s3("hex8_2p")
 
         assert result is True
 
-    @pytest.mark.asyncio
-    async def test_should_upload_file_same_size(self, daemon, tmp_path):
-        """Test should_upload returns False when file size matches."""
-        local_file = tmp_path / "test.db"
-        content = b"test content" * 100
-        local_file.write_bytes(content)
+    def test_sync_ensure_training_data_wrapper(self, temp_dirs, monkeypatch):
+        """Test sync wrapper for ensure_training_data_from_s3."""
+        from app.coordination.s3_node_sync_daemon import sync_ensure_training_data_from_s3
 
-        # Mock aws s3api head-object returning same size
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(f'{{"ContentLength": {len(content)}}}'.encode(), b"")
-        )
-        mock_process.returncode = 0
+        monkeypatch.setenv("RINGRIFT_NPZ_DIR", str(temp_dirs["npz"]))
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._should_upload(local_file, "nodes/test/file.db")
+        # Create local file
+        local_npz = temp_dirs["npz"] / "hex8_2p.npz"
+        local_npz.write_bytes(b"NPZ data")
 
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_should_upload_file_different_size(self, daemon, tmp_path):
-        """Test should_upload returns True when file size differs."""
-        local_file = tmp_path / "test.db"
-        local_file.write_bytes(b"test content" * 100)
-
-        # Mock aws s3api head-object returning different size
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b'{"ContentLength": 50}', b"")
-        )
-        mock_process.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._should_upload(local_file, "nodes/test/file.db")
+        result = sync_ensure_training_data_from_s3("hex8_2p")
 
         assert result is True
 
-    @pytest.mark.asyncio
-    async def test_should_upload_handles_json_error(self, daemon, tmp_path):
-        """Test should_upload handles JSON parse error gracefully."""
-        local_file = tmp_path / "test.db"
-        local_file.write_bytes(b"test content")
 
-        # Mock aws s3api returning invalid JSON
+# =============================================================================
+# Test List All Node Data
+# =============================================================================
+
+class TestListAllNodeData:
+    """Tests for list_all_node_data functionality."""
+
+    @pytest.mark.asyncio
+    async def test_list_all_node_data_parses_nodes(self, monkeypatch):
+        """Test list_all_node_data parses S3 ls output."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
+
+        # Mock S3 ls output
+        ls_output = b"PRE node-1/\nPRE node-2/\nPRE node-3/\n"
+
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"invalid json", b""))
         mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(ls_output, b""))
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._should_upload(local_file, "nodes/test/file.db")
+            with patch.object(daemon, "_get_node_manifest", new_callable=AsyncMock) as mock_manifest:
+                from app.coordination.s3_node_sync_daemon import FileManifest
+                mock_manifest.return_value = FileManifest(
+                    node_id="node-1",
+                    timestamp=time.time(),
+                )
 
-        # On error, should return True (upload to be safe)
-        assert result is True
+                manifests = await daemon.list_all_node_data()
+
+        # Should have attempted to get manifest for each node
+        assert mock_manifest.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_s3_upload_success(self, daemon, tmp_path):
-        """Test successful S3 upload."""
-        local_file = tmp_path / "test.db"
-        local_file.write_text("test content")
+    async def test_list_all_node_data_handles_empty(self, monkeypatch):
+        """Test list_all_node_data handles empty bucket."""
+        from app.coordination.s3_node_sync_daemon import S3NodeSyncDaemon
+
+        monkeypatch.setenv("RINGRIFT_NODE_ID", "test-node")
+
+        daemon = S3NodeSyncDaemon()
 
         mock_process = AsyncMock()
+        mock_process.returncode = 1  # No nodes found
         mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._s3_upload(str(local_file), "nodes/test/file.db")
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_s3_upload_failure(self, daemon, tmp_path):
-        """Test failed S3 upload."""
-        local_file = tmp_path / "test.db"
-        local_file.write_text("test content")
-
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"Access Denied"))
-        mock_process.returncode = 1
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._s3_upload(str(local_file), "nodes/test/file.db")
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_s3_upload_timeout(self, daemon, tmp_path):
-        """Test S3 upload timeout."""
-        local_file = tmp_path / "test.db"
-        local_file.write_text("test content")
-
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_process.kill = MagicMock()
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._s3_upload(str(local_file), "nodes/test/file.db")
-
-        assert result is False
-        mock_process.kill.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_s3_download_success(self, daemon, tmp_path):
-        """Test successful S3 download."""
-        local_file = tmp_path / "downloaded.db"
-
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._s3_download("nodes/test/file.db", str(local_file))
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_s3_download_not_found(self, daemon, tmp_path):
-        """Test S3 download when file not found."""
-        local_file = tmp_path / "downloaded.db"
-
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(
-            return_value=(b"", b"404 Not Found NoSuchKey")
-        )
-        mock_process.returncode = 1
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._s3_download("nodes/test/file.db", str(local_file))
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_s3_download_timeout(self, daemon, tmp_path):
-        """Test S3 download timeout."""
-        local_file = tmp_path / "downloaded.db"
-
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_process.kill = MagicMock()
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await daemon._s3_download("nodes/test/file.db", str(local_file))
-
-        assert result is False
-        mock_process.kill.assert_called_once()
-
-
-# =============================================================================
-# Push Method Tests (_push_games, _push_models, _push_npz)
-# =============================================================================
-
-
-class TestPushMethods:
-    """Test push methods (_push_games, _push_models, _push_npz)."""
-
-    @pytest.fixture
-    def daemon(self, config, tmp_path):
-        """Create test daemon with temp directories."""
-        config.games_dir = tmp_path / "games"
-        config.models_dir = tmp_path / "models"
-        config.npz_dir = tmp_path / "training"
-
-        # Create directories
-        config.games_dir.mkdir(parents=True)
-        config.models_dir.mkdir(parents=True)
-        config.npz_dir.mkdir(parents=True)
-
-        with patch(
-            "app.coordination.s3_node_sync_daemon.get_node_id", return_value="test-node"
-        ):
-            return S3NodeSyncDaemon(config)
-
-    @pytest.mark.asyncio
-    async def test_push_games_empty_directory(self, daemon):
-        """Test push_games with empty directory."""
-        result = await daemon._push_games()
-        assert result.success is True
-        assert len(result.uploaded_files) == 0
-
-    @pytest.mark.asyncio
-    async def test_push_games_skips_small_files(self, daemon):
-        """Test push_games skips files under 10KB."""
-        # Create small database file
-        small_db = daemon.config.games_dir / "small.db"
-        small_db.write_bytes(b"x" * 5000)  # 5KB
-
-        with patch.object(daemon, "_should_upload", new_callable=AsyncMock):
-            with patch.object(daemon, "_s3_upload", new_callable=AsyncMock):
-                result = await daemon._push_games()
-
-        assert len(result.uploaded_files) == 0
-
-    @pytest.mark.asyncio
-    async def test_push_games_uploads_large_files(self, daemon):
-        """Test push_games uploads files over 10KB."""
-        # Create large database file
-        large_db = daemon.config.games_dir / "large.db"
-        large_db.write_bytes(b"x" * 15000)  # 15KB
-
-        with patch.object(
-            daemon, "_should_upload", new_callable=AsyncMock, return_value=True
-        ):
-            with patch.object(
-                daemon, "_s3_upload", new_callable=AsyncMock, return_value=True
-            ):
-                result = await daemon._push_games()
-
-        assert len(result.uploaded_files) == 1
-        assert "large.db" in result.uploaded_files
-
-    @pytest.mark.asyncio
-    async def test_push_games_handles_error(self, daemon):
-        """Test push_games handles upload error."""
-        # Create large database file
-        large_db = daemon.config.games_dir / "error.db"
-        large_db.write_bytes(b"x" * 15000)
-
-        with patch.object(
-            daemon, "_should_upload", new_callable=AsyncMock, return_value=True
-        ):
-            with patch.object(
-                daemon, "_s3_upload", new_callable=AsyncMock, side_effect=OSError("S3 error")
-            ):
-                result = await daemon._push_games()
-
-        assert len(result.errors) == 1
-        assert "error.db" in result.errors[0]
-
-    @pytest.mark.asyncio
-    async def test_push_models_empty_directory(self, daemon):
-        """Test push_models with empty directory."""
-        result = await daemon._push_models()
-        assert result.success is True
-        assert len(result.uploaded_files) == 0
-
-    @pytest.mark.asyncio
-    async def test_push_models_only_canonical(self, daemon):
-        """Test push_models only uploads canonical_ prefixed models."""
-        # Create canonical and non-canonical model files
-        canonical = daemon.config.models_dir / "canonical_hex8_2p.pth"
-        canonical.write_bytes(b"x" * 1000)
-
-        regular = daemon.config.models_dir / "my_model.pth"
-        regular.write_bytes(b"x" * 1000)
-
-        with patch.object(
-            daemon, "_should_upload", new_callable=AsyncMock, return_value=True
-        ):
-            with patch.object(
-                daemon, "_s3_upload", new_callable=AsyncMock, return_value=True
-            ):
-                result = await daemon._push_models()
-
-        assert len(result.uploaded_files) == 1
-        assert "canonical_hex8_2p.pth" in result.uploaded_files
-
-    @pytest.mark.asyncio
-    async def test_push_models_skips_symlinks(self, daemon):
-        """Test push_models skips symlinks."""
-        # Create real file and symlink
-        real = daemon.config.models_dir / "canonical_real.pth"
-        real.write_bytes(b"x" * 1000)
-
-        symlink = daemon.config.models_dir / "canonical_link.pth"
-        symlink.symlink_to(real)
-
-        with patch.object(
-            daemon, "_should_upload", new_callable=AsyncMock, return_value=True
-        ):
-            with patch.object(
-                daemon, "_s3_upload", new_callable=AsyncMock, return_value=True
-            ):
-                result = await daemon._push_models()
-
-        # Only real file should be uploaded, not the symlink
-        assert len(result.uploaded_files) == 1
-        assert "canonical_real.pth" in result.uploaded_files
-
-    @pytest.mark.asyncio
-    async def test_push_npz_empty_directory(self, daemon):
-        """Test push_npz with empty directory."""
-        result = await daemon._push_npz()
-        assert result.success is True
-        assert len(result.uploaded_files) == 0
-
-    @pytest.mark.asyncio
-    async def test_push_npz_uploads_files(self, daemon):
-        """Test push_npz uploads NPZ files."""
-        npz_file = daemon.config.npz_dir / "hex8_2p.npz"
-        npz_file.write_bytes(b"x" * 1000)
-
-        with patch.object(
-            daemon, "_should_upload", new_callable=AsyncMock, return_value=True
-        ):
-            with patch.object(
-                daemon, "_s3_upload", new_callable=AsyncMock, return_value=True
-            ):
-                result = await daemon._push_npz()
-
-        assert len(result.uploaded_files) == 1
-        assert "hex8_2p.npz" in result.uploaded_files
-
-
-# =============================================================================
-# Pull Method Tests (pull_training_data, pull_model)
-# =============================================================================
-
-
-class TestPullMethods:
-    """Test pull methods (pull_training_data, pull_model)."""
-
-    @pytest.fixture
-    def daemon(self, config, tmp_path):
-        """Create test daemon with temp directories."""
-        config.npz_dir = tmp_path / "training"
-        config.models_dir = tmp_path / "models"
-        config.npz_dir.mkdir(parents=True)
-        config.models_dir.mkdir(parents=True)
-
-        with patch(
-            "app.coordination.s3_node_sync_daemon.get_node_id", return_value="test-node"
-        ):
-            return S3NodeSyncDaemon(config)
-
-    @pytest.mark.asyncio
-    async def test_pull_training_data_success(self, daemon):
-        """Test successful training data pull."""
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=True
-        ):
-            # Create the downloaded file to simulate successful download
-            npz_path = daemon.config.npz_dir / "hex8_2p.npz"
-            npz_path.write_bytes(b"x" * 1000)
-
-            result = await daemon.pull_training_data("hex8_2p")
-
-        assert result.success is True
-        assert len(result.downloaded_files) == 1
-        assert "hex8_2p.npz" in result.downloaded_files[0]
-
-    @pytest.mark.asyncio
-    async def test_pull_training_data_not_found(self, daemon):
-        """Test training data pull when not in S3."""
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=False
-        ):
-            result = await daemon.pull_training_data("nonexistent_config")
-
-        assert len(result.downloaded_files) == 0
-
-    @pytest.mark.asyncio
-    async def test_pull_training_data_error(self, daemon):
-        """Test training data pull with error."""
-        with patch.object(
-            daemon,
-            "_s3_download",
-            new_callable=AsyncMock,
-            side_effect=asyncio.TimeoutError("Connection timeout"),
-        ):
-            result = await daemon.pull_training_data("hex8_2p")
-
-        assert len(result.errors) == 1
-
-    @pytest.mark.asyncio
-    async def test_pull_model_success(self, daemon):
-        """Test successful model pull."""
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=True
-        ):
-            # Create the downloaded file
-            model_path = daemon.config.models_dir / "canonical_hex8_2p.pth"
-            model_path.write_bytes(b"x" * 1000)
-
-            result = await daemon.pull_model("canonical_hex8_2p.pth")
-
-        assert result.success is True
-        assert len(result.downloaded_files) == 1
-
-    @pytest.mark.asyncio
-    async def test_pull_model_not_found(self, daemon):
-        """Test model pull when not in S3."""
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=False
-        ):
-            result = await daemon.pull_model("nonexistent.pth")
-
-        assert len(result.downloaded_files) == 0
-
-    @pytest.mark.asyncio
-    async def test_pull_updates_stats(self, daemon):
-        """Test that pull updates statistics."""
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=True
-        ):
-            # Create the downloaded file
-            npz_path = daemon.config.npz_dir / "hex8_2p.npz"
-            npz_path.write_bytes(b"x" * 5000)
-
-            initial_pull_count = daemon._pull_count
-            await daemon.pull_training_data("hex8_2p")
-
-        assert daemon._pull_count == initial_pull_count + 1
-
-
-# =============================================================================
-# Manifest Method Tests
-# =============================================================================
-
-
-class TestManifestMethods:
-    """Test manifest methods (_build_local_manifest, list_all_node_data, etc.)."""
-
-    @pytest.fixture
-    def daemon(self, config, tmp_path):
-        """Create test daemon with temp directories."""
-        config.games_dir = tmp_path / "games"
-        config.models_dir = tmp_path / "models"
-        config.npz_dir = tmp_path / "training"
-
-        config.games_dir.mkdir(parents=True)
-        config.models_dir.mkdir(parents=True)
-        config.npz_dir.mkdir(parents=True)
-
-        with patch(
-            "app.coordination.s3_node_sync_daemon.get_node_id", return_value="test-node"
-        ):
-            return S3NodeSyncDaemon(config)
-
-    @pytest.mark.asyncio
-    async def test_build_local_manifest_empty(self, daemon):
-        """Test building manifest with empty directories."""
-        manifest = await daemon._build_local_manifest()
-
-        assert manifest.node_id == "test-node"
-        assert manifest.timestamp > 0
-        assert len(manifest.files) == 0
-
-    @pytest.mark.asyncio
-    async def test_build_local_manifest_with_files(self, daemon):
-        """Test building manifest with files."""
-        # Create some files
-        db_file = daemon.config.games_dir / "selfplay.db"
-        db_file.write_bytes(b"database content")
-
-        model_file = daemon.config.models_dir / "canonical_hex8_2p.pth"
-        model_file.write_bytes(b"model content")
-
-        manifest = await daemon._build_local_manifest()
-
-        assert len(manifest.files) == 2
-
-    @pytest.mark.asyncio
-    async def test_upload_manifest(self, daemon):
-        """Test manifest upload."""
-        manifest = FileManifest(
-            node_id="test-node",
-            timestamp=time.time(),
-            files={"test.db": {"size": 100, "type": "database"}},
-        )
-
-        with patch.object(
-            daemon, "_s3_upload", new_callable=AsyncMock, return_value=True
-        ):
-            await daemon._upload_manifest(manifest)
-
-    @pytest.mark.asyncio
-    async def test_list_all_node_data_empty(self, daemon):
-        """Test listing node data when S3 is empty."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 1  # Empty or error
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             manifests = await daemon.list_all_node_data()
 
         assert manifests == {}
-
-    @pytest.mark.asyncio
-    async def test_list_all_node_data_with_nodes(self, daemon):
-        """Test listing node data with multiple nodes."""
-        # Mock S3 ls response
-        ls_output = b"PRE node1/\nPRE node2/\n"
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(ls_output, b""))
-        mock_process.returncode = 0
-
-        # Mock getting individual manifests
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            with patch.object(
-                daemon,
-                "_get_node_manifest",
-                new_callable=AsyncMock,
-                return_value=FileManifest(
-                    node_id="node1", timestamp=time.time(), files={}
-                ),
-            ):
-                manifests = await daemon.list_all_node_data()
-
-        # Should have attempted to get manifests for both nodes
-        assert len(manifests) >= 0  # Depends on mock setup
-
-    @pytest.mark.asyncio
-    async def test_get_node_manifest_success(self, daemon):
-        """Test getting a specific node's manifest."""
-        manifest_json = {
-            "node_id": "node1",
-            "timestamp": time.time(),
-            "files": {"test.db": {"size": 100}},
-        }
-
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=True
-        ):
-            with patch("builtins.open", MagicMock()):
-                with patch("json.load", return_value=manifest_json):
-                    with patch("os.path.exists", return_value=True):
-                        with patch("os.unlink"):
-                            manifest = await daemon._get_node_manifest("node1")
-
-        if manifest:  # May be None if file operations fail
-            assert manifest.node_id == "node1"
-
-    @pytest.mark.asyncio
-    async def test_get_node_manifest_not_found(self, daemon):
-        """Test getting manifest when not in S3."""
-        with patch.object(
-            daemon, "_s3_download", new_callable=AsyncMock, return_value=False
-        ):
-            manifest = await daemon._get_node_manifest("nonexistent")
-
-        assert manifest is None
-
-
-# =============================================================================
-# Convenience Function Tests
-# =============================================================================
-
-
-class TestConvenienceFunctions:
-    """Test convenience functions."""
-
-    @pytest.mark.asyncio
-    async def test_ensure_training_data_from_s3_exists_locally(self, tmp_path):
-        """Test ensure_training_data when file exists locally."""
-        from app.coordination.s3_node_sync_daemon import ensure_training_data_from_s3
-
-        # Create local file
-        npz_dir = tmp_path / "training"
-        npz_dir.mkdir()
-        local_file = npz_dir / "hex8_2p.npz"
-        local_file.write_bytes(b"training data")
-
-        with patch(
-            "app.coordination.s3_node_sync_daemon.S3NodeSyncConfig"
-        ) as mock_config_class:
-            mock_config = MagicMock()
-            mock_config.npz_dir = npz_dir
-            mock_config_class.return_value = mock_config
-
-            result = await ensure_training_data_from_s3("hex8_2p")
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_ensure_training_data_from_s3_needs_download(self, tmp_path):
-        """Test ensure_training_data when file needs download."""
-        from app.coordination.s3_node_sync_daemon import ensure_training_data_from_s3
-
-        npz_dir = tmp_path / "training"
-        npz_dir.mkdir()
-
-        with patch(
-            "app.coordination.s3_node_sync_daemon.S3NodeSyncConfig"
-        ) as mock_config_class:
-            mock_config = MagicMock()
-            mock_config.npz_dir = npz_dir
-            mock_config_class.return_value = mock_config
-
-            with patch(
-                "app.coordination.s3_node_sync_daemon.S3NodeSyncDaemon"
-            ) as mock_daemon_class:
-                mock_daemon = AsyncMock()
-                mock_daemon.pull_training_data = AsyncMock(
-                    return_value=SyncResult(
-                        success=True, downloaded_files=["hex8_2p.npz"]
-                    )
-                )
-                mock_daemon_class.return_value = mock_daemon
-
-                result = await ensure_training_data_from_s3("hex8_2p")
-
-        assert result is True
-
-    def test_sync_ensure_training_data_wrapper(self):
-        """Test synchronous wrapper exists and is callable."""
-        from app.coordination.s3_node_sync_daemon import sync_ensure_training_data_from_s3
-
-        # Just verify it exists and is callable
-        assert callable(sync_ensure_training_data_from_s3)
-
-
-# =============================================================================
-# Consolidation Method Tests
-# =============================================================================
-
-
-class TestConsolidationMethods:
-    """Test consolidation methods (_consolidate_models, _consolidate_npz)."""
-
-    @pytest.fixture
-    def consolidation_daemon(self, config):
-        """Create a test consolidation daemon."""
-        from app.coordination.s3_node_sync_daemon import S3ConsolidationDaemon
-
-        return S3ConsolidationDaemon(config)
-
-    @pytest.mark.asyncio
-    async def test_consolidate_models_finds_latest(self, consolidation_daemon):
-        """Test that consolidate_models picks the latest version of each model."""
-        manifests = {
-            "node1": FileManifest(
-                node_id="node1",
-                timestamp=time.time(),
-                files={
-                    "models/canonical_hex8_2p.pth": {
-                        "type": "model",
-                        "mtime": 1000.0,
-                    }
-                },
-            ),
-            "node2": FileManifest(
-                node_id="node2",
-                timestamp=time.time(),
-                files={
-                    "models/canonical_hex8_2p.pth": {
-                        "type": "model",
-                        "mtime": 2000.0,  # Newer
-                    }
-                },
-            ),
-        }
-
-        with patch.object(
-            consolidation_daemon, "_s3_copy", new_callable=AsyncMock, return_value=True
-        ) as mock_copy:
-            await consolidation_daemon._consolidate_models(manifests)
-
-        # Should copy from node2 (newer mtime)
-        mock_copy.assert_called_once()
-        call_args = mock_copy.call_args[0]
-        assert "node2" in call_args[0]
-
-    @pytest.mark.asyncio
-    async def test_consolidate_npz_finds_latest(self, consolidation_daemon):
-        """Test that consolidate_npz picks the latest version of each config."""
-        manifests = {
-            "node1": FileManifest(
-                node_id="node1",
-                timestamp=time.time(),
-                files={
-                    "training/hex8_2p.npz": {
-                        "type": "npz",
-                        "mtime": 3000.0,  # Newer
-                    }
-                },
-            ),
-            "node2": FileManifest(
-                node_id="node2",
-                timestamp=time.time(),
-                files={
-                    "training/hex8_2p.npz": {
-                        "type": "npz",
-                        "mtime": 1000.0,
-                    }
-                },
-            ),
-        }
-
-        with patch.object(
-            consolidation_daemon, "_s3_copy", new_callable=AsyncMock, return_value=True
-        ) as mock_copy:
-            await consolidation_daemon._consolidate_npz(manifests)
-
-        # Should copy from node1 (newer mtime)
-        mock_copy.assert_called_once()
-        call_args = mock_copy.call_args[0]
-        assert "node1" in call_args[0]
-
-    @pytest.mark.asyncio
-    async def test_create_consolidated_manifest(self, consolidation_daemon):
-        """Test creating consolidated manifest."""
-        manifests = {
-            "node1": FileManifest(
-                node_id="node1",
-                timestamp=time.time(),
-                files={
-                    "games/selfplay.db": {"type": "database"},
-                    "models/canonical.pth": {"type": "model"},
-                },
-            ),
-            "node2": FileManifest(
-                node_id="node2",
-                timestamp=time.time(),
-                files={
-                    "training/hex8_2p.npz": {"type": "npz"},
-                },
-            ),
-        }
-
-        with patch.object(
-            consolidation_daemon, "_s3_upload", new_callable=AsyncMock, return_value=True
-        ) as mock_upload:
-            await consolidation_daemon._create_consolidated_manifest(manifests)
-
-        mock_upload.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_s3_copy_success(self, consolidation_daemon):
-        """Test successful S3 copy."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b""))
-        mock_process.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await consolidation_daemon._s3_copy("src/file.db", "dst/file.db")
-
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_s3_copy_failure(self, consolidation_daemon):
-        """Test failed S3 copy."""
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"Access Denied"))
-        mock_process.returncode = 1
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            result = await consolidation_daemon._s3_copy("src/file.db", "dst/file.db")
-
-        assert result is False

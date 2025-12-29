@@ -701,18 +701,16 @@ class ConsensusMixin(P2PMixinBase):
         """Return health status for consensus mixin (DaemonManager integration).
 
         December 2025: Added for unified health check interface.
-        Wraps consensus_health_check() with standard format.
+        Uses base class helper for standardized response format.
 
         Returns:
             dict with healthy status, message, and details
         """
         status = self.consensus_health_check()
         is_healthy = status.get("is_healthy", False)
-        return {
-            "healthy": is_healthy,
-            "message": "Consensus healthy" if is_healthy else f"Consensus unhealthy: {status.get('raft_init_error', 'unknown')}",
-            "details": status,
-        }
+        error = status.get("raft_init_error", "unknown")
+        message = "Consensus healthy" if is_healthy else f"Consensus unhealthy: {error}"
+        return self._build_health_response(is_healthy, message, status)
 
 
 # Export public API

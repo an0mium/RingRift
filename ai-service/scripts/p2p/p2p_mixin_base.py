@@ -577,6 +577,101 @@ class P2PMixinBase:
         """
         return (self._get_timestamp() - timestamp) > ttl_seconds
 
+    # =========================================================================
+    # Health Check Helpers (December 28, 2025)
+    # =========================================================================
+
+    def _build_health_response(
+        self,
+        is_healthy: bool,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build a standardized health check response.
+
+        Consolidates the duplicate health_check() pattern found across all mixins.
+        Each mixin implements a specific check (e.g., election_health_check()),
+        then wraps it with the standard format using this helper.
+
+        Args:
+            is_healthy: Whether the mixin/component is healthy
+            message: Human-readable health message
+            details: Additional details dict (e.g., from specific_health_check())
+
+        Returns:
+            Standardized health response dict with:
+            - healthy: bool
+            - message: str
+            - details: dict (merged with mixin_type)
+
+        Example:
+            def health_check(self) -> dict[str, Any]:
+                status = self.election_health_check()
+                is_healthy = status.get("is_healthy", False)
+                role = status.get("role", "unknown")
+                return self._build_health_response(
+                    is_healthy=is_healthy,
+                    message=f"Election (role={role})" if is_healthy else "No quorum",
+                    details=status,
+                )
+        """
+        response = {
+            "healthy": is_healthy,
+            "message": message,
+            "details": {
+                "mixin_type": self.MIXIN_TYPE,
+                **(details or {}),
+            },
+        }
+        return response
+
+    def _health_check_from_status(
+        self,
+        status: dict[str, Any],
+        healthy_key: str = "is_healthy",
+        message_template_healthy: str = "{mixin_type} healthy",
+        message_template_unhealthy: str = "{mixin_type} unhealthy",
+    ) -> dict[str, Any]:
+        """Build health response from a status dict.
+
+        Convenience wrapper for _build_health_response() when the specific
+        health check returns a dict with an is_healthy key.
+
+        Args:
+            status: Status dict from specific health check (e.g., election_health_check())
+            healthy_key: Key in status dict indicating health (default: "is_healthy")
+            message_template_healthy: Format string for healthy message
+            message_template_unhealthy: Format string for unhealthy message
+
+        Returns:
+            Standardized health response dict
+
+        Example:
+            def health_check(self) -> dict[str, Any]:
+                status = self.peer_health_check()
+                return self._health_check_from_status(
+                    status,
+                    message_template_healthy="Peer manager ({active_peers} active)",
+                    message_template_unhealthy="No peers available",
+                )
+        """
+        is_healthy = status.get(healthy_key, False)
+
+        # Build message from template
+        template = message_template_healthy if is_healthy else message_template_unhealthy
+        try:
+            # Try to format with status keys and mixin_type
+            message = template.format(mixin_type=self.MIXIN_TYPE, **status)
+        except (KeyError, ValueError):
+            # Fallback to simple message
+            message = template.format(mixin_type=self.MIXIN_TYPE) if "{mixin_type}" in template else template
+
+        return self._build_health_response(
+            is_healthy=is_healthy,
+            message=message,
+            details=status,
+        )
+
 
 # =========================================================================
 # Event Subscription Retry Configuration (December 28, 2025)

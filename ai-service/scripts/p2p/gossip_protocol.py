@@ -982,7 +982,7 @@ class GossipProtocolMixin(P2PMixinBase):
         """Return health status for gossip protocol mixin (DaemonManager integration).
 
         December 2025: Added for unified health check interface.
-        Wraps _get_gossip_health_status() with standard format.
+        Uses base class helper for standardized response format.
 
         Returns:
             dict with healthy status, message, and details
@@ -990,11 +990,8 @@ class GossipProtocolMixin(P2PMixinBase):
         status = self._get_gossip_health_status()
         is_healthy = status.get("is_healthy", False)
         warnings = status.get("warnings", [])
-        return {
-            "healthy": is_healthy,
-            "message": "Gossip healthy" if is_healthy else f"Gossip issues: {', '.join(warnings)}",
-            "details": status,
-        }
+        message = "Gossip healthy" if is_healthy else f"Gossip issues: {', '.join(warnings)}"
+        return self._build_health_response(is_healthy, message, status)
 
 
 # Standalone utility function (from GossipMetricsMixin)

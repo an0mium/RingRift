@@ -88,7 +88,8 @@ from app.core.shutdown import (
     request_shutdown,
     shutdown_scope,
 )
-from app.core.singleton_mixin import (
+# Import from canonical location to avoid deprecation warning
+from app.coordination.singleton_mixin import (
     SingletonMeta,
     SingletonMixin,
     ThreadSafeSingletonMixin,

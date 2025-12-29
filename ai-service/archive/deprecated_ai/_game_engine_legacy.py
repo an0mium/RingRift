@@ -300,6 +300,24 @@ class GameEngine:
         # may need to synthesize bookkeeping moves (NO_PLACEMENT_ACTION, etc.) when
         # there are no interactive moves. Caching empty lists prevents proper
         # bookkeeping move synthesis and causes AI to return None incorrectly.
+
+        # ═══════════════════════════════════════════════════════════════════
+        # LONG-TERM FIX: Populate move.phase at creation time (Dec 2025)
+        # Per RR-CANON phase-move contract, each move must capture the phase
+        # in which it was generated. This ensures parity between TS and Python
+        # during replay and eliminates the need for phase coercion hacks.
+        # ═══════════════════════════════════════════════════════════════════
+        phase_str = phase.value if hasattr(phase, "value") else str(phase)
+        for move in moves:
+            if move.phase is None:
+                # Pydantic models are immutable by default, so we use object.__setattr__
+                # to bypass the frozen model restriction for this critical fix.
+                try:
+                    object.__setattr__(move, "phase", phase_str)
+                except (TypeError, AttributeError):
+                    # Fallback for non-Pydantic Move objects
+                    move.phase = phase_str
+
         if moves:
             cache_moves(game_state, player_number, moves)
         return moves
@@ -429,6 +447,14 @@ class GameEngine:
         move_number = len(game_state.move_history) + 1
         player = requirement.player
 
+        # ═══════════════════════════════════════════════════════════════════
+        # LONG-TERM FIX: Capture phase at move creation time (Dec 2025)
+        # Per RR-CANON phase-move contract, each move must record the phase
+        # in which it was generated. This ensures parity during replay.
+        # ═══════════════════════════════════════════════════════════════════
+        current_phase = game_state.current_phase
+        phase_str = current_phase.value if hasattr(current_phase, "value") else str(current_phase)
+
         if requirement.type == PhaseRequirementType.NO_PLACEMENT_ACTION_REQUIRED:
             return Move(
                 id=f"no-placement-action-{move_number}",
@@ -438,6 +464,7 @@ class GameEngine:
                 timestamp=datetime.now(),
                 thinkTime=0,
                 moveNumber=move_number,
+                phase=phase_str,
             )
 
         elif requirement.type == PhaseRequirementType.NO_MOVEMENT_ACTION_REQUIRED:
@@ -449,6 +476,7 @@ class GameEngine:
                 timestamp=datetime.now(),
                 thinkTime=0,
                 moveNumber=move_number,
+                phase=phase_str,
             )
 
         elif requirement.type == PhaseRequirementType.NO_LINE_ACTION_REQUIRED:
@@ -460,6 +488,7 @@ class GameEngine:
                 timestamp=datetime.now(),
                 thinkTime=0,
                 moveNumber=move_number,
+                phase=phase_str,
             )
 
         elif requirement.type == PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED:
@@ -471,6 +500,7 @@ class GameEngine:
                 timestamp=datetime.now(),
                 thinkTime=0,
                 moveNumber=move_number,
+                phase=phase_str,
             )
 
         elif requirement.type == PhaseRequirementType.FORCED_ELIMINATION_REQUIRED:
@@ -490,6 +520,7 @@ class GameEngine:
                 timestamp=datetime.now(),
                 thinkTime=0,
                 moveNumber=move_number,
+                phase=phase_str,
             )
 
         raise ValueError(f"Unknown requirement type: {requirement.type}")

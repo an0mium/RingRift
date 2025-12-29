@@ -333,7 +333,7 @@ class MembershipMixin(P2PMixinBase):
         """Return health status for membership mixin (DaemonManager integration).
 
         December 2025: Added for unified health check interface.
-        Wraps membership_health_check() with standard format.
+        Uses base class helper for standardized response format.
 
         Returns:
             dict with healthy status, message, and details
@@ -341,9 +341,5 @@ class MembershipMixin(P2PMixinBase):
         status = self.membership_health_check()
         is_healthy = status.get("is_healthy", False)
         mode = status.get("membership_mode", "unknown")
-        peers = status.get("peer_count", 0)
-        return {
-            "healthy": is_healthy,
-            "message": f"Membership healthy ({mode}, {peers} peers)" if is_healthy else f"Membership unhealthy ({mode})",
-            "details": status,
-        }
+        message = f"Membership ({mode})" if is_healthy else f"Membership unhealthy ({mode})"
+        return self._build_health_response(is_healthy, message, status)

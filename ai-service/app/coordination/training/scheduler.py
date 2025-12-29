@@ -21,7 +21,8 @@ import warnings
 warnings.warn(
     "app.coordination.training.scheduler is deprecated. "
     "Import directly from app.coordination.job_scheduler, "
-    "app.coordination.duration_scheduler, or app.coordination.unified_scheduler instead.",
+    "app.coordination.duration_scheduler, or app.coordination.unified_scheduler instead. "
+    "This module will be removed in Q2 2026.",
     DeprecationWarning,
     stacklevel=2,
 )

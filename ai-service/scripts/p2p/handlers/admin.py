@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -167,3 +168,246 @@ class AdminHandlersMixin(BaseP2PHandler):
             })
         except Exception as e:
             return self.error_response(str(e), status=500)
+
+    # =========================================================================
+    # Peer Administration (Phase 8 - Dec 28, 2025)
+    # =========================================================================
+
+    async def handle_purge_retired_peers(self, request: web.Request) -> web.Response:
+        """Purge retired peers from the cluster registry.
+
+        Removes peers that have been marked as retired (dead/terminated instances)
+        to clean up the peer list. This endpoint is unauthenticated for ease of
+        admin access; it only cleans up stale entries, not active nodes.
+        """
+        try:
+            # Import here to avoid circular imports
+            from scripts.p2p_orchestrator import AsyncLockWrapper
+
+            async with AsyncLockWrapper(self.peers_lock):
+                retired_peers = [
+                    node_id for node_id, info in self.peers.items()
+                    if getattr(info, "retired", False)
+                ]
+
+                if not retired_peers:
+                    return web.json_response({
+                        "success": True,
+                        "purged_count": 0,
+                        "message": "No retired peers to purge",
+                    })
+
+                for node_id in retired_peers:
+                    del self.peers[node_id]
+                    logger.info(f"Purged retired peer: {node_id}")
+
+                logger.info(f"Purged {len(retired_peers)} retired peers")
+
+            return web.json_response({
+                "success": True,
+                "purged_count": len(retired_peers),
+                "purged_peers": retired_peers,
+            })
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_purge_stale_peers(self, request: web.Request) -> web.Response:
+        """Purge stale peers based on heartbeat age.
+
+        This is more aggressive than purge_retired - it removes any peer
+        that hasn't sent a heartbeat in the specified threshold (default 1 hour).
+
+        Query params:
+            max_age: Maximum heartbeat age in seconds (default: 3600)
+            dry_run: If 1, just report what would be purged without deleting
+        """
+        try:
+            from scripts.p2p_orchestrator import AsyncLockWrapper
+
+            max_age = int(request.query.get("max_age", "3600"))
+            dry_run = request.query.get("dry_run", "0") == "1"
+            now = time.time()
+
+            stale_peers = []
+            async with AsyncLockWrapper(self.peers_lock):
+                for node_id, info in self.peers.items():
+                    if node_id == self.node_id:
+                        continue  # Don't purge self
+                    last_hb = getattr(info, "last_heartbeat", 0.0) or 0.0
+                    age = now - last_hb
+                    if age >= max_age:
+                        stale_peers.append({
+                            "node_id": node_id,
+                            "age_seconds": int(age),
+                            "last_heartbeat": last_hb,
+                            "role": str(getattr(info, "role", "unknown")),
+                            "nat_blocked": getattr(info, "nat_blocked", False),
+                        })
+
+            if not stale_peers:
+                return web.json_response({
+                    "success": True,
+                    "purged_count": 0,
+                    "message": f"No peers older than {max_age}s found",
+                })
+
+            purged_ids = []
+            if not dry_run:
+                async with AsyncLockWrapper(self.peers_lock):
+                    for peer in stale_peers:
+                        node_id = peer["node_id"]
+                        if node_id in self.peers:
+                            del self.peers[node_id]
+                            purged_ids.append(node_id)
+                            logger.info(f"Purged stale peer: {node_id} (no heartbeat for {peer['age_seconds']}s)")
+
+            return web.json_response({
+                "success": True,
+                "purged_count": len(purged_ids) if not dry_run else 0,
+                "would_purge_count": len(stale_peers),
+                "dry_run": dry_run,
+                "max_age_seconds": max_age,
+                "stale_peers": stale_peers,
+                "purged_peers": purged_ids,
+            })
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_admin_unretire(self, request: web.Request) -> web.Response:
+        """Unretire a specific peer node.
+
+        This endpoint allows external systems (like vast_p2p_sync.py) to
+        programmatically unretire nodes that are known to be active but were
+        marked as retired due to temporary connectivity issues.
+
+        Query params:
+            node_id: The node ID to unretire (required)
+
+        Returns:
+            JSON with success status and node info
+        """
+        try:
+            from scripts.p2p_orchestrator import AsyncLockWrapper
+
+            node_id = request.query.get("node_id", "").strip()
+            if not node_id:
+                return web.json_response({
+                    "error": "node_id parameter is required"
+                }, status=400)
+
+            async with AsyncLockWrapper(self.peers_lock):
+                if node_id not in self.peers:
+                    # List available nodes for debugging
+                    available = list(self.peers.keys())
+                    return web.json_response({
+                        "error": f"Node '{node_id}' not found in peer registry",
+                        "available_nodes": available[:20],  # Limit to first 20
+                        "total_nodes": len(available),
+                    }, status=404)
+
+                peer_info = self.peers[node_id]
+                was_retired = getattr(peer_info, "retired", False)
+
+                if not was_retired:
+                    return web.json_response({
+                        "success": True,
+                        "message": f"Node '{node_id}' was not retired",
+                        "already_active": True,
+                    })
+
+                # Unretire the node
+                peer_info.retired = False
+                peer_info.retired_at = 0.0
+
+                # Also reset failure counters to give it a fresh start
+                peer_info.consecutive_failures = 0
+                peer_info.last_failure_time = 0.0
+
+                logger.info(f"Unretired peer: {node_id} (admin request)")
+
+                # Emit HOST_ONLINE event so SelfplayScheduler/SyncRouter detect recovered node
+                capabilities = []
+                if getattr(peer_info, "has_gpu", False):
+                    gpu_type = getattr(peer_info, "gpu_type", "") or "gpu"
+                    capabilities.append(gpu_type)
+                else:
+                    capabilities.append("cpu")
+
+            # Emit event outside of lock
+            if hasattr(self, "_emit_host_online"):
+                await self._emit_host_online(node_id, capabilities)
+
+            return web.json_response({
+                "success": True,
+                "message": f"Node '{node_id}' has been unretired",
+                "node_id": node_id,
+                "host": getattr(peer_info, "host", ""),
+                "gpu_name": getattr(peer_info, "gpu_name", ""),
+            })
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_admin_reset_node_jobs(self, request: web.Request) -> web.Response:
+        """Reset job counts for a specific node (for zombie cleanup).
+
+        POST /admin/reset_node_jobs with JSON body:
+            {"node_id": "node-id-to-reset"}
+
+        Leader-only: Resets selfplay_jobs and training_jobs to 0 for a node.
+        Use when zombie processes have been killed and job counts are stale.
+
+        Returns:
+            JSON with success status and updated node info
+        """
+        try:
+            from scripts.p2p_orchestrator import AsyncLockWrapper, NodeRole
+
+            # Leader-only endpoint
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "error": "This endpoint is only available on the cluster leader"
+                }, status=403)
+
+            data = await request.json()
+            node_id = data.get("node_id", "").strip()
+            if not node_id:
+                return web.json_response({
+                    "error": "node_id is required in request body"
+                }, status=400)
+
+            async with AsyncLockWrapper(self.peers_lock):
+                if node_id not in self.peers:
+                    available = list(self.peers.keys())
+                    return web.json_response({
+                        "error": f"Node '{node_id}' not found in peer registry",
+                        "available_nodes": available[:20],
+                        "total_nodes": len(available),
+                    }, status=404)
+
+                peer_info = self.peers[node_id]
+
+                # Get old values for logging
+                old_selfplay = getattr(peer_info, "selfplay_jobs", 0)
+                old_training = getattr(peer_info, "training_jobs", 0)
+
+                # Reset job counts
+                peer_info.selfplay_jobs = 0
+                peer_info.training_jobs = 0
+
+                logger.info(
+                    f"Reset job counts for {node_id}: "
+                    f"selfplay {old_selfplay}->0, training {old_training}->0 (admin request)"
+                )
+
+            return web.json_response({
+                "success": True,
+                "node_id": node_id,
+                "message": f"Reset job counts for '{node_id}'",
+                "previous_selfplay_jobs": old_selfplay,
+                "previous_training_jobs": old_training,
+                "current_selfplay_jobs": 0,
+                "current_training_jobs": 0,
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error in handle_admin_reset_node_jobs: {e}")
+            return web.json_response({"error": str(e)}, status=500)

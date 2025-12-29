@@ -31,9 +31,38 @@ They remain functional for backward compatibility but will be removed in Q2 2026
 
 | Module                                   | Canonical Imports                                          | Notes             |
 | ---------------------------------------- | ---------------------------------------------------------- | ----------------- |
-| `app.coordination.training.scheduler`    | `job_scheduler`, `duration_scheduler`, `unified_scheduler` | ~60 LOC re-export |
-| `app.coordination.training.orchestrator` | `training_coordinator`, `selfplay_orchestrator`            | ~65 LOC re-export |
-| `app.coordination.cluster.sync`          | `sync_coordinator`, `sync_bandwidth`, `sync_mutex`         | ~65 LOC re-export |
+| `app.coordination.queue_populator`       | `unified_queue_populator`                                  | ~58 LOC re-export |
+| `app.coordination.training.scheduler`    | `job_scheduler`, `duration_scheduler`, `unified_scheduler` | ~74 LOC re-export |
+| `app.coordination.training.orchestrator` | `training_coordinator`, `selfplay_orchestrator`            | ~73 LOC re-export |
+| `app.coordination.cluster.sync`          | `sync_coordinator`, `sync_bandwidth`, `sync_mutex`         | ~74 LOC re-export |
+| `app.core.singleton_mixin`               | `app.coordination.singleton_mixin`                         | ~72 LOC re-export |
+
+### Deprecation Warning Format
+
+All deprecated modules emit a `DeprecationWarning` on import with:
+
+- What to use instead
+- When it will be removed (Q2 2026)
+
+Example warning:
+
+```
+DeprecationWarning: app.coordination.queue_populator is deprecated.
+Use app.coordination.unified_queue_populator instead.
+This module will be removed in Q2 2026.
+```
+
+### Removed Modules (No Longer Exist)
+
+The following modules have been fully removed and are now documented only in migration guides:
+
+| Removed Module                           | Replacement                                | Removal Date  |
+| ---------------------------------------- | ------------------------------------------ | ------------- |
+| `app.coordination.cluster_data_sync`     | `auto_sync_daemon.py`                      | December 2025 |
+| `app.coordination.ephemeral_sync`        | `auto_sync_daemon.py` (strategy=ephemeral) | December 2025 |
+| `app.coordination.system_health_monitor` | `unified_health_manager.py`                | December 2025 |
+
+See `archive/deprecated_coordination/README.md` for historical migration guides for fully removed modules.
 
 ### Migration Examples
 

@@ -19,7 +19,8 @@ import warnings
 
 warnings.warn(
     "app.coordination.queue_populator is deprecated. "
-    "Use app.coordination.unified_queue_populator instead.",
+    "Use app.coordination.unified_queue_populator instead. "
+    "This module will be removed in Q2 2026.",
     DeprecationWarning,
     stacklevel=2,
 )

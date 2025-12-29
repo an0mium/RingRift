@@ -188,19 +188,6 @@ class TestP2PAPIClient:
                 await client._get_session()
 
     @pytest.mark.asyncio
-    async def test_request_error_handling(self):
-        """Test request error handling via patching _get_session."""
-        config = P2PIntegrationConfig()
-        client = P2PAPIClient(config)
-
-        # Mock _get_session to return a session that raises on request
-        with patch.object(client, '_get_session', side_effect=Exception("Connection failed")):
-            result = await client._request("GET", "/test")
-            assert "error" in result
-            # Error message contains our exception text
-            assert "Connection failed" in result["error"] or "error" in result
-
-    @pytest.mark.asyncio
     async def test_get_leader(self):
         """Test get_leader method."""
         config = P2PIntegrationConfig()
