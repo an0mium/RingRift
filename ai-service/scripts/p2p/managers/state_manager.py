@@ -453,6 +453,146 @@ class StateManager:
 
         return state
 
+    def validate_loaded_state(
+        self,
+        state: PersistedState,
+        *,
+        stale_job_threshold_seconds: float = 86400.0,  # 24 hours
+        stale_peer_threshold_seconds: float = 300.0,  # 5 minutes
+    ) -> tuple[bool, list[str]]:
+        """Validate loaded state on startup, identifying stale entries.
+
+        P2P Hardening Phase 2 (Dec 2025): Prevent stale state from causing
+        issues after orchestrator restarts.
+
+        Checks:
+        - Jobs older than threshold (default 24h) → stale
+        - Peers with no heartbeat > threshold (default 5min) → stale
+        - Leader lease expiry (already handled by _invalidate_stale_lease)
+
+        Args:
+            state: The loaded PersistedState to validate
+            stale_job_threshold_seconds: Max age for jobs (default 24h)
+            stale_peer_threshold_seconds: Max time since last heartbeat (default 5min)
+
+        Returns:
+            Tuple of (is_valid, list_of_issues) where:
+            - is_valid: True if state has no critical issues
+            - list_of_issues: Human-readable descriptions of problems found
+        """
+        issues: list[str] = []
+        now = time.time()
+
+        # Check jobs for staleness
+        stale_jobs = []
+        for job in state.jobs:
+            started_at = job.get("started_at", 0)
+            if started_at and (now - started_at) > stale_job_threshold_seconds:
+                job_id = job.get("job_id", "unknown")
+                age_hours = (now - started_at) / 3600
+                stale_jobs.append(job_id)
+                issues.append(
+                    f"Stale job '{job_id}' running for {age_hours:.1f}h "
+                    f"(threshold: {stale_job_threshold_seconds / 3600:.0f}h)"
+                )
+
+        # Check peers for staleness (no recent heartbeat)
+        stale_peers = []
+        for node_id, peer_info in state.peers.items():
+            last_heartbeat = peer_info.get("last_heartbeat", 0)
+            last_seen = peer_info.get("last_seen", last_heartbeat)
+            # Use most recent of heartbeat or last_seen
+            last_contact = max(last_heartbeat, last_seen)
+
+            if last_contact and (now - last_contact) > stale_peer_threshold_seconds:
+                stale_peers.append(node_id)
+                age_min = (now - last_contact) / 60
+                issues.append(
+                    f"Stale peer '{node_id}' - no contact for {age_min:.1f}min "
+                    f"(threshold: {stale_peer_threshold_seconds / 60:.0f}min)"
+                )
+
+        # Check leader lease (informational - already handled by _invalidate_stale_lease)
+        if state.leader_state.leader_lease_expires:
+            if state.leader_state.leader_lease_expires < now:
+                remaining = now - state.leader_state.leader_lease_expires
+                issues.append(
+                    f"Leader lease expired {remaining:.0f}s ago "
+                    f"(will trigger re-election)"
+                )
+
+        # Log summary
+        if issues:
+            logger.warning(
+                f"[StateManager] Found {len(issues)} state issues on startup: "
+                f"{len(stale_jobs)} stale jobs, {len(stale_peers)} stale peers"
+            )
+            for issue in issues[:5]:  # Log first 5
+                logger.warning(f"[StateManager]   - {issue}")
+            if len(issues) > 5:
+                logger.warning(f"[StateManager]   ... and {len(issues) - 5} more issues")
+        else:
+            logger.info("[StateManager] State validation passed - no stale entries")
+
+        # State is valid (can proceed) even with stale entries - they'll be cleaned up
+        # Return False only for critical issues (none defined yet)
+        is_valid = True
+        return is_valid, issues
+
+    def clean_stale_state(
+        self,
+        state: PersistedState,
+        *,
+        stale_job_threshold_seconds: float = 86400.0,
+        stale_peer_threshold_seconds: float = 300.0,
+    ) -> tuple[int, int]:
+        """Remove stale jobs and peers from the loaded state.
+
+        Call this after validate_loaded_state() to clean up before using state.
+
+        Args:
+            state: The PersistedState to clean (modified in place)
+            stale_job_threshold_seconds: Max age for jobs
+            stale_peer_threshold_seconds: Max time since last heartbeat
+
+        Returns:
+            Tuple of (jobs_removed, peers_removed)
+        """
+        now = time.time()
+        jobs_removed = 0
+        peers_removed = 0
+
+        # Remove stale jobs
+        original_jobs = state.jobs
+        state.jobs = [
+            job for job in original_jobs
+            if not job.get("started_at")
+            or (now - job["started_at"]) <= stale_job_threshold_seconds
+        ]
+        jobs_removed = len(original_jobs) - len(state.jobs)
+
+        # Remove stale peers
+        peers_to_remove = []
+        for node_id, peer_info in state.peers.items():
+            last_heartbeat = peer_info.get("last_heartbeat", 0)
+            last_seen = peer_info.get("last_seen", last_heartbeat)
+            last_contact = max(last_heartbeat, last_seen)
+
+            if last_contact and (now - last_contact) > stale_peer_threshold_seconds:
+                peers_to_remove.append(node_id)
+
+        for node_id in peers_to_remove:
+            del state.peers[node_id]
+        peers_removed = len(peers_to_remove)
+
+        if jobs_removed or peers_removed:
+            logger.info(
+                f"[StateManager] Cleaned stale state: "
+                f"removed {jobs_removed} jobs, {peers_removed} peers"
+            )
+
+        return jobs_removed, peers_removed
+
     def save_state(
         self,
         node_id: str,

@@ -511,3 +511,178 @@ class TableHandlersMixin(BaseP2PHandler):
             return web.json_response(quality.get("issues", []))
         except Exception as e:  # noqa: BLE001
             return web.json_response([{"error": str(e)}])
+
+    # =========================================================================
+    # Nodes Table (Phase 8 - Dec 28, 2025)
+    # =========================================================================
+
+    async def handle_nodes_table(self, request: web.Request) -> web.Response:
+        """GET /nodes/table - Node status in flat table format for Grafana Infinity.
+
+        Returns current status of all cluster nodes in table format.
+        """
+        try:
+            # Import JobType dynamically to avoid circular imports
+            from scripts.p2p_orchestrator import JobType, NodeRole
+
+            nodes = []
+
+            # Add self
+            node_name = self.node_id or "unknown"
+            role = "Leader" if self.role == NodeRole.LEADER else "Worker"
+            cpu = getattr(self.self_info, 'cpu_percent', 0)
+            mem = getattr(self.self_info, 'memory_percent', 0)
+            gpu = getattr(self.self_info, 'gpu_percent', 0) if self.self_info.has_gpu else 0
+            gpu_mem = getattr(self.self_info, 'gpu_memory_percent', 0) if self.self_info.has_gpu else 0
+
+            with self.jobs_lock:
+                selfplay_jobs = len([j for j in self.local_jobs.values()
+                                    if j.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY, JobType.GUMBEL_SELFPLAY)
+                                    and j.status == "running"])
+
+            nodes.append({
+                "Node": node_name,
+                "Role": role,
+                "Status": "Online",
+                "CPU": round(cpu, 1),
+                "Memory": round(mem, 1),
+                "GPU": round(gpu, 1),
+                "GPUMem": round(gpu_mem, 1),
+                "Jobs": selfplay_jobs,
+                "HasGPU": "Yes" if self.self_info.has_gpu else "No",
+            })
+
+            # Add peers
+            with self.peers_lock:
+                for peer_id, peer in self.peers.items():
+                    peer_name = peer_id or "unknown"
+                    is_alive = peer.is_alive()
+                    status = "Online" if is_alive else "Offline"
+
+                    peer_cpu = getattr(peer, 'cpu_percent', 0) or 0
+                    peer_mem = getattr(peer, 'memory_percent', 0) or 0
+                    peer_gpu = getattr(peer, 'gpu_percent', 0) or 0
+                    peer_gpu_mem = getattr(peer, 'gpu_memory_percent', 0) or 0
+                    peer_jobs = getattr(peer, 'selfplay_jobs', 0) or 0
+                    has_gpu = getattr(peer, 'has_gpu', False)
+
+                    nodes.append({
+                        "Node": peer_name,
+                        "Role": "Worker",
+                        "Status": status,
+                        "CPU": round(peer_cpu, 1),
+                        "Memory": round(peer_mem, 1),
+                        "GPU": round(peer_gpu, 1),
+                        "GPUMem": round(peer_gpu_mem, 1),
+                        "Jobs": peer_jobs,
+                        "HasGPU": "Yes" if has_gpu else "No",
+                    })
+
+            # Sort by role (leader first) then by name
+            nodes.sort(key=lambda n: (0 if n["Role"] == "Leader" else 1, n["Node"]))
+
+            return web.json_response(nodes)
+
+        except Exception as e:  # noqa: BLE001
+            return web.json_response([{"error": str(e)}])
+
+    # =========================================================================
+    # Victory Table (Phase 8 - Dec 28, 2025)
+    # =========================================================================
+
+    async def handle_victory_table(self, request: web.Request) -> web.Response:
+        """GET /victory/table - Victory type breakdown for Grafana Infinity.
+
+        Returns victory type counts by board config in table format.
+        Supports optional query params:
+            - board_type: filter by board type
+            - num_players: filter by player count
+        """
+        from collections import defaultdict
+
+        try:
+            board_type_filter = request.query.get("board_type")
+            num_players_filter = request.query.get("num_players")
+            if num_players_filter:
+                try:
+                    num_players_filter = int(num_players_filter)
+                except ValueError:
+                    num_players_filter = None
+
+            stats = await self._get_victory_type_stats()
+
+            # Group by config for table display
+            config_stats: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            for (board_type, num_players, victory_type), count in stats.items():
+                # Apply filters
+                if board_type_filter and board_type != board_type_filter:
+                    continue
+                if num_players_filter and num_players != num_players_filter:
+                    continue
+                config = f"{board_type}_{num_players}p"
+                config_stats[config][victory_type] = count
+
+            # Build table rows
+            table_data = []
+            for config in sorted(config_stats.keys()):
+                vt_counts = config_stats[config]
+                total = sum(vt_counts.values())
+                row = {
+                    "Config": config,
+                    "Total": total,
+                    "Territory": vt_counts.get("territory", 0),
+                    "LPS": vt_counts.get("lps", 0),
+                    "Elimination": vt_counts.get("elimination", 0),
+                    "RingElim": vt_counts.get("ring_elimination", 0),
+                    "Stalemate": vt_counts.get("stalemate", 0),
+                }
+                # Add percentages
+                if total > 0:
+                    row["Territory%"] = round(100 * vt_counts.get("territory", 0) / total, 1)
+                    row["LPS%"] = round(100 * vt_counts.get("lps", 0) / total, 1)
+                    row["Elimination%"] = round(100 * vt_counts.get("elimination", 0) / total, 1)
+                    row["RingElim%"] = round(100 * vt_counts.get("ring_elimination", 0) / total, 1)
+                    row["Stalemate%"] = round(100 * vt_counts.get("stalemate", 0) / total, 1)
+                else:
+                    row["Territory%"] = row["LPS%"] = row["Elimination%"] = row["RingElim%"] = row["Stalemate%"] = 0
+                table_data.append(row)
+
+            return web.json_response(table_data)
+
+        except Exception as e:  # noqa: BLE001
+            return web.json_response([{"error": str(e)}])
+
+    # =========================================================================
+    # Trends Table (Phase 8 - Dec 28, 2025)
+    # =========================================================================
+
+    async def handle_trends_table(self, request: web.Request) -> web.Response:
+        """GET /trends/table - Historical trends in table format for Grafana Infinity.
+
+        Query params:
+            metric: Metric type (required)
+            hours: Time period (default: 168 = 7 days)
+        """
+        try:
+            metric_type = request.query.get("metric")
+            if not metric_type:
+                return web.json_response([{"error": "Missing metric parameter"}])
+
+            hours = float(request.query.get("hours", "168"))
+            history = self.get_metrics_history(metric_type=metric_type, hours=hours, limit=500)
+
+            table_data = []
+            for record in history:
+                from datetime import datetime
+                ts = datetime.fromtimestamp(record["timestamp"]).strftime("%Y-%m-%d %H:%M")
+                config = f"{record.get('board_type', '')}_{record.get('num_players', '')}p" if record.get('board_type') else "global"
+                table_data.append({
+                    "Timestamp": ts,
+                    "Config": config,
+                    "Value": round(record["value"], 3),
+                    "Metric": metric_type,
+                })
+
+            return web.json_response(table_data)
+        except Exception as e:  # noqa: BLE001
+            return web.json_response([{"error": str(e)}])

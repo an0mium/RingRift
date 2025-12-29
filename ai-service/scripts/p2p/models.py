@@ -167,6 +167,54 @@ class NodeInfo:
         """Check if this node is CPU-only (no accelerator)."""
         return not self.has_gpu
 
+    def has_cuda_gpu(self) -> bool:
+        """Check if this node has a CUDA-capable GPU.
+
+        This is the authoritative method for determining if a node can run
+        GPU-required engine modes (gumbel-mcts, mcts, nnue-guided, etc.).
+
+        Returns:
+            True if node has CUDA GPU, False for CPU-only or MPS-only nodes.
+        """
+        return self.is_gpu_node()
+
+    def can_run_engine_mode(self, mode: str) -> bool:
+        """Check if this node can run the given engine mode.
+
+        Uses the GPU requirement metadata from selfplay_config to determine
+        if the engine mode requires GPU and if this node has GPU capability.
+
+        Args:
+            mode: Engine mode string (e.g., "gumbel-mcts", "heuristic-only")
+
+        Returns:
+            True if this node can run the engine mode
+
+        Example:
+            >>> node = NodeInfo(node_id="hetzner-cpu1", has_gpu=False)
+            >>> node.can_run_engine_mode("heuristic-only")
+            True
+            >>> node.can_run_engine_mode("gumbel-mcts")
+            False
+
+            >>> node = NodeInfo(node_id="lambda-gh200-1", has_gpu=True, gpu_name="GH200")
+            >>> node.can_run_engine_mode("gumbel-mcts")
+            True
+        """
+        try:
+            from app.training.selfplay_config import engine_mode_requires_gpu
+            if engine_mode_requires_gpu(mode):
+                return self.has_cuda_gpu()
+            return True  # CPU-compatible modes run anywhere
+        except ImportError:
+            # If selfplay_config not available, be conservative
+            # Assume GPU modes need GPU
+            gpu_modes = {"gumbel-mcts", "mcts", "nnue-guided", "policy-only",
+                         "nn-minimax", "nn-descent", "gnn", "hybrid"}
+            if mode.lower() in gpu_modes:
+                return self.has_cuda_gpu()
+            return True
+
     def has_external_work(self) -> bool:
         """Check if any external (untracked) work is running."""
         return (self.cmaes_running or self.gauntlet_running or

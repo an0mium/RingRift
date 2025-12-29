@@ -1485,12 +1485,84 @@ class HeuristicSelfplayRunner(SelfplayRunner):
 
 
 class GumbelMCTSSelfplayRunner(SelfplayRunner):
-    """Selfplay using Gumbel MCTS (high quality, slower)."""
+    """Selfplay using Gumbel MCTS (high quality, slower).
+
+    IMPORTANT: This runner requires GPU (CUDA or MPS) for neural network inference.
+    It will raise RuntimeError if dispatched to a CPU-only node.
+
+    For CPU-only nodes, use HeuristicSelfplayRunner instead.
+    """
 
     def __init__(self, config: SelfplayConfig):
         config.engine_mode = EngineMode.GUMBEL_MCTS
         super().__init__(config)
         self._mcts_instances: dict = {}  # MCTS instance per player
+        # Cache the device after validation
+        self._device: str | None = None
+
+    def _get_device(self) -> str:
+        """Get the appropriate device for neural network inference.
+
+        Priority:
+        1. Config-specified device (if valid)
+        2. CUDA if available
+        3. MPS if available (Apple Silicon)
+        4. Raise RuntimeError (GPU required for Gumbel MCTS)
+
+        This ensures Gumbel MCTS only runs on GPU-capable nodes.
+        CPU-only nodes should use HeuristicSelfplayRunner instead.
+
+        Returns:
+            Device string ("cuda", "cuda:N", or "mps")
+
+        Raises:
+            RuntimeError: If no GPU is available
+        """
+        if self._device is not None:
+            return self._device
+
+        import torch
+
+        # Check if config specifies a device
+        if self.config.device:
+            # Validate the specified device
+            if self.config.device.startswith("cuda"):
+                if torch.cuda.is_available():
+                    self._device = self.config.device
+                    return self._device
+                else:
+                    logger.warning(
+                        f"Config specifies {self.config.device} but CUDA not available"
+                    )
+            elif self.config.device == "mps":
+                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    self._device = "mps"
+                    return self._device
+                else:
+                    logger.warning("Config specifies mps but MPS not available")
+            elif self.config.device == "cpu":
+                raise RuntimeError(
+                    "GumbelMCTSSelfplayRunner requires GPU but config specifies 'cpu'. "
+                    "Use HeuristicSelfplayRunner for CPU-only nodes."
+                )
+
+        # Auto-detect device
+        if torch.cuda.is_available():
+            self._device = f"cuda:{self.config.gpu_device}" if self.config.gpu_device else "cuda"
+            logger.info(f"[GumbelMCTS] Using CUDA device: {self._device}")
+            return self._device
+
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self._device = "mps"
+            logger.info("[GumbelMCTS] Using MPS device (Apple Silicon)")
+            return self._device
+
+        # No GPU available - this is a dispatch error
+        raise RuntimeError(
+            "GumbelMCTSSelfplayRunner requires GPU (CUDA or MPS) but none available. "
+            "This node should not have been assigned a GPU-required engine mode. "
+            "Use HeuristicSelfplayRunner for CPU-only selfplay."
+        )
 
     def setup(self) -> None:
         super().setup()
@@ -1540,20 +1612,21 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                 # opponent_strength > 1.0 = stronger opponent (more search)
                 player_budget = max(16, int(budget * opponent_strength))
 
+            device = self._get_device()  # Validated GPU device
             self._mcts_instances[p] = create_mcts(
                 board_type=board_type.value,
                 num_players=self.config.num_players,
                 player_number=p,  # Critical: pass correct player_number
                 mode="standard",
                 simulation_budget=player_budget,
-                device=self.config.device or "cuda",
+                device=device,
                 # December 2025: Pass loaded neural network for GPU batch evaluation
                 # Previously neural_net was None, disabling GPU acceleration
                 neural_net=getattr(self, '_neural_net', None),
             )
             # Enable GPU tree search for 10-20x speedup (December 2025)
             # This accelerates the sequential halving loop using GPU tensor operations
-            if (self.config.device or "cuda") == "cuda":
+            if device.startswith("cuda"):
                 self._mcts_instances[p]._use_gpu_tree = True
 
         # Log if opponent strength differs from default
@@ -1596,7 +1669,7 @@ class GumbelMCTSSelfplayRunner(SelfplayRunner):
                     player_number=p,
                     mode="standard",
                     simulation_budget=player_budget,
-                    device=self.config.device or "cuda",
+                    device=self._get_device(),
                     # December 2025: Pass loaded neural network for GPU batch evaluation
                     neural_net=getattr(self, '_neural_net', None),
                 )
