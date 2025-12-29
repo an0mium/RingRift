@@ -558,6 +558,71 @@ class CoordinationFacade:
                 logger.debug(f"Could not load event router: {e}")
         return self._event_router
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the coordination facade and underlying components.
+
+        Returns HealthCheckResult with:
+        - Status of each underlying coordinator
+        - Cluster health summary
+        - Event router status
+
+        December 2025: Added for DaemonManager integration.
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        components = {}
+        all_healthy = True
+
+        # Check task coordinator
+        tc = self._get_task_coordinator()
+        if tc is not None:
+            components["task_coordinator"] = "available"
+        else:
+            components["task_coordinator"] = "unavailable"
+            all_healthy = False
+
+        # Check training coordinator
+        trc = self._get_training_coordinator()
+        if trc is not None:
+            components["training_coordinator"] = "available"
+        else:
+            components["training_coordinator"] = "unavailable"
+
+        # Check node monitor
+        nm = self._get_node_monitor()
+        if nm is not None:
+            components["node_monitor"] = "available"
+        else:
+            components["node_monitor"] = "unavailable"
+
+        # Check event router
+        er = self._get_event_router()
+        if er is not None:
+            components["event_router"] = "available"
+        else:
+            components["event_router"] = "unavailable"
+            all_healthy = False
+
+        # Get cluster health if available
+        try:
+            cluster_health = self.get_cluster_health()
+            components["cluster"] = {
+                "total_nodes": cluster_health.total_nodes,
+                "healthy_nodes": cluster_health.healthy_nodes,
+                "available_nodes": len(cluster_health.available_node_ids),
+            }
+        except Exception as e:
+            components["cluster"] = {"error": str(e)}
+
+        message = "Coordination facade healthy" if all_healthy else "Some coordinators unavailable"
+
+        return HealthCheckResult(
+            healthy=all_healthy,
+            status=CoordinatorStatus.RUNNING if all_healthy else CoordinatorStatus.DEGRADED,
+            message=message,
+            details=components,
+        )
+
 
 # Global instance
 _facade: CoordinationFacade | None = None

@@ -290,6 +290,43 @@ class AsyncTrainingBridge:
         if callback in self._progress_callbacks:
             self._progress_callbacks.remove(callback)
 
+    async def health_check(self) -> "HealthCheckResult":
+        """Check health of the async training bridge.
+
+        Returns HealthCheckResult with:
+        - Coordinator connectivity status
+        - Active jobs count
+        - Event emission status
+
+        December 2025: Added for DaemonManager integration.
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        try:
+            # Check coordinator connectivity
+            status = await self.get_training_status()
+            active_jobs = await self.get_active_jobs()
+
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"Training bridge healthy (active_jobs={len(active_jobs)})",
+                details={
+                    "active_jobs": len(active_jobs),
+                    "emit_events": self._emit_events,
+                    "progress_callbacks": len(self._progress_callbacks),
+                    "coordinator_status": status,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Training bridge health check failed: {e}")
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Training bridge error: {e}",
+                details={"error": str(e)},
+            )
+
 
 # Global singleton
 _bridge: AsyncTrainingBridge | None = None

@@ -596,6 +596,84 @@ class DurationScheduler:
             self._local.conn.close()
             self._local.conn = None
 
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of the duration scheduler.
+
+        Returns HealthCheckResult with:
+        - Status of database connectivity
+        - Running task counts
+        - Scheduled task counts
+        - Duration statistics health
+
+        December 2025: Added for DaemonManager integration.
+        """
+        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+        try:
+            conn = self._get_connection()
+
+            # Check running tasks
+            cursor = conn.execute(
+                "SELECT COUNT(*) as cnt FROM running_tasks WHERE expected_end > ?",
+                (time.time(),)
+            )
+            running_count = cursor.fetchone()["cnt"]
+
+            # Check scheduled tasks
+            cursor = conn.execute(
+                "SELECT COUNT(*) as cnt FROM scheduled_tasks WHERE scheduled_start > ?",
+                (time.time(),)
+            )
+            scheduled_count = cursor.fetchone()["cnt"]
+
+            # Check history (last 24h)
+            cursor = conn.execute(
+                """SELECT COUNT(*) as cnt, SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as success_cnt
+                   FROM duration_history WHERE started_at > ?""",
+                (time.time() - 86400,)
+            )
+            row = cursor.fetchone()
+            history_count = row["cnt"]
+            success_count = row["success_cnt"] or 0
+            success_rate = success_count / history_count if history_count > 0 else 1.0
+
+            # Determine health status
+            is_healthy = True
+            message_parts = []
+
+            if success_rate < 0.5 and history_count >= 10:
+                is_healthy = False
+                message_parts.append(f"Low success rate: {success_rate:.1%}")
+
+            if running_count > 100:
+                message_parts.append(f"High running task count: {running_count}")
+
+            if not message_parts:
+                message_parts.append(
+                    f"Duration scheduler healthy (running={running_count}, "
+                    f"scheduled={scheduled_count})"
+                )
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.DEGRADED,
+                message="; ".join(message_parts),
+                details={
+                    "running_tasks": running_count,
+                    "scheduled_tasks": scheduled_count,
+                    "history_24h": history_count,
+                    "success_rate_24h": round(success_rate, 3),
+                    "db_path": str(self.db_path),
+                },
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message=f"Duration scheduler error: {e}",
+                details={"error": str(e)},
+            )
+
 
 # Global singleton
 _scheduler: DurationScheduler | None = None
