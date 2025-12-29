@@ -458,11 +458,12 @@ async def trigger_data_sync(
     start_time = time.time()
 
     try:
+        # Dec 29, 2025: unified_data_sync.py doesn't accept --board-type/--num-players
+        # It syncs all data, not config-specific. Use --once for one-shot sync.
         cmd = [
             config.python_executable,
             str(root / config.sync_script),
-            "--board-type", board_type,
-            "--num-players", str(num_players),
+            "--once",  # Run once and exit
         ]
 
         if hosts:

@@ -1660,6 +1660,11 @@ class MultiTreeMCTS:
         batch_size = len(game_states)
         engine = DefaultRulesEngine()
 
+        # Fast path for policy-only mode (simulation_budget <= 1)
+        # Skip MCTS entirely - just sample from neural network policy
+        if self.config.simulation_budget <= 1 and neural_net is not None:
+            return self._policy_only_search(game_states, neural_net, engine)
+
         # Get valid moves for each game
         all_valid_moves: list[list["Move"]] = []
         for gs in game_states:
@@ -1768,6 +1773,116 @@ class MultiTreeMCTS:
                 result_policies.append(policy_dict)
 
             return result_moves, result_policies
+
+    def _policy_only_search(
+        self,
+        game_states: list["GameState"],
+        neural_net: Any,
+        engine: Any,
+    ) -> tuple[list["Move"], list[dict[str, float]]]:
+        """Fast path for policy-only mode (simulation_budget <= 1).
+
+        Skips MCTS entirely and just samples from the neural network policy.
+        This is much faster than running Sequential Halving with budget=1.
+
+        Args:
+            game_states: List of game states to search
+            neural_net: Neural network for policy evaluation
+            engine: Rules engine for getting valid moves
+
+        Returns:
+            (moves, policies) where:
+            - moves: List of selected moves (one per game)
+            - policies: List of policy dicts for each game
+        """
+        batch_size = len(game_states)
+
+        # Get valid moves for each game
+        all_valid_moves: list[list["Move"]] = []
+        for gs in game_states:
+            moves = engine.get_valid_moves(gs, gs.current_player)
+            all_valid_moves.append(moves)
+
+        # Batch evaluate with neural network
+        result_moves = []
+        result_policies = []
+
+        if hasattr(neural_net, 'evaluate_batch'):
+            try:
+                values, policies = neural_net.evaluate_batch(game_states)
+
+                for b, (gs, valid_moves) in enumerate(zip(game_states, all_valid_moves)):
+                    if not valid_moves:
+                        result_moves.append(None)
+                        result_policies.append({})
+                        continue
+
+                    # Extract policy probabilities for valid moves
+                    move_probs = []
+                    for move in valid_moves:
+                        move_idx = neural_net.encode_move(move, gs.board)
+                        if policies is not None and 0 <= move_idx < len(policies[b]):
+                            prob = float(policies[b][move_idx])
+                        else:
+                            prob = 1.0 / len(valid_moves)  # Uniform fallback
+                        move_probs.append(prob)
+
+                    # Normalize probabilities
+                    total = sum(move_probs)
+                    if total > 0:
+                        move_probs = [p / total for p in move_probs]
+                    else:
+                        move_probs = [1.0 / len(valid_moves)] * len(valid_moves)
+
+                    # Use Gumbel-Top-K sampling (with k=1) for move selection
+                    # This adds exploration via Gumbel noise
+                    gumbel_noise = -torch.log(-torch.log(
+                        torch.rand(len(valid_moves), device=self.device) + 1e-10
+                    ) + 1e-10)
+                    log_probs = torch.log(torch.tensor(move_probs, device=self.device) + 1e-10)
+                    gumbel_scores = log_probs + gumbel_noise * self.config.gumbel_scale
+
+                    best_idx = gumbel_scores.argmax().item()
+                    best_move = valid_moves[best_idx]
+                    result_moves.append(best_move)
+
+                    # Build policy dict
+                    policy_dict = {}
+                    for i, move in enumerate(valid_moves):
+                        move_key = self._move_to_key(move)
+                        policy_dict[move_key] = move_probs[i]
+                    result_policies.append(policy_dict)
+
+            except Exception as e:
+                logger.warning(f"Policy-only batch evaluation failed: {e}")
+                # Fallback to uniform random for all games
+                for valid_moves in all_valid_moves:
+                    if valid_moves:
+                        result_moves.append(valid_moves[0])
+                        policy_dict = {
+                            self._move_to_key(m): 1.0 / len(valid_moves)
+                            for m in valid_moves
+                        }
+                        result_policies.append(policy_dict)
+                    else:
+                        result_moves.append(None)
+                        result_policies.append({})
+        else:
+            # No neural net with evaluate_batch - use uniform sampling
+            for valid_moves in all_valid_moves:
+                if valid_moves:
+                    import random
+                    result_moves.append(random.choice(valid_moves))
+                    policy_dict = {
+                        self._move_to_key(m): 1.0 / len(valid_moves)
+                        for m in valid_moves
+                    }
+                    result_policies.append(policy_dict)
+                else:
+                    result_moves.append(None)
+                    result_policies.append({})
+
+        return result_moves, result_policies
 
     def _evaluate_positions_batch(
         self,
