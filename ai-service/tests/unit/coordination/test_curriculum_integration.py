@@ -300,3 +300,133 @@ class TestIntegrationStatus:
         assert "watchers" in status
         assert isinstance(status["active"], bool)
         assert isinstance(status["watchers"], list)
+
+
+# =============================================================================
+# Event Handler Tests (December 29, 2025)
+# =============================================================================
+
+
+class TestCurriculumAdvancementHandler:
+    """Tests for _on_curriculum_advancement_needed handler.
+
+    December 29, 2025: Tests for the handler that closes the curriculum feedback loop.
+    When a config stagnates (3+ evaluations with minimal Elo improvement),
+    TrainingTriggerDaemon emits CURRICULUM_ADVANCEMENT_NEEDED.
+    """
+
+    def test_handler_with_valid_event(self):
+        """Handler processes valid event with config_key."""
+        bridge = MomentumToCurriculumBridge()
+
+        # Create mock event with proper structure
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hex8_2p",
+            "reason": "elo_plateau",
+            "timestamp": time.time(),
+        }
+
+        # Mock dependencies to avoid side effects
+        with patch.object(bridge, '_sync_weights'):
+            bridge._on_curriculum_advancement_needed(mock_event)
+            # Should not raise
+
+    def test_handler_with_dict_event(self):
+        """Handler accepts dict directly (without .payload attribute)."""
+        bridge = MomentumToCurriculumBridge()
+
+        # Event can be a dict directly
+        event = {
+            "config_key": "square8_4p",
+            "reason": "elo_plateau",
+            "timestamp": time.time(),
+        }
+
+        with patch.object(bridge, '_sync_weights'):
+            bridge._on_curriculum_advancement_needed(event)
+            # Should not raise
+
+    def test_handler_skips_empty_config_key(self):
+        """Handler returns early when config_key is missing."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {"reason": "elo_plateau"}
+
+        # Should not call _sync_weights for empty config
+        with patch.object(bridge, '_sync_weights') as mock_sync:
+            bridge._on_curriculum_advancement_needed(mock_event)
+            mock_sync.assert_not_called()
+
+    def test_handler_updates_last_sync_time(self):
+        """Handler updates _last_sync_time on successful processing."""
+        bridge = MomentumToCurriculumBridge()
+        initial_time = bridge._last_sync_time
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hexagonal_3p",
+            "reason": "elo_plateau",
+            "timestamp": time.time(),
+        }
+
+        with patch.object(bridge, '_sync_weights'):
+            bridge._on_curriculum_advancement_needed(mock_event)
+            assert bridge._last_sync_time > initial_time
+
+    def test_handler_calls_sync_weights(self):
+        """Handler calls _sync_weights to propagate curriculum changes."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "square19_2p",
+            "reason": "elo_plateau",
+            "timestamp": time.time(),
+        }
+
+        with patch.object(bridge, '_sync_weights') as mock_sync:
+            bridge._on_curriculum_advancement_needed(mock_event)
+            mock_sync.assert_called_once()
+
+    def test_handler_with_config_alias(self):
+        """Handler accepts 'config' as alias for 'config_key'."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config": "hex8_4p",  # Uses 'config' instead of 'config_key'
+            "reason": "stagnation",
+        }
+
+        with patch.object(bridge, '_sync_weights'):
+            bridge._on_curriculum_advancement_needed(mock_event)
+            # Should not raise
+
+    def test_handler_graceful_failure_on_curriculum_import_error(self):
+        """Handler handles ImportError when curriculum_feedback not available."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hex8_2p",
+            "reason": "elo_plateau",
+        }
+
+        # Patch the curriculum import to raise ImportError
+        # The import happens inside the handler, so we patch the module path
+        with patch.object(bridge, '_sync_weights'):
+            with patch.dict('sys.modules', {'app.training.curriculum_feedback': None}):
+                # Should handle gracefully without raising
+                bridge._on_curriculum_advancement_needed(mock_event)
+
+    def test_handler_graceful_failure_on_attribute_error(self):
+        """Handler handles AttributeError from malformed event."""
+        bridge = MomentumToCurriculumBridge()
+
+        # Create event that will cause AttributeError
+        mock_event = None  # This will cause .payload access to fail
+
+        # Should not raise, just log warning
+        bridge._on_curriculum_advancement_needed(mock_event)

@@ -502,6 +502,316 @@ class TestCoordinatorStatus:
         assert CoordinatorStatus.ERROR.value == "error"
 
 
+class TestHandlerStatsAdvanced:
+    """Additional tests for HandlerStats dataclass."""
+
+    def test_error_count_alias(self):
+        """Should have backward-compat error_count alias."""
+        stats = HandlerStats(errors_count=5)
+        assert stats.error_count == 5
+
+    def test_success_rate_zero_events(self):
+        """Should return 1.0 when no events processed."""
+        stats = HandlerStats()
+        assert stats.success_rate == 1.0
+
+    def test_success_rate_all_success(self):
+        """Should return 1.0 when all successful."""
+        stats = HandlerStats(events_processed=10, success_count=10)
+        assert stats.success_rate == 1.0
+
+    def test_success_rate_partial(self):
+        """Should calculate correct rate."""
+        stats = HandlerStats(events_processed=10, success_count=7)
+        assert stats.success_rate == 0.7
+
+    def test_to_dict_complete(self):
+        """Should include all fields in to_dict."""
+        stats = HandlerStats(
+            subscribed=True,
+            events_processed=100,
+            events_deduplicated=5,
+            success_count=90,
+            errors_count=10,
+            cycles_completed=50,
+            last_error="Test error",
+            started_at=1000.0,
+            last_activity=2000.0,
+        )
+        stats.custom_stats = {"queue_depth": 42}
+
+        d = stats.to_dict()
+
+        assert d["subscribed"] is True
+        assert d["events_processed"] == 100
+        assert d["events_deduplicated"] == 5
+        assert d["success_count"] == 90
+        assert d["errors_count"] == 10
+        assert d["cycles_completed"] == 50
+        assert d["last_error"] == "Test error"
+        assert d["success_rate"] == 0.9
+        # Custom stats included
+        assert d["queue_depth"] == 42
+
+
+class TestHandlerBaseBackwardCompat:
+    """Tests for backward-compatible methods from base_handler.py."""
+
+    def test_handler_name_alias(self):
+        """Should have handler_name alias for name."""
+        handler = ConcreteHandler()
+        assert handler.handler_name == handler.name
+
+    def test_is_subscribed_alias(self):
+        """Should have is_subscribed alias."""
+        handler = ConcreteHandler()
+        handler._event_subscribed = True
+        assert handler.is_subscribed is True
+
+    def test_emit_metrics_property(self):
+        """Should have emit_metrics property (always True)."""
+        handler = ConcreteHandler()
+        assert handler.emit_metrics is True
+
+    def test_record_success(self):
+        """Should increment success counters."""
+        handler = ConcreteHandler()
+        handler._record_success()
+        assert handler._stats.events_processed == 1
+        assert handler._stats.success_count == 1
+        assert handler._stats.last_activity > 0
+
+    def test_get_stats_returns_dict(self):
+        """Should return stats as dictionary."""
+        handler = ConcreteHandler()
+        handler._event_subscribed = True
+        handler._stats.events_processed = 10
+        handler._stats.success_count = 8
+        handler._stats.errors_count = 2
+
+        stats = handler.get_stats()
+
+        assert stats["subscribed"] is True
+        assert stats["events_processed"] == 10
+        assert stats["success_count"] == 8
+        assert stats["errors_count"] == 2
+        assert stats["success_rate"] == 0.8
+
+    def test_subscribe_marks_subscribed(self):
+        """Should mark as subscribed."""
+        handler = ConcreteHandler()
+        result = handler.subscribe()
+
+        assert result is True
+        assert handler._event_subscribed is True
+        assert handler._stats.subscribed is True
+
+    def test_subscribe_already_subscribed(self):
+        """Should return True if already subscribed."""
+        handler = ConcreteHandler()
+        handler._event_subscribed = True
+
+        result = handler.subscribe()
+        assert result is True
+
+    def test_unsubscribe_clears_state(self):
+        """Should clear subscription state."""
+        handler = ConcreteHandler()
+        handler._event_subscribed = True
+        handler._stats.subscribed = True
+
+        handler.unsubscribe()
+
+        assert handler._event_subscribed is False
+        assert handler._stats.subscribed is False
+
+    def test_get_payload_from_event_object(self):
+        """Should extract payload from event object."""
+        handler = ConcreteHandler()
+
+        class MockEvent:
+            payload = {"key": "value"}
+
+        payload = handler._get_payload(MockEvent())
+        assert payload == {"key": "value"}
+
+    def test_get_payload_from_dict(self):
+        """Should return dict as-is."""
+        handler = ConcreteHandler()
+        payload = handler._get_payload({"key": "value"})
+        assert payload == {"key": "value"}
+
+    def test_get_payload_from_other(self):
+        """Should return empty dict for unknown types."""
+        handler = ConcreteHandler()
+        payload = handler._get_payload("string")
+        assert payload == {}
+
+    def test_add_custom_stat(self):
+        """Should add custom stats."""
+        handler = ConcreteHandler()
+        handler.add_custom_stat("queue_depth", 100)
+        handler.add_custom_stat("active_jobs", 5)
+
+        assert handler._stats.custom_stats["queue_depth"] == 100
+        assert handler._stats.custom_stats["active_jobs"] == 5
+
+    def test_reset_clears_counters(self):
+        """Should reset counters but preserve subscription."""
+        handler = ConcreteHandler()
+        handler._event_subscribed = True
+        handler._stats.events_processed = 100
+        handler._stats.success_count = 90
+        handler._stats.errors_count = 10
+        handler._stats.last_error = "Error"
+        handler._stats.custom_stats = {"x": 1}
+
+        handler.reset()
+
+        assert handler._stats.events_processed == 0
+        assert handler._stats.success_count == 0
+        assert handler._stats.errors_count == 0
+        assert handler._stats.last_error == ""
+        assert handler._stats.custom_stats == {}
+        # Subscription preserved
+        assert handler._event_subscribed is True
+
+    @pytest.mark.asyncio
+    async def test_handle_event_routes_async(self):
+        """Should route to async handler."""
+        handler = ConcreteHandler()
+        handled = []
+
+        async def mock_handler(event):
+            handled.append(event)
+
+        handler._event_handlers["test"] = mock_handler
+
+        await handler._handle_event({"type": "test", "data": "value"})
+
+        assert len(handled) == 1
+        assert handled[0]["data"] == "value"
+
+    @pytest.mark.asyncio
+    async def test_handle_event_routes_sync(self):
+        """Should route to sync handler."""
+        handler = ConcreteHandler()
+        handled = []
+
+        def sync_handler(event):
+            handled.append(event)
+
+        handler._event_handlers["test"] = sync_handler
+
+        await handler._handle_event({"type": "test"})
+
+        assert len(handled) == 1
+
+    def test_uptime_seconds_zero_when_not_started(self):
+        """Should return 0 when not started."""
+        handler = ConcreteHandler()
+        assert handler.uptime_seconds == 0.0
+
+    @pytest.mark.asyncio
+    async def test_uptime_seconds_when_started(self):
+        """Should return uptime when started."""
+        import time
+
+        handler = ConcreteHandler(cycle_interval=0.1)
+        await handler.start()
+        await asyncio.sleep(0.1)
+        try:
+            uptime = handler.uptime_seconds
+            assert uptime >= 0.1
+        finally:
+            await handler.stop()
+
+
+class TestEventHandlerConfig:
+    """Tests for EventHandlerConfig class."""
+
+    def test_default_values(self):
+        """Should have expected defaults."""
+        from app.coordination.handler_base import EventHandlerConfig
+
+        config = EventHandlerConfig()
+        assert config.register_with_registry is True
+        assert config.async_handlers is True
+        assert config.use_fire_and_forget is True
+        assert config.handler_timeout_seconds == 0.0
+
+
+class TestHelperFunctions:
+    """Tests for module helper functions."""
+
+    def test_create_handler_stats_basic(self):
+        """Should create empty stats."""
+        from app.coordination.handler_base import create_handler_stats
+
+        stats = create_handler_stats()
+        assert isinstance(stats, HandlerStats)
+        assert stats.events_processed == 0
+
+    def test_create_handler_stats_with_custom(self):
+        """Should create stats with custom values."""
+        from app.coordination.handler_base import create_handler_stats
+
+        stats = create_handler_stats(queue_depth=100, active_jobs=5)
+
+        assert stats.custom_stats["queue_depth"] == 100
+        assert stats.custom_stats["active_jobs"] == 5
+
+    def test_safe_subscribe_success(self):
+        """Should return True on success."""
+        from app.coordination.handler_base import safe_subscribe
+
+        handler = ConcreteHandler()
+        result = safe_subscribe(handler)
+        assert result is True
+
+    def test_safe_subscribe_failure(self):
+        """Should return fallback on failure."""
+        from app.coordination.handler_base import safe_subscribe
+
+        handler = ConcreteHandler()
+        handler.subscribe = MagicMock(side_effect=RuntimeError("Failed"))
+
+        result = safe_subscribe(handler, fallback=False)
+        assert result is False
+
+    def test_safe_subscribe_custom_fallback(self):
+        """Should use custom fallback value."""
+        from app.coordination.handler_base import safe_subscribe
+
+        handler = ConcreteHandler()
+        handler.subscribe = MagicMock(side_effect=RuntimeError("Failed"))
+
+        result = safe_subscribe(handler, fallback=True)
+        assert result is True
+
+
+class TestBackwardCompatAliases:
+    """Tests for backward-compatible class aliases."""
+
+    def test_base_event_handler_is_handler_base(self):
+        """BaseEventHandler should be HandlerBase."""
+        from app.coordination.handler_base import BaseEventHandler
+
+        assert BaseEventHandler is HandlerBase
+
+    def test_base_singleton_handler_is_handler_base(self):
+        """BaseSingletonHandler should be HandlerBase."""
+        from app.coordination.handler_base import BaseSingletonHandler
+
+        assert BaseSingletonHandler is HandlerBase
+
+    def test_multi_event_handler_is_handler_base(self):
+        """MultiEventHandler should be HandlerBase."""
+        from app.coordination.handler_base import MultiEventHandler
+
+        assert MultiEventHandler is HandlerBase
+
+
 class TestModuleExports:
     """Tests for module exports."""
 
@@ -523,3 +833,81 @@ class TestModuleExports:
         assert hasattr(handler_base, "create_handler_stats")
         assert hasattr(handler_base, "safe_subscribe")
         assert len(handler_base.__all__) == 10
+
+
+class TestDeduplicationTTL:
+    """Tests for event deduplication TTL behavior."""
+
+    def test_dedup_expires_after_ttl(self):
+        """Events should expire after TTL."""
+        import time
+
+        handler = ConcreteHandler()
+        handler.DEDUP_TTL_SECONDS = 0.05  # Very short for testing
+        event = {"id": "123"}
+
+        # First occurrence
+        assert handler._is_duplicate_event(event) is False
+        # Immediate duplicate
+        assert handler._is_duplicate_event(event) is True
+
+        # Wait for TTL
+        time.sleep(0.1)
+
+        # Should no longer be duplicate
+        assert handler._is_duplicate_event(event) is False
+
+    def test_dedup_prunes_on_overflow(self):
+        """Should prune old entries when max size reached."""
+        import time
+
+        handler = ConcreteHandler()
+        handler.DEDUP_MAX_SIZE = 5
+        handler.DEDUP_TTL_SECONDS = 0.01
+
+        # Add many events
+        for i in range(10):
+            handler._is_duplicate_event({"id": i})
+
+        # Wait for TTL
+        time.sleep(0.02)
+
+        # Trigger pruning
+        handler._is_duplicate_event({"id": 100})
+
+        # Old entries should be pruned
+        assert len(handler._seen_events) <= handler.DEDUP_MAX_SIZE + 1
+
+
+class TestMainLoopErrorHandling:
+    """Tests for error handling in main loop."""
+
+    @pytest.mark.asyncio
+    async def test_main_loop_continues_after_error(self):
+        """Main loop should continue after _run_cycle error."""
+
+        class FailingHandler(HandlerBase):
+            def __init__(self):
+                super().__init__(name="failing", cycle_interval=0.01)
+                self.calls = 0
+
+            async def _run_cycle(self) -> None:
+                self.calls += 1
+                if self.calls == 1:
+                    raise ValueError("Test error")
+
+        handler = FailingHandler()
+        await handler.start()
+        await asyncio.sleep(0.05)
+        await handler.stop()
+
+        assert handler.calls >= 2  # Continued after error
+        assert handler._stats.errors_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_main_loop_stops_on_cancelled(self):
+        """Main loop should stop on CancelledError."""
+        handler = ConcreteHandler(cycle_interval=10.0)
+        await handler.start()
+        await handler.stop()
+        assert handler.is_running is False

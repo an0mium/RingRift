@@ -629,6 +629,72 @@ def reset_integration_wiring() -> None:
 # =============================================================================
 
 _health_check_subscriptions: dict[str, bool] = {}
+_last_event_time: float = 0.0
+_events_processed: int = 0
+_errors_count: int = 0
+
+
+def health_check() -> "HealthCheckResult":
+    """Return health status for DaemonManager integration.
+
+    Returns:
+        HealthCheckResult with integration bridge health status
+    """
+    from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+
+    if not _integration_wired:
+        return HealthCheckResult(
+            healthy=False,
+            status=CoordinatorStatus.STOPPED,
+            message="Integration bridge not wired",
+            details={
+                "wired": False,
+                "events_processed": _events_processed,
+                "errors_count": _errors_count,
+            },
+        )
+
+    # Check error rate
+    total_ops = max(_events_processed, 1)
+    error_rate = _errors_count / total_ops
+
+    if error_rate > 0.5:
+        return HealthCheckResult(
+            healthy=False,
+            status=CoordinatorStatus.ERROR,
+            message=f"High error rate: {error_rate:.1%}",
+            details={
+                "wired": True,
+                "events_processed": _events_processed,
+                "errors_count": _errors_count,
+                "error_rate": error_rate,
+            },
+        )
+
+    if error_rate > 0.2:
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.DEGRADED,
+            message=f"Elevated error rate: {error_rate:.1%}",
+            details={
+                "wired": True,
+                "events_processed": _events_processed,
+                "errors_count": _errors_count,
+                "error_rate": error_rate,
+            },
+        )
+
+    return HealthCheckResult(
+        healthy=True,
+        status=CoordinatorStatus.RUNNING,
+        message="Integration bridge operating normally",
+        details={
+            "wired": True,
+            "events_processed": _events_processed,
+            "errors_count": _errors_count,
+            "last_event_time": _last_event_time,
+        },
+    )
 
 
 def _register_health_subscription(event_type: str) -> None:

@@ -2,7 +2,8 @@
 
 Cluster-wide coordination infrastructure for the RingRift AI training pipeline.
 
-**151 modules** (~230K LOC) providing event-driven orchestration, resource management, and fault tolerance.
+**219 modules** (~175K LOC) providing event-driven orchestration, resource management, and fault tolerance.
+Counts are snapshots; run `rg --files -g "*.py" app/coordination | wc -l` to refresh.
 
 > **Note**: Consolidation target is 15 modules. See [Consolidation Roadmap](../../docs/planning/CONSOLIDATION_ROADMAP.md).
 
@@ -81,13 +82,14 @@ await shutdown_all_coordinators()
 
 ### Event System
 
-| Module                    | Purpose                    | Key Classes/Functions                                  |
-| ------------------------- | -------------------------- | ------------------------------------------------------ |
-| `event_router.py`         | Unified event routing      | `UnifiedEventRouter`, `publish()`, `subscribe()`       |
-| `stage_events.py`         | Pipeline stage events      | `StageEventBus`, `StageCompletionResult`               |
-| `cross_process_events.py` | Inter-process events       | `CrossProcessEventQueue`, `publish_event()`            |
-| `event_emitters.py`       | Centralized event emission | `emit_selfplay_complete()`, `emit_training_complete()` |
-| `dead_letter_queue.py`    | Failed event recovery      | `DeadLetterQueue`, `run_retry_daemon()`                |
+| Module                           | Purpose                     | Key Classes/Functions                                  |
+| -------------------------------- | --------------------------- | ------------------------------------------------------ |
+| `event_router.py`                | Unified event routing       | `UnifiedEventRouter`, `publish()`, `subscribe()`       |
+| `stage_events.py`                | Pipeline stage events       | `StageEventBus`, `StageCompletionResult`               |
+| `cross_process_events.py`        | Inter-process events        | `CrossProcessEventQueue`, `publish_event()`            |
+| `event_emitters.py`              | Centralized event emission  | `emit_selfplay_complete()`, `emit_training_complete()` |
+| `dead_letter_queue.py`           | Failed event recovery       | `DeadLetterQueue`, `run_retry_daemon()`                |
+| `event_subscription_registry.py` | Declarative wiring registry | `INIT_CALL_REGISTRY`, `DELEGATION_REGISTRY`            |
 
 ### Task Coordination
 

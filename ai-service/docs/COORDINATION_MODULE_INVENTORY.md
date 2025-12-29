@@ -1,13 +1,13 @@
 # Coordination Module Inventory
 
 **Last Updated:** December 29, 2025
-**Total Modules:** 170 Python modules in `app/coordination/`
+**Total Modules:** 219 Python modules in `app/coordination/`
 **Status:** Active
 
-Counts are approximate unless noted; use:
-`rg --files -g "*.py" app/coordination | wc -l` for a precise snapshot.
+Counts are snapshots unless noted; use:
+`rg --files -g "*.py" app/coordination | wc -l` for a precise count.
 
-This document catalogs all modules in `app/coordination/` organized by category. For detailed daemon documentation, see [DAEMON_REGISTRY.md](DAEMON_REGISTRY.md). For event system details, see [COORDINATION_ARCHITECTURE.md](COORDINATION_ARCHITECTURE.md).
+This document is a curated inventory of primary modules in `app/coordination/` (not exhaustive). For detailed daemon documentation, see [DAEMON_REGISTRY.md](DAEMON_REGISTRY.md). For event system details, see [COORDINATION_ARCHITECTURE.md](COORDINATION_ARCHITECTURE.md).
 
 ---
 
@@ -45,7 +45,6 @@ Essential modules for event system, types, and base classes.
 | `event_emitters.py`              | ~600 | Active | 70+ typed event emitter functions                                 |
 | `event_subscription_registry.py` | ~416 | Active | Delegated event wiring (DELEGATION_REGISTRY)                      |
 | `core_utils.py`                  | ~100 | Active | Re-exports: tracing, locking, YAML utils                          |
-| `core_base.py`                   | ~100 | Active | Re-exports: coordinator base classes                              |
 | `core_events.py`                 | ~100 | Active | Re-exports: event router, mappings, emitters                      |
 | `alert_types.py`                 | ~50  | Active | Alert dataclasses                                                 |
 | `node_status.py`                 | ~300 | Active | NodeHealthState enum, NodeMonitoringStatus                        |
@@ -72,7 +71,7 @@ Data synchronization infrastructure.
 
 | Module                     | LOC  | Status     | Purpose                                         |
 | -------------------------- | ---- | ---------- | ----------------------------------------------- |
-| `auto_sync_daemon.py`      | ~500 | Active     | Automated P2P data sync daemon                  |
+| `auto_sync_daemon.py`      | ~500 | Active     | P2P sync daemon (HYBRID/EPHEMERAL/BROADCAST)    |
 | `sync_facade.py`           | ~600 | Active     | Unified programmatic sync entry point           |
 | `sync_router.py`           | ~400 | Active     | Intelligent routing based on node capabilities  |
 | `sync_bandwidth.py`        | ~700 | Active     | Bandwidth-coordinated rsync, BatchRsync         |
@@ -85,31 +84,25 @@ Data synchronization infrastructure.
 | `sync_bloom_filter.py`     | ~100 | Active     | Bloom filter for sync deduplication             |
 | `database_sync_manager.py` | ~500 | Active     | Base class for database sync (Elo, Registry)    |
 | `cluster_transport.py`     | ~500 | Active     | Multi-transport failover (Tailscale→SSH→Base64) |
-| `ephemeral_sync.py`        | ~400 | DEPRECATED | Use AUTO_SYNC(strategy="ephemeral"), Q2 2026    |
-| `cluster_data_sync.py`     | ~600 | DEPRECATED | Use AUTO_SYNC(strategy="broadcast"), Q2 2026    |
-| `gossip_sync_daemon.py`    | ~300 | Active     | Gossip-based eventual consistency               |
 | `training_freshness.py`    | ~200 | Active     | Pre-training data freshness checks              |
 
 ### Health & Monitoring
 
 Health checks, status monitoring, metrics.
 
-| Module                             | LOC  | Status     | Purpose                                          |
-| ---------------------------------- | ---- | ---------- | ------------------------------------------------ |
-| `health_check_orchestrator.py`     | ~700 | Active     | Node-level health tracking, HealthCheckResult    |
-| `unified_health_manager.py`        | ~600 | Active     | System-level health scoring                      |
-| `health_facade.py`                 | ~150 | Active     | Unified health interface re-exports              |
-| `node_health_monitor.py`           | ~400 | DEPRECATED | Use health_check_orchestrator, Q2 2026           |
-| `system_health_monitor.py`         | ~500 | DEPRECATED | Use unified_health_manager, Q2 2026              |
-| `cluster_status_monitor.py`        | ~600 | Active     | ClusterMonitor with async status methods         |
-| `model_performance_watchdog.py`    | ~400 | Active     | Track rolling win rates, detect regression       |
-| `node_status.py`                   | ~300 | Active     | NodeHealthState, NodeMonitoringStatus            |
-| `node_availability_cache.py`       | ~390 | Active     | Unified node availability cache (P2P/SSH/health) |
-| `node_circuit_breaker.py`          | ~465 | Active     | Per-node health circuit breaker for node probes  |
-| `stall_detection.py`               | ~200 | Active     | Detect stalled operations                        |
-| `metrics_analysis_orchestrator.py` | ~500 | Active     | Continuous metrics monitoring, plateau detection |
-| `backpressure_monitor.py`          | ~200 | Active     | Backpressure level tracking                      |
-| `handler_resilience.py`            | ~150 | Active     | Handler retry/circuit breaker logic              |
+| Module                             | LOC  | Status | Purpose                                          |
+| ---------------------------------- | ---- | ------ | ------------------------------------------------ |
+| `health_check_orchestrator.py`     | ~700 | Active | Node-level health tracking, HealthCheckResult    |
+| `unified_health_manager.py`        | ~600 | Active | System-level health scoring                      |
+| `health_facade.py`                 | ~150 | Active | Unified health interface re-exports              |
+| `cluster_status_monitor.py`        | ~600 | Active | ClusterMonitor with async status methods         |
+| `model_performance_watchdog.py`    | ~400 | Active | Track rolling win rates, detect regression       |
+| `node_status.py`                   | ~300 | Active | NodeHealthState, NodeMonitoringStatus            |
+| `node_availability_cache.py`       | ~390 | Active | Unified node availability cache (P2P/SSH/health) |
+| `node_circuit_breaker.py`          | ~465 | Active | Per-node health circuit breaker for node probes  |
+| `stall_detection.py`               | ~200 | Active | Detect stalled operations                        |
+| `metrics_analysis_orchestrator.py` | ~500 | Active | Continuous metrics monitoring, plateau detection |
+| `handler_resilience.py`            | ~150 | Active | Handler retry/circuit breaker logic              |
 
 ### Coordination & Orchestration
 
@@ -159,7 +152,6 @@ Training feedback loops and curriculum learning.
 | `unified_feedback.py`             | ~500 | Active | Unified feedback signal processing      |
 | `feedback_signals.py`             | ~200 | Active | Feedback signal dataclasses             |
 | `curriculum_weights.py`           | ~200 | Active | Curriculum weight management            |
-| `curriculum_feedback.py`          | ~600 | Active | Curriculum feedback integration         |
 
 ### Pipeline Actions & Triggers
 
@@ -209,7 +201,6 @@ Small utility modules.
 | `utils.py`                 | ~100 | Active     | Miscellaneous utilities                            |
 | `helpers.py`               | ~150 | Active     | Helper functions                                   |
 | `handler_base.py`          | ~550 | Active     | Canonical handler base (HandlerBase, HandlerStats) |
-| `base_event_handler.py`    | ~250 | Deprecated | Legacy wrapper (superseded by handler_base.py)     |
 | `base_handler.py`          | ~450 | Deprecated | Legacy helpers (superseded by handler_base.py)     |
 | `singleton_mixin.py`       | ~500 | Active     | Singleton patterns (5 variants)                    |
 | `distributed_lock.py`      | ~200 | Active     | Distributed locking                                |
@@ -280,14 +271,19 @@ HPC cluster support (optional).
 
 ## Deprecated Modules (Q2 2026 Removal)
 
-| Module                     | Replacement                            |
-| -------------------------- | -------------------------------------- |
-| `sync_coordinator.py`      | `auto_sync_daemon.py`                  |
-| `ephemeral_sync.py`        | `AutoSyncDaemon(strategy="ephemeral")` |
-| `cluster_data_sync.py`     | `AutoSyncDaemon(strategy="broadcast")` |
-| `queue_populator.py`       | `unified_queue_populator.py`           |
-| `node_health_monitor.py`   | `health_check_orchestrator.py`         |
-| `system_health_monitor.py` | `unified_health_manager.py`            |
+| Module                | Replacement                  |
+| --------------------- | ---------------------------- |
+| `sync_coordinator.py` | `auto_sync_daemon.py`        |
+| `queue_populator.py`  | `unified_queue_populator.py` |
+
+## Archived/Removed Modules (Dec 2025 Consolidation)
+
+| Legacy Module Name         | Replacement / Notes                                            |
+| -------------------------- | -------------------------------------------------------------- |
+| `ephemeral_sync.py`        | Consolidated into `auto_sync_daemon.py` (strategy="ephemeral") |
+| `cluster_data_sync.py`     | Consolidated into `auto_sync_daemon.py` (strategy="broadcast") |
+| `node_health_monitor.py`   | Consolidated into `health_check_orchestrator.py`               |
+| `system_health_monitor.py` | Consolidated into `unified_health_manager.py`                  |
 
 ---
 
