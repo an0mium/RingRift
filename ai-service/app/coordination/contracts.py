@@ -38,6 +38,7 @@ __all__ = [
     "CoordinatorProtocol",
     "DaemonProtocol",
     "EventDrivenProtocol",
+    "SyncManagerProtocol",
     # Registry functions
     "get_coordinator",
     "get_registered_coordinators",
@@ -438,6 +439,67 @@ class ConfigurableProtocol(Protocol):
 
         Returns:
             True if configuration was updated successfully
+        """
+        ...
+
+
+@runtime_checkable
+class SyncManagerProtocol(Protocol):
+    """Protocol for sync managers that coordinate data synchronization.
+
+    Sync managers handle replicating data (databases, models, NPZ files)
+    across cluster nodes. This protocol defines the minimal interface
+    required for sync manager integration with the coordination infrastructure.
+
+    Created: December 29, 2025
+    See: app/coordination/sync_base.py for base class implementation
+    """
+
+    @property
+    def is_running(self) -> bool:
+        """Check if sync manager is currently running."""
+        ...
+
+    async def sync_with_node(self, node: str) -> bool:
+        """Sync with a specific node.
+
+        Args:
+            node: Node identifier to sync with
+
+        Returns:
+            True if sync succeeded, False otherwise
+        """
+        ...
+
+    async def sync_with_cluster(self) -> dict[str, bool]:
+        """Sync with all nodes in the cluster.
+
+        Returns:
+            Dict mapping node -> success status
+        """
+        ...
+
+    async def start(self) -> None:
+        """Start the sync manager background loop."""
+        ...
+
+    async def stop(self) -> None:
+        """Stop the sync manager."""
+        ...
+
+    def get_status(self) -> dict[str, Any]:
+        """Get current sync status.
+
+        Returns:
+            Status dict with sync progress, failed nodes, etc.
+        """
+        ...
+
+    def health_check(self) -> HealthCheckResult:
+        """Check health of the sync manager.
+
+        Returns:
+            HealthCheckResult indicating current health
         """
         ...
 
