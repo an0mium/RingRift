@@ -183,6 +183,10 @@ class DaemonType(Enum):
     # Node recovery daemon (December 2025 - Phase 21) - auto-recovers terminated nodes
     NODE_RECOVERY = "node_recovery"
 
+    # Tailscale health daemon (December 2025) - monitors and auto-recovers Tailscale connectivity
+    # Runs on each cluster node to ensure P2P mesh stability
+    TAILSCALE_HEALTH = "tailscale_health"
+
     # Queue populator (December 2025 - Phase 4) - auto-populates work queue with selfplay/training jobs
     QUEUE_POPULATOR = "queue_populator"
 

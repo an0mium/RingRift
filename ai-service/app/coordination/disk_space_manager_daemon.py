@@ -28,6 +28,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -1032,7 +1033,10 @@ class CoordinatorDiskManager(DiskSpaceManagerDaemon):
             status = DiskStatus.from_path(str(self._root_path), config)
 
     async def _sync_to_remote(self) -> None:
-        """Sync valuable data to remote storage."""
+        """Sync valuable data to remote storage.
+
+        December 2025: Uses asyncio.create_subprocess_exec to avoid blocking the event loop.
+        """
         config = self.config
         if not isinstance(config, CoordinatorDiskConfig):
             return
@@ -1053,29 +1057,33 @@ class CoordinatorDiskManager(DiskSpaceManagerDaemon):
                 continue
 
             try:
-                # Use rsync with progress for monitoring
-                result = subprocess.run(
-                    [
-                        "rsync",
-                        "-avz",
-                        "--progress",
-                        "--partial",
-                        f"{local_path}/",
-                        f"{remote_host}:{remote_path}/",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=3600,  # 1 hour timeout
+                # Use rsync with progress for monitoring (non-blocking)
+                proc = await asyncio.create_subprocess_exec(
+                    "rsync",
+                    "-avz",
+                    "--progress",
+                    "--partial",
+                    f"{local_path}/",
+                    f"{remote_host}:{remote_path}/",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-                if result.returncode == 0:
-                    logger.info(f"Synced {local_dir} to {remote_host}:{remote_path}")
-                    self._sync_stats["files_synced"] += 1
-                else:
-                    logger.warning(f"Sync failed for {local_dir}: {result.stderr[:200]}")
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=3600.0  # 1 hour timeout
+                    )
+                    if proc.returncode == 0:
+                        logger.info(f"Synced {local_dir} to {remote_host}:{remote_path}")
+                        self._sync_stats["files_synced"] += 1
+                    else:
+                        stderr_text = stderr.decode()[:200] if stderr else "unknown error"
+                        logger.warning(f"Sync failed for {local_dir}: {stderr_text}")
+                        self._sync_stats["sync_errors"] += 1
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    logger.warning(f"Sync timed out for {local_dir}")
                     self._sync_stats["sync_errors"] += 1
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Sync timed out for {local_dir}")
-                self._sync_stats["sync_errors"] += 1
             except Exception as e:
                 logger.warning(f"Sync error for {local_dir}: {e}")
                 self._sync_stats["sync_errors"] += 1

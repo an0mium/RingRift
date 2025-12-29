@@ -311,12 +311,13 @@ class TestSyncTargetSelection:
 
     def test_can_receive_data_game(self, manifest):
         """Test checking if node can receive game data."""
-        # Mock sync policy
-        manifest._exclusion_rules["node-a"] = NodeSyncPolicy(
+        # Mock sync policy via config manager (since _exclusion_rules is now delegated)
+        from app.distributed.cluster_config_manager import NodeSyncPolicy as ConfigNodeSyncPolicy
+        manifest._config_manager._exclusion_rules["node-a"] = ConfigNodeSyncPolicy(
             node_id="node-a",
             receive_games=True,
         )
-        manifest._exclusion_rules["node-b"] = NodeSyncPolicy(
+        manifest._config_manager._exclusion_rules["node-b"] = ConfigNodeSyncPolicy(
             node_id="node-b",
             receive_games=False,
             exclusion_reason="coordinator",
@@ -338,11 +339,12 @@ class TestSyncTargetSelection:
             "node-c", 1_000_000_000_000, 400_000_000_000, 600_000_000_000
         )
 
-        # Set up sync policies
-        manifest._exclusion_rules["node-b"] = NodeSyncPolicy(
+        # Set up sync policies via config manager (since _exclusion_rules is now delegated)
+        from app.distributed.cluster_config_manager import NodeSyncPolicy as ConfigNodeSyncPolicy
+        manifest._config_manager._exclusion_rules["node-b"] = ConfigNodeSyncPolicy(
             node_id="node-b", receive_games=True
         )
-        manifest._exclusion_rules["node-c"] = NodeSyncPolicy(
+        manifest._config_manager._exclusion_rules["node-c"] = ConfigNodeSyncPolicy(
             node_id="node-c", receive_games=True
         )
 

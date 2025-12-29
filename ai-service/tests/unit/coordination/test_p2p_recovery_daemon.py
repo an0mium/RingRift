@@ -365,18 +365,27 @@ class TestP2PRecoveryDaemonAsync:
 
     @pytest.mark.asyncio
     async def test_restart_p2p(self, daemon):
-        """Test P2P restart process."""
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
+        """Test P2P restart process.
+
+        December 2025: Updated to mock asyncio.create_subprocess_exec.
+        """
+        # Mock the async subprocess for pkill
+        mock_proc = AsyncMock()
+        mock_proc.wait = AsyncMock(return_value=None)
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = mock_proc
 
             with patch("subprocess.Popen") as mock_popen:
                 mock_popen.return_value = MagicMock(pid=12345)
 
                 await daemon._restart_p2p()
 
-                # Should have killed existing process
-                mock_run.assert_called_once()
-                assert "pkill" in mock_run.call_args[0][0]
+                # Should have created subprocess for pkill
+                mock_create.assert_called_once()
+                call_args = mock_create.call_args
+                assert "pkill" in call_args[0]
 
         assert daemon._total_restarts == 1
         assert daemon._last_restart_time > 0

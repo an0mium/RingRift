@@ -608,30 +608,46 @@ class TestCoordinatorDiskManagerSync:
     async def test_sync_to_remote_calls_rsync(
         self, coord_daemon_with_sync: CoordinatorDiskManager, temp_root: Path
     ) -> None:
-        """Test that sync calls rsync command."""
+        """Test that sync calls rsync command.
+
+        December 2025: Updated to mock asyncio.create_subprocess_exec.
+        """
         # Create some data to sync
         games_path = temp_root / "data" / "games"
         (games_path / "test.db").write_text("test data")
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
+        # Mock async subprocess
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+        mock_proc.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = mock_proc
 
             await coord_daemon_with_sync._sync_to_remote()
 
             # Should have called rsync for each sync directory
-            assert mock_run.called
+            assert mock_create.called
 
     @pytest.mark.asyncio
     async def test_sync_error_handling(
         self, coord_daemon_with_sync: CoordinatorDiskManager, temp_root: Path
     ) -> None:
-        """Test sync error handling."""
+        """Test sync error handling.
+
+        December 2025: Updated to mock asyncio.create_subprocess_exec.
+        """
         # Create some data
         games_path = temp_root / "data" / "games"
         (games_path / "test.db").write_text("test data")
 
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stderr="sync failed")
+        # Mock async subprocess with error
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"", b"sync failed"))
+        mock_proc.returncode = 1
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = mock_proc
 
             await coord_daemon_with_sync._sync_to_remote()
 

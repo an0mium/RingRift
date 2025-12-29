@@ -261,7 +261,10 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
         return max(0, self.config.restart_cooldown_seconds - elapsed)
 
     async def _restart_p2p(self) -> None:
-        """Restart the P2P orchestrator process."""
+        """Restart the P2P orchestrator process.
+
+        December 2025: Uses asyncio.create_subprocess_exec to avoid blocking the event loop.
+        """
         logger.warning("Initiating P2P orchestrator restart")
 
         # Update tracking
@@ -273,16 +276,22 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
         await self._emit_restart_event()
 
         try:
-            # Kill existing P2P process
-            kill_result = subprocess.run(
-                ["pkill", "-f", "p2p_orchestrator.py"],
-                capture_output=True,
-                timeout=10,
+            # Kill existing P2P process (non-blocking)
+            proc = await asyncio.create_subprocess_exec(
+                "pkill", "-f", "p2p_orchestrator.py",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            if kill_result.returncode == 0:
-                logger.info("Killed existing P2P process")
-            else:
-                logger.debug("No existing P2P process to kill")
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=10.0)
+                if proc.returncode == 0:
+                    logger.info("Killed existing P2P process")
+                else:
+                    logger.debug("No existing P2P process to kill")
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.error("Timeout killing P2P process")
 
             # Wait for process to fully terminate
             await asyncio.sleep(5)
@@ -297,7 +306,7 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
             )
 
             if os.path.exists(p2p_script):
-                # Start in background
+                # Start in background (subprocess.Popen is non-blocking)
                 process = subprocess.Popen(
                     [sys.executable, p2p_script],
                     stdout=subprocess.DEVNULL,
@@ -310,8 +319,6 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
                     "P2P script not found, relying on master_loop to restart"
                 )
 
-        except subprocess.TimeoutExpired:
-            logger.error("Timeout killing P2P process")
         except Exception as e:
             logger.error(f"Error restarting P2P: {e}")
             self._errors_count += 1

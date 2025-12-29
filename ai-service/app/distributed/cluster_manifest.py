@@ -1235,7 +1235,7 @@ class ClusterManifest:
         return [t for t in all_torrents if len(t.seeders) >= min_seeders]
 
     # =========================================================================
-    # Database Location Registry (Phase 4A.3 - December 2025)
+    # Database Location Registry (delegated to DataLocationRegistry)
     # =========================================================================
 
     def register_database(
@@ -1249,43 +1249,11 @@ class ClusterManifest:
         file_size: int = 0,
         engine_mode: str | None = None,
     ) -> None:
-        """Register a database file location in the manifest.
-
-        This enables immediate visibility of new databases without waiting
-        for the 5-minute orphan scan. Called by selfplay when creating DBs.
-
-        Args:
-            db_path: Path to database file (absolute or relative)
-            node_id: Node where the database exists
-            board_type: Board configuration (e.g., "hex8", "square8")
-            num_players: Number of players
-            config_key: Configuration key (e.g., "hex8_2p")
-            game_count: Initial game count (usually 0)
-            file_size: File size in bytes
-            engine_mode: Engine mode used (e.g., "gumbel-mcts")
-        """
-        now = time.time()
-
-        # Derive config_key if not provided
-        if config_key is None and board_type and num_players:
-            config_key = f"{board_type}_{num_players}p"
-
-        with self._connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO database_locations
-                (db_path, node_id, board_type, num_players, config_key,
-                 game_count, file_size, engine_mode, registered_at, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?,
-                    ?,
-                    COALESCE((SELECT registered_at FROM database_locations
-                              WHERE db_path = ? AND node_id = ?), ?),
-                    ?)
-            """, (db_path, node_id, board_type, num_players, config_key,
-                  game_count, file_size, engine_mode, db_path, node_id, now, now))
-            conn.commit()
-
-        logger.debug(f"Registered database: {db_path} on {node_id}")
+        """Register a database file location in the manifest."""
+        return self._registry.register_database(
+            db_path, node_id, board_type, num_players, config_key,
+            game_count, file_size, engine_mode
+        )
 
     def update_database_game_count(
         self,
@@ -1294,30 +1262,10 @@ class ClusterManifest:
         game_count: int,
         file_size: int | None = None,
     ) -> None:
-        """Update game count for a registered database.
-
-        Args:
-            db_path: Path to database file
-            node_id: Node where the database exists
-            game_count: Current game count
-            file_size: Optional updated file size
-        """
-        now = time.time()
-        with self._connection() as conn:
-            cursor = conn.cursor()
-            if file_size is not None:
-                cursor.execute("""
-                    UPDATE database_locations
-                    SET game_count = ?, file_size = ?, last_seen = ?
-                    WHERE db_path = ? AND node_id = ?
-                """, (game_count, file_size, now, db_path, node_id))
-            else:
-                cursor.execute("""
-                    UPDATE database_locations
-                    SET game_count = ?, last_seen = ?
-                    WHERE db_path = ? AND node_id = ?
-                """, (game_count, now, db_path, node_id))
-            conn.commit()
+        """Update game count for a registered database."""
+        return self._registry.update_database_game_count(
+            db_path, node_id, game_count, file_size
+        )
 
     def find_databases_for_config(
         self,
@@ -1325,109 +1273,14 @@ class ClusterManifest:
         board_type: str | None = None,
         num_players: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Find all database files for a specific configuration.
-
-        Args:
-            config_key: Configuration key (e.g., "hex8_2p")
-            board_type: Board configuration (alternative to config_key)
-            num_players: Number of players (alternative to config_key)
-
-        Returns:
-            List of database location dictionaries with:
-            - db_path, node_id, board_type, num_players, config_key
-            - game_count, file_size, engine_mode
-            - registered_at, last_seen
-        """
-        with self._connection() as conn:
-            cursor = conn.cursor()
-
-            if config_key:
-                cursor.execute("""
-                    SELECT db_path, node_id, board_type, num_players, config_key,
-                           game_count, file_size, engine_mode, registered_at, last_seen
-                    FROM database_locations
-                    WHERE config_key = ?
-                    ORDER BY game_count DESC, last_seen DESC
-                """, (config_key,))
-            elif board_type and num_players:
-                cursor.execute("""
-                    SELECT db_path, node_id, board_type, num_players, config_key,
-                           game_count, file_size, engine_mode, registered_at, last_seen
-                    FROM database_locations
-                    WHERE board_type = ? AND num_players = ?
-                    ORDER BY game_count DESC, last_seen DESC
-                """, (board_type, num_players))
-            else:
-                # Return all databases
-                cursor.execute("""
-                    SELECT db_path, node_id, board_type, num_players, config_key,
-                           game_count, file_size, engine_mode, registered_at, last_seen
-                    FROM database_locations
-                    ORDER BY game_count DESC, last_seen DESC
-                """)
-
-            results = []
-            for row in cursor.fetchall():
-                results.append({
-                    "db_path": row[0],
-                    "node_id": row[1],
-                    "board_type": row[2],
-                    "num_players": row[3],
-                    "config_key": row[4],
-                    "game_count": row[5],
-                    "file_size": row[6],
-                    "engine_mode": row[7],
-                    "registered_at": row[8],
-                    "last_seen": row[9],
-                })
-
-            return results
+        """Find all database files for a specific configuration."""
+        return self._registry.find_databases_for_config(
+            config_key, board_type, num_players
+        )
 
     def get_all_database_locations(self) -> list[dict[str, Any]]:
-        """Get all registered database locations.
-
-        Returns:
-            List of all database location dictionaries
-        """
-        return self.find_databases_for_config()
-
-    def get_game_locations(self) -> dict[str, Any]:
-        """Get game locations grouped by game_id.
-
-        December 29, 2025: Added to support UnifiedReplicationDaemon which needs
-        game locations in a format mapping game_id -> {locations: [node_ids]}.
-
-        Returns:
-            Dict mapping game_id to location info:
-            {
-                "game_id_1": {"locations": ["node1", "node2"], "db_paths": ["path1", "path2"]},
-                "game_id_2": {"locations": ["node3"], "db_paths": ["path3"]},
-                ...
-            }
-        """
-        result: dict[str, Any] = {}
-
-        with self._connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT game_id, node_id, db_path, board_type, num_players
-                FROM game_locations
-                ORDER BY game_id
-            """)
-
-            for row in cursor:
-                game_id, node_id, db_path, board_type, num_players = row
-                if game_id not in result:
-                    result[game_id] = {
-                        "locations": [],
-                        "db_paths": [],
-                        "board_type": board_type,
-                        "num_players": num_players,
-                    }
-                result[game_id]["locations"].append(node_id)
-                result[game_id]["db_paths"].append(db_path)
-
-        return result
+        """Get all registered database locations."""
+        return self._registry.get_all_database_locations()
 
     # =========================================================================
     # Node Capacity & Inventory
@@ -1731,9 +1584,16 @@ class ClusterManifest:
         Returns:
             NodeSyncPolicy for the node
         """
-        return self._exclusion_rules.get(
-            node_id,
-            NodeSyncPolicy(node_id=node_id)
+        # Delegate to config manager and convert to local NodeSyncPolicy type
+        config_policy = self._config_manager.get_sync_policy(node_id)
+        return NodeSyncPolicy(
+            node_id=config_policy.node_id,
+            receive_games=config_policy.receive_games,
+            receive_models=config_policy.receive_models,
+            receive_npz=config_policy.receive_npz,
+            max_disk_usage_percent=config_policy.max_disk_usage_percent,
+            excluded=config_policy.excluded,
+            exclusion_reason=config_policy.exclusion_reason,
         )
 
     def can_receive_data(self, node_id: str, data_type: DataType) -> bool:

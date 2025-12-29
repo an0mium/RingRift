@@ -284,21 +284,28 @@ class MemoryMonitorDaemon(HandlerBase):
         return status
 
     async def _get_gpu_memory(self) -> tuple[int, int] | None:
-        """Get GPU memory usage (used_bytes, total_bytes)."""
+        """Get GPU memory usage (used_bytes, total_bytes).
+
+        December 2025: Uses asyncio.create_subprocess_exec to avoid blocking the event loop.
+        """
         try:
-            import subprocess
-            result = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=memory.used,memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=5,
+            proc = await asyncio.create_subprocess_exec(
+                "nvidia-smi",
+                "--query-gpu=memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode == 0:
-                lines = result.stdout.strip().split("\n")
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.debug("[MemoryMonitor] nvidia-smi timed out")
+                return None
+
+            if proc.returncode == 0:
+                lines = stdout.decode().strip().split("\n")
                 if lines:
                     # Sum across all GPUs
                     total_used = 0
