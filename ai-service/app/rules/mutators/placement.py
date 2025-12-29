@@ -1,3 +1,10 @@
+"""Placement mutator for applying PLACE_RING moves.
+
+This module provides the PlacementMutator class which handles the application
+of ring placement moves to game state, delegating to the canonical placement
+module for the underlying logic.
+"""
+
 from app.models import GameState, Move, MoveType
 from app.rules.interfaces import Mutator
 from app.rules.placement import apply_place_ring_py

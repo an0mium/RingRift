@@ -1,3 +1,10 @@
+"""Movement mutator for applying stack movement moves.
+
+This module provides the MovementMutator class which handles the application
+of movement moves to game state, delegating to GameEngine for the actual
+board mutation logic.
+"""
+
 from app.models import GameState, Move
 from app.rules.interfaces import Mutator
 

@@ -1,3 +1,10 @@
+"""Capture mutator for applying capture move semantics.
+
+This module provides the CaptureMutator class which handles the application
+of capture moves to game state, delegating to the canonical capture_chain
+module for the underlying capture logic.
+"""
+
 from app.models import GameState, Move
 from app.rules.capture_chain import apply_capture_py
 from app.rules.interfaces import Mutator

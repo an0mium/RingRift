@@ -1,3 +1,10 @@
+"""Turn mutator for handling turn and phase transitions.
+
+This module provides the TurnMutator class which handles turn rotation,
+phase changes (ring_placement, movement, etc.), and game-over detection,
+delegating to GameEngine for the phase state machine updates.
+"""
+
 from app.models import GameState, Move
 from app.rules.interfaces import Mutator
 
