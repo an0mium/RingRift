@@ -613,7 +613,7 @@ def backup_database(db_path: Path) -> Path:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Clean up phantom Elo entries (models in DB but files don't exist)"
+        description="Clean up phantom Elo entries (models in DB but files don't exist or have wrong player count)"
     )
     parser.add_argument(
         "--db",
@@ -635,6 +635,16 @@ def main():
         "--cluster-check",
         action="store_true",
         help="Also check cluster nodes for model files (slower)"
+    )
+    parser.add_argument(
+        "--owc-check",
+        action="store_true",
+        help="Check OWC backup drive on mac-studio for model files"
+    )
+    parser.add_argument(
+        "--validate-players",
+        action="store_true",
+        help="Validate player count in model files matches registration"
     )
     parser.add_argument(
         "--output-json",
@@ -660,52 +670,99 @@ def main():
         logger.info(f"Filtering by config: {args.config}")
 
     # Find phantom entries
-    phantoms = get_phantom_entries(
+    results = get_phantom_entries(
         args.db,
         config_filter=args.config,
-        cluster_check=args.cluster_check
+        cluster_check=args.cluster_check,
+        owc_check=args.owc_check,
+        validate_players=args.validate_players,
     )
 
-    if not phantoms:
+    phantoms = results["phantoms"]
+    recovered = results["recovered"]
+    mismatches = results["mismatches"]
+
+    # Report player count mismatches first (critical)
+    if mismatches:
+        print("\n" + "=" * 80)
+        print("PLAYER COUNT MISMATCHES (model player count != registered config)")
+        print("=" * 80)
+        for m in sorted(mismatches, key=lambda x: -(x["rating"] or 0)):
+            rating = m["rating"] or 0
+            print(f"  {m['participant_id']:<45} Elo:{rating:>7.1f}  {m['reason']}")
+        print(f"\nTotal mismatches: {len(mismatches)} (these have INVALID Elo ratings)")
+
+    # Report recoverable models from OWC
+    if recovered:
+        print("\n" + "=" * 80)
+        print("RECOVERABLE FROM OWC BACKUP")
+        print("=" * 80)
+        for r in sorted(recovered, key=lambda x: -(x["rating"] or 0))[:20]:
+            rating = r["rating"] or 0
+            config = f"{r['board_type']}_{r['num_players']}p"
+            print(f"  {r['participant_id']:<45} Elo:{rating:>7.1f}  [{config}]")
+            print(f"    OWC: {r['owc_path']}")
+        if len(recovered) > 20:
+            print(f"  ... and {len(recovered) - 20} more")
+        print(f"\nTotal recoverable: {len(recovered)}")
+        print("Run 'scp armand@100.107.168.125:<owc_path> models/' to recover")
+
+    if not phantoms and not mismatches:
         logger.info("No phantom entries found!")
         return
 
-    # Report findings
-    logger.info(f"\nFound {len(phantoms)} phantom entries:")
+    # Report phantom entries
+    if phantoms:
+        print("\n" + "=" * 80)
+        print("PHANTOM ENTRIES (no model file found anywhere)")
+        print(f"{'Participant ID':<50} {'Rating':>8} {'Games':>8}")
+        print("=" * 80)
+
+        by_config = {}
+        for p in phantoms:
+            config_key = f"{p['board_type']}_{p['num_players']}p"
+            if config_key not in by_config:
+                by_config[config_key] = []
+            by_config[config_key].append(p)
+
+        for config_key in sorted(by_config.keys()):
+            print(f"\n[{config_key}]")
+            entries = sorted(by_config[config_key], key=lambda x: -(x["rating"] or 0))
+            for p in entries[:20]:  # Show top 20 per config
+                rating = p["rating"] or 0
+                games = p["games_played"] or 0
+                print(f"  {p['participant_id']:<48} {rating:>8.1f} {games:>8}")
+            if len(entries) > 20:
+                print(f"  ... and {len(entries) - 20} more")
+
+        print("\n" + "=" * 80)
+        print(f"Total phantom entries: {len(phantoms)}")
+
+    # Summary
     print("\n" + "=" * 80)
-    print(f"{'Participant ID':<50} {'Rating':>8} {'Games':>8}")
+    print("SUMMARY")
     print("=" * 80)
+    print(f"  Phantom entries (no file):        {len(phantoms)}")
+    print(f"  Player count mismatches:          {len(mismatches)}")
+    print(f"  Recoverable from OWC:             {len(recovered)}")
 
-    by_config = {}
-    for p in phantoms:
-        config_key = f"{p['board_type']}_{p['num_players']}p"
-        if config_key not in by_config:
-            by_config[config_key] = []
-        by_config[config_key].append(p)
-
-    for config_key in sorted(by_config.keys()):
-        print(f"\n[{config_key}]")
-        entries = sorted(by_config[config_key], key=lambda x: -(x["rating"] or 0))
-        for p in entries[:20]:  # Show top 20 per config
-            rating = p["rating"] or 0
-            games = p["games_played"] or 0
-            print(f"  {p['participant_id']:<48} {rating:>8.1f} {games:>8}")
-        if len(entries) > 20:
-            print(f"  ... and {len(entries) - 20} more")
-
-    print("\n" + "=" * 80)
-    print(f"Total phantom entries: {len(phantoms)}")
+    # Entries to potentially delete (phantoms + mismatches)
+    deletable = phantoms + mismatches
 
     # Output to JSON if requested
     if args.output_json:
         with open(args.output_json, "w") as f:
-            json.dump(phantoms, f, indent=2)
-        logger.info(f"Wrote phantom entries to: {args.output_json}")
+            json.dump({
+                "phantoms": phantoms,
+                "mismatches": mismatches,
+                "recovered": recovered,
+            }, f, indent=2)
+        logger.info(f"Wrote results to: {args.output_json}")
 
     # Delete if --execute flag is set
-    if args.execute:
+    if args.execute and deletable:
         print("\n")
-        confirm = input(f"Delete {len(phantoms)} phantom entries? (yes/no): ")
+        confirm = input(f"Delete {len(deletable)} entries (phantoms + mismatches)? (yes/no): ")
         if confirm.lower() != "yes":
             logger.info("Aborted")
             return
@@ -714,14 +771,14 @@ def main():
         backup_path = backup_database(args.db)
 
         # Delete entries
-        deleted = delete_phantom_entries(args.db, phantoms)
+        deleted = delete_phantom_entries(args.db, deletable)
 
         logger.info("Deletion complete:")
         logger.info(f"  - Participants deleted: {deleted['participants']}")
         logger.info(f"  - Elo ratings deleted: {deleted['elo_ratings']}")
         logger.info(f"  - Match history deleted: {deleted['match_history']}")
         logger.info(f"Backup saved to: {backup_path}")
-    else:
+    elif deletable:
         print("\nThis was a DRY RUN. Use --execute to actually delete entries.")
 
 
