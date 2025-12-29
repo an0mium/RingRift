@@ -457,6 +457,7 @@ from scripts.p2p.handlers import (
     GauntletHandlersMixin,
     GossipHandlersMixin,
     RegistryHandlersMixin,
+    ManifestHandlersMixin,
     RelayHandlersMixin,
     SSHTournamentHandlersMixin,
     SyncHandlersMixin,
@@ -1182,6 +1183,7 @@ class P2POrchestrator(
     SyncHandlersMixin,      # Phase 8: Sync handlers extraction (Dec 28, 2025)
     TableHandlersMixin,     # Phase 8: Table/dashboard handlers extraction (Dec 28, 2025)
     RegistryHandlersMixin,  # Phase 8: Registry handlers extraction (Dec 28, 2025)
+    ManifestHandlersMixin,  # Phase 8: Manifest handlers extraction (Dec 28, 2025)
     NetworkUtilsMixin,
     PeerManagerMixin,
     LeaderElectionMixin,

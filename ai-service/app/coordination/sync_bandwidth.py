@@ -1014,11 +1014,7 @@ def get_batch_rsync(manager: BandwidthManager | None = None) -> BatchRsync:
 
 def reset_bandwidth_manager() -> None:
     """Reset the global manager (for testing)."""
-    global _manager
-    with _manager_lock:
-        if _manager is not None:
-            _manager.close()
-        _manager = None
+    BandwidthManager.reset_instance()
 
 
 def request_bandwidth(
