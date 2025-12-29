@@ -332,7 +332,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.CLUSTER_MONITOR),
         category="provider",
         deprecated=True,
-        deprecated_message="Use create_lambda_idle_daemon() from unified_idle_shutdown_daemon. Removal: Q2 2026.",
+        deprecated_message="Lambda GH200 nodes are dedicated training infrastructure (restored Dec 28, 2025). Dedicated nodes don't need idle shutdown. Removal: Q2 2026.",
     ),
     DaemonType.VAST_IDLE: DaemonSpec(
         runner_name="create_vast_idle",

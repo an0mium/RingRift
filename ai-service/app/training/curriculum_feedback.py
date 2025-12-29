@@ -206,6 +206,8 @@ class CurriculumFeedback:
         3. Emits CURRICULUM_REBALANCED for downstream listeners
 
         Phase 5 (December 2025): Close the feedback loop from gauntlet to curriculum.
+
+        Thread-safe: Uses self._lock to protect state modifications.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
@@ -216,33 +218,36 @@ class CurriculumFeedback:
             if not config_key:
                 return
 
-            # Update internal stage tracking
-            old_stage = self._curriculum_stages.get(config_key, 0)
-            self._curriculum_stages[config_key] = new_stage
+            with self._lock:
+                # Update internal stage tracking
+                old_stage = self._curriculum_stages.get(config_key, 0)
+                self._curriculum_stages[config_key] = new_stage
 
+                # Adjust weight based on curriculum advancement
+                # Higher stages indicate stronger model, slightly reduce training priority
+                # but maintain enough weight to continue challenging the model
+                current_weight = self._current_weights.get(config_key, 1.0)
+                stage_adjustment = -0.05 * (new_stage - old_stage)  # Reduce by 5% per stage
+                new_weight = max(self.weight_min, min(self.weight_max, current_weight + stage_adjustment))
+
+                weight_changed = abs(new_weight - current_weight) > 0.01
+                if weight_changed:
+                    self._current_weights[config_key] = new_weight
+
+                self._last_update_time = time.time()
+
+            # Log and emit events outside lock
             logger.info(
                 f"[CurriculumFeedback] Curriculum advanced for {config_key}: "
                 f"stage {old_stage} → {new_stage} (reason: {reason})"
             )
 
-            # Adjust weight based on curriculum advancement
-            # Higher stages indicate stronger model, slightly reduce training priority
-            # but maintain enough weight to continue challenging the model
-            current_weight = self._current_weights.get(config_key, 1.0)
-            stage_adjustment = -0.05 * (new_stage - old_stage)  # Reduce by 5% per stage
-            new_weight = max(self.weight_min, min(self.weight_max, current_weight + stage_adjustment))
-
-            if abs(new_weight - current_weight) > 0.01:
-                self._current_weights[config_key] = new_weight
+            if weight_changed:
                 logger.info(
                     f"[CurriculumFeedback] Weight adjusted for {config_key}: "
                     f"{current_weight:.2f} → {new_weight:.2f} (curriculum stage {new_stage})"
                 )
-
-                # Emit curriculum rebalanced event
                 self._emit_curriculum_updated(config_key, new_weight, f"curriculum_advanced_stage_{new_stage}")
-
-            self._last_update_time = time.time()
 
         except Exception as e:
             logger.warning(f"[CurriculumFeedback] Failed to handle CURRICULUM_ADVANCED: {e}")
@@ -258,6 +263,8 @@ class CurriculumFeedback:
         This helps recover from training plateaus by:
         1. Increasing selfplay priority for the config
         2. Triggering more diverse exploration
+
+        Thread-safe: Uses self._lock to protect state modifications.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
@@ -269,24 +276,27 @@ class CurriculumFeedback:
             if not config_key:
                 return
 
-            # Boost curriculum weight when training stalls
-            current_weight = self._current_weights.get(config_key, 1.0)
+            with self._lock:
+                # Boost curriculum weight when training stalls
+                current_weight = self._current_weights.get(config_key, 1.0)
 
-            # Boost weight by 30% for early stopping (helps generate more diverse data)
-            boost_factor = 1.3
-            new_weight = min(self.weight_max, current_weight * boost_factor)
+                # Boost weight by 30% for early stopping (helps generate more diverse data)
+                boost_factor = 1.3
+                new_weight = min(self.weight_max, current_weight * boost_factor)
 
-            if new_weight > current_weight:
-                self._current_weights[config_key] = new_weight
+                weight_boosted = new_weight > current_weight
+                if weight_boosted:
+                    self._current_weights[config_key] = new_weight
+
+                self._last_update_time = time.time()
+
+            # Log and emit events outside lock
+            if weight_boosted:
                 logger.info(
                     f"[CurriculumFeedback] Boosted weight for {config_key}: "
                     f"{current_weight:.2f} → {new_weight:.2f} (training early stopped at epoch {epoch}, reason: {reason})"
                 )
-
-                # Emit curriculum rebalanced event
                 self._emit_curriculum_updated(config_key, new_weight, f"early_stopped_{reason}")
-
-            self._last_update_time = time.time()
 
         except Exception as e:
             logger.warning(f"[CurriculumFeedback] Failed to handle TRAINING_EARLY_STOPPED: {e}")
@@ -297,13 +307,18 @@ class CurriculumFeedback:
         Args:
             config_key: Config identifier (e.g., "hex8_2p")
             new_stage: New curriculum stage number
-        """
-        old_stage = self._curriculum_stages.get(config_key, 0)
-        self._curriculum_stages[config_key] = new_stage
 
-        if new_stage != old_stage:
+        Thread-safe: Uses self._lock to protect stage modifications.
+        """
+        with self._lock:
+            old_stage = self._curriculum_stages.get(config_key, 0)
+            self._curriculum_stages[config_key] = new_stage
+            changed = new_stage != old_stage
+            if changed:
+                self._last_update_time = time.time()
+
+        if changed:
             logger.info(f"[CurriculumFeedback] Manual stage advance: {config_key} {old_stage} → {new_stage}")
-            self._last_update_time = time.time()
 
     def get_curriculum_stage(self, config_key: str) -> int:
         """Get the current curriculum stage for a config.
