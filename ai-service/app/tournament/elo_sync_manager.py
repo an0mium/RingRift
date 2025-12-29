@@ -47,7 +47,9 @@ logger = logging.getLogger(__name__)
 # Default paths
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "unified_elo.db"
 SYNC_STATE_PATH = Path(__file__).parent.parent.parent / "data" / "elo_sync_state.json"
-ENABLE_VAST_ELO_SYNC = os.getenv("RINGRIFT_ENABLE_VAST_ELO_SYNC", "false").lower() in ("1", "true", "yes")
+# December 2025: Default to True - all GPU nodes should receive Elo updates
+# Previously defaulted to False, causing Vast.ai nodes to miss Elo sync
+ENABLE_VAST_ELO_SYNC = os.getenv("RINGRIFT_ENABLE_VAST_ELO_SYNC", "true").lower() in ("1", "true", "yes")
 
 
 @dataclass
@@ -130,18 +132,10 @@ class EloSyncManager(DatabaseSyncManager):
         await sync_manager.ensure_latest()
     """
 
-    # Known Vast.ai instances for auto-discovery
-    VAST_INSTANCES = {
-        "4xRTX5090": {"host": "ssh7.vast.ai", "port": 14398},
-        "2xRTX3060Ti": {"host": "ssh8.vast.ai", "port": 17016},
-        "RTX4060Ti": {"host": "ssh1.vast.ai", "port": 14400},
-        "RTX4060Ti-b": {"host": "ssh2.vast.ai", "port": 19768},
-        "RTX3060Ti": {"host": "ssh3.vast.ai", "port": 19766},
-        "4xRTX3060": {"host": "ssh3.vast.ai", "port": 38740},
-        "A40": {"host": "ssh8.vast.ai", "port": 38742},
-        "2xRTX4080S": {"host": "ssh3.vast.ai", "port": 19940},
-        "RTX5080": {"host": "ssh1.vast.ai", "port": 19942},
-    }
+    # December 2025: Hardcoded Vast instances deprecated
+    # Now using dynamic discovery from distributed_hosts.yaml via discover_nodes()
+    # The base class get_ready_nodes() includes all active Vast.ai nodes
+    VAST_INSTANCES: dict[str, dict[str, str | int]] = {}  # Empty - use dynamic discovery
 
     def __init__(
         self,

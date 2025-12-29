@@ -185,6 +185,11 @@ class ConfigState:
     training_intensity: str = "normal"  # normal, accelerated, hot_path
     exploration_boost: float = 1.0
 
+    # Bandit engine tracking (December 2025)
+    # Used by selfplay_engine_bandit to record feedback on Elo improvement
+    last_selfplay_engine: str | None = None
+    last_selfplay_games: int = 0
+
     @property
     def data_staleness_hours(self) -> float:
         """Hours since last export."""
@@ -1872,15 +1877,34 @@ class MasterLoopController:
             host = host_info.get("tailscale_ip") or host_info.get("ssh_host") or node_id
             port = host_info.get("p2p_port") or get_p2p_port()
 
-            # Select engine based on board type
-            if board_type in ("square19", "hexagonal"):
-                import random
-                if num_players >= 3:
-                    engine_mode = random.choice(["heuristic-only", "brs", "maxn"])
+            # Select engine using multi-armed bandit (December 2025)
+            # The bandit learns which engine produces best Elo improvement per config
+            config_key = f"{board_type}_{num_players}p"
+            try:
+                from app.coordination.selfplay_engine_bandit import get_selfplay_engine_bandit
+
+                bandit = get_selfplay_engine_bandit()
+                engine_mode = bandit.select_engine(config_key)
+                logger.debug(
+                    f"[MasterLoop] Bandit selected engine '{engine_mode}' for {config_key}"
+                )
+
+                # Track selected engine in feedback state for later reporting
+                if config_key in self._states:
+                    self._states[config_key].last_selfplay_engine = engine_mode
+                    self._states[config_key].last_selfplay_games += num_games
+
+            except (ImportError, AttributeError) as e:
+                # Fallback to heuristic-based selection if bandit unavailable
+                logger.debug(f"[MasterLoop] Bandit unavailable ({e}), using fallback")
+                if board_type in ("square19", "hexagonal"):
+                    import random
+                    if num_players >= 3:
+                        engine_mode = random.choice(["heuristic-only", "brs", "maxn"])
+                    else:
+                        engine_mode = random.choice(["heuristic-only", "policy-only"])
                 else:
-                    engine_mode = random.choice(["heuristic-only", "policy-only"])
-            else:
-                engine_mode = "gumbel-mcts"
+                    engine_mode = "gumbel-mcts"
 
             result = await dispatch_selfplay_direct(
                 target_node=node_id,
