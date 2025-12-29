@@ -78,10 +78,11 @@ DISCOVERY_INTERVAL = 120  # seconds between discovery broadcasts
 # Resource Thresholds (80% max utilization enforced)
 # ============================================
 
-# Disk thresholds - 70% max (lower than CPU/memory because cleanup takes time)
-DISK_CRITICAL_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_CRITICAL_THRESHOLD", "70") or 70)
-DISK_WARNING_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_WARNING_THRESHOLD", "65") or 65)
-DISK_CLEANUP_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_CLEANUP_THRESHOLD", "65") or 65)
+# Disk thresholds - 75% max (raised Dec 29, 2025 to allow jobs at ~71% disk)
+# Cleanup at 60%, warning at 70%, critical at 75%
+DISK_CRITICAL_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_CRITICAL_THRESHOLD", "75") or 75)
+DISK_WARNING_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_WARNING_THRESHOLD", "70") or 70)
+DISK_CLEANUP_THRESHOLD = int(os.environ.get("RINGRIFT_P2P_DISK_CLEANUP_THRESHOLD", "60") or 60)
 
 # Memory thresholds - 80% max
 MEMORY_CRITICAL_THRESHOLD = min(80, int(os.environ.get("RINGRIFT_P2P_MEMORY_CRITICAL_THRESHOLD", "80") or 80))
